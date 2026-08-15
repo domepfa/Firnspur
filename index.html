@@ -8,8 +8,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --cream:#FAF7F0;
-    --paper:#FFFDF9;
+    --cream:#E9F1F4;
+    --paper:#F7FBFC;
     --ink:#1B2A33;
     --ink-soft:#5B6B73;
     --ink-faint:#8B9AA1;
@@ -606,19 +606,6 @@ async function submitConditions(tourId, text){
   render();
 }
 
-async function confirmDeleteTour(id){
-  if(!confirm('Diese Tour wirklich löschen? Das kann nicht rückgängig gemacht werden.')) return;
-  removeTour(id);
-  closeModal();
-  render();
-}
-async function confirmDeleteHut(id){
-  if(!confirm('Diese Hütte wirklich löschen? Verknüpfte Touren bleiben bestehen, verlieren aber den Hüttenbezug nicht automatisch.')) return;
-  removeHut(id);
-  closeModal();
-  render();
-}
-
 function toggleDiffFilter(code){
   if(state.activeDiffFilters.has(code)) state.activeDiffFilters.delete(code);
   else state.activeDiffFilters.add(code);
@@ -914,7 +901,6 @@ function tourDetailHtml(id){
     <div class="detail-actions">
       <button class="btn secondary" data-act="toggle-tour-done" data-id="${t.id}">${t.completed ? '↺ Als offen markieren' : '✓ Als abgeschlossen markieren'}</button>
       <button class="btn secondary" data-act="edit-tour" data-id="${t.id}">Bearbeiten</button>
-      <button class="btn danger" data-act="delete-tour" data-id="${t.id}">Löschen</button>
     </div>
   </div>`;
 }
@@ -978,7 +964,6 @@ function hutDetailHtml(id){
     <div class="detail-actions">
       <button class="btn secondary" data-act="toggle-hut-done" data-id="${h.id}">${h.completed ? '↺ Als offen markieren' : '✓ Als abgeschlossen markieren'}</button>
       <button class="btn secondary" data-act="edit-hut" data-id="${h.id}">Bearbeiten</button>
-      <button class="btn danger" data-act="delete-hut" data-id="${h.id}">Löschen</button>
     </div>
   </div>`;
 }
@@ -1186,9 +1171,7 @@ function wireModalHandlers(){
   }
 
   root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
-  root.querySelectorAll('[data-act="delete-tour"]').forEach(el=> el.onclick = ()=>confirmDeleteTour(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
-  root.querySelectorAll('[data-act="delete-hut"]').forEach(el=> el.onclick = ()=>confirmDeleteHut(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-hut"]').forEach(el=> el.onclick = ()=>openHutDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
   const condBtn = root.querySelector('[data-act="submit-conditions"]');
