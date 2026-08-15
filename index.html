@@ -55,22 +55,33 @@
 
   /* ===== Skyline hero ===== */
   .hero{
-    background:
-      linear-gradient(180deg, rgba(31,77,99,0.60) 0%, rgba(46,110,142,0.40) 55%, rgba(76,147,172,0.28) 100%),
-      url('hero-bg.jpg');
-    background-size: cover;
-    background-position: center 50%;
     color:#fff;
     padding:28px 20px 34px 20px;
     position:relative;
     overflow:hidden;
   }
+  .hero::before{
+    content:'';
+    position:absolute; inset:0;
+    background-image: url('20260114_145500.jpg');
+    background-size: cover;
+    background-position: center 75%;
+    filter: brightness(1.25) contrast(1.05);
+    z-index:0;
+  }
+  .hero::after{
+    content:'';
+    position:absolute; inset:0;
+    background:linear-gradient(180deg, rgba(31,77,99,0.55) 0%, rgba(46,110,142,0.35) 55%, rgba(76,147,172,0.22) 100%);
+    z-index:0;
+  }
+  .hero-top, .hero .tabs{ position:relative; z-index:1; }
   .hero-top{
     display:flex; justify-content:space-between; align-items:flex-start;
     max-width:1000px; margin:0 auto; gap:16px; flex-wrap:wrap;
   }
   .brand{display:flex; align-items:baseline; gap:10px;}
-  .brand h1{font-size:28px; color:#fff;}
+  .brand h1{font-size:44px; color:#fff; letter-spacing:1px; font-weight:800;}
   .brand .tag{font-family:'Source Sans 3'; text-transform:none; letter-spacing:0; font-size:13px; color:var(--ice-light); font-style:italic;}
   .who{
     font-size:13px; color:var(--ice-light); text-align:right;
@@ -169,7 +180,7 @@
   /* ===== Legend ===== */
   .legend{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px;}
   .legend .chip{cursor:default; display:flex; align-items:center; gap:6px;}
-  .legend .dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
+  .dot{width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:5px;}
 
   /* ===== Modal ===== */
   .overlay{
@@ -260,7 +271,7 @@
 
   @media (max-width:520px){
     .row2{grid-template-columns:1fr;}
-    .brand h1{font-size:22px;}
+    .brand h1{font-size:32px;}
     .hero{padding-bottom:30px;}
     .tabs{transform:translateY(16px);}
     .tab{padding:8px 16px 8px 14px; font-size:12.5px;}
@@ -348,15 +359,18 @@ async function fbDelete(path){
 
 /* ================= Domain meta ================= */
 const DIFF = {
-  L:  {label:'Leicht',  color:'var(--d-L)',  desc:'Mässig steiles Gelände, keine Spitzkehren nötig.'},
-  WS: {label:'Wenig schwierig', color:'var(--d-WS)', desc:'Mässig steil bis steil, kurze Spitzkehren.'},
-  ZS: {label:'Ziemlich schwierig', color:'var(--d-ZS)', desc:'Durchgehend steil, anspruchsvolle Spitzkehren.'},
-  S:  {label:'Schwierig', color:'var(--d-S)', desc:'Sehr steil, Passagen bis rund 40°.'},
-  SS: {label:'Sehr schwierig', color:'var(--d-SS)', desc:'Durchgehend sehr steil, kurze Extrempassagen.'},
-  AS: {label:'Äusserst schwierig', color:'var(--d-AS)', desc:'Extrem steil, lange Passagen über 45°.'},
-  EX: {label:'Extrem schwierig', color:'var(--d-EX)', desc:'Extremstes Steilwandgelände.'}
+  'L':   {label:'Leicht',  color:'var(--d-L)',  desc:'Mässig steiles Gelände, keine Spitzkehren nötig.'},
+  'WS-': {label:'Wenig schwierig −', color:'var(--d-WS)', desc:'Mässig steil, einfache Spitzkehren.'},
+  'WS':  {label:'Wenig schwierig', color:'var(--d-WS)', desc:'Mässig steil bis steil, kurze Spitzkehren.'},
+  'WS+': {label:'Wenig schwierig +', color:'var(--d-WS)', desc:'Steiler, anspruchsvollere Spitzkehren.'},
+  'ZS-': {label:'Ziemlich schwierig −', color:'var(--d-ZS)', desc:'Steil, kurze anspruchsvolle Passagen.'},
+  'ZS':  {label:'Ziemlich schwierig', color:'var(--d-ZS)', desc:'Durchgehend steil, anspruchsvolle Spitzkehren.'},
+  'ZS+': {label:'Ziemlich schwierig +', color:'var(--d-ZS)', desc:'Durchgehend sehr steil, kurze Extrempassagen.'},
+  'S-':  {label:'Schwierig −', color:'var(--d-S)', desc:'Sehr steil, Passagen bis rund 35°.'},
+  'S':   {label:'Schwierig', color:'var(--d-S)', desc:'Sehr steil, Passagen bis rund 40°.'},
+  'SS':  {label:'Sehr schwierig', color:'var(--d-SS)', desc:'Durchgehend sehr steil, kurze Extrempassagen.'}
 };
-const DIFF_ORDER = ['L','WS','ZS','S','SS','AS','EX'];
+const DIFF_ORDER = ['L','WS-','WS','WS+','ZS-','ZS','ZS+','S-','S','SS'];
 
 /* ================= State ================= */
 let state = {
@@ -632,7 +646,6 @@ function shellHtml(){
     <div class="hero-top">
       <div class="brand">
         <h1>Firnspur</h1>
-        <span class="tag">Skitouren &amp; Hütten, gemeinsam geplant</span>
       </div>
       <div class="who">
         <div class="who-row">
@@ -645,10 +658,11 @@ function shellHtml(){
     <div class="tabs">
       <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">Touren</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">Hütten</button>
+      <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
     </div>
   </div>
   <main>
-    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : huettenViewHtml())}
+    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : abgeschlossenViewHtml())}
   </main>
   <div id="modal-root"></div>
   `;
@@ -670,15 +684,12 @@ function filteredTours(){
 function tourenViewHtml(){
   const list = filteredTours();
   return `
-    <div class="legend">
-      ${DIFF_ORDER.map(c=>`<span class="chip" title="${esc(DIFF[c].desc)}"><span class="dot" style="background:${DIFF[c].color}"></span>${c}</span>`).join('')}
-    </div>
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn" data-act="add-tour">+ Neue Tour</button>
     </div>
     <div class="chips" style="margin-bottom:18px;">
-      ${DIFF_ORDER.map(c=>`<button class="chip ${state.activeDiffFilters.has(c)?'on':''}" style="${state.activeDiffFilters.has(c)?`background:${DIFF[c].color}`:''}" data-act="filter-diff" data-code="${c}">${c}</button>`).join('')}
+      ${DIFF_ORDER.map(c=>`<button class="chip ${state.activeDiffFilters.has(c)?'on':''}" style="${state.activeDiffFilters.has(c)?`background:${DIFF[c].color}`:''}" title="${esc(DIFF[c].desc)}" data-act="filter-diff" data-code="${c}"><span class="dot" style="background:${state.activeDiffFilters.has(c)?'#fff':DIFF[c].color}"></span>${c}</button>`).join('')}
     </div>
     ${list.length ? `<div class="grid">${list.map(tourCardHtml).join('')}</div>` : emptyTouren()}
   `;
@@ -699,7 +710,7 @@ function tourCardHtml(t){
   return `
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
     <div class="card-top">
-      <h3>${esc(t.name)}</h3>
+      <h3>${t.completed ? '✓ ' : ''}${esc(t.name)}</h3>
       <span class="badge" style="background:${d.color}">${t.difficulty}</span>
     </div>
     <div class="stat-row">
@@ -750,7 +761,7 @@ function hutCardHtml(h){
   return `
   <div class="card" data-act="open-hut" data-id="${h.id}" tabindex="0" role="button">
     <div class="card-top">
-      <h3>🛖 ${esc(h.name)}</h3>
+      <h3>🛖 ${h.completed ? '✓ ' : ''}${esc(h.name)}</h3>
       ${h.altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(h.altitude)} m</span>` : ''}
     </div>
     ${h.region ? `<p class="excerpt">${esc(h.region)}</p>` : ''}
@@ -901,6 +912,7 @@ function tourDetailHtml(id){
     <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}${t.updatedAt && t.updatedAt!==t.createdAt ? ` · zuletzt bearbeitet von ${esc(t.updatedBy||'?')} · ${fmtDate(t.updatedAt)}` : ''}</div>
 
     <div class="detail-actions">
+      <button class="btn secondary" data-act="toggle-tour-done" data-id="${t.id}">${t.completed ? '↺ Als offen markieren' : '✓ Als abgeschlossen markieren'}</button>
       <button class="btn secondary" data-act="edit-tour" data-id="${t.id}">Bearbeiten</button>
       <button class="btn danger" data-act="delete-tour" data-id="${t.id}">Löschen</button>
     </div>
@@ -964,10 +976,52 @@ function hutDetailHtml(id){
     <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(h.createdBy||'?')} · ${fmtDate(h.createdAt)}${h.updatedAt && h.updatedAt!==h.createdAt ? ` · zuletzt bearbeitet von ${esc(h.updatedBy||'?')} · ${fmtDate(h.updatedAt)}` : ''}</div>
 
     <div class="detail-actions">
+      <button class="btn secondary" data-act="toggle-hut-done" data-id="${h.id}">${h.completed ? '↺ Als offen markieren' : '✓ Als abgeschlossen markieren'}</button>
       <button class="btn secondary" data-act="edit-hut" data-id="${h.id}">Bearbeiten</button>
       <button class="btn danger" data-act="delete-hut" data-id="${h.id}">Löschen</button>
     </div>
   </div>`;
+}
+
+/* ================= Abgeschlossen view ================= */
+function abgeschlossenViewHtml(){
+  const doneTours = state.tours.filter(t=>t.completed);
+  const doneHuts = state.huts.filter(h=>h.completed);
+  if(!doneTours.length && !doneHuts.length){
+    return `<div class="empty">
+      <h3>Noch nichts als abgeschlossen markiert</h3>
+      <p>Öffne eine Tour oder Hütte und tippe auf "Als abgeschlossen markieren", um sie hier zu sammeln.</p>
+    </div>`;
+  }
+  return `
+    ${doneTours.length ? `<div class="detail-section"><h4>Touren (${doneTours.length})</h4><div class="grid" style="margin-top:6px;">${doneTours.map(tourCardHtml).join('')}</div></div>` : ''}
+    ${doneHuts.length ? `<div class="detail-section" style="margin-top:22px;"><h4>Hütten (${doneHuts.length})</h4><div class="grid" style="margin-top:6px;">${doneHuts.map(hutCardHtml).join('')}</div></div>` : ''}
+  `;
+}
+
+async function toggleTourDone(id){
+  const t = state.tours.find(x=>x.id===id);
+  if(!t) return;
+  t.completed = !t.completed;
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  render();
+  const ok = await saveTourCloud(t).catch(()=>false);
+  t._unsynced = !ok;
+  if(!ok) markUnsaved();
+  render();
+}
+async function toggleHutDone(id){
+  const h = state.huts.find(x=>x.id===id);
+  if(!h) return;
+  h.completed = !h.completed;
+  h.updatedAt = new Date().toISOString();
+  h.updatedBy = state.myName;
+  render();
+  const ok = await saveHutCloud(h).catch(()=>false);
+  h._unsynced = !ok;
+  if(!ok) markUnsaved();
+  render();
 }
 
 /* ================= Event wiring ================= */
@@ -977,6 +1031,7 @@ function wireGlobalHandlers(){
     const act = el.getAttribute('data-act');
     if(act==='view-touren') el.onclick = ()=>setView('touren');
     else if(act==='view-huetten') el.onclick = ()=>setView('huetten');
+    else if(act==='view-abgeschlossen') el.onclick = ()=>setView('abgeschlossen');
     else if(act==='change-name') el.onclick = ()=>{ state.modal = {type:'name'}; render(); };
     else if(act==='export-data') el.onclick = openExport;
     else if(act==='import-data') el.onclick = openImport;
@@ -985,6 +1040,8 @@ function wireGlobalHandlers(){
     else if(act==='open-tour') { el.onclick = ()=>openTourDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openTourDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-hut') { el.onclick = ()=>openHutDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openHutDetail(el.getAttribute('data-id'));}; }
     else if(act==='filter-diff') el.onclick = ()=>toggleDiffFilter(el.getAttribute('data-code'));
+    else if(act==='toggle-tour-done') el.onclick = ()=>toggleTourDone(el.getAttribute('data-id'));
+    else if(act==='toggle-hut-done') el.onclick = ()=>toggleHutDone(el.getAttribute('data-id'));
     else if(act==='search') el.oninput = (e)=>{ state.search = e.target.value; renderListOnly(); };
   });
 }
@@ -993,7 +1050,7 @@ function wireGlobalHandlers(){
 function renderListOnly(){
   const main = document.querySelector('main');
   if(!main) return;
-  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : huettenViewHtml());
+  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : abgeschlossenViewHtml());
   wireGlobalHandlers();
   const input = main.querySelector('.search-input');
   if(input){ input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
