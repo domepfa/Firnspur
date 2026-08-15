@@ -64,8 +64,8 @@
     content:'';
     position:absolute; inset:0;
     background-image: url('20260114_145500.jpg');
-    background-size: cover;
-    background-position: center 75%;
+    background-size: 115%;
+    background-position: center 55%;
     filter: brightness(1.25) contrast(1.05);
     z-index:0;
   }
@@ -1040,8 +1040,6 @@ function wireGlobalHandlers(){
     else if(act==='open-tour') { el.onclick = ()=>openTourDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openTourDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-hut') { el.onclick = ()=>openHutDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openHutDetail(el.getAttribute('data-id'));}; }
     else if(act==='filter-diff') el.onclick = ()=>toggleDiffFilter(el.getAttribute('data-code'));
-    else if(act==='toggle-tour-done') el.onclick = ()=>toggleTourDone(el.getAttribute('data-id'));
-    else if(act==='toggle-hut-done') el.onclick = ()=>toggleHutDone(el.getAttribute('data-id'));
     else if(act==='search') el.oninput = (e)=>{ state.search = e.target.value; renderListOnly(); };
   });
 }
@@ -1064,6 +1062,11 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-stop]').forEach(el=> el.addEventListener('click', e=>e.stopPropagation()));
 
   root.querySelectorAll('[data-act="close-modal"]').forEach(el=> el.onclick = closeModal);
+
+  const toggleTourBtn = root.querySelector('[data-act="toggle-tour-done"]');
+  if(toggleTourBtn) toggleTourBtn.onclick = ()=> toggleTourDone(toggleTourBtn.getAttribute('data-id'));
+  const toggleHutBtn = root.querySelector('[data-act="toggle-hut-done"]');
+  if(toggleHutBtn) toggleHutBtn.onclick = ()=> toggleHutDone(toggleHutBtn.getAttribute('data-id'));
 
   const copyExportBtn = root.querySelector('[data-act="copy-export"]');
   if(copyExportBtn) copyExportBtn.onclick = async ()=>{
@@ -1218,4 +1221,3 @@ loadAll();
 </script>
 </body>
 </html>
-x
