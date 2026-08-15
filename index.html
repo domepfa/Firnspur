@@ -539,6 +539,9 @@ async function submitHutForm(form, existing){
   h.staffedPeriod = form.staffedPeriod;
   h.winterraum = form.winterraum;
   h.approach = form.approach;
+  h.accessElevation = form.accessElevation;
+  h.accessDuration = form.accessDuration;
+  h.accessDifficulty = form.accessDifficulty;
   h.access = form.access;
   h.contact = form.contact;
   h.notes = form.notes;
@@ -745,6 +748,7 @@ function emptyHuts(){
 
 function hutCardHtml(h){
   const linkedCount = state.tours.filter(t=>t.hutId===h.id).length;
+  const ad = h.accessDifficulty ? (DIFF[h.accessDifficulty] || DIFF.L) : null;
   return `
   <div class="card" data-act="open-hut" data-id="${h.id}" tabindex="0" role="button">
     <div class="card-top">
@@ -752,6 +756,11 @@ function hutCardHtml(h){
       ${h.altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(h.altitude)} m</span>` : ''}
     </div>
     ${h.region ? `<p class="excerpt">${esc(h.region)}</p>` : ''}
+    ${(h.accessElevation || h.accessDuration || ad) ? `<div class="stat-row">
+      ${h.accessElevation ? `<span>↑ <span class="mono">${esc(h.accessElevation)}</span> Hm Zustieg</span>` : ''}
+      ${h.accessDuration ? `<span>⏱ <span class="mono">${esc(h.accessDuration)}</span></span>` : ''}
+      ${ad ? `<span class="badge" style="background:${ad.color}">${h.accessDifficulty}</span>` : ''}
+    </div>` : ''}
     <div class="stat-row">
       ${h.openingPeriod ? `<span>📅 ${esc(h.openingPeriod)}</span>` : ''}
     </div>
@@ -922,7 +931,17 @@ function hutFormHtml(existing){
       <div class="field"><label>Winterraum / Schutzraum</label><textarea name="winterraum" placeholder="Vorhanden? Anzahl Plätze, Zugang, Ausstattung …">${esc(h.winterraum||'')}</textarea></div>
       <div class="field"><label>Betten / Kapazität</label><input name="capacity" value="${esc(h.capacity||'')}" placeholder="z. B. 40 Betten"/></div>
       <div class="field"><label>Anfahrt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(h.approach||'')}</textarea></div>
-      <div class="field"><label>Zustieg</label><textarea name="access" placeholder="Route und Zeitbedarf zur Hütte …">${esc(h.access||'')}</textarea></div>
+      <div class="row2">
+        <div class="field"><label>Zustieg – Höhenmeter (Hm)</label><input name="accessElevation" value="${esc(h.accessElevation||'')}" placeholder="z. B. 800"/></div>
+        <div class="field"><label>Zustieg – Zeitbedarf</label><input name="accessDuration" value="${esc(h.accessDuration||'')}" placeholder="z. B. 2–3 Std."/></div>
+      </div>
+      <div class="field"><label>Zustieg – Schwierigkeit (SAC)</label>
+        <select name="accessDifficulty">
+          <option value="">— keine Angabe —</option>
+          ${DIFF_ORDER.map(c=>`<option value="${c}" ${(h.accessDifficulty||'')===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Zustieg – Beschreibung</label><textarea name="access" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(h.access||'')}</textarea></div>
       <div class="field"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, SAC-Sektion …"/></div>
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
       <div class="form-actions">
@@ -945,12 +964,15 @@ function hutDetailHtml(id){
     <div class="detail-stats">
       ${h.altitude ? `<div class="detail-stat"><div class="num">${esc(h.altitude)}</div><div class="lbl">m ü. M.</div></div>` : ''}
       ${h.capacity ? `<div class="detail-stat"><div class="num">${esc(h.capacity)}</div><div class="lbl">Kapazität</div></div>` : ''}
+      ${h.accessElevation ? `<div class="detail-stat"><div class="num">${esc(h.accessElevation)}</div><div class="lbl">Hm Zustieg</div></div>` : ''}
+      ${h.accessDuration ? `<div class="detail-stat"><div class="num">${esc(h.accessDuration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>
+    ${h.accessDifficulty ? `<div class="detail-badge-row"><span class="badge" style="background:${(DIFF[h.accessDifficulty]||DIFF.L).color}">${h.accessDifficulty} · Zustieg (SAC)</span></div>` : ''}
     ${h.openingPeriod ? `<div class="detail-section"><h4>Öffnungszeitraum</h4><p>${esc(h.openingPeriod)}</p></div>` : ''}
     <div class="detail-section"><h4>Bewartung</h4><p>${h.staffedPeriod ? esc(h.staffedPeriod) : 'Unbewartet'}</p></div>
     ${h.winterraum ? `<div class="detail-section"><h4>Winterraum / Schutzraum</h4><p>${esc(h.winterraum)}</p></div>` : ''}
     ${h.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(h.approach)}</p></div>` : ''}
-    ${h.access ? `<div class="detail-section"><h4>Zustieg</h4><p>${esc(h.access)}</p></div>` : ''}
+    ${h.access ? `<div class="detail-section"><h4>Zustieg – Beschreibung</h4><p>${esc(h.access)}</p></div>` : ''}
     ${h.contact ? `<div class="detail-section"><h4>Kontakt</h4><p>${esc(h.contact)}</p></div>` : ''}
     ${h.notes ? `<div class="detail-section"><h4>Notizen</h4><p>${esc(h.notes)}</p></div>` : ''}
 
