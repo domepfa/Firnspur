@@ -1,0 +1,31 @@
+name: Wöchentliches Firnspur-Backup
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # jeden Montag um 06:00 UTC (07:00 Winterzeit CH)
+  workflow_dispatch: {}    # erlaubt auch manuelles Auslösen über den "Actions"-Tab
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Daten von Firebase holen
+        run: |
+          mkdir -p backups
+          DATE=$(date +'%Y-%m-%d')
+          curl -s "https://firnspur-default-rtdb.europe-west1.firebasedatabase.app/tours.json" -o "backups/tours-$DATE.json"
+          curl -s "https://firnspur-default-rtdb.europe-west1.firebasedatabase.app/huts.json" -o "backups/huts-$DATE.json"
+
+      - name: Backup committen
+        run: |
+          git config user.name "firnspur-backup-bot"
+          git config user.email "actions@github.com"
+          git add backups/
+          git diff --staged --quiet || git commit -m "Automatisches Backup $(date +'%Y-%m-%d')"
+          git push
