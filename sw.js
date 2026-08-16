@@ -1,5 +1,7 @@
-const CACHE_NAME = 'firnspur-shell-v1';
-const SHELL_ASSETS = ['./', './index.html', './manifest.json', './20260114_145500.jpg'];
+const CACHE_NAME = 'firnspur-shell-v4';
+const SHELL_ASSETS = [
+  './', './index.html', './manifest.json', './20260114_145500.jpg'
+];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
