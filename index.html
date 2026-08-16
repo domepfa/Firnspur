@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Firnspur — Skitouren gemeinsam planen</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#1F4D63">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -285,7 +287,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v12-standalone-firebase';
+const APP_VERSION = 'v13-offline-pwa';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -382,6 +384,8 @@ let state = {
   search: '',
   activeDiffFilters: new Set(),
   hasUnsavedChanges: false,
+  offlineMode: false,
+  offlineCachedAt: null,
   modal: null // {type:'add-tour'|'edit-tour'|'add-hut'|'edit-hut'|'tour-detail'|'hut-detail'|'name', payload}
 };
 
@@ -408,11 +412,50 @@ function fmtDate(iso){
   const d = new Date(iso);
   return d.toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit', year:'numeric'}) + ' ' + d.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'});
 }
+function fmtDateOnly(dateStr){
+  if(!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  if(isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit', year:'numeric'});
+}
 
 /* ================= Data loading ================= */
+/* ================= Lokaler Offline-Cache ================= */
+function cacheLocalSnapshot(){
+  try{
+    localStorage.setItem('firnspur-cache', JSON.stringify({
+      tours: state.tours, huts: state.huts, cachedAt: new Date().toISOString()
+    }));
+  }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
+}
+function loadLocalSnapshot(){
+  try{
+    const raw = localStorage.getItem('firnspur-cache');
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+
 async function loadAll(){
   state.loading = true; render();
   const [toursObj, hutsObj] = await Promise.all([ fbGet('tours'), fbGet('huts') ]);
+
+  if(!toursObj && !hutsObj){
+    // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
+    const cached = loadLocalSnapshot();
+    state.loading = false;
+    if(cached){
+      state.tours = cached.tours || [];
+      state.huts = cached.huts || [];
+      state.offlineMode = true;
+      state.offlineCachedAt = cached.cachedAt;
+      showToast('Offline – zeigt den zuletzt gespeicherten Stand vom ' + fmtDate(cached.cachedAt), true);
+    }else{
+      showToast('Konnte nicht mit der Datenbank verbinden. Prüfe deine Internetverbindung.', true);
+    }
+    render();
+    return;
+  }
+
   const tours = toursObj ? Object.values(toursObj) : [];
   const huts = hutsObj ? Object.values(hutsObj) : [];
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
@@ -425,9 +468,7 @@ async function loadAll(){
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
   state.loading = false;
-  if(!toursObj && !hutsObj){
-    showToast('Konnte nicht mit der Datenbank verbinden. Prüfe deine Internetverbindung.', true);
-  }
+  state.offlineMode = false;
   render();
 }
 
@@ -623,10 +664,15 @@ function render(){
   app.innerHTML = shellHtml();
   wireGlobalHandlers();
   if(state.modal) renderModal();
+  if(!state.loading) cacheLocalSnapshot();
 }
 
 function shellHtml(){
   return `
+  ${state.offlineMode ? `
+  <div class="backup-banner" style="background:#5B6B73;">
+    📡 Offline – zeigt den Stand vom ${fmtDate(state.offlineCachedAt)}. Neue Einträge werden synchronisiert, sobald wieder Internet da ist.
+  </div>` : ''}
   ${state.hasUnsavedChanges ? `
   <div class="backup-banner">
     ⚠ Änderungen konnten nicht mit der Cloud synchronisiert werden (Internetverbindung prüfen) — exportiere zur Sicherheit eine Datei.
@@ -711,6 +757,7 @@ function tourCardHtml(t){
     ${t.region ? `<p class="excerpt">${esc(t.region)}</p>` : ''}
     ${hut ? `<span class="hut-link-chip">🛖 ${esc(hut.name)}</span>` : ''}
     ${t.conditions && t.conditions.text ? `<div class="conditions-note">❄ ${esc(t.conditions.text)}</div>` : ''}
+    ${t.completed && (t.completedBy || t.completedDate) ? `<div class="stat-row"><span>✓ ${esc(t.completedBy||'?')}${t.completedDate ? ' · ' + fmtDateOnly(t.completedDate) : ''}</span></div>` : ''}
     ${t._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
     <div class="meta-line">von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}</div>
   </div>`;
@@ -766,6 +813,7 @@ function hutCardHtml(h){
     </div>
     ${h.staffedPeriod ? `<div class="stat-row"><span>👤 bewartet: ${esc(h.staffedPeriod)}</span></div>` : `<div class="stat-row"><span>👤 unbewartet</span></div>`}
     <span class="hut-link-chip">${linkedCount} Tour${linkedCount===1?'':'en'} ab hier</span>
+    ${h.completed && (h.completedBy || h.completedDate) ? `<div class="stat-row"><span>✓ ${esc(h.completedBy||'?')}${h.completedDate ? ' · ' + fmtDateOnly(h.completedDate) : ''}</span></div>` : ''}
     ${h._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
     <div class="meta-line">von ${esc(h.createdBy||'?')} · ${fmtDate(h.createdAt)}</div>
   </div>`;
@@ -781,6 +829,8 @@ function renderModal(){
   else if(m.type==='tour-detail') inner = tourDetailHtml(m.payload);
   else if(m.type==='edit-hut') inner = hutFormHtml(m.payload);
   else if(m.type==='hut-detail') inner = hutDetailHtml(m.payload);
+  else if(m.type==='complete-tour') inner = completeFormHtml('tour', m.payload);
+  else if(m.type==='complete-hut') inner = completeFormHtml('hut', m.payload);
   else if(m.type==='export') inner = exportModalHtml();
   else if(m.type==='import') inner = importModalHtml();
   root.innerHTML = `<div class="overlay" data-act="overlay-close">${inner}</div>`;
@@ -830,6 +880,22 @@ function nameModalHtml(){
     <div class="form-actions">
       <button class="btn secondary" data-act="close-modal">Abbrechen</button>
       <button class="btn" data-act="submit-name">Weiter</button>
+    </div>
+  </div>`;
+}
+
+function completeFormHtml(kind, id){
+  const item = kind==='tour' ? state.tours.find(x=>x.id===id) : state.huts.find(x=>x.id===id);
+  const title = kind==='tour' ? 'Tour als abgeschlossen markieren' : 'Hütte als besucht markieren';
+  const today = new Date().toISOString().slice(0,10);
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${title}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    ${item ? `<p style="font-size:14px; color:var(--ink-soft); margin:0 0 14px 0;">${esc(item.name)}</p>` : ''}
+    <div class="field"><label>Name</label><input type="text" id="complete-name-input" value="${esc(state.myName||'')}" placeholder="z. B. Simone" autofocus/></div>
+    <div class="field"><label>Datum</label><input type="date" id="complete-date-input" value="${today}"/></div>
+    <div class="form-actions">
+      <button class="btn secondary" data-act="close-modal">Abbrechen</button>
+      <button class="btn" data-act="submit-complete" data-kind="${kind}" data-id="${id}">Bestätigen</button>
     </div>
   </div>`;
 }
@@ -1006,24 +1072,59 @@ function abgeschlossenViewHtml(){
   `;
 }
 
-async function toggleTourDone(id){
+function toggleTourDone(id){
   const t = state.tours.find(x=>x.id===id);
   if(!t) return;
-  t.completed = !t.completed;
+  if(t.completed){
+    // direkt wieder öffnen, kein Formular nötig
+    t.completed = false;
+    t.updatedAt = new Date().toISOString();
+    t.updatedBy = state.myName;
+    render();
+    saveTourCloud(t).then(ok=>{ t._unsynced = !ok; if(!ok) markUnsaved(); render(); }).catch(()=>{ t._unsynced = true; markUnsaved(); render(); });
+  } else {
+    state.modal = {type:'complete-tour', payload:id};
+    render();
+  }
+}
+function toggleHutDone(id){
+  const h = state.huts.find(x=>x.id===id);
+  if(!h) return;
+  if(h.completed){
+    h.completed = false;
+    h.updatedAt = new Date().toISOString();
+    h.updatedBy = state.myName;
+    render();
+    saveHutCloud(h).then(ok=>{ h._unsynced = !ok; if(!ok) markUnsaved(); render(); }).catch(()=>{ h._unsynced = true; markUnsaved(); render(); });
+  } else {
+    state.modal = {type:'complete-hut', payload:id};
+    render();
+  }
+}
+async function submitCompleteTour(id, name, date){
+  const t = state.tours.find(x=>x.id===id);
+  if(!t) return;
+  t.completed = true;
+  t.completedBy = (name||'').trim() || state.myName;
+  t.completedDate = date;
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
+  state.modal = {type:'tour-detail', payload:id};
   render();
   const ok = await saveTourCloud(t).catch(()=>false);
   t._unsynced = !ok;
   if(!ok) markUnsaved();
   render();
 }
-async function toggleHutDone(id){
+async function submitCompleteHut(id, name, date){
   const h = state.huts.find(x=>x.id===id);
   if(!h) return;
-  h.completed = !h.completed;
+  h.completed = true;
+  h.completedBy = (name||'').trim() || state.myName;
+  h.completedDate = date;
   h.updatedAt = new Date().toISOString();
   h.updatedBy = state.myName;
+  state.modal = {type:'hut-detail', payload:id};
   render();
   const ok = await saveHutCloud(h).catch(()=>false);
   h._unsynced = !ok;
@@ -1074,6 +1175,16 @@ function wireModalHandlers(){
   if(toggleTourBtn) toggleTourBtn.onclick = ()=> toggleTourDone(toggleTourBtn.getAttribute('data-id'));
   const toggleHutBtn = root.querySelector('[data-act="toggle-hut-done"]');
   if(toggleHutBtn) toggleHutBtn.onclick = ()=> toggleHutDone(toggleHutBtn.getAttribute('data-id'));
+
+  const completeBtn = root.querySelector('[data-act="submit-complete"]');
+  if(completeBtn) completeBtn.onclick = ()=>{
+    const kind = completeBtn.getAttribute('data-kind');
+    const id = completeBtn.getAttribute('data-id');
+    const name = document.getElementById('complete-name-input').value;
+    const date = document.getElementById('complete-date-input').value;
+    if(kind==='tour') submitCompleteTour(id, name, date);
+    else submitCompleteHut(id, name, date);
+  };
 
   const copyExportBtn = root.querySelector('[data-act="copy-export"]');
   if(copyExportBtn) copyExportBtn.onclick = async ()=>{
@@ -1223,6 +1334,14 @@ window.addEventListener('beforeunload', function(e){
 /* ================= Init ================= */
 dlog('App gestartet — Version ' + APP_VERSION);
 loadAll();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{
+      dlog('Service Worker konnte nicht registriert werden (Offline-Modus evtl. eingeschränkt).', 'err');
+    });
+  });
+}
 </script>
 </body>
 </html>
