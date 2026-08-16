@@ -57,6 +57,16 @@
   button{font-family:inherit; cursor:pointer;}
   a{color:var(--ice-deep);}
 
+  /* ===== App-Umschalter ===== */
+  .app-switch-bar{
+    background:var(--ink); text-align:center; padding:7px 12px;
+  }
+  .app-switch-bar a{
+    color:#fff; text-decoration:none; font-size:12.5px; font-weight:600;
+    letter-spacing:0.03em; display:inline-flex; align-items:center; gap:6px;
+  }
+  .app-switch-bar a:hover{text-decoration:underline;}
+
   /* ===== Skyline hero ===== */
   .hero{
     color:#fff;
@@ -283,6 +293,7 @@
 </style>
 </head>
 <body>
+<div class="app-switch-bar"><a href="./fixseil.html">🧗 Zu Fixseil wechseln</a></div>
 <div id="app"></div>
 <button class="debug-toggle" id="debug-toggle-btn" onclick="toggleDebugPanel()">Diagnose v12</button>
 <div id="debug-panel-root"></div>
