@@ -301,7 +301,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v1-fixseil-firebase';
+const APP_VERSION = 'v2-fixseil-offline';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -409,6 +409,8 @@ let state = {
   search: '',
   activeDiffFilters: new Set(),
   hasUnsavedChanges: false,
+  offlineMode: false,
+  offlineCachedAt: null,
   modal: null
 };
 
@@ -446,9 +448,42 @@ function latestCompletion(arr){
 }
 
 /* ================= Data loading ================= */
+/* ================= Lokaler Offline-Cache ================= */
+function cacheLocalSnapshot(){
+  try{
+    localStorage.setItem('fixseil-cache', JSON.stringify({
+      tours: state.tours, huts: state.huts, cachedAt: new Date().toISOString()
+    }));
+  }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
+}
+function loadLocalSnapshot(){
+  try{
+    const raw = localStorage.getItem('fixseil-cache');
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+
 async function loadAll(){
   state.loading = true; render();
   const [toursObj, hutsObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH) ]);
+
+  if(!toursObj && !hutsObj){
+    // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
+    const cached = loadLocalSnapshot();
+    state.loading = false;
+    if(cached){
+      state.tours = cached.tours || [];
+      state.huts = cached.huts || [];
+      state.offlineMode = true;
+      state.offlineCachedAt = cached.cachedAt;
+      showToast('Offline – zeigt den zuletzt gespeicherten Stand vom ' + fmtDate(cached.cachedAt), true);
+    }else{
+      showToast('Konnte nicht mit der Datenbank verbinden. Prüfe deine Internetverbindung.', true);
+    }
+    render();
+    return;
+  }
+
   const tours = toursObj ? Object.values(toursObj) : [];
   const huts = hutsObj ? Object.values(hutsObj) : [];
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
@@ -460,9 +495,7 @@ async function loadAll(){
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
   state.loading = false;
-  if(!toursObj && !hutsObj){
-    showToast('Konnte nicht mit der Datenbank verbinden. Prüfe deine Internetverbindung.', true);
-  }
+  state.offlineMode = false;
   render();
 }
 
@@ -658,10 +691,15 @@ function render(){
   app.innerHTML = shellHtml();
   wireGlobalHandlers();
   if(state.modal) renderModal();
+  if(!state.loading) cacheLocalSnapshot();
 }
 
 function shellHtml(){
   return `
+  ${state.offlineMode ? `
+  <div class="backup-banner" style="background:#6B5B4C;">
+    📡 Offline – zeigt den Stand vom ${fmtDate(state.offlineCachedAt)}. Neue Einträge werden synchronisiert, sobald wieder Internet da ist.
+  </div>` : ''}
   ${state.hasUnsavedChanges ? `
   <div class="backup-banner">
     ⚠ Änderungen konnten nicht mit der Cloud synchronisiert werden (Internetverbindung prüfen) — exportiere zur Sicherheit eine Datei.
