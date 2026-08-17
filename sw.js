@@ -1,6 +1,9 @@
-const CACHE_NAME = 'firnspur-shell-v5';
+const CACHE_NAME = 'bergtouren-shell-v1';
 const SHELL_ASSETS = [
-  './', './index.html', './manifest.json', './20260114_145500.jpg', './IMG-20260816-WA0023.jpg'
+  './', './index.html', './fixseil.html',
+  './manifest.json', './manifest-fixseil.json',
+  './20260114_145500.jpg', './IMG_20260811_073051812_HDR.jpg',
+  './IMG-20260816-WA0023.jpg'
 ];
 
 self.addEventListener('install', (e) => {
