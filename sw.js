@@ -1,6 +1,6 @@
 const CACHE_NAME = 'firnspur-shell-v5';
 const SHELL_ASSETS = [
-  './', './index.html', './manifest.json', './20260114_145500.jpg', './app-icon.jpg'
+  './', './index.html', './manifest.json', './20260114_145500.jpg', './IMG-20260816-WA0023.jpg'
 ];
 
 self.addEventListener('install', (e) => {
