@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fixseil — Hochtouren gemeinsam planen</title>
+<link rel="manifest" href="./manifest-fixseil.json">
+<link rel="icon" href="./app-icon.jpg">
+<link rel="apple-touch-icon" href="./app-icon.jpg">
+<meta name="theme-color" content="#4A3524">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -1320,6 +1324,14 @@ window.addEventListener('beforeunload', function(e){
 /* ================= Init ================= */
 dlog('App gestartet — Version ' + APP_VERSION);
 loadAll();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw-fixseil.js').catch(()=>{
+      dlog('Service Worker konnte nicht registriert werden.', 'err');
+    });
+  });
+}
 </script>
 </body>
 </html>
