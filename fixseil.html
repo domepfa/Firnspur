@@ -1327,7 +1327,7 @@ loadAll();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('./sw-fixseil.js').catch(()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{
       dlog('Service Worker konnte nicht registriert werden.', 'err');
     });
   });
