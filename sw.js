@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bergtouren-shell-v1';
+const CACHE_NAME = 'bergtouren-shell-v2';
 const SHELL_ASSETS = [
   './', './index.html', './fixseil.html',
   './manifest.json', './manifest-fixseil.json',
@@ -8,7 +8,15 @@ const SHELL_ASSETS = [
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS)).catch(()=>{})
+    caches.open(CACHE_NAME).then((cache) => {
+      // Jede Datei einzeln versuchen: schlägt eine fehl (z. B. falscher
+      // Dateiname), werden die übrigen trotzdem gecacht statt gar nichts.
+      return Promise.allSettled(
+        SHELL_ASSETS.map((url) =>
+          cache.add(url).catch((err) => console.warn('SW: konnte nicht cachen:', url, err))
+        )
+      );
+    })
   );
   self.skipWaiting();
 });
