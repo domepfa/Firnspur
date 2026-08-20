@@ -59,13 +59,16 @@
 
   /* ===== App-Umschalter ===== */
   .app-switch-bar{
-    background:var(--ink); text-align:center; padding:7px 12px;
+    background:var(--ink); display:flex; justify-content:center; gap:0;
   }
   .app-switch-bar a{
-    color:#fff; text-decoration:none; font-size:12.5px; font-weight:600;
-    letter-spacing:0.03em; display:inline-flex; align-items:center; gap:6px;
+    color:rgba(255,255,255,0.55); text-decoration:none; font-size:13.5px; font-weight:700;
+    letter-spacing:0.03em; display:flex; align-items:center; justify-content:center; gap:7px;
+    padding:11px 20px; flex:1; max-width:220px; text-transform:uppercase;
+    border-bottom:3px solid transparent; transition:background .12s ease, color .12s ease;
   }
-  .app-switch-bar a:hover{text-decoration:underline;}
+  .app-switch-bar a:hover{background:rgba(255,255,255,0.08); color:#fff;}
+  .app-switch-bar a.active{color:#fff; border-bottom-color:var(--signal, #F2B705); background:rgba(255,255,255,0.06);}
 
   /* ===== Fels-Hero ===== */
   .hero{
@@ -294,14 +297,17 @@
 </style>
 </head>
 <body>
-<div class="app-switch-bar"><a href="./index.html">🎿 Zu Firnspur wechseln</a></div>
+<div class="app-switch-bar">
+  <a href="./index.html">🎿 Firnspur</a>
+  <a href="./fixseil.html" class="active">🧗 Fixseil</a>
+</div>
 <div id="app"></div>
 <button class="debug-toggle" id="debug-toggle-btn" onclick="toggleDebugPanel()">Diagnose v1</button>
 <div id="debug-panel-root"></div>
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v2-fixseil-offline';
+const APP_VERSION = 'v3-tour-updates';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -567,12 +573,13 @@ async function submitTourForm(form, existing){
   t.name = form.name.trim();
   t.difficulty = form.difficulty;
   t.climbGrade = form.climbGrade || '';
+  t.targetAltitude = form.targetAltitude;
   t.elevationGain = form.elevationGain;
   t.elevationLoss = form.elevationLoss;
   t.duration = form.duration;
   t.region = form.region;
   t.hutId = form.hutId || '';
-  t.requirements = form.requirements;
+  t.tourLink = form.tourLink;
   t.special = form.special;
   t.approach = form.approach;
   t.ascent = form.ascent;
@@ -779,12 +786,13 @@ function tourCardHtml(t){
       <div class="badge-row">
         <span class="badge" style="background:${d.color}">${t.difficulty}</span>
         ${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}
+        ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
       </div>
     </div>
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
-      ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)}</span></span>` : ''}
+      ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span></span>` : ''}
     </div>
     ${t.region ? `<p class="excerpt">${esc(t.region)}</p>` : ''}
     ${hut ? `<span class="hut-link-chip">🛖 ${esc(hut.name)}</span>` : ''}
@@ -953,11 +961,14 @@ function tourFormHtml(existing){
       </div>
       <div class="field"><label>Region</label><input name="region" value="${esc(t.region||'')}" placeholder="z. B. Walliser Alpen"/></div>
       <div class="row2">
+        <div class="field"><label>Ziel – Gipfelhöhe (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 4545"/></div>
+        <div class="field"><label>Zeitbedarf (h)</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 6–8"/></div>
+      </div>
+      <div class="row2">
         <div class="field"><label>Aufstieg (Hm)</label><input name="elevationGain" value="${esc(t.elevationGain||'')}" placeholder="z. B. 1200"/></div>
         <div class="field"><label>Abstieg (Hm, falls abweichend)</label><input name="elevationLoss" value="${esc(t.elevationLoss||'')}" placeholder="z. B. 1600"/></div>
       </div>
-      <div class="field"><label>Zeitbedarf</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 6–8 Std."/></div>
-      <div class="field"><label>Anforderungen</label><textarea name="requirements" placeholder="Kondition, Seiltechnik, Steigeisen, Pickel, Klettergurt …">${esc(t.requirements||'')}</textarea></div>
+      <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Spaltenrisiko, Steinschlag, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
       <div class="field"><label>Anfahrt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
       <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
@@ -985,6 +996,7 @@ function tourDetailHtml(id){
         <div class="detail-badge-row">
           <span class="badge" style="background:${d.color}">${t.difficulty} · ${d.label}</span>
           ${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}
+          ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
         </div>
         <h2>${esc(t.name)}</h2>
       </div>
@@ -994,11 +1006,11 @@ function tourDetailHtml(id){
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
-      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>
     ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button>` : ''}
 
-    ${t.requirements ? `<div class="detail-section"><h4>Anforderungen</h4><p>${esc(t.requirements)}</p></div>` : ''}
+    ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(t.approach)}</p></div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
