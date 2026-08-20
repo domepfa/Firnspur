@@ -307,7 +307,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v3-tour-updates';
+const APP_VERSION = 'v4-personal-lists';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -527,6 +527,7 @@ async function submitName(nameVal){
   const n = (nameVal||'').trim();
   if(!n) return;
   state.myName = n;
+  try{ localStorage.setItem('fixseil-myname', n); }catch(e){}
   const after = state.modal && state.modal.after;
   state.modal = null;
   render();
@@ -1121,19 +1122,51 @@ function hutDetailHtml(id){
 }
 
 /* ================= Abgeschlossen view ================= */
+function buildPersonGroups(){
+  const groups = {};
+  state.tours.forEach(t=>{
+    (t.completions||[]).forEach(c=>{
+      const name = (c.by||'').trim() || '?';
+      if(!groups[name]) groups[name] = {tours:[], huts:[]};
+      if(!groups[name].tours.find(x=>x.id===t.id)) groups[name].tours.push(t);
+    });
+  });
+  state.huts.forEach(h=>{
+    (h.completions||[]).forEach(c=>{
+      const name = (c.by||'').trim() || '?';
+      if(!groups[name]) groups[name] = {tours:[], huts:[]};
+      if(!groups[name].huts.find(x=>x.id===h.id)) groups[name].huts.push(h);
+    });
+  });
+  return groups;
+}
+
 function abgeschlossenViewHtml(){
-  const doneTours = state.tours.filter(t=> (t.completions && t.completions.length) || t.completed);
-  const doneHuts = state.huts.filter(h=> (h.completions && h.completions.length) || h.completed);
-  if(!doneTours.length && !doneHuts.length){
+  const groups = buildPersonGroups();
+  const names = Object.keys(groups);
+  if(!names.length){
     return `<div class="empty">
       <h3>Noch nichts als erledigt markiert</h3>
       <p>Öffne eine Tour oder Hütte und tippe auf "Als erledigt markieren", um Name und Datum einzutragen.</p>
     </div>`;
   }
-  return `
-    ${doneTours.length ? `<div class="detail-section"><h4>Touren (${doneTours.length})</h4><div class="grid" style="margin-top:6px;">${doneTours.map(tourCardHtml).join('')}</div></div>` : ''}
-    ${doneHuts.length ? `<div class="detail-section" style="margin-top:22px;"><h4>Hütten (${doneHuts.length})</h4><div class="grid" style="margin-top:6px;">${doneHuts.map(hutCardHtml).join('')}</div></div>` : ''}
-  `;
+  names.sort((a,b)=>{
+    if(state.myName){
+      if(a===state.myName) return -1;
+      if(b===state.myName) return 1;
+    }
+    return a.localeCompare(b, 'de');
+  });
+  return names.map(name=>{
+    const g = groups[name];
+    const isMe = state.myName && name===state.myName;
+    const total = g.tours.length + g.huts.length;
+    return `<div class="detail-section" style="margin-bottom:28px;">
+      <h4>${isMe ? '⭐ Meine Liste' : esc(name)} (${total})</h4>
+      ${g.tours.length ? `<div class="grid" style="margin-top:6px;">${g.tours.map(tourCardHtml).join('')}</div>` : ''}
+      ${g.huts.length ? `<div class="grid" style="margin-top:${g.tours.length?12:6}px;">${g.huts.map(hutCardHtml).join('')}</div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 function openMarkDone(kind, id){
@@ -1372,6 +1405,10 @@ window.addEventListener('beforeunload', function(e){
 });
 
 /* ================= Init ================= */
+try{
+  const savedName = localStorage.getItem('fixseil-myname');
+  if(savedName) state.myName = savedName;
+}catch(e){}
 dlog('App gestartet — Version ' + APP_VERSION);
 loadAll();
 
