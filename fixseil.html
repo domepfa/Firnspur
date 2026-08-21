@@ -307,7 +307,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v4-personal-lists';
+const APP_VERSION = 'v5-agenda';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -346,6 +346,12 @@ function renderDebugPanel(){
 const FIREBASE_URL = 'https://firnspur-default-rtdb.europe-west1.firebasedatabase.app';
 const TOURS_PATH = 'fixseil/tours';
 const HUTS_PATH = 'fixseil/huts';
+/* Agenda ist app-übergreifend geteilt zwischen Firnspur und Fixseil. */
+const AGENDA_PATH = 'agenda';
+const OWN_TOURS_PATH = 'fixseil/tours';
+const OTHER_TOURS_PATH = 'tours';
+const OWN_APP_LABEL = '🧗 Hochtour';
+const OTHER_APP_LABEL = '🎿 Skitour';
 
 async function fbGet(path){
   try{
@@ -411,6 +417,8 @@ let state = {
   loading: true,
   tours: [],
   huts: [],
+  agenda: [],
+  otherAppTours: [],
   myName: null,
   search: '',
   activeDiffFilters: new Set(),
@@ -458,7 +466,7 @@ function latestCompletion(arr){
 function cacheLocalSnapshot(){
   try{
     localStorage.setItem('fixseil-cache', JSON.stringify({
-      tours: state.tours, huts: state.huts, cachedAt: new Date().toISOString()
+      tours: state.tours, huts: state.huts, agenda: state.agenda, cachedAt: new Date().toISOString()
     }));
   }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
 }
@@ -471,15 +479,16 @@ function loadLocalSnapshot(){
 
 async function loadAll(){
   state.loading = true; render();
-  const [toursObj, hutsObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH) ]);
+  const [toursObj, hutsObj, agendaObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH) ]);
 
-  if(!toursObj && !hutsObj){
+  if(!toursObj && !hutsObj && !agendaObj){
     // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
     const cached = loadLocalSnapshot();
     state.loading = false;
     if(cached){
       state.tours = cached.tours || [];
       state.huts = cached.huts || [];
+      state.agenda = cached.agenda || [];
       state.offlineMode = true;
       state.offlineCachedAt = cached.cachedAt;
       showToast('Offline – zeigt den zuletzt gespeicherten Stand vom ' + fmtDate(cached.cachedAt), true);
@@ -492,14 +501,17 @@ async function loadAll(){
 
   const tours = toursObj ? Object.values(toursObj) : [];
   const huts = hutsObj ? Object.values(hutsObj) : [];
+  const agenda = agendaObj ? Object.values(agendaObj) : [];
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
 
   const unsyncedTours = state.tours.filter(x=>x._unsynced && !tours.find(y=>y.id===x.id));
   const unsyncedHuts = state.huts.filter(x=>x._unsynced && !huts.find(y=>y.id===x.id));
+  const unsyncedAgenda = state.agenda.filter(x=>x._unsynced && !agenda.find(y=>y.id===x.id));
 
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
+  state.agenda = [...unsyncedAgenda, ...agenda];
   state.loading = false;
   state.offlineMode = false;
   render();
@@ -507,6 +519,13 @@ async function loadAll(){
 
 async function saveTourCloud(tour){ return await fbSet(TOURS_PATH+'/'+tour.id, tour); }
 async function saveHutCloud(hut){ return await fbSet(HUTS_PATH+'/'+hut.id, hut); }
+async function saveAgendaCloud(item){ return await fbSet(AGENDA_PATH+'/'+item.id, item); }
+
+async function loadOtherAppTours(){
+  const obj = await fbGet(OTHER_TOURS_PATH);
+  state.otherAppTours = obj ? Object.values(obj) : [];
+  return state.otherAppTours;
+}
 
 function removeTour(id){
   state.tours = state.tours.filter(x=>x.id!==id);
@@ -729,11 +748,12 @@ function shellHtml(){
     <div class="tabs">
       <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">Touren</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">Hütten</button>
+      <button class="tab ${state.view==='agenda'?'active':''}" data-act="view-agenda">📅 Agenda</button>
       <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
     </div>
   </div>
   <main>
-    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : abgeschlossenViewHtml())}
+    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : abgeschlossenViewHtml())}
   </main>
   <div id="modal-root"></div>
   `;
@@ -874,6 +894,8 @@ function renderModal(){
   else if(m.type==='hut-detail') inner = hutDetailHtml(m.payload);
   else if(m.type==='export') inner = exportModalHtml();
   else if(m.type==='import') inner = importModalHtml();
+  else if(m.type==='add-agenda') inner = agendaFormHtml();
+  else if(m.type==='agenda-detail') inner = agendaDetailHtml(m.payload);
   else if(m.type==='add-completion') inner = completionModalHtml(m.payload);
   root.innerHTML = `<div class="overlay" data-act="overlay-close">${inner}</div>`;
   wireModalHandlers();
@@ -1121,6 +1143,205 @@ function hutDetailHtml(id){
   </div>`;
 }
 
+/* ================= Agenda ================= */
+function fmtDateShort(dateStr){
+  if(!dateStr) return '';
+  const d = new Date(dateStr+'T00:00:00');
+  if(isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit', year:'numeric'});
+}
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function isPastAgendaItem(item){
+  const ref = item.endDate || item.startDate;
+  if(!ref) return false;
+  return ref < todayStr();
+}
+
+function agendaViewHtml(){
+  const active = state.agenda.filter(a=>!a.cancelled && !isPastAgendaItem(a))
+    .sort((a,b)=> (a.startDate||'').localeCompare(b.startDate||''));
+  const archived = state.agenda.filter(a=>a.cancelled || isPastAgendaItem(a))
+    .sort((a,b)=> (b.startDate||'').localeCompare(a.startDate||''));
+  return `
+    <div class="toolbar">
+      <div></div>
+      <button class="btn" data-act="add-agenda">+ Neuer Termin</button>
+    </div>
+    ${active.length ? `<div class="grid">${active.map(agendaCardHtml).join('')}</div>` : `<div class="empty">
+      <h3>Noch keine Termine geplant</h3>
+      <p>Schlag einen Zeitraum und eine Tour vor — andere können sich direkt eintragen.</p>
+      <button class="btn" data-act="add-agenda">+ Neuer Termin</button>
+    </div>`}
+    ${archived.length ? `<div class="detail-section" style="margin-top:30px;">
+      <h4>Archiv (vergangen / abgesagt) — ${archived.length}</h4>
+      <div class="grid" style="margin-top:6px;">${archived.map(agendaCardHtml).join('')}</div>
+    </div>` : ''}
+  `;
+}
+
+function agendaCardHtml(a){
+  const dateLabel = a.endDate && a.endDate!==a.startDate
+    ? `${fmtDateShort(a.startDate)} – ${fmtDateShort(a.endDate)}`
+    : fmtDateShort(a.startDate);
+  return `
+  <div class="card" data-act="open-agenda" data-id="${a.id}" tabindex="0" role="button" style="${a.cancelled?'opacity:0.55;':''}">
+    <div class="card-top">
+      <h3>${a.cancelled ? '❌ ' : ''}${esc(a.tourName || 'Termin')}</h3>
+      <span class="badge" style="background:${a.type==='hochtour'?'var(--ice-deep)':'var(--ice)'}">${a.type==='hochtour'?'🧗 Hochtour':'🎿 Skitour'}</span>
+    </div>
+    <div class="stat-row"><span>📅 <span class="mono">${dateLabel}</span></span></div>
+    ${a.note ? `<p class="excerpt">${esc(a.note)}</p>` : ''}
+    <span class="hut-link-chip">${(a.participants||[]).length} dabei${(a.participants||[]).length ? ': ' + (a.participants||[]).map(p=>esc(p.by)).join(', ') : ''}</span>
+    ${a._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
+    <div class="meta-line">von ${esc(a.createdBy||'?')} · ${fmtDate(a.createdAt)}</div>
+  </div>`;
+}
+
+function agendaDetailHtml(id){
+  const a = state.agenda.find(x=>x.id===id);
+  if(!a) return `<div class="modal" data-stop="1"><p>Termin nicht gefunden.</p></div>`;
+  const dateLabel = a.endDate && a.endDate!==a.startDate
+    ? `${fmtDateShort(a.startDate)} – ${fmtDateShort(a.endDate)}`
+    : fmtDateShort(a.startDate);
+  const joined = state.myName && (a.participants||[]).some(p=>p.by===state.myName);
+  const isCreator = state.myName && a.createdBy===state.myName;
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head">
+      <div>
+        <div class="detail-badge-row">
+          <span class="badge" style="background:${a.type==='hochtour'?'var(--ice-deep)':'var(--ice)'}">${a.type==='hochtour'?'🧗 Hochtour':'🎿 Skitour'}</span>
+          ${a.cancelled ? `<span class="badge" style="background:var(--danger)">Abgesagt</span>` : ''}
+        </div>
+        <h2>${esc(a.tourName || 'Termin')}</h2>
+      </div>
+      <button class="x-btn" data-act="close-modal">×</button>
+    </div>
+    <div class="detail-stats">
+      <div class="detail-stat"><div class="num">${dateLabel}</div><div class="lbl">Zeitraum</div></div>
+    </div>
+    ${a.note ? `<div class="detail-section"><h4>Notiz</h4><p>${esc(a.note)}</p></div>` : ''}
+    <div class="detail-section">
+      <h4>Teilnehmer (${(a.participants||[]).length})</h4>
+      ${(a.participants||[]).length ? (a.participants||[]).map(p=>`<p style="margin:0 0 4px 0; font-size:14px;">✓ ${esc(p.by)}</p>`).join('') : `<p style="font-size:13.5px; color:var(--ink-soft);">Noch niemand dabei.</p>`}
+    </div>
+    <div class="meta-line" style="margin-top:16px;">Vorgeschlagen von ${esc(a.createdBy||'?')} · ${fmtDate(a.createdAt)}</div>
+    <div class="detail-actions">
+      ${!a.cancelled ? `<button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>` : ''}
+      ${!a.cancelled ? `<button class="btn danger" data-act="cancel-agenda" data-id="${a.id}">Termin absagen</button>` : `<button class="btn secondary" data-act="reactivate-agenda" data-id="${a.id}">Termin wieder aktivieren</button>`}
+    </div>
+  </div>`;
+}
+
+function openAddAgenda(){
+  ensureName(async ()=>{
+    if(!state.otherAppTours.length) await loadOtherAppTours();
+    state.modal = {type:'add-agenda'};
+    render();
+  });
+}
+
+function agendaFormHtml(){
+  const today = todayStr();
+  const ownOptions = state.tours.map(t=>`<option value="own:${t.id}">${OWN_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+  const otherOptions = state.otherAppTours.map(t=>`<option value="other:${t.id}">${OTHER_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>Neuer Termin</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <form id="agenda-form" novalidate>
+      <div class="row2">
+        <div class="field"><label>Startdatum *</label><input required type="date" name="startDate" value="${today}"/></div>
+        <div class="field"><label>Enddatum (optional)</label><input type="date" name="endDate"/></div>
+      </div>
+      <div class="field"><label>Art</label>
+        <select name="type">
+          <option value="ski">🎿 Skitour</option>
+          <option value="hochtour">🧗 Hochtour</option>
+        </select>
+      </div>
+      <div class="field"><label>Tour</label>
+        <select name="tourChoice" id="agenda-tour-select">
+          <option value="custom">— Neuer Vorschlag (Freitext) —</option>
+          ${ownOptions}
+          ${otherOptions}
+        </select>
+      </div>
+      <div class="field" id="agenda-custom-field"><label>Geplante Tour / Idee</label><input name="customName" placeholder="z. B. Wildspitze über Vent"/></div>
+      <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Treffpunkt, Ausrüstung, offene Fragen …"></textarea></div>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" id="agenda-save-btn" class="btn">Termin vorschlagen</button>
+      </div>
+    </form>
+  </div>`;
+}
+
+async function submitAgendaForm(form){
+  const startDate = form.startDate;
+  if(!startDate){ showFormError('agenda-form', 'Bitte ein Startdatum wählen.'); return; }
+  let tourName = '';
+  if(form.tourChoice && form.tourChoice!=='custom'){
+    const [src, refId] = form.tourChoice.split(':');
+    const list = src==='own' ? state.tours : state.otherAppTours;
+    const ref = list.find(t=>t.id===refId);
+    tourName = ref ? ref.name : (form.customName||'').trim();
+  }else{
+    tourName = (form.customName||'').trim();
+  }
+  if(!tourName){ showFormError('agenda-form', 'Bitte eine Tour auswählen oder einen Vorschlag eintragen.'); return; }
+
+  const a = {
+    id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
+    type: form.type||'ski', startDate, endDate: form.endDate||'',
+    tourName, note: form.note||'', participants: [{by: state.myName, joinedAt: new Date().toISOString()}],
+    cancelled: false
+  };
+  state.agenda.unshift(a);
+  closeModal();
+  state.modal = {type:'agenda-detail', payload:a.id};
+  render();
+  const ok = await saveAgendaCloud(a).catch(()=>false);
+  a._unsynced = !ok;
+  if(!ok){ markUnsaved(); showToast('Termin lokal gespeichert, aber nicht synchronisiert.', true); }
+  else{ showToast('Termin vorgeschlagen.'); }
+  render();
+}
+
+async function toggleParticipation(id){
+  ensureName(async ()=>{
+    const a = state.agenda.find(x=>x.id===id);
+    if(!a) return;
+    a.participants = a.participants || [];
+    const idx = a.participants.findIndex(p=>p.by===state.myName);
+    if(idx>=0) a.participants.splice(idx,1);
+    else a.participants.push({by: state.myName, joinedAt: new Date().toISOString()});
+    render();
+    const ok = await saveAgendaCloud(a).catch(()=>false);
+    a._unsynced = !ok;
+    if(!ok) markUnsaved();
+    render();
+  });
+}
+
+async function cancelAgendaItem(id){
+  const a = state.agenda.find(x=>x.id===id);
+  if(!a) return;
+  a.cancelled = true;
+  render();
+  const ok = await saveAgendaCloud(a).catch(()=>false);
+  a._unsynced = !ok;
+  if(!ok) markUnsaved();
+  render();
+}
+async function reactivateAgendaItem(id){
+  const a = state.agenda.find(x=>x.id===id);
+  if(!a) return;
+  a.cancelled = false;
+  render();
+  const ok = await saveAgendaCloud(a).catch(()=>false);
+  a._unsynced = !ok;
+  if(!ok) markUnsaved();
+  render();
+}
+
 /* ================= Abgeschlossen view ================= */
 function buildPersonGroups(){
   const groups = {};
@@ -1218,14 +1439,17 @@ function wireGlobalHandlers(){
     const act = el.getAttribute('data-act');
     if(act==='view-touren') el.onclick = ()=>setView('touren');
     else if(act==='view-huetten') el.onclick = ()=>setView('huetten');
+    else if(act==='view-agenda') el.onclick = ()=>setView('agenda');
     else if(act==='view-abgeschlossen') el.onclick = ()=>setView('abgeschlossen');
     else if(act==='change-name') el.onclick = ()=>{ state.modal = {type:'name'}; render(); };
     else if(act==='export-data') el.onclick = openExport;
     else if(act==='import-data') el.onclick = openImport;
     else if(act==='add-tour') el.onclick = openAddTour;
     else if(act==='add-hut') el.onclick = openAddHut;
+    else if(act==='add-agenda') el.onclick = openAddAgenda;
     else if(act==='open-tour') { el.onclick = ()=>openTourDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openTourDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-hut') { el.onclick = ()=>openHutDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openHutDetail(el.getAttribute('data-id'));}; }
+    else if(act==='open-agenda') { el.onclick = ()=>{ state.modal={type:'agenda-detail', payload:el.getAttribute('data-id')}; render(); }; }
     else if(act==='filter-diff') el.onclick = ()=>toggleDiffFilter(el.getAttribute('data-code'));
     else if(act==='search') el.oninput = (e)=>{ state.search = e.target.value; renderListOnly(); };
   });
@@ -1234,7 +1458,7 @@ function wireGlobalHandlers(){
 function renderListOnly(){
   const main = document.querySelector('main');
   if(!main) return;
-  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : abgeschlossenViewHtml());
+  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : abgeschlossenViewHtml());
   wireGlobalHandlers();
   const input = main.querySelector('.search-input');
   if(input){ input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
@@ -1258,6 +1482,32 @@ function wireModalHandlers(){
     const date = document.getElementById('completion-date').value;
     submitCompletion(submitCompletionBtn.getAttribute('data-kind'), submitCompletionBtn.getAttribute('data-id'), name, date);
   };
+
+  const toggleParticipationBtn = root.querySelector('[data-act="toggle-participation"]');
+  if(toggleParticipationBtn) toggleParticipationBtn.onclick = ()=> toggleParticipation(toggleParticipationBtn.getAttribute('data-id'));
+  const cancelAgendaBtn = root.querySelector('[data-act="cancel-agenda"]');
+  if(cancelAgendaBtn) cancelAgendaBtn.onclick = ()=> cancelAgendaItem(cancelAgendaBtn.getAttribute('data-id'));
+  const reactivateAgendaBtn = root.querySelector('[data-act="reactivate-agenda"]');
+  if(reactivateAgendaBtn) reactivateAgendaBtn.onclick = ()=> reactivateAgendaItem(reactivateAgendaBtn.getAttribute('data-id'));
+
+  const agendaForm = document.getElementById('agenda-form');
+  if(agendaForm){
+    const tourSelect = document.getElementById('agenda-tour-select');
+    const customField = document.getElementById('agenda-custom-field');
+    function syncCustomFieldVisibility(){
+      customField.style.display = (tourSelect.value==='custom') ? '' : 'none';
+    }
+    if(tourSelect){ tourSelect.addEventListener('change', syncCustomFieldVisibility); syncCustomFieldVisibility(); }
+    const agendaSaveBtn = document.getElementById('agenda-save-btn');
+    if(agendaSaveBtn){
+      agendaSaveBtn.addEventListener('click', (e)=>{
+        e.preventDefault();
+        const fd = new FormData(agendaForm);
+        const data = Object.fromEntries(fd.entries());
+        submitAgendaForm(data);
+      });
+    }
+  }
 
   const copyExportBtn = root.querySelector('[data-act="copy-export"]');
   if(copyExportBtn) copyExportBtn.onclick = async ()=>{
