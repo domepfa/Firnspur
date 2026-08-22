@@ -311,7 +311,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v18-agenda-weekday';
+const APP_VERSION = 'v19-tour-chips-handoff';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -554,6 +554,35 @@ async function submitName(nameVal){
 }
 
 /* ================= Actions ================= */
+function handoffToOtherApp(toType, formData, targetUrl){
+  const payload = {
+    toType,
+    name: formData.name || '',
+    region: formData.region || '',
+    targetAltitude: formData.targetAltitude || '',
+    duration: formData.duration || '',
+    elevationGain: formData.elevationGain || '',
+    elevationLoss: formData.elevationLoss || '',
+    tourLink: formData.tourLink || '',
+    special: formData.special || '',
+    approach: formData.approach || '',
+    ascent: formData.ascent || '',
+    descent: formData.descent || ''
+  };
+  try{ localStorage.setItem('bergtouren-tour-handoff', JSON.stringify(payload)); }catch(e){}
+  window.location.href = targetUrl;
+}
+function consumeHandoffIfPresent(acceptedTypes){
+  try{
+    const raw = localStorage.getItem('bergtouren-tour-handoff');
+    if(!raw) return null;
+    const data = JSON.parse(raw);
+    localStorage.removeItem('bergtouren-tour-handoff');
+    if(!acceptedTypes.includes(data.toType)) return null;
+    return data;
+  }catch(e){ return null; }
+}
+
 function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:null}; render(); }); }
 function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); state.modal = {type:'edit-tour', payload:t}; render(); }); }
 function openTourDetail(id){ state.modal = {type:'tour-detail', payload:id}; render(); }
@@ -968,6 +997,14 @@ function tourFormHtml(existing){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${existing?'Tour bearbeiten':'Neue Skitour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="tour-form" novalidate>
+      <div class="field"><label>Tourtyp</label>
+        <div class="chips">
+          <button type="button" class="chip type-chip on" style="background:var(--ice-deep)" data-type="ski">🎿 Skitour</button>
+          <button type="button" class="chip type-chip" data-type="hochtour">🏔️ Hochtour</button>
+          <button type="button" class="chip type-chip" data-type="msl">🧗 MSL</button>
+        </div>
+        <div class="hint">"Hochtour"/"MSL" wechselt zu Fixseil — bereits Eingegebenes wird übernommen.</div>
+      </div>
       <div class="field"><label>Name der Tour *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Titlis von Engstlenalp"/></div>
       <div class="row2">
         <div class="field"><label>Schwierigkeit (SAC)</label>
@@ -1605,6 +1642,20 @@ function wireModalHandlers(){
   const tourForm = document.getElementById('tour-form');
   dlog('tour-form im DOM gefunden: ' + !!tourForm);
   if(tourForm){
+    tourForm.querySelectorAll('.type-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        const type = chip.getAttribute('data-type');
+        if(type==='hochtour' || type==='msl'){
+          const fd = new FormData(tourForm);
+          const data = Object.fromEntries(fd.entries());
+          handoffToOtherApp(type, data, './fixseil.html');
+          return;
+        }
+        tourForm.querySelectorAll('.type-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+      });
+    });
+
     const tourSaveBtn = document.getElementById('tour-save-btn');
     if(tourSaveBtn){
       tourSaveBtn.addEventListener('click', (e)=>{
@@ -1687,7 +1738,20 @@ try{
   if(savedName) state.myName = savedName;
 }catch(e){}
 dlog('App gestartet — Version ' + APP_VERSION);
-loadAll();
+loadAll().then(()=>{
+  const handoff = consumeHandoffIfPresent(['ski']);
+  if(handoff){
+    ensureName(()=>{
+      state.modal = {type:'edit-tour', payload: {
+        name: handoff.name, region: handoff.region, targetAltitude: handoff.targetAltitude,
+        duration: handoff.duration, elevationGain: handoff.elevationGain, elevationLoss: handoff.elevationLoss,
+        tourLink: handoff.tourLink, special: handoff.special, approach: handoff.approach,
+        ascent: handoff.ascent, descent: handoff.descent
+      }};
+      render();
+    });
+  }
+});
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
