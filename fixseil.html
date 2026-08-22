@@ -311,7 +311,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v6-msl-weekday';
+const APP_VERSION = 'v7-tour-chips-handoff';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -559,6 +559,35 @@ async function submitName(nameVal){
 }
 
 /* ================= Actions ================= */
+function handoffToOtherApp(toType, formData, targetUrl){
+  const payload = {
+    toType,
+    name: formData.name || '',
+    region: formData.region || '',
+    targetAltitude: formData.targetAltitude || '',
+    duration: formData.duration || '',
+    elevationGain: formData.elevationGain || '',
+    elevationLoss: formData.elevationLoss || '',
+    tourLink: formData.tourLink || '',
+    special: formData.special || '',
+    approach: formData.approach || '',
+    ascent: formData.ascent || '',
+    descent: formData.descent || ''
+  };
+  try{ localStorage.setItem('bergtouren-tour-handoff', JSON.stringify(payload)); }catch(e){}
+  window.location.href = targetUrl;
+}
+function consumeHandoffIfPresent(acceptedTypes){
+  try{
+    const raw = localStorage.getItem('bergtouren-tour-handoff');
+    if(!raw) return null;
+    const data = JSON.parse(raw);
+    localStorage.removeItem('bergtouren-tour-handoff');
+    if(!acceptedTypes.includes(data.toType)) return null;
+    return data;
+  }catch(e){ return null; }
+}
+
 function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:null}; render(); }); }
 function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); state.modal = {type:'edit-tour', payload:t}; render(); }); }
 function openTourDetail(id){ state.modal = {type:'tour-detail', payload:id}; render(); }
@@ -604,6 +633,9 @@ async function submitTourForm(form, existing){
   t.elevationLoss = form.elevationLoss;
   t.duration = form.duration;
   t.region = form.region;
+  t.material = form.material || [];
+  t.ropeType = form.ropeType || '';
+  t.ropeLength = form.ropeLength || '';
   t.hutId = form.hutId || '';
   t.tourLink = form.tourLink;
   t.special = form.special;
@@ -981,14 +1013,23 @@ function nameModalHtml(){
 function tourFormHtml(existing){
   const t = existing || {};
   const hutOptions = state.huts.map(h=>`<option value="${h.id}" ${t.hutId===h.id?'selected':''}>${esc(h.name)}</option>`).join('');
+  const REGIONS = ['Wallis','Berner Oberland','Graubünden','Tessin','Zentralschweiz','Jura'];
+  const isKnownRegion = REGIONS.includes(t.region);
+  const MATERIAL = ['Pickel','Steigeisen','Klettergurt','Helm','Bandschlingen','Expressschlingen','Klemmkeile/Cams','Eisschrauben','Biwaksack','Stirnlampe'];
+  const selectedMaterial = Array.isArray(t.material) ? t.material : [];
+  const ROPE_TYPES = ['Einfachseil','Halbseilstrang','Zwillingsseil'];
+  const ROPE_LENGTHS = ['30m','50m','60m','70m'];
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${existing?'Tour bearbeiten':'Neue Tour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="tour-form" novalidate>
       <div class="field"><label>Tourtyp</label>
-        <select name="tourCategory">
-          <option value="hochtour" ${(t.tourCategory||'hochtour')==='hochtour'?'selected':''}>🏔️ Hochtour</option>
-          <option value="msl" ${t.tourCategory==='msl'?'selected':''}>🧗 MSL (Mehrseillängen-Klettertour)</option>
-        </select>
+        <div class="chips">
+          <button type="button" class="chip type-chip ${(t.tourCategory||'hochtour')==='hochtour'?'on':''}" style="${(t.tourCategory||'hochtour')==='hochtour'?'background:var(--ice-deep)':''}" data-type="hochtour">🏔️ Hochtour</button>
+          <button type="button" class="chip type-chip ${t.tourCategory==='msl'?'on':''}" style="${t.tourCategory==='msl'?'background:var(--ice-deep)':''}" data-type="msl">🧗 MSL</button>
+          <button type="button" class="chip type-chip" data-type="ski">🎿 Skitour</button>
+        </div>
+        <div class="hint">"Skitour" wechselt zu Firnspur — bereits Eingegebenes wird übernommen.</div>
+        <input type="hidden" name="tourCategory" id="tourcategory-hidden" value="${esc(t.tourCategory||'hochtour')}"/>
       </div>
       <div class="field"><label>Name der Tour *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Dom von der Domhütte"/></div>
       <div class="row2">
@@ -1003,7 +1044,31 @@ function tourFormHtml(existing){
           <div class="hint">Höchste Felsschwierigkeit auf der Route, falls vorhanden.</div>
         </div>
       </div>
-      <div class="field"><label>Region</label><input name="region" value="${esc(t.region||'')}" placeholder="z. B. Walliser Alpen"/></div>
+      <div class="field"><label>Region</label>
+        <div class="chips" id="region-chips">
+          ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${t.region===r?'on':''}" style="${t.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
+          <button type="button" class="chip region-chip ${t.region && !isKnownRegion?'on':''}" style="${t.region && !isKnownRegion?'background:var(--ice-deep)':''}" data-region="__other__">Anderes</button>
+        </div>
+        <input type="text" id="region-other-input" value="${!isKnownRegion?esc(t.region||''):''}" placeholder="eigene Region eintragen" style="margin-top:8px; ${t.region && !isKnownRegion?'':'display:none;'}"/>
+        <input type="hidden" name="region" id="region-hidden-input" value="${esc(t.region||'')}"/>
+      </div>
+      <div class="field"><label>Material</label>
+        <div class="chips">
+          ${MATERIAL.map(m=>`<label class="chip" style="cursor:pointer; ${selectedMaterial.includes(m)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="material" value="${m}" ${selectedMaterial.includes(m)?'checked':''} style="margin-right:5px;"/>${m}</label>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Seil – Typ</label>
+        <div class="chips" id="rope-type-chips">
+          ${ROPE_TYPES.map(r=>`<button type="button" class="chip rope-type-chip ${t.ropeType===r?'on':''}" style="${t.ropeType===r?'background:var(--ice-deep)':''}" data-rope-type="${r}">${r}</button>`).join('')}
+        </div>
+        <input type="hidden" name="ropeType" id="rope-type-hidden" value="${esc(t.ropeType||'')}"/>
+      </div>
+      <div class="field"><label>Seil – Länge</label>
+        <div class="chips" id="rope-length-chips">
+          ${ROPE_LENGTHS.map(r=>`<button type="button" class="chip rope-length-chip ${t.ropeLength===r?'on':''}" style="${t.ropeLength===r?'background:var(--ice-deep)':''}" data-rope-length="${r}">${r}</button>`).join('')}
+        </div>
+        <input type="hidden" name="ropeLength" id="rope-length-hidden" value="${esc(t.ropeLength||'')}"/>
+      </div>
       <div class="row2">
         <div class="field"><label>Ziel – Gipfelhöhe (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 4545"/></div>
         <div class="field"><label>Zeitbedarf (h)</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 6–8"/></div>
@@ -1014,7 +1079,7 @@ function tourFormHtml(existing){
       </div>
       <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Spaltenrisiko, Steinschlag, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
-      <div class="field"><label>Anfahrt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
+      <div class="field"><label>Anfahrt / Ausgangspunkt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
       <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abstiegsroute, Varianten, Abseilstellen …">${esc(t.descent||'')}</textarea></div>
       <div class="field"><label>Zustieg über Hütte</label>
@@ -1055,6 +1120,8 @@ function tourDetailHtml(id){
     </div>
     ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button>` : ''}
 
+    ${(t.material && t.material.length) ? `<div class="detail-section"><h4>Material</h4><p>${t.material.map(esc).join(', ')}</p></div>` : ''}
+    ${(t.ropeType || t.ropeLength) ? `<div class="detail-section"><h4>Seil</h4><p>${[t.ropeType, t.ropeLength].filter(Boolean).map(esc).join(' · ')}</p></div>` : ''}
     ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(t.approach)}</p></div>` : ''}
@@ -1607,6 +1674,58 @@ function wireModalHandlers(){
   const tourForm = document.getElementById('tour-form');
   dlog('tour-form im DOM gefunden: ' + !!tourForm);
   if(tourForm){
+    // Tourtyp-Chips (Hochtour / MSL / Skitour-Wechsel zu Firnspur)
+    tourForm.querySelectorAll('.type-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        const type = chip.getAttribute('data-type');
+        if(type==='ski'){
+          const fd = new FormData(tourForm);
+          const data = Object.fromEntries(fd.entries());
+          handoffToOtherApp('ski', data, './index.html');
+          return;
+        }
+        tourForm.querySelectorAll('.type-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        document.getElementById('tourcategory-hidden').value = type;
+      });
+    });
+    // Region-Chips
+    const regionHidden = document.getElementById('region-hidden-input');
+    const regionOtherInput = document.getElementById('region-other-input');
+    tourForm.querySelectorAll('.region-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        tourForm.querySelectorAll('.region-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        const region = chip.getAttribute('data-region');
+        if(region==='__other__'){
+          regionOtherInput.style.display = '';
+          regionOtherInput.focus();
+          regionHidden.value = regionOtherInput.value;
+        }else{
+          regionOtherInput.style.display = 'none';
+          regionHidden.value = region;
+        }
+      });
+    });
+    if(regionOtherInput) regionOtherInput.addEventListener('input', ()=>{ regionHidden.value = regionOtherInput.value; });
+    // Seil-Chips
+    const ropeTypeHidden = document.getElementById('rope-type-hidden');
+    tourForm.querySelectorAll('.rope-type-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        tourForm.querySelectorAll('.rope-type-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        ropeTypeHidden.value = chip.getAttribute('data-rope-type');
+      });
+    });
+    const ropeLengthHidden = document.getElementById('rope-length-hidden');
+    tourForm.querySelectorAll('.rope-length-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        tourForm.querySelectorAll('.rope-length-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        ropeLengthHidden.value = chip.getAttribute('data-rope-length');
+      });
+    });
+
     const tourSaveBtn = document.getElementById('tour-save-btn');
     if(tourSaveBtn){
       tourSaveBtn.addEventListener('click', (e)=>{
@@ -1615,6 +1734,7 @@ function wireModalHandlers(){
         try{
           const fd = new FormData(tourForm);
           const data = Object.fromEntries(fd.entries());
+          data.material = fd.getAll('material');
           if(!data.name || !data.name.trim()){
             dlog('Validierung fehlgeschlagen: Name fehlt', 'err');
             showFormError('tour-form', 'Bitte einen Namen für die Tour eingeben (ganz oben im Formular).');
@@ -1689,7 +1809,20 @@ try{
   if(savedName) state.myName = savedName;
 }catch(e){}
 dlog('App gestartet — Version ' + APP_VERSION);
-loadAll();
+loadAll().then(()=>{
+  const handoff = consumeHandoffIfPresent(['hochtour','msl']);
+  if(handoff){
+    ensureName(()=>{
+      state.modal = {type:'edit-tour', payload: {
+        name: handoff.name, region: handoff.region, targetAltitude: handoff.targetAltitude,
+        duration: handoff.duration, elevationGain: handoff.elevationGain, elevationLoss: handoff.elevationLoss,
+        tourLink: handoff.tourLink, special: handoff.special, approach: handoff.approach,
+        ascent: handoff.ascent, descent: handoff.descent, tourCategory: handoff.toType
+      }};
+      render();
+    });
+  }
+});
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
