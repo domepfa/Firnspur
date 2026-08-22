@@ -311,7 +311,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v19-tour-chips-handoff';
+const APP_VERSION = 'v20-standalone-forms';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -498,9 +498,9 @@ async function loadAll(){
     return;
   }
 
-  const tours = (toursObj ? Object.values(toursObj) : []).map(migrateCompletions);
-  const huts = (hutsObj ? Object.values(hutsObj) : []).map(migrateCompletions);
-  const agenda = agendaObj ? Object.values(agendaObj) : [];
+  const tours = (toursObj ? Object.values(toursObj) : []).filter(t=>t && t.id).map(migrateCompletions);
+  const huts = (hutsObj ? Object.values(hutsObj) : []).filter(h=>h && h.id).map(migrateCompletions);
+  const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id);
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
 
@@ -554,35 +554,6 @@ async function submitName(nameVal){
 }
 
 /* ================= Actions ================= */
-function handoffToOtherApp(toType, formData, targetUrl){
-  const payload = {
-    toType,
-    name: formData.name || '',
-    region: formData.region || '',
-    targetAltitude: formData.targetAltitude || '',
-    duration: formData.duration || '',
-    elevationGain: formData.elevationGain || '',
-    elevationLoss: formData.elevationLoss || '',
-    tourLink: formData.tourLink || '',
-    special: formData.special || '',
-    approach: formData.approach || '',
-    ascent: formData.ascent || '',
-    descent: formData.descent || ''
-  };
-  try{ localStorage.setItem('bergtouren-tour-handoff', JSON.stringify(payload)); }catch(e){}
-  window.location.href = targetUrl;
-}
-function consumeHandoffIfPresent(acceptedTypes){
-  try{
-    const raw = localStorage.getItem('bergtouren-tour-handoff');
-    if(!raw) return null;
-    const data = JSON.parse(raw);
-    localStorage.removeItem('bergtouren-tour-handoff');
-    if(!acceptedTypes.includes(data.toType)) return null;
-    return data;
-  }catch(e){ return null; }
-}
-
 function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:null}; render(); }); }
 function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); state.modal = {type:'edit-tour', payload:t}; render(); }); }
 function openTourDetail(id){ state.modal = {type:'tour-detail', payload:id}; render(); }
@@ -629,6 +600,7 @@ async function submitTourForm(form, existing){
   t.elevationLoss = form.elevationLoss;
   t.duration = form.duration;
   t.region = form.region;
+  t.material = form.material || [];
   t.hutId = form.hutId || '';
   t.tourLink = form.tourLink;
   t.special = form.special;
@@ -827,14 +799,14 @@ function emptyTouren(){
 }
 
 function tourCardHtml(t){
-  const d = DIFF[t.difficulty] || DIFF.L;
+  const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   return `
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
     <div class="card-top">
       <h3>${t.completed ? '✓ ' : ''}${esc(t.name)}</h3>
       <div class="badge-row">
-        <span class="badge" style="background:${d.color}">${t.difficulty}</span>
+        ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
       </div>
     </div>
@@ -994,23 +966,32 @@ function completeFormHtml(kind, id){
 function tourFormHtml(existing){
   const t = existing || {};
   const hutOptions = state.huts.map(h=>`<option value="${h.id}" ${t.hutId===h.id?'selected':''}>${esc(h.name)}</option>`).join('');
+  const REGIONS = ['Wallis','Berner Oberland','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
+  const isKnownRegion = REGIONS.includes(t.region);
+  const MATERIAL = ['LVS-Gerät','Schaufel','Sonde','Harscheisen','Steigeisen','Pickel','Lawinenairbag','Biwaksack','Stirnlampe'];
+  const selectedMaterial = Array.isArray(t.material) ? t.material : [];
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${existing?'Tour bearbeiten':'Neue Skitour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="tour-form" novalidate>
-      <div class="field"><label>Tourtyp</label>
-        <div class="chips">
-          <button type="button" class="chip type-chip on" style="background:var(--ice-deep)" data-type="ski">🎿 Skitour</button>
-          <button type="button" class="chip type-chip" data-type="hochtour">🏔️ Hochtour</button>
-          <button type="button" class="chip type-chip" data-type="msl">🧗 MSL</button>
-        </div>
-        <div class="hint">"Hochtour"/"MSL" wechselt zu Fixseil — bereits Eingegebenes wird übernommen.</div>
-      </div>
       <div class="field"><label>Name der Tour *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Titlis von Engstlenalp"/></div>
-      <div class="row2">
-        <div class="field"><label>Schwierigkeit (SAC)</label>
-          <select name="difficulty">${DIFF_ORDER.map(c=>`<option value="${c}" ${(t.difficulty||'WS')===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}</select>
+      <div class="field"><label>Schwierigkeit (SAC)</label>
+        <select name="difficulty">
+          <option value="" ${!t.difficulty?'selected':''}>— keine Angabe —</option>
+          ${DIFF_ORDER.map(c=>`<option value="${c}" ${t.difficulty===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Region</label>
+        <div class="chips" id="region-chips">
+          ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${t.region===r?'on':''}" style="${t.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
+          <button type="button" class="chip region-chip ${t.region && !isKnownRegion?'on':''}" style="${t.region && !isKnownRegion?'background:var(--ice-deep)':''}" data-region="__other__">Anderes</button>
         </div>
-        <div class="field"><label>Region</label><input name="region" value="${esc(t.region||'')}" placeholder="z. B. Berner Oberland"/></div>
+        <input type="text" id="region-other-input" value="${!isKnownRegion?esc(t.region||''):''}" placeholder="eigene Region eintragen" style="margin-top:8px; ${t.region && !isKnownRegion?'':'display:none;'}"/>
+        <input type="hidden" name="region" id="region-hidden-input" value="${esc(t.region||'')}"/>
+      </div>
+      <div class="field"><label>Material</label>
+        <div class="chips">
+          ${MATERIAL.map(m=>`<label class="chip" style="cursor:pointer; ${selectedMaterial.includes(m)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="material" value="${m}" ${selectedMaterial.includes(m)?'checked':''} style="margin-right:5px;"/>${m}</label>`).join('')}
+        </div>
       </div>
       <div class="row2">
         <div class="field"><label>Ziel – Gipfelhöhe (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 3020"/></div>
@@ -1033,6 +1014,15 @@ function tourFormHtml(existing){
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="tour-save-btn" class="btn">${existing?'Speichern':'Tour anlegen'}</button>
       </div>
+      ${existing ? `
+      <div id="delete-tour-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
+        <button type="button" id="delete-tour-trigger" data-id="${t.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Tour löschen</button>
+        <div id="delete-tour-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
+          Wirklich unwiderruflich löschen?
+          <button type="button" id="delete-tour-yes" data-id="${t.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
+          <button type="button" id="delete-tour-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+        </div>
+      </div>` : ''}
     </form>
   </div>`;
 }
@@ -1040,13 +1030,13 @@ function tourFormHtml(existing){
 function tourDetailHtml(id){
   const t = state.tours.find(x=>x.id===id);
   if(!t) return `<div class="modal" data-stop="1"><p>Tour nicht gefunden.</p></div>`;
-  const d = DIFF[t.difficulty] || DIFF.L;
+  const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div>
         <div class="detail-badge-row">
-        <span class="badge" style="background:${d.color}">${t.difficulty} · ${d.label}</span>
+        ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty} · ${d.label}</span>` : `<span class="badge" style="background:var(--ink-faint)">unbewertet</span>`}
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
       </div>
         <h2>${esc(t.name)}</h2>
@@ -1061,6 +1051,7 @@ function tourDetailHtml(id){
     </div>
     ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
 
+    ${(t.material && t.material.length) ? `<div class="detail-section"><h4>Material</h4><p>${t.material.map(esc).join(', ')}</p></div>` : ''}
     ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(t.approach)}</p></div>` : ''}
@@ -1129,6 +1120,15 @@ function hutFormHtml(existing){
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="hut-save-btn" class="btn">${existing?'Speichern':'Hütte anlegen'}</button>
       </div>
+      ${existing ? `
+      <div id="delete-hut-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
+        <button type="button" id="delete-hut-trigger" data-id="${h.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Hütte löschen</button>
+        <div id="delete-hut-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
+          Wirklich unwiderruflich löschen?
+          <button type="button" id="delete-hut-yes" data-id="${h.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
+          <button type="button" id="delete-hut-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+        </div>
+      </div>` : ''}
     </form>
   </div>`;
 }
@@ -1642,19 +1642,25 @@ function wireModalHandlers(){
   const tourForm = document.getElementById('tour-form');
   dlog('tour-form im DOM gefunden: ' + !!tourForm);
   if(tourForm){
-    tourForm.querySelectorAll('.type-chip').forEach(chip=>{
+    // Region-Chips
+    const regionHidden = document.getElementById('region-hidden-input');
+    const regionOtherInput = document.getElementById('region-other-input');
+    tourForm.querySelectorAll('.region-chip').forEach(chip=>{
       chip.addEventListener('click', ()=>{
-        const type = chip.getAttribute('data-type');
-        if(type==='hochtour' || type==='msl'){
-          const fd = new FormData(tourForm);
-          const data = Object.fromEntries(fd.entries());
-          handoffToOtherApp(type, data, './fixseil.html');
-          return;
-        }
-        tourForm.querySelectorAll('.type-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        tourForm.querySelectorAll('.region-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
         chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        const region = chip.getAttribute('data-region');
+        if(region==='__other__'){
+          regionOtherInput.style.display = '';
+          regionOtherInput.focus();
+          regionHidden.value = regionOtherInput.value;
+        }else{
+          regionOtherInput.style.display = 'none';
+          regionHidden.value = region;
+        }
       });
     });
+    if(regionOtherInput) regionOtherInput.addEventListener('input', ()=>{ regionHidden.value = regionOtherInput.value; });
 
     const tourSaveBtn = document.getElementById('tour-save-btn');
     if(tourSaveBtn){
@@ -1664,6 +1670,7 @@ function wireModalHandlers(){
         try{
           const fd = new FormData(tourForm);
           const data = Object.fromEntries(fd.entries());
+          data.material = fd.getAll('material');
           if(!data.name || !data.name.trim()){
             dlog('Validierung fehlgeschlagen: Name fehlt', 'err');
             showFormError('tour-form', 'Bitte einen Namen für die Tour eingeben (ganz oben im Formular).');
@@ -1704,6 +1711,30 @@ function wireModalHandlers(){
     }
   }
 
+  // Dezente Löschen-Funktion mit zweistufiger Bestätigung (Tour & Hütte)
+  function wireDeleteConfirm(prefix, removeFn, onDeletedGoTo){
+    const trigger = document.getElementById(`delete-${prefix}-trigger`);
+    const confirmBox = document.getElementById(`delete-${prefix}-confirm`);
+    const yesBtn = document.getElementById(`delete-${prefix}-yes`);
+    const noBtn = document.getElementById(`delete-${prefix}-no`);
+    if(!trigger) return;
+    trigger.addEventListener('click', ()=>{
+      trigger.style.display = 'none';
+      confirmBox.style.display = '';
+    });
+    if(noBtn) noBtn.addEventListener('click', ()=>{
+      confirmBox.style.display = 'none';
+      trigger.style.display = '';
+    });
+    if(yesBtn) yesBtn.addEventListener('click', ()=>{
+      removeFn(yesBtn.getAttribute('data-id'));
+      closeModal();
+      showToast(onDeletedGoTo + ' gelöscht.');
+    });
+  }
+  wireDeleteConfirm('tour', removeTour, 'Tour');
+  wireDeleteConfirm('hut', removeHut, 'Hütte');
+
   root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-hut"]').forEach(el=> el.onclick = ()=>openHutDetail(el.getAttribute('data-id')));
@@ -1738,20 +1769,7 @@ try{
   if(savedName) state.myName = savedName;
 }catch(e){}
 dlog('App gestartet — Version ' + APP_VERSION);
-loadAll().then(()=>{
-  const handoff = consumeHandoffIfPresent(['ski']);
-  if(handoff){
-    ensureName(()=>{
-      state.modal = {type:'edit-tour', payload: {
-        name: handoff.name, region: handoff.region, targetAltitude: handoff.targetAltitude,
-        duration: handoff.duration, elevationGain: handoff.elevationGain, elevationLoss: handoff.elevationLoss,
-        tourLink: handoff.tourLink, special: handoff.special, approach: handoff.approach,
-        ascent: handoff.ascent, descent: handoff.descent
-      }};
-      render();
-    });
-  }
-});
+loadAll();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
