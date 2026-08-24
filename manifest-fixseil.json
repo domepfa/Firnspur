@@ -1,6 +1,6 @@
 {
-  "name": "Fixseil – Hochtouren & Hütten",
-  "short_name": "Fixseil",
+  "name": "Hochtour/MSL – Touren & Hütten",
+  "short_name": "Hochtour/MSL",
   "start_url": "./fixseil.html",
   "display": "standalone",
   "background_color": "#4A3524",
