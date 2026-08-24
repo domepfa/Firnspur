@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Firnspur — Skitouren gemeinsam planen</title>
+<title>Skitour — gemeinsam planen</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" href="./IMG-20260816-WA0023.jpg">
 <link rel="apple-touch-icon" href="./IMG-20260816-WA0023.jpg">
@@ -302,8 +302,8 @@
 </head>
 <body>
 <div class="app-switch-bar">
-  <a href="./index.html" class="active">🎿 Firnspur</a>
-  <a href="./fixseil.html">🧗 Fixseil</a>
+  <a href="./index.html" class="active">🎿 Skitour</a>
+  <a href="./fixseil.html">🧗 Hochtour/MSL</a>
 </div>
 <div id="app"></div>
 <button class="debug-toggle" id="debug-toggle-btn" onclick="toggleDebugPanel()">Diagnose v12</button>
@@ -311,7 +311,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v20-standalone-forms';
+const APP_VERSION = 'v21-safety-agenda-status';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -403,6 +403,11 @@ const DIFF = {
   'SS':  {label:'Sehr schwierig', color:'var(--d-SS)', desc:'Durchgehend sehr steil, kurze Extrempassagen.'}
 };
 const DIFF_ORDER = ['L','WS-','WS','WS+','ZS-','ZS','ZS+','S-','S','SS'];
+const EXPOSITIONS = ['N','NE','E','SE','S','SW','W','NW'];
+const GEFAHREN_SKI = ['Lawinenhang','Triebschnee','Steilhänge über 40°','Absturzgelände','Engpass','vereiste Passage','Gletscher/Spalten','schwierige Orientierung','Waldpassagen','Wechten'];
+const MATERIAL_SKI = ['Steigeisen','Pickel','Gurt','Spaltenrettung'];
+const ROPE_TYPES_SKI = ['Gletscherseil','Einfachseil','Halbseilstrang','Zwillingsseil'];
+const ROPE_LENGTHS_SKI = ['30m','40m','50m','60m','70m'];
 
 /* ================= State ================= */
 let state = {
@@ -500,7 +505,7 @@ async function loadAll(){
 
   const tours = (toursObj ? Object.values(toursObj) : []).filter(t=>t && t.id).map(migrateCompletions);
   const huts = (hutsObj ? Object.values(hutsObj) : []).filter(h=>h && h.id).map(migrateCompletions);
-  const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id);
+  const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id).map(migrateAgendaStatus);
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
 
@@ -601,6 +606,10 @@ async function submitTourForm(form, existing){
   t.duration = form.duration;
   t.region = form.region;
   t.material = form.material || [];
+  t.exposition = form.exposition || [];
+  t.gefahren = form.gefahren || [];
+  t.ropeType = form.ropeType || '';
+  t.ropeLength = form.ropeLength || '';
   t.hutId = form.hutId || '';
   t.tourLink = form.tourLink;
   t.special = form.special;
@@ -738,7 +747,7 @@ function shellHtml(){
   <div class="hero">
     <div class="hero-top">
       <div class="brand">
-        <h1>Firnspur</h1>
+        <h1>Skitour</h1>
       </div>
       <div class="who">
         <div class="who-row">
@@ -968,8 +977,10 @@ function tourFormHtml(existing){
   const hutOptions = state.huts.map(h=>`<option value="${h.id}" ${t.hutId===h.id?'selected':''}>${esc(h.name)}</option>`).join('');
   const REGIONS = ['Wallis','Berner Oberland','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
   const isKnownRegion = REGIONS.includes(t.region);
-  const MATERIAL = ['LVS-Gerät','Schaufel','Sonde','Harscheisen','Steigeisen','Pickel','Lawinenairbag','Biwaksack','Stirnlampe'];
+  const MATERIAL = MATERIAL_SKI;
   const selectedMaterial = Array.isArray(t.material) ? t.material : [];
+  const selectedExposition = Array.isArray(t.exposition) ? t.exposition : [];
+  const selectedGefahren = Array.isArray(t.gefahren) ? t.gefahren : [];
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${existing?'Tour bearbeiten':'Neue Skitour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="tour-form" novalidate>
@@ -988,10 +999,32 @@ function tourFormHtml(existing){
         <input type="text" id="region-other-input" value="${!isKnownRegion?esc(t.region||''):''}" placeholder="eigene Region eintragen" style="margin-top:8px; ${t.region && !isKnownRegion?'':'display:none;'}"/>
         <input type="hidden" name="region" id="region-hidden-input" value="${esc(t.region||'')}"/>
       </div>
+      <div class="field"><label>Exposition</label>
+        <div class="chips">
+          ${EXPOSITIONS.map(x=>`<label class="chip" style="cursor:pointer; ${selectedExposition.includes(x)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="exposition" value="${x}" ${selectedExposition.includes(x)?'checked':''} style="margin-right:5px;"/>${x}</label>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Gefahren</label>
+        <div class="chips">
+          ${GEFAHREN_SKI.map(g=>`<label class="chip" style="cursor:pointer; ${selectedGefahren.includes(g)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="gefahren" value="${g}" ${selectedGefahren.includes(g)?'checked':''} style="margin-right:5px;"/>${g}</label>`).join('')}
+        </div>
+      </div>
       <div class="field"><label>Material</label>
         <div class="chips">
           ${MATERIAL.map(m=>`<label class="chip" style="cursor:pointer; ${selectedMaterial.includes(m)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="material" value="${m}" ${selectedMaterial.includes(m)?'checked':''} style="margin-right:5px;"/>${m}</label>`).join('')}
         </div>
+      </div>
+      <div class="field"><label>Seil – Typ</label>
+        <div class="chips" id="rope-type-chips">
+          ${ROPE_TYPES_SKI.map(r=>`<button type="button" class="chip rope-type-chip ${t.ropeType===r?'on':''}" style="${t.ropeType===r?'background:var(--ice-deep)':''}" data-rope-type="${r}">${r}</button>`).join('')}
+        </div>
+        <input type="hidden" name="ropeType" id="rope-type-hidden" value="${esc(t.ropeType||'')}"/>
+      </div>
+      <div class="field"><label>Seil – Länge</label>
+        <div class="chips" id="rope-length-chips">
+          ${ROPE_LENGTHS_SKI.map(r=>`<button type="button" class="chip rope-length-chip ${t.ropeLength===r?'on':''}" style="${t.ropeLength===r?'background:var(--ice-deep)':''}" data-rope-length="${r}">${r}</button>`).join('')}
+        </div>
+        <input type="hidden" name="ropeLength" id="rope-length-hidden" value="${esc(t.ropeLength||'')}"/>
       </div>
       <div class="row2">
         <div class="field"><label>Ziel – Gipfelhöhe (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 3020"/></div>
@@ -1051,7 +1084,10 @@ function tourDetailHtml(id){
     </div>
     ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
 
+    ${(t.exposition && t.exposition.length) ? `<div class="detail-section"><h4>Exposition</h4><p>${t.exposition.map(esc).join(', ')}</p></div>` : ''}
+    ${(t.gefahren && t.gefahren.length) ? `<div class="detail-section"><h4>Gefahren</h4><p>${t.gefahren.map(esc).join(', ')}</p></div>` : ''}
     ${(t.material && t.material.length) ? `<div class="detail-section"><h4>Material</h4><p>${t.material.map(esc).join(', ')}</p></div>` : ''}
+    ${(t.ropeType || t.ropeLength) ? `<div class="detail-section"><h4>Seil</h4><p>${[t.ropeType, t.ropeLength].filter(Boolean).map(esc).join(' · ')}</p></div>` : ''}
     ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(t.approach)}</p></div>` : ''}
@@ -1201,43 +1237,70 @@ function isPastAgendaItem(item){
   return ref < todayStr();
 }
 
+/* ================= Agenda: Status-Workflow ================= */
+const AGENDA_STATUS_ORDER = ['idee','termin-gesucht','geplant','bestaetigt','abgesagt','durchgefuehrt'];
+const AGENDA_STATUS_LABELS = {
+  'idee':'Idee', 'termin-gesucht':'Termin gesucht', 'geplant':'Geplant',
+  'bestaetigt':'Bestätigt', 'abgesagt':'Abgesagt', 'durchgefuehrt':'Durchgeführt'
+};
+function migrateAgendaStatus(a){
+  if(!a.status){
+    a.status = a.cancelled ? 'abgesagt' : (isPastAgendaItem(a) ? 'durchgefuehrt' : 'geplant');
+  }
+  return a;
+}
+
 function agendaViewHtml(){
-  const active = state.agenda.filter(a=>!a.cancelled && !isPastAgendaItem(a))
-    .sort((a,b)=> (a.startDate||'').localeCompare(b.startDate||''));
-  const archived = state.agenda.filter(a=>a.cancelled || isPastAgendaItem(a))
-    .sort((a,b)=> (b.startDate||'').localeCompare(a.startDate||''));
+  const groups = {};
+  AGENDA_STATUS_ORDER.forEach(s=> groups[s] = []);
+  state.agenda.forEach(a=>{ (groups[a.status] || groups['geplant']).push(a); });
+  const descStatuses = ['abgesagt','durchgefuehrt'];
+  AGENDA_STATUS_ORDER.forEach(s=>{
+    groups[s].sort((a,b)=> descStatuses.includes(s)
+      ? (b.startDate||'').localeCompare(a.startDate||'')
+      : (a.startDate||'').localeCompare(b.startDate||''));
+  });
   return `
     <div class="toolbar">
       <div></div>
       <button class="btn" data-act="add-agenda">+ Neuer Termin</button>
     </div>
-    ${active.length ? `<div class="grid">${active.map(agendaCardHtml).join('')}</div>` : `<div class="empty">
+    ${state.agenda.length===0 ? `<div class="empty">
       <h3>Noch keine Termine geplant</h3>
       <p>Schlag einen Zeitraum und eine Tour vor — andere können sich direkt eintragen.</p>
       <button class="btn" data-act="add-agenda">+ Neuer Termin</button>
-    </div>`}
-    ${archived.length ? `<div class="detail-section" style="margin-top:30px;">
-      <h4>Archiv (vergangen / abgesagt) — ${archived.length}</h4>
-      <div class="grid" style="margin-top:6px;">${archived.map(agendaCardHtml).join('')}</div>
-    </div>` : ''}
+    </div>` : AGENDA_STATUS_ORDER.map(s=>`
+    <div class="detail-section" style="margin-bottom:24px;">
+      <h4>${AGENDA_STATUS_LABELS[s]} (${groups[s].length})</h4>
+      ${groups[s].length ? `<div class="grid" style="margin-top:6px;">${groups[s].map(agendaCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-faint); margin:4px 0 0 0;">—</p>`}
+    </div>`).join('')}
   `;
+}
+
+function agendaStatusSelectHtml(a){
+  return `<select class="agenda-status-select" data-id="${a.id}" style="margin-top:8px; width:auto; padding:6px 10px; font-size:13px;">
+    ${AGENDA_STATUS_ORDER.map(s=>`<option value="${s}" ${a.status===s?'selected':''}>${AGENDA_STATUS_LABELS[s]}</option>`).join('')}
+  </select>`;
 }
 
 function agendaCardHtml(a){
   const dateLabel = a.endDate && a.endDate!==a.startDate
     ? `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)} – ${fmtWeekday(a.endDate)}, ${fmtDateShort(a.endDate)}`
     : `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)}`;
+  const dim = (a.status==='abgesagt') ? 'opacity:0.55;' : '';
   return `
-  <div class="card" data-act="open-agenda" data-id="${a.id}" tabindex="0" role="button" style="${a.cancelled?'opacity:0.55;':''}">
-    <div class="agenda-date-row">📅 ${dateLabel}</div>
-    <div class="card-top">
-      <h3>${a.cancelled ? '❌ ' : ''}${esc(a.tourName || 'Termin')}</h3>
+  <div class="card" data-id="${a.id}" style="${dim}">
+    <div class="agenda-date-row" data-act="open-agenda" data-id="${a.id}" style="cursor:pointer;">📅 ${dateLabel}</div>
+    <div class="card-top" data-act="open-agenda" data-id="${a.id}" style="cursor:pointer;">
+      <h3>${a.status==='abgesagt' ? '❌ ' : ''}${esc(a.tourName || 'Termin')}</h3>
       <span class="badge" style="background:${a.type==='hochtour'?'var(--ice-deep)':'var(--ice)'}">${a.type==='hochtour'?'🧗 Hochtour':'🎿 Skitour'}</span>
     </div>
+    ${a.meetingPoint ? `<div class="stat-row"><span>📍 ${esc(a.meetingPoint)}</span></div>` : ''}
     ${a.note ? `<p class="excerpt">${esc(a.note)}</p>` : ''}
     <span class="hut-link-chip">${(a.participants||[]).length} dabei${(a.participants||[]).length ? ': ' + (a.participants||[]).map(p=>esc(p.by)).join(', ') : ''}</span>
     ${a._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
     <div class="meta-line">von ${esc(a.createdBy||'?')} · ${fmtDate(a.createdAt)}</div>
+    ${agendaStatusSelectHtml(a)}
   </div>`;
 }
 
@@ -1248,13 +1311,11 @@ function agendaDetailHtml(id){
     ? `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)} – ${fmtWeekday(a.endDate)}, ${fmtDateShort(a.endDate)}`
     : `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)}`;
   const joined = state.myName && (a.participants||[]).some(p=>p.by===state.myName);
-  const isCreator = state.myName && a.createdBy===state.myName;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div>
         <div class="detail-badge-row">
           <span class="badge" style="background:${a.type==='hochtour'?'var(--ice-deep)':'var(--ice)'}">${a.type==='hochtour'?'🧗 Hochtour':'🎿 Skitour'}</span>
-          ${a.cancelled ? `<span class="badge" style="background:var(--danger)">Abgesagt</span>` : ''}
         </div>
         <h2>${esc(a.tourName || 'Termin')}</h2>
       </div>
@@ -1263,6 +1324,8 @@ function agendaDetailHtml(id){
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${dateLabel}</div><div class="lbl">Zeitraum</div></div>
     </div>
+    ${a.meetingPoint ? `<div class="detail-section"><h4>Treffpunkt</h4><p>${esc(a.meetingPoint)}</p></div>` : ''}
+    <div class="field"><label>Status</label>${agendaStatusSelectHtml(a)}</div>
     ${a.note ? `<div class="detail-section"><h4>Notiz</h4><p>${esc(a.note)}</p></div>` : ''}
     <div class="detail-section">
       <h4>Teilnehmer (${(a.participants||[]).length})</h4>
@@ -1270,8 +1333,7 @@ function agendaDetailHtml(id){
     </div>
     <div class="meta-line" style="margin-top:16px;">Vorgeschlagen von ${esc(a.createdBy||'?')} · ${fmtDate(a.createdAt)}</div>
     <div class="detail-actions">
-      ${!a.cancelled ? `<button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>` : ''}
-      ${!a.cancelled ? `<button class="btn danger" data-act="cancel-agenda" data-id="${a.id}">Termin absagen</button>` : `<button class="btn secondary" data-act="reactivate-agenda" data-id="${a.id}">Termin wieder aktivieren</button>`}
+      <button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>
     </div>
   </div>`;
 }
@@ -1309,7 +1371,8 @@ function agendaFormHtml(){
         </select>
       </div>
       <div class="field" id="agenda-custom-field"><label>Geplante Tour / Idee</label><input name="customName" placeholder="z. B. Wildspitze über Vent"/></div>
-      <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Treffpunkt, Ausrüstung, offene Fragen …"></textarea></div>
+      <div class="field"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof"/></div>
+      <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Ausrüstung, offene Fragen …"></textarea></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="agenda-save-btn" class="btn">Termin vorschlagen</button>
@@ -1335,8 +1398,9 @@ async function submitAgendaForm(form){
   const a = {
     id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
     type: form.type||'ski', startDate, endDate: form.endDate||'',
-    tourName, note: form.note||'', participants: [{by: state.myName, joinedAt: new Date().toISOString()}],
-    cancelled: false
+    tourName, meetingPoint: form.meetingPoint||'', note: form.note||'',
+    participants: [{by: state.myName, joinedAt: new Date().toISOString()}],
+    status: 'geplant'
   };
   state.agenda.unshift(a);
   closeModal();
@@ -1365,20 +1429,10 @@ async function toggleParticipation(id){
   });
 }
 
-async function cancelAgendaItem(id){
+async function setAgendaStatus(id, status){
   const a = state.agenda.find(x=>x.id===id);
-  if(!a) return;
-  a.cancelled = true;
-  render();
-  const ok = await saveAgendaCloud(a).catch(()=>false);
-  a._unsynced = !ok;
-  if(!ok) markUnsaved();
-  render();
-}
-async function reactivateAgendaItem(id){
-  const a = state.agenda.find(x=>x.id===id);
-  if(!a) return;
-  a.cancelled = false;
+  if(!a || !AGENDA_STATUS_ORDER.includes(status)) return;
+  a.status = status;
   render();
   const ok = await saveAgendaCloud(a).catch(()=>false);
   a._unsynced = !ok;
@@ -1508,6 +1562,10 @@ function wireGlobalHandlers(){
     else if(act==='filter-diff') el.onclick = ()=>toggleDiffFilter(el.getAttribute('data-code'));
     else if(act==='search') el.oninput = (e)=>{ state.search = e.target.value; renderListOnly(); };
   });
+  app.querySelectorAll('.agenda-status-select').forEach(sel=>{
+    sel.addEventListener('click', e=> e.stopPropagation());
+    sel.addEventListener('change', ()=> setAgendaStatus(sel.getAttribute('data-id'), sel.value));
+  });
 }
 
 // Lightweight partial re-render for search input to avoid focus loss
@@ -1539,10 +1597,10 @@ function wireModalHandlers(){
 
   const toggleParticipationBtn = root.querySelector('[data-act="toggle-participation"]');
   if(toggleParticipationBtn) toggleParticipationBtn.onclick = ()=> toggleParticipation(toggleParticipationBtn.getAttribute('data-id'));
-  const cancelAgendaBtn = root.querySelector('[data-act="cancel-agenda"]');
-  if(cancelAgendaBtn) cancelAgendaBtn.onclick = ()=> cancelAgendaItem(cancelAgendaBtn.getAttribute('data-id'));
-  const reactivateAgendaBtn = root.querySelector('[data-act="reactivate-agenda"]');
-  if(reactivateAgendaBtn) reactivateAgendaBtn.onclick = ()=> reactivateAgendaItem(reactivateAgendaBtn.getAttribute('data-id'));
+  root.querySelectorAll('.agenda-status-select').forEach(sel=>{
+    sel.addEventListener('click', e=> e.stopPropagation());
+    sel.addEventListener('change', ()=> setAgendaStatus(sel.getAttribute('data-id'), sel.value));
+  });
 
   const agendaForm = document.getElementById('agenda-form');
   if(agendaForm){
@@ -1661,6 +1719,23 @@ function wireModalHandlers(){
       });
     });
     if(regionOtherInput) regionOtherInput.addEventListener('input', ()=>{ regionHidden.value = regionOtherInput.value; });
+    // Seil-Chips
+    const ropeTypeHidden = document.getElementById('rope-type-hidden');
+    tourForm.querySelectorAll('.rope-type-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        tourForm.querySelectorAll('.rope-type-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        ropeTypeHidden.value = chip.getAttribute('data-rope-type');
+      });
+    });
+    const ropeLengthHidden = document.getElementById('rope-length-hidden');
+    tourForm.querySelectorAll('.rope-length-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        tourForm.querySelectorAll('.rope-length-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        ropeLengthHidden.value = chip.getAttribute('data-rope-length');
+      });
+    });
 
     const tourSaveBtn = document.getElementById('tour-save-btn');
     if(tourSaveBtn){
@@ -1671,6 +1746,8 @@ function wireModalHandlers(){
           const fd = new FormData(tourForm);
           const data = Object.fromEntries(fd.entries());
           data.material = fd.getAll('material');
+          data.exposition = fd.getAll('exposition');
+          data.gefahren = fd.getAll('gefahren');
           if(!data.name || !data.name.trim()){
             dlog('Validierung fehlgeschlagen: Name fehlt', 'err');
             showFormError('tour-form', 'Bitte einen Namen für die Tour eingeben (ganz oben im Formular).');
