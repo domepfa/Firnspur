@@ -1,6 +1,6 @@
 {
-  "name": "Firnspur – Skitouren & Hütten",
-  "short_name": "Firnspur",
+  "name": "Skitour – Touren & Hütten",
+  "short_name": "Skitour",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#1F4D63",
