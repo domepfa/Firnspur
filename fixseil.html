@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fixseil — Hochtouren gemeinsam planen</title>
+<title>Hochtour/MSL — gemeinsam planen</title>
 <link rel="manifest" href="./manifest-fixseil.json">
 <link rel="icon" href="./IMG-20260816-WA0023.jpg">
 <link rel="apple-touch-icon" href="./IMG-20260816-WA0023.jpg">
@@ -302,8 +302,8 @@
 </head>
 <body>
 <div class="app-switch-bar">
-  <a href="./index.html">🎿 Firnspur</a>
-  <a href="./fixseil.html" class="active">🧗 Fixseil</a>
+  <a href="./index.html">🎿 Skitour</a>
+  <a href="./fixseil.html" class="active">🧗 Hochtour/MSL</a>
 </div>
 <div id="app"></div>
 <button class="debug-toggle" id="debug-toggle-btn" onclick="toggleDebugPanel()">Diagnose v1</button>
@@ -311,7 +311,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v8-standalone-forms';
+const APP_VERSION = 'v9-safety-agenda-status';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -415,6 +415,18 @@ const CLIMB_ORDER = ['1','2a-','2a','2a+','2b-','2b','2b+','2c-','2c','2c+',
   '5a-','5a','5a+','5b-','5b','5b+','5c-','5c','5c+',
   '6a-','6a','6a+','6b-','6b','6b+','6c-','6c','6c+','7a'];
 
+const EXPOSITIONS = ['N','NE','E','SE','S','SW','W','NW'];
+const GEFAHREN_HOCHTOUR = ['Spalten','Steinschlag','Eispassage','Firngrat','Wechte','Absturzgelände','schwierige Wegfindung','brüchiger Fels','schwieriger Rückzug'];
+const GEFAHREN_MSL = ['Steinschlag','brüchiger Fels','Runout','schwieriger Rückzug','nasser Fels','komplexer Abstieg','Abseilstellen','ausgesetzter Zustieg'];
+const MATERIAL_FIXSEIL = ['Steigeisen','Pickel','Gurt','Helm','Spaltenrettung','Eisschrauben','Schraubkarabiner','Prusik','Bandschlingen','Friends','Keile','Biwaksack','Stirnlampe'];
+const PROTECTION_LEVELS = [
+  {value:'sehr-gut', label:'●●●● Sehr gut', desc:'kurze Hakenabstände'},
+  {value:'gut', label:'●●●○ Gut', desc:'solide Absicherung, teilweise weitere Abstände'},
+  {value:'alpin', label:'●●○○ Alpin', desc:'zusätzliche mobile Sicherungsmittel sinnvoll'},
+  {value:'ernst', label:'●○○○ Ernst', desc:'weite Abstände oder schwieriger Rückzug'}
+];
+const DESCENT_TYPES = ['Fussabstieg','Abseilen','Fussabstieg und Abseilen'];
+
 /* ================= State ================= */
 let state = {
   view: 'touren',
@@ -506,7 +518,7 @@ async function loadAll(){
 
   const tours = (toursObj ? Object.values(toursObj) : []).filter(t=>t && t.id);
   const huts = (hutsObj ? Object.values(hutsObj) : []).filter(h=>h && h.id);
-  const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id);
+  const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id).map(migrateAgendaStatus);
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
 
@@ -597,8 +609,6 @@ async function submitTourForm(form, existing){
   const t = existing ? {...existing} : {id: uid('t'), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null};
   t.name = form.name.trim();
   t.tourCategory = form.tourCategory || 'hochtour';
-  t.difficulty = form.difficulty;
-  t.climbGrade = form.climbGrade || '';
   t.targetAltitude = form.targetAltitude;
   t.elevationGain = form.elevationGain;
   t.elevationLoss = form.elevationLoss;
@@ -613,6 +623,27 @@ async function submitTourForm(form, existing){
   t.approach = form.approach;
   t.ascent = form.ascent;
   t.descent = form.descent;
+
+  if(t.tourCategory==='msl'){
+    t.mandatoryDifficulty = form.mandatoryDifficulty || '';
+    t.cruxDifficulty = form.cruxDifficulty || '';
+    t.pitchCount = form.pitchCount || '';
+    t.longestPitch = form.longestPitch || '';
+    t.protection = form.protection || '';
+    t.descentType = form.descentType || '';
+    t.exposition = form.expositionMsl || [];
+    t.gefahren = form.gefahrenMsl || [];
+    t.difficulty = ''; t.climbGrade = ''; t.glacier = ''; t.crevasseRisk = '';
+  }else{
+    t.difficulty = form.difficulty || '';
+    t.climbGrade = form.climbGrade || '';
+    t.glacier = form.glacier || 'nein';
+    t.crevasseRisk = form.crevasseRisk || 'nein';
+    t.exposition = form.expositionHochtour || [];
+    t.gefahren = form.gefahrenHochtour || [];
+    t.mandatoryDifficulty = ''; t.cruxDifficulty = ''; t.pitchCount = ''; t.longestPitch = ''; t.protection = ''; t.descentType = '';
+  }
+
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
 
@@ -744,7 +775,7 @@ function shellHtml(){
   <div class="hero">
     <div class="hero-top">
       <div class="brand">
-        <h1>Fixseil</h1>
+        <h1>Hochtour/MSL</h1>
       </div>
       <div class="who">
         <div class="who-row">
@@ -813,18 +844,21 @@ function emptyTouren(){
 }
 
 function tourCardHtml(t){
+  const isMsl = t.tourCategory==='msl';
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   const done = (t.completions && t.completions.length) || t.completed;
   const last = latestCompletion(t.completions);
   return `
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
-    <div class="agenda-date-row" style="font-size:12px; margin-bottom:6px;">${t.tourCategory==='msl' ? '🧗 MSL — Mehrseillängen' : '🏔️ Hochtour'}</div>
+    <div class="agenda-date-row" style="font-size:12px; margin-bottom:6px;">${isMsl ? '🧗 MSL — Mehrseillängen' : '🏔️ Hochtour'}</div>
     <div class="card-top">
       <h3>${done ? '✓ ' : ''}${esc(t.name)}</h3>
       <div class="badge-row">
-        ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}
-        ${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}
+        ${isMsl
+          ? `${t.mandatoryDifficulty ? `<span class="badge climb">${esc(t.mandatoryDifficulty)}</span>` : ''}`
+          : `${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}`
+        }
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
       </div>
     </div>
@@ -986,9 +1020,8 @@ function tourFormHtml(existing){
   const hutOptions = state.huts.map(h=>`<option value="${h.id}" ${t.hutId===h.id?'selected':''}>${esc(h.name)}</option>`).join('');
   const REGIONS = ['Wallis','Berner Oberland','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
   const isKnownRegion = REGIONS.includes(t.region);
-  const MATERIAL = ['Pickel','Steigeisen','Klettergurt','Helm','Bandschlingen','Expressschlingen','Klemmkeile/Cams','Eisschrauben','Biwaksack','Stirnlampe'];
   const selectedMaterial = Array.isArray(t.material) ? t.material : [];
-  const ROPE_TYPES = ['Einfachseil','Halbseilstrang','Zwillingsseil'];
+  const ROPE_TYPES = ['Gletscherseil','Einfachseil','Halbseilstrang','Zwillingsseil'];
   const ROPE_LENGTHS = ['30m','40m','50m','60m','70m'];
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${existing?'Tour bearbeiten':'Neue Tour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
@@ -1001,21 +1034,6 @@ function tourFormHtml(existing){
         <input type="hidden" name="tourCategory" id="tourcategory-hidden" value="${esc(t.tourCategory||'hochtour')}"/>
       </div>
       <div class="field"><label>Name der Tour *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Dom von der Domhütte"/></div>
-      <div class="row2">
-        <div class="field"><label>Schwierigkeit (SAC)</label>
-          <select name="difficulty">
-            <option value="" ${!t.difficulty?'selected':''}>— keine Angabe —</option>
-            ${DIFF_ORDER.map(c=>`<option value="${c}" ${t.difficulty===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field"><label>Kletterschwierigkeit (franz.)</label>
-          <select name="climbGrade">
-            <option value="" ${!t.climbGrade?'selected':''}>— keine —</option>
-            ${CLIMB_ORDER.map(c=>`<option value="${c}" ${t.climbGrade===c?'selected':''}>${c}</option>`).join('')}
-          </select>
-          <div class="hint">Höchste Felsschwierigkeit auf der Route, falls vorhanden.</div>
-        </div>
-      </div>
       <div class="field"><label>Region</label>
         <div class="chips" id="region-chips">
           ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${t.region===r?'on':''}" style="${t.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
@@ -1024,18 +1042,107 @@ function tourFormHtml(existing){
         <input type="text" id="region-other-input" value="${!isKnownRegion?esc(t.region||''):''}" placeholder="eigene Region eintragen" style="margin-top:8px; ${t.region && !isKnownRegion?'':'display:none;'}"/>
         <input type="hidden" name="region" id="region-hidden-input" value="${esc(t.region||'')}"/>
       </div>
-      <div class="field"><label>Material</label>
-        <div class="chips">
-          ${MATERIAL.map(m=>`<label class="chip" style="cursor:pointer; ${selectedMaterial.includes(m)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="material" value="${m}" ${selectedMaterial.includes(m)?'checked':''} style="margin-right:5px;"/>${m}</label>`).join('')}
+
+      <h3 style="font-size:15px; margin:24px 0 6px 0; padding-top:14px; border-top:1px solid var(--line);">Schwierigkeit &amp; Sicherheit</h3>
+
+      <div id="hochtour-safety-fields" style="${(t.tourCategory||'hochtour')==='hochtour'?'':'display:none;'}">
+        <div class="row2">
+          <div class="field"><label>Schwierigkeit (SAC)</label>
+            <select name="difficulty">
+              <option value="" ${!t.difficulty?'selected':''}>— keine Angabe —</option>
+              ${DIFF_ORDER.map(c=>`<option value="${c}" ${t.difficulty===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>Maximale Felsschwierigkeit</label>
+            <select name="climbGrade">
+              <option value="" ${!t.climbGrade?'selected':''}>— keine —</option>
+              ${CLIMB_ORDER.map(c=>`<option value="${c}" ${t.climbGrade===c?'selected':''}>${c}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Gletscher</label>
+          <div class="chips">
+            <button type="button" class="chip glacier-chip ${t.glacier==='ja'?'on':''}" style="${t.glacier==='ja'?'background:var(--ice-deep)':''}" data-value="ja">Ja</button>
+            <button type="button" class="chip glacier-chip ${(t.glacier||'nein')==='nein'?'on':''}" style="${(t.glacier||'nein')==='nein'?'background:var(--ice-deep)':''}" data-value="nein">Nein</button>
+          </div>
+          <input type="hidden" name="glacier" id="glacier-hidden" value="${esc(t.glacier||'nein')}"/>
+        </div>
+        <div class="field"><label>Spaltenrisiko</label>
+          <div class="chips">
+            <button type="button" class="chip crevasse-chip ${(t.crevasseRisk||'nein')==='nein'?'on':''}" style="${(t.crevasseRisk||'nein')==='nein'?'background:var(--ice-deep)':''}" data-value="nein">Nein</button>
+            <button type="button" class="chip crevasse-chip ${t.crevasseRisk==='moeglich'?'on':''}" style="${t.crevasseRisk==='moeglich'?'background:var(--ice-deep)':''}" data-value="moeglich">Möglich</button>
+            <button type="button" class="chip crevasse-chip ${t.crevasseRisk==='ausgepraegt'?'on':''}" style="${t.crevasseRisk==='ausgepraegt'?'background:var(--ice-deep)':''}" data-value="ausgepraegt">Ausgeprägt</button>
+          </div>
+          <input type="hidden" name="crevasseRisk" id="crevasse-hidden" value="${esc(t.crevasseRisk||'nein')}"/>
+        </div>
+        <div class="field"><label>Exposition</label>
+          <div class="chips">
+            ${EXPOSITIONS.map(x=>`<label class="chip" style="cursor:pointer; ${(t.exposition||[]).includes(x)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="expositionHochtour" value="${x}" ${(t.exposition||[]).includes(x)?'checked':''} style="margin-right:5px;"/>${x}</label>`).join('')}
+          </div>
+        </div>
+        <div class="field"><label>Gefahren</label>
+          <div class="chips">
+            ${GEFAHREN_HOCHTOUR.map(g=>`<label class="chip" style="cursor:pointer; ${(t.gefahren||[]).includes(g)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="gefahrenHochtour" value="${g}" ${(t.gefahren||[]).includes(g)?'checked':''} style="margin-right:5px;"/>${g}</label>`).join('')}
+          </div>
         </div>
       </div>
-      <div class="field"><label>Seil – Typ</label>
+
+      <div id="msl-safety-fields" style="${t.tourCategory==='msl'?'':'display:none;'}">
+        <div class="row2">
+          <div class="field"><label>Obligatorische Schwierigkeit</label>
+            <select name="mandatoryDifficulty">
+              <option value="" ${!t.mandatoryDifficulty?'selected':''}>— keine Angabe —</option>
+              ${CLIMB_ORDER.map(c=>`<option value="${c}" ${t.mandatoryDifficulty===c?'selected':''}>${c}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>Schlüsselstelle</label>
+            <select name="cruxDifficulty">
+              <option value="" ${!t.cruxDifficulty?'selected':''}>— keine Angabe —</option>
+              ${CLIMB_ORDER.map(c=>`<option value="${c}" ${t.cruxDifficulty===c?'selected':''}>${c}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Anzahl Seillängen</label><input name="pitchCount" value="${esc(t.pitchCount||'')}" placeholder="z. B. 8"/></div>
+          <div class="field"><label>Längste Seillänge</label><input name="longestPitch" value="${esc(t.longestPitch||'')}" placeholder="z. B. 35m"/></div>
+        </div>
+        <div class="field"><label>Absicherung</label>
+          <div class="chips" style="flex-direction:column; align-items:flex-start; gap:8px;">
+            ${PROTECTION_LEVELS.map(p=>`<button type="button" class="chip protection-chip ${t.protection===p.value?'on':''}" style="${t.protection===p.value?'background:var(--ice-deep)':''}; text-align:left;" data-value="${p.value}">${p.label} <span style="font-weight:400; opacity:0.8;">— ${p.desc}</span></button>`).join('')}
+          </div>
+          <input type="hidden" name="protection" id="protection-hidden" value="${esc(t.protection||'')}"/>
+        </div>
+        <div class="field"><label>Abstieg</label>
+          <div class="chips">
+            ${DESCENT_TYPES.map(d=>`<button type="button" class="chip descent-chip ${t.descentType===d?'on':''}" style="${t.descentType===d?'background:var(--ice-deep)':''}" data-value="${d}">${d}</button>`).join('')}
+          </div>
+          <input type="hidden" name="descentType" id="descent-hidden" value="${esc(t.descentType||'')}"/>
+        </div>
+        <div class="field"><label>Exposition</label>
+          <div class="chips">
+            ${EXPOSITIONS.map(x=>`<label class="chip" style="cursor:pointer; ${(t.exposition||[]).includes(x)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="expositionMsl" value="${x}" ${(t.exposition||[]).includes(x)?'checked':''} style="margin-right:5px;"/>${x}</label>`).join('')}
+          </div>
+        </div>
+        <div class="field"><label>Gefahren</label>
+          <div class="chips">
+            ${GEFAHREN_MSL.map(g=>`<label class="chip" style="cursor:pointer; ${(t.gefahren||[]).includes(g)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="gefahrenMsl" value="${g}" ${(t.gefahren||[]).includes(g)?'checked':''} style="margin-right:5px;"/>${g}</label>`).join('')}
+          </div>
+        </div>
+      </div>
+
+      <h3 style="font-size:15px; margin:24px 0 6px 0; padding-top:14px; border-top:1px solid var(--line);">Material</h3>
+      <div class="field"><label>Tourenspezifisches Material</label>
+        <div class="chips">
+          ${MATERIAL_FIXSEIL.map(m=>`<label class="chip" style="cursor:pointer; ${selectedMaterial.includes(m)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="material" value="${m}" ${selectedMaterial.includes(m)?'checked':''} style="margin-right:5px;"/>${m}</label>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Seiltyp</label>
         <div class="chips" id="rope-type-chips">
           ${ROPE_TYPES.map(r=>`<button type="button" class="chip rope-type-chip ${t.ropeType===r?'on':''}" style="${t.ropeType===r?'background:var(--ice-deep)':''}" data-rope-type="${r}">${r}</button>`).join('')}
         </div>
         <input type="hidden" name="ropeType" id="rope-type-hidden" value="${esc(t.ropeType||'')}"/>
       </div>
-      <div class="field"><label>Seil – Länge</label>
+      <div class="field"><label>Seillänge</label>
         <div class="chips" id="rope-length-chips">
           ${ROPE_LENGTHS.map(r=>`<button type="button" class="chip rope-length-chip ${t.ropeLength===r?'on':''}" style="${t.ropeLength===r?'background:var(--ice-deep)':''}" data-rope-length="${r}">${r}</button>`).join('')}
         </div>
@@ -1078,15 +1185,22 @@ function tourFormHtml(existing){
 function tourDetailHtml(id){
   const t = state.tours.find(x=>x.id===id);
   if(!t) return `<div class="modal" data-stop="1"><p>Tour nicht gefunden.</p></div>`;
+  const isMsl = t.tourCategory==='msl';
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
+  const protectionInfo = t.protection ? PROTECTION_LEVELS.find(p=>p.value===t.protection) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div>
-        <div class="agenda-date-row" style="font-size:12.5px;">${t.tourCategory==='msl' ? '🧗 MSL — Mehrseillängen-Klettertour' : '🏔️ Hochtour'}</div>
+        <div class="agenda-date-row" style="font-size:12.5px;">${isMsl ? '🧗 MSL — Mehrseillängen-Klettertour' : '🏔️ Hochtour'}</div>
         <div class="detail-badge-row">
-          ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty} · ${d.label}</span>` : `<span class="badge" style="background:var(--ink-faint)">unbewertet</span>`}
-          ${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}
+          ${isMsl ? `
+            ${t.mandatoryDifficulty ? `<span class="badge climb">obligatorisch ${esc(t.mandatoryDifficulty)}</span>` : ''}
+            ${t.cruxDifficulty ? `<span class="badge climb">Schlüssel ${esc(t.cruxDifficulty)}</span>` : ''}
+          ` : `
+            ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty} · ${d.label}</span>` : `<span class="badge" style="background:var(--ink-faint)">unbewertet</span>`}
+            ${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}
+          `}
           ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
         </div>
         <h2>${esc(t.name)}</h2>
@@ -1098,9 +1212,16 @@ function tourDetailHtml(id){
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
       ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+      ${isMsl && t.pitchCount ? `<div class="detail-stat"><div class="num">${esc(t.pitchCount)}</div><div class="lbl">Seillängen</div></div>` : ''}
+      ${isMsl && t.longestPitch ? `<div class="detail-stat"><div class="num">${esc(t.longestPitch)}</div><div class="lbl">Längste SL</div></div>` : ''}
     </div>
     ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button>` : ''}
 
+    ${!isMsl && (t.glacier==='ja' || t.crevasseRisk!=='nein') ? `<div class="detail-section"><h4>Gletscher &amp; Spalten</h4><p>${t.glacier==='ja'?'Gletscher: Ja':''}${t.glacier==='ja' && t.crevasseRisk && t.crevasseRisk!=='nein' ? ' · ' : ''}${t.crevasseRisk==='moeglich'?'Spaltenrisiko: möglich':t.crevasseRisk==='ausgepraegt'?'Spaltenrisiko: ausgeprägt':''}</p></div>` : ''}
+    ${isMsl && protectionInfo ? `<div class="detail-section"><h4>Absicherung</h4><p>${protectionInfo.label} — ${protectionInfo.desc}</p></div>` : ''}
+    ${isMsl && t.descentType ? `<div class="detail-section"><h4>Abstieg (Sicherheit)</h4><p>${esc(t.descentType)}</p></div>` : ''}
+    ${(t.exposition && t.exposition.length) ? `<div class="detail-section"><h4>Exposition</h4><p>${t.exposition.map(esc).join(', ')}</p></div>` : ''}
+    ${(t.gefahren && t.gefahren.length) ? `<div class="detail-section"><h4>Gefahren</h4><p>${t.gefahren.map(esc).join(', ')}</p></div>` : ''}
     ${(t.material && t.material.length) ? `<div class="detail-section"><h4>Material</h4><p>${t.material.map(esc).join(', ')}</p></div>` : ''}
     ${(t.ropeType || t.ropeLength) ? `<div class="detail-section"><h4>Seil</h4><p>${[t.ropeType, t.ropeLength].filter(Boolean).map(esc).join(' · ')}</p></div>` : ''}
     ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
@@ -1242,43 +1363,70 @@ function isPastAgendaItem(item){
   return ref < todayStr();
 }
 
+/* ================= Agenda: Status-Workflow ================= */
+const AGENDA_STATUS_ORDER = ['idee','termin-gesucht','geplant','bestaetigt','abgesagt','durchgefuehrt'];
+const AGENDA_STATUS_LABELS = {
+  'idee':'Idee', 'termin-gesucht':'Termin gesucht', 'geplant':'Geplant',
+  'bestaetigt':'Bestätigt', 'abgesagt':'Abgesagt', 'durchgefuehrt':'Durchgeführt'
+};
+function migrateAgendaStatus(a){
+  if(!a.status){
+    a.status = a.cancelled ? 'abgesagt' : (isPastAgendaItem(a) ? 'durchgefuehrt' : 'geplant');
+  }
+  return a;
+}
+
 function agendaViewHtml(){
-  const active = state.agenda.filter(a=>!a.cancelled && !isPastAgendaItem(a))
-    .sort((a,b)=> (a.startDate||'').localeCompare(b.startDate||''));
-  const archived = state.agenda.filter(a=>a.cancelled || isPastAgendaItem(a))
-    .sort((a,b)=> (b.startDate||'').localeCompare(a.startDate||''));
+  const groups = {};
+  AGENDA_STATUS_ORDER.forEach(s=> groups[s] = []);
+  state.agenda.forEach(a=>{ (groups[a.status] || groups['geplant']).push(a); });
+  const descStatuses = ['abgesagt','durchgefuehrt'];
+  AGENDA_STATUS_ORDER.forEach(s=>{
+    groups[s].sort((a,b)=> descStatuses.includes(s)
+      ? (b.startDate||'').localeCompare(a.startDate||'')
+      : (a.startDate||'').localeCompare(b.startDate||''));
+  });
   return `
     <div class="toolbar">
       <div></div>
       <button class="btn" data-act="add-agenda">+ Neuer Termin</button>
     </div>
-    ${active.length ? `<div class="grid">${active.map(agendaCardHtml).join('')}</div>` : `<div class="empty">
+    ${state.agenda.length===0 ? `<div class="empty">
       <h3>Noch keine Termine geplant</h3>
       <p>Schlag einen Zeitraum und eine Tour vor — andere können sich direkt eintragen.</p>
       <button class="btn" data-act="add-agenda">+ Neuer Termin</button>
-    </div>`}
-    ${archived.length ? `<div class="detail-section" style="margin-top:30px;">
-      <h4>Archiv (vergangen / abgesagt) — ${archived.length}</h4>
-      <div class="grid" style="margin-top:6px;">${archived.map(agendaCardHtml).join('')}</div>
-    </div>` : ''}
+    </div>` : AGENDA_STATUS_ORDER.map(s=>`
+    <div class="detail-section" style="margin-bottom:24px;">
+      <h4>${AGENDA_STATUS_LABELS[s]} (${groups[s].length})</h4>
+      ${groups[s].length ? `<div class="grid" style="margin-top:6px;">${groups[s].map(agendaCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-faint); margin:4px 0 0 0;">—</p>`}
+    </div>`).join('')}
   `;
+}
+
+function agendaStatusSelectHtml(a){
+  return `<select class="agenda-status-select" data-id="${a.id}" style="margin-top:8px; width:auto; padding:6px 10px; font-size:13px;">
+    ${AGENDA_STATUS_ORDER.map(s=>`<option value="${s}" ${a.status===s?'selected':''}>${AGENDA_STATUS_LABELS[s]}</option>`).join('')}
+  </select>`;
 }
 
 function agendaCardHtml(a){
   const dateLabel = a.endDate && a.endDate!==a.startDate
     ? `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)} – ${fmtWeekday(a.endDate)}, ${fmtDateShort(a.endDate)}`
     : `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)}`;
+  const dim = (a.status==='abgesagt') ? 'opacity:0.55;' : '';
   return `
-  <div class="card" data-act="open-agenda" data-id="${a.id}" tabindex="0" role="button" style="${a.cancelled?'opacity:0.55;':''}">
-    <div class="agenda-date-row">📅 ${dateLabel}</div>
-    <div class="card-top">
-      <h3>${a.cancelled ? '❌ ' : ''}${esc(a.tourName || 'Termin')}</h3>
+  <div class="card" data-id="${a.id}" style="${dim}">
+    <div class="agenda-date-row" data-act="open-agenda" data-id="${a.id}" style="cursor:pointer;">📅 ${dateLabel}</div>
+    <div class="card-top" data-act="open-agenda" data-id="${a.id}" style="cursor:pointer;">
+      <h3>${a.status==='abgesagt' ? '❌ ' : ''}${esc(a.tourName || 'Termin')}</h3>
       <span class="badge" style="background:${a.type==='hochtour'?'var(--ice-deep)':'var(--ice)'}">${a.type==='hochtour'?'🧗 Hochtour':'🎿 Skitour'}</span>
     </div>
+    ${a.meetingPoint ? `<div class="stat-row"><span>📍 ${esc(a.meetingPoint)}</span></div>` : ''}
     ${a.note ? `<p class="excerpt">${esc(a.note)}</p>` : ''}
     <span class="hut-link-chip">${(a.participants||[]).length} dabei${(a.participants||[]).length ? ': ' + (a.participants||[]).map(p=>esc(p.by)).join(', ') : ''}</span>
     ${a._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
     <div class="meta-line">von ${esc(a.createdBy||'?')} · ${fmtDate(a.createdAt)}</div>
+    ${agendaStatusSelectHtml(a)}
   </div>`;
 }
 
@@ -1289,13 +1437,11 @@ function agendaDetailHtml(id){
     ? `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)} – ${fmtWeekday(a.endDate)}, ${fmtDateShort(a.endDate)}`
     : `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)}`;
   const joined = state.myName && (a.participants||[]).some(p=>p.by===state.myName);
-  const isCreator = state.myName && a.createdBy===state.myName;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div>
         <div class="detail-badge-row">
           <span class="badge" style="background:${a.type==='hochtour'?'var(--ice-deep)':'var(--ice)'}">${a.type==='hochtour'?'🧗 Hochtour':'🎿 Skitour'}</span>
-          ${a.cancelled ? `<span class="badge" style="background:var(--danger)">Abgesagt</span>` : ''}
         </div>
         <h2>${esc(a.tourName || 'Termin')}</h2>
       </div>
@@ -1304,6 +1450,8 @@ function agendaDetailHtml(id){
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${dateLabel}</div><div class="lbl">Zeitraum</div></div>
     </div>
+    ${a.meetingPoint ? `<div class="detail-section"><h4>Treffpunkt</h4><p>${esc(a.meetingPoint)}</p></div>` : ''}
+    <div class="field"><label>Status</label>${agendaStatusSelectHtml(a)}</div>
     ${a.note ? `<div class="detail-section"><h4>Notiz</h4><p>${esc(a.note)}</p></div>` : ''}
     <div class="detail-section">
       <h4>Teilnehmer (${(a.participants||[]).length})</h4>
@@ -1311,8 +1459,7 @@ function agendaDetailHtml(id){
     </div>
     <div class="meta-line" style="margin-top:16px;">Vorgeschlagen von ${esc(a.createdBy||'?')} · ${fmtDate(a.createdAt)}</div>
     <div class="detail-actions">
-      ${!a.cancelled ? `<button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>` : ''}
-      ${!a.cancelled ? `<button class="btn danger" data-act="cancel-agenda" data-id="${a.id}">Termin absagen</button>` : `<button class="btn secondary" data-act="reactivate-agenda" data-id="${a.id}">Termin wieder aktivieren</button>`}
+      <button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>
     </div>
   </div>`;
 }
@@ -1350,7 +1497,8 @@ function agendaFormHtml(){
         </select>
       </div>
       <div class="field" id="agenda-custom-field"><label>Geplante Tour / Idee</label><input name="customName" placeholder="z. B. Wildspitze über Vent"/></div>
-      <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Treffpunkt, Ausrüstung, offene Fragen …"></textarea></div>
+      <div class="field"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof"/></div>
+      <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Ausrüstung, offene Fragen …"></textarea></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="agenda-save-btn" class="btn">Termin vorschlagen</button>
@@ -1376,8 +1524,9 @@ async function submitAgendaForm(form){
   const a = {
     id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
     type: form.type||'ski', startDate, endDate: form.endDate||'',
-    tourName, note: form.note||'', participants: [{by: state.myName, joinedAt: new Date().toISOString()}],
-    cancelled: false
+    tourName, meetingPoint: form.meetingPoint||'', note: form.note||'',
+    participants: [{by: state.myName, joinedAt: new Date().toISOString()}],
+    status: 'geplant'
   };
   state.agenda.unshift(a);
   closeModal();
@@ -1406,20 +1555,10 @@ async function toggleParticipation(id){
   });
 }
 
-async function cancelAgendaItem(id){
+async function setAgendaStatus(id, status){
   const a = state.agenda.find(x=>x.id===id);
-  if(!a) return;
-  a.cancelled = true;
-  render();
-  const ok = await saveAgendaCloud(a).catch(()=>false);
-  a._unsynced = !ok;
-  if(!ok) markUnsaved();
-  render();
-}
-async function reactivateAgendaItem(id){
-  const a = state.agenda.find(x=>x.id===id);
-  if(!a) return;
-  a.cancelled = false;
+  if(!a || !AGENDA_STATUS_ORDER.includes(status)) return;
+  a.status = status;
   render();
   const ok = await saveAgendaCloud(a).catch(()=>false);
   a._unsynced = !ok;
@@ -1539,6 +1678,10 @@ function wireGlobalHandlers(){
     else if(act==='filter-category') el.onclick = ()=>{ state.tourCategoryFilter = el.getAttribute('data-cat'); render(); };
     else if(act==='search') el.oninput = (e)=>{ state.search = e.target.value; renderListOnly(); };
   });
+  app.querySelectorAll('.agenda-status-select').forEach(sel=>{
+    sel.addEventListener('click', e=> e.stopPropagation());
+    sel.addEventListener('change', ()=> setAgendaStatus(sel.getAttribute('data-id'), sel.value));
+  });
 }
 
 function renderListOnly(){
@@ -1571,10 +1714,10 @@ function wireModalHandlers(){
 
   const toggleParticipationBtn = root.querySelector('[data-act="toggle-participation"]');
   if(toggleParticipationBtn) toggleParticipationBtn.onclick = ()=> toggleParticipation(toggleParticipationBtn.getAttribute('data-id'));
-  const cancelAgendaBtn = root.querySelector('[data-act="cancel-agenda"]');
-  if(cancelAgendaBtn) cancelAgendaBtn.onclick = ()=> cancelAgendaItem(cancelAgendaBtn.getAttribute('data-id'));
-  const reactivateAgendaBtn = root.querySelector('[data-act="reactivate-agenda"]');
-  if(reactivateAgendaBtn) reactivateAgendaBtn.onclick = ()=> reactivateAgendaItem(reactivateAgendaBtn.getAttribute('data-id'));
+  root.querySelectorAll('.agenda-status-select').forEach(sel=>{
+    sel.addEventListener('click', e=> e.stopPropagation());
+    sel.addEventListener('change', ()=> setAgendaStatus(sel.getAttribute('data-id'), sel.value));
+  });
 
   const agendaForm = document.getElementById('agenda-form');
   if(agendaForm){
@@ -1664,15 +1807,35 @@ function wireModalHandlers(){
   const tourForm = document.getElementById('tour-form');
   dlog('tour-form im DOM gefunden: ' + !!tourForm);
   if(tourForm){
-    // Tourtyp-Chips (Hochtour / MSL / Skitour-Wechsel zu Firnspur)
+    // Tourtyp-Chips (Hochtour / MSL) — blendet passenden Sicherheits-Block ein/aus
+    const hochtourFields = document.getElementById('hochtour-safety-fields');
+    const mslFields = document.getElementById('msl-safety-fields');
     tourForm.querySelectorAll('.type-chip').forEach(chip=>{
       chip.addEventListener('click', ()=>{
         const type = chip.getAttribute('data-type');
         tourForm.querySelectorAll('.type-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
         chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
         document.getElementById('tourcategory-hidden').value = type;
+        if(hochtourFields) hochtourFields.style.display = (type==='hochtour') ? '' : 'none';
+        if(mslFields) mslFields.style.display = (type==='msl') ? '' : 'none';
       });
     });
+    // Generische Single-Select-Chip-Gruppe (Gletscher, Spaltenrisiko, Absicherung, Abstieg)
+    function wireSingleSelectChips(className, hiddenId){
+      const hidden = document.getElementById(hiddenId);
+      const buttons = tourForm.querySelectorAll('.'+className);
+      buttons.forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          buttons.forEach(b=>{ b.classList.remove('on'); b.style.background=''; });
+          btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
+          if(hidden) hidden.value = btn.getAttribute('data-value');
+        });
+      });
+    }
+    wireSingleSelectChips('glacier-chip', 'glacier-hidden');
+    wireSingleSelectChips('crevasse-chip', 'crevasse-hidden');
+    wireSingleSelectChips('protection-chip', 'protection-hidden');
+    wireSingleSelectChips('descent-chip', 'descent-hidden');
     // Region-Chips
     const regionHidden = document.getElementById('region-hidden-input');
     const regionOtherInput = document.getElementById('region-other-input');
@@ -1719,6 +1882,10 @@ function wireModalHandlers(){
           const fd = new FormData(tourForm);
           const data = Object.fromEntries(fd.entries());
           data.material = fd.getAll('material');
+          data.expositionHochtour = fd.getAll('expositionHochtour');
+          data.gefahrenHochtour = fd.getAll('gefahrenHochtour');
+          data.expositionMsl = fd.getAll('expositionMsl');
+          data.gefahrenMsl = fd.getAll('gefahrenMsl');
           if(!data.name || !data.name.trim()){
             dlog('Validierung fehlgeschlagen: Name fehlt', 'err');
             showFormError('tour-form', 'Bitte einen Namen für die Tour eingeben (ganz oben im Formular).');
@@ -1727,105 +1894,4 @@ function wireModalHandlers(){
           dlog('Validierung ok, rufe submitTourForm auf für "'+data.name+'"');
           submitTourForm(data, state.modal.payload);
         }catch(err){
-          dlog('Unerwarteter Fehler beim Speichern: '+(err && err.message ? err.message : err), 'err');
-          showFormError('tour-form', 'Unerwarteter Fehler: ' + (err.message || err));
-        }
-      });
-    }
-  }
-
-  const hutForm = document.getElementById('hut-form');
-  if(hutForm){
-    const hutSaveBtn = document.getElementById('hut-save-btn');
-    if(hutSaveBtn){
-      hutSaveBtn.addEventListener('click', (e)=>{
-        e.preventDefault();
-        dlog('Klick auf Hütte-Speichern-Button registriert — speichere direkt (ohne Formular-Submit)');
-        try{
-          const fd = new FormData(hutForm);
-          const data = Object.fromEntries(fd.entries());
-          if(!data.name || !data.name.trim()){
-            dlog('Validierung fehlgeschlagen: Name fehlt', 'err');
-            showFormError('hut-form', 'Bitte einen Namen für die Hütte eingeben (ganz oben im Formular).');
-            return;
-          }
-          dlog('Validierung ok, rufe submitHutForm auf für "'+data.name+'"');
-          submitHutForm(data, state.modal.payload);
-        }catch(err){
-          dlog('Unerwarteter Fehler beim Speichern: '+(err && err.message ? err.message : err), 'err');
-          showFormError('hut-form', 'Unerwarteter Fehler: ' + (err.message || err));
-        }
-      });
-    }
-  }
-
-  // Dezente Löschen-Funktion mit zweistufiger Bestätigung (Tour & Hütte)
-  function wireDeleteConfirm(prefix, removeFn, onDeletedGoTo){
-    const trigger = document.getElementById(`delete-${prefix}-trigger`);
-    const confirmBox = document.getElementById(`delete-${prefix}-confirm`);
-    const yesBtn = document.getElementById(`delete-${prefix}-yes`);
-    const noBtn = document.getElementById(`delete-${prefix}-no`);
-    if(!trigger) return;
-    trigger.addEventListener('click', ()=>{
-      trigger.style.display = 'none';
-      confirmBox.style.display = '';
-    });
-    if(noBtn) noBtn.addEventListener('click', ()=>{
-      confirmBox.style.display = 'none';
-      trigger.style.display = '';
-    });
-    if(yesBtn) yesBtn.addEventListener('click', ()=>{
-      removeFn(yesBtn.getAttribute('data-id'));
-      closeModal();
-      showToast(onDeletedGoTo + ' gelöscht.');
-    });
-  }
-  wireDeleteConfirm('tour', removeTour, 'Tour');
-  wireDeleteConfirm('hut', removeHut, 'Hütte');
-
-  root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
-  root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
-  root.querySelectorAll('[data-act="open-hut"]').forEach(el=> el.onclick = ()=>openHutDetail(el.getAttribute('data-id')));
-  root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
-  const condBtn = root.querySelector('[data-act="submit-conditions"]');
-  if(condBtn) condBtn.onclick = ()=>{
-    const val = document.getElementById('cond-input').value;
-    if(!val.trim()) return;
-    ensureName(()=> submitConditions(condBtn.getAttribute('data-id'), val));
-  };
-}
-
-/* ================= Global error safety net ================= */
-window.addEventListener('error', function(e){
-  console.error('Unhandled error', e.error || e.message);
-  showToast('Es gab ein unerwartetes Problem: ' + (e.message || 'unbekannter Fehler') + '. Bitte nochmal versuchen.', true);
-});
-window.addEventListener('unhandledrejection', function(e){
-  console.error('Unhandled rejection', e.reason);
-  showToast('Es gab ein unerwartetes Problem beim Speichern. Bitte nochmal versuchen.', true);
-});
-window.addEventListener('beforeunload', function(e){
-  if(state.hasUnsavedChanges){
-    e.preventDefault();
-    e.returnValue = '';
-  }
-});
-
-/* ================= Init ================= */
-try{
-  const savedName = localStorage.getItem('fixseil-myname');
-  if(savedName) state.myName = savedName;
-}catch(e){}
-dlog('App gestartet — Version ' + APP_VERSION);
-loadAll();
-
-if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('./sw.js').catch(()=>{
-      dlog('Service Worker konnte nicht registriert werden.', 'err');
-    });
-  });
-}
-</script>
-</body>
-</html>
+   
