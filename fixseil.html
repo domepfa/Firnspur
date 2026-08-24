@@ -1001,7 +1001,6 @@ function completionModalHtml(payload){
       <button class="btn" data-act="submit-completion" data-kind="${payload.kind}" data-id="${payload.id}">Eintragen</button>
     </div>
   </div>`;
-  
 }
 function nameModalHtml(){
   return `<div class="modal" data-stop="1">
@@ -1181,6 +1180,7 @@ function tourFormHtml(existing){
     </form>
   </div>`;
 }
+
 function tourDetailHtml(id){
   const t = state.tours.find(x=>x.id===id);
   if(!t) return `<div class="modal" data-stop="1"><p>Tour nicht gefunden.</p></div>`;
