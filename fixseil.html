@@ -308,7 +308,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v11-quickdraws';
+const APP_VERSION = 'v12-peak-route-fields';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -606,6 +606,8 @@ function mergeImportedData(json){
 async function submitTourForm(form, existing){
   const t = (existing && existing.id) ? {...existing} : {id: uid('t'), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null};
   t.name = form.name.trim();
+  t.peakName = form.peakName || '';
+  t.routeName = form.routeName || '';
   t.tourCategory = form.tourCategory || 'hochtour';
   t.targetAltitude = form.targetAltitude;
   t.elevationGain = form.elevationGain;
@@ -867,6 +869,7 @@ function tourCardHtml(t){
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
       </div>
     </div>
+    ${(t.peakName || t.routeName) ? `<p class="excerpt" style="font-style:italic;">${[t.peakName, t.routeName].filter(Boolean).map(esc).join(' — ')}</p>` : ''}
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
@@ -1039,6 +1042,10 @@ function tourFormHtml(existing){
         <input type="hidden" name="tourCategory" id="tourcategory-hidden" value="${esc(t.tourCategory||'hochtour')}"/>
       </div>
       <div class="field"><label>Name der Tour *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Dom von der Domhütte"/></div>
+      <div class="row2">
+        <div class="field"><label>Gipfel / Felsmassiv</label><input name="peakName" value="${esc(t.peakName||'')}" placeholder="z. B. Unnerbächhorn"/></div>
+        <div class="field"><label>Route</label><input name="routeName" value="${esc(t.routeName||'')}" placeholder="z. B. Südgrat"/></div>
+      </div>
       <div class="field"><label>Region</label>
         <div class="chips" id="region-chips">
           ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${t.region===r?'on':''}" style="${t.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
@@ -1214,6 +1221,7 @@ function tourDetailHtml(id){
       </div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
+    ${(t.peakName || t.routeName) ? `<p style="color:var(--ink-soft); font-size:14px; font-style:italic; margin:0 0 4px 0;">${[t.peakName, t.routeName].filter(Boolean).map(esc).join(' — ')}</p>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}</p>` : ''}
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
