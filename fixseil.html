@@ -662,7 +662,6 @@ async function submitTourForm(form, existing){
   }
   render();
 }
-
 async function submitHutForm(form, existing){
   const h = existing ? {...existing} : {id: uid('h'), createdBy: state.myName, createdAt: new Date().toISOString()};
   h.name = form.name.trim();
@@ -1340,7 +1339,6 @@ function hutDetailHtml(id){
     </div>
   </div>`;
 }
-
 /* ================= Agenda ================= */
 function fmtDateShort(dateStr){
   if(!dateStr) return '';
@@ -1894,4 +1892,114 @@ function wireModalHandlers(){
         try{
           const fd = new FormData(tourForm);
           const data = Object.fromEntries(fd.entries());
-        
+          data.material = fd.getAll('material');
+          data.expositionHochtour = fd.getAll('expositionHochtour');
+          data.gefahrenHochtour = fd.getAll('gefahrenHochtour');
+          data.expositionMsl = fd.getAll('expositionMsl');
+          data.gefahrenMsl = fd.getAll('gefahrenMsl');
+          if(!data.name || !data.name.trim()){
+            dlog('Validierung fehlgeschlagen: Name fehlt', 'err');
+            showFormError('tour-form', 'Bitte einen Namen für die Tour eingeben (ganz oben im Formular).');
+            return;
+          }
+          dlog('Validierung ok, rufe submitTourForm auf für "'+data.name+'"');
+          submitTourForm(data, state.modal.payload);
+        }catch(err){
+          dlog('Unerwarteter Fehler beim Speichern: '+(err && err.message ? err.message : err), 'err');
+          showFormError('tour-form', 'Unerwarteter Fehler: ' + (err.message || err));
+        }
+      });
+    }
+  }
+
+  const hutForm = document.getElementById('hut-form');
+  if(hutForm){
+    const hutSaveBtn = document.getElementById('hut-save-btn');
+    if(hutSaveBtn){
+      hutSaveBtn.addEventListener('click', (e)=>{
+        e.preventDefault();
+        dlog('Klick auf Hütte-Speichern-Button registriert — speichere direkt (ohne Formular-Submit)');
+        try{
+          const fd = new FormData(hutForm);
+          const data = Object.fromEntries(fd.entries());
+          if(!data.name || !data.name.trim()){
+            dlog('Validierung fehlgeschlagen: Name fehlt', 'err');
+            showFormError('hut-form', 'Bitte einen Namen für die Hütte eingeben (ganz oben im Formular).');
+            return;
+          }
+          dlog('Validierung ok, rufe submitHutForm auf für "'+data.name+'"');
+          submitHutForm(data, state.modal.payload);
+        }catch(err){
+          dlog('Unerwarteter Fehler beim Speichern: '+(err && err.message ? err.message : err), 'err');
+          showFormError('hut-form', 'Unerwarteter Fehler: ' + (err.message || err));
+        }
+      });
+    }
+  }
+
+  // Dezente Löschen-Funktion mit zweistufiger Bestätigung (Tour & Hütte)
+  function wireDeleteConfirm(prefix, removeFn, onDeletedGoTo){
+    const trigger = document.getElementById(`delete-${prefix}-trigger`);
+    const confirmBox = document.getElementById(`delete-${prefix}-confirm`);
+    const yesBtn = document.getElementById(`delete-${prefix}-yes`);
+    const noBtn = document.getElementById(`delete-${prefix}-no`);
+    if(!trigger) return;
+    trigger.addEventListener('click', ()=>{
+      trigger.style.display = 'none';
+      confirmBox.style.display = '';
+    });
+    if(noBtn) noBtn.addEventListener('click', ()=>{
+      confirmBox.style.display = 'none';
+      trigger.style.display = '';
+    });
+    if(yesBtn) yesBtn.addEventListener('click', ()=>{
+      removeFn(yesBtn.getAttribute('data-id'));
+      closeModal();
+      showToast(onDeletedGoTo + ' gelöscht.');
+    });
+  }
+  wireDeleteConfirm('tour', removeTour, 'Tour');
+  wireDeleteConfirm('hut', removeHut, 'Hütte');
+
+  root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="open-hut"]').forEach(el=> el.onclick = ()=>openHutDetail(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
+}
+
+/* ================= Global error safety net ================= */
+window.addEventListener('error', function(e){
+  console.error('Unhandled error', e.error || e.message);
+  showToast('Es gab ein unerwartetes Problem: ' + (e.message || 'unbekannter Fehler') + '. Bitte nochmal versuchen.', true);
+});
+window.addEventListener('unhandledrejection', function(e){
+  console.error('Unhandled rejection', e.reason);
+  showToast('Es gab ein unerwartetes Problem beim Speichern. Bitte nochmal versuchen.', true);
+});
+window.addEventListener('beforeunload', function(e){
+  if(state.hasUnsavedChanges){
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+/* ================= Init ================= */
+try{
+  const savedName = localStorage.getItem('fixseil-myname');
+  if(savedName) state.myName = savedName;
+}catch(e){}
+dlog('App gestartet — Version ' + APP_VERSION);
+loadAll();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{
+      dlog('Service Worker konnte nicht registriert werden.', 'err');
+    });
+  });
+}
+</script>
+</body>
+</html>
+
+
