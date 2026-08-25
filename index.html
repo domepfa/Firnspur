@@ -308,7 +308,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v22-crux-glacier-tabs';
+const APP_VERSION = 'v23-peak-as-name';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -596,6 +596,7 @@ function mergeImportedData(json){
 async function submitTourForm(form, existing){
   const t = existing ? {...existing} : {id: uid('t'), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null};
   t.name = form.name.trim();
+  t.routeName = form.routeName || '';
   t.difficulty = form.difficulty;
   t.targetAltitude = form.targetAltitude;
   t.elevationGain = form.elevationGain;
@@ -634,6 +635,7 @@ async function submitTourForm(form, existing){
   }
   render();
 }
+
 async function submitHutForm(form, existing){
   const h = existing ? {...existing} : {id: uid('h'), createdBy: state.myName, createdAt: new Date().toISOString()};
   h.name = form.name.trim();
@@ -800,6 +802,7 @@ function tourCardHtml(t){
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
       </div>
     </div>
+    ${t.routeName ? `<p class="excerpt" style="font-style:italic;">${esc(t.routeName)}</p>` : ''}
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
@@ -965,7 +968,10 @@ function tourFormHtml(existing){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${existing?'Tour bearbeiten':'Neue Skitour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="tour-form" novalidate>
-      <div class="field"><label>Name der Tour *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Titlis von Engstlenalp"/></div>
+      <div class="row2">
+        <div class="field"><label>Gipfel / Bergmassiv *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Titlis"/></div>
+        <div class="field"><label>Route</label><input name="routeName" value="${esc(t.routeName||'')}" placeholder="z. B. von Engstlenalp"/></div>
+      </div>
       <div class="field"><label>Schwierigkeit (SAC)</label>
         <select name="difficulty">
           <option value="" ${!t.difficulty?'selected':''}>— keine Angabe —</option>
@@ -1065,6 +1071,7 @@ function tourDetailHtml(id){
       </div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
+    ${t.routeName ? `<p style="color:var(--ink-soft); font-size:14px; font-style:italic; margin:0 0 4px 0;">${esc(t.routeName)}</p>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}</p>` : ''}
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
@@ -1231,6 +1238,7 @@ function migrateAgendaStatus(a){
   }
   return a;
 }
+
 function agendaViewHtml(){
   const groups = {};
   AGENDA_STATUS_ORDER.forEach(s=> groups[s] = []);
@@ -1851,5 +1859,3 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
-
-
