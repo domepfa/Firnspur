@@ -118,18 +118,15 @@
     position:relative; z-index:2;
   }
   .tab{
-    background:var(--signal);
-    color:var(--ink);
+    background:none; border:none; box-shadow:none; clip-path:none;
+    color:rgba(255,255,255,0.62);
     font-family:'Oswald'; text-transform:uppercase; letter-spacing:0.04em; font-weight:600;
     font-size:14px;
-    border:2px solid var(--ink);
-    padding:10px 22px 10px 18px;
-    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
-    box-shadow: var(--shadow);
-    opacity:0.72;
+    padding:10px 14px 8px 14px;
+    border-bottom:2px solid transparent;
   }
-  .tab.active{opacity:1; background:#fff;}
-  .tab:hover{opacity:1;}
+  .tab.active{color:#fff; border-bottom-color:var(--signal, #F2B705);}
+  .tab:hover{color:#fff;}
 
   main{max-width:1000px; margin:0 auto; padding:40px 20px 80px 20px;}
 
@@ -311,7 +308,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v21-safety-agenda-status';
+const APP_VERSION = 'v22-crux-glacier-tabs';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -609,9 +606,11 @@ async function submitTourForm(form, existing){
   t.exposition = form.exposition || [];
   t.gefahren = form.gefahren || [];
   t.ropeType = form.ropeType || '';
+  t.glacier = form.glacier || 'nein';
   t.ropeLength = form.ropeLength || '';
   t.hutId = form.hutId || '';
   t.tourLink = form.tourLink;
+  t.crux = form.crux;
   t.special = form.special;
   t.approach = form.approach;
   t.ascent = form.ascent;
@@ -699,23 +698,6 @@ function showFormError(formId, message){
   box.scrollIntoView({behavior:'smooth', block:'center'});
 }
 
-async function submitConditions(tourId, text){
-  const t = state.tours.find(x=>x.id===tourId);
-  if(!t) return;
-  t.conditions = {text: text.trim(), updatedBy: state.myName, updatedAt: new Date().toISOString()};
-  state.modal = {type:'tour-detail', payload:tourId};
-  render();
-  const ok = await saveTourCloud(t).catch(()=>false);
-  t._unsynced = !ok;
-  if(!ok){
-    markUnsaved();
-    showToast('Bedingungen lokal gespeichert, aber nicht synchronisiert.', true);
-  }else{
-    showToast('Bedingungen aktualisiert und synchronisiert.');
-  }
-  render();
-}
-
 function toggleDiffFilter(code){
   if(state.activeDiffFilters.has(code)) state.activeDiffFilters.delete(code);
   else state.activeDiffFilters.add(code);
@@ -758,8 +740,8 @@ function shellHtml(){
       </div>
     </div>
     <div class="tabs">
-      <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">Touren</button>
-      <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">Hütten</button>
+      <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">🎿 Touren</button>
+      <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
       <button class="tab ${state.view==='agenda'?'active':''}" data-act="view-agenda">📅 Agenda</button>
       <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
     </div>
@@ -826,7 +808,7 @@ function tourCardHtml(t){
     </div>
     ${t.region ? `<p class="excerpt">${esc(t.region)}</p>` : ''}
     ${hut ? `<span class="hut-link-chip">🛖 ${esc(hut.name)}</span>` : ''}
-    ${t.conditions && t.conditions.text ? `<div class="conditions-note">❄ ${esc(t.conditions.text)}</div>` : ''}
+    ${t.crux ? `<div class="conditions-note">⚠ ${esc(t.crux)}</div>` : ''}
     ${(t.completions && t.completions.length) ? `<div class="stat-row"><span>✓ ${t.completions.length===1 ? esc(t.completions[0].by||'?') + (t.completions[0].date ? ' · ' + fmtDateOnly(t.completions[0].date) : '') : t.completions.length + ' Einträge'}</span></div>` : ''}
     ${t._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
     <div class="meta-line">von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}</div>
@@ -999,6 +981,13 @@ function tourFormHtml(existing){
         <input type="text" id="region-other-input" value="${!isKnownRegion?esc(t.region||''):''}" placeholder="eigene Region eintragen" style="margin-top:8px; ${t.region && !isKnownRegion?'':'display:none;'}"/>
         <input type="hidden" name="region" id="region-hidden-input" value="${esc(t.region||'')}"/>
       </div>
+      <div class="field"><label>Gletscher</label>
+        <div class="chips">
+          <button type="button" class="chip glacier-chip ${t.glacier==='ja'?'on':''}" style="${t.glacier==='ja'?'background:var(--ice-deep)':''}" data-value="ja">Ja</button>
+          <button type="button" class="chip glacier-chip ${(t.glacier||'nein')==='nein'?'on':''}" style="${(t.glacier||'nein')==='nein'?'background:var(--ice-deep)':''}" data-value="nein">Nein</button>
+        </div>
+        <input type="hidden" name="glacier" id="glacier-hidden" value="${esc(t.glacier||'nein')}"/>
+      </div>
       <div class="field"><label>Exposition</label>
         <div class="chips">
           ${EXPOSITIONS.map(x=>`<label class="chip" style="cursor:pointer; ${selectedExposition.includes(x)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="exposition" value="${x}" ${selectedExposition.includes(x)?'checked':''} style="margin-right:5px;"/>${x}</label>`).join('')}
@@ -1035,6 +1024,7 @@ function tourFormHtml(existing){
         <div class="field"><label>Abfahrt (Hm, falls abweichend)</label><input name="elevationLoss" value="${esc(t.elevationLoss||'')}" placeholder="z. B. 1600"/></div>
       </div>
       <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/></div>
+      <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. steile Rinne kurz vor dem Gipfel, ausgesetzte Querung …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Lawinenhänge, Gletscherspalten, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
       <div class="field"><label>Anfahrt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
       <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
@@ -1084,24 +1074,17 @@ function tourDetailHtml(id){
     </div>
     ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
 
+    ${t.glacier==='ja' ? `<div class="detail-section"><h4>Gletscher</h4><p>Ja</p></div>` : ''}
     ${(t.exposition && t.exposition.length) ? `<div class="detail-section"><h4>Exposition</h4><p>${t.exposition.map(esc).join(', ')}</p></div>` : ''}
     ${(t.gefahren && t.gefahren.length) ? `<div class="detail-section"><h4>Gefahren</h4><p>${t.gefahren.map(esc).join(', ')}</p></div>` : ''}
     ${(t.material && t.material.length) ? `<div class="detail-section"><h4>Material</h4><p>${t.material.map(esc).join(', ')}</p></div>` : ''}
     ${(t.ropeType || t.ropeLength) ? `<div class="detail-section"><h4>Seil</h4><p>${[t.ropeType, t.ropeLength].filter(Boolean).map(esc).join(' · ')}</p></div>` : ''}
     ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
+    ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(t.approach)}</p></div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
-
-    <div class="detail-section">
-      <h4>Aktuelle Bedingungen</h4>
-      <div class="cond-box">
-        ${t.conditions && t.conditions.text ? `<p style="margin:0 0 8px 0; font-size:14px;">❄ ${esc(t.conditions.text)}</p><div class="meta-line">gemeldet von ${esc(t.conditions.updatedBy||'?')} · ${fmtDate(t.conditions.updatedAt)}</div>` : `<p style="margin:0 0 8px 0; font-size:13px; color:var(--ink-soft);">Noch keine Meldung.</p>`}
-        <textarea id="cond-input" placeholder="z. B. Pulverschnee oberhalb 2200m, Aufstiegsspur vorhanden…" style="margin-top:8px;"></textarea>
-        <div style="margin-top:8px;"><button class="btn secondary" data-act="submit-conditions" data-id="${t.id}">Bedingungen aktualisieren</button></div>
-      </div>
-    </div>
 
     <div class="detail-section">
       <h4>Abgeschlossen von</h4>
@@ -1700,6 +1683,24 @@ function wireModalHandlers(){
   const tourForm = document.getElementById('tour-form');
   dlog('tour-form im DOM gefunden: ' + !!tourForm);
   if(tourForm){
+    // Gletscher-Chips + automatisches Anhaken von Spaltenrettung bei "Ja"
+    const glacierHidden = document.getElementById('glacier-hidden');
+    const glacierButtons = tourForm.querySelectorAll('.glacier-chip');
+    function checkMaterialCheckbox(name){
+      const cb = tourForm.querySelector(`input[name="material"][value="${name}"]`);
+      if(!cb || cb.checked) return;
+      cb.checked = true;
+      const label = cb.closest('label.chip');
+      if(label){ label.style.background='var(--ice-deep)'; label.style.color='#fff'; label.style.borderColor='transparent'; }
+    }
+    glacierButtons.forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        glacierButtons.forEach(b=>{ b.classList.remove('on'); b.style.background=''; });
+        btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
+        if(glacierHidden) glacierHidden.value = btn.getAttribute('data-value');
+        if(btn.getAttribute('data-value')==='ja') checkMaterialCheckbox('Spaltenrettung');
+      });
+    });
     // Region-Chips
     const regionHidden = document.getElementById('region-hidden-input');
     const regionOtherInput = document.getElementById('region-other-input');
@@ -1816,12 +1817,6 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-hut"]').forEach(el=> el.onclick = ()=>openHutDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
-  const condBtn = root.querySelector('[data-act="submit-conditions"]');
-  if(condBtn) condBtn.onclick = ()=>{
-    const val = document.getElementById('cond-input').value;
-    if(!val.trim()) return;
-    ensureName(()=> submitConditions(condBtn.getAttribute('data-id'), val));
-  };
 }
 
 /* ================= Global error safety net ================= */
