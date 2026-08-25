@@ -308,7 +308,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v10-crux-glacier-msl-tab';
+const APP_VERSION = 'v11-quickdraws';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -613,6 +613,7 @@ async function submitTourForm(form, existing){
   t.duration = form.duration;
   t.region = form.region;
   t.material = form.material || [];
+  t.quickdrawCount = form.quickdrawCount || '';
   t.ropeType = form.ropeType || '';
   t.ropeLength = form.ropeLength || '';
   t.hutId = form.hutId || '';
@@ -1140,6 +1141,7 @@ function tourFormHtml(existing){
           ${MATERIAL_FIXSEIL.map(m=>`<label class="chip" style="cursor:pointer; ${selectedMaterial.includes(m)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="material" value="${m}" ${selectedMaterial.includes(m)?'checked':''} style="margin-right:5px;"/>${m}</label>`).join('')}
         </div>
       </div>
+      <div class="field"><label>Anzahl Expressschlingen</label><input name="quickdrawCount" value="${esc(t.quickdrawCount||'')}" placeholder="z. B. 10"/></div>
       <div class="field"><label>Seiltyp</label>
         <div class="chips" id="rope-type-chips">
           ${ROPE_TYPES.map(r=>`<button type="button" class="chip rope-type-chip ${t.ropeType===r?'on':''}" style="${t.ropeType===r?'background:var(--ice-deep)':''}" data-rope-type="${r}">${r}</button>`).join('')}
@@ -1227,7 +1229,7 @@ function tourDetailHtml(id){
     ${isMsl && t.descentType ? `<div class="detail-section"><h4>Abstieg (Sicherheit)</h4><p>${esc(t.descentType)}</p></div>` : ''}
     ${(t.exposition && t.exposition.length) ? `<div class="detail-section"><h4>Exposition</h4><p>${t.exposition.map(esc).join(', ')}</p></div>` : ''}
     ${(t.gefahren && t.gefahren.length) ? `<div class="detail-section"><h4>Gefahren</h4><p>${t.gefahren.map(esc).join(', ')}</p></div>` : ''}
-    ${(t.material && t.material.length) ? `<div class="detail-section"><h4>Material</h4><p>${t.material.map(esc).join(', ')}</p></div>` : ''}
+    ${(t.material && t.material.length) || t.quickdrawCount ? `<div class="detail-section"><h4>Material</h4><p>${[...(t.material||[]), t.quickdrawCount ? `${t.quickdrawCount}× Expressschlingen` : ''].filter(Boolean).map(esc).join(', ')}</p></div>` : ''}
     ${(t.ropeType || t.ropeLength) ? `<div class="detail-section"><h4>Seil</h4><p>${[t.ropeType, t.ropeLength].filter(Boolean).map(esc).join(' · ')}</p></div>` : ''}
     ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
