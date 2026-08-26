@@ -319,7 +319,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v26-clean-chips';
+const APP_VERSION = 'v27-agenda-type-sync';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -1345,6 +1345,7 @@ function isPastAgendaItem(item){
   if(!ref) return false;
   return ref < todayStr();
 }
+
 /* ================= Agenda: Status-Workflow ================= */
 const AGENDA_STATUS_ORDER = ['idee','termin-gesucht','geplant','bestaetigt','abgesagt','durchgefuehrt'];
 const AGENDA_STATUS_LABELS = {
@@ -1357,7 +1358,6 @@ function migrateAgendaStatus(a){
   }
   return a;
 }
-
 function agendaViewHtml(){
   const groups = {};
   AGENDA_STATUS_ORDER.forEach(s=> groups[s] = []);
@@ -1717,10 +1717,26 @@ function wireModalHandlers(){
   if(agendaForm){
     const tourSelect = document.getElementById('agenda-tour-select');
     const customField = document.getElementById('agenda-custom-field');
+    const typeSelect = agendaForm.querySelector('select[name="type"]');
     function syncCustomFieldVisibility(){
       customField.style.display = (tourSelect.value==='custom') ? '' : 'none';
     }
-    if(tourSelect){ tourSelect.addEventListener('change', syncCustomFieldVisibility); syncCustomFieldVisibility(); }
+    function syncTypeFromTourChoice(){
+      if(!typeSelect || !tourSelect) return;
+      const val = tourSelect.value;
+      if(val==='custom') return;
+      const [src, refId] = val.split(':');
+      const list = src==='own' ? state.tours : state.otherAppTours;
+      const ref = list.find(t=>t.id===refId);
+      if(!ref) return;
+      if(src==='own'){ typeSelect.value = 'ski'; }
+      else{ typeSelect.value = ref.tourCategory==='msl' ? 'msl' : 'hochtour'; }
+    }
+    if(tourSelect){
+      tourSelect.addEventListener('change', ()=>{ syncCustomFieldVisibility(); syncTypeFromTourChoice(); });
+      syncCustomFieldVisibility();
+      syncTypeFromTourChoice();
+    }
     const agendaSaveBtn = document.getElementById('agenda-save-btn');
     if(agendaSaveBtn){
       agendaSaveBtn.addEventListener('click', (e)=>{
