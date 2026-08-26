@@ -281,6 +281,7 @@
   }
 
   .debug-toggle{
+    display:none;
     position:fixed; bottom:16px; right:16px; z-index:90;
     background:var(--ink); color:#fff; border:none; border-radius:20px;
     padding:8px 14px; font-size:12px; font-family:'JetBrains Mono'; opacity:0.55;
@@ -318,7 +319,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v15-subregions-compact';
+const APP_VERSION = 'v16-clean-chips';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -1209,12 +1210,12 @@ function tourFormHtml(existing){
         </div>
         <div class="field"><label>Exposition</label>
           <div class="chips">
-            ${EXPOSITIONS.map(x=>`<label class="chip" style="cursor:pointer; ${(t.exposition||[]).includes(x)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="expositionHochtour" value="${x}" ${(t.exposition||[]).includes(x)?'checked':''} style="margin-right:5px;"/>${x}</label>`).join('')}
+            ${EXPOSITIONS.map(x=>`<button type="button" class="chip exposition-hochtour-chip ${(t.exposition||[]).includes(x)?'on':''}" style="${(t.exposition||[]).includes(x)?'background:var(--ice-deep)':''}" data-value="${x}">${x}</button>`).join('')}
           </div>
         </div>
         <div class="field"><label>Gefahren</label>
           <div class="chips">
-            ${GEFAHREN_HOCHTOUR.map(g=>`<label class="chip" style="cursor:pointer; ${(t.gefahren||[]).includes(g)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="gefahrenHochtour" value="${g}" ${(t.gefahren||[]).includes(g)?'checked':''} style="margin-right:5px;"/>${g}</label>`).join('')}
+            ${GEFAHREN_HOCHTOUR.map(g=>`<button type="button" class="chip gefahren-hochtour-chip ${(t.gefahren||[]).includes(g)?'on':''}" style="${(t.gefahren||[]).includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
           </div>
         </div>
       </div>
@@ -1252,12 +1253,12 @@ function tourFormHtml(existing){
         </div>
         <div class="field"><label>Exposition</label>
           <div class="chips">
-            ${EXPOSITIONS.map(x=>`<label class="chip" style="cursor:pointer; ${(t.exposition||[]).includes(x)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="expositionMsl" value="${x}" ${(t.exposition||[]).includes(x)?'checked':''} style="margin-right:5px;"/>${x}</label>`).join('')}
+            ${EXPOSITIONS.map(x=>`<button type="button" class="chip exposition-msl-chip ${(t.exposition||[]).includes(x)?'on':''}" style="${(t.exposition||[]).includes(x)?'background:var(--ice-deep)':''}" data-value="${x}">${x}</button>`).join('')}
           </div>
         </div>
         <div class="field"><label>Gefahren</label>
           <div class="chips">
-            ${GEFAHREN_MSL.map(g=>`<label class="chip" style="cursor:pointer; ${(t.gefahren||[]).includes(g)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="gefahrenMsl" value="${g}" ${(t.gefahren||[]).includes(g)?'checked':''} style="margin-right:5px;"/>${g}</label>`).join('')}
+            ${GEFAHREN_MSL.map(g=>`<button type="button" class="chip gefahren-msl-chip ${(t.gefahren||[]).includes(g)?'on':''}" style="${(t.gefahren||[]).includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
           </div>
         </div>
       </div>
@@ -1265,7 +1266,7 @@ function tourFormHtml(existing){
       <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">Material</h3>
       <div class="field"><label>Tourenspezifisches Material</label>
         <div class="chips">
-          ${MATERIAL_FIXSEIL.map(m=>`<label class="chip" style="cursor:pointer; ${selectedMaterial.includes(m)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="material" value="${m}" ${selectedMaterial.includes(m)?'checked':''} style="margin-right:5px;"/>${m}</label>`).join('')}
+          ${MATERIAL_FIXSEIL.map(m=>`<button type="button" class="chip material-chip ${selectedMaterial.includes(m)?'on':''}" style="${selectedMaterial.includes(m)?'background:var(--ice-deep)':''}" data-value="${m}">${m}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Anzahl Expressschlingen</label><input name="quickdrawCount" value="${esc(t.quickdrawCount||'')}" placeholder="z. B. 10"/></div>
@@ -1426,6 +1427,7 @@ function hutFormHtml(existing){
     </form>
   </div>`;
 }
+
 function hutDetailHtml(id){
   const h = state.huts.find(x=>x.id===id);
   if(!h) return `<div class="modal" data-stop="1"><p>Hütte nicht gefunden.</p></div>`;
@@ -1468,13 +1470,22 @@ function hutDetailHtml(id){
     </div>
   </div>`;
 }
-
 /* ================= Agenda ================= */
 function fmtDateShort(dateStr){
   if(!dateStr) return '';
   const d = new Date(dateStr+'T00:00:00');
   if(isNaN(d.getTime())) return dateStr;
   return d.toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit', year:'numeric'});
+}
+function agendaTypeLabel(type){
+  if(type==='hochtour') return '🏔️ Hochtour';
+  if(type==='msl') return '🧗 Mehrseillängen';
+  return '🎿 Skitour';
+}
+function agendaTypeColor(type){
+  if(type==='hochtour') return 'var(--ice-deep)';
+  if(type==='msl') return 'var(--signal-deep, #A87A1F)';
+  return 'var(--ice)';
 }
 function fmtWeekday(dateStr){
   if(!dateStr) return '';
@@ -1545,7 +1556,7 @@ function agendaCardHtml(a){
     <div class="agenda-date-row" data-act="open-agenda" data-id="${a.id}" style="cursor:pointer;">📅 ${dateLabel}</div>
     <div class="card-top" data-act="open-agenda" data-id="${a.id}" style="cursor:pointer;">
       <h3>${a.status==='abgesagt' ? '❌ ' : ''}${esc(a.tourName || 'Termin')}</h3>
-      <span class="badge" style="background:${a.type==='hochtour'?'var(--ice-deep)':'var(--ice)'}">${a.type==='hochtour'?'🧗 Hochtour':'🎿 Skitour'}</span>
+      <span class="badge" style="background:${agendaTypeColor(a.type)}">${agendaTypeLabel(a.type)}</span>
     </div>
     ${a.meetingPoint ? `<div class="stat-row"><span>📍 ${esc(a.meetingPoint)}</span></div>` : ''}
     ${a.note ? `<p class="excerpt">${esc(a.note)}</p>` : ''}
@@ -1567,7 +1578,7 @@ function agendaDetailHtml(id){
     <div class="modal-head">
       <div>
         <div class="detail-badge-row">
-          <span class="badge" style="background:${a.type==='hochtour'?'var(--ice-deep)':'var(--ice)'}">${a.type==='hochtour'?'🧗 Hochtour':'🎿 Skitour'}</span>
+          <span class="badge" style="background:${agendaTypeColor(a.type)}">${agendaTypeLabel(a.type)}</span>
         </div>
         <h2>${esc(a.tourName || 'Termin')}</h2>
       </div>
@@ -1612,7 +1623,8 @@ function agendaFormHtml(){
       <div class="field"><label>Art</label>
         <select name="type">
           <option value="ski">🎿 Skitour</option>
-          <option value="hochtour">🧗 Hochtour</option>
+          <option value="hochtour">🏔️ Hochtour</option>
+          <option value="msl">🧗 Mehrseillängen</option>
         </select>
       </div>
       <div class="field"><label>Tour</label>
@@ -1622,7 +1634,7 @@ function agendaFormHtml(){
           ${otherOptions}
         </select>
       </div>
-      <div class="field" id="agenda-custom-field"><label>Geplante Tour / Idee</label><input name="customName" placeholder="z. B. Wildspitze über Vent"/></div>
+      <div class="field" id="agenda-custom-field"><label>Geplante Tour</label><input name="customName" placeholder="z. B. Wildspitze über Vent"/></div>
       <div class="field"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof"/></div>
       <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Ausrüstung, offene Fragen …"></textarea></div>
       <div class="form-actions">
@@ -1966,13 +1978,25 @@ function wireModalHandlers(){
     wireSingleSelectChips('crevasse-chip', 'crevasse-hidden');
     wireSingleSelectChips('protection-chip', 'protection-hidden');
     wireSingleSelectChips('descent-chip', 'descent-hidden');
+    // Mehrfachauswahl-Chips (Material, Exposition, Gefahren) — Klick schaltet "on" um
+    function wireMultiToggleChips(className){
+      tourForm.querySelectorAll('.'+className).forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const isOn = btn.classList.toggle('on');
+          btn.style.background = isOn ? 'var(--ice-deep)' : '';
+        });
+      });
+    }
+    wireMultiToggleChips('material-chip');
+    wireMultiToggleChips('exposition-hochtour-chip');
+    wireMultiToggleChips('gefahren-hochtour-chip');
+    wireMultiToggleChips('exposition-msl-chip');
+    wireMultiToggleChips('gefahren-msl-chip');
     // Gletscher "Ja" → Spaltenrettungsset im Material automatisch anhaken
     function checkMaterialCheckbox(name){
-      const cb = tourForm.querySelector(`input[name="material"][value="${name}"]`);
-      if(!cb || cb.checked) return;
-      cb.checked = true;
-      const label = cb.closest('label.chip');
-      if(label){ label.style.background='var(--ice-deep)'; label.style.color='#fff'; label.style.borderColor='transparent'; }
+      const btn = Array.from(tourForm.querySelectorAll('.material-chip')).find(b=>b.getAttribute('data-value')===name);
+      if(!btn || btn.classList.contains('on')) return;
+      btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
     }
     tourForm.querySelectorAll('.glacier-chip').forEach(btn=>{
       if(btn.getAttribute('data-value')==='ja'){
@@ -2049,11 +2073,11 @@ function wireModalHandlers(){
         try{
           const fd = new FormData(tourForm);
           const data = Object.fromEntries(fd.entries());
-          data.material = fd.getAll('material');
-          data.expositionHochtour = fd.getAll('expositionHochtour');
-          data.gefahrenHochtour = fd.getAll('gefahrenHochtour');
-          data.expositionMsl = fd.getAll('expositionMsl');
-          data.gefahrenMsl = fd.getAll('gefahrenMsl');
+          data.material = Array.from(tourForm.querySelectorAll('.material-chip.on')).map(b=>b.getAttribute('data-value'));
+          data.expositionHochtour = Array.from(tourForm.querySelectorAll('.exposition-hochtour-chip.on')).map(b=>b.getAttribute('data-value'));
+          data.gefahrenHochtour = Array.from(tourForm.querySelectorAll('.gefahren-hochtour-chip.on')).map(b=>b.getAttribute('data-value'));
+          data.expositionMsl = Array.from(tourForm.querySelectorAll('.exposition-msl-chip.on')).map(b=>b.getAttribute('data-value'));
+          data.gefahrenMsl = Array.from(tourForm.querySelectorAll('.gefahren-msl-chip.on')).map(b=>b.getAttribute('data-value'));
           if(!data.name || !data.name.trim()){
             dlog('Validierung fehlgeschlagen: Name fehlt', 'err');
             showFormError('tour-form', 'Bitte einen Namen für die Tour eingeben (ganz oben im Formular).');
