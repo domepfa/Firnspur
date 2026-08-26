@@ -149,7 +149,7 @@
   .btn.secondary:hover{background:var(--ice-light);}
   .btn:focus-visible, .tab:focus-visible, .chip:focus-visible, .card:focus-visible{outline:2px solid var(--ice-deep); outline-offset:2px;}
 
-  .chips{display:flex; gap:7px; flex-wrap:wrap;}
+  .chips{display:flex; gap:5px; flex-wrap:wrap;}
   .sort-control{display:flex; align-items:center; gap:6px;}
   .sort-control select{
     border:1px solid var(--line); border-radius:var(--radius); padding:6px 10px;
@@ -161,8 +161,8 @@
   }
   .sort-dir-btn:hover{background:var(--ice-light);}
   .chip{
-    padding:5px 12px; border-radius:20px; border:1px solid var(--line);
-    background:#fff; font-size:12.5px; font-weight:600; color:var(--ink-soft);
+    padding:4px 10px; border-radius:16px; border:1px solid var(--line);
+    background:#fff; font-size:12px; font-weight:600; color:var(--ink-soft); line-height:1.3;
   }
   .chip.on{color:#fff; border-color:transparent;}
 
@@ -225,8 +225,8 @@
   .x-btn{background:none; border:none; font-size:22px; color:var(--ink-soft); line-height:1; padding:2px 6px;}
   .x-btn:hover{color:var(--ink);}
 
-  .field{margin-bottom:14px;}
-  .field label{display:block; font-size:12.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:var(--ink-soft); margin-bottom:5px;}
+  .field{margin-bottom:9px;}
+  .field label{display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:var(--ink-soft); margin-bottom:3px;}
   .field input, .field select, .field textarea{
     width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:var(--radius);
     font-family:inherit; font-size:14px; color:var(--ink); background:#fff;
@@ -234,7 +234,7 @@
   .field textarea{resize:vertical; min-height:56px;}
   .field input:focus, .field select:focus, .field textarea:focus{outline:2px solid var(--ice); outline-offset:1px;}
   .field .hint{font-size:11.5px; color:var(--ink-faint); margin-top:4px;}
-  .row2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:9px;}
   .form-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:20px;}
 
   /* ===== Detailansicht ===== */
@@ -318,7 +318,7 @@
 
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v14-sort';
+const APP_VERSION = 'v15-subregions-compact';
 let debugLog = [];
 let debugPanelOpen = false;
 function dlog(message, kind){
@@ -423,9 +423,24 @@ const CLIMB_ORDER = ['1','2a-','2a','2a+','2b-','2b','2b+','2c-','2c','2c+',
   '6a-','6a','6a+','6b-','6b','6b+','6c-','6c','6c+','7a'];
 
 const EXPOSITIONS = ['N','NE','E','SE','S','SW','W','NW'];
+const REGION_SUBAREAS = {
+  'Wallis': ['Nikolaital/Zermatt','Saastal','Val d\'Anniviers','Lötschental','Goms','Unterwallis','Nufenenpass','Grimselpass','Furkapass','Simplonpass','Grosser St. Bernhard'],
+  'Berner Oberland': ['Lauterbrunnental','Haslital','Kandertal','Diemtigtal','Justistal','Saanenland/Gstaad','Grimselpass','Sustenpass','Jochpass','Grosse Scheidegg'],
+  'Graubünden': ['Engadin','Prättigau','Albula','Surselva','Bergell','Puschlav','Julierpass','Albulapass','Flüelapass','Ofenpass','Splügenpass','Berninapass'],
+  'Tessin': ['Bedretto','Maggiatal','Blenio','Leventina','San Bernardino','Nufenenpass','Gotthardpass','Lukmanierpass'],
+  'Zentralschweiz': ['Urner Alpen','Glarner Alpen','Nidwalden','Schwyz','Sustenpass','Klausenpass','Gotthardpass','Jochpass'],
+  'Jura': ['Solothurner Jura','Waadtländer Jura','Baselbieter Jura','Neuenburger Jura','Passwang','Col de Pierre Pertuis','Balmberg'],
+  'Freiburger Alpen': ['Gantrischgebiet','Vanil-Noir-Gebiet','Jaunpass'],
+  'Waadtländer Alpen': ['Diablerets-Gebiet','Villars/Leysin-Gebiet','Col des Mosses','Col du Pillon','Col de la Croix']
+};
+function renderSubregionChipsHtml(region, selectedSub){
+  const subs = REGION_SUBAREAS[region] || [];
+  if(!subs.length) return '';
+  return subs.map(s=>`<button type="button" class="chip subregion-chip ${selectedSub===s?'on':''}" style="${selectedSub===s?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}" data-subregion="${s}">${s}</button>`).join('');
+}
 const GEFAHREN_HOCHTOUR = ['Spalten','Steinschlag','Eispassage','Firngrat','Wechte','Absturzgelände','schwierige Wegfindung','brüchiger Fels','schwieriger Rückzug'];
 const GEFAHREN_MSL = ['Steinschlag','brüchiger Fels','Runout','schwieriger Rückzug','nasser Fels','komplexer Abstieg','Abseilstellen','ausgesetzter Zustieg'];
-const MATERIAL_FIXSEIL = ['Steigeisen','Pickel','Gurt','Helm','Spaltenrettung','Eisschrauben','Schraubkarabiner','Prusik','Bandschlingen','Friends','Keile','Biwaksack','Stirnlampe'];
+const MATERIAL_FIXSEIL = ['Steigeisen','Pickel','Gurt','Helm','Spaltenrettungsset','Eisschrauben','Schraubkarabiner','Prusik','Bandschlingen','Friends','Keile','Biwaksack','Stirnlampe'];
 const PROTECTION_LEVELS = [
   {value:'sehr-gut', label:'●●●● Sehr gut', desc:'kurze Hakenabstände'},
   {value:'gut', label:'●●●○ Gut', desc:'solide Absicherung, teilweise weitere Abstände'},
@@ -627,6 +642,7 @@ async function submitTourForm(form, existing){
   t.elevationLoss = form.elevationLoss;
   t.duration = form.duration;
   t.region = form.region;
+  t.subregion = form.subregion || '';
   t.material = form.material || [];
   t.quickdrawCount = form.quickdrawCount || '';
   t.ropeType = form.ropeType || '';
@@ -880,7 +896,7 @@ function filteredTours(){
   }
   if(state.search.trim()){
     const q = state.search.trim().toLowerCase();
-    list = list.filter(t=> (t.name||'').toLowerCase().includes(q) || (t.region||'').toLowerCase().includes(q));
+    list = list.filter(t=> (t.name||'').toLowerCase().includes(q) || (t.region||'').toLowerCase().includes(q) || (t.subregion||'').toLowerCase().includes(q));
   }
   return sortTours(list);
 }
@@ -917,7 +933,7 @@ function filteredMslTours(){
   let list = state.tours.filter(t=> t.tourCategory==='msl');
   if(state.search.trim()){
     const q = state.search.trim().toLowerCase();
-    list = list.filter(t=> (t.name||'').toLowerCase().includes(q) || (t.region||'').toLowerCase().includes(q));
+    list = list.filter(t=> (t.name||'').toLowerCase().includes(q) || (t.region||'').toLowerCase().includes(q) || (t.subregion||'').toLowerCase().includes(q));
   }
   return sortTours(list);
 }
@@ -971,7 +987,7 @@ function tourCardHtml(t){
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
       ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span></span>` : ''}
     </div>
-    ${t.region ? `<p class="excerpt">${esc(t.region)}</p>` : ''}
+    ${t.region ? `<p class="excerpt">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${hut ? `<span class="hut-link-chip">🛖 ${esc(hut.name)}</span>` : ''}
     ${last ? `<span class="hut-link-chip" style="background:#E3EFE6; color:#2F6B44;">✓ ${esc(last.by)} · ${esc(fmtDateOnly(last.date))}${t.completions.length>1 ? ` (+${t.completions.length-1})` : ''}</span>` : ''}
     ${t.crux ? `<div class="conditions-note">⚠ ${esc(t.crux)}</div>` : ''}
@@ -1153,8 +1169,13 @@ function tourFormHtml(existing){
         <input type="text" id="region-other-input" value="${!isKnownRegion?esc(t.region||''):''}" placeholder="eigene Region eintragen" style="margin-top:8px; ${t.region && !isKnownRegion?'':'display:none;'}"/>
         <input type="hidden" name="region" id="region-hidden-input" value="${esc(t.region||'')}"/>
       </div>
+      <div class="field" id="subregion-field" style="${(isKnownRegion && REGION_SUBAREAS[t.region])?'':'display:none;'}">
+        <label>Teilgebiet / Pass (optional)</label>
+        <div class="chips" id="subregion-chips">${renderSubregionChipsHtml(t.region, t.subregion)}</div>
+        <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(t.subregion||'')}"/>
+      </div>
 
-      <h3 style="font-size:15px; margin:24px 0 6px 0; padding-top:14px; border-top:1px solid var(--line);">Schwierigkeit &amp; Sicherheit</h3>
+      <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">Schwierigkeit &amp; Sicherheit</h3>
 
       <div id="hochtour-safety-fields" style="${(t.tourCategory||'hochtour')==='hochtour'?'':'display:none;'}">
         <div class="row2">
@@ -1241,7 +1262,7 @@ function tourFormHtml(existing){
         </div>
       </div>
 
-      <h3 style="font-size:15px; margin:24px 0 6px 0; padding-top:14px; border-top:1px solid var(--line);">Material</h3>
+      <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">Material</h3>
       <div class="field"><label>Tourenspezifisches Material</label>
         <div class="chips">
           ${MATERIAL_FIXSEIL.map(m=>`<label class="chip" style="cursor:pointer; ${selectedMaterial.includes(m)?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}"><input type="checkbox" name="material" value="${m}" ${selectedMaterial.includes(m)?'checked':''} style="margin-right:5px;"/>${m}</label>`).join('')}
@@ -1321,7 +1342,7 @@ function tourDetailHtml(id){
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     ${t.routeName ? `<p style="color:var(--ink-soft); font-size:14px; font-style:italic; margin:0 0 4px 0;">${esc(t.routeName)}</p>` : ''}
-    ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}</p>` : ''}
+    ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
@@ -1945,7 +1966,7 @@ function wireModalHandlers(){
     wireSingleSelectChips('crevasse-chip', 'crevasse-hidden');
     wireSingleSelectChips('protection-chip', 'protection-hidden');
     wireSingleSelectChips('descent-chip', 'descent-hidden');
-    // Gletscher "Ja" → Spaltenrettung im Material automatisch anhaken
+    // Gletscher "Ja" → Spaltenrettungsset im Material automatisch anhaken
     function checkMaterialCheckbox(name){
       const cb = tourForm.querySelector(`input[name="material"][value="${name}"]`);
       if(!cb || cb.checked) return;
@@ -1955,12 +1976,15 @@ function wireModalHandlers(){
     }
     tourForm.querySelectorAll('.glacier-chip').forEach(btn=>{
       if(btn.getAttribute('data-value')==='ja'){
-        btn.addEventListener('click', ()=> checkMaterialCheckbox('Spaltenrettung'));
+        btn.addEventListener('click', ()=> checkMaterialCheckbox('Spaltenrettungsset'));
       }
     });
     // Region-Chips
     const regionHidden = document.getElementById('region-hidden-input');
     const regionOtherInput = document.getElementById('region-other-input');
+    const subregionField = document.getElementById('subregion-field');
+    const subregionChipsWrap = document.getElementById('subregion-chips');
+    const subregionHidden = document.getElementById('subregion-hidden');
     tourForm.querySelectorAll('.region-chip').forEach(chip=>{
       chip.addEventListener('click', ()=>{
         tourForm.querySelectorAll('.region-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
@@ -1970,13 +1994,35 @@ function wireModalHandlers(){
           regionOtherInput.style.display = '';
           regionOtherInput.focus();
           regionHidden.value = regionOtherInput.value;
+          if(subregionField){ subregionField.style.display = 'none'; subregionHidden.value = ''; }
         }else{
           regionOtherInput.style.display = 'none';
           regionHidden.value = region;
+          if(subregionField && subregionChipsWrap){
+            const subs = REGION_SUBAREAS[region] || [];
+            if(subs.length){
+              subregionChipsWrap.innerHTML = renderSubregionChipsHtml(region, '');
+              subregionHidden.value = '';
+              subregionField.style.display = '';
+            }else{
+              subregionField.style.display = 'none';
+              subregionHidden.value = '';
+            }
+          }
         }
       });
     });
     if(regionOtherInput) regionOtherInput.addEventListener('input', ()=>{ regionHidden.value = regionOtherInput.value; });
+    // Teilgebiet-Chips (Event-Delegation, da dynamisch neu erzeugt)
+    if(subregionChipsWrap){
+      subregionChipsWrap.addEventListener('click', (e)=>{
+        const btn = e.target.closest('.subregion-chip');
+        if(!btn) return;
+        subregionChipsWrap.querySelectorAll('.subregion-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
+        subregionHidden.value = btn.getAttribute('data-subregion');
+      });
+    }
     // Seil-Chips
     const ropeTypeHidden = document.getElementById('rope-type-hidden');
     tourForm.querySelectorAll('.rope-type-chip').forEach(chip=>{
