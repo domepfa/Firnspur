@@ -424,3 +424,130 @@ async function setAgendaStatus(id, status){
   if(!ok) markUnsaved();
   render();
 }
+
+/* ================= Notfallkarte (app-übergreifend geteilt) ================= */
+function wgs84ToLV95(lat, lon){
+  const latSec = lat * 3600;
+  const lonSec = lon * 3600;
+  const latAux = (latSec - 169028.66) / 10000;
+  const lonAux = (lonSec - 26782.5) / 10000;
+  const E = 2600072.37
+    + 211455.93 * lonAux
+    - 10938.51 * lonAux * latAux
+    - 0.36 * lonAux * latAux * latAux
+    - 44.54 * lonAux * lonAux * lonAux;
+  const N = 1200147.07
+    + 308807.95 * latAux
+    - 3745.25 * lonAux * lonAux
+    - 76.63 * latAux * latAux
+    - 194.56 * lonAux * lonAux * latAux
+    + 119.79 * latAux * latAux * latAux;
+  return { E: Math.round(E), N: Math.round(N) };
+}
+
+function emergencyCardHtml(){
+  return `<div class="modal" data-stop="1" style="max-width:520px;">
+    <div class="modal-head"><h2>🆘 Notfallkarte</h2><button class="x-btn" data-act="close-modal">×</button></div>
+
+    <div class="detail-section" style="margin-top:0;">
+      <h4>Alarmierung</h4>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <a href="tel:1414" style="display:flex; justify-content:space-between; align-items:center; background:var(--danger); color:#fff; padding:12px 16px; border-radius:var(--radius); text-decoration:none; font-weight:700;">
+          <span>🚁 Rega (Gebirgsnotfall)</span><span class="mono">1414</span>
+        </a>
+        <a href="tel:112" style="display:flex; justify-content:space-between; align-items:center; background:var(--ice-deep); color:#fff; padding:12px 16px; border-radius:var(--radius); text-decoration:none; font-weight:700;">
+          <span>🆘 Europäischer Notruf</span><span class="mono">112</span>
+        </a>
+        <a href="tel:117" style="display:flex; justify-content:space-between; align-items:center; background:var(--ink-soft); color:#fff; padding:12px 16px; border-radius:var(--radius); text-decoration:none; font-weight:700;">
+          <span>👮 Polizei</span><span class="mono">117</span>
+        </a>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <h4>Notruf — die 5 W</h4>
+      <p style="line-height:1.9; margin:0;">
+        <strong>Wer</strong> meldet den Unfall?<br>
+        <strong>Was</strong> ist passiert?<br>
+        <strong>Wo</strong> — Ort/Koordinaten (siehe unten)?<br>
+        <strong>Wie viele</strong> Verletzte, welcher Zustand?<br>
+        <strong>Wetter</strong> — Sicht, Wind, Wolken vor Ort?
+      </p>
+      <p style="font-size:12.5px; color:var(--ink-faint); margin:8px 0 0 0;">Nicht auflegen, bis die Zentrale das Gespräch beendet.</p>
+    </div>
+
+    <div class="detail-section">
+      <h4>📍 Aktueller Standort</h4>
+      <button type="button" class="btn secondary" id="gps-fetch-btn">Standort abrufen</button>
+      <p id="gps-status" style="font-size:13px; color:var(--ink-soft); margin-top:8px;"></p>
+      <div id="gps-result" style="display:none; margin-top:10px;"></div>
+    </div>
+
+    <div class="detail-section">
+      <h4>❄️ Lawinen-Notfall (Kameradenrettung)</h4>
+      <ol style="padding-left:18px; line-height:2; margin:0;">
+        <li>Ruhe bewahren, eigene Sicherheit prüfen (Nachlawine?)</li>
+        <li>Verschwindepunkt der/des Verschütteten merken</li>
+        <li>Notruf absetzen (1414 / 112) — wenn möglich jemand anderen damit beauftragen</li>
+        <li>LVS auf Suchen schalten, Suchstreifen abgehen (Grobsuche)</li>
+        <li>Feinsuche: LVS nah am Schnee, kreuzweise absuchen</li>
+        <li>Sondieren am Signalpunkt, spiralförmig</li>
+        <li>Zügig ausschaufeln — Kopf/Atemwege zuerst freilegen</li>
+        <li>Erste Hilfe, vor Auskühlung schützen, auf Rettung warten</li>
+      </ol>
+      <p style="font-size:12.5px; color:var(--ink-faint); margin-top:8px;">Die Überlebenschance sinkt mit der Verschüttungsdauer rasch — schnelles, strukturiertes Handeln zählt.</p>
+    </div>
+  </div>`;
+}
+
+function startGpsLookup(){
+  const statusEl = document.getElementById('gps-status');
+  const resultEl = document.getElementById('gps-result');
+  if(!navigator.geolocation){
+    if(statusEl) statusEl.textContent = 'Geolokalisierung wird von diesem Gerät/Browser nicht unterstützt.';
+    return;
+  }
+  if(statusEl) statusEl.textContent = 'Standort wird ermittelt…';
+  if(resultEl) resultEl.style.display = 'none';
+  navigator.geolocation.getCurrentPosition(
+    (pos)=>{
+      const lat = pos.coords.latitude, lon = pos.coords.longitude, acc = pos.coords.accuracy;
+      const lv95 = wgs84ToLV95(lat, lon);
+      const wgsText = lat.toFixed(6) + ', ' + lon.toFixed(6);
+      const lv95Text = lv95.E + ' / ' + lv95.N;
+      if(statusEl) statusEl.textContent = '';
+      if(resultEl){
+        resultEl.style.display = '';
+        resultEl.innerHTML = `
+          <div class="field"><label>WGS84 (Breite, Länge)</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input readonly value="${esc(wgsText)}" id="gps-wgs84-value" style="flex:1;"/>
+              <button type="button" class="btn secondary" data-copy-target="gps-wgs84-value">Kopieren</button>
+            </div>
+          </div>
+          <div class="field"><label>Schweizer Landeskoordinaten (LV95)</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input readonly value="${esc(lv95Text)}" id="gps-lv95-value" style="flex:1;"/>
+              <button type="button" class="btn secondary" data-copy-target="gps-lv95-value">Kopieren</button>
+            </div>
+          </div>
+          <p style="font-size:12.5px; color:var(--ink-faint); margin:6px 0 0 0;">Genauigkeit: ±${Math.round(acc)} m</p>
+        `;
+        resultEl.querySelectorAll('[data-copy-target]').forEach(btn=>{
+          btn.addEventListener('click', ()=>{
+            const input = document.getElementById(btn.getAttribute('data-copy-target'));
+            if(input){
+              input.select();
+              try{ navigator.clipboard.writeText(input.value); showToast('Kopiert.'); }
+              catch(e){ showToast('Kopieren nicht möglich — bitte manuell markieren.', true); }
+            }
+          });
+        });
+      }
+    },
+    (err)=>{
+      if(statusEl) statusEl.textContent = 'Standort konnte nicht ermittelt werden: ' + (err && err.message ? err.message : 'Zugriff verweigert oder kein Signal.');
+    },
+    { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
+  );
+}
