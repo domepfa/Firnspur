@@ -71,6 +71,11 @@ async function fbDelete(path){
 
 /* ================= Basis-Hilfsfunktionen ================= */
 function uid(prefix){ return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8); }
+function dedupeById(arr){
+  const map = new Map();
+  arr.forEach(x=>{ if(x && x.id) map.set(x.id, x); });
+  return Array.from(map.values());
+}
 function esc(s){
   if(s===undefined||s===null) return '';
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -215,6 +220,10 @@ function migrateAgendaStatus(a){
   return a;
 }
 async function saveAgendaCloud(item){ return await fbSet(AGENDA_PATH+'/'+item.id, item); }
+function removeAgendaItem(id){
+  state.agenda = state.agenda.filter(x=>x.id!==id);
+  fbDelete(AGENDA_PATH+'/'+id).catch(()=>{});
+}
 function agendaTypeLabel(type){
   if(type==='hochtour') return '🏔️ Hochtour';
   if(type==='msl') return '🧗 Mehrseillängen';
@@ -306,6 +315,14 @@ function agendaDetailHtml(id){
     <div class="meta-line" style="margin-top:16px;">Vorgeschlagen von ${esc(a.createdBy||'?')} · ${fmtDate(a.createdAt)}</div>
     <div class="detail-actions">
       <button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>
+    </div>
+    <div id="delete-agenda-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
+      <button type="button" id="delete-agenda-trigger" data-id="${a.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Termin löschen</button>
+      <div id="delete-agenda-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
+        Wirklich unwiderruflich löschen?
+        <button type="button" id="delete-agenda-yes" data-id="${a.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
+        <button type="button" id="delete-agenda-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+      </div>
     </div>
   </div>`;
 }
