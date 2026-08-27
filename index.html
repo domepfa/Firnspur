@@ -244,13 +244,16 @@
   }
   .fab-save:hover{background:var(--ice);}
   .fab-save[disabled]{opacity:0.6; cursor:default;}
-  .emergency-btn{
-    position:fixed; bottom:20px; left:16px; z-index:70;
-    background:var(--danger); color:#fff; border:none; border-radius:50%;
-    width:52px; height:52px; font-size:22px; box-shadow:var(--shadow-lg);
-    cursor:pointer; display:flex; align-items:center; justify-content:center;
+  .emergency-tab{
+    position:fixed; top:50%; left:0; transform:translateY(-50%); z-index:70;
+    background:var(--danger); color:#fff; border:none;
+    padding:12px 5px; border-radius:0 8px 8px 0;
+    font-family:'Oswald'; font-size:11px; font-weight:700; letter-spacing:0.08em;
+    writing-mode:vertical-rl; text-orientation:mixed;
+    box-shadow:var(--shadow); cursor:pointer; opacity:0.72;
+    touch-action:none;
   }
-  .emergency-btn:hover{opacity:0.9;}
+  .emergency-tab:hover{opacity:1;}
 
   /* ===== Detail panel ===== */
   .detail-badge-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px;}
@@ -329,14 +332,14 @@
   <a href="./fixseil.html">🧗 Hochtour/MSL</a>
 </div>
 <div id="app"></div>
-<button class="emergency-btn" id="emergency-btn">🆘</button>
+<button class="emergency-tab" id="emergency-btn">SOS</button>
 <button class="debug-toggle" id="debug-toggle-btn" onclick="toggleDebugPanel()">Diagnose v12</button>
 <div id="debug-panel-root"></div>
 
 <script src="./shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v31-huts-shared-fab-emergency';
+const APP_VERSION = 'v33-map';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -587,6 +590,8 @@ async function submitTourForm(form, existing){
   t.crux = form.crux;
   t.special = form.special;
   t.approach = form.approach;
+  t.lat = form.lat ? parseFloat(form.lat) : null;
+  t.lon = form.lon ? parseFloat(form.lon) : null;
   t.ascent = form.ascent;
   t.descent = form.descent;
   t.updatedAt = new Date().toISOString();
@@ -619,6 +624,8 @@ async function submitHutForm(form, existing){
   h.staffedPeriod = form.staffedPeriod;
   h.winterraum = form.winterraum;
   h.approach = form.approach;
+  h.lat = form.lat ? parseFloat(form.lat) : null;
+  h.lon = form.lon ? parseFloat(form.lon) : null;
   h.accessElevationSummer = form.accessElevationSummer;
   h.accessDurationSummer = form.accessDurationSummer;
   h.accessDifficultySummer = form.accessDifficultySummer;
@@ -859,6 +866,7 @@ function hutCardHtml(h){
     <div class="meta-line">von ${esc(h.createdBy||'?')} · ${fmtDate(h.createdAt)}</div>
   </div>`;
 }
+
 /* ================= Modal rendering ================= */
 function renderModal(){
   const root = document.getElementById('modal-root');
@@ -896,7 +904,6 @@ function exportModalHtml(){
     </div>
   </div>`;
 }
-
 function importModalHtml(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Importieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
@@ -1024,6 +1031,12 @@ function tourFormHtml(existing){
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. steile Rinne kurz vor dem Gipfel, ausgesetzte Querung …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Lawinenhänge, Gletscherspalten, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
       <div class="field"><label>Anfahrt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
+      <div class="field"><label>Standort (Ausgangspunkt)</label>
+        <button type="button" class="btn secondary" id="location-fetch-btn">📍 Aktuellen Standort übernehmen</button>
+        <p id="location-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${(t.lat && t.lon) ? `📍 Gespeichert: ${Number(t.lat).toFixed(5)}, ${Number(t.lon).toFixed(5)}` : 'Noch kein Standort gespeichert.'}</p>
+        <input type="hidden" name="lat" id="location-lat-hidden" value="${esc(t.lat||'')}"/>
+        <input type="hidden" name="lon" id="location-lon-hidden" value="${esc(t.lon||'')}"/>
+      </div>
       <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abfahrtsroute, Varianten …">${esc(t.descent||'')}</textarea></div>
       <div class="field"><label>Verknüpfte Hütte</label>
@@ -1082,6 +1095,11 @@ function tourDetailHtml(id){
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(t.approach)}</p></div>` : ''}
+    ${(t.lat && t.lon) ? `<div class="detail-section">
+      <h4>Standort</h4>
+      <button type="button" class="btn secondary" data-act="show-map" data-lat="${t.lat}" data-lon="${t.lon}" data-label="${esc(t.name)}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>
+      <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
+    </div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
 
@@ -1121,6 +1139,12 @@ function hutFormHtml(existing){
       <div class="field"><label>Winterraum / Schutzraum</label><textarea name="winterraum" placeholder="Vorhanden? Anzahl Plätze, Zugang, Ausstattung …">${esc(h.winterraum||'')}</textarea></div>
       <div class="field"><label>Betten / Kapazität</label><input name="capacity" value="${esc(h.capacity||'')}" placeholder="z. B. 40 Betten"/></div>
       <div class="field"><label>Anfahrt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(h.approach||'')}</textarea></div>
+      <div class="field"><label>Standort (Hütte)</label>
+        <button type="button" class="btn secondary" id="location-fetch-btn">📍 Aktuellen Standort übernehmen</button>
+        <p id="location-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${(h.lat && h.lon) ? `📍 Gespeichert: ${Number(h.lat).toFixed(5)}, ${Number(h.lon).toFixed(5)}` : 'Noch kein Standort gespeichert.'}</p>
+        <input type="hidden" name="lat" id="location-lat-hidden" value="${esc(h.lat||'')}"/>
+        <input type="hidden" name="lon" id="location-lon-hidden" value="${esc(h.lon||'')}"/>
+      </div>
 
       <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">🌞 Zustieg – Sommer</h3>
       <div class="row2">
@@ -1185,6 +1209,11 @@ function hutDetailHtml(id){
     <div class="detail-section"><h4>Bewartung</h4><p>${h.staffedPeriod ? esc(h.staffedPeriod) : 'Unbewartet'}</p></div>
     ${h.winterraum ? `<div class="detail-section"><h4>Winterraum / Schutzraum</h4><p>${esc(h.winterraum)}</p></div>` : ''}
     ${h.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(h.approach)}</p></div>` : ''}
+    ${(h.lat && h.lon) ? `<div class="detail-section">
+      <h4>Standort</h4>
+      <button type="button" class="btn secondary" data-act="show-map" data-lat="${h.lat}" data-lon="${h.lon}" data-label="${esc(h.name)}" data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
+      <div id="map-hut-${h.id}" style="margin-top:10px;"></div>
+    </div>` : ''}
 
     ${(h.accessElevationSummer || h.accessDurationSummer || h.accessDifficultySummer || h.accessSummer) ? `<div class="detail-section">
       <h4>🌞 Zustieg – Sommer</h4>
@@ -1397,6 +1426,19 @@ function wireModalHandlers(){
 
   const gpsFetchBtn = root.querySelector('#gps-fetch-btn');
   if(gpsFetchBtn) gpsFetchBtn.addEventListener('click', startGpsLookup);
+
+  const locationFetchBtn = root.querySelector('#location-fetch-btn');
+  if(locationFetchBtn) locationFetchBtn.addEventListener('click', ()=> fetchLocationIntoForm('location-lat-hidden','location-lon-hidden','location-status'));
+
+  root.querySelectorAll('[data-act="show-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const lat = parseFloat(btn.getAttribute('data-lat'));
+      const lon = parseFloat(btn.getAttribute('data-lon'));
+      const label = btn.getAttribute('data-label');
+      const target = btn.getAttribute('data-target');
+      renderMiniMap(target, lat, lon, label);
+    });
+  });
 
   const openCompleteTourBtn = root.querySelector('[data-act="open-complete-tour"]');
   if(openCompleteTourBtn) openCompleteTourBtn.onclick = ()=> openCompleteTour(openCompleteTourBtn.getAttribute('data-id'));
@@ -1725,7 +1767,27 @@ try{
   if(savedName) state.myName = savedName;
 }catch(e){}
 dlog('App gestartet — Version ' + APP_VERSION);
-document.getElementById('emergency-btn').addEventListener('click', ()=>{ state.modal = {type:'emergency'}; render(); });
+function toggleEmergencyCard(){
+  if(state.modal && state.modal.type==='emergency'){ closeModal(); }
+  else{ state.modal = {type:'emergency'}; render(); }
+}
+const emergencyTab = document.getElementById('emergency-btn');
+emergencyTab.addEventListener('click', toggleEmergencyCard);
+let emergencySwipeStart = null;
+emergencyTab.addEventListener('touchstart', (e)=>{
+  emergencySwipeStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+}, {passive:true});
+emergencyTab.addEventListener('touchend', (e)=>{
+  if(!emergencySwipeStart) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - emergencySwipeStart.x;
+  const dy = t.clientY - emergencySwipeStart.y;
+  emergencySwipeStart = null;
+  // Wegziehen nach rechts oder nach unten öffnet die Karte (kein erneutes Schliessen per Wisch, nur per Klick/erneutem Antippen)
+  if((dx > 35 || dy > 35) && !(state.modal && state.modal.type==='emergency')){
+    state.modal = {type:'emergency'}; render();
+  }
+});
 loadAll();
 
 if('serviceWorker' in navigator){
