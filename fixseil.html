@@ -339,7 +339,7 @@
 <script src="./shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v23-map';
+const APP_VERSION = 'v24-multipoint-map';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -619,8 +619,7 @@ async function submitTourForm(form, existing){
   t.crux = form.crux;
   t.special = form.special;
   t.approach = form.approach;
-  t.lat = form.lat ? parseFloat(form.lat) : null;
-  t.lon = form.lon ? parseFloat(form.lon) : null;
+  try{ t.points = form.points ? JSON.parse(form.points) : []; }catch(e){ t.points = []; }
   t.ascent = form.ascent;
   t.descent = form.descent;
 
@@ -674,8 +673,7 @@ async function submitHutForm(form, existing){
   h.staffedPeriod = form.staffedPeriod;
   h.winterraum = form.winterraum;
   h.approach = form.approach;
-  h.lat = form.lat ? parseFloat(form.lat) : null;
-  h.lon = form.lon ? parseFloat(form.lon) : null;
+  try{ h.points = form.points ? JSON.parse(form.points) : []; }catch(e){ h.points = []; }
   h.accessElevationSummer = form.accessElevationSummer;
   h.accessDurationSummer = form.accessDurationSummer;
   h.accessDifficultySummer = form.accessDifficultySummer;
@@ -988,6 +986,7 @@ function renderModal(){
   root.innerHTML = `<div class="overlay" data-act="overlay-close">${inner}</div>`;
   wireModalHandlers();
 }
+
 function exportModalHtml(){
   const data = {tours: state.tours, huts: state.huts};
   const json = JSON.stringify(data, null, 2);
@@ -1004,7 +1003,6 @@ function exportModalHtml(){
     </div>
   </div>`;
 }
-
 function importModalHtml(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Importieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
@@ -1204,11 +1202,12 @@ function tourFormHtml(existing){
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. Querung unter dem Bergschrund, kurze Eispassage am Grat …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Spaltenrisiko, Steinschlag, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
       <div class="field"><label>Anfahrt / Ausgangspunkt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
-      <div class="field"><label>Standort (Ausgangspunkt)</label>
-        <button type="button" class="btn secondary" id="location-fetch-btn">📍 Aktuellen Standort übernehmen</button>
-        <p id="location-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${(t.lat && t.lon) ? `📍 Gespeichert: ${Number(t.lat).toFixed(5)}, ${Number(t.lon).toFixed(5)}` : 'Noch kein Standort gespeichert.'}</p>
-        <input type="hidden" name="lat" id="location-lat-hidden" value="${esc(t.lat||'')}"/>
-        <input type="hidden" name="lon" id="location-lon-hidden" value="${esc(t.lon||'')}"/>
+      <div class="field"><label>Punkte auf der Karte (Parkplatz, Haltestelle, weitere Orte)</label>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte zum Setzen von Punkten öffnen</button>
+        <div class="hint">Auf die Karte tippen, um einen Punkt zu setzen — danach Bezeichnung eintragen und speichern. Mehrere Punkte möglich.</div>
+        <div id="points-map" style="margin-top:10px; display:none;"></div>
+        <div id="points-list"></div>
+        <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
       </div>
       <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abstiegsroute, Varianten, Abseilstellen …">${esc(t.descent||'')}</textarea></div>
@@ -1281,9 +1280,10 @@ function tourDetailHtml(id){
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(t.approach)}</p></div>` : ''}
-    ${(t.lat && t.lon) ? `<div class="detail-section">
-      <h4>Standort</h4>
-      <button type="button" class="btn secondary" data-act="show-map" data-lat="${t.lat}" data-lon="${t.lon}" data-label="${esc(t.name)}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>
+    ${(t.points && t.points.length) ? `<div class="detail-section">
+      <h4>Standort${t.points.length>1?'e':''}</h4>
+      <div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">📍 ${esc(p.label||'Punkt')}</span>`).join('')}</div>
+      <button type="button" class="btn secondary" data-act="show-map" data-points='${esc(JSON.stringify(t.points))}' data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
     </div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
@@ -1320,11 +1320,12 @@ function hutFormHtml(existing){
       <div class="field"><label>Winterraum / Schutzraum</label><textarea name="winterraum" placeholder="Vorhanden? Anzahl Plätze, Zugang, Ausstattung …">${esc(h.winterraum||'')}</textarea></div>
       <div class="field"><label>Betten / Kapazität</label><input name="capacity" value="${esc(h.capacity||'')}" placeholder="z. B. 60 Betten"/></div>
       <div class="field"><label>Anfahrt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV, Seilbahn …">${esc(h.approach||'')}</textarea></div>
-      <div class="field"><label>Standort (Hütte)</label>
-        <button type="button" class="btn secondary" id="location-fetch-btn">📍 Aktuellen Standort übernehmen</button>
-        <p id="location-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${(h.lat && h.lon) ? `📍 Gespeichert: ${Number(h.lat).toFixed(5)}, ${Number(h.lon).toFixed(5)}` : 'Noch kein Standort gespeichert.'}</p>
-        <input type="hidden" name="lat" id="location-lat-hidden" value="${esc(h.lat||'')}"/>
-        <input type="hidden" name="lon" id="location-lon-hidden" value="${esc(h.lon||'')}"/>
+      <div class="field"><label>Punkte auf der Karte (Hütte, Parkplatz, Haltestelle …)</label>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte zum Setzen von Punkten öffnen</button>
+        <div class="hint">Auf die Karte tippen, um einen Punkt zu setzen — danach Bezeichnung eintragen und speichern. Mehrere Punkte möglich.</div>
+        <div id="points-map" style="margin-top:10px; display:none;"></div>
+        <div id="points-list"></div>
+        <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(h.points || (h.lat && h.lon ? [{label:"Hütte", lat:h.lat, lon:h.lon}] : [])))}'/>
       </div>
 
       <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">🌞 Zustieg – Sommer</h3>
@@ -1390,9 +1391,10 @@ function hutDetailHtml(id){
     <div class="detail-section"><h4>Bewartung</h4><p>${h.staffedPeriod ? esc(h.staffedPeriod) : 'Unbewartet'}</p></div>
     ${h.winterraum ? `<div class="detail-section"><h4>Winterraum / Schutzraum</h4><p>${esc(h.winterraum)}</p></div>` : ''}
     ${h.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(h.approach)}</p></div>` : ''}
-    ${(h.lat && h.lon) ? `<div class="detail-section">
-      <h4>Standort</h4>
-      <button type="button" class="btn secondary" data-act="show-map" data-lat="${h.lat}" data-lon="${h.lon}" data-label="${esc(h.name)}" data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
+    ${(h.points && h.points.length) ? `<div class="detail-section">
+      <h4>Standort${h.points.length>1?'e':''}</h4>
+      <div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">📍 ${esc(p.label||'Punkt')}</span>`).join('')}</div>
+      <button type="button" class="btn secondary" data-act="show-map" data-points='${esc(JSON.stringify(h.points))}' data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
       <div id="map-hut-${h.id}" style="margin-top:10px;"></div>
     </div>` : ''}
 
@@ -1594,16 +1596,20 @@ function wireModalHandlers(){
   const gpsFetchBtn = root.querySelector('#gps-fetch-btn');
   if(gpsFetchBtn) gpsFetchBtn.addEventListener('click', startGpsLookup);
 
-  const locationFetchBtn = root.querySelector('#location-fetch-btn');
-  if(locationFetchBtn) locationFetchBtn.addEventListener('click', ()=> fetchLocationIntoForm('location-lat-hidden','location-lon-hidden','location-status'));
+  const pointsMapToggleBtn = root.querySelector('#points-map-toggle-btn');
+  if(pointsMapToggleBtn) pointsMapToggleBtn.addEventListener('click', ()=>{
+    const mapDiv = document.getElementById('points-map');
+    if(mapDiv) mapDiv.style.display = '';
+    renderPointsEditorMap('points-map', 'points-hidden', 'points-list');
+  });
 
   root.querySelectorAll('[data-act="show-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      const lat = parseFloat(btn.getAttribute('data-lat'));
-      const lon = parseFloat(btn.getAttribute('data-lon'));
-      const label = btn.getAttribute('data-label');
       const target = btn.getAttribute('data-target');
-      renderMiniMap(target, lat, lon, label);
+      const pointsJson = btn.getAttribute('data-points');
+      let pts = [];
+      try{ pts = JSON.parse(pointsJson || '[]'); }catch(e){ pts = []; }
+      renderPointsDisplayMap(target, pts);
     });
   });
 
