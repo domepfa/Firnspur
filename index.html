@@ -320,7 +320,7 @@
 <script src="./shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v28-shared-js';
+const APP_VERSION = 'v30-offline-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -409,10 +409,10 @@ function migrateCompletions(item){
 async function loadAll(){
   state.loading = true; render();
   const [toursObj, hutsObj, agendaObj] = await Promise.all([ fbGet('tours'), fbGet('huts'), fbGet(AGENDA_PATH) ]);
+  const cached = loadLocalSnapshot();
 
   if(!toursObj && !hutsObj && !agendaObj){
     // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
-    const cached = loadLocalSnapshot();
     state.loading = false;
     if(cached){
       state.tours = (cached.tours || []).map(migrateCompletions);
@@ -434,10 +434,21 @@ async function loadAll(){
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
 
-  // Lokale, noch nicht synchronisierte Einträge beim Neuladen nicht verlieren
-  const unsyncedTours = state.tours.filter(x=>x._unsynced && !tours.find(y=>y.id===x.id));
-  const unsyncedHuts = state.huts.filter(x=>x._unsynced && !huts.find(y=>y.id===x.id));
-  const unsyncedAgenda = state.agenda.filter(x=>x._unsynced && !agenda.find(y=>y.id===x.id));
+  // Lokale, noch nicht synchronisierte Einträge nicht verlieren — sowohl aus dem
+  // aktuellen Speicher als auch aus dem lokalen Cache (wichtig nach einem
+  // Seiten-Neuladen, da der Speicher dann leer ist, der Cache aber nicht).
+  const unsyncedTours = dedupeById([
+    ...state.tours.filter(x=>x._unsynced),
+    ...((cached && cached.tours) ? cached.tours.filter(x=>x._unsynced) : [])
+  ]).filter(x=>!tours.find(y=>y.id===x.id));
+  const unsyncedHuts = dedupeById([
+    ...state.huts.filter(x=>x._unsynced),
+    ...((cached && cached.huts) ? cached.huts.filter(x=>x._unsynced) : [])
+  ]).filter(x=>!huts.find(y=>y.id===x.id));
+  const unsyncedAgenda = dedupeById([
+    ...state.agenda.filter(x=>x._unsynced),
+    ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
+  ]).filter(x=>!agenda.find(y=>y.id===x.id));
 
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
@@ -445,6 +456,24 @@ async function loadAll(){
   state.loading = false;
   state.offlineMode = false;
   render();
+
+  // Wiedergefundene, noch nicht synchronisierte Einträge jetzt automatisch
+  // erneut versuchen hochzuladen, da offenbar wieder eine Verbindung besteht.
+  unsyncedTours.forEach(async t=>{
+    const ok = await saveTourCloud(t).catch(()=>false);
+    t._unsynced = !ok;
+    if(ok) render();
+  });
+  unsyncedHuts.forEach(async h=>{
+    const ok = await saveHutCloud(h).catch(()=>false);
+    h._unsynced = !ok;
+    if(ok) render();
+  });
+  unsyncedAgenda.forEach(async a=>{
+    const ok = await saveAgendaCloud(a).catch(()=>false);
+    a._unsynced = !ok;
+    if(ok) render();
+  });
 }
 
 async function saveTourCloud(tour){ return await fbSet('tours/'+tour.id, tour); }
@@ -1604,6 +1633,7 @@ function wireModalHandlers(){
   }
   wireDeleteConfirm('tour', removeTour, 'Tour');
   wireDeleteConfirm('hut', removeHut, 'Hütte');
+  wireDeleteConfirm('agenda', removeAgendaItem, 'Termin');
 
   root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
