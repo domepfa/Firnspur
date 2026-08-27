@@ -532,6 +532,8 @@ function startGpsLookup(){
             </div>
           </div>
           <p style="font-size:12.5px; color:var(--ink-faint); margin:6px 0 0 0;">Genauigkeit: ±${Math.round(acc)} m</p>
+          <button type="button" class="btn secondary" style="margin-top:10px;" onclick="renderMiniMap('emergency-map', ${lat}, ${lon}, 'Aktueller Standort')">🗺️ Karte anzeigen</button>
+          <div id="emergency-map" style="margin-top:10px;"></div>
         `;
         resultEl.querySelectorAll('[data-copy-target]').forEach(btn=>{
           btn.addEventListener('click', ()=>{
@@ -550,4 +552,201 @@ function startGpsLookup(){
     },
     { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
   );
+}
+
+/* ================= Karte (app-übergreifend geteilt, nur bei Bedarf geladen) ================= */
+let leafletLoadPromise = null;
+function ensureLeafletLoaded(){
+  if(window.L) return Promise.resolve();
+  if(leafletLoadPromise) return leafletLoadPromise;
+  leafletLoadPromise = new Promise((resolve, reject)=>{
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Kartenbibliothek konnte nicht geladen werden.'));
+    document.head.appendChild(script);
+  });
+  return leafletLoadPromise;
+}
+
+function renderMiniMap(containerId, lat, lon, label){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    el2.innerHTML = '';
+    el2.style.height = '220px';
+    el2.style.borderRadius = 'var(--radius)';
+    el2.style.overflow = 'hidden';
+    el2.style.border = '1px solid var(--line)';
+    const map = L.map(containerId, {attributionControl:true}).setView([lat, lon], 14);
+    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
+      maxZoom: 18,
+      attribution: '© swisstopo'
+    }).addTo(map);
+    L.marker([lat, lon]).addTo(map).bindPopup(label || '').openPopup();
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+function fetchLocationIntoForm(latInputId, lonInputId, statusId){
+  const statusEl = document.getElementById(statusId);
+  if(!navigator.geolocation){
+    if(statusEl) statusEl.textContent = 'Geolokalisierung wird von diesem Gerät/Browser nicht unterstützt.';
+    return;
+  }
+  if(statusEl) statusEl.textContent = 'Standort wird ermittelt…';
+  navigator.geolocation.getCurrentPosition(
+    (pos)=>{
+      const lat = pos.coords.latitude, lon = pos.coords.longitude;
+      const latInput = document.getElementById(latInputId);
+      const lonInput = document.getElementById(lonInputId);
+      if(latInput) latInput.value = lat;
+      if(lonInput) lonInput.value = lon;
+      if(statusEl) statusEl.textContent = '📍 Gespeichert: ' + lat.toFixed(5) + ', ' + lon.toFixed(5);
+    },
+    (err)=>{
+      if(statusEl) statusEl.textContent = 'Standort konnte nicht ermittelt werden: ' + (err && err.message ? err.message : 'Zugriff verweigert oder kein Signal.');
+    },
+    { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
+  );
+}
+
+/* ================= Interaktive Punkte-Karte (mehrere Stecknadeln, manuell setzbar) ================= */
+function renderPointsEditorMap(containerId, hiddenInputId, listContainerId){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    const hiddenInput = document.getElementById(hiddenInputId);
+    const listEl = document.getElementById(listContainerId);
+    if(!el2 || !hiddenInput) return;
+    el2.innerHTML = '';
+    el2.style.height = '260px';
+    el2.style.borderRadius = 'var(--radius)';
+    el2.style.overflow = 'hidden';
+    el2.style.border = '1px solid var(--line)';
+
+    let points = [];
+    try{ points = JSON.parse(hiddenInput.value || '[]'); }catch(e){ points = []; }
+
+    const center = points.length ? [points[0].lat, points[0].lon] : [46.8182, 8.2275];
+    const zoom = points.length ? 13 : 8;
+    const map = L.map(containerId).setView(center, zoom);
+    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
+      maxZoom: 18,
+      attribution: '© swisstopo'
+    }).addTo(map);
+
+    const markerLayer = L.layerGroup().addTo(map);
+
+    function persist(){
+      hiddenInput.value = JSON.stringify(points);
+      renderList();
+    }
+    function renderList(){
+      if(!listEl) return;
+      if(!points.length){
+        listEl.innerHTML = '<p style="font-size:12.5px; color:var(--ink-faint); margin:8px 0 0 0;">Noch keine Punkte gesetzt — auf die Karte tippen, um einen zu setzen.</p>';
+        return;
+      }
+      listEl.innerHTML = '<div class="chips" style="margin-top:8px;">' +
+        points.map((p,i)=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">📍 ${esc(p.label||'Punkt')}</span>`).join('') +
+        '</div>';
+    }
+
+    function buildPopupContent(point){
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '170px';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = point.label || '';
+      input.placeholder = 'z. B. Parkplatz, Haltestelle …';
+      input.style.cssText = 'width:100%; margin-bottom:6px; padding:6px 8px; border:1px solid #ccc; border-radius:3px; font-size:13px; box-sizing:border-box;';
+      wrap.appendChild(input);
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex; gap:6px;';
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.textContent = 'Speichern';
+      saveBtn.style.cssText = 'flex:1; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:6px 10px; font-size:12.5px; cursor:pointer;';
+      saveBtn.addEventListener('click', ()=>{
+        point.label = input.value.trim() || 'Punkt';
+        persist();
+        map.closePopup();
+      });
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.textContent = 'Entfernen';
+      delBtn.style.cssText = 'background:#fff; color:#B0392C; border:1px solid #B0392C; border-radius:3px; padding:6px 10px; font-size:12.5px; cursor:pointer;';
+      delBtn.addEventListener('click', ()=>{
+        points = points.filter(p=>p!==point);
+        persist();
+        redraw();
+        map.closePopup();
+      });
+      btnRow.appendChild(saveBtn);
+      btnRow.appendChild(delBtn);
+      wrap.appendChild(btnRow);
+      return wrap;
+    }
+
+    function redraw(){
+      markerLayer.clearLayers();
+      points.forEach(point=>{
+        const marker = L.marker([point.lat, point.lon]).addTo(markerLayer);
+        marker.bindPopup(buildPopupContent(point));
+        if(point._justAdded){ delete point._justAdded; marker.openPopup(); }
+      });
+    }
+
+    map.on('click', (e)=>{
+      points.push({ label:'', lat: e.latlng.lat, lon: e.latlng.lng, _justAdded:true });
+      redraw();
+      persist();
+    });
+
+    redraw();
+    renderList();
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+function renderPointsDisplayMap(containerId, points){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2 || !points.length) return;
+    el2.innerHTML = '';
+    el2.style.height = '240px';
+    el2.style.borderRadius = 'var(--radius)';
+    el2.style.overflow = 'hidden';
+    el2.style.border = '1px solid var(--line)';
+    const map = L.map(containerId).setView([points[0].lat, points[0].lon], 13);
+    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
+      maxZoom: 18,
+      attribution: '© swisstopo'
+    }).addTo(map);
+    const group = [];
+    points.forEach(p=>{
+      const m = L.marker([p.lat, p.lon]).addTo(map).bindPopup(esc(p.label||'Punkt'));
+      group.push(m);
+    });
+    if(group.length > 1){
+      map.fitBounds(L.featureGroup(group).getBounds(), {padding:[30,30]});
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
 }
