@@ -236,6 +236,21 @@
   .field .hint{font-size:11.5px; color:var(--ink-faint); margin-top:4px;}
   .row2{display:grid; grid-template-columns:1fr 1fr; gap:9px;}
   .form-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:20px;}
+  .fab-save{
+    position:fixed; bottom:20px; right:20px; z-index:70;
+    background:var(--ice-deep); color:#fff; border:none; border-radius:50px;
+    padding:14px 24px; font-weight:700; font-size:14px; box-shadow:var(--shadow-lg);
+    cursor:pointer; display:flex; align-items:center; gap:6px;
+  }
+  .fab-save:hover{background:var(--ice);}
+  .fab-save[disabled]{opacity:0.6; cursor:default;}
+  .emergency-btn{
+    position:fixed; bottom:20px; left:16px; z-index:70;
+    background:var(--danger); color:#fff; border:none; border-radius:50%;
+    width:52px; height:52px; font-size:22px; box-shadow:var(--shadow-lg);
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .emergency-btn:hover{opacity:0.9;}
 
   /* ===== Detailansicht ===== */
   .detail-badge-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px;}
@@ -314,13 +329,14 @@
   <a href="./fixseil.html" class="active">🧗 Hochtour/MSL</a>
 </div>
 <div id="app"></div>
+<button class="emergency-btn" id="emergency-btn">🆘</button>
 <button class="debug-toggle" id="debug-toggle-btn" onclick="toggleDebugPanel()">Diagnose v1</button>
 <div id="debug-panel-root"></div>
 
 <script src="./shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v18-shared-js';
+const APP_VERSION = 'v21-huts-shared-fab-emergency';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -333,7 +349,8 @@ const APP_VERSION = 'v18-shared-js';
    Internetverbindung bleibt der Export/Import weiterhin verfügbar.
    ================================================================= */
 const TOURS_PATH = 'fixseil/tours';
-const HUTS_PATH = 'fixseil/huts';
+const HUTS_PATH = 'huts'; // ab jetzt app-übergreifend geteilt (wie die Agenda)
+const LEGACY_HUTS_PATH = 'fixseil/huts'; // alte, getrennte Hütten — einmalig übernehmen
 /* Agenda ist app-übergreifend geteilt zwischen Firnspur und Fixseil. */
 const OWN_TOURS_PATH = 'fixseil/tours';
 const OTHER_TOURS_PATH = 'tours';
@@ -421,11 +438,30 @@ function loadLocalSnapshot(){
 
 async function loadAll(){
   state.loading = true; render();
-  const [toursObj, hutsObj, agendaObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH) ]);
+  const [toursObj, hutsObjResult, agendaObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH) ]);
+  let hutsObj = hutsObjResult;
+  const cached = loadLocalSnapshot();
+
+  // Einmalige Migration: alte, getrennte Fixseil-Hütten in die neue,
+  // gemeinsame Sammlung übernehmen (nur solange noch nicht geschehen).
+  if(!localStorage.getItem('fixseil-huts-migrated')){
+    try{
+      const legacyObj = await fbGet(LEGACY_HUTS_PATH);
+      const legacyHuts = legacyObj ? Object.values(legacyObj).filter(h=>h && h.id) : [];
+      const currentIds = new Set(Object.keys(hutsObj || {}));
+      const toMigrate = legacyHuts.filter(h=>!currentIds.has(h.id));
+      if(toMigrate.length){
+        await Promise.all(toMigrate.map(h=> fbSet(HUTS_PATH+'/'+h.id, h)));
+        if(!hutsObj) hutsObj = {};
+        toMigrate.forEach(h=>{ hutsObj[h.id] = h; });
+        dlog('Migration: ' + toMigrate.length + ' Hütte(n) aus altem Fixseil-Bestand übernommen.');
+      }
+      localStorage.setItem('fixseil-huts-migrated', '1');
+    }catch(e){ dlog('Hütten-Migration fehlgeschlagen (versuche es beim nächsten Laden erneut): ' + (e&&e.message?e.message:e), 'err'); }
+  }
 
   if(!toursObj && !hutsObj && !agendaObj){
     // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
-    const cached = loadLocalSnapshot();
     state.loading = false;
     if(cached){
       state.tours = cached.tours || [];
@@ -447,9 +483,21 @@ async function loadAll(){
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
 
-  const unsyncedTours = state.tours.filter(x=>x._unsynced && !tours.find(y=>y.id===x.id));
-  const unsyncedHuts = state.huts.filter(x=>x._unsynced && !huts.find(y=>y.id===x.id));
-  const unsyncedAgenda = state.agenda.filter(x=>x._unsynced && !agenda.find(y=>y.id===x.id));
+  // Lokale, noch nicht synchronisierte Einträge nicht verlieren — sowohl aus dem
+  // aktuellen Speicher als auch aus dem lokalen Cache (wichtig nach einem
+  // Seiten-Neuladen, da der Speicher dann leer ist, der Cache aber nicht).
+  const unsyncedTours = dedupeById([
+    ...state.tours.filter(x=>x._unsynced),
+    ...((cached && cached.tours) ? cached.tours.filter(x=>x._unsynced) : [])
+  ]).filter(x=>!tours.find(y=>y.id===x.id));
+  const unsyncedHuts = dedupeById([
+    ...state.huts.filter(x=>x._unsynced),
+    ...((cached && cached.huts) ? cached.huts.filter(x=>x._unsynced) : [])
+  ]).filter(x=>!huts.find(y=>y.id===x.id));
+  const unsyncedAgenda = dedupeById([
+    ...state.agenda.filter(x=>x._unsynced),
+    ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
+  ]).filter(x=>!agenda.find(y=>y.id===x.id));
 
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
@@ -457,6 +505,24 @@ async function loadAll(){
   state.loading = false;
   state.offlineMode = false;
   render();
+
+  // Wiedergefundene, noch nicht synchronisierte Einträge jetzt automatisch
+  // erneut versuchen hochzuladen, da offenbar wieder eine Verbindung besteht.
+  unsyncedTours.forEach(async t=>{
+    const ok = await saveTourCloud(t).catch(()=>false);
+    t._unsynced = !ok;
+    if(ok) render();
+  });
+  unsyncedHuts.forEach(async h=>{
+    const ok = await saveHutCloud(h).catch(()=>false);
+    h._unsynced = !ok;
+    if(ok) render();
+  });
+  unsyncedAgenda.forEach(async a=>{
+    const ok = await saveAgendaCloud(a).catch(()=>false);
+    a._unsynced = !ok;
+    if(ok) render();
+  });
 }
 
 async function saveTourCloud(tour){ return await fbSet(TOURS_PATH+'/'+tour.id, tour); }
@@ -603,10 +669,14 @@ async function submitHutForm(form, existing){
   h.staffedPeriod = form.staffedPeriod;
   h.winterraum = form.winterraum;
   h.approach = form.approach;
-  h.accessElevation = form.accessElevation;
-  h.accessDuration = form.accessDuration;
-  h.accessDifficulty = form.accessDifficulty;
-  h.access = form.access;
+  h.accessElevationSummer = form.accessElevationSummer;
+  h.accessDurationSummer = form.accessDurationSummer;
+  h.accessDifficultySummer = form.accessDifficultySummer;
+  h.accessSummer = form.accessSummer;
+  h.accessElevationWinter = form.accessElevationWinter;
+  h.accessDurationWinter = form.accessDurationWinter;
+  h.accessDifficultyWinter = form.accessDifficultyWinter;
+  h.accessWinter = form.accessWinter;
   h.contact = form.contact;
   h.notes = form.notes;
   h.updatedAt = new Date().toISOString();
@@ -866,7 +936,7 @@ function emptyHuts(){
 
 function hutCardHtml(h){
   const linkedCount = state.tours.filter(t=>t.hutId===h.id).length;
-  const ad = h.accessDifficulty ? (DIFF[h.accessDifficulty] || DIFF.L) : null;
+  const adS = h.accessDifficultySummer ? (DIFF[h.accessDifficultySummer] || DIFF.L) : null;
   const done = (h.completions && h.completions.length) || h.completed;
   const last = latestCompletion(h.completions);
   return `
@@ -876,10 +946,10 @@ function hutCardHtml(h){
       ${h.altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(h.altitude)} m</span>` : ''}
     </div>
     ${h.region ? `<p class="excerpt">${esc(h.region)}</p>` : ''}
-    ${(h.accessElevation || h.accessDuration || ad) ? `<div class="stat-row">
-      ${h.accessElevation ? `<span>↑ <span class="mono">${esc(h.accessElevation)}</span> Hm Zustieg</span>` : ''}
-      ${h.accessDuration ? `<span>⏱ <span class="mono">${esc(h.accessDuration)}</span></span>` : ''}
-      ${ad ? `<span class="badge" style="background:${ad.color}">${h.accessDifficulty}</span>` : ''}
+    ${(h.accessElevationSummer || h.accessDurationSummer || adS) ? `<div class="stat-row">
+      ${h.accessElevationSummer ? `<span>🌞↑ <span class="mono">${esc(h.accessElevationSummer)}</span> Hm</span>` : ''}
+      ${h.accessDurationSummer ? `<span>⏱ <span class="mono">${esc(h.accessDurationSummer)}</span></span>` : ''}
+      ${adS ? `<span class="badge" style="background:${adS.color}">${h.accessDifficultySummer}</span>` : ''}
     </div>` : ''}
     <div class="stat-row">
       ${h.openingPeriod ? `<span>📅 ${esc(h.openingPeriod)}</span>` : ''}
@@ -891,7 +961,6 @@ function hutCardHtml(h){
     <div class="meta-line">von ${esc(h.createdBy||'?')} · ${fmtDate(h.createdAt)}</div>
   </div>`;
 }
-
 /* ================= Modal rendering ================= */
 function renderModal(){
   const root = document.getElementById('modal-root');
@@ -906,6 +975,7 @@ function renderModal(){
   else if(m.type==='import') inner = importModalHtml();
   else if(m.type==='add-agenda') inner = agendaFormHtml();
   else if(m.type==='agenda-detail') inner = agendaDetailHtml(m.payload);
+  else if(m.type==='emergency') inner = emergencyCardHtml();
   else if(m.type==='add-completion') inner = completionModalHtml(m.payload);
   root.innerHTML = `<div class="overlay" data-act="overlay-close">${inner}</div>`;
   wireModalHandlers();
@@ -1137,6 +1207,7 @@ function tourFormHtml(existing){
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="tour-save-btn" class="btn">${(existing&&existing.id)?'Speichern':'Tour anlegen'}</button>
       </div>
+      <button type="button" id="tour-fab-save-btn" class="fab-save">✓ Speichern</button>
       ${(existing&&existing.id) ? `
       <div id="delete-tour-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-tour-trigger" data-id="${t.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Tour löschen</button>
@@ -1231,23 +1302,40 @@ function hutFormHtml(existing){
       <div class="field"><label>Winterraum / Schutzraum</label><textarea name="winterraum" placeholder="Vorhanden? Anzahl Plätze, Zugang, Ausstattung …">${esc(h.winterraum||'')}</textarea></div>
       <div class="field"><label>Betten / Kapazität</label><input name="capacity" value="${esc(h.capacity||'')}" placeholder="z. B. 60 Betten"/></div>
       <div class="field"><label>Anfahrt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV, Seilbahn …">${esc(h.approach||'')}</textarea></div>
+
+      <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">🌞 Zustieg – Sommer</h3>
       <div class="row2">
-        <div class="field"><label>Zustieg – Höhenmeter (Hm)</label><input name="accessElevation" value="${esc(h.accessElevation||'')}" placeholder="z. B. 1400"/></div>
-        <div class="field"><label>Zustieg – Zeitbedarf</label><input name="accessDuration" value="${esc(h.accessDuration||'')}" placeholder="z. B. 3–4 Std."/></div>
+        <div class="field"><label>Höhenmeter (Hm)</label><input name="accessElevationSummer" value="${esc(h.accessElevationSummer!==undefined?h.accessElevationSummer:(h.accessElevation||''))}" placeholder="z. B. 1400"/></div>
+        <div class="field"><label>Zeitbedarf</label><input name="accessDurationSummer" value="${esc(h.accessDurationSummer!==undefined?h.accessDurationSummer:(h.accessDuration||''))}" placeholder="z. B. 3–4 Std."/></div>
       </div>
-      <div class="field"><label>Zustieg – Schwierigkeit (SAC)</label>
-        <select name="accessDifficulty">
+      <div class="field"><label>Schwierigkeit (SAC)</label>
+        <select name="accessDifficultySummer">
           <option value="">— keine Angabe —</option>
-          ${DIFF_ORDER.map(c=>`<option value="${c}" ${(h.accessDifficulty||'')===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
+          ${DIFF_ORDER.map(c=>`<option value="${c}" ${(h.accessDifficultySummer!==undefined?h.accessDifficultySummer:(h.accessDifficulty||''))===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
         </select>
       </div>
-      <div class="field"><label>Zustieg – Beschreibung</label><textarea name="access" placeholder="Route, Orientierungspunkte, Gefahrenstellen, Gletscherquerung …">${esc(h.access||'')}</textarea></div>
-      <div class="field"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, Sektion …"/></div>
+      <div class="field"><label>Beschreibung</label><textarea name="accessSummer" placeholder="Route, Orientierungspunkte, Gefahrenstellen, Gletscherquerung …">${esc(h.accessSummer!==undefined?h.accessSummer:(h.access||''))}</textarea></div>
+
+      <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">❄️ Zustieg – Winter</h3>
+      <div class="row2">
+        <div class="field"><label>Höhenmeter (Hm)</label><input name="accessElevationWinter" value="${esc(h.accessElevationWinter||'')}" placeholder="z. B. 1650"/></div>
+        <div class="field"><label>Zeitbedarf</label><input name="accessDurationWinter" value="${esc(h.accessDurationWinter||'')}" placeholder="z. B. 4–5 Std."/></div>
+      </div>
+      <div class="field"><label>Schwierigkeit (SAC)</label>
+        <select name="accessDifficultyWinter">
+          <option value="">— keine Angabe —</option>
+          ${DIFF_ORDER.map(c=>`<option value="${c}" ${(h.accessDifficultyWinter||'')===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Beschreibung</label><textarea name="accessWinter" placeholder="Route, Lawinenhänge, Spaltenrisiko, Spurverlauf …">${esc(h.accessWinter||'')}</textarea></div>
+
+      <div class="field" style="margin-top:16px;"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, Sektion …"/></div>
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="hut-save-btn" class="btn">${existing?'Speichern':'Hütte anlegen'}</button>
       </div>
+      <button type="button" id="hut-fab-save-btn" class="fab-save">✓ Speichern</button>
       ${existing ? `
       <div id="delete-hut-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-hut-trigger" data-id="${h.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Hütte löschen</button>
@@ -1273,15 +1361,32 @@ function hutDetailHtml(id){
     <div class="detail-stats">
       ${h.altitude ? `<div class="detail-stat"><div class="num">${esc(h.altitude)}</div><div class="lbl">m ü. M.</div></div>` : ''}
       ${h.capacity ? `<div class="detail-stat"><div class="num">${esc(h.capacity)}</div><div class="lbl">Kapazität</div></div>` : ''}
-      ${h.accessElevation ? `<div class="detail-stat"><div class="num">${esc(h.accessElevation)}</div><div class="lbl">Hm Zustieg</div></div>` : ''}
-      ${h.accessDuration ? `<div class="detail-stat"><div class="num">${esc(h.accessDuration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>
-    ${h.accessDifficulty ? `<div class="detail-badge-row"><span class="badge" style="background:${(DIFF[h.accessDifficulty]||DIFF.L).color}">${h.accessDifficulty} · Zustieg (SAC)</span></div>` : ''}
     ${h.openingPeriod ? `<div class="detail-section"><h4>Öffnungszeitraum</h4><p>${esc(h.openingPeriod)}</p></div>` : ''}
     <div class="detail-section"><h4>Bewartung</h4><p>${h.staffedPeriod ? esc(h.staffedPeriod) : 'Unbewartet'}</p></div>
     ${h.winterraum ? `<div class="detail-section"><h4>Winterraum / Schutzraum</h4><p>${esc(h.winterraum)}</p></div>` : ''}
     ${h.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(h.approach)}</p></div>` : ''}
-    ${h.access ? `<div class="detail-section"><h4>Zustieg – Beschreibung</h4><p>${esc(h.access)}</p></div>` : ''}
+
+    ${(h.accessElevationSummer || h.accessDurationSummer || h.accessDifficultySummer || h.accessSummer) ? `<div class="detail-section">
+      <h4>🌞 Zustieg – Sommer</h4>
+      <div class="detail-stats" style="margin:0 0 8px 0;">
+        ${h.accessElevationSummer ? `<div class="detail-stat"><div class="num">${esc(h.accessElevationSummer)}</div><div class="lbl">Hm</div></div>` : ''}
+        ${h.accessDurationSummer ? `<div class="detail-stat"><div class="num">${esc(h.accessDurationSummer)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+      </div>
+      ${h.accessDifficultySummer ? `<span class="badge" style="background:${(DIFF[h.accessDifficultySummer]||DIFF.L).color}">${h.accessDifficultySummer} · SAC</span>` : ''}
+      ${h.accessSummer ? `<p style="margin-top:8px;">${esc(h.accessSummer)}</p>` : ''}
+    </div>` : ''}
+
+    ${(h.accessElevationWinter || h.accessDurationWinter || h.accessDifficultyWinter || h.accessWinter) ? `<div class="detail-section">
+      <h4>❄️ Zustieg – Winter</h4>
+      <div class="detail-stats" style="margin:0 0 8px 0;">
+        ${h.accessElevationWinter ? `<div class="detail-stat"><div class="num">${esc(h.accessElevationWinter)}</div><div class="lbl">Hm</div></div>` : ''}
+        ${h.accessDurationWinter ? `<div class="detail-stat"><div class="num">${esc(h.accessDurationWinter)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+      </div>
+      ${h.accessDifficultyWinter ? `<span class="badge" style="background:${(DIFF[h.accessDifficultyWinter]||DIFF.L).color}">${h.accessDifficultyWinter} · SAC</span>` : ''}
+      ${h.accessWinter ? `<p style="margin-top:8px;">${esc(h.accessWinter)}</p>` : ''}
+    </div>` : ''}
+
     ${h.contact ? `<div class="detail-section"><h4>Kontakt</h4><p>${esc(h.contact)}</p></div>` : ''}
     ${h.notes ? `<div class="detail-section"><h4>Notizen</h4><p>${esc(h.notes)}</p></div>` : ''}
 
@@ -1456,6 +1561,9 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-stop]').forEach(el=> el.addEventListener('click', e=>e.stopPropagation()));
 
   root.querySelectorAll('[data-act="close-modal"]').forEach(el=> el.onclick = closeModal);
+
+  const gpsFetchBtn = root.querySelector('#gps-fetch-btn');
+  if(gpsFetchBtn) gpsFetchBtn.addEventListener('click', startGpsLookup);
 
   const markDoneBtn = root.querySelector('[data-act="mark-done"]');
   if(markDoneBtn) markDoneBtn.onclick = ()=> openMarkDone(markDoneBtn.getAttribute('data-kind'), markDoneBtn.getAttribute('data-id'));
@@ -1720,6 +1828,8 @@ function wireModalHandlers(){
         }
       });
     }
+    const tourFabSaveBtn = document.getElementById('tour-fab-save-btn');
+    if(tourFabSaveBtn) tourFabSaveBtn.addEventListener('click', ()=>{ if(tourSaveBtn) tourSaveBtn.click(); });
   }
 
   const hutForm = document.getElementById('hut-form');
@@ -1745,6 +1855,8 @@ function wireModalHandlers(){
         }
       });
     }
+    const hutFabSaveBtn = document.getElementById('hut-fab-save-btn');
+    if(hutFabSaveBtn) hutFabSaveBtn.addEventListener('click', ()=>{ if(hutSaveBtn) hutSaveBtn.click(); });
   }
 
   // Dezente Löschen-Funktion mit zweistufiger Bestätigung (Tour & Hütte)
@@ -1770,6 +1882,7 @@ function wireModalHandlers(){
   }
   wireDeleteConfirm('tour', removeTour, 'Tour');
   wireDeleteConfirm('hut', removeHut, 'Hütte');
+  wireDeleteConfirm('agenda', removeAgendaItem, 'Termin');
 
   root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
@@ -1799,6 +1912,7 @@ try{
   if(savedName) state.myName = savedName;
 }catch(e){}
 dlog('App gestartet — Version ' + APP_VERSION);
+document.getElementById('emergency-btn').addEventListener('click', ()=>{ state.modal = {type:'emergency'}; render(); });
 loadAll();
 
 if('serviceWorker' in navigator){
@@ -1811,3 +1925,4 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
+
