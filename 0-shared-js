@@ -553,7 +553,6 @@ function startGpsLookup(){
     { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
   );
 }
-
 /* ================= Karte (app-übergreifend geteilt, nur bei Bedarf geladen) ================= */
 let leafletLoadPromise = null;
 function ensureLeafletLoaded(){
@@ -1112,3 +1111,4 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId){
   render();
   showToast(ok ? 'Punkte/Linie gespeichert.' : 'Lokal gespeichert, aber nicht synchronisiert.', !ok);
 }
+
