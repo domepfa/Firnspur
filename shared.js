@@ -602,6 +602,17 @@ function closeFullscreenMap(){
   if(container) container.innerHTML = '';
   if(overlay._onClose){ overlay._onClose(); overlay._onClose = null; }
 }
+function destroyExistingMap(leafletContainerId){
+  window.__activeLeafletMaps = window.__activeLeafletMaps || {};
+  if(window.__activeLeafletMaps[leafletContainerId]){
+    try{ window.__activeLeafletMaps[leafletContainerId].remove(); }catch(e){}
+    delete window.__activeLeafletMaps[leafletContainerId];
+  }
+}
+function registerMap(leafletContainerId, map){
+  window.__activeLeafletMaps = window.__activeLeafletMaps || {};
+  window.__activeLeafletMaps[leafletContainerId] = map;
+}
 function makeFullscreenButton(renderFn, onCloseCallback){
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -618,6 +629,7 @@ function renderMiniMap(containerId, lat, lon, label){
   ensureLeafletLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2) return;
+    destroyExistingMap(containerId);
     el2.innerHTML = '';
     const isFullscreen = containerId === 'fullscreen-map-container';
     el2.style.height = isFullscreen ? '100%' : '220px';
@@ -625,6 +637,7 @@ function renderMiniMap(containerId, lat, lon, label){
     el2.style.overflow = 'hidden';
     el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
     const map = L.map(containerId, {attributionControl:true}).setView([lat, lon], isFullscreen ? 15 : 14);
+    registerMap(containerId, map);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
       maxZoom: 18,
       attribution: '© swisstopo'
@@ -632,7 +645,7 @@ function renderMiniMap(containerId, lat, lon, label){
     L.marker([lat, lon]).addTo(map).bindPopup(label || '').openPopup();
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderMiniMap(id, lat, lon, label); });
-      el2.parentElement.appendChild(btn);
+      el2.appendChild(btn);
     }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
@@ -664,7 +677,7 @@ function fetchLocationIntoForm(latInputId, lonInputId, statusId){
 }
 
 /* ================= Interaktive Punkte-Karte (mehrere Stecknadeln, manuell setzbar) ================= */
-function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId){
+function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, gpxReferenceTrack){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
   ensureLeafletLoaded().then(()=>{
@@ -673,6 +686,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const listEl = document.getElementById(listContainerId);
     const manualTrackHidden = manualTrackHiddenId ? document.getElementById(manualTrackHiddenId) : null;
     if(!el2 || !hiddenInput) return;
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
     el2.innerHTML = '';
     const isFullscreen = containerId === 'fullscreen-map-container';
 
@@ -690,8 +705,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     modeRow.appendChild(lineModeBtn);
     wrapDiv.appendChild(modeRow);
 
+    if(gpxReferenceTrack && gpxReferenceTrack.length){
+      const refHint = document.createElement('p');
+      refHint.className = 'hint';
+      refHint.style.marginBottom = '6px';
+      refHint.textContent = '🔴 Roter Track = hochgeladene GPX-Aufzeichnung (zur Orientierung, nicht bearbeitbar hier).';
+      wrapDiv.appendChild(refHint);
+    }
+
     const mapDiv = document.createElement('div');
-    mapDiv.id = containerId + '-inner';
+    mapDiv.id = mapDivId;
     mapDiv.style.height = isFullscreen ? 'calc(100% - 46px)' : '260px';
     mapDiv.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
     mapDiv.style.overflow = 'hidden';
@@ -720,13 +743,18 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
     let mode = 'point';
 
-    const center = points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : [46.8182, 8.2275]);
-    const zoom = (points.length || manualTrack.length) ? 13 : 8;
-    const map = L.map(mapDiv.id).setView(center, zoom);
+    const center = points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : ((gpxReferenceTrack && gpxReferenceTrack.length) ? gpxReferenceTrack[0] : [46.8182, 8.2275]));
+    const zoom = (points.length || manualTrack.length || (gpxReferenceTrack && gpxReferenceTrack.length)) ? 13 : 8;
+    const map = L.map(mapDivId).setView(center, zoom);
+    registerMap(mapDivId, map);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
       maxZoom: 18,
       attribution: '© swisstopo'
     }).addTo(map);
+
+    if(gpxReferenceTrack && gpxReferenceTrack.length){
+      L.polyline(gpxReferenceTrack, {color:'#B0392C', weight:3, opacity:0.55}).addTo(map);
+    }
 
     const markerLayer = L.layerGroup().addTo(map);
     let lineLayer = L.polyline(manualTrack, {color:'#2E6E8E', weight:4, opacity:0.85}).addTo(map);
@@ -831,10 +859,10 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     renderList();
     if(!isFullscreen){
       const btn = makeFullscreenButton(
-        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId); },
-        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId); }
+        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, gpxReferenceTrack); },
+        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, gpxReferenceTrack); }
       );
-      el2.parentElement.insertBefore(btn, listEl);
+      wrapDiv.appendChild(btn);
     }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
@@ -848,6 +876,7 @@ function renderPointsDisplayMap(containerId, points){
   ensureLeafletLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2 || !points.length) return;
+    destroyExistingMap(containerId);
     el2.innerHTML = '';
     const isFullscreen = containerId === 'fullscreen-map-container';
     el2.style.height = isFullscreen ? '100%' : '240px';
@@ -855,6 +884,7 @@ function renderPointsDisplayMap(containerId, points){
     el2.style.overflow = 'hidden';
     el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
     const map = L.map(containerId).setView([points[0].lat, points[0].lon], isFullscreen ? 14 : 13);
+    registerMap(containerId, map);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
       maxZoom: 18,
       attribution: '© swisstopo'
@@ -869,7 +899,7 @@ function renderPointsDisplayMap(containerId, points){
     }
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderPointsDisplayMap(id, points); });
-      el2.parentElement.appendChild(btn);
+      el2.appendChild(btn);
     }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
@@ -998,6 +1028,7 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     const hasManualTrack = manualTrackCoords && manualTrackCoords.length;
     const hasPoints = points && points.length;
     if(!hasTrack && !hasManualTrack && !hasPoints) return;
+    destroyExistingMap(containerId);
     el2.innerHTML = '';
     const isFullscreen = containerId === 'fullscreen-map-container';
     el2.style.height = isFullscreen ? '100%' : '240px';
@@ -1006,6 +1037,7 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
     const startView = hasTrack ? trackCoords[0] : (hasManualTrack ? manualTrackCoords[0] : [points[0].lat, points[0].lon]);
     const map = L.map(containerId).setView(startView, isFullscreen ? 14 : 13);
+    registerMap(containerId, map);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
       maxZoom: 18,
       attribution: '© swisstopo'
@@ -1030,7 +1062,7 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     }
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderTrackDisplayMap(id, points||[], trackCoords||[], manualTrackCoords||[]); });
-      el2.parentElement.appendChild(btn);
+      el2.appendChild(btn);
     }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
@@ -1057,5 +1089,26 @@ function findToursSharingPoints(currentTour, allTours, maxMeters){
     const otherPoints = t.points || [];
     return otherPoints.some(op => myPoints.some(mp => haversineMeters(mp.lat, mp.lon, op.lat, op.lon) <= maxMeters));
   });
+}
+
+/* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */
+async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId){
+  let points = [], manualTrack = [];
+  try{ const pEl = document.getElementById(pointsHiddenId); points = pEl && pEl.value ? JSON.parse(pEl.value) : []; }catch(e){ points = []; }
+  try{ const mEl = document.getElementById(manualTrackHiddenId); manualTrack = mEl && mEl.value ? JSON.parse(mEl.value) : []; }catch(e){ manualTrack = []; }
+  const list = kind==='tour' ? state.tours : state.huts;
+  const item = list.find(x=>x.id===id);
+  if(!item) return;
+  item.points = points;
+  item.manualTrack = manualTrack;
+  item.updatedAt = new Date().toISOString();
+  item.updatedBy = state.myName;
+  const saveFn = kind==='tour' ? saveTourCloud : saveHutCloud;
+  const ok = await saveFn(item).catch(()=>false);
+  item._unsynced = !ok;
+  closeModal();
+  state.modal = {type: kind==='tour' ? 'tour-detail' : 'hut-detail', payload:id};
+  render();
+  showToast(ok ? 'Punkte/Linie gespeichert.' : 'Lokal gespeichert, aber nicht synchronisiert.', !ok);
 }
 
