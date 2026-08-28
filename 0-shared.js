@@ -35,7 +35,9 @@ function renderDebugPanel(){
 const FIREBASE_URL = 'https://firnspur-default-rtdb.europe-west1.firebasedatabase.app';
 async function fbGet(path){
   try{
-    const res = await fetch(FIREBASE_URL + '/' + path + '.json');
+    await ensureValidAuthToken();
+    const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
+    const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam);
     if(!res.ok){ dlog('Firebase GET fehlgeschlagen ('+res.status+'): '+path, 'err'); return null; }
     const data = await res.json();
     return data;
@@ -46,7 +48,9 @@ async function fbGet(path){
 }
 async function fbSet(path, value){
   try{
-    const res = await fetch(FIREBASE_URL + '/' + path + '.json', {
+    await ensureValidAuthToken();
+    const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
+    const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam, {
       method:'PUT',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify(value)
@@ -60,7 +64,9 @@ async function fbSet(path, value){
 }
 async function fbDelete(path){
   try{
-    const res = await fetch(FIREBASE_URL + '/' + path + '.json', {method:'DELETE'});
+    await ensureValidAuthToken();
+    const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
+    const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam, {method:'DELETE'});
     if(!res.ok){ dlog('Firebase DELETE fehlgeschlagen ('+res.status+'): '+path, 'err'); return false; }
     return true;
   }catch(e){
@@ -381,7 +387,6 @@ async function submitAgendaForm(form){
     tourName = (form.customName||'').trim();
   }
   if(!tourName){ showFormError('agenda-form', 'Bitte eine Tour auswählen oder einen Vorschlag eintragen.'); return; }
-
   const a = {
     id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
     type: form.type||'ski', startDate, endDate: form.endDate||'',
@@ -553,6 +558,7 @@ function startGpsLookup(){
     { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
   );
 }
+
 /* ================= Karte (app-übergreifend geteilt, nur bei Bedarf geladen) ================= */
 let leafletLoadPromise = null;
 function ensureLeafletLoaded(){
@@ -812,7 +818,6 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       wrap.appendChild(btnRow);
       return wrap;
     }
-
     function redraw(){
       markerLayer.clearLayers();
       points.forEach(point=>{
@@ -1111,4 +1116,109 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId){
   render();
   showToast(ok ? 'Punkte/Linie gespeichert.' : 'Lokal gespeichert, aber nicht synchronisiert.', !ok);
 }
+
+/* ================= Login (Firebase Authentication, einmalig pro Gerät) ================= */
+const FIREBASE_API_KEY = 'AIzaSyDKHMUoOL5aosFU7OhCt22REbyOvXqAXmU';
+const AUTH_EMAIL = 'firn@spur.so'; // gemeinsames Gruppen-Login — das Passwort ist das eigentliche Geheimnis
+let authState = { idToken: null, refreshToken: null, expiresAt: 0 };
+
+function loadAuthFromStorage(){
+  try{
+    const raw = localStorage.getItem('bergtouren-auth');
+    if(raw) authState = JSON.parse(raw);
+  }catch(e){ authState = { idToken: null, refreshToken: null, expiresAt: 0 }; }
+}
+function saveAuthToStorage(){
+  try{ localStorage.setItem('bergtouren-auth', JSON.stringify(authState)); }catch(e){}
+}
+function clearAuth(){
+  authState = { idToken: null, refreshToken: null, expiresAt: 0 };
+  try{ localStorage.removeItem('bergtouren-auth'); }catch(e){}
+}
+function isLoggedIn(){
+  return !!(authState.idToken && authState.refreshToken);
+}
+
+async function signInWithPassword(password){
+  try{
+    const res = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=' + FIREBASE_API_KEY, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email: AUTH_EMAIL, password: password, returnSecureToken: true })
+    });
+    if(!res.ok) return false;
+    const data = await res.json();
+    authState = {
+      idToken: data.idToken,
+      refreshToken: data.refreshToken,
+      expiresAt: Date.now() + (parseInt(data.expiresIn, 10) * 1000) - 60000
+    };
+    saveAuthToStorage();
+    return true;
+  }catch(e){ return false; }
+}
+
+async function refreshAuthToken(){
+  if(!authState.refreshToken) return false;
+  try{
+    const res = await fetch('https://securetoken.googleapis.com/v1/token?key=' + FIREBASE_API_KEY, {
+      method: 'POST',
+      headers: {'Content-Type':'application/x-www-form-urlencoded'},
+      body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(authState.refreshToken)
+    });
+    if(!res.ok){ clearAuth(); return false; }
+    const data = await res.json();
+    authState = {
+      idToken: data.id_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + (parseInt(data.expires_in, 10) * 1000) - 60000
+    };
+    saveAuthToStorage();
+    return true;
+  }catch(e){ return false; }
+}
+
+async function ensureValidAuthToken(){
+  if(authState.idToken && Date.now() < authState.expiresAt) return true;
+  if(authState.refreshToken) return await refreshAuthToken();
+  return false;
+}
+
+function loginScreenHtml(){
+  return `<div style="min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; box-sizing:border-box;">
+    <div style="max-width:340px; width:100%; text-align:center;">
+      <div style="font-size:40px; margin-bottom:8px;">🔒</div>
+      <h2 style="margin:0 0 20px 0;">Anmelden</h2>
+      <input type="password" id="login-password-input" placeholder="Passwort" autofocus
+        style="width:100%; padding:13px 14px; border:1px solid var(--line); border-radius:var(--radius); font-size:16px; margin-bottom:12px; box-sizing:border-box; font-family:inherit;"/>
+      <button type="button" id="login-submit-btn" class="btn" style="width:100%;">Anmelden</button>
+      <p id="login-error" style="color:var(--danger); font-size:13px; margin-top:14px; display:none;">Falsches Passwort — bitte nochmal versuchen.</p>
+    </div>
+  </div>`;
+}
+
+function wireLoginScreen(){
+  const btn = document.getElementById('login-submit-btn');
+  const input = document.getElementById('login-password-input');
+  const errorEl = document.getElementById('login-error');
+  if(!btn || !input) return;
+  async function attemptLogin(){
+    const pw = input.value;
+    if(!pw) return;
+    btn.disabled = true; btn.textContent = 'Prüfe…';
+    if(errorEl) errorEl.style.display = 'none';
+    const ok = await signInWithPassword(pw);
+    if(ok){
+      location.reload();
+    }else{
+      if(errorEl) errorEl.style.display = '';
+      btn.disabled = false; btn.textContent = 'Anmelden';
+      input.value = '';
+      input.focus();
+    }
+  }
+  btn.addEventListener('click', attemptLogin);
+  input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptLogin(); });
+}
+
 
