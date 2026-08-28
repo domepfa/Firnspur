@@ -339,7 +339,7 @@
 <script src="./0-shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v30-login';
+const APP_VERSION = 'v31-hut-region-toggle-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -671,6 +671,7 @@ async function submitHutForm(form, existing){
   const h = existing ? {...existing} : {id: uid('h'), createdBy: state.myName, createdAt: new Date().toISOString()};
   h.name = form.name.trim();
   h.region = form.region;
+  h.subregion = form.subregion || '';
   h.altitude = form.altitude;
   h.capacity = form.capacity;
   h.openingPeriod = form.openingPeriod;
@@ -690,6 +691,7 @@ async function submitHutForm(form, existing){
   h.notes = form.notes;
   h.updatedAt = new Date().toISOString();
   h.updatedBy = state.myName;
+
   const idx = state.huts.findIndex(x=>x.id===h.id);
   if(idx>=0) state.huts[idx] = h; else state.huts.push(h);
   closeModal();
@@ -718,7 +720,6 @@ function setFormBusy(formId, busy){
     else if(btn.dataset.origText){ btn.textContent = btn.dataset.origText; }
   }
 }
-
 function showFormError(formId, message){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -953,7 +954,7 @@ function hutCardHtml(h){
       <h3>🛖 ${done ? '✓ ' : ''}${esc(h.name)}</h3>
       ${h.altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(h.altitude)} m</span>` : ''}
     </div>
-    ${h.region ? `<p class="excerpt">${esc(h.region)}</p>` : ''}
+    ${h.region ? `<p class="excerpt">${esc(h.region)}${h.subregion ? ' – ' + esc(h.subregion) : ''}</p>` : ''}
     ${(h.accessElevationSummer || h.accessDurationSummer || adS) ? `<div class="stat-row">
       ${h.accessElevationSummer ? `<span>🌞↑ <span class="mono">${esc(h.accessElevationSummer)}</span> Hm</span>` : ''}
       ${h.accessDurationSummer ? `<span>⏱ <span class="mono">${esc(h.accessDurationSummer)}</span></span>` : ''}
@@ -1335,14 +1336,26 @@ function tourDetailHtml(id){
 
 function hutFormHtml(existing){
   const h = existing || {};
+  const REGIONS = ['Wallis','Berner Oberland','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
+  const isKnownRegion = REGIONS.includes(h.region);
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${existing?'Hütte bearbeiten':'Neue Hütte'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="hut-form" novalidate>
       <div class="field"><label>Name der Hütte *</label><input required name="name" value="${esc(h.name||'')}" placeholder="z. B. Domhütte"/></div>
-      <div class="row2">
-        <div class="field"><label>Region</label><input name="region" value="${esc(h.region||'')}" placeholder="z. B. Walliser Alpen"/></div>
-        <div class="field"><label>Höhe (m ü. M.)</label><input name="altitude" value="${esc(h.altitude||'')}" placeholder="z. B. 2940"/></div>
+      <div class="field"><label>Region</label>
+        <div class="chips" id="region-chips">
+          ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${h.region===r?'on':''}" style="${h.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
+          <button type="button" class="chip region-chip ${h.region && !isKnownRegion?'on':''}" style="${h.region && !isKnownRegion?'background:var(--ice-deep)':''}" data-region="__other__">Anderes</button>
+        </div>
+        <input type="text" id="region-other-input" value="${!isKnownRegion?esc(h.region||''):''}" placeholder="eigene Region eintragen" style="margin-top:8px; ${h.region && !isKnownRegion?'':'display:none;'}"/>
+        <input type="hidden" name="region" id="region-hidden-input" value="${esc(h.region||'')}"/>
       </div>
+      <div class="field" id="subregion-field" style="${(isKnownRegion && REGION_SUBAREAS[h.region])?'':'display:none;'}">
+        <label>Teilgebiet / Pass (optional)</label>
+        <div class="chips" id="subregion-chips">${renderSubregionChipsHtml(h.region, h.subregion)}</div>
+        <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(h.subregion||'')}"/>
+      </div>
+      <div class="field"><label>Höhe (m ü. M.)</label><input name="altitude" value="${esc(h.altitude||'')}" placeholder="z. B. 2940"/></div>
       <div class="row2">
         <div class="field"><label>Öffnungszeitraum</label><input name="openingPeriod" value="${esc(h.openingPeriod||'')}" placeholder="z. B. Mitte März – Ende September"/></div>
         <div class="field"><label>Bewartet (Zeitraum)</label><input name="staffedPeriod" value="${esc(h.staffedPeriod||'')}" placeholder="z. B. Ende Juni – Mitte September, leer lassen wenn unbewartet"/></div>
@@ -1809,8 +1822,15 @@ function wireModalHandlers(){
     const mslFields = document.getElementById('msl-safety-fields');
     tourForm.querySelectorAll('.type-chip').forEach(chip=>{
       chip.addEventListener('click', ()=>{
-        const type = chip.getAttribute('data-type');
+        const wasOn = chip.classList.contains('on');
         tourForm.querySelectorAll('.type-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){
+          document.getElementById('tourcategory-hidden').value = '';
+          if(hochtourFields) hochtourFields.style.display = 'none';
+          if(mslFields) mslFields.style.display = 'none';
+          return;
+        }
+        const type = chip.getAttribute('data-type');
         chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
         document.getElementById('tourcategory-hidden').value = type;
         if(hochtourFields) hochtourFields.style.display = (type==='hochtour') ? '' : 'none';
@@ -1823,9 +1843,14 @@ function wireModalHandlers(){
       const buttons = tourForm.querySelectorAll('.'+className);
       buttons.forEach(btn=>{
         btn.addEventListener('click', ()=>{
+          const wasOn = btn.classList.contains('on');
           buttons.forEach(b=>{ b.classList.remove('on'); b.style.background=''; });
-          btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
-          if(hidden) hidden.value = btn.getAttribute('data-value');
+          if(wasOn){
+            if(hidden) hidden.value = '';
+          }else{
+            btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
+            if(hidden) hidden.value = btn.getAttribute('data-value');
+          }
         });
       });
     }
@@ -1859,11 +1884,15 @@ function wireModalHandlers(){
       btn.classList.remove('on'); btn.style.background = '';
     }
     tourForm.querySelectorAll('.glacier-chip').forEach(btn=>{
-      if(btn.getAttribute('data-value')==='ja'){
-        btn.addEventListener('click', ()=> checkMaterialCheckbox('Spaltenrettungsset'));
-      }else{
-        btn.addEventListener('click', ()=> uncheckMaterialCheckbox('Spaltenrettungsset'));
-      }
+      btn.addEventListener('click', ()=>{
+        // Nach dem Umschalten durch wireSingleSelectChips neu prüfen, ob "Ja" jetzt aktiv ist
+        const jaBtn = Array.from(tourForm.querySelectorAll('.glacier-chip')).find(b=>b.getAttribute('data-value')==='ja');
+        if(jaBtn && jaBtn.classList.contains('on')){
+          checkMaterialCheckbox('Spaltenrettungsset');
+        }else{
+          uncheckMaterialCheckbox('Spaltenrettungsset');
+        }
+      });
     });
     // Region-Chips
     const regionHidden = document.getElementById('region-hidden-input');
@@ -1873,7 +1902,15 @@ function wireModalHandlers(){
     const subregionHidden = document.getElementById('subregion-hidden');
     tourForm.querySelectorAll('.region-chip').forEach(chip=>{
       chip.addEventListener('click', ()=>{
+        const wasOn = chip.classList.contains('on');
         tourForm.querySelectorAll('.region-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){
+          regionOtherInput.style.display = 'none';
+          regionOtherInput.value = '';
+          regionHidden.value = '';
+          if(subregionField){ subregionField.style.display = 'none'; subregionHidden.value = ''; }
+          return;
+        }
         chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
         const region = chip.getAttribute('data-region');
         if(region==='__other__'){
@@ -1904,28 +1941,32 @@ function wireModalHandlers(){
       subregionChipsWrap.addEventListener('click', (e)=>{
         const btn = e.target.closest('.subregion-chip');
         if(!btn) return;
+        const wasOn = btn.classList.contains('on');
         subregionChipsWrap.querySelectorAll('.subregion-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){ subregionHidden.value = ''; return; }
         btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
         subregionHidden.value = btn.getAttribute('data-subregion');
       });
     }
     // Seil-Chips
     const ropeTypeHidden = document.getElementById('rope-type-hidden');
-    tourForm.querySelectorAll('.rope-type-chip').forEach(chip=>{
-      chip.addEventListener('click', ()=>{
-        tourForm.querySelectorAll('.rope-type-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
-        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
-        ropeTypeHidden.value = chip.getAttribute('data-rope-type');
-      });
-    });
     const ropeLengthHidden = document.getElementById('rope-length-hidden');
-    tourForm.querySelectorAll('.rope-length-chip').forEach(chip=>{
-      chip.addEventListener('click', ()=>{
-        tourForm.querySelectorAll('.rope-length-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
-        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
-        ropeLengthHidden.value = chip.getAttribute('data-rope-length');
+    function wireToggleableSingleSelect(selector, hiddenInput, dataAttr){
+      tourForm.querySelectorAll(selector).forEach(chip=>{
+        chip.addEventListener('click', ()=>{
+          const wasOn = chip.classList.contains('on');
+          tourForm.querySelectorAll(selector).forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+          if(wasOn){
+            if(hiddenInput) hiddenInput.value = '';
+          }else{
+            chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+            if(hiddenInput) hiddenInput.value = chip.getAttribute(dataAttr);
+          }
+        });
       });
-    });
+    }
+    wireToggleableSingleSelect('.rope-type-chip', ropeTypeHidden, 'data-rope-type');
+    wireToggleableSingleSelect('.rope-length-chip', ropeLengthHidden, 'data-rope-length');
 
     const tourSaveBtn = document.getElementById('tour-save-btn');
     if(tourSaveBtn){
@@ -1982,6 +2023,60 @@ function wireModalHandlers(){
     }
     const hutFabSaveBtn = document.getElementById('hut-fab-save-btn');
     if(hutFabSaveBtn) hutFabSaveBtn.addEventListener('click', ()=>{ if(hutSaveBtn) hutSaveBtn.click(); });
+
+    // Region-Chips (identisch zum Touren-Formular)
+    const hutRegionHidden = document.getElementById('region-hidden-input');
+    const hutRegionOtherInput = document.getElementById('region-other-input');
+    const hutSubregionField = document.getElementById('subregion-field');
+    const hutSubregionChipsWrap = document.getElementById('subregion-chips');
+    const hutSubregionHidden = document.getElementById('subregion-hidden');
+    hutForm.querySelectorAll('.region-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        const wasOn = chip.classList.contains('on');
+        hutForm.querySelectorAll('.region-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){
+          hutRegionOtherInput.style.display = 'none';
+          hutRegionOtherInput.value = '';
+          hutRegionHidden.value = '';
+          if(hutSubregionField){ hutSubregionField.style.display = 'none'; hutSubregionHidden.value = ''; }
+          return;
+        }
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        const region = chip.getAttribute('data-region');
+        if(region==='__other__'){
+          hutRegionOtherInput.style.display = '';
+          hutRegionOtherInput.focus();
+          hutRegionHidden.value = hutRegionOtherInput.value;
+          if(hutSubregionField){ hutSubregionField.style.display = 'none'; hutSubregionHidden.value = ''; }
+        }else{
+          hutRegionOtherInput.style.display = 'none';
+          hutRegionHidden.value = region;
+          if(hutSubregionField && hutSubregionChipsWrap){
+            const subs = REGION_SUBAREAS[region] || [];
+            if(subs.length){
+              hutSubregionChipsWrap.innerHTML = renderSubregionChipsHtml(region, '');
+              hutSubregionHidden.value = '';
+              hutSubregionField.style.display = '';
+            }else{
+              hutSubregionField.style.display = 'none';
+              hutSubregionHidden.value = '';
+            }
+          }
+        }
+      });
+    });
+    if(hutRegionOtherInput) hutRegionOtherInput.addEventListener('input', ()=>{ hutRegionHidden.value = hutRegionOtherInput.value; });
+    if(hutSubregionChipsWrap){
+      hutSubregionChipsWrap.addEventListener('click', (e)=>{
+        const btn = e.target.closest('.subregion-chip');
+        if(!btn) return;
+        const wasOn = btn.classList.contains('on');
+        hutSubregionChipsWrap.querySelectorAll('.subregion-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){ hutSubregionHidden.value = ''; return; }
+        btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
+        hutSubregionHidden.value = btn.getAttribute('data-subregion');
+      });
+    }
   }
 
   // Dezente Löschen-Funktion mit zweistufiger Bestätigung (Tour & Hütte)
