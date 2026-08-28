@@ -339,7 +339,7 @@
 <script src="./0-shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v39-map-bugfix-quickedit';
+const APP_VERSION = 'v40-login';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -640,7 +640,6 @@ async function submitHutForm(form, existing){
   h.notes = form.notes;
   h.updatedAt = new Date().toISOString();
   h.updatedBy = state.myName;
-
   const idx = state.huts.findIndex(x=>x.id===h.id);
   if(idx>=0) state.huts[idx] = h; else state.huts.push(h);
   closeModal();
@@ -936,6 +935,7 @@ function nameModalHtml(){
     </div>
   </div>`;
 }
+
 function completeFormHtml(kind, id){
   const item = kind==='tour' ? state.tours.find(x=>x.id===id) : state.huts.find(x=>x.id===id);
   const title = kind==='tour' ? 'Tour als abgeschlossen markieren' : 'Hütte als besucht markieren';
@@ -1293,7 +1293,6 @@ function hutDetailHtml(id){
     </div>
   </div>`;
 }
-
 /* ================= Agenda ================= */
 
 /* ================= Agenda: Status-Workflow ================= */
@@ -1849,7 +1848,7 @@ try{
   const savedName = localStorage.getItem('firnspur-myname');
   if(savedName) state.myName = savedName;
 }catch(e){}
-dlog('App gestartet — Version ' + APP_VERSION);
+loadAuthFromStorage();
 function toggleEmergencyCard(){
   if(state.modal && state.modal.type==='emergency'){ closeModal(); }
   else{ state.modal = {type:'emergency'}; render(); }
@@ -1871,7 +1870,14 @@ emergencyTab.addEventListener('touchend', (e)=>{
     state.modal = {type:'emergency'}; render();
   }
 });
-loadAll();
+
+if(isLoggedIn()){
+  dlog('App gestartet — Version ' + APP_VERSION);
+  loadAll();
+}else{
+  document.getElementById('app').innerHTML = loginScreenHtml();
+  wireLoginScreen();
+}
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
@@ -1883,4 +1889,5 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
+
 
