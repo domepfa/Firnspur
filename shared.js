@@ -499,7 +499,6 @@ function emergencyCardHtml(){
     </div>
   </div>`;
 }
-
 function startGpsLookup(){
   const statusEl = document.getElementById('gps-status');
   const resultEl = document.getElementById('gps-result');
@@ -573,6 +572,40 @@ function ensureLeafletLoaded(){
   return leafletLoadPromise;
 }
 
+/* ================= Vollbild-Karte (generisch, für alle Kartenansichten) ================= */
+function ensureFullscreenMapOverlay(){
+  let overlay = document.getElementById('fullscreen-map-overlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'fullscreen-map-overlay';
+    overlay.style.cssText = 'position:fixed; inset:0; z-index:200; background:#000; display:none;';
+    overlay.innerHTML = `
+      <button id="fullscreen-map-close" style="position:absolute; top:14px; right:14px; z-index:210; background:rgba(0,0,0,0.65); color:#fff; border:none; border-radius:50%; width:42px; height:42px; font-size:22px; cursor:pointer; line-height:1;">×</button>
+      <div id="fullscreen-map-container" style="width:100%; height:100%;"></div>
+    `;
+    document.body.appendChild(overlay);
+    document.getElementById('fullscreen-map-close').addEventListener('click', closeFullscreenMap);
+  }
+  return overlay;
+}
+function openFullscreenMap(renderFn, onCloseCallback){
+  const overlay = ensureFullscreenMapOverlay();
+  overlay.style.display = 'block';
+  overlay._onClose = onCloseCallback || null;
+  renderFn('fullscreen-map-container');
+}
+function closeFullscreenMap(){
+  const overlay = document.getElementById('fullscreen-map-overlay');
+  if(!overlay) return;
+  overlay.style.display = 'none';
+  const container = document.getElementById('fullscreen-map-container');
+  if(container) container.innerHTML = '';
+  if(overlay._onClose){ overlay._onClose(); overlay._onClose = null; }
+}
+function fullscreenButtonHtml(onclickAttr){
+  return `<button type="button" class="btn secondary" style="margin-top:8px; font-size:12.5px; padding:6px 12px;" onclick="${onclickAttr}">⛶ Vollbild</button>`;
+}
+
 function renderMiniMap(containerId, lat, lon, label){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
@@ -580,16 +613,22 @@ function renderMiniMap(containerId, lat, lon, label){
     const el2 = document.getElementById(containerId);
     if(!el2) return;
     el2.innerHTML = '';
-    el2.style.height = '220px';
-    el2.style.borderRadius = 'var(--radius)';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    el2.style.height = isFullscreen ? '100%' : '220px';
+    el2.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
     el2.style.overflow = 'hidden';
-    el2.style.border = '1px solid var(--line)';
-    const map = L.map(containerId, {attributionControl:true}).setView([lat, lon], 14);
+    el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
+    const map = L.map(containerId, {attributionControl:true}).setView([lat, lon], isFullscreen ? 15 : 14);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
       maxZoom: 18,
       attribution: '© swisstopo'
     }).addTo(map);
     L.marker([lat, lon]).addTo(map).bindPopup(label || '').openPopup();
+    if(!isFullscreen){
+      const btnWrap = document.createElement('div');
+      btnWrap.innerHTML = fullscreenButtonHtml(`openFullscreenMap(function(id){ renderMiniMap(id, ${lat}, ${lon}, ${JSON.stringify(label||'')}); })`);
+      el2.parentElement.appendChild(btnWrap.firstChild);
+    }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
     if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
@@ -629,10 +668,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId){
     const listEl = document.getElementById(listContainerId);
     if(!el2 || !hiddenInput) return;
     el2.innerHTML = '';
-    el2.style.height = '260px';
-    el2.style.borderRadius = 'var(--radius)';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    el2.style.height = isFullscreen ? '100%' : '260px';
+    el2.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
     el2.style.overflow = 'hidden';
-    el2.style.border = '1px solid var(--line)';
+    el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
 
     let points = [];
     try{ points = JSON.parse(hiddenInput.value || '[]'); }catch(e){ points = []; }
@@ -715,6 +755,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId){
 
     redraw();
     renderList();
+    if(!isFullscreen){
+      const btnWrap = document.createElement('div');
+      btnWrap.innerHTML = fullscreenButtonHtml(`openFullscreenMap(function(id){ renderPointsEditorMap(id, ${JSON.stringify(hiddenInputId)}, null); }, function(){ renderPointsEditorMap(${JSON.stringify(containerId)}, ${JSON.stringify(hiddenInputId)}, ${JSON.stringify(listContainerId)}); })`);
+      el2.parentElement.insertBefore(btnWrap.firstChild, listEl);
+    }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
     if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
@@ -728,11 +773,12 @@ function renderPointsDisplayMap(containerId, points){
     const el2 = document.getElementById(containerId);
     if(!el2 || !points.length) return;
     el2.innerHTML = '';
-    el2.style.height = '240px';
-    el2.style.borderRadius = 'var(--radius)';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    el2.style.height = isFullscreen ? '100%' : '240px';
+    el2.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
     el2.style.overflow = 'hidden';
-    el2.style.border = '1px solid var(--line)';
-    const map = L.map(containerId).setView([points[0].lat, points[0].lon], 13);
+    el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
+    const map = L.map(containerId).setView([points[0].lat, points[0].lon], isFullscreen ? 14 : 13);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
       maxZoom: 18,
       attribution: '© swisstopo'
@@ -745,8 +791,171 @@ function renderPointsDisplayMap(containerId, points){
     if(group.length > 1){
       map.fitBounds(L.featureGroup(group).getBounds(), {padding:[30,30]});
     }
+    if(!isFullscreen){
+      const btnWrap = document.createElement('div');
+      btnWrap.innerHTML = fullscreenButtonHtml(`openFullscreenMap(function(id){ renderPointsDisplayMap(id, ${JSON.stringify(points)}); })`);
+      el2.parentElement.appendChild(btnWrap.firstChild);
+    }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
     if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
   });
 }
+
+/* ================= GPX-Tracks: automatische Vereinfachung + separater Volldownload ================= */
+function douglasPeucker(points, tolerance){
+  if(points.length < 3) return points;
+  function perpendicularDistance(pt, lineStart, lineEnd){
+    const dx = lineEnd.lat - lineStart.lat;
+    const dy = lineEnd.lon - lineStart.lon;
+    if(dx===0 && dy===0){
+      return Math.sqrt(Math.pow(pt.lat-lineStart.lat,2)+Math.pow(pt.lon-lineStart.lon,2));
+    }
+    const t = ((pt.lat-lineStart.lat)*dx + (pt.lon-lineStart.lon)*dy) / (dx*dx+dy*dy);
+    const closestLat = lineStart.lat + t*dx;
+    const closestLon = lineStart.lon + t*dy;
+    return Math.sqrt(Math.pow(pt.lat-closestLat,2)+Math.pow(pt.lon-closestLon,2));
+  }
+  function rdp(pts){
+    if(pts.length < 3) return pts;
+    let maxDist = 0, index = 0;
+    for(let i=1;i<pts.length-1;i++){
+      const d = perpendicularDistance(pts[i], pts[0], pts[pts.length-1]);
+      if(d > maxDist){ maxDist = d; index = i; }
+    }
+    if(maxDist > tolerance){
+      const left = rdp(pts.slice(0, index+1));
+      const right = rdp(pts.slice(index));
+      return left.slice(0,-1).concat(right);
+    }
+    return [pts[0], pts[pts.length-1]];
+  }
+  return rdp(points);
+}
+
+function simplifyTrackForStorage(points, targetCount){
+  targetCount = targetCount || 200;
+  if(points.length <= targetCount) return points;
+  let tolerance = 0.00005;
+  let simplified = points;
+  let iterations = 0;
+  while(simplified.length > targetCount && iterations < 20){
+    simplified = douglasPeucker(points, tolerance);
+    tolerance *= 1.6;
+    iterations++;
+  }
+  return simplified;
+}
+
+function parseGpxTrackPoints(gpxText){
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(gpxText, 'text/xml');
+  const trkpts = Array.from(doc.getElementsByTagName('trkpt'));
+  if(trkpts.length){
+    return trkpts.map(pt=>({lat: parseFloat(pt.getAttribute('lat')), lon: parseFloat(pt.getAttribute('lon'))})).filter(p=>!isNaN(p.lat) && !isNaN(p.lon));
+  }
+  const rtepts = Array.from(doc.getElementsByTagName('rtept'));
+  return rtepts.map(pt=>({lat: parseFloat(pt.getAttribute('lat')), lon: parseFloat(pt.getAttribute('lon'))})).filter(p=>!isNaN(p.lat) && !isNaN(p.lon));
+}
+
+function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simplifiedHiddenId, statusId){
+  const file = fileInputEl.files && fileInputEl.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById(statusId);
+  if(statusEl) statusEl.textContent = 'GPX-Datei wird gelesen…';
+  const reader = new FileReader();
+  reader.onload = async ()=>{
+    try{
+      const gpxText = reader.result;
+      const points = parseGpxTrackPoints(gpxText);
+      if(!points.length){
+        if(statusEl) statusEl.textContent = 'Keine Track-Punkte in dieser Datei gefunden.';
+        return;
+      }
+      const simplified = simplifyTrackForStorage(points, 200);
+      const simplifiedInput = document.getElementById(simplifiedHiddenId);
+      if(simplifiedInput) simplifiedInput.value = JSON.stringify(simplified.map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]));
+
+      const tourIdInput = document.getElementById(tourIdHiddenId);
+      let trackId = tourIdInput.value;
+      if(!trackId){ trackId = uid('t'); tourIdInput.value = trackId; }
+
+      if(statusEl) statusEl.textContent = 'Original wird hochgeladen…';
+      const ok = await fbSet(trackPathPrefix + '/' + trackId, { gpx: gpxText, uploadedAt: new Date().toISOString(), fileName: file.name }).catch(()=>false);
+      if(statusEl){
+        statusEl.textContent = ok
+          ? `✓ GPX übernommen: ${points.length} Punkte aufgezeichnet, für die Karte auf ${simplified.length} Punkte vereinfacht. Original bleibt zum Download verfügbar.`
+          : 'Vereinfachte Linie übernommen, Original konnte aber nicht hochgeladen werden (Internetverbindung prüfen).';
+      }
+    }catch(err){
+      if(statusEl) statusEl.textContent = 'Fehler beim Verarbeiten der GPX-Datei: ' + (err && err.message ? err.message : err);
+    }
+  };
+  reader.onerror = ()=>{ if(statusEl) statusEl.textContent = 'Datei konnte nicht gelesen werden.'; };
+  reader.readAsText(file);
+}
+
+async function downloadFullGpx(trackPathPrefix, tourId, tourName){
+  try{
+    const data = await fbGet(trackPathPrefix + '/' + tourId);
+    if(!data || !data.gpx){ showToast('Keine hochgeladene GPX-Datei für diese Tour gefunden.', true); return; }
+    const blob = new Blob([data.gpx], {type:'application/gpx+xml'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (tourName || 'tour').replace(/[^a-z0-9äöüÄÖÜ_\- ]/gi,'').trim() + '.gpx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  }catch(err){
+    showToast('GPX-Datei konnte nicht heruntergeladen werden.', true);
+  }
+}
+
+function renderTrackDisplayMap(containerId, points, trackCoords){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const hasTrack = trackCoords && trackCoords.length;
+    const hasPoints = points && points.length;
+    if(!hasTrack && !hasPoints) return;
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    el2.style.height = isFullscreen ? '100%' : '240px';
+    el2.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
+    el2.style.overflow = 'hidden';
+    el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
+    const startView = hasTrack ? trackCoords[0] : [points[0].lat, points[0].lon];
+    const map = L.map(containerId).setView(startView, isFullscreen ? 14 : 13);
+    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
+      maxZoom: 18,
+      attribution: '© swisstopo'
+    }).addTo(map);
+    const boundsItems = [];
+    if(hasTrack){
+      const line = L.polyline(trackCoords, {color:'#B0392C', weight:3.5, opacity:0.85}).addTo(map);
+      boundsItems.push(line);
+    }
+    if(hasPoints){
+      points.forEach(p=>{
+        const m = L.marker([p.lat, p.lon]).addTo(map).bindPopup(esc(p.label||'Punkt'));
+        boundsItems.push(m);
+      });
+    }
+    if(boundsItems.length){
+      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+    }
+    if(!isFullscreen){
+      const btnWrap = document.createElement('div');
+      btnWrap.innerHTML = fullscreenButtonHtml(`openFullscreenMap(function(id){ renderTrackDisplayMap(id, ${JSON.stringify(points||[])}, ${JSON.stringify(trackCoords||[])}); })`);
+      el2.parentElement.appendChild(btnWrap.firstChild);
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
