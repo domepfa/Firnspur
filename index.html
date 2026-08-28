@@ -339,7 +339,7 @@
 <script src="./shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v38-lines-linked-tours';
+const APP_VERSION = 'v39-map-bugfix-quickedit';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -924,6 +924,7 @@ function importModalHtml(){
     </div>
   </div>`;
 }
+
 function nameModalHtml(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Wie heisst du?</h2></div>
@@ -935,7 +936,6 @@ function nameModalHtml(){
     </div>
   </div>`;
 }
-
 function completeFormHtml(kind, id){
   const item = kind==='tour' ? state.tours.find(x=>x.id===id) : state.huts.find(x=>x.id===id);
   const title = kind==='tour' ? 'Tour als abgeschlossen markieren' : 'Hütte als besucht markieren';
@@ -1107,14 +1107,20 @@ function tourDetailHtml(id){
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(t.approach)}</p></div>` : ''}
-    ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? `<div class="detail-section">
+    <div class="detail-section">
       <h4>Standort${t.points && t.points.length>1?'e':''}${(t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? ' & Track' : ''}</h4>
       ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">📍 ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${t.trackSimplified ? `<span class="hint">🔴 Rot: aufgezeichneter GPX-Track</span><br/>` : ''}
       ${(t.manualTrack && t.manualTrack.length) ? `<span class="hint">🔵 Blau: manuell geplante Linie</span>` : ''}
-      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>
+      ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
-    </div>` : ''}
+      <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${t.id}" data-act="quick-edit-toggle" data-id="${t.id}" data-kind="tour">✏️ Punkte/Linie direkt bearbeiten</button>
+      <div id="quick-edit-map-${t.id}" style="margin-top:10px; display:none;"></div>
+      <div id="quick-edit-list-${t.id}"></div>
+      <input type="hidden" id="quick-points-hidden-${t.id}" value='${esc(JSON.stringify(t.points||[]))}'/>
+      <input type="hidden" id="quick-manual-track-hidden-${t.id}" value='${esc(JSON.stringify(t.manualTrack||[]))}'/>
+      <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${t.id}" data-act="quick-save" data-id="${t.id}" data-kind="tour">💾 Änderungen speichern</button>
+    </div>
     ${(t.gpxLink || t.trackSimplified) ? `<div class="detail-section">
       <h4>GPX-Track</h4>
       ${t.gpxLink ? `<p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>` : ''}
@@ -1457,7 +1463,10 @@ function wireModalHandlers(){
   if(pointsMapToggleBtn) pointsMapToggleBtn.addEventListener('click', ()=>{
     const mapDiv = document.getElementById('points-map');
     if(mapDiv) mapDiv.style.display = '';
-    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden');
+    const trackHidden = document.getElementById('track-simplified-hidden');
+    let gpxTrack = [];
+    try{ gpxTrack = trackHidden && trackHidden.value ? JSON.parse(trackHidden.value) : []; }catch(e){ gpxTrack = []; }
+    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', gpxTrack);
   });
 
   const gpxFileInput = root.querySelector('#gpx-file-input');
@@ -1482,6 +1491,29 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="download-gpx"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       downloadFullGpx(GPX_TRACKS_PATH, btn.getAttribute('data-id'), btn.getAttribute('data-name'));
+    });
+  });
+
+  root.querySelectorAll('[data-act="quick-edit-toggle"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.getAttribute('data-id');
+      const kind = btn.getAttribute('data-kind');
+      const mapDiv = document.getElementById(`quick-edit-map-${id}`);
+      const saveBtn = document.getElementById(`quick-save-btn-${id}`);
+      if(mapDiv) mapDiv.style.display = '';
+      if(saveBtn) saveBtn.style.display = '';
+      const list = kind==='tour' ? state.tours : state.huts;
+      const item = list.find(x=>x.id===id);
+      const gpxTrack = (item && item.trackSimplified) ? item.trackSimplified : [];
+      renderPointsEditorMap(`quick-edit-map-${id}`, `quick-points-hidden-${id}`, `quick-edit-list-${id}`, `quick-manual-track-hidden-${id}`, gpxTrack);
+    });
+  });
+
+  root.querySelectorAll('[data-act="quick-save"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.getAttribute('data-id');
+      const kind = btn.getAttribute('data-kind');
+      quickSaveMapEdits(kind, id, `quick-points-hidden-${id}`, `quick-manual-track-hidden-${id}`);
     });
   });
 
