@@ -339,7 +339,7 @@
 <script src="./shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v27-close-btn-visibility';
+const APP_VERSION = 'v28-lines-linked-tours';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -619,6 +619,7 @@ async function submitTourForm(form, existing){
   t.tourLink = form.tourLink;
   t.gpxLink = form.gpxLink || '';
   try{ t.trackSimplified = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ t.trackSimplified = null; }
+  try{ t.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ t.manualTrack = []; }
   t.crux = form.crux;
   t.special = form.special;
   t.approach = form.approach;
@@ -1006,6 +1007,7 @@ function exportModalHtml(){
     </div>
   </div>`;
 }
+
 function importModalHtml(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Importieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
@@ -1023,7 +1025,6 @@ function importModalHtml(){
     </div>
   </div>`;
 }
-
 function completionModalHtml(payload){
   const today = new Date().toISOString().slice(0,10);
   return `<div class="modal" data-stop="1">
@@ -1213,12 +1214,13 @@ function tourFormHtml(existing){
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. Querung unter dem Bergschrund, kurze Eispassage am Grat …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Spaltenrisiko, Steinschlag, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
       <div class="field"><label>Anfahrt / Ausgangspunkt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
-      <div class="field"><label>Punkte auf der Karte (Parkplatz, Haltestelle, weitere Orte)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte zum Setzen von Punkten öffnen</button>
-        <div class="hint">Auf die Karte tippen, um einen Punkt zu setzen — danach Bezeichnung eintragen und speichern. Mehrere Punkte möglich.</div>
+      <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
+        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
+        <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(t.manualTrack || []))}'/>
       </div>
       <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abstiegsroute, Varianten, Abseilstellen …">${esc(t.descent||'')}</textarea></div>
@@ -1291,10 +1293,12 @@ function tourDetailHtml(id){
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(t.approach)}</p></div>` : ''}
-    ${(t.points && t.points.length || t.trackSimplified) ? `<div class="detail-section">
-      <h4>Standort${t.points && t.points.length>1?'e':''}${t.trackSimplified ? ' & Track' : ''}</h4>
+    ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? `<div class="detail-section">
+      <h4>Standort${t.points && t.points.length>1?'e':''}${(t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? ' & Track' : ''}</h4>
       ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">📍 ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
-      <button type="button" class="btn secondary" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>
+      ${t.trackSimplified ? `<span class="hint">🔴 Rot: aufgezeichneter GPX-Track</span><br/>` : ''}
+      ${(t.manualTrack && t.manualTrack.length) ? `<span class="hint">🔵 Blau: manuell geplante Linie</span>` : ''}
+      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
     </div>` : ''}
     ${(t.gpxLink || t.trackSimplified) ? `<div class="detail-section">
@@ -1302,6 +1306,10 @@ function tourDetailHtml(id){
       ${t.gpxLink ? `<p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>` : ''}
       ${t.trackSimplified ? `<button type="button" class="btn secondary" data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}">📥 GPX herunterladen (Originaldatei)</button>` : ''}
     </div>` : ''}
+    ${(() => { const related = findToursSharingPoints(t, state.tours, 300); return related.length ? `<div class="detail-section">
+      <h4>Weitere Touren ab hier (${related.length})</h4>
+      <div class="grid" style="margin-top:6px;">${related.map(tourCardHtml).join('')}</div>
+    </div>` : ''; })()}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
 
@@ -1616,7 +1624,7 @@ function wireModalHandlers(){
   if(pointsMapToggleBtn) pointsMapToggleBtn.addEventListener('click', ()=>{
     const mapDiv = document.getElementById('points-map');
     if(mapDiv) mapDiv.style.display = '';
-    renderPointsEditorMap('points-map', 'points-hidden', 'points-list');
+    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden');
   });
 
   const gpxFileInput = root.querySelector('#gpx-file-input');
@@ -1629,10 +1637,12 @@ function wireModalHandlers(){
       const target = btn.getAttribute('data-target');
       const pointsJson = btn.getAttribute('data-points');
       const trackJson = btn.getAttribute('data-track');
-      let pts = [], track = [];
+      const manualTrackJson = btn.getAttribute('data-manual-track');
+      let pts = [], track = [], manualTrack = [];
       try{ pts = JSON.parse(pointsJson || '[]'); }catch(e){ pts = []; }
       try{ track = JSON.parse(trackJson || '[]'); }catch(e){ track = []; }
-      renderTrackDisplayMap(target, pts, track);
+      try{ manualTrack = JSON.parse(manualTrackJson || '[]'); }catch(e){ manualTrack = []; }
+      renderTrackDisplayMap(target, pts, track, manualTrack);
     });
   });
 
