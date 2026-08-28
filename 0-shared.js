@@ -387,6 +387,7 @@ async function submitAgendaForm(form){
     tourName = (form.customName||'').trim();
   }
   if(!tourName){ showFormError('agenda-form', 'Bitte eine Tour auswählen oder einen Vorschlag eintragen.'); return; }
+
   const a = {
     id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
     type: form.type||'ski', startDate, endDate: form.endDate||'',
@@ -429,7 +430,6 @@ async function setAgendaStatus(id, status){
   if(!ok) markUnsaved();
   render();
 }
-
 /* ================= Notfallkarte (app-übergreifend geteilt) ================= */
 function wgs84ToLV95(lat, lon){
   const latSec = lat * 3600;
@@ -698,6 +698,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const isFullscreen = containerId === 'fullscreen-map-container';
 
     const wrapDiv = document.createElement('div');
+    if(isFullscreen){
+      wrapDiv.style.cssText = 'height:100%; display:flex; flex-direction:column; box-sizing:border-box; padding:56px 12px 12px 12px;';
+    }
     const modeRow = document.createElement('div');
     modeRow.className = 'chips';
     modeRow.style.marginBottom = '8px';
@@ -721,10 +724,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
 
     const mapDiv = document.createElement('div');
     mapDiv.id = mapDivId;
-    mapDiv.style.height = isFullscreen ? 'calc(100% - 46px)' : '260px';
-    mapDiv.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
-    mapDiv.style.overflow = 'hidden';
-    mapDiv.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
+    if(isFullscreen){
+      mapDiv.style.cssText = 'flex:1 1 auto; min-height:0; border-radius:0; overflow:hidden; border:none;';
+    }else{
+      mapDiv.style.cssText = 'height:260px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    }
     wrapDiv.appendChild(mapDiv);
 
     const lineActionsRow = document.createElement('div');
@@ -759,11 +763,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }).addTo(map);
 
     if(gpxReferenceTrack && gpxReferenceTrack.length){
-      L.polyline(gpxReferenceTrack, {color:'#B0392C', weight:3, opacity:0.55}).addTo(map);
+      L.polyline(gpxReferenceTrack, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
+      L.polyline(gpxReferenceTrack, {color:'#E8384F', weight:3, opacity:0.8}).addTo(map);
     }
 
     const markerLayer = L.layerGroup().addTo(map);
-    let lineLayer = L.polyline(manualTrack, {color:'#2E6E8E', weight:4, opacity:0.85}).addTo(map);
+    let lineLayer = L.layerGroup().addTo(map);
 
     function persist(){
       hiddenInput.value = JSON.stringify(points);
@@ -827,9 +832,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       });
     }
     function redrawLine(){
-      map.removeLayer(lineLayer);
-      lineLayer = L.polyline(manualTrack, {color:'#2E6E8E', weight:4, opacity:0.85}).addTo(map);
+      lineLayer.clearLayers();
+      if(manualTrack.length){
+        L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(lineLayer);
+        L.polyline(manualTrack, {color:'#1565C0', weight:4, opacity:1}).addTo(lineLayer);
+      }
     }
+    redrawLine();
 
     function setMode(newMode){
       mode = newMode;
@@ -1049,11 +1058,13 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     }).addTo(map);
     const boundsItems = [];
     if(hasTrack){
-      const line = L.polyline(trackCoords, {color:'#B0392C', weight:3.5, opacity:0.85}).addTo(map);
+      L.polyline(trackCoords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line = L.polyline(trackCoords, {color:'#E8384F', weight:4, opacity:1}).addTo(map);
       boundsItems.push(line);
     }
     if(hasManualTrack){
-      const line2 = L.polyline(manualTrackCoords, {color:'#2E6E8E', weight:3.5, opacity:0.85, dashArray:'6,6'}).addTo(map);
+      L.polyline(manualTrackCoords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line2 = L.polyline(manualTrackCoords, {color:'#1565C0', weight:4, opacity:1}).addTo(map);
       boundsItems.push(line2);
     }
     if(hasPoints){
