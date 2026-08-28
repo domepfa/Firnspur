@@ -499,6 +499,7 @@ function emergencyCardHtml(){
     </div>
   </div>`;
 }
+
 function startGpsLookup(){
   const statusEl = document.getElementById('gps-status');
   const resultEl = document.getElementById('gps-result');
@@ -552,7 +553,6 @@ function startGpsLookup(){
     { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
   );
 }
-
 /* ================= Karte (app-übergreifend geteilt, nur bei Bedarf geladen) ================= */
 let leafletLoadPromise = null;
 function ensureLeafletLoaded(){
@@ -664,42 +664,84 @@ function fetchLocationIntoForm(latInputId, lonInputId, statusId){
 }
 
 /* ================= Interaktive Punkte-Karte (mehrere Stecknadeln, manuell setzbar) ================= */
-function renderPointsEditorMap(containerId, hiddenInputId, listContainerId){
+function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
   ensureLeafletLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     const hiddenInput = document.getElementById(hiddenInputId);
     const listEl = document.getElementById(listContainerId);
+    const manualTrackHidden = manualTrackHiddenId ? document.getElementById(manualTrackHiddenId) : null;
     if(!el2 || !hiddenInput) return;
     el2.innerHTML = '';
     const isFullscreen = containerId === 'fullscreen-map-container';
-    el2.style.height = isFullscreen ? '100%' : '260px';
-    el2.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
-    el2.style.overflow = 'hidden';
-    el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
+
+    const wrapDiv = document.createElement('div');
+    const modeRow = document.createElement('div');
+    modeRow.className = 'chips';
+    modeRow.style.marginBottom = '8px';
+    const pointModeBtn = document.createElement('button');
+    pointModeBtn.type = 'button'; pointModeBtn.className = 'chip on'; pointModeBtn.style.background = 'var(--ice-deep)';
+    pointModeBtn.textContent = '📍 Punkt setzen';
+    const lineModeBtn = document.createElement('button');
+    lineModeBtn.type = 'button'; lineModeBtn.className = 'chip';
+    lineModeBtn.textContent = '✏️ Linie zeichnen';
+    modeRow.appendChild(pointModeBtn);
+    modeRow.appendChild(lineModeBtn);
+    wrapDiv.appendChild(modeRow);
+
+    const mapDiv = document.createElement('div');
+    mapDiv.id = containerId + '-inner';
+    mapDiv.style.height = isFullscreen ? 'calc(100% - 46px)' : '260px';
+    mapDiv.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
+    mapDiv.style.overflow = 'hidden';
+    mapDiv.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
+    wrapDiv.appendChild(mapDiv);
+
+    const lineActionsRow = document.createElement('div');
+    lineActionsRow.style.cssText = 'display:none; gap:8px; margin-top:8px;';
+    const undoBtn = document.createElement('button');
+    undoBtn.type = 'button'; undoBtn.className = 'btn secondary'; undoBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    undoBtn.textContent = '↺ Letzten Punkt entfernen';
+    const finishBtn = document.createElement('button');
+    finishBtn.type = 'button'; finishBtn.className = 'btn secondary'; finishBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    finishBtn.textContent = '✓ Linie fertig';
+    lineActionsRow.appendChild(undoBtn);
+    lineActionsRow.appendChild(finishBtn);
+    wrapDiv.appendChild(lineActionsRow);
+
+    el2.appendChild(wrapDiv);
 
     let points = [];
     try{ points = JSON.parse(hiddenInput.value || '[]'); }catch(e){ points = []; }
+    let manualTrack = [];
+    if(manualTrackHidden){
+      try{ manualTrack = JSON.parse(manualTrackHidden.value || '[]'); }catch(e){ manualTrack = []; }
+    }
+    let mode = 'point';
 
-    const center = points.length ? [points[0].lat, points[0].lon] : [46.8182, 8.2275];
-    const zoom = points.length ? 13 : 8;
-    const map = L.map(containerId).setView(center, zoom);
+    const center = points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : [46.8182, 8.2275]);
+    const zoom = (points.length || manualTrack.length) ? 13 : 8;
+    const map = L.map(mapDiv.id).setView(center, zoom);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
       maxZoom: 18,
       attribution: '© swisstopo'
     }).addTo(map);
 
     const markerLayer = L.layerGroup().addTo(map);
+    let lineLayer = L.polyline(manualTrack, {color:'#2E6E8E', weight:4, opacity:0.85}).addTo(map);
 
     function persist(){
       hiddenInput.value = JSON.stringify(points);
       renderList();
     }
+    function persistTrack(){
+      if(manualTrackHidden) manualTrackHidden.value = JSON.stringify(manualTrack);
+    }
     function renderList(){
       if(!listEl) return;
       if(!points.length){
-        listEl.innerHTML = '<p style="font-size:12.5px; color:var(--ink-faint); margin:8px 0 0 0;">Noch keine Punkte gesetzt — auf die Karte tippen, um einen zu setzen.</p>';
+        listEl.innerHTML = '<p style="font-size:12.5px; color:var(--ink-faint); margin:8px 0 0 0;">Noch keine Punkte gesetzt.</p>';
         return;
       }
       listEl.innerHTML = '<div class="chips" style="margin-top:8px;">' +
@@ -751,19 +793,46 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId){
         if(point._justAdded){ delete point._justAdded; marker.openPopup(); }
       });
     }
+    function redrawLine(){
+      map.removeLayer(lineLayer);
+      lineLayer = L.polyline(manualTrack, {color:'#2E6E8E', weight:4, opacity:0.85}).addTo(map);
+    }
+
+    function setMode(newMode){
+      mode = newMode;
+      pointModeBtn.className = mode==='point' ? 'chip on' : 'chip';
+      pointModeBtn.style.background = mode==='point' ? 'var(--ice-deep)' : '';
+      lineModeBtn.className = mode==='line' ? 'chip on' : 'chip';
+      lineModeBtn.style.background = mode==='line' ? 'var(--ice-deep)' : '';
+      lineActionsRow.style.display = mode==='line' ? 'flex' : 'none';
+    }
+    pointModeBtn.addEventListener('click', ()=> setMode('point'));
+    lineModeBtn.addEventListener('click', ()=> setMode('line'));
+    undoBtn.addEventListener('click', ()=>{
+      manualTrack.pop();
+      redrawLine();
+      persistTrack();
+    });
+    finishBtn.addEventListener('click', ()=> setMode('point'));
 
     map.on('click', (e)=>{
-      points.push({ label:'', lat: e.latlng.lat, lon: e.latlng.lng, _justAdded:true });
-      redraw();
-      persist();
+      if(mode==='line'){
+        manualTrack.push([e.latlng.lat, e.latlng.lng]);
+        redrawLine();
+        persistTrack();
+      }else{
+        points.push({ label:'', lat: e.latlng.lat, lon: e.latlng.lng, _justAdded:true });
+        redraw();
+        persist();
+      }
     });
 
     redraw();
     renderList();
     if(!isFullscreen){
       const btn = makeFullscreenButton(
-        function(id){ renderPointsEditorMap(id, hiddenInputId, null); },
-        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId); }
+        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId); },
+        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId); }
       );
       el2.parentElement.insertBefore(btn, listEl);
     }
@@ -919,22 +988,23 @@ async function downloadFullGpx(trackPathPrefix, tourId, tourName){
   }
 }
 
-function renderTrackDisplayMap(containerId, points, trackCoords){
+function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoords){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
   ensureLeafletLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2) return;
     const hasTrack = trackCoords && trackCoords.length;
+    const hasManualTrack = manualTrackCoords && manualTrackCoords.length;
     const hasPoints = points && points.length;
-    if(!hasTrack && !hasPoints) return;
+    if(!hasTrack && !hasManualTrack && !hasPoints) return;
     el2.innerHTML = '';
     const isFullscreen = containerId === 'fullscreen-map-container';
     el2.style.height = isFullscreen ? '100%' : '240px';
     el2.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
     el2.style.overflow = 'hidden';
     el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
-    const startView = hasTrack ? trackCoords[0] : [points[0].lat, points[0].lon];
+    const startView = hasTrack ? trackCoords[0] : (hasManualTrack ? manualTrackCoords[0] : [points[0].lat, points[0].lon]);
     const map = L.map(containerId).setView(startView, isFullscreen ? 14 : 13);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
       maxZoom: 18,
@@ -944,6 +1014,10 @@ function renderTrackDisplayMap(containerId, points, trackCoords){
     if(hasTrack){
       const line = L.polyline(trackCoords, {color:'#B0392C', weight:3.5, opacity:0.85}).addTo(map);
       boundsItems.push(line);
+    }
+    if(hasManualTrack){
+      const line2 = L.polyline(manualTrackCoords, {color:'#2E6E8E', weight:3.5, opacity:0.85, dashArray:'6,6'}).addTo(map);
+      boundsItems.push(line2);
     }
     if(hasPoints){
       points.forEach(p=>{
@@ -955,12 +1029,33 @@ function renderTrackDisplayMap(containerId, points, trackCoords){
       map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
-      const btn = makeFullscreenButton(function(id){ renderTrackDisplayMap(id, points||[], trackCoords||[]); });
+      const btn = makeFullscreenButton(function(id){ renderTrackDisplayMap(id, points||[], trackCoords||[], manualTrackCoords||[]); });
       el2.parentElement.appendChild(btn);
     }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
     if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+/* ================= Touren mit gemeinsamem Ausgangspunkt verknüpfen ================= */
+function haversineMeters(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2-lat1);
+  const dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
+  const c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R*c;
+}
+function findToursSharingPoints(currentTour, allTours, maxMeters){
+  maxMeters = maxMeters || 300;
+  const myPoints = currentTour.points || [];
+  if(!myPoints.length) return [];
+  return allTours.filter(t=>{
+    if(t.id === currentTour.id) return false;
+    const otherPoints = t.points || [];
+    return otherPoints.some(op => myPoints.some(mp => haversineMeters(mp.lat, mp.lon, op.lat, op.lon) <= maxMeters));
   });
 }
 
