@@ -339,7 +339,7 @@
 <script src="./0-shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v29-map-bugfix-quickedit';
+const APP_VERSION = 'v30-login';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -690,7 +690,6 @@ async function submitHutForm(form, existing){
   h.notes = form.notes;
   h.updatedAt = new Date().toISOString();
   h.updatedBy = state.myName;
-
   const idx = state.huts.findIndex(x=>x.id===h.id);
   if(idx>=0) state.huts[idx] = h; else state.huts.push(h);
   closeModal();
@@ -1040,6 +1039,7 @@ function completionModalHtml(payload){
     </div>
   </div>`;
 }
+
 function nameModalHtml(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Wie heisst du?</h2></div>
@@ -1403,7 +1403,6 @@ function hutFormHtml(existing){
     </form>
   </div>`;
 }
-
 function hutDetailHtml(id){
   const h = state.huts.find(x=>x.id===id);
   if(!h) return `<div class="modal" data-stop="1"><p>Hütte nicht gefunden.</p></div>`;
@@ -2037,7 +2036,7 @@ try{
   const savedName = localStorage.getItem('fixseil-myname');
   if(savedName) state.myName = savedName;
 }catch(e){}
-dlog('App gestartet — Version ' + APP_VERSION);
+loadAuthFromStorage();
 function toggleEmergencyCard(){
   if(state.modal && state.modal.type==='emergency'){ closeModal(); }
   else{ state.modal = {type:'emergency'}; render(); }
@@ -2059,7 +2058,14 @@ emergencyTab.addEventListener('touchend', (e)=>{
     state.modal = {type:'emergency'}; render();
   }
 });
-loadAll();
+
+if(isLoggedIn()){
+  dlog('App gestartet — Version ' + APP_VERSION);
+  loadAll();
+}else{
+  document.getElementById('app').innerHTML = loginScreenHtml();
+  wireLoginScreen();
+}
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
@@ -2071,4 +2077,5 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
+
 
