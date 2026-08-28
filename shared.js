@@ -580,7 +580,7 @@ function ensureFullscreenMapOverlay(){
     overlay.id = 'fullscreen-map-overlay';
     overlay.style.cssText = 'position:fixed; inset:0; z-index:200; background:#000; display:none;';
     overlay.innerHTML = `
-      <button id="fullscreen-map-close" style="position:absolute; top:14px; right:14px; z-index:210; background:rgba(0,0,0,0.65); color:#fff; border:none; border-radius:50%; width:42px; height:42px; font-size:22px; cursor:pointer; line-height:1;">×</button>
+      <button id="fullscreen-map-close" style="position:absolute; top:14px; right:14px; z-index:210; background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 18px; height:46px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.5); display:flex; align-items:center; gap:6px;">✕ Schliessen</button>
       <div id="fullscreen-map-container" style="width:100%; height:100%;"></div>
     `;
     document.body.appendChild(overlay);
