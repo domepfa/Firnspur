@@ -339,7 +339,7 @@
 <script src="./shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v34-multipoint-map';
+const APP_VERSION = 'v35-gpx-fullscreen';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -351,6 +351,7 @@ const APP_VERSION = 'v34-multipoint-map';
    ================================================================= */
 /* Agenda ist app-übergreifend geteilt zwischen Firnspur und Fixseil. */
 const OWN_TOURS_PATH = 'tours';
+const GPX_TRACKS_PATH = 'gpxTracks'; // eigener, separater Pfad — wird NIE beim normalen Laden aller Touren mitgeladen
 const OTHER_TOURS_PATH = 'fixseil/tours';
 const OWN_APP_LABEL = '🎿 Skitour';
 const OTHER_APP_LABEL = '🧗 Hochtour';
@@ -569,7 +570,7 @@ function mergeImportedData(json){
 }
 
 async function submitTourForm(form, existing){
-  const t = existing ? {...existing} : {id: uid('t'), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null};
+  const t = existing ? {...existing} : {id: (form.tourIdForTrack || uid('t')), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null};
   t.name = form.name.trim();
   t.routeName = form.routeName || '';
   t.difficulty = form.difficulty;
@@ -587,6 +588,8 @@ async function submitTourForm(form, existing){
   t.ropeLength = form.ropeLength || '';
   t.hutId = form.hutId || '';
   t.tourLink = form.tourLink;
+  t.gpxLink = form.gpxLink || '';
+  try{ t.trackSimplified = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ t.trackSimplified = null; }
   t.crux = form.crux;
   t.special = form.special;
   t.approach = form.approach;
@@ -902,6 +905,7 @@ function exportModalHtml(){
     </div>
   </div>`;
 }
+
 function importModalHtml(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Importieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
@@ -919,7 +923,6 @@ function importModalHtml(){
     </div>
   </div>`;
 }
-
 function nameModalHtml(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Wie heisst du?</h2></div>
@@ -1026,6 +1029,14 @@ function tourFormHtml(existing){
         <div class="field"><label>Abfahrt (Hm, falls abweichend)</label><input name="elevationLoss" value="${esc(t.elevationLoss||'')}" placeholder="z. B. 1600"/></div>
       </div>
       <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/></div>
+      <div class="field"><label>Link zu einer GPX-Datei (optional)</label><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></div>
+      <div class="field"><label>Eigenen GPX-Track hochladen</label>
+        <input type="file" id="gpx-file-input" accept=".gpx,application/gpx+xml"/>
+        <div class="hint">Wird automatisch für die Kartenanzeige vereinfacht. Die Originaldatei bleibt separat gespeichert und ist jederzeit als Volldownload abrufbar.</div>
+        <p id="gpx-upload-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${t.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
+        <input type="hidden" name="trackSimplified" id="track-simplified-hidden" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
+        <input type="hidden" name="tourIdForTrack" id="tour-id-for-track" value="${esc(t.id||'')}"/>
+      </div>
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. steile Rinne kurz vor dem Gipfel, ausgesetzte Querung …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Lawinenhänge, Gletscherspalten, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
       <div class="field"><label>Anfahrt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
@@ -1094,11 +1105,16 @@ function tourDetailHtml(id){
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(t.approach)}</p></div>` : ''}
-    ${(t.points && t.points.length) ? `<div class="detail-section">
-      <h4>Standort${t.points.length>1?'e':''}</h4>
-      <div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">📍 ${esc(p.label||'Punkt')}</span>`).join('')}</div>
-      <button type="button" class="btn secondary" data-act="show-map" data-points='${esc(JSON.stringify(t.points))}' data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>
+    ${(t.points && t.points.length || t.trackSimplified) ? `<div class="detail-section">
+      <h4>Standort${t.points && t.points.length>1?'e':''}${t.trackSimplified ? ' & Track' : ''}</h4>
+      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">📍 ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      <button type="button" class="btn secondary" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
+    </div>` : ''}
+    ${(t.gpxLink || t.trackSimplified) ? `<div class="detail-section">
+      <h4>GPX-Track</h4>
+      ${t.gpxLink ? `<p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>` : ''}
+      ${t.trackSimplified ? `<button type="button" class="btn secondary" data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}">📥 GPX herunterladen (Originaldatei)</button>` : ''}
     </div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
@@ -1436,13 +1452,26 @@ function wireModalHandlers(){
     renderPointsEditorMap('points-map', 'points-hidden', 'points-list');
   });
 
+  const gpxFileInput = root.querySelector('#gpx-file-input');
+  if(gpxFileInput) gpxFileInput.addEventListener('change', ()=>{
+    handleGpxFileUpload(gpxFileInput, GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status');
+  });
+
   root.querySelectorAll('[data-act="show-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const target = btn.getAttribute('data-target');
       const pointsJson = btn.getAttribute('data-points');
-      let pts = [];
+      const trackJson = btn.getAttribute('data-track');
+      let pts = [], track = [];
       try{ pts = JSON.parse(pointsJson || '[]'); }catch(e){ pts = []; }
-      renderPointsDisplayMap(target, pts);
+      try{ track = JSON.parse(trackJson || '[]'); }catch(e){ track = []; }
+      renderTrackDisplayMap(target, pts, track);
+    });
+  });
+
+  root.querySelectorAll('[data-act="download-gpx"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      downloadFullGpx(GPX_TRACKS_PATH, btn.getAttribute('data-id'), btn.getAttribute('data-name'));
     });
   });
 
@@ -1583,12 +1612,18 @@ function wireModalHandlers(){
       if(!btn || btn.classList.contains('on')) return;
       btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
     }
+    function uncheckMaterialCheckbox(name){
+      const btn = Array.from(tourForm.querySelectorAll('.material-chip')).find(b=>b.getAttribute('data-value')===name);
+      if(!btn || !btn.classList.contains('on')) return;
+      btn.classList.remove('on'); btn.style.background = '';
+    }
     glacierButtons.forEach(btn=>{
       btn.addEventListener('click', ()=>{
         glacierButtons.forEach(b=>{ b.classList.remove('on'); b.style.background=''; });
         btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
         if(glacierHidden) glacierHidden.value = btn.getAttribute('data-value');
         if(btn.getAttribute('data-value')==='ja') checkMaterialCheckbox('Spaltenrettungsset');
+        else uncheckMaterialCheckbox('Spaltenrettungsset');
       });
     });
     // Mehrfachauswahl-Chips (Material, Exposition, Gefahren) — Klick schaltet "on" um
