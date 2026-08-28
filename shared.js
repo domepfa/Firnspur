@@ -602,8 +602,14 @@ function closeFullscreenMap(){
   if(container) container.innerHTML = '';
   if(overlay._onClose){ overlay._onClose(); overlay._onClose = null; }
 }
-function fullscreenButtonHtml(onclickAttr){
-  return `<button type="button" class="btn secondary" style="margin-top:8px; font-size:12.5px; padding:6px 12px;" onclick="${onclickAttr}">⛶ Vollbild</button>`;
+function makeFullscreenButton(renderFn, onCloseCallback){
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn secondary';
+  btn.style.cssText = 'margin-top:8px; font-size:12.5px; padding:6px 12px;';
+  btn.textContent = '⛶ Vollbild';
+  btn.addEventListener('click', ()=> openFullscreenMap(renderFn, onCloseCallback||null));
+  return btn;
 }
 
 function renderMiniMap(containerId, lat, lon, label){
@@ -625,9 +631,8 @@ function renderMiniMap(containerId, lat, lon, label){
     }).addTo(map);
     L.marker([lat, lon]).addTo(map).bindPopup(label || '').openPopup();
     if(!isFullscreen){
-      const btnWrap = document.createElement('div');
-      btnWrap.innerHTML = fullscreenButtonHtml(`openFullscreenMap(function(id){ renderMiniMap(id, ${lat}, ${lon}, ${JSON.stringify(label||'')}); })`);
-      el2.parentElement.appendChild(btnWrap.firstChild);
+      const btn = makeFullscreenButton(function(id){ renderMiniMap(id, lat, lon, label); });
+      el2.parentElement.appendChild(btn);
     }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
@@ -756,9 +761,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId){
     redraw();
     renderList();
     if(!isFullscreen){
-      const btnWrap = document.createElement('div');
-      btnWrap.innerHTML = fullscreenButtonHtml(`openFullscreenMap(function(id){ renderPointsEditorMap(id, ${JSON.stringify(hiddenInputId)}, null); }, function(){ renderPointsEditorMap(${JSON.stringify(containerId)}, ${JSON.stringify(hiddenInputId)}, ${JSON.stringify(listContainerId)}); })`);
-      el2.parentElement.insertBefore(btnWrap.firstChild, listEl);
+      const btn = makeFullscreenButton(
+        function(id){ renderPointsEditorMap(id, hiddenInputId, null); },
+        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId); }
+      );
+      el2.parentElement.insertBefore(btn, listEl);
     }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
@@ -792,9 +799,8 @@ function renderPointsDisplayMap(containerId, points){
       map.fitBounds(L.featureGroup(group).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
-      const btnWrap = document.createElement('div');
-      btnWrap.innerHTML = fullscreenButtonHtml(`openFullscreenMap(function(id){ renderPointsDisplayMap(id, ${JSON.stringify(points)}); })`);
-      el2.parentElement.appendChild(btnWrap.firstChild);
+      const btn = makeFullscreenButton(function(id){ renderPointsDisplayMap(id, points); });
+      el2.parentElement.appendChild(btn);
     }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
@@ -949,9 +955,8 @@ function renderTrackDisplayMap(containerId, points, trackCoords){
       map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
-      const btnWrap = document.createElement('div');
-      btnWrap.innerHTML = fullscreenButtonHtml(`openFullscreenMap(function(id){ renderTrackDisplayMap(id, ${JSON.stringify(points||[])}, ${JSON.stringify(trackCoords||[])}); })`);
-      el2.parentElement.appendChild(btnWrap.firstChild);
+      const btn = makeFullscreenButton(function(id){ renderTrackDisplayMap(id, points||[], trackCoords||[]); });
+      el2.parentElement.appendChild(btn);
     }
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
