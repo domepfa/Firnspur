@@ -129,6 +129,30 @@ function markSaved(){ state.hasUnsavedChanges = false; }
 
 /* ================= Region / Exposition ================= */
 const EXPOSITIONS = ['N','NE','E','SE','S','SW','W','NW'];
+const APPROACH_TYPE_LABELS = { auto:'🚗 Auto', oev:'🚌 ÖV', seilbahn:'🚡 Seilbahn', zufuss:'🥾 Zu Fuss' };
+const STAY_TYPE_LABELS = { tagestour:'☀️ Tagestour', huette:'🛖 Hütte', biwak:'⛺ Biwak', zelt:'🏕️ Zelt' };
+const MAP_POINT_CATEGORIES = {
+  '': {icon:'📍', label:'Punkt', color:'#4A3524'},
+  'gefahr': {icon:'⚠️', label:'Gefahrenstelle', color:'#B0392C'},
+  'rueckzug': {icon:'↩️', label:'Rückzugspunkt', color:'#8B2E22'},
+  'wasser': {icon:'💧', label:'Wasserstelle', color:'#2E6E8E'},
+  'rast': {icon:'🍽️', label:'Rastplatz', color:'#4C8C6B'},
+  'biwak': {icon:'⛺', label:'Biwak / Übernachtung', color:'#7A5C9E'},
+  'parkplatz': {icon:'🅿️', label:'Parkplatz', color:'#5B5B5B'},
+  'toilette': {icon:'🚻', label:'Toilette', color:'#5B5B5B'},
+  'haltestelle': {icon:'🚏', label:'Haltestelle ÖV', color:'#5B5B5B'},
+  'abzweigung': {icon:'🔀', label:'Abzweigung / Orientierung', color:'#D9A441'},
+};
+function makeCategoryIcon(category){
+  const meta = MAP_POINT_CATEGORIES[category] || MAP_POINT_CATEGORIES[''];
+  return L.divIcon({
+    html: `<div style="background:${meta.color}; width:30px; height:30px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); display:flex; align-items:center; justify-content:center; box-shadow:0 2px 5px rgba(0,0,0,0.4); border:2px solid white;"><span style="transform:rotate(45deg); font-size:14px;">${meta.icon}</span></div>`,
+    className: '',
+    iconSize: [30,30],
+    iconAnchor: [15,30],
+    popupAnchor: [0,-28]
+  });
+}
 const REGION_SUBAREAS = {
   'Wallis': ['Nikolaital/Zermatt','Saastal','Val d\'Anniviers','Lötschental','Goms','Unterwallis','Nufenenpass','Grimselpass','Furkapass','Simplonpass','Grosser St. Bernhard'],
   'Berner Oberland': ['Lauterbrunnental','Haslital','Kandertal','Diemtigtal','Justistal','Saanenland/Gstaad','Grimselpass','Sustenpass','Jochpass','Grosse Scheidegg'],
@@ -784,13 +808,23 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         return;
       }
       listEl.innerHTML = '<div class="chips" style="margin-top:8px;">' +
-        points.map((p,i)=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">📍 ${esc(p.label||'Punkt')}</span>`).join('') +
+        points.map((p,i)=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('') +
         '</div>';
     }
 
     function buildPopupContent(point){
       const wrap = document.createElement('div');
-      wrap.style.minWidth = '170px';
+      wrap.style.minWidth = '190px';
+      const select = document.createElement('select');
+      select.style.cssText = 'width:100%; margin-bottom:6px; padding:6px 8px; border:1px solid #ccc; border-radius:3px; font-size:13px; box-sizing:border-box;';
+      Object.keys(MAP_POINT_CATEGORIES).forEach(key=>{
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = MAP_POINT_CATEGORIES[key].icon + ' ' + MAP_POINT_CATEGORIES[key].label;
+        if((point.category||'') === key) opt.selected = true;
+        select.appendChild(opt);
+      });
+      wrap.appendChild(select);
       const input = document.createElement('input');
       input.type = 'text';
       input.value = point.label || '';
@@ -805,7 +839,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       saveBtn.style.cssText = 'flex:1; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:6px 10px; font-size:12.5px; cursor:pointer;';
       saveBtn.addEventListener('click', ()=>{
         point.label = input.value.trim() || 'Punkt';
+        point.category = select.value;
         persist();
+        redraw();
         map.closePopup();
       });
       const delBtn = document.createElement('button');
@@ -823,10 +859,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       wrap.appendChild(btnRow);
       return wrap;
     }
+
     function redraw(){
       markerLayer.clearLayers();
       points.forEach(point=>{
-        const marker = L.marker([point.lat, point.lon]).addTo(markerLayer);
+        const marker = L.marker([point.lat, point.lon], {icon: makeCategoryIcon(point.category)}).addTo(markerLayer);
         marker.bindPopup(buildPopupContent(point));
         if(point._justAdded){ delete point._justAdded; marker.openPopup(); }
       });
@@ -839,7 +876,6 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       }
     }
     redrawLine();
-
     function setMode(newMode){
       mode = newMode;
       pointModeBtn.className = mode==='point' ? 'chip on' : 'chip';
@@ -905,7 +941,7 @@ function renderPointsDisplayMap(containerId, points){
     }).addTo(map);
     const group = [];
     points.forEach(p=>{
-      const m = L.marker([p.lat, p.lon]).addTo(map).bindPopup(esc(p.label||'Punkt'));
+      const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
       group.push(m);
     });
     if(group.length > 1){
@@ -1069,7 +1105,7 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     }
     if(hasPoints){
       points.forEach(p=>{
-        const m = L.marker([p.lat, p.lon]).addTo(map).bindPopup(esc(p.label||'Punkt'));
+        const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
         boundsItems.push(m);
       });
     }
@@ -1230,6 +1266,61 @@ function wireLoginScreen(){
   }
   btn.addEventListener('click', attemptLogin);
   input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptLogin(); });
+}
+
+/* ================= Tour-Status: Entwurf / Vollständig ================= */
+async function toggleTourStatus(id){
+  const t = state.tours.find(x=>x.id===id);
+  if(!t) return;
+  t.status = (t.status === 'vollstaendig') ? 'entwurf' : 'vollstaendig';
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  const ok = await saveTourCloud(t).catch(()=>false);
+  t._unsynced = !ok;
+  render();
+  showToast(t.status === 'vollstaendig' ? '✅ Als vollständig markiert.' : '📝 Als Entwurf markiert.', !ok);
+}
+function tourStatusLabel(t){
+  return (!t.status || t.status==='entwurf') ? '📝 Entwurf' : '✅ Vollständig';
+}
+
+/* ================= Zurück-Taste schliesst offene Fenster (statt App zu verlassen) ================= */
+let modalHistoryPushed = false;
+function pushModalHistoryIfNeeded(){
+  if(!modalHistoryPushed){
+    try{ history.pushState({modalOpen:true}, '', location.href); }catch(e){}
+    modalHistoryPushed = true;
+  }
+}
+window.addEventListener('popstate', ()=>{
+  if(typeof state !== 'undefined' && state.modal){
+    state.modal = null;
+    modalHistoryPushed = false;
+    render();
+  }else{
+    modalHistoryPushed = false;
+  }
+});
+
+/* ================= Wischgeste zwischen den Apps (nur auf der oberen Umschalt-Leiste) ================= */
+function wireAppSwitchSwipe(otherAppUrl){
+  const bar = document.querySelector('.app-switch-bar');
+  if(!bar) return;
+  let startX = null, startY = null;
+  bar.addEventListener('touchstart', (e)=>{
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, {passive:true});
+  bar.addEventListener('touchend', (e)=>{
+    if(startX===null) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    startX = null; startY = null;
+    if(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)){
+      window.location.href = otherAppUrl;
+    }
+  });
 }
 
 
