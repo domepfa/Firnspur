@@ -1,0 +1,165 @@
+{
+  "tours": [
+    {
+      "id": "t_beispiel_hochtour001",
+      "name": "Dom",
+      "routeName": "von der Domhütte",
+      "tourCategory": "hochtour",
+      "difficulty": "ZS",
+      "climbGrade": "2a",
+      "glacier": "ja",
+      "crevasseRisk": "moeglich",
+      "mandatoryDifficulty": "",
+      "cruxDifficulty": "",
+      "pitchCount": "",
+      "longestPitch": "",
+      "protection": "",
+      "descentType": "",
+      "targetAltitude": "4545",
+      "elevationGain": "1400",
+      "elevationLoss": "1400",
+      "duration": "6-8",
+      "region": "Wallis",
+      "subregion": "Nikolaital/Zermatt",
+      "material": [
+        "Steigeisen",
+        "Pickel",
+        "Gurt",
+        "Helm"
+      ],
+      "quickdrawCount": "",
+      "exposition": [
+        "N"
+      ],
+      "gefahren": [
+        "Spalten",
+        "Steinschlag"
+      ],
+      "ropeType": "Gletscherseil",
+      "ropeLength": "30m",
+      "points": [
+        {
+          "label": "Domhütte (Ausgangspunkt)",
+          "lat": 46.0967,
+          "lon": 7.8494
+        }
+      ],
+      "manualTrack": [],
+      "hutId": "",
+      "tourLink": "https://www.sac-cas.ch/...",
+      "gpxLink": "",
+      "crux": "Ausgesetzte Gratpassage kurz vor dem Gipfel.",
+      "special": "Beste Bedingungen im Hochsommer.",
+      "approach": "Zustieg über die Domhütte.",
+      "ascent": "Beschreibung der Aufstiegsroute.",
+      "descent": "Beschreibung der Abstiegsroute.",
+      "status": "entwurf",
+      "conditions": null,
+      "completions": [],
+      "createdBy": "Name",
+      "createdAt": "2026-08-25T00:00:00.000Z",
+      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "updatedBy": "Name"
+    },
+    {
+      "id": "t_beispiel_msl001",
+      "name": "Balmflue",
+      "routeName": "Südgrat",
+      "tourCategory": "msl",
+      "difficulty": "",
+      "climbGrade": "",
+      "glacier": "",
+      "crevasseRisk": "",
+      "mandatoryDifficulty": "5b+",
+      "cruxDifficulty": "5c",
+      "pitchCount": "19",
+      "longestPitch": "30m",
+      "protection": "alpin",
+      "descentType": "Fussabstieg",
+      "targetAltitude": "900",
+      "elevationGain": "450",
+      "elevationLoss": "",
+      "duration": "7-9",
+      "region": "Jura",
+      "subregion": "Solothurner Jura",
+      "material": [
+        "Keile",
+        "Friends"
+      ],
+      "quickdrawCount": "10",
+      "exposition": [
+        "S"
+      ],
+      "gefahren": [
+        "Steinschlag",
+        "brüchiger Fels"
+      ],
+      "ropeType": "Einfachseil",
+      "ropeLength": "50m",
+      "points": [
+        {
+          "label": "Parkplatz Balm b. Günsberg",
+          "lat": 47.2073,
+          "lon": 7.5372
+        }
+      ],
+      "manualTrack": [],
+      "hutId": "",
+      "tourLink": "https://www.sac-cas.ch/...",
+      "gpxLink": "",
+      "crux": "Schlüsselstelle im Quergang, umgehbar für tieferen Grad.",
+      "special": "Beliebte Route, an Wochenenden oft Wartezeiten.",
+      "approach": "Ausgangspunkt: Balm b. Günsberg.",
+      "ascent": "",
+      "descent": "Zu Fuss über einen guten Weg.",
+      "status": "entwurf",
+      "conditions": null,
+      "completions": [],
+      "createdBy": "Name",
+      "createdAt": "2026-08-25T00:00:00.000Z",
+      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "updatedBy": "Name"
+    }
+  ],
+  "huts": [
+    {
+      "id": "h_beispiel001",
+      "name": "Domhütte",
+      "region": "Wallis",
+      "subregion": "Nikolaital/Zermatt",
+      "altitude": "2940",
+      "capacity": "60 Betten",
+      "openingPeriod": "Mitte März – Ende September",
+      "staffedPeriod": "Ende Juni – Mitte September",
+      "winterraum": "Vorhanden, 12 Plätze, unverschlossen zugänglich.",
+      "approach": "Anfahrt bis Randa, dann zu Fuss oder mit Seilbahn.",
+      "points": [
+        {
+          "label": "Domhütte",
+          "lat": 46.0967,
+          "lon": 7.8494
+        },
+        {
+          "label": "Parkplatz Randa",
+          "lat": 46.0958,
+          "lon": 7.7847
+        }
+      ],
+      "accessElevationSummer": "1400",
+      "accessDurationSummer": "3-4",
+      "accessDifficultySummer": "WS",
+      "accessSummer": "Beschreibung der Sommer-Zustiegsroute.",
+      "accessElevationWinter": "1650",
+      "accessDurationWinter": "4-5",
+      "accessDifficultyWinter": "ZS-",
+      "accessWinter": "Beschreibung der Winter-Zustiegsroute (Lawinenhänge, Spurverlauf).",
+      "contact": "Telefon: 027 123 45 67, www.domhuette.ch",
+      "notes": "Reservation empfohlen, v.a. im Hochsommer.",
+      "completions": [],
+      "createdBy": "Name",
+      "createdAt": "2026-08-25T00:00:00.000Z",
+      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "updatedBy": "Name"
+    }
+  ]
+}
