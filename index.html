@@ -339,7 +339,7 @@
 <script src="./0-shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v41-hut-region-toggle-fix';
+const APP_VERSION = 'v42-full-batch';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -388,6 +388,7 @@ let state = {
   myName: null,
   search: '',
   activeDiffFilters: new Set(),
+  activeRegionFilters: new Set(),
   tourSortBy: 'date',
   tourSortDir: 'desc',
   hutSortBy: 'name',
@@ -538,7 +539,14 @@ function openTourDetail(id){ state.modal = {type:'tour-detail', payload:id}; ren
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
-function closeModal(){ state.modal = null; render(); }
+function closeModal(){
+  state.modal = null;
+  render();
+  if(modalHistoryPushed){
+    modalHistoryPushed = false;
+    try{ history.back(); }catch(e){}
+  }
+}
 function openExport(){ state.modal = {type:'export'}; render(); }
 function openImport(){ ensureName(()=>{ state.modal = {type:'import'}; render(); }); }
 
@@ -570,7 +578,7 @@ function mergeImportedData(json){
 }
 
 async function submitTourForm(form, existing){
-  const t = existing ? {...existing} : {id: (form.tourIdForTrack || uid('t')), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null};
+  const t = existing ? {...existing} : {id: (form.tourIdForTrack || uid('t')), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null, status:'entwurf'};
   t.name = form.name.trim();
   t.routeName = form.routeName || '';
   t.difficulty = form.difficulty;
@@ -594,6 +602,8 @@ async function submitTourForm(form, existing){
   t.crux = form.crux;
   t.special = form.special;
   t.approach = form.approach;
+  t.approachType = form.approachType || '';
+  t.stayType = form.stayType || '';
   try{ t.points = form.points ? JSON.parse(form.points) : []; }catch(e){ t.points = []; }
   t.ascent = form.ascent;
   t.descent = form.descent;
@@ -628,6 +638,7 @@ async function submitHutForm(form, existing){
   h.staffedPeriod = form.staffedPeriod;
   h.winterraum = form.winterraum;
   h.approach = form.approach;
+  h.approachType = form.approachType || '';
   try{ h.points = form.points ? JSON.parse(form.points) : []; }catch(e){ h.points = []; }
   h.accessElevationSummer = form.accessElevationSummer;
   h.accessDurationSummer = form.accessDurationSummer;
@@ -658,6 +669,7 @@ async function submitHutForm(form, existing){
   }
   render();
 }
+
 function setFormBusy(formId, busy){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -684,12 +696,21 @@ function showFormError(formId, message){
   box.textContent = message;
   box.scrollIntoView({behavior:'smooth', block:'center'});
 }
-
 /* ================= Sortierung ================= */
 
 function toggleDiffFilter(code){
   if(state.activeDiffFilters.has(code)) state.activeDiffFilters.delete(code);
   else state.activeDiffFilters.add(code);
+  render();
+}
+function toggleRegionFilter(region){
+  if(state.activeRegionFilters.has(region)) state.activeRegionFilters.delete(region);
+  else state.activeRegionFilters.add(region);
+  render();
+}
+function resetTourFilters(){
+  state.activeDiffFilters.clear();
+  state.activeRegionFilters.clear();
   render();
 }
 function setSearch(v){ state.search = v; render(); }
@@ -748,6 +769,9 @@ function filteredTours(){
   if(state.activeDiffFilters.size){
     list = list.filter(t=>state.activeDiffFilters.has(t.difficulty));
   }
+  if(state.activeRegionFilters.size){
+    list = list.filter(t=>state.activeRegionFilters.has(t.region));
+  }
   if(state.search.trim()){
     const q = state.search.trim().toLowerCase();
     list = list.filter(t=> (t.name||'').toLowerCase().includes(q) || (t.region||'').toLowerCase().includes(q) || (t.subregion||'').toLowerCase().includes(q));
@@ -757,6 +781,8 @@ function filteredTours(){
 
 function tourenViewHtml(){
   const list = filteredTours();
+  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size;
+  const usedRegions = Array.from(new Set(state.tours.map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   return `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
@@ -766,8 +792,19 @@ function tourenViewHtml(){
       <span style="font-size:13px; color:var(--ink-soft);">Sortieren nach</span>
       ${sortControlHtml('tour', TOUR_SORT_OPTIONS, state.tourSortBy, state.tourSortDir)}
     </div>
-    <div class="chips" style="margin-bottom:18px;">
-      ${DIFF_ORDER.map(c=>`<button class="chip ${state.activeDiffFilters.has(c)?'on':''}" style="${state.activeDiffFilters.has(c)?`background:${DIFF[c].color}`:''}" title="${esc(DIFF[c].desc)}" data-act="filter-diff" data-code="${c}"><span class="dot" style="background:${state.activeDiffFilters.has(c)?'#fff':DIFF[c].color}"></span>${c}</button>`).join('')}
+    <button type="button" class="btn secondary" id="tour-filter-toggle-btn" style="margin-bottom:10px;">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+    <div id="tour-filter-panel" style="display:${activeFilterCount ? '' : 'none'}; margin-bottom:14px;">
+      <div class="field"><label>Schwierigkeit</label>
+        <div class="chips">
+          ${DIFF_ORDER.map(c=>`<button class="chip ${state.activeDiffFilters.has(c)?'on':''}" style="${state.activeDiffFilters.has(c)?`background:${DIFF[c].color}`:''}" title="${esc(DIFF[c].desc)}" data-act="filter-diff" data-code="${c}"><span class="dot" style="background:${state.activeDiffFilters.has(c)?'#fff':DIFF[c].color}"></span>${c}</button>`).join('')}
+        </div>
+      </div>
+      ${usedRegions.length ? `<div class="field"><label>Region</label>
+        <div class="chips">
+          ${usedRegions.map(r=>`<button class="chip ${state.activeRegionFilters.has(r)?'on':''}" style="${state.activeRegionFilters.has(r)?'background:var(--ice-deep)':''}" data-act="filter-region" data-region="${esc(r)}">${esc(r)}</button>`).join('')}
+        </div>
+      </div>` : ''}
+      ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
     </div>
     ${list.length ? `<div class="grid">${list.map(tourCardHtml).join('')}</div>` : emptyTouren()}
   `;
@@ -805,7 +842,10 @@ function tourCardHtml(t){
     ${t.crux ? `<div class="conditions-note">⚠ ${esc(t.crux)}</div>` : ''}
     ${(t.completions && t.completions.length) ? `<div class="stat-row"><span>✓ ${t.completions.length===1 ? esc(t.completions[0].by||'?') + (t.completions[0].date ? ' · ' + fmtDateOnly(t.completions[0].date) : '') : t.completions.length + ' Einträge'}</span></div>` : ''}
     ${t._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
-    <div class="meta-line">von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}</div>
+    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
+      <span>von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}</span>
+      <span style="color:var(--ink-faint);">${tourStatusLabel(t)}</span>
+    </div>
   </div>`;
 }
 
@@ -871,6 +911,7 @@ function hutCardHtml(h){
 
 /* ================= Modal rendering ================= */
 function renderModal(){
+  pushModalHistoryIfNeeded();
   const root = document.getElementById('modal-root');
   const m = state.modal;
   let inner = '';
@@ -911,6 +952,7 @@ function importModalHtml(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Importieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Wähle eine Datei, die dir jemand geschickt hat, oder füge den Text ein. Bestehende Einträge mit gleicher ID werden aktualisiert, neue werden hinzugefügt.</p>
+    <p style="font-size:13px; margin:0 0 12px 0;">📋 <a href="https://github.com/domepfa/Firnspur/tree/main/vorlagen" target="_blank" rel="noopener noreferrer">Vorlagen &amp; Anleitung für ChatGPT/Gemini</a> — immer aktuell, zum Weitergeben an Kolleg:innen.</p>
     <div class="field">
       <label>Datei wählen</label>
       <input type="file" id="import-file" accept="application/json,.json,.txt"/>
@@ -1041,7 +1083,25 @@ function tourFormHtml(existing){
       </div>
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. steile Rinne kurz vor dem Gipfel, ausgesetzte Querung …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Lawinenhänge, Gletscherspalten, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
-      <div class="field"><label>Anfahrt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
+      <div class="field"><label>Art der Anfahrt</label>
+        <div class="chips" id="approach-type-chips">
+          <button type="button" class="chip approach-type-chip ${t.approachType==='auto'?'on':''}" style="${t.approachType==='auto'?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
+          <button type="button" class="chip approach-type-chip ${t.approachType==='oev'?'on':''}" style="${t.approachType==='oev'?'background:var(--ice-deep)':''}" data-value="oev">🚌 ÖV</button>
+          <button type="button" class="chip approach-type-chip ${t.approachType==='seilbahn'?'on':''}" style="${t.approachType==='seilbahn'?'background:var(--ice-deep)':''}" data-value="seilbahn">🚡 Seilbahn</button>
+          <button type="button" class="chip approach-type-chip ${t.approachType==='zufuss'?'on':''}" style="${t.approachType==='zufuss'?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
+        </div>
+        <input type="hidden" name="approachType" id="approach-type-hidden" value="${esc(t.approachType||'')}"/>
+      </div>
+      <div class="field"><label>Ausgangspunkt / Aufenthalt</label>
+        <div class="chips" id="stay-type-chips">
+          <button type="button" class="chip stay-type-chip ${t.stayType==='tagestour'?'on':''}" style="${t.stayType==='tagestour'?'background:var(--ice-deep)':''}" data-value="tagestour">☀️ Tagestour</button>
+          <button type="button" class="chip stay-type-chip ${t.stayType==='huette'?'on':''}" style="${t.stayType==='huette'?'background:var(--ice-deep)':''}" data-value="huette">🛖 Hütte</button>
+          <button type="button" class="chip stay-type-chip ${t.stayType==='biwak'?'on':''}" style="${t.stayType==='biwak'?'background:var(--ice-deep)':''}" data-value="biwak">⛺ Biwak</button>
+          <button type="button" class="chip stay-type-chip ${t.stayType==='zelt'?'on':''}" style="${t.stayType==='zelt'?'background:var(--ice-deep)':''}" data-value="zelt">🏕️ Zelt</button>
+        </div>
+        <input type="hidden" name="stayType" id="stay-type-hidden" value="${esc(t.stayType||'')}"/>
+      </div>
+      <div class="field"><label>Anfahrt — Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
         <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
@@ -1092,6 +1152,7 @@ function tourDetailHtml(id){
     </div>
     ${t.routeName ? `<p style="color:var(--ink-soft); font-size:14px; font-style:italic; margin:0 0 4px 0;">${esc(t.routeName)}</p>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
+    <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-tour-status" data-id="${t.id}">${tourStatusLabel(t)} — antippen zum Ändern</button>
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abfahrt</div></div>` : ''}
@@ -1107,10 +1168,17 @@ function tourDetailHtml(id){
     ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
-    ${t.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(t.approach)}</p></div>` : ''}
+    ${(t.approachType || t.stayType || t.approach) ? `<div class="detail-section">
+      <h4>Anfahrt</h4>
+      ${(t.approachType || t.stayType) ? `<div class="chips" style="margin-bottom:8px;">
+        ${t.approachType ? `<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[t.approachType]}</span>` : ''}
+        ${t.stayType ? `<span class="chip" style="background:var(--ice-light); border-color:transparent;">${STAY_TYPE_LABELS[t.stayType]}</span>` : ''}
+      </div>` : ''}
+      ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
+    </div>` : ''}
     <div class="detail-section">
       <h4>Standort${t.points && t.points.length>1?'e':''}${(t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? ' & Track' : ''}</h4>
-      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">📍 ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${t.trackSimplified ? `<span class="hint">🔴 Rot: aufgezeichneter GPX-Track</span><br/>` : ''}
       ${(t.manualTrack && t.manualTrack.length) ? `<span class="hint">🔵 Blau: manuell geplante Linie</span>` : ''}
       ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
@@ -1181,10 +1249,19 @@ function hutFormHtml(existing){
       </div>
       <div class="field"><label>Winterraum / Schutzraum</label><textarea name="winterraum" placeholder="Vorhanden? Anzahl Plätze, Zugang, Ausstattung …">${esc(h.winterraum||'')}</textarea></div>
       <div class="field"><label>Betten / Kapazität</label><input name="capacity" value="${esc(h.capacity||'')}" placeholder="z. B. 40 Betten"/></div>
-      <div class="field"><label>Anfahrt</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(h.approach||'')}</textarea></div>
+      <div class="field"><label>Art der Anfahrt</label>
+        <div class="chips" id="approach-type-chips">
+          <button type="button" class="chip approach-type-chip ${h.approachType==='auto'?'on':''}" style="${h.approachType==='auto'?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
+          <button type="button" class="chip approach-type-chip ${h.approachType==='oev'?'on':''}" style="${h.approachType==='oev'?'background:var(--ice-deep)':''}" data-value="oev">🚌 ÖV</button>
+          <button type="button" class="chip approach-type-chip ${h.approachType==='seilbahn'?'on':''}" style="${h.approachType==='seilbahn'?'background:var(--ice-deep)':''}" data-value="seilbahn">🚡 Seilbahn</button>
+          <button type="button" class="chip approach-type-chip ${h.approachType==='zufuss'?'on':''}" style="${h.approachType==='zufuss'?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
+        </div>
+        <input type="hidden" name="approachType" id="approach-type-hidden" value="${esc(h.approachType||'')}"/>
+      </div>
+      <div class="field"><label>Anfahrt — Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(h.approach||'')}</textarea></div>
       <div class="field"><label>Punkte auf der Karte (Hütte, Parkplatz, Haltestelle …)</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte zum Setzen von Punkten öffnen</button>
-        <div class="hint">Auf die Karte tippen, um einen Punkt zu setzen — danach Bezeichnung eintragen und speichern. Mehrere Punkte möglich.</div>
+        <div class="hint">Auf die Karte tippen, um einen Punkt zu setzen — danach Kategorie wählen (z. B. Gefahrenstelle, Wasserstelle, Parkplatz …), Bezeichnung eintragen und speichern. Mehrere Punkte möglich.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(h.points || (h.lat && h.lon ? [{label:"Hütte", lat:h.lat, lon:h.lon}] : [])))}'/>
@@ -1252,10 +1329,14 @@ function hutDetailHtml(id){
     ${h.openingPeriod ? `<div class="detail-section"><h4>Öffnungszeitraum</h4><p>${esc(h.openingPeriod)}</p></div>` : ''}
     <div class="detail-section"><h4>Bewartung</h4><p>${h.staffedPeriod ? esc(h.staffedPeriod) : 'Unbewartet'}</p></div>
     ${h.winterraum ? `<div class="detail-section"><h4>Winterraum / Schutzraum</h4><p>${esc(h.winterraum)}</p></div>` : ''}
-    ${h.approach ? `<div class="detail-section"><h4>Anfahrt</h4><p>${esc(h.approach)}</p></div>` : ''}
+    ${(h.approachType || h.approach) ? `<div class="detail-section">
+      <h4>Anfahrt</h4>
+      ${h.approachType ? `<div class="chips" style="margin-bottom:8px;"><span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[h.approachType]}</span></div>` : ''}
+      ${h.approach ? `<p>${esc(h.approach)}</p>` : ''}
+    </div>` : ''}
     ${(h.points && h.points.length) ? `<div class="detail-section">
       <h4>Standort${h.points.length>1?'e':''}</h4>
-      <div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">📍 ${esc(p.label||'Punkt')}</span>`).join('')}</div>
+      <div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>
       <button type="button" class="btn secondary" data-act="show-map" data-points='${esc(JSON.stringify(h.points))}' data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
       <div id="map-hut-${h.id}" style="margin-top:10px;"></div>
     </div>` : ''}
@@ -1308,8 +1389,17 @@ function hutDetailHtml(id){
 }
 
 /* ================= Agenda ================= */
-
 /* ================= Agenda: Status-Workflow ================= */
+
+
+
+
+
+
+
+
+
+
 /* ================= Abgeschlossen view ================= */
 function buildPersonGroups(){
   const groups = {};
@@ -1430,10 +1520,19 @@ function wireGlobalHandlers(){
     else if(act==='open-hut') { el.onclick = ()=>openHutDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openHutDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-agenda') { el.onclick = ()=>{ state.modal={type:'agenda-detail', payload:el.getAttribute('data-id')}; render(); }; }
     else if(act==='filter-diff') el.onclick = ()=>toggleDiffFilter(el.getAttribute('data-code'));
+    else if(act==='filter-region') el.onclick = ()=>toggleRegionFilter(el.getAttribute('data-region'));
+    else if(act==='reset-tour-filters') el.onclick = ()=>resetTourFilters();
     else if(act==='sort-by') el.onchange = (e)=>{ const kind=el.getAttribute('data-kind'); if(kind==='tour') state.tourSortBy=e.target.value; else state.hutSortBy=e.target.value; renderListOnly(); };
     else if(act==='sort-dir') el.onclick = ()=>{ const kind=el.getAttribute('data-kind'); if(kind==='tour') state.tourSortDir = state.tourSortDir==='asc'?'desc':'asc'; else state.hutSortDir = state.hutSortDir==='asc'?'desc':'asc'; renderListOnly(); };
     else if(act==='search') el.oninput = (e)=>{ state.search = e.target.value; renderListOnly(); };
   });
+  const tourFilterToggleBtn = app.querySelector('#tour-filter-toggle-btn');
+  if(tourFilterToggleBtn){
+    tourFilterToggleBtn.addEventListener('click', ()=>{
+      const panel = app.querySelector('#tour-filter-panel');
+      if(panel) panel.style.display = (panel.style.display==='none') ? '' : 'none';
+    });
+  }
   app.querySelectorAll('.agenda-status-select').forEach(sel=>{
     sel.addEventListener('click', e=> e.stopPropagation());
     sel.addEventListener('change', ()=> setAgendaStatus(sel.getAttribute('data-id'), sel.value));
@@ -1517,6 +1616,12 @@ function wireModalHandlers(){
       const id = btn.getAttribute('data-id');
       const kind = btn.getAttribute('data-kind');
       quickSaveMapEdits(kind, id, `quick-points-hidden-${id}`, `quick-manual-track-hidden-${id}`);
+    });
+  });
+
+  root.querySelectorAll('[data-act="toggle-tour-status"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      toggleTourStatus(btn.getAttribute('data-id'));
     });
   });
 
@@ -1763,6 +1868,10 @@ function wireModalHandlers(){
     wireToggleableSingleSelect('.rope-type-chip', ropeTypeHidden, 'data-rope-type');
     const ropeLengthHidden = document.getElementById('rope-length-hidden');
     wireToggleableSingleSelect('.rope-length-chip', ropeLengthHidden, 'data-rope-length');
+    const approachTypeHidden = document.getElementById('approach-type-hidden');
+    wireToggleableSingleSelect('.approach-type-chip', approachTypeHidden, 'data-value');
+    const stayTypeHidden = document.getElementById('stay-type-hidden');
+    wireToggleableSingleSelect('.stay-type-chip', stayTypeHidden, 'data-value');
 
     const tourSaveBtn = document.getElementById('tour-save-btn');
     if(tourSaveBtn){
@@ -1817,6 +1926,21 @@ function wireModalHandlers(){
     }
     const hutFabSaveBtn = document.getElementById('hut-fab-save-btn');
     if(hutFabSaveBtn) hutFabSaveBtn.addEventListener('click', ()=>{ if(hutSaveBtn) hutSaveBtn.click(); });
+
+    // Art der Anfahrt (abwählbare Einzelauswahl)
+    const hutApproachTypeHidden = document.getElementById('approach-type-hidden');
+    hutForm.querySelectorAll('.approach-type-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        const wasOn = chip.classList.contains('on');
+        hutForm.querySelectorAll('.approach-type-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){
+          if(hutApproachTypeHidden) hutApproachTypeHidden.value = '';
+        }else{
+          chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+          if(hutApproachTypeHidden) hutApproachTypeHidden.value = chip.getAttribute('data-value');
+        }
+      });
+    });
 
     // Region-Chips (identisch zum Touren-Formular)
     const hutRegionHidden = document.getElementById('region-hidden-input');
@@ -1926,6 +2050,7 @@ try{
   if(savedName) state.myName = savedName;
 }catch(e){}
 loadAuthFromStorage();
+wireAppSwitchSwipe('./fixseil.html');
 function toggleEmergencyCard(){
   if(state.modal && state.modal.type==='emergency'){ closeModal(); }
   else{ state.modal = {type:'emergency'}; render(); }
@@ -1966,14 +2091,5 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
 
 
