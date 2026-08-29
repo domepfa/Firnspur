@@ -439,7 +439,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v44-multifilter';
+const APP_VERSION = 'v46-bedienungsanleitung';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1114,7 +1114,7 @@ function importModalHtml(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Importieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Wähle eine Datei, die dir jemand geschickt hat, oder füge den Text ein. Bestehende Einträge mit gleicher ID werden aktualisiert, neue werden hinzugefügt.</p>
-    <p style="font-size:13px; margin:0 0 12px 0;"><button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="open-vorlagen">📋 Vorlagen &amp; Anleitung für ChatGPT/Gemini</button> — zum Weitergeben an Kolleg:innen, direkt zum Kopieren.</p>
+    <p style="font-size:13px; margin:0 0 12px 0;"><button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="open-vorlagen">📋 Ressourcen &amp; Vorlagen</button> — Bedienungsanleitung, JSON-Vorlage &amp; KI-Anleitung, zum Weitergeben an Kolleg:innen.</p>
     <div class="field">
       <label>Datei wählen</label>
       <input type="file" id="import-file" accept="application/json,.json,.txt"/>
@@ -1672,8 +1672,6 @@ function wireGlobalHandlers(){
     else if(act==='change-name') el.onclick = ()=>{ state.modal = {type:'name'}; render(); };
     else if(act==='export-data') el.onclick = openExport;
     else if(act==='import-data') el.onclick = openImport;
-    else if(act==='open-vorlagen') el.onclick = ()=>{ state.modal = {type:'vorlagen'}; render(); };
-    else if(act==='copy-vorlage') el.onclick = ()=> copyTextareaContent(el.getAttribute('data-target'));
     else if(act==='add-tour') el.onclick = openAddTour;
     else if(act==='add-hut') el.onclick = openAddHut;
     else if(act==='add-agenda') el.onclick = openAddAgenda;
@@ -1759,6 +1757,13 @@ function wireModalHandlers(){
     btn.addEventListener('click', ()=>{
       downloadFullGpx(GPX_TRACKS_PATH, btn.getAttribute('data-id'), btn.getAttribute('data-name'));
     });
+  });
+
+  root.querySelectorAll('[data-act="open-vorlagen"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ state.modal = {type:'vorlagen'}; render(); });
+  });
+  root.querySelectorAll('[data-act="copy-vorlage"]').forEach(btn=>{
+    btn.addEventListener('click', ()=> copyTextareaContent(btn.getAttribute('data-target')));
   });
 
   root.querySelectorAll('[data-act="quick-edit-toggle"]').forEach(btn=>{
