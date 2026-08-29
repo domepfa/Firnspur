@@ -339,7 +339,107 @@
 <script src="./0-shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
-const APP_VERSION = 'v42-full-batch';
+const TOUR_VORLAGE_JSON = `{
+  "tours": [
+    {
+      "id": "t_beispiel001",
+      "name": "Titlis",
+      "routeName": "von Engstlenalp",
+      "difficulty": "WS",
+      "targetAltitude": "3020",
+      "elevationGain": "1200",
+      "elevationLoss": "1600",
+      "duration": "4-5",
+      "region": "Zentralschweiz",
+      "subregion": "Urner Alpen",
+      "material": [
+        "Steigeisen",
+        "Pickel"
+      ],
+      "exposition": [
+        "N",
+        "NE"
+      ],
+      "gefahren": [
+        "Lawinenhang",
+        "Steilhänge über 40°"
+      ],
+      "glacier": "ja",
+      "ropeType": "Gletscherseil",
+      "ropeLength": "30m",
+      "points": [
+        {
+          "label": "Parkplatz Engstlenalp",
+          "lat": 46.7423,
+          "lon": 8.2661
+        },
+        {
+          "label": "Bushaltestelle",
+          "lat": 46.7419,
+          "lon": 8.2655
+        }
+      ],
+      "manualTrack": [],
+      "hutId": "",
+      "tourLink": "https://www.sac-cas.ch/...",
+      "gpxLink": "",
+      "crux": "Kurze steile Rinne kurz unter dem Gipfel.",
+      "special": "Beste Bedingungen im Frühwinter.",
+      "approach": "Anfahrt bis Engstlenalp, Parkplatz vorhanden.",
+      "ascent": "Beschreibung der Aufstiegsroute.",
+      "descent": "Beschreibung der Abfahrt.",
+      "status": "entwurf",
+      "conditions": null,
+      "completions": [],
+      "createdBy": "Name",
+      "createdAt": "2026-08-25T00:00:00.000Z",
+      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "updatedBy": "Name"
+    }
+  ],
+  "huts": [
+    {
+      "id": "h_beispiel001",
+      "name": "Domhütte",
+      "region": "Wallis",
+      "subregion": "Nikolaital/Zermatt",
+      "altitude": "2940",
+      "capacity": "60 Betten",
+      "openingPeriod": "Mitte März – Ende September",
+      "staffedPeriod": "Ende Juni – Mitte September",
+      "winterraum": "Vorhanden, 12 Plätze, unverschlossen zugänglich.",
+      "approach": "Anfahrt bis Randa, dann zu Fuss oder mit Seilbahn.",
+      "points": [
+        {
+          "label": "Domhütte",
+          "lat": 46.0967,
+          "lon": 7.8494
+        },
+        {
+          "label": "Parkplatz Randa",
+          "lat": 46.0958,
+          "lon": 7.7847
+        }
+      ],
+      "accessElevationSummer": "1400",
+      "accessDurationSummer": "3-4",
+      "accessDifficultySummer": "WS",
+      "accessSummer": "Beschreibung der Sommer-Zustiegsroute.",
+      "accessElevationWinter": "1650",
+      "accessDurationWinter": "4-5",
+      "accessDifficultyWinter": "ZS-",
+      "accessWinter": "Beschreibung der Winter-Zustiegsroute (Lawinenhänge, Spurverlauf).",
+      "contact": "Telefon: 027 123 45 67, www.domhuette.ch",
+      "notes": "Reservation empfohlen, v.a. im Hochsommer.",
+      "completions": [],
+      "createdBy": "Name",
+      "createdAt": "2026-08-25T00:00:00.000Z",
+      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "updatedBy": "Name"
+    }
+  ]
+}`;
+const APP_VERSION = 'v43-inapp-vorlagen';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -626,7 +726,6 @@ async function submitTourForm(form, existing){
   }
   render();
 }
-
 async function submitHutForm(form, existing){
   const h = existing ? {...existing} : {id: uid('h'), createdBy: state.myName, createdAt: new Date().toISOString()};
   h.name = form.name.trim();
@@ -696,6 +795,7 @@ function showFormError(formId, message){
   box.textContent = message;
   box.scrollIntoView({behavior:'smooth', block:'center'});
 }
+
 /* ================= Sortierung ================= */
 
 function toggleDiffFilter(code){
@@ -924,6 +1024,7 @@ function renderModal(){
   else if(m.type==='complete-hut') inner = completeFormHtml('hut', m.payload);
   else if(m.type==='export') inner = exportModalHtml();
   else if(m.type==='import') inner = importModalHtml();
+  else if(m.type==='vorlagen') inner = vorlagenModalHtml(TOUR_VORLAGE_JSON);
   else if(m.type==='add-agenda') inner = agendaFormHtml();
   else if(m.type==='agenda-detail') inner = agendaDetailHtml(m.payload);
   else if(m.type==='emergency') inner = emergencyCardHtml();
@@ -952,7 +1053,7 @@ function importModalHtml(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Importieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Wähle eine Datei, die dir jemand geschickt hat, oder füge den Text ein. Bestehende Einträge mit gleicher ID werden aktualisiert, neue werden hinzugefügt.</p>
-    <p style="font-size:13px; margin:0 0 12px 0;">📋 <a href="https://github.com/domepfa/Firnspur/tree/main/vorlagen" target="_blank" rel="noopener noreferrer">Vorlagen &amp; Anleitung für ChatGPT/Gemini</a> — immer aktuell, zum Weitergeben an Kolleg:innen.</p>
+    <p style="font-size:13px; margin:0 0 12px 0;"><button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="open-vorlagen">📋 Vorlagen &amp; Anleitung für ChatGPT/Gemini</button> — zum Weitergeben an Kolleg:innen, direkt zum Kopieren.</p>
     <div class="field">
       <label>Datei wählen</label>
       <input type="file" id="import-file" accept="application/json,.json,.txt"/>
@@ -1387,8 +1488,8 @@ function hutDetailHtml(id){
     </div>
   </div>`;
 }
-
 /* ================= Agenda ================= */
+
 /* ================= Agenda: Status-Workflow ================= */
 
 
@@ -1513,6 +1614,8 @@ function wireGlobalHandlers(){
     else if(act==='change-name') el.onclick = ()=>{ state.modal = {type:'name'}; render(); };
     else if(act==='export-data') el.onclick = openExport;
     else if(act==='import-data') el.onclick = openImport;
+    else if(act==='open-vorlagen') el.onclick = ()=>{ state.modal = {type:'vorlagen'}; render(); };
+    else if(act==='copy-vorlage') el.onclick = ()=> copyTextareaContent(el.getAttribute('data-target'));
     else if(act==='add-tour') el.onclick = openAddTour;
     else if(act==='add-hut') el.onclick = openAddHut;
     else if(act==='add-agenda') el.onclick = openAddAgenda;
