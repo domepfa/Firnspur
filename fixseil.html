@@ -504,7 +504,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v33-inapp-vorlagen';
+const APP_VERSION = 'v34-multifilter';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -572,6 +572,10 @@ let state = {
   search: '',
   activeDiffFilters: new Set(),
   activeRegionFilters: new Set(),
+  activeApproachTypeFilters: new Set(),
+  activeStayTypeFilters: new Set(),
+  activeStatusFilters: new Set(),
+  activeGlacierFilter: '',
   tourSortBy: 'date',
   tourSortDir: 'desc',
   hutSortBy: 'name',
@@ -796,8 +800,8 @@ async function submitTourForm(form, existing){
   t.crux = form.crux;
   t.special = form.special;
   t.approach = form.approach;
-  t.approachType = form.approachType || '';
-  t.stayType = form.stayType || '';
+  t.approachTypes = Array.isArray(form.approachTypes) ? form.approachTypes : [];
+  t.stayTypes = Array.isArray(form.stayTypes) ? form.stayTypes : [];
   try{ t.points = form.points ? JSON.parse(form.points) : []; }catch(e){ t.points = []; }
   t.ascent = form.ascent;
   t.descent = form.descent;
@@ -824,6 +828,7 @@ async function submitTourForm(form, existing){
 
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
+
   const idx = state.tours.findIndex(x=>x.id===t.id);
   if(idx>=0) state.tours[idx] = t; else state.tours.unshift(t);
   closeModal();
@@ -840,7 +845,6 @@ async function submitTourForm(form, existing){
   }
   render();
 }
-
 async function submitHutForm(form, existing){
   const h = existing ? {...existing} : {id: uid('h'), createdBy: state.myName, createdAt: new Date().toISOString()};
   h.name = form.name.trim();
@@ -852,7 +856,7 @@ async function submitHutForm(form, existing){
   h.staffedPeriod = form.staffedPeriod;
   h.winterraum = form.winterraum;
   h.approach = form.approach;
-  h.approachType = form.approachType || '';
+  h.approachTypes = Array.isArray(form.approachTypes) ? form.approachTypes : [];
   try{ h.points = form.points ? JSON.parse(form.points) : []; }catch(e){ h.points = []; }
   h.accessElevationSummer = form.accessElevationSummer;
   h.accessDurationSummer = form.accessDurationSummer;
@@ -931,9 +935,32 @@ function toggleRegionFilter(region){
   else state.activeRegionFilters.add(region);
   render();
 }
+function toggleApproachTypeFilter(v){
+  if(state.activeApproachTypeFilters.has(v)) state.activeApproachTypeFilters.delete(v);
+  else state.activeApproachTypeFilters.add(v);
+  render();
+}
+function toggleStayTypeFilter(v){
+  if(state.activeStayTypeFilters.has(v)) state.activeStayTypeFilters.delete(v);
+  else state.activeStayTypeFilters.add(v);
+  render();
+}
+function toggleStatusFilter(v){
+  if(state.activeStatusFilters.has(v)) state.activeStatusFilters.delete(v);
+  else state.activeStatusFilters.add(v);
+  render();
+}
+function toggleGlacierFilter(v){
+  state.activeGlacierFilter = (state.activeGlacierFilter === v) ? '' : v;
+  render();
+}
 function resetTourFilters(){
   state.activeDiffFilters.clear();
   state.activeRegionFilters.clear();
+  state.activeApproachTypeFilters.clear();
+  state.activeStayTypeFilters.clear();
+  state.activeStatusFilters.clear();
+  state.activeGlacierFilter = '';
   render();
 }
 function setSearch(v){ state.search = v; render(); }
@@ -996,6 +1023,18 @@ function filteredTours(){
   if(state.activeRegionFilters.size){
     list = list.filter(t=>state.activeRegionFilters.has(t.region));
   }
+  if(state.activeApproachTypeFilters.size){
+    list = list.filter(t=>(t.approachTypes||[]).some(v=>state.activeApproachTypeFilters.has(v)));
+  }
+  if(state.activeStayTypeFilters.size){
+    list = list.filter(t=>(t.stayTypes||[]).some(v=>state.activeStayTypeFilters.has(v)));
+  }
+  if(state.activeStatusFilters.size){
+    list = list.filter(t=>state.activeStatusFilters.has(t.status||'entwurf'));
+  }
+  if(state.activeGlacierFilter){
+    list = list.filter(t=>t.glacier===state.activeGlacierFilter);
+  }
   if(state.search.trim()){
     const q = state.search.trim().toLowerCase();
     list = list.filter(t=> (t.name||'').toLowerCase().includes(q) || (t.region||'').toLowerCase().includes(q) || (t.subregion||'').toLowerCase().includes(q));
@@ -1005,7 +1044,7 @@ function filteredTours(){
 
 function tourenViewHtml(){
   const list = filteredTours();
-  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size;
+  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeGlacierFilter ? 1 : 0);
   const usedRegions = Array.from(new Set(state.tours.filter(t=>(t.tourCategory||'hochtour')==='hochtour').map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   return `
     <div class="toolbar">
@@ -1028,6 +1067,28 @@ function tourenViewHtml(){
           ${usedRegions.map(r=>`<button class="chip ${state.activeRegionFilters.has(r)?'on':''}" style="${state.activeRegionFilters.has(r)?'background:var(--ice-deep)':''}" data-act="filter-region" data-region="${esc(r)}">${esc(r)}</button>`).join('')}
         </div>
       </div>` : ''}
+      <div class="field"><label>Art der Anfahrt</label>
+        <div class="chips">
+          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeApproachTypeFilters.has(v)?'on':''}" style="${state.activeApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-approach-type" data-value="${v}">${APPROACH_TYPE_LABELS[v]}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Ausgangspunkt / Aufenthalt</label>
+        <div class="chips">
+          ${Object.keys(STAY_TYPE_LABELS).map(v=>`<button class="chip ${state.activeStayTypeFilters.has(v)?'on':''}" style="${state.activeStayTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-stay-type" data-value="${v}">${STAY_TYPE_LABELS[v]}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Status</label>
+        <div class="chips">
+          <button class="chip ${state.activeStatusFilters.has('entwurf')?'on':''}" style="${state.activeStatusFilters.has('entwurf')?'background:var(--ice-deep)':''}" data-act="filter-status" data-value="entwurf">📝 Entwurf</button>
+          <button class="chip ${state.activeStatusFilters.has('vollstaendig')?'on':''}" style="${state.activeStatusFilters.has('vollstaendig')?'background:var(--ice-deep)':''}" data-act="filter-status" data-value="vollstaendig">✅ Vollständig</button>
+        </div>
+      </div>
+      <div class="field"><label>Gletscher</label>
+        <div class="chips">
+          <button class="chip ${state.activeGlacierFilter==='ja'?'on':''}" style="${state.activeGlacierFilter==='ja'?'background:var(--ice-deep)':''}" data-act="filter-glacier" data-value="ja">Ja</button>
+          <button class="chip ${state.activeGlacierFilter==='nein'?'on':''}" style="${state.activeGlacierFilter==='nein'?'background:var(--ice-deep)':''}" data-act="filter-glacier" data-value="nein">Nein</button>
+        </div>
+      </div>
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
     </div>
     ${list.length ? `<div class="grid">${list.map(tourCardHtml).join('')}</div>` : emptyTouren()}
@@ -1049,6 +1110,15 @@ function filteredMslTours(){
   if(state.activeRegionFilters.size){
     list = list.filter(t=>state.activeRegionFilters.has(t.region));
   }
+  if(state.activeApproachTypeFilters.size){
+    list = list.filter(t=>(t.approachTypes||[]).some(v=>state.activeApproachTypeFilters.has(v)));
+  }
+  if(state.activeStayTypeFilters.size){
+    list = list.filter(t=>(t.stayTypes||[]).some(v=>state.activeStayTypeFilters.has(v)));
+  }
+  if(state.activeStatusFilters.size){
+    list = list.filter(t=>state.activeStatusFilters.has(t.status||'entwurf'));
+  }
   if(state.search.trim()){
     const q = state.search.trim().toLowerCase();
     list = list.filter(t=> (t.name||'').toLowerCase().includes(q) || (t.region||'').toLowerCase().includes(q) || (t.subregion||'').toLowerCase().includes(q));
@@ -1059,6 +1129,7 @@ function filteredMslTours(){
 function mslViewHtml(){
   const list = filteredMslTours();
   const usedRegions = Array.from(new Set(state.tours.filter(t=>t.tourCategory==='msl').map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
+  const activeFilterCount = state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size;
   return `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
@@ -1068,15 +1139,31 @@ function mslViewHtml(){
       <span style="font-size:13px; color:var(--ink-soft);">Sortieren nach</span>
       ${sortControlHtml('msl', MSL_SORT_OPTIONS, state.tourSortBy, state.tourSortDir)}
     </div>
-    ${usedRegions.length ? `<button type="button" class="btn secondary" id="tour-filter-toggle-btn" style="margin-bottom:10px;">🔍 Filter${state.activeRegionFilters.size ? ` (${state.activeRegionFilters.size})` : ''}</button>
-    <div id="tour-filter-panel" style="display:${state.activeRegionFilters.size ? '' : 'none'}; margin-bottom:14px;">
-      <div class="field"><label>Region</label>
+    <button type="button" class="btn secondary" id="tour-filter-toggle-btn" style="margin-bottom:10px;">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+    <div id="tour-filter-panel" style="display:${activeFilterCount ? '' : 'none'}; margin-bottom:14px;">
+      ${usedRegions.length ? `<div class="field"><label>Region</label>
         <div class="chips">
           ${usedRegions.map(r=>`<button class="chip ${state.activeRegionFilters.has(r)?'on':''}" style="${state.activeRegionFilters.has(r)?'background:var(--ice-deep)':''}" data-act="filter-region" data-region="${esc(r)}">${esc(r)}</button>`).join('')}
         </div>
+      </div>` : ''}
+      <div class="field"><label>Art der Anfahrt</label>
+        <div class="chips">
+          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeApproachTypeFilters.has(v)?'on':''}" style="${state.activeApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-approach-type" data-value="${v}">${APPROACH_TYPE_LABELS[v]}</button>`).join('')}
+        </div>
       </div>
-      ${state.activeRegionFilters.size ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
-    </div>` : ''}
+      <div class="field"><label>Ausgangspunkt / Aufenthalt</label>
+        <div class="chips">
+          ${Object.keys(STAY_TYPE_LABELS).map(v=>`<button class="chip ${state.activeStayTypeFilters.has(v)?'on':''}" style="${state.activeStayTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-stay-type" data-value="${v}">${STAY_TYPE_LABELS[v]}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Status</label>
+        <div class="chips">
+          <button class="chip ${state.activeStatusFilters.has('entwurf')?'on':''}" style="${state.activeStatusFilters.has('entwurf')?'background:var(--ice-deep)':''}" data-act="filter-status" data-value="entwurf">📝 Entwurf</button>
+          <button class="chip ${state.activeStatusFilters.has('vollstaendig')?'on':''}" style="${state.activeStatusFilters.has('vollstaendig')?'background:var(--ice-deep)':''}" data-act="filter-status" data-value="vollstaendig">✅ Vollständig</button>
+        </div>
+      </div>
+      ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
+    </div>
     ${list.length ? `<div class="grid">${list.map(tourCardHtml).join('')}</div>` : emptyMsl()}
   `;
 }
@@ -1437,21 +1524,19 @@ function tourFormHtml(existing){
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Spaltenrisiko, Steinschlag, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
-          <button type="button" class="chip approach-type-chip ${t.approachType==='auto'?'on':''}" style="${t.approachType==='auto'?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
-          <button type="button" class="chip approach-type-chip ${t.approachType==='oev'?'on':''}" style="${t.approachType==='oev'?'background:var(--ice-deep)':''}" data-value="oev">🚌 ÖV</button>
-          <button type="button" class="chip approach-type-chip ${t.approachType==='seilbahn'?'on':''}" style="${t.approachType==='seilbahn'?'background:var(--ice-deep)':''}" data-value="seilbahn">🚡 Seilbahn</button>
-          <button type="button" class="chip approach-type-chip ${t.approachType==='zufuss'?'on':''}" style="${t.approachType==='zufuss'?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('auto')?'on':''}" style="${(t.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('oev')?'on':''}" style="${(t.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">🚌 ÖV</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(t.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">🚡 Seilbahn</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('zufuss')?'on':''}" style="${(t.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
         </div>
-        <input type="hidden" name="approachType" id="approach-type-hidden" value="${esc(t.approachType||'')}"/>
       </div>
       <div class="field"><label>Ausgangspunkt / Aufenthalt</label>
         <div class="chips" id="stay-type-chips">
-          <button type="button" class="chip stay-type-chip ${t.stayType==='tagestour'?'on':''}" style="${t.stayType==='tagestour'?'background:var(--ice-deep)':''}" data-value="tagestour">☀️ Tagestour</button>
-          <button type="button" class="chip stay-type-chip ${t.stayType==='huette'?'on':''}" style="${t.stayType==='huette'?'background:var(--ice-deep)':''}" data-value="huette">🛖 Hütte</button>
-          <button type="button" class="chip stay-type-chip ${t.stayType==='biwak'?'on':''}" style="${t.stayType==='biwak'?'background:var(--ice-deep)':''}" data-value="biwak">⛺ Biwak</button>
-          <button type="button" class="chip stay-type-chip ${t.stayType==='zelt'?'on':''}" style="${t.stayType==='zelt'?'background:var(--ice-deep)':''}" data-value="zelt">🏕️ Zelt</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('tagestour')?'on':''}" style="${(t.stayTypes||[]).includes('tagestour')?'background:var(--ice-deep)':''}" data-value="tagestour">☀️ Tagestour</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('huette')?'on':''}" style="${(t.stayTypes||[]).includes('huette')?'background:var(--ice-deep)':''}" data-value="huette">🛖 Hütte</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('biwak')?'on':''}" style="${(t.stayTypes||[]).includes('biwak')?'background:var(--ice-deep)':''}" data-value="biwak">⛺ Biwak</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('zelt')?'on':''}" style="${(t.stayTypes||[]).includes('zelt')?'background:var(--ice-deep)':''}" data-value="zelt">🏕️ Zelt</button>
         </div>
-        <input type="hidden" name="stayType" id="stay-type-hidden" value="${esc(t.stayType||'')}"/>
       </div>
       <div class="field"><label>Anfahrt — Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
@@ -1533,11 +1618,11 @@ function tourDetailHtml(id){
     ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
-    ${(t.approachType || t.stayType || t.approach) ? `<div class="detail-section">
+    ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
-      ${(t.approachType || t.stayType) ? `<div class="chips" style="margin-bottom:8px;">
-        ${t.approachType ? `<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[t.approachType]}</span>` : ''}
-        ${t.stayType ? `<span class="chip" style="background:var(--ice-light); border-color:transparent;">${STAY_TYPE_LABELS[t.stayType]}</span>` : ''}
+      ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length)) ? `<div class="chips" style="margin-bottom:8px;">
+        ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}
+        ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${STAY_TYPE_LABELS[v]}</span>`).join('')}
       </div>` : ''}
       ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
     </div>` : ''}
@@ -1580,7 +1665,6 @@ function tourDetailHtml(id){
     </div>
   </div>`;
 }
-
 function hutFormHtml(existing){
   const h = existing || {};
   const REGIONS = ['Wallis','Berner Oberland','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
@@ -1611,12 +1695,11 @@ function hutFormHtml(existing){
       <div class="field"><label>Betten / Kapazität</label><input name="capacity" value="${esc(h.capacity||'')}" placeholder="z. B. 60 Betten"/></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
-          <button type="button" class="chip approach-type-chip ${h.approachType==='auto'?'on':''}" style="${h.approachType==='auto'?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
-          <button type="button" class="chip approach-type-chip ${h.approachType==='oev'?'on':''}" style="${h.approachType==='oev'?'background:var(--ice-deep)':''}" data-value="oev">🚌 ÖV</button>
-          <button type="button" class="chip approach-type-chip ${h.approachType==='seilbahn'?'on':''}" style="${h.approachType==='seilbahn'?'background:var(--ice-deep)':''}" data-value="seilbahn">🚡 Seilbahn</button>
-          <button type="button" class="chip approach-type-chip ${h.approachType==='zufuss'?'on':''}" style="${h.approachType==='zufuss'?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('auto')?'on':''}" style="${(h.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('oev')?'on':''}" style="${(h.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">🚌 ÖV</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(h.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">🚡 Seilbahn</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('zufuss')?'on':''}" style="${(h.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
         </div>
-        <input type="hidden" name="approachType" id="approach-type-hidden" value="${esc(h.approachType||'')}"/>
       </div>
       <div class="field"><label>Anfahrt — Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV, Seilbahn …">${esc(h.approach||'')}</textarea></div>
       <div class="field"><label>Punkte auf der Karte (Hütte, Parkplatz, Haltestelle …)</label>
@@ -1672,6 +1755,7 @@ function hutFormHtml(existing){
     </form>
   </div>`;
 }
+
 function hutDetailHtml(id){
   const h = state.huts.find(x=>x.id===id);
   if(!h) return `<div class="modal" data-stop="1"><p>Hütte nicht gefunden.</p></div>`;
@@ -1688,9 +1772,9 @@ function hutDetailHtml(id){
     ${h.openingPeriod ? `<div class="detail-section"><h4>Öffnungszeitraum</h4><p>${esc(h.openingPeriod)}</p></div>` : ''}
     <div class="detail-section"><h4>Bewartung</h4><p>${h.staffedPeriod ? esc(h.staffedPeriod) : 'Unbewartet'}</p></div>
     ${h.winterraum ? `<div class="detail-section"><h4>Winterraum / Schutzraum</h4><p>${esc(h.winterraum)}</p></div>` : ''}
-    ${(h.approachType || h.approach) ? `<div class="detail-section">
+    ${((h.approachTypes && h.approachTypes.length) || h.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
-      ${h.approachType ? `<div class="chips" style="margin-bottom:8px;"><span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[h.approachType]}</span></div>` : ''}
+      ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}</div>` : ''}
       ${h.approach ? `<p>${esc(h.approach)}</p>` : ''}
     </div>` : ''}
     ${(h.points && h.points.length) ? `<div class="detail-section">
@@ -1870,6 +1954,10 @@ function wireGlobalHandlers(){
     else if(act==='filter-diff') el.onclick = ()=>toggleDiffFilter(el.getAttribute('data-code'));
     else if(act==='filter-region') el.onclick = ()=>toggleRegionFilter(el.getAttribute('data-region'));
     else if(act==='reset-tour-filters') el.onclick = ()=>resetTourFilters();
+    else if(act==='filter-approach-type') el.onclick = ()=>toggleApproachTypeFilter(el.getAttribute('data-value'));
+    else if(act==='filter-stay-type') el.onclick = ()=>toggleStayTypeFilter(el.getAttribute('data-value'));
+    else if(act==='filter-status') el.onclick = ()=>toggleStatusFilter(el.getAttribute('data-value'));
+    else if(act==='filter-glacier') el.onclick = ()=>toggleGlacierFilter(el.getAttribute('data-value'));
     else if(act==='filter-category') el.onclick = ()=>{ state.tourCategoryFilter = el.getAttribute('data-cat'); render(); };
     else if(act==='sort-by') el.onchange = (e)=>{ const kind=el.getAttribute('data-kind'); if(kind==='hut') state.hutSortBy=e.target.value; else state.tourSortBy=e.target.value; renderListOnly(); };
     else if(act==='sort-dir') el.onclick = ()=>{ const kind=el.getAttribute('data-kind'); if(kind==='hut') state.hutSortDir = state.hutSortDir==='asc'?'desc':'asc'; else state.tourSortDir = state.tourSortDir==='asc'?'desc':'asc'; renderListOnly(); };
@@ -2149,6 +2237,8 @@ function wireModalHandlers(){
     wireMultiToggleChips('gefahren-hochtour-chip');
     wireMultiToggleChips('exposition-msl-chip');
     wireMultiToggleChips('gefahren-msl-chip');
+    wireMultiToggleChips('approach-type-chip');
+    wireMultiToggleChips('stay-type-chip');
     // Gletscher "Ja" → Spaltenrettungsset im Material automatisch anhaken, "Nein" → wieder abhaken
     function checkMaterialCheckbox(name){
       const btn = Array.from(tourForm.querySelectorAll('.material-chip')).find(b=>b.getAttribute('data-value')===name);
@@ -2244,10 +2334,6 @@ function wireModalHandlers(){
     }
     wireToggleableSingleSelect('.rope-type-chip', ropeTypeHidden, 'data-rope-type');
     wireToggleableSingleSelect('.rope-length-chip', ropeLengthHidden, 'data-rope-length');
-    const approachTypeHidden = document.getElementById('approach-type-hidden');
-    wireToggleableSingleSelect('.approach-type-chip', approachTypeHidden, 'data-value');
-    const stayTypeHidden = document.getElementById('stay-type-hidden');
-    wireToggleableSingleSelect('.stay-type-chip', stayTypeHidden, 'data-value');
 
     const tourSaveBtn = document.getElementById('tour-save-btn');
     if(tourSaveBtn){
@@ -2262,6 +2348,8 @@ function wireModalHandlers(){
           data.gefahrenHochtour = Array.from(tourForm.querySelectorAll('.gefahren-hochtour-chip.on')).map(b=>b.getAttribute('data-value'));
           data.expositionMsl = Array.from(tourForm.querySelectorAll('.exposition-msl-chip.on')).map(b=>b.getAttribute('data-value'));
           data.gefahrenMsl = Array.from(tourForm.querySelectorAll('.gefahren-msl-chip.on')).map(b=>b.getAttribute('data-value'));
+          data.approachTypes = Array.from(tourForm.querySelectorAll('.approach-type-chip.on')).map(b=>b.getAttribute('data-value'));
+          data.stayTypes = Array.from(tourForm.querySelectorAll('.stay-type-chip.on')).map(b=>b.getAttribute('data-value'));
           if(!data.name || !data.name.trim()){
             dlog('Validierung fehlgeschlagen: Name fehlt', 'err');
             showFormError('tour-form', 'Bitte einen Namen für die Tour eingeben (ganz oben im Formular).');
@@ -2289,6 +2377,7 @@ function wireModalHandlers(){
         try{
           const fd = new FormData(hutForm);
           const data = Object.fromEntries(fd.entries());
+          data.approachTypes = Array.from(hutForm.querySelectorAll('.approach-type-chip.on')).map(b=>b.getAttribute('data-value'));
           if(!data.name || !data.name.trim()){
             dlog('Validierung fehlgeschlagen: Name fehlt', 'err');
             showFormError('hut-form', 'Bitte einen Namen für die Hütte eingeben (ganz oben im Formular).');
@@ -2305,18 +2394,11 @@ function wireModalHandlers(){
     const hutFabSaveBtn = document.getElementById('hut-fab-save-btn');
     if(hutFabSaveBtn) hutFabSaveBtn.addEventListener('click', ()=>{ if(hutSaveBtn) hutSaveBtn.click(); });
 
-    // Art der Anfahrt (abwählbare Einzelauswahl)
-    const hutApproachTypeHidden = document.getElementById('approach-type-hidden');
+    // Art der Anfahrt (Mehrfachauswahl)
     hutForm.querySelectorAll('.approach-type-chip').forEach(chip=>{
       chip.addEventListener('click', ()=>{
-        const wasOn = chip.classList.contains('on');
-        hutForm.querySelectorAll('.approach-type-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
-        if(wasOn){
-          if(hutApproachTypeHidden) hutApproachTypeHidden.value = '';
-        }else{
-          chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
-          if(hutApproachTypeHidden) hutApproachTypeHidden.value = chip.getAttribute('data-value');
-        }
+        const isOn = chip.classList.toggle('on');
+        chip.style.background = isOn ? 'var(--ice-deep)' : '';
       });
     });
 
