@@ -1,0 +1,100 @@
+{
+  "tours": [
+    {
+      "id": "t_beispiel001",
+      "name": "Titlis",
+      "routeName": "von Engstlenalp",
+      "difficulty": "WS",
+      "targetAltitude": "3020",
+      "elevationGain": "1200",
+      "elevationLoss": "1600",
+      "duration": "4-5",
+      "region": "Zentralschweiz",
+      "subregion": "Urner Alpen",
+      "material": [
+        "Steigeisen",
+        "Pickel"
+      ],
+      "exposition": [
+        "N",
+        "NE"
+      ],
+      "gefahren": [
+        "Lawinenhang",
+        "Steilhänge über 40°"
+      ],
+      "glacier": "ja",
+      "ropeType": "Gletscherseil",
+      "ropeLength": "30m",
+      "points": [
+        {
+          "label": "Parkplatz Engstlenalp",
+          "lat": 46.7423,
+          "lon": 8.2661
+        },
+        {
+          "label": "Bushaltestelle",
+          "lat": 46.7419,
+          "lon": 8.2655
+        }
+      ],
+      "manualTrack": [],
+      "hutId": "",
+      "tourLink": "https://www.sac-cas.ch/...",
+      "gpxLink": "",
+      "crux": "Kurze steile Rinne kurz unter dem Gipfel.",
+      "special": "Beste Bedingungen im Frühwinter.",
+      "approach": "Anfahrt bis Engstlenalp, Parkplatz vorhanden.",
+      "ascent": "Beschreibung der Aufstiegsroute.",
+      "descent": "Beschreibung der Abfahrt.",
+      "status": "entwurf",
+      "conditions": null,
+      "completions": [],
+      "createdBy": "Name",
+      "createdAt": "2026-08-25T00:00:00.000Z",
+      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "updatedBy": "Name"
+    }
+  ],
+  "huts": [
+    {
+      "id": "h_beispiel001",
+      "name": "Domhütte",
+      "region": "Wallis",
+      "subregion": "Nikolaital/Zermatt",
+      "altitude": "2940",
+      "capacity": "60 Betten",
+      "openingPeriod": "Mitte März – Ende September",
+      "staffedPeriod": "Ende Juni – Mitte September",
+      "winterraum": "Vorhanden, 12 Plätze, unverschlossen zugänglich.",
+      "approach": "Anfahrt bis Randa, dann zu Fuss oder mit Seilbahn.",
+      "points": [
+        {
+          "label": "Domhütte",
+          "lat": 46.0967,
+          "lon": 7.8494
+        },
+        {
+          "label": "Parkplatz Randa",
+          "lat": 46.0958,
+          "lon": 7.7847
+        }
+      ],
+      "accessElevationSummer": "1400",
+      "accessDurationSummer": "3-4",
+      "accessDifficultySummer": "WS",
+      "accessSummer": "Beschreibung der Sommer-Zustiegsroute.",
+      "accessElevationWinter": "1650",
+      "accessDurationWinter": "4-5",
+      "accessDifficultyWinter": "ZS-",
+      "accessWinter": "Beschreibung der Winter-Zustiegsroute (Lawinenhänge, Spurverlauf).",
+      "contact": "Telefon: 027 123 45 67, www.domhuette.ch",
+      "notes": "Reservation empfohlen, v.a. im Hochsommer.",
+      "completions": [],
+      "createdBy": "Name",
+      "createdAt": "2026-08-25T00:00:00.000Z",
+      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "updatedBy": "Name"
+    }
+  ]
+}
