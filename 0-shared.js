@@ -1423,6 +1423,8 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - \`crux\`: kurze Beschreibung der Schlüsselstelle
 - \`tourLink\`: Link zur Quelle (falls vorhanden), sonst leer
 - \`gpxLink\`: Link zu einer externen GPX-Datei (falls vorhanden), sonst leer
+- \`approachTypes\`: Liste (mehrere möglich) aus: "auto", "oev", "seilbahn", "zufuss"
+- \`stayTypes\`: Liste (mehrere möglich) aus: "tagestour", "huette", "biwak", "zelt"
 
 ## Felder-Erklärung (Fixseil = Hochtour/MSL) — zusätzlich zu obigem
 
@@ -1467,6 +1469,7 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - \`winterraum\`: Beschreibung Winterraum/Schutzraum
 - \`approach\`: Anfahrt (Ausgangspunkt, Parkplatz, ÖV, Seilbahn)
 - \`points\`: siehe oben — z. B. Hütte selbst + Parkplatz als zwei Punkte
+- \`approachTypes\`: wie oben bei Touren (mehrere möglich) — bezieht sich hier auf die Anfahrt zum Ausgangspunkt/Zustieg zur Hütte
 - \`accessElevationSummer\`/\`accessElevationWinter\`: Höhenmeter Zustieg, getrennt
   nach Sommer und Winter (nur Zahl, als Text)
 - \`accessDurationSummer\`/\`accessDurationWinter\`: Zeitbedarf Zustieg, getrennt
