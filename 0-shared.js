@@ -474,6 +474,7 @@ function wgs84ToLV95(lat, lon){
     + 119.79 * latAux * latAux * latAux;
   return { E: Math.round(E), N: Math.round(N) };
 }
+
 function emergencyCardHtml(){
   return `<div class="modal" data-stop="1" style="max-width:520px;">
     <div class="modal-head"><h2>🆘 Notfallkarte</h2><button class="x-btn" data-act="close-modal">×</button></div>
@@ -528,7 +529,6 @@ function emergencyCardHtml(){
     </div>
   </div>`;
 }
-
 function startGpsLookup(){
   const statusEl = document.getElementById('gps-status');
   const resultEl = document.getElementById('gps-result');
@@ -1002,6 +1002,7 @@ function simplifyTrackForStorage(points, targetCount){
   }
   return simplified;
 }
+
 function parseGpxTrackPoints(gpxText){
   const parser = new DOMParser();
   const doc = parser.parseFromString(gpxText, 'text/xml');
@@ -1067,7 +1068,6 @@ async function downloadFullGpx(trackPathPrefix, tourId, tourName){
     showToast('GPX-Datei konnte nicht heruntergeladen werden.', true);
   }
 }
-
 function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoords){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
@@ -1471,17 +1471,23 @@ am Ende NUR die vollständige, gültige JSON-Datei zurück, bereit zum Kopieren.
 
 function vorlagenModalHtml(tourVorlageJson){
   return `<div class="modal" data-stop="1" style="max-width:560px;">
-    <div class="modal-head"><h2>📋 Vorlagen für ChatGPT/Gemini</h2><button class="x-btn" data-act="close-modal">×</button></div>
-    <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 16px 0;">Zum Weitergeben an Kolleg:innen: JSON-Vorlage in die eigene KI (ChatGPT, Gemini, usw.) einfügen, zusammen mit der Anleitung — die KI kann dann Touren-Daten im richtigen Format ausgeben, die hier importiert werden können.</p>
+    <div class="modal-head"><h2>📋 Ressourcen &amp; Vorlagen</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 16px 0;">Zum Weitergeben an Kolleg:innen — Bedienungsanleitung für neue Nutzer:innen, sowie JSON-Vorlage &amp; Anleitung für ChatGPT/Gemini, um Touren effizient per KI zu erfassen.</p>
 
     <div class="detail-section" style="margin-top:0;">
+      <h4>📖 Bedienungsanleitung für neue Nutzer:innen</h4>
+      <textarea readonly id="vorlage-bedienung-text" style="width:100%; min-height:140px; font-family:'JetBrains Mono'; font-size:11px;">${BEDIENUNGSANLEITUNG_TEXT}</textarea>
+      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="copy-vorlage" data-target="vorlage-bedienung-text">📋 Anleitung kopieren</button>
+    </div>
+
+    <div class="detail-section">
       <h4>JSON-Vorlage (Beispiel-Tour &amp; -Hütte)</h4>
       <textarea readonly id="vorlage-json-text" style="width:100%; min-height:140px; font-family:'JetBrains Mono'; font-size:11px;">${tourVorlageJson}</textarea>
       <button type="button" class="btn secondary" style="margin-top:8px;" data-act="copy-vorlage" data-target="vorlage-json-text">📋 Vorlage kopieren</button>
     </div>
 
     <div class="detail-section">
-      <h4>Anleitung für die KI</h4>
+      <h4>Anleitung für die KI (ChatGPT/Gemini)</h4>
       <textarea readonly id="vorlage-anleitung-text" style="width:100%; min-height:140px; font-family:'JetBrains Mono'; font-size:11px;">${VORLAGE_ANLEITUNG_TEXT}</textarea>
       <button type="button" class="btn secondary" style="margin-top:8px;" data-act="copy-vorlage" data-target="vorlage-anleitung-text">📋 Anleitung kopieren</button>
     </div>
@@ -1501,5 +1507,94 @@ function copyTextareaContent(textareaId){
     catch(e2){ showToast('Kopieren nicht möglich — bitte manuell markieren und kopieren.', true); }
   }
 }
+
+const BEDIENUNGSANLEITUNG_TEXT = `# Firnspur & Fixseil — Bedienungsanleitung
+
+Kurze Einführung für neue Nutzer:innen, mit Tipps und Tricks, die man beim ersten Mal leicht übersieht.
+
+## Die zwei Apps
+
+- **🎿 Firnspur** — für Skitouren (Winter)
+- **🧗 Fixseil** — für Hochtouren & Mehrseillängen-Klettertouren (Sommer)
+
+Beide teilen sich **Hütten** und **Agenda** — was du in der einen App an Hütten oder Terminen anlegst, siehst du auch in der anderen. Touren selbst sind pro App getrennt, weil Winter und Sommer inhaltlich zu unterschiedlich sind.
+
+**Zwischen den Apps wechseln:** Entweder oben auf "🎿 Skitour" / "🧗 Hochtour/MSL" tippen, oder auf der oberen Leiste **nach links/rechts wischen**.
+
+## Erstmaliges Einloggen
+
+Beim ersten Öffnen erscheint ein Passwort-Feld. Einmal eingeben — danach bleibst du auf dem Gerät dauerhaft angemeldet, bis du den Browser-Speicher löschst.
+
+## Grundlegende Navigation
+
+Vier Reiter ganz oben in jeder App:
+- **Touren** — alle erfassten Skitouren bzw. Hochtouren/MSL-Touren
+- **Hütten** — appübergreifend geteilt
+- **Agenda** — appübergreifend geteilte Terminplanung
+- **Done** — eigene und fremde abgeschlossene Touren/Hütten, nach Person gruppiert
+
+## Touren anlegen & bearbeiten
+
+- **"+ Neue Tour"** oben im Touren-Reiter
+- Felder sind grösstenteils **Kästchen zum Antippen** statt Freitext (Region, Schwierigkeit, Material, Gefahren, Anfahrt-Art, usw.) — schnelleres Erfassen, einheitlichere Daten
+- **Tipp:** Ein bereits ausgewähltes Kästchen lässt sich durch **erneutes Antippen wieder abwählen** — falls man aus Versehen daneben tippt, muss man nicht zwingend eine andere Option wählen
+- **Region wählen** → passende Teilgebiete/Pässe erscheinen automatisch darunter
+- **Speichern-Button** bleibt beim Bearbeiten immer unten rechts sichtbar — kein Scrollen zum Speichern nötig
+
+### Status "Entwurf" / "Vollständig"
+
+Jede neue Tour startet als **📝 Entwurf** — das kennzeichnet: "Angaben evtl. noch nicht vollständig geprüft". Erst wenn die Tour wirklich fertig ausgearbeitet ist, in der Detailansicht auf den Status-Knopf tippen und auf **✅ Vollständig** umstellen. So sieht man auf einen Blick, welche Touren noch in Arbeit sind.
+
+## Karte & Standortpunkte
+
+Beim Bearbeiten einer Tour: **"🗺️ Karte öffnen"**
+
+- **📍 Punkt setzen**: antippen → auf die Karte tippen → Kategorie wählen (Parkplatz, Wasserstelle, Gefahrenstelle, Rastplatz, Biwak, Toilette, Haltestelle, Abzweigung, Rückzugspunkt) → Bezeichnung eintragen → Speichern. Jede Kategorie hat ein eigenes farbiges Symbol auf der Karte.
+- **✏️ Linie zeichnen**: antippen → jeder weitere Kartenklick fügt einen Wegpunkt zur blauen Linie hinzu. "↺ Letzten Punkt entfernen" bei Fehltipp, "✓ Linie fertig" zum Abschliessen.
+- **⛶ Vollbild**: für genaueres Zoomen/Suchen — auf jeder Karte verfügbar
+- **Tipp:** Direkt aus der Tour-**Detailansicht** lassen sich Punkte/Linie auch bearbeiten, ohne den Umweg über "Tour bearbeiten" zu gehen — Knopf "✏️ Punkte/Linie direkt bearbeiten"
+
+### GPX-Tracks
+
+- **Link zu einer GPX-Datei im Internet** eintragen, oder
+- **Eigene GPX-Datei hochladen** — wird automatisch für die Kartenanzeige vereinfacht (spart Datenvolumen), die Originaldatei bleibt separat gespeichert und lässt sich jederzeit als Volldownload wieder herunterladen
+- 🔴 Rot = aufgezeichneter GPX-Track, 🔵 Blau = selbst gezeichnete Linie — beide können gleichzeitig angezeigt werden
+
+## Filtern & Sortieren
+
+Im Touren-Reiter: **"🔍 Filter"** antippen, um nach Region und Schwierigkeit einzugrenzen (bei Fixseil zusätzlich getrennt für Hochtour/MSL). Die Zahl neben "Filter" zeigt, wie viele Filter gerade aktiv sind. Sortierung (nach Datum, Name, Schwierigkeit, usw.) daneben.
+
+## Hütten
+
+Wie Touren mit Region/Teilgebiet-Auswahl. Da sich der Zustieg je nach Jahreszeit stark unterscheiden kann, gibt's **getrennte Felder für Sommer- und Winter-Zustieg** (Höhenmeter, Zeitbedarf, Schwierigkeit, Beschreibung).
+
+## Agenda
+
+Termine appübergreifend sichtbar. Wählst du beim Erstellen eine bestehende Tour aus, stellt sich "Art" (Skitour/Hochtour/Mehrseillängen) automatisch passend ein. Status-Ablauf: Idee → Termin gesucht → Geplant → Bestätigt → Durchgeführt (oder Abgesagt).
+
+## Notfallkarte
+
+Roter **"SOS"**-Streifen am linken Bildschirmrand — immer erreichbar, auch ohne Login. Antippen **oder** nach rechts/unten wegziehen öffnet sie. Enthält:
+- Direktwahl-Nummern (Rega 1414, Europanotruf 112, Polizei 117)
+- Notruf-Checkliste ("5 W")
+- **Standort abrufen** — zeigt aktuelle GPS-Koordinaten (WGS84 + Schweizer Landeskoordinaten) mit Kopieren-Knopf, plus Kartenanzeige
+- Lawinen-Notfallblatt (Kameradenrettung-Ablauf)
+
+## Daten importieren/exportieren
+
+Oben in der App: **"Exportieren"** (eigene Sicherung) und **"Importieren"** (Daten von anderen einfügen). Beim Importieren findest du auch den Link zu den **Vorlagen für ChatGPT/Gemini** — damit können Kolleg:innen ihre KI Touren-Daten im richtigen Format ausgeben lassen, ohne die App-Struktur selbst kennen zu müssen.
+
+## Tipps & Tricks im Überblick
+
+- **Zurück-Taste** des Handys schliesst offene Fenster/Karten, statt die App zu verlassen
+- **Wischen** auf der oberen App-Wechsel-Leiste wechselt zwischen Firnspur/Fixseil
+- Jedes **Kästchen-Feld** (Region, Material, Gefahren, usw.) lässt sich durch erneutes Antippen wieder abwählen
+- **Automatische Sicherung:** Offline erfasste Touren werden lokal gespeichert und synchronisieren sich automatisch, sobald wieder Internet da ist — auch nach einem Seiten-Neuladen
+- **Wöchentliches Backup:** Jeden Montag wird der gesamte Datenbestand automatisch als Sicherung im GitHub-Repo abgelegt (Ordner \`backups/\`)
+- Bei Fragen zum Dateiformat für den Import: Anleitung im \`vorlagen/\`-Ordner des Repos, direkt aus der App verlinkt
+
+---
+*Bei technischen Problemen oder Wünschen für neue Funktionen: an den App-Verantwortlichen wenden.*
+`;
 
 
