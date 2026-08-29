@@ -659,15 +659,18 @@ function renderMiniMap(containerId, lat, lon, label){
   ensureLeafletLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2) return;
-    destroyExistingMap(containerId);
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
     el2.innerHTML = '';
     const isFullscreen = containerId === 'fullscreen-map-container';
-    el2.style.height = isFullscreen ? '100%' : '220px';
-    el2.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
-    el2.style.overflow = 'hidden';
-    el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
-    const map = L.map(containerId, {attributionControl:true}).setView([lat, lon], isFullscreen ? 15 : 14);
-    registerMap(containerId, map);
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:220px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const map = L.map(mapDivId, {attributionControl:true}).setView([lat, lon], isFullscreen ? 15 : 14);
+    registerMap(mapDivId, map);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
       maxZoom: 18,
       attribution: '© swisstopo'
@@ -756,14 +759,18 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     wrapDiv.appendChild(mapDiv);
 
     const lineActionsRow = document.createElement('div');
-    lineActionsRow.style.cssText = 'display:none; gap:8px; margin-top:8px;';
+    lineActionsRow.style.cssText = 'display:none; gap:8px; margin-top:8px; flex-wrap:wrap;';
     const undoBtn = document.createElement('button');
     undoBtn.type = 'button'; undoBtn.className = 'btn secondary'; undoBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
     undoBtn.textContent = '↺ Letzten Punkt entfernen';
+    const clearLineBtn = document.createElement('button');
+    clearLineBtn.type = 'button'; clearLineBtn.className = 'btn secondary'; clearLineBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; color:#B0392C;';
+    clearLineBtn.textContent = '🗑️ Linie löschen';
     const finishBtn = document.createElement('button');
     finishBtn.type = 'button'; finishBtn.className = 'btn secondary'; finishBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
     finishBtn.textContent = '✓ Linie fertig';
     lineActionsRow.appendChild(undoBtn);
+    lineActionsRow.appendChild(clearLineBtn);
     lineActionsRow.appendChild(finishBtn);
     wrapDiv.appendChild(lineActionsRow);
 
@@ -892,6 +899,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       redrawLine();
       persistTrack();
     });
+    clearLineBtn.addEventListener('click', ()=>{
+      manualTrack.length = 0;
+      redrawLine();
+      persistTrack();
+    });
     finishBtn.addEventListener('click', ()=> setMode('point'));
 
     map.on('click', (e)=>{
@@ -927,15 +939,18 @@ function renderPointsDisplayMap(containerId, points){
   ensureLeafletLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2 || !points.length) return;
-    destroyExistingMap(containerId);
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
     el2.innerHTML = '';
     const isFullscreen = containerId === 'fullscreen-map-container';
-    el2.style.height = isFullscreen ? '100%' : '240px';
-    el2.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
-    el2.style.overflow = 'hidden';
-    el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
-    const map = L.map(containerId).setView([points[0].lat, points[0].lon], isFullscreen ? 14 : 13);
-    registerMap(containerId, map);
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const map = L.map(mapDivId).setView([points[0].lat, points[0].lon], isFullscreen ? 14 : 13);
+    registerMap(mapDivId, map);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
       maxZoom: 18,
       attribution: '© swisstopo'
@@ -1078,16 +1093,19 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     const hasManualTrack = manualTrackCoords && manualTrackCoords.length;
     const hasPoints = points && points.length;
     if(!hasTrack && !hasManualTrack && !hasPoints) return;
-    destroyExistingMap(containerId);
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
     el2.innerHTML = '';
     const isFullscreen = containerId === 'fullscreen-map-container';
-    el2.style.height = isFullscreen ? '100%' : '240px';
-    el2.style.borderRadius = isFullscreen ? '0' : 'var(--radius)';
-    el2.style.overflow = 'hidden';
-    el2.style.border = isFullscreen ? 'none' : '1px solid var(--line)';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
     const startView = hasTrack ? trackCoords[0] : (hasManualTrack ? manualTrackCoords[0] : [points[0].lat, points[0].lon]);
-    const map = L.map(containerId).setView(startView, isFullscreen ? 14 : 13);
-    registerMap(containerId, map);
+    const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
+    registerMap(mapDivId, map);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
       maxZoom: 18,
       attribution: '© swisstopo'
