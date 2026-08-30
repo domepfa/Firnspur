@@ -529,6 +529,7 @@ function emergencyCardHtml(){
     </div>
   </div>`;
 }
+
 function startGpsLookup(){
   const statusEl = document.getElementById('gps-status');
   const resultEl = document.getElementById('gps-result');
@@ -582,7 +583,6 @@ function startGpsLookup(){
     { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
   );
 }
-
 /* ================= Karte (app-übergreifend geteilt, nur bei Bedarf geladen) ================= */
 let leafletLoadPromise = null;
 function ensureLeafletLoaded(){
@@ -1083,6 +1083,7 @@ async function downloadFullGpx(trackPathPrefix, tourId, tourName){
     showToast('GPX-Datei konnte nicht heruntergeladen werden.', true);
   }
 }
+
 function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoords){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
@@ -1139,7 +1140,6 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
   });
 }
-
 /* ================= Touren mit gemeinsamem Ausgangspunkt verknüpfen ================= */
 function haversineMeters(lat1, lon1, lat2, lon2){
   const R = 6371000;
@@ -1341,7 +1341,8 @@ function wireAppSwitchSwipe(otherAppUrl){
   });
 }
 
-/* ================= Vorlagen fuer ChatGPT/Gemini (direkt in der App, immer aktuell) ================= */
+
+/* ================= Vorlagen fuer ChatGPT/Gemini + Bedienungsanleitung (direkt in der App) ================= */
 const VORLAGE_ANLEITUNG_TEXT = `# Anleitung für ChatGPT/Gemini: Touren-Daten im richtigen Format erstellen
 
 Ziel: Erstelle eine gültige JSON-Datei nach dem Muster der Vorlage, mit einem oder
@@ -1489,46 +1490,6 @@ Erstelle nach diesem Muster einen oder mehrere Touren-/Hütten-Einträge basiere
 auf den Informationen, die ich dir gebe (z. B. Screenshot, Text, Link). Gib mir
 am Ende NUR die vollständige, gültige JSON-Datei zurück, bereit zum Kopieren.
 `;
-
-function vorlagenModalHtml(tourVorlageJson){
-  return `<div class="modal" data-stop="1" style="max-width:560px;">
-    <div class="modal-head"><h2>📋 Ressourcen &amp; Vorlagen</h2><button class="x-btn" data-act="close-modal">×</button></div>
-    <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 16px 0;">Zum Weitergeben an Kolleg:innen — Bedienungsanleitung für neue Nutzer:innen, sowie JSON-Vorlage &amp; Anleitung für ChatGPT/Gemini, um Touren effizient per KI zu erfassen.</p>
-
-    <div class="detail-section" style="margin-top:0;">
-      <h4>📖 Bedienungsanleitung für neue Nutzer:innen</h4>
-      <textarea readonly id="vorlage-bedienung-text" style="width:100%; min-height:140px; font-family:'JetBrains Mono'; font-size:11px;">${BEDIENUNGSANLEITUNG_TEXT}</textarea>
-      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="copy-vorlage" data-target="vorlage-bedienung-text">📋 Anleitung kopieren</button>
-    </div>
-
-    <div class="detail-section">
-      <h4>JSON-Vorlage (Beispiel-Tour &amp; -Hütte)</h4>
-      <textarea readonly id="vorlage-json-text" style="width:100%; min-height:140px; font-family:'JetBrains Mono'; font-size:11px;">${tourVorlageJson}</textarea>
-      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="copy-vorlage" data-target="vorlage-json-text">📋 Vorlage kopieren</button>
-    </div>
-
-    <div class="detail-section">
-      <h4>Anleitung für die KI (ChatGPT/Gemini)</h4>
-      <textarea readonly id="vorlage-anleitung-text" style="width:100%; min-height:140px; font-family:'JetBrains Mono'; font-size:11px;">${VORLAGE_ANLEITUNG_TEXT}</textarea>
-      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="copy-vorlage" data-target="vorlage-anleitung-text">📋 Anleitung kopieren</button>
-    </div>
-  </div>`;
-}
-
-function copyTextareaContent(textareaId){
-  const el = document.getElementById(textareaId);
-  if(!el) return;
-  el.select();
-  el.setSelectionRange(0, 999999);
-  try{
-    navigator.clipboard.writeText(el.value);
-    showToast('Kopiert.');
-  }catch(e){
-    try{ document.execCommand('copy'); showToast('Kopiert.'); }
-    catch(e2){ showToast('Kopieren nicht möglich — bitte manuell markieren und kopieren.', true); }
-  }
-}
-
 const BEDIENUNGSANLEITUNG_TEXT = `# Firnspur & Fixseil — Bedienungsanleitung
 
 Kurze Einführung für neue Nutzer:innen, mit Tipps und Tricks, die man beim ersten Mal leicht übersieht.
@@ -1617,5 +1578,98 @@ Oben in der App: **"Exportieren"** (eigene Sicherung) und **"Importieren"** (Dat
 ---
 *Bei technischen Problemen oder Wünschen für neue Funktionen: an den App-Verantwortlichen wenden.*
 `;
+
+function escMd(s){
+  let out = esc(s);
+  out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  out = out.replace(/`(.+?)`/g, '<code style="background:var(--ice-light); padding:1px 4px; border-radius:2px; font-family:\'JetBrains Mono\';">$1</code>');
+  return out;
+}
+function renderMarkdownBasic(text){
+  const lines = text.split('\n');
+  let html = '';
+  let inList = false;
+  lines.forEach(line=>{
+    const l = line;
+    if(/^### /.test(l)){
+      if(inList){ html += '</ul>'; inList=false; }
+      html += `<h4 style="margin-top:16px;">${escMd(l.slice(4))}</h4>`;
+    }else if(/^## /.test(l)){
+      if(inList){ html += '</ul>'; inList=false; }
+      html += `<h3 style="margin-top:22px; font-size:17px;">${escMd(l.slice(3))}</h3>`;
+    }else if(/^# /.test(l)){
+      if(inList){ html += '</ul>'; inList=false; }
+      html += `<h2 style="margin-top:4px;">${escMd(l.slice(2))}</h2>`;
+    }else if(/^- /.test(l)){
+      if(!inList){ html += '<ul style="margin:8px 0; padding-left:22px;">'; inList=true; }
+      html += `<li style="margin-bottom:5px; line-height:1.5;">${escMd(l.slice(2))}</li>`;
+    }else if(/^---\s*$/.test(l)){
+      if(inList){ html += '</ul>'; inList=false; }
+      html += '<hr style="border:none; border-top:1px solid var(--line); margin:18px 0;"/>';
+    }else if(l.trim()===''){
+      if(inList){ html += '</ul>'; inList=false; }
+    }else{
+      if(inList){ html += '</ul>'; inList=false; }
+      html += `<p style="margin:8px 0; line-height:1.6;">${escMd(l)}</p>`;
+    }
+  });
+  if(inList) html += '</ul>';
+  return html;
+}
+
+function vorlagenModalHtml(tourVorlageJson){
+  return `<div class="modal" data-stop="1" style="max-width:560px;">
+    <div class="modal-head"><h2>📋 Ressourcen &amp; Vorlagen</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 16px 0;">Zum Weitergeben an Kolleg:innen — Bedienungsanleitung für neue Nutzer:innen, sowie JSON-Vorlage &amp; Anleitung für ChatGPT/Gemini, um Touren effizient per KI zu erfassen.</p>
+
+    <div class="detail-section" style="margin-top:0;">
+      <h4>📖 Bedienungsanleitung für neue Nutzer:innen</h4>
+      <button type="button" class="btn secondary" data-act="open-bedienungsanleitung">📖 In Vollbild anzeigen</button>
+    </div>
+
+    <div class="detail-section">
+      <h4>JSON-Vorlage (Beispiel-Tour &amp; -Hütte)</h4>
+      <textarea readonly id="vorlage-json-text" style="width:100%; min-height:140px; font-family:'JetBrains Mono'; font-size:11px;">${tourVorlageJson}</textarea>
+      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="copy-vorlage" data-target="vorlage-json-text">📋 Vorlage kopieren</button>
+    </div>
+
+    <div class="detail-section">
+      <h4>Anleitung für die KI (ChatGPT/Gemini)</h4>
+      <textarea readonly id="vorlage-anleitung-text" style="width:100%; min-height:140px; font-family:'JetBrains Mono'; font-size:11px;">${VORLAGE_ANLEITUNG_TEXT}</textarea>
+      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="copy-vorlage" data-target="vorlage-anleitung-text">📋 Anleitung kopieren</button>
+    </div>
+  </div>`;
+}
+
+function bedienungsanleitungModalHtml(){
+  return `<div class="modal" data-stop="1" style="max-width:640px;">
+    <div class="modal-head"><h2>📖 Bedienungsanleitung</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div style="max-height:72vh; overflow-y:auto; padding-right:4px;">${renderMarkdownBasic(BEDIENUNGSANLEITUNG_TEXT)}</div>
+  </div>`;
+}
+
+function copyTextareaContent(textareaId){
+  const el = document.getElementById(textareaId);
+  if(!el) return;
+  el.select();
+  el.setSelectionRange(0, 999999);
+  try{
+    navigator.clipboard.writeText(el.value);
+    showToast('Kopiert.');
+  }catch(e){
+    try{ document.execCommand('copy'); showToast('Kopiert.'); }
+    catch(e2){ showToast('Kopieren nicht möglich — bitte manuell markieren und kopieren.', true); }
+  }
+}
+
+const HIKE_SCALE = {
+  'T1': {label:'Wandern', color:'#5FA8D3', desc:'Weg gut gebahnt, keine Absturzgefahr.'},
+  'T2': {label:'Bergwandern', color:'#2E7EB0', desc:'Weg mit durchgehendem Trassee, kann steil sein.'},
+  'T3': {label:'Anspruchsvolles Bergwandern', color:'#C9A227', desc:'Weg nicht immer sichtbar, exponierte Stellen teils gesichert.'},
+  'T4': {label:'Alpinwandern', color:'#D97B3E', desc:'Weglos oder spärlich markiert, anspruchsvolles Gelände, Hände nötig.'},
+  'T5': {label:'Anspruchsvolles Alpinwandern', color:'#C2452D', desc:'Exponiert, weglos, evtl. Firn/Blockgletscher.'},
+  'T6': {label:'Schwieriges Alpinwandern', color:'#8A2E2E', desc:'Sehr exponiert, Gletscher/Firn, Kletterstellen bis II.'}
+};
+const HIKE_SCALE_ORDER = ['T1','T2','T3','T4','T5','T6'];
 
 
