@@ -79,6 +79,8 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - `crux`: kurze Beschreibung der Schlüsselstelle
 - `tourLink`: Link zur Quelle (falls vorhanden), sonst leer
 - `gpxLink`: Link zu einer externen GPX-Datei (falls vorhanden), sonst leer
+- `approachTypes`: Liste (mehrere möglich) aus: "auto", "oev", "seilbahn", "zufuss"
+- `stayTypes`: Liste (mehrere möglich) aus: "tagestour", "huette", "biwak", "zelt"
 
 ## Felder-Erklärung (Fixseil = Hochtour/MSL) — zusätzlich zu obigem
 
@@ -118,18 +120,35 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - `region`/`subregion`: wie oben bei Touren
 - `altitude`: Höhe der Hütte in Metern (nur Zahl, als Text)
 - `capacity`: Betten/Kapazität, z. B. "60 Betten"
-- `openingPeriod`: Öffnungszeitraum, z. B. "Mitte März – Ende September"
-- `staffedPeriod`: Zeitraum bewartet (leer lassen, falls unbewartet)
-- `winterraum`: Beschreibung Winterraum/Schutzraum
+- `staffedMonths`: Liste der Monate, in denen die Hütte bewartet ist. Werte:
+  "jan", "feb", "maer", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov",
+  "dez". Leeres Array `[]`, falls unbewartet.
+- `staffedNote`: Freitext-Präzisierung zur Bewartung (z. B. "nur an
+  Wochenenden", "ab 20. Juni"), optional
+- `winterraum`: Beschreibung Winterraum/Schutzraum (Kapazität, Zugang,
+  Ausstattung)
+- `winterraumMonths`: Liste der Monate, in denen der Winterraum/Schutzraum
+  offen ist — gleiche Werte wie `staffedMonths`
+- `winterraumNote`: Freitext-Präzisierung zum Schutzraum (z. B. "nur wenn
+  unbewartet zugänglich"), optional
+- `hutLink`: Link zur Hütten-Website, SAC-Seite o. Ä. (falls vorhanden), sonst
+  leer
 - `approach`: Anfahrt (Ausgangspunkt, Parkplatz, ÖV, Seilbahn)
 - `points`: siehe oben — z. B. Hütte selbst + Parkplatz als zwei Punkte
+- `approachTypes`: wie oben bei Touren (mehrere möglich) — bezieht sich hier auf die Anfahrt zum Ausgangspunkt/Zustieg zur Hütte
 - `accessElevationSummer`/`accessElevationWinter`: Höhenmeter Zustieg, getrennt
   nach Sommer und Winter (nur Zahl, als Text)
 - `accessDurationSummer`/`accessDurationWinter`: Zeitbedarf Zustieg, getrennt
   nach Sommer und Winter
 - `accessDifficultySummer`/`accessDifficultyWinter`: SAC-Skala wie bei Touren,
   oder leer — getrennt nach Jahreszeit, da sich der Zustieg oft stark
-  unterscheidet
+  unterscheidet. Im Winter ist praktisch immer nur die SAC-Skala relevant.
+- `accessDifficultySummerT`: Schweizer Wanderskala für den Sommerzustieg,
+  falls es sich um einen reinen Wanderweg ohne Firn/Schnee-Querung handelt.
+  Werte: "T1" (Wandern) bis "T6" (Schwieriges Alpinwandern). Nur beim
+  Sommerzustieg relevant, nicht beim Winterzustieg. SAC-Skala und T-Skala
+  schliessen sich nicht aus — je nach Charakter des Zustiegs kann auch nur
+  eine der beiden ausgefüllt sein.
 - `accessSummer`/`accessWinter`: Beschreibung der Zustiegsroute, getrennt nach
   Jahreszeit
 - `contact`: Telefon/Website/Sektion
@@ -139,5 +158,8 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 ## Auftrag an ChatGPT/Gemini
 
 Erstelle nach diesem Muster einen oder mehrere Touren-/Hütten-Einträge basierend
-auf den Informationen, die ich dir gebe (z. B. Screenshot, Text, Link). Gib mir
-am Ende NUR die vollständige, gültige JSON-Datei zurück, bereit zum Kopieren.
+auf den Informationen, die ich dir gebe (z. B. Screenshot, Text, Link). Prüfe
+zuerst, ob es sich um eine Tour (Gipfel, Route) oder eine Hütte
+(Übernachtungsmöglichkeit) handelt, und trage den Eintrag entsprechend im
+richtigen Feld ("tours" bzw. "huts") ein. Gib mir am Ende NUR die vollständige,
+gültige JSON-Datei zurück, bereit zum Kopieren.
