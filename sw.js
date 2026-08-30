@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bergtouren-shell-v7';
+const CACHE_NAME = 'bergtouren-shell-v8';
 const SHELL_ASSETS = [
   './', './index.html', './fixseil.html', './0-shared.js',
   './manifest.json', './manifest-fixseil.json',
@@ -36,15 +36,16 @@ self.addEventListener('fetch', (e) => {
   // gehen immer direkt ans Netz, damit Daten aktuell bleiben.
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
 
+  // "Netzwerk zuerst": immer die neueste Version vom Server holen, wenn
+  // Internet da ist. Nur bei fehlender Verbindung auf den Zwischenspeicher
+  // zurückgreifen (Offline-Fallback). Verhindert, dass nach einem Update
+  // noch kurzzeitig eine alte, zwischengespeicherte Version angezeigt wird.
   e.respondWith(
-    caches.match(e.request).then((cached) => {
-      const fetchPromise = fetch(e.request)
-        .then((networkResponse) => {
-          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse.clone()));
-          return networkResponse;
-        })
-        .catch(() => cached);
-      return cached || fetchPromise;
-    })
+    fetch(e.request)
+      .then((networkResponse) => {
+        caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse.clone()));
+        return networkResponse;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
