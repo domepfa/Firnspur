@@ -450,7 +450,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v50-vorlagen-restore-tskala';
+const APP_VERSION = 'v51-hut-monatschips-filter';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -504,6 +504,11 @@ let state = {
   activeStayTypeFilters: new Set(),
   activeStatusFilters: new Set(),
   activeGlacierFilter: '',
+  activeHutRegionFilters: new Set(),
+  activeHutDiffFilters: new Set(),
+  activeHutApproachTypeFilters: new Set(),
+  activeHutStaffedFilter: '',
+  activeHutWinterraumFilter: '',
   tourSortBy: 'date',
   tourSortDir: 'desc',
   hutSortBy: 'name',
@@ -749,9 +754,9 @@ async function submitHutForm(form, existing){
   h.subregion = form.subregion || '';
   h.altitude = form.altitude;
   h.capacity = form.capacity;
-  h.openingPeriod = form.openingPeriod;
-  h.staffedPeriod = form.staffedPeriod;
+  h.staffedMonths = Array.isArray(form.staffedMonths) ? form.staffedMonths : [];
   h.winterraum = form.winterraum;
+  h.winterraumMonths = Array.isArray(form.winterraumMonths) ? form.winterraumMonths : [];
   h.approach = form.approach;
   h.approachTypes = Array.isArray(form.approachTypes) ? form.approachTypes : [];
   try{ h.points = form.points ? JSON.parse(form.points) : []; }catch(e){ h.points = []; }
@@ -768,6 +773,7 @@ async function submitHutForm(form, existing){
   h.notes = form.notes;
   h.updatedAt = new Date().toISOString();
   h.updatedBy = state.myName;
+
   const idx = state.huts.findIndex(x=>x.id===h.id);
   if(idx>=0) state.huts[idx] = h; else state.huts.push(h);
   closeModal();
@@ -796,7 +802,6 @@ function setFormBusy(formId, busy){
     else if(btn.dataset.origText){ btn.textContent = btn.dataset.origText; }
   }
 }
-
 function showFormError(formId, message){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -850,6 +855,37 @@ function resetTourFilters(){
   state.activeStayTypeFilters.clear();
   state.activeStatusFilters.clear();
   state.activeGlacierFilter = '';
+  render();
+}
+function toggleHutRegionFilter(region){
+  if(state.activeHutRegionFilters.has(region)) state.activeHutRegionFilters.delete(region);
+  else state.activeHutRegionFilters.add(region);
+  render();
+}
+function toggleHutDiffFilter(code){
+  if(state.activeHutDiffFilters.has(code)) state.activeHutDiffFilters.delete(code);
+  else state.activeHutDiffFilters.add(code);
+  render();
+}
+function toggleHutApproachTypeFilter(v){
+  if(state.activeHutApproachTypeFilters.has(v)) state.activeHutApproachTypeFilters.delete(v);
+  else state.activeHutApproachTypeFilters.add(v);
+  render();
+}
+function toggleHutStaffedFilter(v){
+  state.activeHutStaffedFilter = (state.activeHutStaffedFilter === v) ? '' : v;
+  render();
+}
+function toggleHutWinterraumFilter(v){
+  state.activeHutWinterraumFilter = (state.activeHutWinterraumFilter === v) ? '' : v;
+  render();
+}
+function resetHutFilters(){
+  state.activeHutRegionFilters.clear();
+  state.activeHutDiffFilters.clear();
+  state.activeHutApproachTypeFilters.clear();
+  state.activeHutStaffedFilter = '';
+  state.activeHutWinterraumFilter = '';
   render();
 }
 function setSearch(v){ state.search = v; render(); }
@@ -1025,6 +1061,23 @@ function tourCardHtml(t){
 /* ================= Hütten view ================= */
 function filteredHuts(){
   let list = state.huts;
+  if(state.activeHutRegionFilters.size){
+    list = list.filter(h=>state.activeHutRegionFilters.has(h.region));
+  }
+  if(state.activeHutDiffFilters.size){
+    list = list.filter(h=>state.activeHutDiffFilters.has(h.accessDifficultySummer) || state.activeHutDiffFilters.has(h.accessDifficultyWinter) || state.activeHutDiffFilters.has(h.accessDifficultySummerT));
+  }
+  if(state.activeHutApproachTypeFilters.size){
+    list = list.filter(h=>(h.approachTypes||[]).some(v=>state.activeHutApproachTypeFilters.has(v)));
+  }
+  if(state.activeHutStaffedFilter){
+    const isStaffed = h=>(h.staffedMonths && h.staffedMonths.length > 0);
+    list = list.filter(h=> state.activeHutStaffedFilter==='ja' ? isStaffed(h) : !isStaffed(h));
+  }
+  if(state.activeHutWinterraumFilter){
+    const hasWinterraum = h=>(h.winterraumMonths && h.winterraumMonths.length > 0);
+    list = list.filter(h=> state.activeHutWinterraumFilter==='ja' ? hasWinterraum(h) : !hasWinterraum(h));
+  }
   if(state.search.trim()){
     const q = state.search.trim().toLowerCase();
     list = list.filter(h=> (h.name||'').toLowerCase().includes(q) || (h.region||'').toLowerCase().includes(q));
@@ -1034,14 +1087,48 @@ function filteredHuts(){
 
 function huettenViewHtml(){
   const list = filteredHuts();
+  const activeFilterCount = state.activeHutRegionFilters.size + state.activeHutDiffFilters.size + state.activeHutApproachTypeFilters.size + (state.activeHutStaffedFilter?1:0) + (state.activeHutWinterraumFilter?1:0);
+  const usedHutRegions = Array.from(new Set(state.huts.map(h=>h.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
+  const allDiffCodes = [...DIFF_ORDER, ...HIKE_SCALE_ORDER];
   return `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Hütte oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn" data-act="add-hut">+ Neue Hütte</button>
     </div>
-    <div class="toolbar" style="margin-bottom:14px;">
+    <div class="toolbar" style="margin-bottom:10px;">
       <span style="font-size:13px; color:var(--ink-soft);">Sortieren nach</span>
       ${sortControlHtml('hut', HUT_SORT_OPTIONS, state.hutSortBy, state.hutSortDir)}
+    </div>
+    <button type="button" class="btn secondary" id="hut-filter-toggle-btn" style="margin-bottom:10px;">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+    <div id="hut-filter-panel" style="display:${activeFilterCount ? '' : 'none'}; margin-bottom:14px;">
+      ${usedHutRegions.length ? `<div class="field"><label>Region</label>
+        <div class="chips">
+          ${usedHutRegions.map(r=>`<button class="chip ${state.activeHutRegionFilters.has(r)?'on':''}" style="${state.activeHutRegionFilters.has(r)?'background:var(--ice-deep)':''}" data-act="filter-hut-region" data-region="${esc(r)}">${esc(r)}</button>`).join('')}
+        </div>
+      </div>` : ''}
+      <div class="field"><label>Schwierigkeit (Zustieg, SAC oder T)</label>
+        <div class="chips">
+          ${allDiffCodes.map(c=>`<button class="chip ${state.activeHutDiffFilters.has(c)?'on':''}" style="${state.activeHutDiffFilters.has(c)?'background:var(--ice-deep)':''}" data-act="filter-hut-diff" data-code="${c}">${c}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Art der Anfahrt</label>
+        <div class="chips">
+          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeHutApproachTypeFilters.has(v)?'on':''}" style="${state.activeHutApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-hut-approach-type" data-value="${v}">${APPROACH_TYPE_LABELS[v]}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Bewartet</label>
+        <div class="chips">
+          <button class="chip ${state.activeHutStaffedFilter==='ja'?'on':''}" style="${state.activeHutStaffedFilter==='ja'?'background:var(--ice-deep)':''}" data-act="filter-hut-staffed" data-value="ja">Ja</button>
+          <button class="chip ${state.activeHutStaffedFilter==='nein'?'on':''}" style="${state.activeHutStaffedFilter==='nein'?'background:var(--ice-deep)':''}" data-act="filter-hut-staffed" data-value="nein">Nein</button>
+        </div>
+      </div>
+      <div class="field"><label>Winterraum/Schutzraum vorhanden</label>
+        <div class="chips">
+          <button class="chip ${state.activeHutWinterraumFilter==='ja'?'on':''}" style="${state.activeHutWinterraumFilter==='ja'?'background:var(--ice-deep)':''}" data-act="filter-hut-winterraum" data-value="ja">Ja</button>
+          <button class="chip ${state.activeHutWinterraumFilter==='nein'?'on':''}" style="${state.activeHutWinterraumFilter==='nein'?'background:var(--ice-deep)':''}" data-act="filter-hut-winterraum" data-value="nein">Nein</button>
+        </div>
+      </div>
+      ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-hut-filters">Filter zurücksetzen</button>` : ''}
     </div>
     ${list.length ? `<div class="grid">${list.map(hutCardHtml).join('')}</div>` : emptyHuts()}
   `;
@@ -1051,7 +1138,7 @@ function emptyHuts(){
   const hasAny = state.huts.length>0;
   return `<div class="empty">
     <h3>${hasAny ? 'Keine Hütte passt zu diesem Filter' : 'Noch keine Hütte erfasst'}</h3>
-    <p>${hasAny ? 'Suche anpassen oder eine neue Hütte hinzufügen.' : 'Trag eine Hütte ein — Anfahrt, Zustieg, Öffnungszeitraum und ob und wann sie bewartet ist.'}</p>
+    <p>${hasAny ? 'Suche anpassen oder eine neue Hütte hinzufügen.' : 'Trag eine Hütte ein — Anfahrt, Zustieg, und ob und wann sie bewartet ist.'}</p>
     <button class="btn" data-act="add-hut">+ Neue Hütte</button>
   </div>`;
 }
@@ -1059,6 +1146,7 @@ function emptyHuts(){
 function hutCardHtml(h){
   const linkedCount = state.tours.filter(t=>t.hutId===h.id).length;
   const adS = h.accessDifficultySummer ? (DIFF[h.accessDifficultySummer] || DIFF.L) : null;
+  const adW = h.accessDifficultyWinter ? (DIFF[h.accessDifficultyWinter] || DIFF.L) : null;
   return `
   <div class="card" data-act="open-hut" data-id="${h.id}" tabindex="0" role="button">
     <div class="card-top">
@@ -1071,10 +1159,12 @@ function hutCardHtml(h){
       ${h.accessDurationSummer ? `<span>⏱ <span class="mono">${esc(h.accessDurationSummer)}</span></span>` : ''}
       ${adS ? `<span class="badge" style="background:${adS.color}">${h.accessDifficultySummer}</span>` : ''}
     </div>` : ''}
-    <div class="stat-row">
-      ${h.openingPeriod ? `<span>📅 ${esc(h.openingPeriod)}</span>` : ''}
-    </div>
-    ${h.staffedPeriod ? `<div class="stat-row"><span>👤 bewartet: ${esc(h.staffedPeriod)}</span></div>` : `<div class="stat-row"><span>👤 unbewartet</span></div>`}
+    ${(h.accessElevationWinter || h.accessDurationWinter || adW) ? `<div class="stat-row">
+      ${h.accessElevationWinter ? `<span>❄️↑ <span class="mono">${esc(h.accessElevationWinter)}</span> Hm</span>` : ''}
+      ${h.accessDurationWinter ? `<span>⏱ <span class="mono">${esc(h.accessDurationWinter)}</span></span>` : ''}
+      ${adW ? `<span class="badge" style="background:${adW.color}">${h.accessDifficultyWinter}</span>` : ''}
+    </div>` : ''}
+    ${(h.staffedMonths && h.staffedMonths.length) ? `<div class="stat-row"><span>👤 bewartet: ${h.staffedMonths.length} Mte.</span></div>` : `<div class="stat-row"><span>👤 unbewartet</span></div>`}
     <span class="hut-link-chip">${linkedCount} Tour${linkedCount===1?'':'en'} ab hier</span>
     ${(h.completions && h.completions.length) ? `<div class="stat-row"><span>✓ ${h.completions.length===1 ? esc(h.completions[0].by||'?') + (h.completions[0].date ? ' · ' + fmtDateOnly(h.completions[0].date) : '') : h.completions.length + ' Einträge'}</span></div>` : ''}
     ${h._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
@@ -1416,11 +1506,14 @@ function hutFormHtml(existing){
         <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(h.subregion||'')}"/>
       </div>
       <div class="field"><label>Höhe (m ü. M.)</label><input name="altitude" value="${esc(h.altitude||'')}" placeholder="z. B. 1834"/></div>
-      <div class="row2">
-        <div class="field"><label>Öffnungszeitraum</label><input name="openingPeriod" value="${esc(h.openingPeriod||'')}" placeholder="z. B. Mitte März – Anfang Mai"/></div>
-        <div class="field"><label>Bewartet (Zeitraum)</label><input name="staffedPeriod" value="${esc(h.staffedPeriod||'')}" placeholder="z. B. Wochenenden Feb–Apr, leer lassen wenn unbewartet"/></div>
+      <div class="field"><label>Hütte bewartet</label>
+        <div class="chips" id="staffed-months-chips">${monthChipsRowHtml('staffed-month-chip', h.staffedMonths)}</div>
+        <div class="hint">Keinen Monat auswählen, falls unbewartet.</div>
       </div>
       <div class="field"><label>Winterraum / Schutzraum</label><textarea name="winterraum" placeholder="Vorhanden? Anzahl Plätze, Zugang, Ausstattung …">${esc(h.winterraum||'')}</textarea></div>
+      <div class="field"><label>Schutzraum offen</label>
+        <div class="chips" id="winterraum-months-chips">${monthChipsRowHtml('winterraum-month-chip', h.winterraumMonths)}</div>
+      </div>
       <div class="field"><label>Betten / Kapazität</label><input name="capacity" value="${esc(h.capacity||'')}" placeholder="z. B. 40 Betten"/></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
@@ -1503,9 +1596,16 @@ function hutDetailHtml(id){
       ${h.altitude ? `<div class="detail-stat"><div class="num">${esc(h.altitude)}</div><div class="lbl">m ü. M.</div></div>` : ''}
       ${h.capacity ? `<div class="detail-stat"><div class="num">${esc(h.capacity)}</div><div class="lbl">Kapazität</div></div>` : ''}
     </div>
-    ${h.openingPeriod ? `<div class="detail-section"><h4>Öffnungszeitraum</h4><p>${esc(h.openingPeriod)}</p></div>` : ''}
-    <div class="detail-section"><h4>Bewartung</h4><p>${h.staffedPeriod ? esc(h.staffedPeriod) : 'Unbewartet'}</p></div>
-    ${h.winterraum ? `<div class="detail-section"><h4>Winterraum / Schutzraum</h4><p>${esc(h.winterraum)}</p></div>` : ''}
+    <div class="detail-section">
+      <h4>Bewartung</h4>
+      <div class="chips">${monthChipsReadonlyHtml(h.staffedMonths, 'var(--ok)')}</div>
+      ${!(h.staffedMonths && h.staffedMonths.length) ? `<p style="margin-top:6px;">Unbewartet</p>` : ''}
+    </div>
+    <div class="detail-section">
+      <h4>Winterraum / Schutzraum</h4>
+      <div class="chips">${monthChipsReadonlyHtml(h.winterraumMonths, 'var(--ice-deep)')}</div>
+      ${h.winterraum ? `<p style="margin-top:8px;">${esc(h.winterraum)}</p>` : ''}
+    </div>
     ${((h.approachTypes && h.approachTypes.length) || h.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
       ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}</div>` : ''}
@@ -1705,6 +1805,12 @@ function wireGlobalHandlers(){
     else if(act==='filter-stay-type') el.onclick = ()=>toggleStayTypeFilter(el.getAttribute('data-value'));
     else if(act==='filter-status') el.onclick = ()=>toggleStatusFilter(el.getAttribute('data-value'));
     else if(act==='filter-glacier') el.onclick = ()=>toggleGlacierFilter(el.getAttribute('data-value'));
+    else if(act==='filter-hut-region') el.onclick = ()=>toggleHutRegionFilter(el.getAttribute('data-region'));
+    else if(act==='filter-hut-diff') el.onclick = ()=>toggleHutDiffFilter(el.getAttribute('data-code'));
+    else if(act==='filter-hut-approach-type') el.onclick = ()=>toggleHutApproachTypeFilter(el.getAttribute('data-value'));
+    else if(act==='filter-hut-staffed') el.onclick = ()=>toggleHutStaffedFilter(el.getAttribute('data-value'));
+    else if(act==='filter-hut-winterraum') el.onclick = ()=>toggleHutWinterraumFilter(el.getAttribute('data-value'));
+    else if(act==='reset-hut-filters') el.onclick = ()=>resetHutFilters();
     else if(act==='sort-by') el.onchange = (e)=>{ const kind=el.getAttribute('data-kind'); if(kind==='tour') state.tourSortBy=e.target.value; else state.hutSortBy=e.target.value; renderListOnly(); };
     else if(act==='sort-dir') el.onclick = ()=>{ const kind=el.getAttribute('data-kind'); if(kind==='tour') state.tourSortDir = state.tourSortDir==='asc'?'desc':'asc'; else state.hutSortDir = state.hutSortDir==='asc'?'desc':'asc'; renderListOnly(); };
     else if(act==='search') el.oninput = (e)=>{ state.search = e.target.value; renderListOnly(); };
@@ -1713,6 +1819,13 @@ function wireGlobalHandlers(){
   if(tourFilterToggleBtn){
     tourFilterToggleBtn.addEventListener('click', ()=>{
       const panel = app.querySelector('#tour-filter-panel');
+      if(panel) panel.style.display = (panel.style.display==='none') ? '' : 'none';
+    });
+  }
+  const hutFilterToggleBtn = app.querySelector('#hut-filter-toggle-btn');
+  if(hutFilterToggleBtn){
+    hutFilterToggleBtn.addEventListener('click', ()=>{
+      const panel = app.querySelector('#hut-filter-panel');
       if(panel) panel.style.display = (panel.style.display==='none') ? '' : 'none';
     });
   }
@@ -2105,6 +2218,8 @@ function wireModalHandlers(){
           const fd = new FormData(hutForm);
           const data = Object.fromEntries(fd.entries());
           data.approachTypes = Array.from(hutForm.querySelectorAll('.approach-type-chip.on')).map(b=>b.getAttribute('data-value'));
+          data.staffedMonths = Array.from(hutForm.querySelectorAll('.staffed-month-chip.on')).map(b=>b.getAttribute('data-month'));
+          data.winterraumMonths = Array.from(hutForm.querySelectorAll('.winterraum-month-chip.on')).map(b=>b.getAttribute('data-month'));
           if(!data.name || !data.name.trim()){
             dlog('Validierung fehlgeschlagen: Name fehlt', 'err');
             showFormError('hut-form', 'Bitte einen Namen für die Hütte eingeben (ganz oben im Formular).');
@@ -2126,6 +2241,20 @@ function wireModalHandlers(){
       chip.addEventListener('click', ()=>{
         const isOn = chip.classList.toggle('on');
         chip.style.background = isOn ? 'var(--ice-deep)' : '';
+      });
+    });
+
+    // Bewartet-Monate & Schutzraum-Monate (Mehrfachauswahl)
+    hutForm.querySelectorAll('.staffed-month-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        const isOn = chip.classList.toggle('on');
+        chip.style.cssText = isOn ? 'background:var(--ok); border-color:transparent; color:#fff;' : '';
+      });
+    });
+    hutForm.querySelectorAll('.winterraum-month-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        const isOn = chip.classList.toggle('on');
+        chip.style.cssText = isOn ? 'background:var(--ok); border-color:transparent; color:#fff;' : '';
       });
     });
 
