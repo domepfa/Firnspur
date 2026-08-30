@@ -450,7 +450,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v48-vorlagen-aktualisiert';
+const APP_VERSION = 'v50-vorlagen-restore-tskala';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -758,6 +758,7 @@ async function submitHutForm(form, existing){
   h.accessElevationSummer = form.accessElevationSummer;
   h.accessDurationSummer = form.accessDurationSummer;
   h.accessDifficultySummer = form.accessDifficultySummer;
+  h.accessDifficultySummerT = form.accessDifficultySummerT;
   h.accessSummer = form.accessSummer;
   h.accessElevationWinter = form.accessElevationWinter;
   h.accessDurationWinter = form.accessDurationWinter;
@@ -1097,6 +1098,7 @@ function renderModal(){
   else if(m.type==='export') inner = exportModalHtml();
   else if(m.type==='import') inner = importModalHtml();
   else if(m.type==='vorlagen') inner = vorlagenModalHtml(TOUR_VORLAGE_JSON);
+  else if(m.type==='bedienungsanleitung') inner = bedienungsanleitungModalHtml();
   else if(m.type==='add-agenda') inner = agendaFormHtml();
   else if(m.type==='agenda-detail') inner = agendaDetailHtml(m.payload);
   else if(m.type==='emergency') inner = emergencyCardHtml();
@@ -1442,10 +1444,16 @@ function hutFormHtml(existing){
         <div class="field"><label>Höhenmeter (Hm)</label><input name="accessElevationSummer" value="${esc(h.accessElevationSummer!==undefined?h.accessElevationSummer:(h.accessElevation||''))}" placeholder="z. B. 800"/></div>
         <div class="field"><label>Zeitbedarf</label><input name="accessDurationSummer" value="${esc(h.accessDurationSummer!==undefined?h.accessDurationSummer:(h.accessDuration||''))}" placeholder="z. B. 2–3 Std."/></div>
       </div>
-      <div class="field"><label>Schwierigkeit (SAC)</label>
+      <div class="field"><label>Schwierigkeit (SAC) — falls Firn/Schnee gequert wird</label>
         <select name="accessDifficultySummer">
           <option value="">— keine Angabe —</option>
           ${DIFF_ORDER.map(c=>`<option value="${c}" ${(h.accessDifficultySummer!==undefined?h.accessDifficultySummer:(h.accessDifficulty||''))===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Wanderskala (T) — für reine Wanderwege</label>
+        <select name="accessDifficultySummerT">
+          <option value="">— keine Angabe —</option>
+          ${HIKE_SCALE_ORDER.map(c=>`<option value="${c}" ${(h.accessDifficultySummerT||'')===c?'selected':''}>${c} — ${HIKE_SCALE[c].label}</option>`).join('')}
         </select>
       </div>
       <div class="field"><label>Beschreibung</label><textarea name="accessSummer" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(h.accessSummer!==undefined?h.accessSummer:(h.access||''))}</textarea></div>
@@ -1510,13 +1518,14 @@ function hutDetailHtml(id){
       <div id="map-hut-${h.id}" style="margin-top:10px;"></div>
     </div>` : ''}
 
-    ${(h.accessElevationSummer || h.accessDurationSummer || h.accessDifficultySummer || h.accessSummer) ? `<div class="detail-section">
+    ${(h.accessElevationSummer || h.accessDurationSummer || h.accessDifficultySummer || h.accessDifficultySummerT || h.accessSummer) ? `<div class="detail-section">
       <h4>🌞 Zustieg – Sommer</h4>
       <div class="detail-stats" style="margin:0 0 8px 0;">
         ${h.accessElevationSummer ? `<div class="detail-stat"><div class="num">${esc(h.accessElevationSummer)}</div><div class="lbl">Hm</div></div>` : ''}
         ${h.accessDurationSummer ? `<div class="detail-stat"><div class="num">${esc(h.accessDurationSummer)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
       </div>
-      ${h.accessDifficultySummer ? `<span class="badge" style="background:${(DIFF[h.accessDifficultySummer]||DIFF.L).color}">${h.accessDifficultySummer} · SAC</span>` : ''}
+      ${h.accessDifficultySummer ? `<span class="badge" style="background:${(DIFF[h.accessDifficultySummer]||DIFF.L).color}">SAC ${h.accessDifficultySummer}</span> ` : ''}
+      ${h.accessDifficultySummerT ? `<span class="badge" style="background:${(HIKE_SCALE[h.accessDifficultySummerT]||HIKE_SCALE.T1).color}">${h.accessDifficultySummerT}</span>` : ''}
       ${h.accessSummer ? `<p style="margin-top:8px;">${esc(h.accessSummer)}</p>` : ''}
     </div>` : ''}
 
@@ -1772,6 +1781,9 @@ function wireModalHandlers(){
 
   root.querySelectorAll('[data-act="open-vorlagen"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{ state.modal = {type:'vorlagen'}; render(); });
+  });
+  root.querySelectorAll('[data-act="open-bedienungsanleitung"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ state.modal = {type:'bedienungsanleitung'}; render(); });
   });
   root.querySelectorAll('[data-act="copy-vorlage"]').forEach(btn=>{
     btn.addEventListener('click', ()=> copyTextareaContent(btn.getAttribute('data-target')));
