@@ -405,8 +405,8 @@ const TOUR_VORLAGE_JSON = `{
       "conditions": null,
       "completions": [],
       "createdBy": "Name",
-      "createdAt": "2026-08-25T00:00:00.000Z",
-      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "createdAt": "2026-08-30T00:00:00.000Z",
+      "updatedAt": "2026-08-30T00:00:00.000Z",
       "updatedBy": "Name"
     },
     {
@@ -470,8 +470,8 @@ const TOUR_VORLAGE_JSON = `{
       "conditions": null,
       "completions": [],
       "createdBy": "Name",
-      "createdAt": "2026-08-25T00:00:00.000Z",
-      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "createdAt": "2026-08-30T00:00:00.000Z",
+      "updatedAt": "2026-08-30T00:00:00.000Z",
       "updatedBy": "Name"
     }
   ],
@@ -483,14 +483,31 @@ const TOUR_VORLAGE_JSON = `{
       "subregion": "Nikolaital/Zermatt",
       "altitude": "2940",
       "capacity": "60 Betten",
-      "openingPeriod": "Mitte März – Ende September",
-      "staffedPeriod": "Ende Juni – Mitte September",
+      "staffedMonths": [
+        "jun",
+        "jul",
+        "aug",
+        "sep"
+      ],
+      "staffedNote": "Ab 20. Juni bewartet, davor nur auf Anfrage.",
       "winterraum": "Vorhanden, 12 Plätze, unverschlossen zugänglich.",
+      "winterraumMonths": [
+        "okt",
+        "nov",
+        "dez",
+        "jan",
+        "feb",
+        "maer",
+        "apr",
+        "mai"
+      ],
+      "winterraumNote": "",
       "approach": "Anfahrt bis Randa, dann zu Fuss oder mit Seilbahn.",
       "approachTypes": [
         "auto",
         "seilbahn"
       ],
+      "hutLink": "https://www.sac-cas.ch/...",
       "points": [
         {
           "label": "Domhütte",
@@ -506,6 +523,7 @@ const TOUR_VORLAGE_JSON = `{
       "accessElevationSummer": "1400",
       "accessDurationSummer": "3-4",
       "accessDifficultySummer": "WS",
+      "accessDifficultySummerT": "",
       "accessSummer": "Beschreibung der Sommer-Zustiegsroute.",
       "accessElevationWinter": "1650",
       "accessDurationWinter": "4-5",
@@ -515,13 +533,13 @@ const TOUR_VORLAGE_JSON = `{
       "notes": "Reservation empfohlen, v.a. im Hochsommer.",
       "completions": [],
       "createdBy": "Name",
-      "createdAt": "2026-08-25T00:00:00.000Z",
-      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "createdAt": "2026-08-30T00:00:00.000Z",
+      "updatedAt": "2026-08-30T00:00:00.000Z",
       "updatedBy": "Name"
     }
   ]
 }`;
-const APP_VERSION = 'v42-hut-monatschips-filter-oder';
+const APP_VERSION = 'v43-hut-notizen-link-vorlagen';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -878,6 +896,9 @@ async function submitHutForm(form, existing){
   h.staffedMonths = Array.isArray(form.staffedMonths) ? form.staffedMonths : [];
   h.winterraum = form.winterraum;
   h.winterraumMonths = Array.isArray(form.winterraumMonths) ? form.winterraumMonths : [];
+  h.staffedNote = form.staffedNote;
+  h.winterraumNote = form.winterraumNote;
+  h.hutLink = form.hutLink;
   h.approach = form.approach;
   h.approachTypes = Array.isArray(form.approachTypes) ? form.approachTypes : [];
   try{ h.points = form.points ? JSON.parse(form.points) : []; }catch(e){ h.points = []; }
@@ -894,12 +915,12 @@ async function submitHutForm(form, existing){
   h.notes = form.notes;
   h.updatedAt = new Date().toISOString();
   h.updatedBy = state.myName;
-
   const idx = state.huts.findIndex(x=>x.id===h.id);
   if(idx>=0) state.huts[idx] = h; else state.huts.push(h);
   closeModal();
   state.modal = {type:'hut-detail', payload:h.id};
   render();
+
   const ok = await saveHutCloud(h).catch(()=>false);
   h._unsynced = !ok;
   if(!ok){
@@ -1798,10 +1819,12 @@ function hutFormHtml(existing){
         <div class="chips" id="staffed-months-chips">${monthChipsRowHtml('staffed-month-chip', h.staffedMonths)}</div>
         <div class="hint">Keinen Monat auswählen, falls unbewartet.</div>
       </div>
+      <div class="field"><label>Bewartung — Zusatzinfo</label><textarea name="staffedNote">${esc(h.staffedNote||'')}</textarea></div>
       <div class="field"><label>Winterraum / Schutzraum</label><textarea name="winterraum" placeholder="Vorhanden? Anzahl Plätze, Zugang, Ausstattung …">${esc(h.winterraum||'')}</textarea></div>
       <div class="field"><label>Schutzraum offen</label>
         <div class="chips" id="winterraum-months-chips">${monthChipsRowHtml('winterraum-month-chip', h.winterraumMonths)}</div>
       </div>
+      <div class="field"><label>Schutzraum — Zusatzinfo</label><textarea name="winterraumNote">${esc(h.winterraumNote||'')}</textarea></div>
       <div class="field"><label>Betten / Kapazität</label><input name="capacity" value="${esc(h.capacity||'')}" placeholder="z. B. 60 Betten"/></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
@@ -1852,7 +1875,8 @@ function hutFormHtml(existing){
       </div>
       <div class="field"><label>Beschreibung</label><textarea name="accessWinter" placeholder="Route, Lawinenhänge, Spaltenrisiko, Spurverlauf …">${esc(h.accessWinter||'')}</textarea></div>
 
-      <div class="field" style="margin-top:16px;"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, Sektion …"/></div>
+      <div class="field" style="margin-top:16px;"><label>Link zur Hütte</label><input type="url" name="hutLink" value="${esc(h.hutLink||'')}"/></div>
+      <div class="field"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, Sektion …"/></div>
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
@@ -1889,12 +1913,15 @@ function hutDetailHtml(id){
       <h4>Bewartung</h4>
       <div class="chips">${monthChipsReadonlyHtml(h.staffedMonths, 'var(--ok)')}</div>
       ${!(h.staffedMonths && h.staffedMonths.length) ? `<p style="margin-top:6px;">Unbewartet</p>` : ''}
+      ${h.staffedNote ? `<p style="margin-top:8px;">${esc(h.staffedNote)}</p>` : ''}
     </div>
     <div class="detail-section">
       <h4>Winterraum / Schutzraum</h4>
       <div class="chips">${monthChipsReadonlyHtml(h.winterraumMonths, 'var(--ice-deep)')}</div>
       ${h.winterraum ? `<p style="margin-top:8px;">${esc(h.winterraum)}</p>` : ''}
+      ${h.winterraumNote ? `<p style="margin-top:8px;">${esc(h.winterraumNote)}</p>` : ''}
     </div>
+    ${h.hutLink ? `<div class="detail-section"><h4>Link zur Hütte</h4><p><a href="${esc(h.hutLink)}" target="_blank" rel="noopener noreferrer">${esc(h.hutLink)}</a></p></div>` : ''}
     ${((h.approachTypes && h.approachTypes.length) || h.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
       ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}</div>` : ''}
