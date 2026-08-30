@@ -37,6 +37,13 @@
       ],
       "ropeType": "Gletscherseil",
       "ropeLength": "30m",
+      "approachTypes": [
+        "auto",
+        "zufuss"
+      ],
+      "stayTypes": [
+        "huette"
+      ],
       "points": [
         {
           "label": "Domhütte (Ausgangspunkt)",
@@ -57,8 +64,8 @@
       "conditions": null,
       "completions": [],
       "createdBy": "Name",
-      "createdAt": "2026-08-25T00:00:00.000Z",
-      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "createdAt": "2026-08-30T00:00:00.000Z",
+      "updatedAt": "2026-08-30T00:00:00.000Z",
       "updatedBy": "Name"
     },
     {
@@ -96,6 +103,12 @@
       ],
       "ropeType": "Einfachseil",
       "ropeLength": "50m",
+      "approachTypes": [
+        "auto"
+      ],
+      "stayTypes": [
+        "tagestour"
+      ],
       "points": [
         {
           "label": "Parkplatz Balm b. Günsberg",
@@ -116,8 +129,8 @@
       "conditions": null,
       "completions": [],
       "createdBy": "Name",
-      "createdAt": "2026-08-25T00:00:00.000Z",
-      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "createdAt": "2026-08-30T00:00:00.000Z",
+      "updatedAt": "2026-08-30T00:00:00.000Z",
       "updatedBy": "Name"
     }
   ],
@@ -129,10 +142,31 @@
       "subregion": "Nikolaital/Zermatt",
       "altitude": "2940",
       "capacity": "60 Betten",
-      "openingPeriod": "Mitte März – Ende September",
-      "staffedPeriod": "Ende Juni – Mitte September",
+      "staffedMonths": [
+        "jun",
+        "jul",
+        "aug",
+        "sep"
+      ],
+      "staffedNote": "Ab 20. Juni bewartet, davor nur auf Anfrage.",
       "winterraum": "Vorhanden, 12 Plätze, unverschlossen zugänglich.",
+      "winterraumMonths": [
+        "okt",
+        "nov",
+        "dez",
+        "jan",
+        "feb",
+        "maer",
+        "apr",
+        "mai"
+      ],
+      "winterraumNote": "",
       "approach": "Anfahrt bis Randa, dann zu Fuss oder mit Seilbahn.",
+      "approachTypes": [
+        "auto",
+        "seilbahn"
+      ],
+      "hutLink": "https://www.sac-cas.ch/...",
       "points": [
         {
           "label": "Domhütte",
@@ -148,6 +182,7 @@
       "accessElevationSummer": "1400",
       "accessDurationSummer": "3-4",
       "accessDifficultySummer": "WS",
+      "accessDifficultySummerT": "",
       "accessSummer": "Beschreibung der Sommer-Zustiegsroute.",
       "accessElevationWinter": "1650",
       "accessDurationWinter": "4-5",
@@ -157,8 +192,8 @@
       "notes": "Reservation empfohlen, v.a. im Hochsommer.",
       "completions": [],
       "createdBy": "Name",
-      "createdAt": "2026-08-25T00:00:00.000Z",
-      "updatedAt": "2026-08-25T00:00:00.000Z",
+      "createdAt": "2026-08-30T00:00:00.000Z",
+      "updatedAt": "2026-08-30T00:00:00.000Z",
       "updatedBy": "Name"
     }
   ]
