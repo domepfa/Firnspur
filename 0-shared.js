@@ -1672,4 +1672,19 @@ const HIKE_SCALE = {
 };
 const HIKE_SCALE_ORDER = ['T1','T2','T3','T4','T5','T6'];
 
+const MONTHS = [
+  {key:'jan', label:'Jan.'}, {key:'feb', label:'Feb.'}, {key:'maer', label:'März'},
+  {key:'apr', label:'Apr.'}, {key:'mai', label:'Mai'}, {key:'jun', label:'Juni'},
+  {key:'jul', label:'Juli'}, {key:'aug', label:'Aug.'}, {key:'sep', label:'Sept.'},
+  {key:'okt', label:'Okt.'}, {key:'nov', label:'Nov.'}, {key:'dez', label:'Dez.'}
+];
+function monthChipsRowHtml(fieldClass, selectedMonths){
+  const sel = Array.isArray(selectedMonths) ? selectedMonths : [];
+  return MONTHS.map(m=>`<button type="button" class="chip ${fieldClass} ${sel.includes(m.key)?'on':''}" style="${sel.includes(m.key)?'background:var(--ok); border-color:transparent; color:#fff;':''}" data-month="${m.key}">${m.label}</button>`).join('');
+}
+function monthChipsReadonlyHtml(selectedMonths, colorVar){
+  const sel = Array.isArray(selectedMonths) ? selectedMonths : [];
+  return MONTHS.map(m=>`<span class="chip" style="${sel.includes(m.key)?`background:${colorVar||'var(--ok)'}; border-color:transparent; color:#fff;`:'opacity:0.45;'}">${m.label}</span>`).join('');
+}
+
 
