@@ -450,7 +450,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v51-hut-monatschips-filter';
+const APP_VERSION = 'v52-hut-monatschips-filter-oder';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -507,8 +507,8 @@ let state = {
   activeHutRegionFilters: new Set(),
   activeHutDiffFilters: new Set(),
   activeHutApproachTypeFilters: new Set(),
-  activeHutStaffedFilter: '',
-  activeHutWinterraumFilter: '',
+  activeHutStaffedMonthFilters: new Set(),
+  activeHutWinterraumMonthFilters: new Set(),
   tourSortBy: 'date',
   tourSortDir: 'desc',
   hutSortBy: 'name',
@@ -872,20 +872,22 @@ function toggleHutApproachTypeFilter(v){
   else state.activeHutApproachTypeFilters.add(v);
   render();
 }
-function toggleHutStaffedFilter(v){
-  state.activeHutStaffedFilter = (state.activeHutStaffedFilter === v) ? '' : v;
+function toggleHutStaffedMonthFilter(m){
+  if(state.activeHutStaffedMonthFilters.has(m)) state.activeHutStaffedMonthFilters.delete(m);
+  else state.activeHutStaffedMonthFilters.add(m);
   render();
 }
-function toggleHutWinterraumFilter(v){
-  state.activeHutWinterraumFilter = (state.activeHutWinterraumFilter === v) ? '' : v;
+function toggleHutWinterraumMonthFilter(m){
+  if(state.activeHutWinterraumMonthFilters.has(m)) state.activeHutWinterraumMonthFilters.delete(m);
+  else state.activeHutWinterraumMonthFilters.add(m);
   render();
 }
 function resetHutFilters(){
   state.activeHutRegionFilters.clear();
   state.activeHutDiffFilters.clear();
   state.activeHutApproachTypeFilters.clear();
-  state.activeHutStaffedFilter = '';
-  state.activeHutWinterraumFilter = '';
+  state.activeHutStaffedMonthFilters.clear();
+  state.activeHutWinterraumMonthFilters.clear();
   render();
 }
 function setSearch(v){ state.search = v; render(); }
@@ -1070,13 +1072,11 @@ function filteredHuts(){
   if(state.activeHutApproachTypeFilters.size){
     list = list.filter(h=>(h.approachTypes||[]).some(v=>state.activeHutApproachTypeFilters.has(v)));
   }
-  if(state.activeHutStaffedFilter){
-    const isStaffed = h=>(h.staffedMonths && h.staffedMonths.length > 0);
-    list = list.filter(h=> state.activeHutStaffedFilter==='ja' ? isStaffed(h) : !isStaffed(h));
+  if(state.activeHutStaffedMonthFilters.size){
+    list = list.filter(h=>(h.staffedMonths||[]).some(m=>state.activeHutStaffedMonthFilters.has(m)));
   }
-  if(state.activeHutWinterraumFilter){
-    const hasWinterraum = h=>(h.winterraumMonths && h.winterraumMonths.length > 0);
-    list = list.filter(h=> state.activeHutWinterraumFilter==='ja' ? hasWinterraum(h) : !hasWinterraum(h));
+  if(state.activeHutWinterraumMonthFilters.size){
+    list = list.filter(h=>(h.winterraumMonths||[]).some(m=>state.activeHutWinterraumMonthFilters.has(m)));
   }
   if(state.search.trim()){
     const q = state.search.trim().toLowerCase();
@@ -1087,7 +1087,7 @@ function filteredHuts(){
 
 function huettenViewHtml(){
   const list = filteredHuts();
-  const activeFilterCount = state.activeHutRegionFilters.size + state.activeHutDiffFilters.size + state.activeHutApproachTypeFilters.size + (state.activeHutStaffedFilter?1:0) + (state.activeHutWinterraumFilter?1:0);
+  const activeFilterCount = state.activeHutRegionFilters.size + state.activeHutDiffFilters.size + state.activeHutApproachTypeFilters.size + state.activeHutStaffedMonthFilters.size + state.activeHutWinterraumMonthFilters.size;
   const usedHutRegions = Array.from(new Set(state.huts.map(h=>h.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   const allDiffCodes = [...DIFF_ORDER, ...HIKE_SCALE_ORDER];
   return `
@@ -1116,16 +1116,14 @@ function huettenViewHtml(){
           ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeHutApproachTypeFilters.has(v)?'on':''}" style="${state.activeHutApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-hut-approach-type" data-value="${v}">${APPROACH_TYPE_LABELS[v]}</button>`).join('')}
         </div>
       </div>
-      <div class="field"><label>Bewartet</label>
+      <div class="field"><label>Bewartet in Monat(en)</label>
         <div class="chips">
-          <button class="chip ${state.activeHutStaffedFilter==='ja'?'on':''}" style="${state.activeHutStaffedFilter==='ja'?'background:var(--ice-deep)':''}" data-act="filter-hut-staffed" data-value="ja">Ja</button>
-          <button class="chip ${state.activeHutStaffedFilter==='nein'?'on':''}" style="${state.activeHutStaffedFilter==='nein'?'background:var(--ice-deep)':''}" data-act="filter-hut-staffed" data-value="nein">Nein</button>
+          ${MONTHS.map(m=>`<button class="chip ${state.activeHutStaffedMonthFilters.has(m.key)?'on':''}" style="${state.activeHutStaffedMonthFilters.has(m.key)?'background:var(--ok)':''}" data-act="filter-hut-staffed-month" data-month="${m.key}">${m.label}</button>`).join('')}
         </div>
       </div>
-      <div class="field"><label>Winterraum/Schutzraum vorhanden</label>
+      <div class="field"><label>Schutzraum offen in Monat(en)</label>
         <div class="chips">
-          <button class="chip ${state.activeHutWinterraumFilter==='ja'?'on':''}" style="${state.activeHutWinterraumFilter==='ja'?'background:var(--ice-deep)':''}" data-act="filter-hut-winterraum" data-value="ja">Ja</button>
-          <button class="chip ${state.activeHutWinterraumFilter==='nein'?'on':''}" style="${state.activeHutWinterraumFilter==='nein'?'background:var(--ice-deep)':''}" data-act="filter-hut-winterraum" data-value="nein">Nein</button>
+          ${MONTHS.map(m=>`<button class="chip ${state.activeHutWinterraumMonthFilters.has(m.key)?'on':''}" style="${state.activeHutWinterraumMonthFilters.has(m.key)?'background:var(--ice-deep)':''}" data-act="filter-hut-winterraum-month" data-month="${m.key}">${m.label}</button>`).join('')}
         </div>
       </div>
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-hut-filters">Filter zurücksetzen</button>` : ''}
@@ -1808,8 +1806,8 @@ function wireGlobalHandlers(){
     else if(act==='filter-hut-region') el.onclick = ()=>toggleHutRegionFilter(el.getAttribute('data-region'));
     else if(act==='filter-hut-diff') el.onclick = ()=>toggleHutDiffFilter(el.getAttribute('data-code'));
     else if(act==='filter-hut-approach-type') el.onclick = ()=>toggleHutApproachTypeFilter(el.getAttribute('data-value'));
-    else if(act==='filter-hut-staffed') el.onclick = ()=>toggleHutStaffedFilter(el.getAttribute('data-value'));
-    else if(act==='filter-hut-winterraum') el.onclick = ()=>toggleHutWinterraumFilter(el.getAttribute('data-value'));
+    else if(act==='filter-hut-staffed-month') el.onclick = ()=>toggleHutStaffedMonthFilter(el.getAttribute('data-month'));
+    else if(act==='filter-hut-winterraum-month') el.onclick = ()=>toggleHutWinterraumMonthFilter(el.getAttribute('data-month'));
     else if(act==='reset-hut-filters') el.onclick = ()=>resetHutFilters();
     else if(act==='sort-by') el.onchange = (e)=>{ const kind=el.getAttribute('data-kind'); if(kind==='tour') state.tourSortBy=e.target.value; else state.hutSortBy=e.target.value; renderListOnly(); };
     else if(act==='sort-dir') el.onclick = ()=>{ const kind=el.getAttribute('data-kind'); if(kind==='tour') state.tourSortDir = state.tourSortDir==='asc'?'desc':'asc'; else state.hutSortDir = state.hutSortDir==='asc'?'desc':'asc'; renderListOnly(); };
