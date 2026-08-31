@@ -710,7 +710,9 @@ function fetchLocationIntoForm(latInputId, lonInputId, statusId){
 }
 
 /* ================= Interaktive Punkte-Karte (mehrere Stecknadeln, manuell setzbar) ================= */
-function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, gpxReferenceTrack){
+function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks){
+  // refTracks: Array von {coords, color, label} — beliebig viele statische Referenzlinien (z. B. hochgeladene GPX-Tracks), nur zur Orientierung, hier nicht bearbeitbar
+  refTracks = Array.isArray(refTracks) ? refTracks.filter(rt=>rt && rt.coords && rt.coords.length) : [];
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
   ensureLeafletLoaded().then(()=>{
@@ -741,13 +743,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     modeRow.appendChild(lineModeBtn);
     wrapDiv.appendChild(modeRow);
 
-    if(gpxReferenceTrack && gpxReferenceTrack.length){
+    refTracks.forEach(rt=>{
       const refHint = document.createElement('p');
       refHint.className = 'hint';
-      refHint.style.marginBottom = '6px';
-      refHint.textContent = '🔴 Roter Track = hochgeladene GPX-Aufzeichnung (zur Orientierung, nicht bearbeitbar hier).';
+      refHint.style.marginBottom = '4px';
+      refHint.textContent = `${rt.label || 'Referenz-Track'} (zur Orientierung, nicht bearbeitbar hier).`;
       wrapDiv.appendChild(refHint);
-    }
+    });
 
     const mapDiv = document.createElement('div');
     mapDiv.id = mapDivId;
@@ -784,8 +786,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
     let mode = 'point';
 
-    const center = points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : ((gpxReferenceTrack && gpxReferenceTrack.length) ? gpxReferenceTrack[0] : [46.8182, 8.2275]));
-    const zoom = (points.length || manualTrack.length || (gpxReferenceTrack && gpxReferenceTrack.length)) ? 13 : 8;
+    const firstRefTrack = refTracks.length ? refTracks[0].coords : null;
+    const center = points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : [46.8182, 8.2275]));
+    const zoom = (points.length || manualTrack.length || firstRefTrack) ? 13 : 8;
     const map = L.map(mapDivId).setView(center, zoom);
     registerMap(mapDivId, map);
     L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
@@ -793,10 +796,10 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       attribution: '© swisstopo'
     }).addTo(map);
 
-    if(gpxReferenceTrack && gpxReferenceTrack.length){
-      L.polyline(gpxReferenceTrack, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
-      L.polyline(gpxReferenceTrack, {color:'#E8384F', weight:3, opacity:0.8}).addTo(map);
-    }
+    refTracks.forEach(rt=>{
+      L.polyline(rt.coords, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
+      L.polyline(rt.coords, {color: rt.color || '#E8384F', weight:3, opacity:0.8}).addTo(map);
+    });
 
     const markerLayer = L.layerGroup().addTo(map);
     let lineLayer = L.layerGroup().addTo(map);
