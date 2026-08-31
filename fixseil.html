@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v48-hut-manuallinie-quickedit';
+const APP_VERSION = 'v49-editor-referenz-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -930,6 +930,7 @@ async function submitHutForm(form, existing){
   closeModal();
   state.modal = {type:'hut-detail', payload:h.id};
   render();
+
   const ok = await saveHutCloud(h).catch(()=>false);
   h._unsynced = !ok;
   if(!ok){
@@ -940,7 +941,6 @@ async function submitHutForm(form, existing){
   }
   render();
 }
-
 function setFormBusy(formId, busy){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -2205,10 +2205,20 @@ function wireModalHandlers(){
   if(pointsMapToggleBtn) pointsMapToggleBtn.addEventListener('click', ()=>{
     const mapDiv = document.getElementById('points-map');
     if(mapDiv) mapDiv.style.display = '';
-    const trackHidden = document.getElementById('track-simplified-hidden');
-    let gpxTrack = [];
-    try{ gpxTrack = trackHidden && trackHidden.value ? JSON.parse(trackHidden.value) : []; }catch(e){ gpxTrack = []; }
-    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', gpxTrack);
+    const refTracks = [];
+    const tourTrackHidden = document.getElementById('track-simplified-hidden');
+    if(tourTrackHidden && tourTrackHidden.value){
+      try{ const t = JSON.parse(tourTrackHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8384F', label:'🔴 Rot: hochgeladener GPX-Track'}); }catch(e){}
+    }
+    const hutSummerHidden = document.getElementById('track-simplified-summer-hidden');
+    if(hutSummerHidden && hutSummerHidden.value){
+      try{ const t = JSON.parse(hutSummerHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8B93E', label:'🟡 Gelb: Sommer-Zustieg (GPX)'}); }catch(e){}
+    }
+    const hutWinterHidden = document.getElementById('track-simplified-winter-hidden');
+    if(hutWinterHidden && hutWinterHidden.value){
+      try{ const t = JSON.parse(hutWinterHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#1565C0', label:'🔵 Blau: Winter-Zustieg (GPX)'}); }catch(e){}
+    }
+    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', refTracks);
   });
 
   const gpxFileInput = root.querySelector('#gpx-file-input');
@@ -2286,8 +2296,15 @@ function wireModalHandlers(){
       if(saveBtn) saveBtn.style.display = '';
       const list = kind==='tour' ? state.tours : state.huts;
       const item = list.find(x=>x.id===id);
-      const gpxTrack = (item && item.trackSimplified) ? item.trackSimplified : [];
-      renderPointsEditorMap(`quick-edit-map-${id}`, `quick-points-hidden-${id}`, `quick-edit-list-${id}`, `quick-manual-track-hidden-${id}`, gpxTrack);
+      const refTracks = [];
+      if(item && kind==='tour' && item.trackSimplified && item.trackSimplified.length){
+        refTracks.push({coords:item.trackSimplified, color:'#E8384F', label:'🔴 Rot: hochgeladener GPX-Track'});
+      }
+      if(item && kind==='hut'){
+        if(item.trackSimplifiedSummer && item.trackSimplifiedSummer.length) refTracks.push({coords:item.trackSimplifiedSummer, color:'#E8B93E', label:'🟡 Gelb: Sommer-Zustieg (GPX)'});
+        if(item.trackSimplifiedWinter && item.trackSimplifiedWinter.length) refTracks.push({coords:item.trackSimplifiedWinter, color:'#1565C0', label:'🔵 Blau: Winter-Zustieg (GPX)'});
+      }
+      renderPointsEditorMap(`quick-edit-map-${id}`, `quick-points-hidden-${id}`, `quick-edit-list-${id}`, `quick-manual-track-hidden-${id}`, refTracks);
     });
   });
 
