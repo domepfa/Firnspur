@@ -1723,13 +1723,37 @@ const MONTHS = [
   {key:'jul', label:'Juli'}, {key:'aug', label:'Aug.'}, {key:'sep', label:'Sept.'},
   {key:'okt', label:'Okt.'}, {key:'nov', label:'Nov.'}, {key:'dez', label:'Dez.'}
 ];
-function monthChipsRowHtml(fieldClass, selectedMonths){
-  const sel = Array.isArray(selectedMonths) ? selectedMonths : [];
-  return MONTHS.map(m=>`<button type="button" class="chip ${fieldClass} ${sel.includes(m.key)?'on':''}" style="${sel.includes(m.key)?'background:var(--ok); border-color:transparent; color:#fff;':''}" data-month="${m.key}">${m.label}</button>`).join('');
+function monthChipsRowHtml(fieldClass, fullMonths, partialMonths){
+  const full = Array.isArray(fullMonths) ? fullMonths : [];
+  const partial = Array.isArray(partialMonths) ? partialMonths : [];
+  return MONTHS.map(m=>{
+    const state = full.includes(m.key) ? 'full' : (partial.includes(m.key) ? 'partial' : 'off');
+    const style = state==='full' ? 'background:var(--ok); border-color:transparent; color:#fff;'
+      : state==='partial' ? 'background:#E8B93E; border-color:transparent; color:#3D2E12;'
+      : '';
+    return `<button type="button" class="chip ${fieldClass}" data-month="${m.key}" data-state="${state}" style="${style}">${m.label}</button>`;
+  }).join('');
 }
-function monthChipsReadonlyHtml(selectedMonths, colorVar){
-  const sel = Array.isArray(selectedMonths) ? selectedMonths : [];
-  return MONTHS.map(m=>`<span class="chip" style="${sel.includes(m.key)?`background:${colorVar||'var(--ok)'}; border-color:transparent; color:#fff;`:'opacity:0.45;'}">${m.label}</span>`).join('');
+function monthChipsReadonlyHtml(fullMonths, partialMonths, fullColorVar){
+  const full = Array.isArray(fullMonths) ? fullMonths : [];
+  const partial = Array.isArray(partialMonths) ? partialMonths : [];
+  return MONTHS.map(m=>{
+    if(full.includes(m.key)) return `<span class="chip" style="background:${fullColorVar||'var(--ok)'}; border-color:transparent; color:#fff;">${m.label}</span>`;
+    if(partial.includes(m.key)) return `<span class="chip" style="background:#E8B93E; border-color:transparent; color:#3D2E12;">${m.label}</span>`;
+    return `<span class="chip" style="opacity:0.45;">${m.label}</span>`;
+  }).join('');
+}
+function wireMonthCycleChips(root, selector){
+  root.querySelectorAll(selector).forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      const cur = chip.getAttribute('data-state') || 'off';
+      const next = cur==='off' ? 'full' : (cur==='full' ? 'partial' : 'off');
+      chip.setAttribute('data-state', next);
+      chip.style.cssText = next==='full' ? 'background:var(--ok); border-color:transparent; color:#fff;'
+        : next==='partial' ? 'background:#E8B93E; border-color:transparent; color:#3D2E12;'
+        : '';
+    });
+  });
 }
 
 
