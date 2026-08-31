@@ -468,7 +468,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v55-hut-tskala-gpx-dreizustand';
+const APP_VERSION = 'v56-hut-gpx-upload';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -481,6 +481,8 @@ const APP_VERSION = 'v55-hut-tskala-gpx-dreizustand';
 /* Agenda ist app-übergreifend geteilt zwischen Firnspur und Fixseil. */
 const OWN_TOURS_PATH = 'tours';
 const GPX_TRACKS_PATH = 'gpxTracks'; // eigener, separater Pfad — wird NIE beim normalen Laden aller Touren mitgeladen
+const HUT_GPX_SUMMER_PATH = 'hutGpxTracksSummer';
+const HUT_GPX_WINTER_PATH = 'hutGpxTracksWinter';
 const OTHER_TOURS_PATH = 'fixseil/tours';
 const OWN_APP_LABEL = '🎿 Skitour';
 const OTHER_APP_LABEL = '🧗 Hochtour';
@@ -766,7 +768,7 @@ async function submitTourForm(form, existing){
 }
 
 async function submitHutForm(form, existing){
-  const h = existing ? {...existing} : {id: uid('h'), createdBy: state.myName, createdAt: new Date().toISOString(), status:'entwurf'};
+  const h = existing ? {...existing} : {id: (form.hutIdForTrack || uid('h')), createdBy: state.myName, createdAt: new Date().toISOString(), status:'entwurf'};
   h.name = form.name.trim();
   h.region = form.region;
   h.subregion = form.subregion || '';
@@ -789,11 +791,13 @@ async function submitHutForm(form, existing){
   h.accessDifficultySummerT = form.accessDifficultySummerT;
   h.accessSummer = form.accessSummer;
   h.gpxLinkSummer = form.gpxLinkSummer;
+  try{ h.trackSimplifiedSummer = form.trackSimplifiedSummer ? JSON.parse(form.trackSimplifiedSummer) : null; }catch(e){ h.trackSimplifiedSummer = null; }
   h.accessElevationWinter = form.accessElevationWinter;
   h.accessDurationWinter = form.accessDurationWinter;
   h.accessDifficultyWinter = form.accessDifficultyWinter;
   h.accessWinter = form.accessWinter;
   h.gpxLinkWinter = form.gpxLinkWinter;
+  try{ h.trackSimplifiedWinter = form.trackSimplifiedWinter ? JSON.parse(form.trackSimplifiedWinter) : null; }catch(e){ h.trackSimplifiedWinter = null; }
   h.contact = form.contact;
   h.notes = form.notes;
   h.updatedAt = new Date().toISOString();
@@ -815,6 +819,7 @@ async function submitHutForm(form, existing){
   }
   render();
 }
+
 function setFormBusy(formId, busy){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -826,7 +831,6 @@ function setFormBusy(formId, busy){
     else if(btn.dataset.origText){ btn.textContent = btn.dataset.origText; }
   }
 }
-
 function showFormError(formId, message){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -1561,6 +1565,7 @@ function hutFormHtml(existing){
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(h.points || (h.lat && h.lon ? [{label:"Hütte", lat:h.lat, lon:h.lon}] : [])))}'/>
       </div>
+      <input type="hidden" name="hutIdForTrack" id="hut-id-for-track" value="${esc(h.id||'')}"/>
 
       <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">🌞 Zustieg – Sommer</h3>
       <div class="row2">
@@ -1581,6 +1586,11 @@ function hutFormHtml(existing){
       </div>
       <div class="field"><label>Beschreibung</label><textarea name="accessSummer" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(h.accessSummer!==undefined?h.accessSummer:(h.access||''))}</textarea></div>
       <div class="field"><label>Link zu einer GPX-Datei (Sommer-Zustieg)</label><input type="url" name="gpxLinkSummer" value="${esc(h.gpxLinkSummer||'')}"/></div>
+      <div class="field"><label>Eigenen GPX-Track hochladen (Sommer)</label>
+        <input type="file" id="gpx-file-input-summer" accept=".gpx,application/gpx+xml"/>
+        <p id="gpx-upload-status-summer" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${h.trackSimplifiedSummer ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
+        <input type="hidden" name="trackSimplifiedSummer" id="track-simplified-summer-hidden" value='${esc(h.trackSimplifiedSummer ? JSON.stringify(h.trackSimplifiedSummer) : "")}'/>
+      </div>
 
       <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">❄️ Zustieg – Winter</h3>
       <div class="row2">
@@ -1595,6 +1605,11 @@ function hutFormHtml(existing){
       </div>
       <div class="field"><label>Beschreibung</label><textarea name="accessWinter" placeholder="Route, Lawinenhänge, Spurverlauf …">${esc(h.accessWinter||'')}</textarea></div>
       <div class="field"><label>Link zu einer GPX-Datei (Winter-Zustieg)</label><input type="url" name="gpxLinkWinter" value="${esc(h.gpxLinkWinter||'')}"/></div>
+      <div class="field"><label>Eigenen GPX-Track hochladen (Winter)</label>
+        <input type="file" id="gpx-file-input-winter" accept=".gpx,application/gpx+xml"/>
+        <p id="gpx-upload-status-winter" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${h.trackSimplifiedWinter ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
+        <input type="hidden" name="trackSimplifiedWinter" id="track-simplified-winter-hidden" value='${esc(h.trackSimplifiedWinter ? JSON.stringify(h.trackSimplifiedWinter) : "")}'/>
+      </div>
 
       <div class="field" style="margin-top:16px;"><label>Link zur Hütte</label><input type="url" name="hutLink" value="${esc(h.hutLink||'')}"/></div>
       <div class="field"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, SAC-Sektion …"/></div>
@@ -1655,7 +1670,7 @@ function hutDetailHtml(id){
       <div id="map-hut-${h.id}" style="margin-top:10px;"></div>
     </div>` : ''}
 
-    ${(h.accessElevationSummer || h.accessDurationSummer || h.accessDifficultySummer || h.accessDifficultySummerT || h.accessSummer || h.gpxLinkSummer) ? `<div class="detail-section">
+    ${(h.accessElevationSummer || h.accessDurationSummer || h.accessDifficultySummer || h.accessDifficultySummerT || h.accessSummer || h.gpxLinkSummer || h.trackSimplifiedSummer) ? `<div class="detail-section">
       <h4>🌞 Zustieg – Sommer</h4>
       <div class="detail-stats" style="margin:0 0 8px 0;">
         ${h.accessElevationSummer ? `<div class="detail-stat"><div class="num">${esc(h.accessElevationSummer)}</div><div class="lbl">Hm</div></div>` : ''}
@@ -1665,9 +1680,10 @@ function hutDetailHtml(id){
       ${h.accessDifficultySummerT ? `<span class="badge" style="background:${(HIKE_SCALE[h.accessDifficultySummerT]||HIKE_SCALE.T1).color}">${h.accessDifficultySummerT}</span>` : ''}
       ${h.accessSummer ? `<p style="margin-top:8px;">${esc(h.accessSummer)}</p>` : ''}
       ${h.gpxLinkSummer ? `<p style="margin-top:8px;"><a href="${esc(h.gpxLinkSummer)}" target="_blank" rel="noopener noreferrer">${esc(h.gpxLinkSummer)}</a></p>` : ''}
+      ${h.trackSimplifiedSummer ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-hut-gpx-summer" data-id="${h.id}" data-name="${esc(h.name)}">📥 GPX herunterladen (Sommer-Zustieg)</button>` : ''}
     </div>` : ''}
 
-    ${(h.accessElevationWinter || h.accessDurationWinter || h.accessDifficultyWinter || h.accessWinter || h.gpxLinkWinter) ? `<div class="detail-section">
+    ${(h.accessElevationWinter || h.accessDurationWinter || h.accessDifficultyWinter || h.accessWinter || h.gpxLinkWinter || h.trackSimplifiedWinter) ? `<div class="detail-section">
       <h4>❄️ Zustieg – Winter</h4>
       <div class="detail-stats" style="margin:0 0 8px 0;">
         ${h.accessElevationWinter ? `<div class="detail-stat"><div class="num">${esc(h.accessElevationWinter)}</div><div class="lbl">Hm</div></div>` : ''}
@@ -1676,6 +1692,7 @@ function hutDetailHtml(id){
       ${h.accessDifficultyWinter ? `<span class="badge" style="background:${(DIFF[h.accessDifficultyWinter]||DIFF.L).color}">${h.accessDifficultyWinter} · SAC</span>` : ''}
       ${h.accessWinter ? `<p style="margin-top:8px;">${esc(h.accessWinter)}</p>` : ''}
       ${h.gpxLinkWinter ? `<p style="margin-top:8px;"><a href="${esc(h.gpxLinkWinter)}" target="_blank" rel="noopener noreferrer">${esc(h.gpxLinkWinter)}</a></p>` : ''}
+      ${h.trackSimplifiedWinter ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-hut-gpx-winter" data-id="${h.id}" data-name="${esc(h.name)}">📥 GPX herunterladen (Winter-Zustieg)</button>` : ''}
     </div>` : ''}
 
     ${h.contact ? `<div class="detail-section"><h4>Kontakt</h4><p>${esc(h.contact)}</p></div>` : ''}
@@ -1910,6 +1927,14 @@ function wireModalHandlers(){
   if(gpxFileInput) gpxFileInput.addEventListener('change', ()=>{
     handleGpxFileUpload(gpxFileInput, GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status');
   });
+  const gpxFileInputHutSummer = root.querySelector('#gpx-file-input-summer');
+  if(gpxFileInputHutSummer) gpxFileInputHutSummer.addEventListener('change', ()=>{
+    handleGpxFileUpload(gpxFileInputHutSummer, HUT_GPX_SUMMER_PATH, 'hut-id-for-track', 'track-simplified-summer-hidden', 'gpx-upload-status-summer');
+  });
+  const gpxFileInputHutWinter = root.querySelector('#gpx-file-input-winter');
+  if(gpxFileInputHutWinter) gpxFileInputHutWinter.addEventListener('change', ()=>{
+    handleGpxFileUpload(gpxFileInputHutWinter, HUT_GPX_WINTER_PATH, 'hut-id-for-track', 'track-simplified-winter-hidden', 'gpx-upload-status-winter');
+  });
 
   root.querySelectorAll('[data-act="show-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -1928,6 +1953,16 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="download-gpx"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       downloadFullGpx(GPX_TRACKS_PATH, btn.getAttribute('data-id'), btn.getAttribute('data-name'));
+    });
+  });
+  root.querySelectorAll('[data-act="download-hut-gpx-summer"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      downloadFullGpx(HUT_GPX_SUMMER_PATH, btn.getAttribute('data-id'), btn.getAttribute('data-name') + '-sommer');
+    });
+  });
+  root.querySelectorAll('[data-act="download-hut-gpx-winter"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      downloadFullGpx(HUT_GPX_WINTER_PATH, btn.getAttribute('data-id'), btn.getAttribute('data-name') + '-winter');
     });
   });
 
