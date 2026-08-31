@@ -583,6 +583,7 @@ function startGpsLookup(){
     { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
   );
 }
+
 /* ================= Karte (app-übergreifend geteilt, nur bei Bedarf geladen) ================= */
 let leafletLoadPromise = null;
 function ensureLeafletLoaded(){
@@ -601,7 +602,6 @@ function ensureLeafletLoaded(){
   });
   return leafletLoadPromise;
 }
-
 /* ================= Vollbild-Karte (generisch, für alle Kartenansichten) ================= */
 function ensureFullscreenMapOverlay(){
   let overlay = document.getElementById('fullscreen-map-overlay');
@@ -1141,6 +1141,69 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
   });
 }
 
+/* ================= Hütten-Karte: Sommer-GPX (gelb) + Winter-GPX (blau) + selbst eingezeichnet (rot) ================= */
+function renderHutTrackDisplayMap(containerId, points, summerTrack, winterTrack, manualTrack){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const hasSummer = summerTrack && summerTrack.length;
+    const hasWinter = winterTrack && winterTrack.length;
+    const hasManual = manualTrack && manualTrack.length;
+    const hasPoints = points && points.length;
+    if(!hasSummer && !hasWinter && !hasManual && !hasPoints) return;
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const startView = hasSummer ? summerTrack[0] : (hasWinter ? winterTrack[0] : (hasManual ? manualTrack[0] : [points[0].lat, points[0].lon]));
+    const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
+    registerMap(mapDivId, map);
+    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
+      maxZoom: 18,
+      attribution: '© swisstopo'
+    }).addTo(map);
+    const boundsItems = [];
+    if(hasSummer){
+      L.polyline(summerTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line = L.polyline(summerTrack, {color:'#E8B93E', weight:4, opacity:1}).addTo(map);
+      boundsItems.push(line);
+    }
+    if(hasWinter){
+      L.polyline(winterTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line = L.polyline(winterTrack, {color:'#1565C0', weight:4, opacity:1}).addTo(map);
+      boundsItems.push(line);
+    }
+    if(hasManual){
+      L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line = L.polyline(manualTrack, {color:'#E8384F', weight:4, opacity:1}).addTo(map);
+      boundsItems.push(line);
+    }
+    if(hasPoints){
+      points.forEach(p=>{
+        const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
+        boundsItems.push(m);
+      });
+    }
+    if(boundsItems.length){
+      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+    }
+    if(!isFullscreen){
+      const btn = makeFullscreenButton(function(id){ renderHutTrackDisplayMap(id, points||[], summerTrack||[], winterTrack||[], manualTrack||[]); });
+      el2.appendChild(btn);
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
 /* ================= Touren mit gemeinsamem Ausgangspunkt verknüpfen ================= */
 function haversineMeters(lat1, lon1, lat2, lon2){
   const R = 6371000;
@@ -1161,6 +1224,7 @@ function findToursSharingPoints(currentTour, allTours, maxMeters){
     return otherPoints.some(op => myPoints.some(mp => haversineMeters(mp.lat, mp.lon, op.lat, op.lon) <= maxMeters));
   });
 }
+
 /* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */
 async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId){
   let points = [], manualTrack = [];
