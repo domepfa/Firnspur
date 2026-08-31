@@ -4,6 +4,15 @@ Ziel: Erstelle eine gültige JSON-Datei nach dem Muster der Vorlage, mit einem o
 mehreren Touren-/Hütten-Einträgen. Diese Datei wird danach über die
 "Importieren"-Funktion der App eingefügt.
 
+## Wichtigste Regel: keine Halluzinationen
+
+**Nur Fakten, niemals erfinden oder schätzen.** Trage ausschliesslich Informationen
+ein, die aus der gegebenen Quelle (Screenshot, Text, Link) tatsächlich
+hervorgehen. Wenn eine Information nicht eindeutig vorliegt, bleibt das
+entsprechende Feld leer — auch wenn ein plausibler Wert naheliegend erscheint.
+Das gilt für alle Felder gleichermassen, ganz besonders aber für Koordinaten
+(siehe unten): Ein erfundener Standort ist schlimmer als ein fehlender.
+
 ## Wichtigste Regeln
 
 - Struktur exakt beibehalten: `{"tours": [...], "huts": [...]}`
@@ -33,8 +42,11 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - `label`: kurze Bezeichnung, was der Punkt ist
 - `lat`/`lon`: WGS84-Koordinaten (Dezimalgrad, mit Punkt statt Komma)
 - Mehrere Punkte pro Eintrag möglich
-- Nur echte, bekannte Koordinaten eintragen — falls keine bekannt sind, `"points": []`
-  lassen, NICHT schätzen oder erfinden
+- **Koordinaten nur bei eindeutigen GPS-Daten eintragen.** Steht in der Quelle keine
+  klare, konkrete Koordinate (z. B. ein GPS-Wert, ein exakter Kartenpunkt) — auch
+  keine ungefähre Ortsangabe wie ein Ortsname oder eine grobe Beschreibung —
+  bleibt `"points": []`. Kein Schätzen anhand von Ortsnamen, keine Koordinaten
+  aus dem eigenen Wissen ergänzen, auch wenn der Ort bekannt vorkommt.
 - `"manualTrack"`: immer `[]` lassen (wird nur direkt in der App per Hand
   gezeichnet, nicht per JSON-Import befüllt)
 
