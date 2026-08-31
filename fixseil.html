@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v43-hut-notizen-link-vorlagen';
+const APP_VERSION = 'v44-hut-status-halluzination-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -887,7 +887,7 @@ async function submitTourForm(form, existing){
 }
 
 async function submitHutForm(form, existing){
-  const h = existing ? {...existing} : {id: uid('h'), createdBy: state.myName, createdAt: new Date().toISOString()};
+  const h = existing ? {...existing} : {id: uid('h'), createdBy: state.myName, createdAt: new Date().toISOString(), status:'entwurf'};
   h.name = form.name.trim();
   h.region = form.region;
   h.subregion = form.subregion || '';
@@ -1399,7 +1399,10 @@ function hutCardHtml(h){
     <span class="hut-link-chip">${linkedCount} Tour${linkedCount===1?'':'en'} ab hier</span>
     ${last ? `<span class="hut-link-chip" style="background:#E3EFE6; color:#2F6B44;">✓ ${esc(last.by)} · ${esc(fmtDateOnly(last.date))}${h.completions.length>1 ? ` (+${h.completions.length-1})` : ''}</span>` : ''}
     ${h._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
-    <div class="meta-line">von ${esc(h.createdBy||'?')} · ${fmtDate(h.createdAt)}</div>
+    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
+      <span>von ${esc(h.createdBy||'?')} · ${fmtDate(h.createdAt)}</span>
+      <span style="color:var(--ink-faint);">${hutStatusLabel(h)}</span>
+    </div>
   </div>`;
 }
 
@@ -1905,6 +1908,7 @@ function hutDetailHtml(id){
       <div><h2>🛖 ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(h.region)}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
+    <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-hut-status" data-id="${h.id}">${hutStatusLabel(h)} — antippen zum Ändern</button>
     <div class="detail-stats">
       ${h.altitude ? `<div class="detail-stat"><div class="num">${esc(h.altitude)}</div><div class="lbl">m ü. M.</div></div>` : ''}
       ${h.capacity ? `<div class="detail-stat"><div class="num">${esc(h.capacity)}</div><div class="lbl">Kapazität</div></div>` : ''}
@@ -2230,6 +2234,11 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="toggle-tour-status"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       toggleTourStatus(btn.getAttribute('data-id'));
+    });
+  });
+  root.querySelectorAll('[data-act="toggle-hut-status"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      toggleHutStatus(btn.getAttribute('data-id'));
     });
   });
 
