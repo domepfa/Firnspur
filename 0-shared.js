@@ -1140,6 +1140,7 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
   });
 }
+
 /* ================= Touren mit gemeinsamem Ausgangspunkt verknüpfen ================= */
 function haversineMeters(lat1, lon1, lat2, lon2){
   const R = 6371000;
@@ -1160,7 +1161,6 @@ function findToursSharingPoints(currentTour, allTours, maxMeters){
     return otherPoints.some(op => myPoints.some(mp => haversineMeters(mp.lat, mp.lon, op.lat, op.lon) <= maxMeters));
   });
 }
-
 /* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */
 async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId){
   let points = [], manualTrack = [];
@@ -1301,6 +1301,20 @@ async function toggleTourStatus(id){
 function tourStatusLabel(t){
   return (!t.status || t.status==='entwurf') ? '📝 Entwurf' : '✅ Vollständig';
 }
+async function toggleHutStatus(id){
+  const h = state.huts.find(x=>x.id===id);
+  if(!h) return;
+  h.status = (h.status === 'vollstaendig') ? 'entwurf' : 'vollstaendig';
+  h.updatedAt = new Date().toISOString();
+  h.updatedBy = state.myName;
+  const ok = await saveHutCloud(h).catch(()=>false);
+  h._unsynced = !ok;
+  render();
+  showToast(h.status === 'vollstaendig' ? '✅ Als vollständig markiert.' : '📝 Als Entwurf markiert.', !ok);
+}
+function hutStatusLabel(h){
+  return (!h.status || h.status==='entwurf') ? '📝 Entwurf' : '✅ Vollständig';
+}
 
 /* ================= Zurück-Taste schliesst offene Fenster (statt App zu verlassen) ================= */
 let modalHistoryPushed = false;
@@ -1349,6 +1363,15 @@ Ziel: Erstelle eine gültige JSON-Datei nach dem Muster der Vorlage, mit einem o
 mehreren Touren-/Hütten-Einträgen. Diese Datei wird danach über die
 "Importieren"-Funktion der App eingefügt.
 
+## Wichtigste Regel: keine Halluzinationen
+
+**Nur Fakten, niemals erfinden oder schätzen.** Trage ausschliesslich Informationen
+ein, die aus der gegebenen Quelle (Screenshot, Text, Link) tatsächlich
+hervorgehen. Wenn eine Information nicht eindeutig vorliegt, bleibt das
+entsprechende Feld leer — auch wenn ein plausibler Wert naheliegend erscheint.
+Das gilt für alle Felder gleichermassen, ganz besonders aber für Koordinaten
+(siehe unten): Ein erfundener Standort ist schlimmer als ein fehlender.
+
 ## Wichtigste Regeln
 
 - Struktur exakt beibehalten: \`{"tours": [...], "huts": [...]}\`
@@ -1378,8 +1401,11 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - \`label\`: kurze Bezeichnung, was der Punkt ist
 - \`lat\`/\`lon\`: WGS84-Koordinaten (Dezimalgrad, mit Punkt statt Komma)
 - Mehrere Punkte pro Eintrag möglich
-- Nur echte, bekannte Koordinaten eintragen — falls keine bekannt sind, \`"points": []\`
-  lassen, NICHT schätzen oder erfinden
+- **Koordinaten nur bei eindeutigen GPS-Daten eintragen.** Steht in der Quelle keine
+  klare, konkrete Koordinate (z. B. ein GPS-Wert, ein exakter Kartenpunkt) — auch
+  keine ungefähre Ortsangabe wie ein Ortsname oder eine grobe Beschreibung —
+  bleibt \`"points": []\`. Kein Schätzen anhand von Ortsnamen, keine Koordinaten
+  aus dem eigenen Wissen ergänzen, auch wenn der Ort bekannt vorkommt.
 - \`"manualTrack"\`: immer \`[]\` lassen (wird nur direkt in der App per Hand
   gezeichnet, nicht per JSON-Import befüllt)
 
