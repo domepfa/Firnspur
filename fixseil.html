@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v46-hut-gpx-upload';
+const APP_VERSION = 'v48-hut-manuallinie-quickedit';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -906,6 +906,7 @@ async function submitHutForm(form, existing){
   h.approach = form.approach;
   h.approachTypes = Array.isArray(form.approachTypes) ? form.approachTypes : [];
   try{ h.points = form.points ? JSON.parse(form.points) : []; }catch(e){ h.points = []; }
+  try{ h.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ h.manualTrack = []; }
   h.accessElevationSummer = form.accessElevationSummer;
   h.accessDurationSummer = form.accessDurationSummer;
   h.accessDifficultySummer = form.accessDifficultySummer;
@@ -1806,6 +1807,7 @@ function tourDetailHtml(id){
     </div>
   </div>`;
 }
+
 function hutFormHtml(existing){
   const h = existing || {};
   const REGIONS = ['Wallis','Berner Oberland','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
@@ -1850,10 +1852,11 @@ function hutFormHtml(existing){
       <div class="field"><label>Anfahrt — Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV, Seilbahn …">${esc(h.approach||'')}</textarea></div>
       <div class="field"><label>Punkte auf der Karte (Hütte, Parkplatz, Haltestelle …)</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte zum Setzen von Punkten öffnen</button>
-        <div class="hint">Auf die Karte tippen, um einen Punkt zu setzen — danach Kategorie wählen (z. B. Gefahrenstelle, Wasserstelle, Parkplatz …), Bezeichnung eintragen und speichern. Mehrere Punkte möglich.</div>
+        <div class="hint">📍 Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: eigenen Zustieg einzeichnen, falls kein GPX-Track vorhanden — antippen fügt Wegpunkte hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(h.points || (h.lat && h.lon ? [{label:"Hütte", lat:h.lat, lon:h.lon}] : [])))}'/>
+        <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(h.manualTrack || []))}'/>
       </div>
       <input type="hidden" name="hutIdForTrack" id="hut-id-for-track" value="${esc(h.id||'')}"/>
 
@@ -1921,7 +1924,6 @@ function hutFormHtml(existing){
     </form>
   </div>`;
 }
-
 function hutDetailHtml(id){
   const h = state.huts.find(x=>x.id===id);
   if(!h) return `<div class="modal" data-stop="1"><p>Hütte nicht gefunden.</p></div>`;
@@ -1954,11 +1956,20 @@ function hutDetailHtml(id){
       ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}</div>` : ''}
       ${h.approach ? `<p>${esc(h.approach)}</p>` : ''}
     </div>` : ''}
-    ${(h.points && h.points.length) ? `<div class="detail-section">
-      <h4>Standort${h.points.length>1?'e':''}</h4>
-      <div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>
-      <button type="button" class="btn secondary" data-act="show-map" data-points='${esc(JSON.stringify(h.points))}' data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
+    ${(h.points && h.points.length || h.trackSimplifiedSummer || h.trackSimplifiedWinter || (h.manualTrack && h.manualTrack.length)) ? `<div class="detail-section">
+      <h4>Standort${h.points && h.points.length>1?'e':''}${(h.trackSimplifiedSummer || h.trackSimplifiedWinter || (h.manualTrack && h.manualTrack.length)) ? ' & Track' : ''}</h4>
+      ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      ${h.trackSimplifiedSummer ? `<span class="hint">🟡 Gelb: Sommer-Zustieg (GPX)</span><br/>` : ''}
+      ${h.trackSimplifiedWinter ? `<span class="hint">🔵 Blau: Winter-Zustieg (GPX)</span><br/>` : ''}
+      ${(h.manualTrack && h.manualTrack.length) ? `<span class="hint">🔴 Rot: selbst eingezeichnet</span>` : ''}
+      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-hut-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-summer-track='${esc(JSON.stringify(h.trackSimplifiedSummer||[]))}' data-winter-track='${esc(JSON.stringify(h.trackSimplifiedWinter||[]))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
       <div id="map-hut-${h.id}" style="margin-top:10px;"></div>
+      <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${h.id}" data-act="quick-edit-toggle" data-id="${h.id}" data-kind="hut">✏️ Punkte/Linie direkt bearbeiten</button>
+      <div id="quick-edit-map-${h.id}" style="margin-top:10px; display:none;"></div>
+      <div id="quick-edit-list-${h.id}"></div>
+      <input type="hidden" id="quick-points-hidden-${h.id}" value='${esc(JSON.stringify(h.points||[]))}'/>
+      <input type="hidden" id="quick-manual-track-hidden-${h.id}" value='${esc(JSON.stringify(h.manualTrack||[]))}'/>
+      <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${h.id}" data-act="quick-save" data-id="${h.id}" data-kind="hut">💾 Änderungen speichern</button>
     </div>` : ''}
 
     ${(h.accessElevationSummer || h.accessDurationSummer || h.accessDifficultySummer || h.accessDifficultySummerT || h.accessSummer || h.gpxLinkSummer || h.trackSimplifiedSummer) ? `<div class="detail-section">
@@ -2224,6 +2235,18 @@ function wireModalHandlers(){
       try{ track = JSON.parse(trackJson || '[]'); }catch(e){ track = []; }
       try{ manualTrack = JSON.parse(manualTrackJson || '[]'); }catch(e){ manualTrack = []; }
       renderTrackDisplayMap(target, pts, track, manualTrack);
+    });
+  });
+
+  root.querySelectorAll('[data-act="show-hut-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const target = btn.getAttribute('data-target');
+      let pts = [], summerTrack = [], winterTrack = [], manualTrack = [];
+      try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
+      try{ summerTrack = JSON.parse(btn.getAttribute('data-summer-track') || '[]'); }catch(e){ summerTrack = []; }
+      try{ winterTrack = JSON.parse(btn.getAttribute('data-winter-track') || '[]'); }catch(e){ winterTrack = []; }
+      try{ manualTrack = JSON.parse(btn.getAttribute('data-manual-track') || '[]'); }catch(e){ manualTrack = []; }
+      renderHutTrackDisplayMap(target, pts, summerTrack, winterTrack, manualTrack);
     });
   });
 
