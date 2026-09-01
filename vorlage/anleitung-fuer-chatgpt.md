@@ -125,6 +125,9 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - `gefahren` (MSL): Steinschlag, brüchiger Fels, Runout, schwieriger Rückzug,
     nasser Fels, komplexer Abstieg, Abseilstellen, ausgesetzter Zustieg
   - `ropeType`: zusätzlich "Gletscherseil" möglich
+  - `topoImages`: IMMER leeres Array `[]` — Foto-Scans von Topo-Kletterführern
+    werden ausschliesslich manuell in der App hochgeladen (Copyright-Gründe),
+    niemals von ChatGPT/Gemini befüllen oder Bild-URLs erfinden.
 
 ## Felder-Erklärung (Hütten — identisch in Firnspur & Fixseil)
 
@@ -132,37 +135,53 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - `region`/`subregion`: wie oben bei Touren
 - `altitude`: Höhe der Hütte in Metern (nur Zahl, als Text)
 - `capacity`: Betten/Kapazität, z. B. "60 Betten"
-- `staffedMonths`: Liste der Monate, in denen die Hütte bewartet ist. Werte:
-  "jan", "feb", "maer", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov",
-  "dez". Leeres Array `[]`, falls unbewartet.
+- `staffedMonths`: Liste der Monate, in denen die Hütte VOLL bewartet ist.
+  Werte: "jan", "feb", "maer", "apr", "mai", "jun", "jul", "aug", "sep", "okt",
+  "nov", "dez". Leeres Array `[]`, falls unbewartet.
+- `staffedMonthsPartial`: Liste der Monate mit TEILWEISER Bewartung (z. B. nur
+  an Wochenenden) — gleiche Werte wie `staffedMonths`, eigene separate Liste.
 - `staffedNote`: Freitext-Präzisierung zur Bewartung (z. B. "nur an
   Wochenenden", "ab 20. Juni"), optional
 - `winterraum`: Beschreibung Winterraum/Schutzraum (Kapazität, Zugang,
   Ausstattung)
-- `winterraumMonths`: Liste der Monate, in denen der Winterraum/Schutzraum
-  offen ist — gleiche Werte wie `staffedMonths`
+- `winterraumMonths`/`winterraumMonthsPartial`: wie bei `staffedMonths` oben,
+  aber für den Winterraum/Schutzraum (voll bzw. teilweise offen)
 - `winterraumNote`: Freitext-Präzisierung zum Schutzraum (z. B. "nur wenn
   unbewartet zugänglich"), optional
 - `hutLink`: Link zur Hütten-Website, SAC-Seite o. Ä. (falls vorhanden), sonst
   leer
-- `approach`: Anfahrt (Ausgangspunkt, Parkplatz, ÖV, Seilbahn)
+- `approach`: Anfahrt zum Ausgangspunkt (Parkplatz, ÖV, Seilbahn) — NICHT der
+  Zustieg zur Hütte selbst, das gehört zu `accessRoutes` (siehe unten)
 - `points`: siehe oben — z. B. Hütte selbst + Parkplatz als zwei Punkte
-- `approachTypes`: wie oben bei Touren (mehrere möglich) — bezieht sich hier auf die Anfahrt zum Ausgangspunkt/Zustieg zur Hütte
-- `accessElevationSummer`/`accessElevationWinter`: Höhenmeter Zustieg, getrennt
-  nach Sommer und Winter (nur Zahl, als Text)
-- `accessDurationSummer`/`accessDurationWinter`: Zeitbedarf Zustieg, getrennt
-  nach Sommer und Winter
-- `accessDifficultySummer`/`accessDifficultyWinter`: SAC-Skala wie bei Touren,
-  oder leer — getrennt nach Jahreszeit, da sich der Zustieg oft stark
-  unterscheidet. Im Winter ist praktisch immer nur die SAC-Skala relevant.
-- `accessDifficultySummerT`: Schweizer Wanderskala für den Sommerzustieg,
-  falls es sich um einen reinen Wanderweg ohne Firn/Schnee-Querung handelt.
-  Werte: "T1" (Wandern) bis "T6" (Schwieriges Alpinwandern). Nur beim
-  Sommerzustieg relevant, nicht beim Winterzustieg. SAC-Skala und T-Skala
-  schliessen sich nicht aus — je nach Charakter des Zustiegs kann auch nur
-  eine der beiden ausgefüllt sein.
-- `accessSummer`/`accessWinter`: Beschreibung der Zustiegsroute, getrennt nach
-  Jahreszeit
+- `manualTrack`: IMMER leeres Array `[]` — nur für eine allgemeine, in der App
+  von Hand eingezeichnete Linie zur Hütte, nicht von ChatGPT/Gemini befüllen.
+- `approachTypes`: wie oben bei Touren (mehrere möglich) — bezieht sich hier
+  auf die Anfahrt zum Ausgangspunkt/Zustieg zur Hütte
+- `accessRoutes`: Liste der Zustiege zur Hütte — beliebig viele möglich (z. B.
+  "Sommer ab Randa", "Winter ab Randa", weitere Varianten). JEDER Eintrag in
+  dieser Liste hat folgende Felder:
+  - `id`: eindeutige Kennung, Format `ar_` + zufällige Buchstaben/Zahlen
+    (z. B. `ar_x7k2m9`)
+  - `name`: Bezeichnung des Zustiegs (Pflichtfeld) — z. B. "Sommer", "Winter",
+    oder bei mehreren Varianten pro Jahreszeit z. B. "Ab Randa", "Ab
+    Bergstation"
+  - `season`: "sommer", "winter", oder leer `""` falls nicht eindeutig
+    zuordenbar
+  - `elevation`: Höhenmeter Zustieg (nur Zahl, als Text)
+  - `duration`: Zeitbedarf, z. B. "3-4"
+  - `difficulty`: SAC-Skala wie bei Touren, oder leer
+  - `difficultyT`: Schweizer Wanderskala ("T1" bis "T6"), nur falls reiner
+    Wanderweg ohne Firn/Schnee-Querung, sonst leer. SAC-Skala und T-Skala
+    schliessen sich nicht aus.
+  - `description`: Beschreibung der Zustiegsroute für diesen Eintrag
+  - `gpxLink`: IMMER leer `""` — kein Link erfinden
+  - `trackSimplified`: IMMER `null` — nur von der App selbst befüllt (eigener
+    GPX-Upload)
+  - `manualTrack`: IMMER leeres Array `[]` — nur von der App selbst befüllt
+    (von Hand gezeichnete Linie)
+
+  Falls keine Zustiegsinformationen vorliegen, `accessRoutes` als leeres Array
+  `[]` lassen statt Einträge zu erfinden.
 - `contact`: Telefon/Website/Sektion
 - `notes`: Sonstiges (z. B. Reservationshinweise)
 - `completions`: immer `[]` (wird von der App selbst befüllt)
