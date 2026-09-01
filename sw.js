@@ -1,9 +1,11 @@
-const CACHE_NAME = 'bergtouren-shell-v8';
+const CACHE_NAME = 'bergtouren-shell-v9';
 const SHELL_ASSETS = [
   './', './index.html', './fixseil.html', './0-shared.js',
   './manifest.json', './manifest-fixseil.json',
   './20260114_145500.jpg', './IMG_20260811_073051812_HDR.jpg',
-  './IMG-20260816-WA0023.jpg'
+  './IMG-20260816-WA0023.jpg',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
 ];
 
 self.addEventListener('install', (e) => {
@@ -32,9 +34,12 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  // Nur eigene Dateien cachen (HTML/Bild/Manifest). Firebase-Aufrufe (andere Domain)
-  // gehen immer direkt ans Netz, damit Daten aktuell bleiben.
-  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  // Leaflet (Kartenbibliothek) ist die einzige externe Quelle, die wir dauerhaft
+  // zwischenspeichern — ohne sie startet die Kartenansicht offline gar nicht erst.
+  const isLeaflet = e.request.url.startsWith('https://unpkg.com/leaflet@1.9.4/');
+  // Nur eigene Dateien + Leaflet cachen. Firebase-Aufrufe (andere Domain, ausser
+  // Leaflet) gehen immer direkt ans Netz, damit Daten aktuell bleiben.
+  if (e.request.method !== 'GET' || (url.origin !== location.origin && !isLeaflet)) return;
 
   // "Netzwerk zuerst": immer die neueste Version vom Server holen, wenn
   // Internet da ist. Nur bei fehlender Verbindung auf den Zwischenspeicher
