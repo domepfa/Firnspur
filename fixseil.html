@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v50-hut-zustiege-liste';
+const APP_VERSION = 'v51-topo-bilder-msl';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -840,6 +840,7 @@ async function submitTourForm(form, existing){
   t.gpxLink = form.gpxLink || '';
   try{ t.trackSimplified = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ t.trackSimplified = null; }
   try{ t.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ t.manualTrack = []; }
+  try{ t.topoImages = form.topoImages ? JSON.parse(form.topoImages) : []; }catch(e){ t.topoImages = []; }
   t.crux = form.crux;
   t.special = form.special;
   t.approach = form.approach;
@@ -1693,6 +1694,13 @@ function tourFormHtml(existing){
         <input type="hidden" name="trackSimplified" id="track-simplified-hidden" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
         <input type="hidden" name="tourIdForTrack" id="tour-id-for-track" value="${esc(t.id||'')}"/>
       </div>
+      <div class="field"><label>Topo-Bilder (max. ${TOPO_IMAGE_MAX_COUNT})</label>
+        <input type="file" id="topo-image-input" accept="image/*" multiple/>
+        <div class="hint">Werden automatisch verkleinert vor dem Hochladen (spart Speicherplatz und Datenvolumen).</div>
+        <p id="topo-image-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${(t.topoImages && t.topoImages.length) ? `✓ ${t.topoImages.length}/${TOPO_IMAGE_MAX_COUNT} Bilder hochgeladen.` : 'Noch keine Bilder hochgeladen.'}</p>
+        <input type="hidden" name="topoImages" id="topo-images-hidden" value='${esc(t.topoImages ? JSON.stringify(t.topoImages) : "[]")}'/>
+        <div id="topo-images-hidden-thumbs">${topoImageThumbsHtml('topo-images-hidden')}</div>
+      </div>
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. Querung unter dem Bergschrund, kurze Eispassage am Grat …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Spaltenrisiko, Steinschlag, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
       <div class="field"><label>Art der Anfahrt</label>
@@ -1790,6 +1798,7 @@ function tourDetailHtml(id){
     ${(t.ropeType || t.ropeLength) ? `<div class="detail-section"><h4>Seil</h4><p>${[t.ropeType, t.ropeLength].filter(Boolean).map(esc).join(' · ')}</p></div>` : ''}
     ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
+    ${(t.topoImages && t.topoImages.length) ? `<div class="detail-section"><h4>Topo</h4>${topoImagesGalleryHtml(t.topoImages)}</div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
@@ -2210,6 +2219,24 @@ function wireModalHandlers(){
   const gpxFileInputHutWinter = root.querySelector('#gpx-file-input-winter');
   if(gpxFileInputHutWinter) gpxFileInputHutWinter.addEventListener('change', ()=>{
     handleGpxFileUpload(gpxFileInputHutWinter, HUT_GPX_WINTER_PATH, 'hut-id-for-track', 'track-simplified-winter-hidden', 'gpx-upload-status-winter');
+  });
+
+  const topoImageInput = root.querySelector('#topo-image-input');
+  if(topoImageInput) topoImageInput.addEventListener('change', ()=>{
+    handleTopoImageUpload(topoImageInput, 'tour-id-for-track', 'topo-images-hidden', 'topo-image-status');
+  });
+  // Event-Delegation, da die Miniaturbilder nach Upload/Entfernen dynamisch neu gezeichnet werden
+  root.addEventListener('click', (e)=>{
+    const removeBtn = e.target.closest('[data-act="remove-topo-image-local"]');
+    if(removeBtn){
+      e.preventDefault();
+      removeTopoImageLocal(removeBtn.getAttribute('data-hidden-id'), removeBtn.getAttribute('data-image-id'));
+      return;
+    }
+    const viewImg = e.target.closest('[data-act="view-topo-image"]');
+    if(viewImg){
+      showTopoImageLightbox(viewImg.getAttribute('data-url'));
+    }
   });
 
   root.querySelectorAll('[data-act="show-map"]').forEach(btn=>{
