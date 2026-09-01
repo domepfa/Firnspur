@@ -2173,17 +2173,18 @@ function showTopoImageLightbox(images, startIndex, offlineId){
     overlay.appendChild(counterEl);
   }
 
-  async function updateImage(){
+  function updateImage(){
     const item = images[idx];
-    let src = item.url;
-    if(offlineId && item.id){
-      try{
-        const blob = await idbGet('images', offlineId + '_' + item.id);
-        if(blob) src = URL.createObjectURL(blob);
-      }catch(e){ /* kein Offline-Bild vorhanden — normale URL bleibt bestehen */ }
-    }
-    imgEl.src = src;
+    // Bild sofort anzeigen — nicht auf die Offline-Prüfung warten, damit im
+    // Zweifel (z. B. hängender IndexedDB-Zugriff) trotzdem etwas erscheint.
+    imgEl.src = item.url;
     if(counterEl) counterEl.textContent = `${idx+1} / ${images.length}`;
+    if(offlineId && item.id){
+      const myIdx = idx;
+      idbGet('images', offlineId + '_' + item.id).then(blob=>{
+        if(blob && idx===myIdx){ imgEl.src = URL.createObjectURL(blob); } // nur ersetzen, falls zwischenzeitlich nicht weitergeblättert wurde
+      }).catch(()=>{ /* kein Offline-Bild vorhanden — angezeigte URL bleibt bestehen */ });
+    }
   }
   updateImage();
 
@@ -2340,8 +2341,8 @@ async function cleanupExpiredOfflineDownloads(){
 
 async function downloadTourOffline(offlineId, tourName, allCoords, images, onProgress){
   await deleteTourOfflineData(offlineId);
-  const tileList = computeOfflineTileList(allCoords);
-  if(!tileList.length) throw new Error('Keine Standortdaten zum Herunterladen vorhanden — zuerst Punkte oder eine Linie erfassen.');
+  const tileList = computeOfflineTileList(allCoords || []);
+  if(!tileList.length && (!images || !images.length)) throw new Error('Weder Standortdaten noch Topo-Bilder zum Herunterladen vorhanden.');
   if(tileList.length > OFFLINE_MAX_TILES) throw new Error('Das abgedeckte Gebiet ist zu gross für den Offline-Download (mehr als ' + OFFLINE_MAX_TILES + ' Kartenkacheln).');
   const totalSteps = tileList.length + (images ? images.length : 0);
   let done = 0;
