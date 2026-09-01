@@ -2013,7 +2013,7 @@ function accessRouteRowHtml(r, index, hutId){
 
 /* ================= Topo-Bilder (MSL/Hochtour) — Cloud Storage ================= */
 const TOPO_IMAGES_PATH = 'topoImages';
-const TOPO_IMAGE_MAX_COUNT = 3;
+const TOPO_IMAGE_MAX_COUNT = 10;
 
 function compressImageFile(file, maxWidth, quality){
   return new Promise((resolve, reject)=>{
