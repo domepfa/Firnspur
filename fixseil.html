@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v49-editor-referenz-fix';
+const APP_VERSION = 'v50-hut-zustiege-liste';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -559,6 +559,7 @@ const OWN_TOURS_PATH = 'fixseil/tours';
 const GPX_TRACKS_PATH = 'fixseil/gpxTracks'; // eigener, separater Pfad — wird NIE beim normalen Laden aller Touren mitgeladen
 const HUT_GPX_SUMMER_PATH = 'hutGpxTracksSummer'; // appübergreifend geteilt, wie die Hütten selbst
 const HUT_GPX_WINTER_PATH = 'hutGpxTracksWinter';
+const ACCESS_ROUTE_GPX_PATH = 'hutAccessRouteGpxTracks'; // appübergreifend geteilt, wie die Hütten selbst
 const OTHER_TOURS_PATH = 'tours';
 const OWN_APP_LABEL = '🧗 Hochtour';
 const OTHER_APP_LABEL = '🎿 Skitour';
@@ -907,19 +908,7 @@ async function submitHutForm(form, existing){
   h.approachTypes = Array.isArray(form.approachTypes) ? form.approachTypes : [];
   try{ h.points = form.points ? JSON.parse(form.points) : []; }catch(e){ h.points = []; }
   try{ h.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ h.manualTrack = []; }
-  h.accessElevationSummer = form.accessElevationSummer;
-  h.accessDurationSummer = form.accessDurationSummer;
-  h.accessDifficultySummer = form.accessDifficultySummer;
-  h.accessDifficultySummerT = form.accessDifficultySummerT;
-  h.accessSummer = form.accessSummer;
-  h.gpxLinkSummer = form.gpxLinkSummer;
-  try{ h.trackSimplifiedSummer = form.trackSimplifiedSummer ? JSON.parse(form.trackSimplifiedSummer) : null; }catch(e){ h.trackSimplifiedSummer = null; }
-  h.accessElevationWinter = form.accessElevationWinter;
-  h.accessDurationWinter = form.accessDurationWinter;
-  h.accessDifficultyWinter = form.accessDifficultyWinter;
-  h.accessWinter = form.accessWinter;
-  h.gpxLinkWinter = form.gpxLinkWinter;
-  try{ h.trackSimplifiedWinter = form.trackSimplifiedWinter ? JSON.parse(form.trackSimplifiedWinter) : null; }catch(e){ h.trackSimplifiedWinter = null; }
+  migrateHutAccessRoutes(h);
   h.contact = form.contact;
   h.notes = form.notes;
   h.updatedAt = new Date().toISOString();
@@ -941,6 +930,57 @@ async function submitHutForm(form, existing){
   }
   render();
 }
+
+async function submitAccessRouteForm(form){
+  const hut = state.huts.find(h=>h.id===form.hutId);
+  if(!hut) return;
+  migrateHutAccessRoutes(hut);
+  let track = null;
+  try{ track = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ track = null; }
+  let manual = [];
+  try{ manual = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ manual = []; }
+  const routeData = {
+    id: form.routeId || uid('ar'),
+    name: (form.name||'').trim(),
+    season: form.season || '',
+    elevation: form.elevation||'',
+    duration: form.duration||'',
+    difficulty: form.difficulty||'',
+    difficultyT: form.difficultyT||'',
+    description: form.description||'',
+    gpxLink: form.gpxLink||'',
+    trackSimplified: track,
+    manualTrack: manual
+  };
+  const idx = hut.accessRoutes.findIndex(r=>r.id===routeData.id);
+  if(idx>=0) hut.accessRoutes[idx] = routeData; else hut.accessRoutes.push(routeData);
+  hut.updatedAt = new Date().toISOString();
+  hut.updatedBy = state.myName;
+  closeModal();
+  state.modal = {type:'hut-detail', payload:hut.id};
+  render();
+  const ok = await saveHutCloud(hut).catch(()=>false);
+  hut._unsynced = !ok;
+  if(!ok){ markUnsaved(); showToast('Zustieg lokal gespeichert, aber nicht synchronisiert.', true); }
+  else{ showToast('Zustieg gespeichert.'); }
+  render();
+}
+async function deleteAccessRoute(hutId, routeId){
+  const hut = state.huts.find(h=>h.id===hutId);
+  if(!hut) return;
+  hut.accessRoutes = (hut.accessRoutes||[]).filter(r=>r.id!==routeId);
+  hut.updatedAt = new Date().toISOString();
+  hut.updatedBy = state.myName;
+  closeModal();
+  state.modal = {type:'hut-detail', payload:hutId};
+  render();
+  const ok = await saveHutCloud(hut).catch(()=>false);
+  hut._unsynced = !ok;
+  if(!ok) markUnsaved();
+  render();
+  showToast('Zustieg gelöscht.');
+}
+
 function setFormBusy(formId, busy){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -1382,10 +1422,10 @@ function emptyHuts(){
 }
 
 function hutCardHtml(h){
+  migrateHutAccessRoutes(h);
   const linkedCount = state.tours.filter(t=>t.hutId===h.id).length;
-  const adS = h.accessDifficultySummer ? (DIFF[h.accessDifficultySummer] || DIFF.L) : null;
-  const adT = h.accessDifficultySummerT ? (HIKE_SCALE[h.accessDifficultySummerT] || HIKE_SCALE.T1) : null;
-  const adW = h.accessDifficultyWinter ? (DIFF[h.accessDifficultyWinter] || DIFF.L) : null;
+  const routes = h.accessRoutes || [];
+  const rangeText = accessRouteDifficultyRangeHtml(routes);
   const done = (h.completions && h.completions.length) || h.completed;
   const last = latestCompletion(h.completions);
   return `
@@ -1395,17 +1435,7 @@ function hutCardHtml(h){
       ${h.altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(h.altitude)} m</span>` : ''}
     </div>
     ${h.region ? `<p class="excerpt">${esc(h.region)}${h.subregion ? ' – ' + esc(h.subregion) : ''}</p>` : ''}
-    ${(h.accessElevationSummer || h.accessDurationSummer || adS || adT) ? `<div class="stat-row">
-      ${h.accessElevationSummer ? `<span>🌞↑ <span class="mono">${esc(h.accessElevationSummer)}</span> Hm</span>` : ''}
-      ${h.accessDurationSummer ? `<span>⏱ <span class="mono">${esc(h.accessDurationSummer)}</span></span>` : ''}
-      ${adS ? `<span class="badge" style="background:${adS.color}">${h.accessDifficultySummer}</span>` : ''}
-      ${adT ? `<span class="badge" style="background:${adT.color}">${h.accessDifficultySummerT}</span>` : ''}
-    </div>` : ''}
-    ${(h.accessElevationWinter || h.accessDurationWinter || adW) ? `<div class="stat-row">
-      ${h.accessElevationWinter ? `<span>❄️↑ <span class="mono">${esc(h.accessElevationWinter)}</span> Hm</span>` : ''}
-      ${h.accessDurationWinter ? `<span>⏱ <span class="mono">${esc(h.accessDurationWinter)}</span></span>` : ''}
-      ${adW ? `<span class="badge" style="background:${adW.color}">${h.accessDifficultyWinter}</span>` : ''}
-    </div>` : ''}
+    ${routes.length ? `<div class="stat-row"><span>🚶 ${routes.length} Zustieg${routes.length===1?'':'e'}${rangeText ? ' · ' + rangeText : ''}</span></div>` : ''}
     ${((h.staffedMonths && h.staffedMonths.length) || (h.staffedMonthsPartial && h.staffedMonthsPartial.length)) ? `<div class="stat-row"><span>👤 bewartet: ${(h.staffedMonths||[]).length + (h.staffedMonthsPartial||[]).length} Mte.</span></div>` : `<div class="stat-row"><span>👤 unbewartet</span></div>`}
     <span class="hut-link-chip">${linkedCount} Tour${linkedCount===1?'':'en'} ab hier</span>
     ${last ? `<span class="hut-link-chip" style="background:#E3EFE6; color:#2F6B44;">✓ ${esc(last.by)} · ${esc(fmtDateOnly(last.date))}${h.completions.length>1 ? ` (+${h.completions.length-1})` : ''}</span>` : ''}
@@ -1427,6 +1457,7 @@ function renderModal(){
   else if(m.type==='edit-tour') inner = tourFormHtml(m.payload);
   else if(m.type==='tour-detail') inner = tourDetailHtml(m.payload);
   else if(m.type==='edit-hut') inner = hutFormHtml(m.payload);
+  else if(m.type==='edit-access-route') inner = accessRouteFormHtml(m.payload.hutId, m.payload.route);
   else if(m.type==='hut-detail') inner = hutDetailHtml(m.payload);
   else if(m.type==='export') inner = exportModalHtml();
   else if(m.type==='import') inner = importModalHtml();
@@ -1860,48 +1891,9 @@ function hutFormHtml(existing){
       </div>
       <input type="hidden" name="hutIdForTrack" id="hut-id-for-track" value="${esc(h.id||'')}"/>
 
-      <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">🌞 Zustieg – Sommer</h3>
-      <div class="row2">
-        <div class="field"><label>Höhenmeter (Hm)</label><input name="accessElevationSummer" value="${esc(h.accessElevationSummer!==undefined?h.accessElevationSummer:(h.accessElevation||''))}" placeholder="z. B. 1400"/></div>
-        <div class="field"><label>Zeitbedarf</label><input name="accessDurationSummer" value="${esc(h.accessDurationSummer!==undefined?h.accessDurationSummer:(h.accessDuration||''))}" placeholder="z. B. 3–4 Std."/></div>
-      </div>
-      <div class="field"><label>Schwierigkeit (SAC) — falls Firn/Schnee gequert wird</label>
-        <select name="accessDifficultySummer">
-          <option value="">— keine Angabe —</option>
-          ${DIFF_ORDER.map(c=>`<option value="${c}" ${(h.accessDifficultySummer!==undefined?h.accessDifficultySummer:(h.accessDifficulty||''))===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field"><label>Wanderskala (T) — für reine Wanderwege</label>
-        <select name="accessDifficultySummerT">
-          <option value="">— keine Angabe —</option>
-          ${HIKE_SCALE_ORDER.map(c=>`<option value="${c}" ${(h.accessDifficultySummerT||'')===c?'selected':''}>${c} — ${HIKE_SCALE[c].label}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field"><label>Beschreibung</label><textarea name="accessSummer" placeholder="Route, Orientierungspunkte, Gefahrenstellen, Gletscherquerung …">${esc(h.accessSummer!==undefined?h.accessSummer:(h.access||''))}</textarea></div>
-      <div class="field"><label>Link zu einer GPX-Datei (Sommer-Zustieg)</label><input type="url" name="gpxLinkSummer" value="${esc(h.gpxLinkSummer||'')}"/></div>
-      <div class="field"><label>Eigenen GPX-Track hochladen (Sommer)</label>
-        <input type="file" id="gpx-file-input-summer" accept=".gpx,application/gpx+xml"/>
-        <p id="gpx-upload-status-summer" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${h.trackSimplifiedSummer ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
-        <input type="hidden" name="trackSimplifiedSummer" id="track-simplified-summer-hidden" value='${esc(h.trackSimplifiedSummer ? JSON.stringify(h.trackSimplifiedSummer) : "")}'/>
-      </div>
-
-      <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">❄️ Zustieg – Winter</h3>
-      <div class="row2">
-        <div class="field"><label>Höhenmeter (Hm)</label><input name="accessElevationWinter" value="${esc(h.accessElevationWinter||'')}" placeholder="z. B. 1650"/></div>
-        <div class="field"><label>Zeitbedarf</label><input name="accessDurationWinter" value="${esc(h.accessDurationWinter||'')}" placeholder="z. B. 4–5 Std."/></div>
-      </div>
-      <div class="field"><label>Schwierigkeit (SAC)</label>
-        <select name="accessDifficultyWinter">
-          <option value="">— keine Angabe —</option>
-          ${DIFF_ORDER.map(c=>`<option value="${c}" ${(h.accessDifficultyWinter||'')===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field"><label>Beschreibung</label><textarea name="accessWinter" placeholder="Route, Lawinenhänge, Spaltenrisiko, Spurverlauf …">${esc(h.accessWinter||'')}</textarea></div>
-      <div class="field"><label>Link zu einer GPX-Datei (Winter-Zustieg)</label><input type="url" name="gpxLinkWinter" value="${esc(h.gpxLinkWinter||'')}"/></div>
-      <div class="field"><label>Eigenen GPX-Track hochladen (Winter)</label>
-        <input type="file" id="gpx-file-input-winter" accept=".gpx,application/gpx+xml"/>
-        <p id="gpx-upload-status-winter" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${h.trackSimplifiedWinter ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
-        <input type="hidden" name="trackSimplifiedWinter" id="track-simplified-winter-hidden" value='${esc(h.trackSimplifiedWinter ? JSON.stringify(h.trackSimplifiedWinter) : "")}'/>
+      <div class="field" style="background:var(--ice-light); border-radius:var(--radius); padding:12px;">
+        <label style="margin-bottom:4px;">Zustiege (Sommer/Winter, beliebig viele)</label>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0;">${existing ? 'Zustiege werden in der Detailansicht der Hütte verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege hinzufügen.'}</p>
       </div>
 
       <div class="field" style="margin-top:16px;"><label>Link zur Hütte</label><input type="url" name="hutLink" value="${esc(h.hutLink||'')}"/></div>
@@ -1956,13 +1948,12 @@ function hutDetailHtml(id){
       ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}</div>` : ''}
       ${h.approach ? `<p>${esc(h.approach)}</p>` : ''}
     </div>` : ''}
-    ${(h.points && h.points.length || h.trackSimplifiedSummer || h.trackSimplifiedWinter || (h.manualTrack && h.manualTrack.length)) ? `<div class="detail-section">
-      <h4>Standort${h.points && h.points.length>1?'e':''}${(h.trackSimplifiedSummer || h.trackSimplifiedWinter || (h.manualTrack && h.manualTrack.length)) ? ' & Track' : ''}</h4>
+    ${(h.points && h.points.length || (h.manualTrack && h.manualTrack.length)) ? `<div class="detail-section">
+      <h4>Standort${h.points && h.points.length>1?'e':''}${(h.manualTrack && h.manualTrack.length) ? ' & Linie' : ''}</h4>
+      <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Allgemeine Punkte/Linie zur Hütte (z. B. Parkplatz) — für Zustiege siehe unten.</p>
       ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
-      ${h.trackSimplifiedSummer ? `<span class="hint">🟡 Gelb: Sommer-Zustieg (GPX)</span><br/>` : ''}
-      ${h.trackSimplifiedWinter ? `<span class="hint">🔵 Blau: Winter-Zustieg (GPX)</span><br/>` : ''}
       ${(h.manualTrack && h.manualTrack.length) ? `<span class="hint">🔴 Rot: selbst eingezeichnet</span>` : ''}
-      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-hut-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-summer-track='${esc(JSON.stringify(h.trackSimplifiedSummer||[]))}' data-winter-track='${esc(JSON.stringify(h.trackSimplifiedWinter||[]))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
+      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-hut-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-summer-track='[]' data-winter-track='[]' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
       <div id="map-hut-${h.id}" style="margin-top:10px;"></div>
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${h.id}" data-act="quick-edit-toggle" data-id="${h.id}" data-kind="hut">✏️ Punkte/Linie direkt bearbeiten</button>
       <div id="quick-edit-map-${h.id}" style="margin-top:10px; display:none;"></div>
@@ -1972,30 +1963,17 @@ function hutDetailHtml(id){
       <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${h.id}" data-act="quick-save" data-id="${h.id}" data-kind="hut">💾 Änderungen speichern</button>
     </div>` : ''}
 
-    ${(h.accessElevationSummer || h.accessDurationSummer || h.accessDifficultySummer || h.accessDifficultySummerT || h.accessSummer || h.gpxLinkSummer || h.trackSimplifiedSummer) ? `<div class="detail-section">
-      <h4>🌞 Zustieg – Sommer</h4>
-      <div class="detail-stats" style="margin:0 0 8px 0;">
-        ${h.accessElevationSummer ? `<div class="detail-stat"><div class="num">${esc(h.accessElevationSummer)}</div><div class="lbl">Hm</div></div>` : ''}
-        ${h.accessDurationSummer ? `<div class="detail-stat"><div class="num">${esc(h.accessDurationSummer)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
-      </div>
-      ${h.accessDifficultySummer ? `<span class="badge" style="background:${(DIFF[h.accessDifficultySummer]||DIFF.L).color}">SAC ${h.accessDifficultySummer}</span> ` : ''}
-      ${h.accessDifficultySummerT ? `<span class="badge" style="background:${(HIKE_SCALE[h.accessDifficultySummerT]||HIKE_SCALE.T1).color}">${h.accessDifficultySummerT}</span>` : ''}
-      ${h.accessSummer ? `<p style="margin-top:8px;">${esc(h.accessSummer)}</p>` : ''}
-      ${h.gpxLinkSummer ? `<p style="margin-top:8px;"><a href="${esc(h.gpxLinkSummer)}" target="_blank" rel="noopener noreferrer">${esc(h.gpxLinkSummer)}</a></p>` : ''}
-      ${h.trackSimplifiedSummer ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-hut-gpx-summer" data-id="${h.id}" data-name="${esc(h.name)}">📥 GPX herunterladen (Sommer-Zustieg)</button>` : ''}
-    </div>` : ''}
-
-    ${(h.accessElevationWinter || h.accessDurationWinter || h.accessDifficultyWinter || h.accessWinter || h.gpxLinkWinter || h.trackSimplifiedWinter) ? `<div class="detail-section">
-      <h4>❄️ Zustieg – Winter</h4>
-      <div class="detail-stats" style="margin:0 0 8px 0;">
-        ${h.accessElevationWinter ? `<div class="detail-stat"><div class="num">${esc(h.accessElevationWinter)}</div><div class="lbl">Hm</div></div>` : ''}
-        ${h.accessDurationWinter ? `<div class="detail-stat"><div class="num">${esc(h.accessDurationWinter)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
-      </div>
-      ${h.accessDifficultyWinter ? `<span class="badge" style="background:${(DIFF[h.accessDifficultyWinter]||DIFF.L).color}">${h.accessDifficultyWinter} · SAC</span>` : ''}
-      ${h.accessWinter ? `<p style="margin-top:8px;">${esc(h.accessWinter)}</p>` : ''}
-      ${h.gpxLinkWinter ? `<p style="margin-top:8px;"><a href="${esc(h.gpxLinkWinter)}" target="_blank" rel="noopener noreferrer">${esc(h.gpxLinkWinter)}</a></p>` : ''}
-      ${h.trackSimplifiedWinter ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-hut-gpx-winter" data-id="${h.id}" data-name="${esc(h.name)}">📥 GPX herunterladen (Winter-Zustieg)</button>` : ''}
-    </div>` : ''}
+    ${(() => { migrateHutAccessRoutes(h); const routes = h.accessRoutes || []; const rangeText = accessRouteDifficultyRangeHtml(routes); const legend = accessRouteLegendHtml(routes); return `<div class="detail-section">
+      <h4>Zustiege${routes.length ? ` (${routes.length})` : ''}</h4>
+      ${routes.length ? `
+        ${rangeText ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${rangeText}</p>` : ''}
+        ${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-target="map-hut-routes-${h.id}">🗺️ Karte anzeigen</button>
+        <div id="map-hut-routes-${h.id}" style="margin-bottom:10px;"></div>
+        <div class="grid">${routes.map((r,i)=>accessRouteRowHtml(r,i,h.id)).join('')}</div>
+      ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
+      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-access-route" data-hut-id="${h.id}">+ Zustieg hinzufügen</button>
+    </div>`; })()}
 
     ${h.contact ? `<div class="detail-section"><h4>Kontakt</h4><p>${esc(h.contact)}</p></div>` : ''}
     ${h.notes ? `<div class="detail-section"><h4>Notizen</h4><p>${esc(h.notes)}</p></div>` : ''}
@@ -2633,6 +2611,71 @@ function wireModalHandlers(){
     if(tourFabSaveBtn) tourFabSaveBtn.addEventListener('click', ()=>{ if(tourSaveBtn) tourSaveBtn.click(); });
   }
 
+  const accessRouteForm = document.getElementById('access-route-form');
+  if(accessRouteForm){
+    const seasonHidden = document.getElementById('access-route-season-hidden');
+    accessRouteForm.querySelectorAll('.season-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        const wasOn = chip.classList.contains('on');
+        accessRouteForm.querySelectorAll('.season-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){ seasonHidden.value = ''; return; }
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        seasonHidden.value = chip.getAttribute('data-value');
+      });
+    });
+
+    const gpxInput = document.getElementById('access-route-gpx-input');
+    if(gpxInput) gpxInput.addEventListener('change', ()=>{
+      handleGpxFileUpload(gpxInput, ACCESS_ROUTE_GPX_PATH, 'access-route-id-for-track', 'access-route-track-hidden', 'access-route-gpx-status');
+    });
+
+    const routeMapToggleBtn = document.getElementById('access-route-map-toggle-btn');
+    if(routeMapToggleBtn) routeMapToggleBtn.addEventListener('click', ()=>{
+      const mapDiv = document.getElementById('access-route-map');
+      if(mapDiv) mapDiv.style.display = '';
+      const trackHidden = document.getElementById('access-route-track-hidden');
+      const refTracks = [];
+      if(trackHidden && trackHidden.value){
+        try{ const t = JSON.parse(trackHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8384F', label:'🔴 Rot: hochgeladener GPX-Track'}); }catch(e){}
+      }
+      if(!document.getElementById('access-route-points-dummy')){
+        const dummy = document.createElement('input');
+        dummy.type = 'hidden'; dummy.id = 'access-route-points-dummy'; dummy.value = '[]';
+        document.body.appendChild(dummy);
+      }
+      renderPointsEditorMap('access-route-map', 'access-route-points-dummy', 'access-route-points-dummy-list', 'access-route-manual-track-hidden', refTracks);
+    });
+
+    const routeSaveBtn = document.getElementById('access-route-save-btn');
+    if(routeSaveBtn) routeSaveBtn.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const fd = new FormData(accessRouteForm);
+      const data = Object.fromEntries(fd.entries());
+      if(!data.name || !data.name.trim()){
+        showFormError('access-route-form', 'Bitte einen Namen für den Zustieg eingeben.');
+        return;
+      }
+      submitAccessRouteForm(data);
+    });
+
+    const deleteRouteBtn = accessRouteForm.parentElement ? accessRouteForm.parentElement.querySelector('[data-act="delete-access-route"]') : null;
+    if(deleteRouteBtn) deleteRouteBtn.addEventListener('click', ()=>{
+      if(confirm('Diesen Zustieg wirklich löschen?')){
+        deleteAccessRoute(deleteRouteBtn.getAttribute('data-hut-id'), deleteRouteBtn.getAttribute('data-route-id'));
+      }
+    });
+  }
+
+  root.querySelectorAll('[data-act="show-access-routes-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const target = btn.getAttribute('data-target');
+      let pts = [], routes = [];
+      try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
+      try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
+      renderHutAccessRoutesMap(target, pts, routes);
+    });
+  });
+
   const hutForm = document.getElementById('hut-form');
   if(hutForm){
     const hutSaveBtn = document.getElementById('hut-save-btn');
@@ -2760,6 +2803,20 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-hut"]').forEach(el=> el.onclick = ()=>openHutDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
+
+  root.querySelectorAll('[data-act="add-access-route"]').forEach(el=> el.onclick = ()=>{
+    state.modal = {type:'edit-access-route', payload:{hutId: el.getAttribute('data-hut-id'), route:null}};
+    render();
+  });
+  root.querySelectorAll('[data-act="edit-access-route"]').forEach(el=> el.onclick = ()=>{
+    const hutId = el.getAttribute('data-hut-id');
+    const routeId = el.getAttribute('data-route-id');
+    const hut = state.huts.find(h=>h.id===hutId);
+    const route = hut && hut.accessRoutes ? hut.accessRoutes.find(r=>r.id===routeId) : null;
+    if(!route) return;
+    state.modal = {type:'edit-access-route', payload:{hutId, route}};
+    render();
+  });
 }
 
 /* ================= Global error safety net ================= */
