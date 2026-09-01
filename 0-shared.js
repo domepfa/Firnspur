@@ -602,6 +602,7 @@ function ensureLeafletLoaded(){
   });
   return leafletLoadPromise;
 }
+
 /* ================= Vollbild-Karte (generisch, für alle Kartenansichten) ================= */
 function ensureFullscreenMapOverlay(){
   let overlay = document.getElementById('fullscreen-map-overlay');
@@ -652,7 +653,6 @@ function makeFullscreenButton(renderFn, onCloseCallback){
   btn.addEventListener('click', ()=> openFullscreenMap(renderFn, onCloseCallback||null));
   return btn;
 }
-
 function renderMiniMap(containerId, lat, lon, label){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
@@ -1207,6 +1207,7 @@ function renderHutTrackDisplayMap(containerId, points, summerTrack, winterTrack,
     if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
   });
 }
+
 /* ================= Touren mit gemeinsamem Ausgangspunkt verknüpfen ================= */
 function haversineMeters(lat1, lon1, lat2, lon2){
   const R = 6371000;
@@ -1328,7 +1329,6 @@ function loginScreenHtml(){
     </div>
   </div>`;
 }
-
 function wireLoginScreen(){
   const btn = document.getElementById('login-submit-btn');
   const input = document.getElementById('login-password-input');
@@ -1821,6 +1821,194 @@ function wireMonthCycleChips(root, selector){
         : '';
     });
   });
+}
+
+/* ================= Hütten-Zustiege: mehrere Varianten pro Hütte ================= */
+const ACCESS_ROUTE_COLORS = ['#E8B93E','#1565C0','#E8384F','#2E7EB0','#8A2E2E','#3C7A52'];
+
+function migrateHutAccessRoutes(h){
+  if(Array.isArray(h.accessRoutes)) return h;
+  h.accessRoutes = [];
+  const hasSummer = h.accessElevationSummer || h.accessDurationSummer || h.accessDifficultySummer || h.accessDifficultySummerT || h.accessSummer || h.gpxLinkSummer || h.trackSimplifiedSummer;
+  const hasWinter = h.accessElevationWinter || h.accessDurationWinter || h.accessDifficultyWinter || h.accessWinter || h.gpxLinkWinter || h.trackSimplifiedWinter;
+  if(hasSummer){
+    h.accessRoutes.push({
+      id: uid('ar'), name:'Sommer', season:'sommer',
+      elevation: h.accessElevationSummer||'', duration: h.accessDurationSummer||'',
+      difficulty: h.accessDifficultySummer||'', difficultyT: h.accessDifficultySummerT||'',
+      description: h.accessSummer||'', gpxLink: h.gpxLinkSummer||'',
+      trackSimplified: h.trackSimplifiedSummer||null, manualTrack: (h.manualTrack||[])
+    });
+  }
+  if(hasWinter){
+    h.accessRoutes.push({
+      id: uid('ar'), name:'Winter', season:'winter',
+      elevation: h.accessElevationWinter||'', duration: h.accessDurationWinter||'',
+      difficulty: h.accessDifficultyWinter||'', difficultyT:'',
+      description: h.accessWinter||'', gpxLink: h.gpxLinkWinter||'',
+      trackSimplified: h.trackSimplifiedWinter||null, manualTrack: []
+    });
+  }
+  return h;
+}
+
+function accessRouteDifficultyRangeHtml(routes){
+  if(!routes || !routes.length) return '';
+  const sacCodes = routes.map(r=>r.difficulty).filter(Boolean);
+  const tCodes = routes.map(r=>r.difficultyT).filter(Boolean);
+  const parts = [];
+  if(sacCodes.length){
+    const idxs = sacCodes.map(c=>DIFF_ORDER.indexOf(c)).filter(i=>i>=0);
+    if(idxs.length){
+      const lo = DIFF_ORDER[Math.min(...idxs)], hi = DIFF_ORDER[Math.max(...idxs)];
+      parts.push(lo===hi ? `SAC ${lo}` : `SAC ${lo}–${hi}`);
+    }
+  }
+  if(tCodes.length){
+    const idxs = tCodes.map(c=>HIKE_SCALE_ORDER.indexOf(c)).filter(i=>i>=0);
+    if(idxs.length){
+      const lo = HIKE_SCALE_ORDER[Math.min(...idxs)], hi = HIKE_SCALE_ORDER[Math.max(...idxs)];
+      parts.push(lo===hi ? lo : `${lo}–${hi}`);
+    }
+  }
+  return parts.join(' · ');
+}
+
+function accessRouteLegendHtml(routes){
+  return routes.map((r,i)=>{
+    const color = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
+    const hasTrack = (r.trackSimplified && r.trackSimplified.length) || (r.manualTrack && r.manualTrack.length);
+    if(!hasTrack) return '';
+    return `<span class="hint" style="display:inline-flex; align-items:center; gap:4px; margin-right:10px;"><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color};"></span>${esc(r.name)}</span>`;
+  }).filter(Boolean).join('');
+}
+
+function renderHutAccessRoutesMap(containerId, points, routes){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const tracks = (routes||[]).map((r,i)=>({
+      coords: (r.trackSimplified && r.trackSimplified.length) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length ? r.manualTrack : null),
+      color: ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length]
+    })).filter(t=>t.coords);
+    const hasPoints = points && points.length;
+    if(!tracks.length && !hasPoints) return;
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const startView = tracks.length ? tracks[0].coords[0] : [points[0].lat, points[0].lon];
+    const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
+    registerMap(mapDivId, map);
+    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
+      maxZoom: 18,
+      attribution: '© swisstopo'
+    }).addTo(map);
+    const boundsItems = [];
+    tracks.forEach(t=>{
+      L.polyline(t.coords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line = L.polyline(t.coords, {color:t.color, weight:4, opacity:1}).addTo(map);
+      boundsItems.push(line);
+    });
+    if(hasPoints){
+      points.forEach(p=>{
+        const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
+        boundsItems.push(m);
+      });
+    }
+    if(boundsItems.length){
+      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+    }
+    if(!isFullscreen){
+      const btn = makeFullscreenButton(function(id){ renderHutAccessRoutesMap(id, points||[], routes||[]); });
+      el2.appendChild(btn);
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+function accessRouteFormHtml(hutId, route){
+  const r = route || {};
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${route?'Zustieg bearbeiten':'Neuer Zustieg'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <form id="access-route-form" novalidate>
+      <input type="hidden" name="hutId" value="${esc(hutId)}"/>
+      <input type="hidden" name="routeId" value="${esc(r.id||'')}"/>
+      <div class="field"><label>Name des Zustiegs *</label><input required name="name" value="${esc(r.name||'')}" placeholder="z. B. Ab Randa"/></div>
+      <div class="field"><label>Jahreszeit</label>
+        <div class="chips">
+          <button type="button" class="chip season-chip ${r.season==='sommer'?'on':''}" style="${r.season==='sommer'?'background:var(--ice-deep)':''}" data-value="sommer">🌞 Sommer</button>
+          <button type="button" class="chip season-chip ${r.season==='winter'?'on':''}" style="${r.season==='winter'?'background:var(--ice-deep)':''}" data-value="winter">❄️ Winter</button>
+        </div>
+        <input type="hidden" name="season" id="access-route-season-hidden" value="${esc(r.season||'')}"/>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Höhenmeter (Hm)</label><input name="elevation" value="${esc(r.elevation||'')}"/></div>
+        <div class="field"><label>Zeitbedarf</label><input name="duration" value="${esc(r.duration||'')}"/></div>
+      </div>
+      <div class="field"><label>Schwierigkeit (SAC)</label>
+        <select name="difficulty">
+          <option value="">— keine Angabe —</option>
+          ${DIFF_ORDER.map(c=>`<option value="${c}" ${r.difficulty===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Wanderskala (T)</label>
+        <select name="difficultyT">
+          <option value="">— keine Angabe —</option>
+          ${HIKE_SCALE_ORDER.map(c=>`<option value="${c}" ${r.difficultyT===c?'selected':''}>${c} — ${HIKE_SCALE[c].label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Beschreibung</label><textarea name="description">${esc(r.description||'')}</textarea></div>
+      <div class="field"><label>Link zu einer GPX-Datei</label><input type="url" name="gpxLink" value="${esc(r.gpxLink||'')}"/></div>
+      <div class="field"><label>Eigenen GPX-Track hochladen</label>
+        <input type="file" id="access-route-gpx-input" accept=".gpx,application/gpx+xml"/>
+        <p id="access-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
+        <input type="hidden" name="trackSimplified" id="access-route-track-hidden" value='${esc(r.trackSimplified ? JSON.stringify(r.trackSimplified) : "")}'/>
+        <input type="hidden" name="routeIdForTrack" id="access-route-id-for-track" value="${esc(r.id||'')}"/>
+      </div>
+      <div class="field"><label>Route auf der Karte einzeichnen (falls kein GPX vorhanden)</label>
+        <button type="button" class="btn secondary" id="access-route-map-toggle-btn">🗺️ Karte öffnen</button>
+        <div class="hint">✏️ Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
+        <div id="access-route-map" style="margin-top:10px; display:none;"></div>
+        <input type="hidden" name="manualTrack" id="access-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        ${route ? `<button type="button" class="btn danger" data-act="delete-access-route" data-hut-id="${esc(hutId)}" data-route-id="${esc(r.id)}" style="margin-right:auto;">Löschen</button>` : ''}
+        <button type="button" id="access-route-save-btn" class="btn">${route?'Speichern':'Zustieg hinzufügen'}</button>
+      </div>
+    </form>
+  </div>`;
+}
+
+function accessRouteRowHtml(r, index, hutId){
+  const color = ACCESS_ROUTE_COLORS[index % ACCESS_ROUTE_COLORS.length];
+  const seasonIcon = r.season==='sommer' ? '🌞' : (r.season==='winter' ? '❄️' : '📍');
+  const diffBadges = [];
+  if(r.difficulty) diffBadges.push(`<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${r.difficulty}</span>`);
+  if(r.difficultyT) diffBadges.push(`<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span>`);
+  return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="edit-access-route" data-hut-id="${hutId}" data-route-id="${r.id}" tabindex="0" role="button">
+    <div class="card-top">
+      <h3 style="font-size:15px;">${seasonIcon} ${esc(r.name)}</h3>
+      <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; margin-top:4px;"></span>
+    </div>
+    ${(r.elevation || r.duration) ? `<div class="stat-row">
+      ${r.elevation ? `<span>↑ <span class="mono">${esc(r.elevation)}</span> Hm</span>` : ''}
+      ${r.duration ? `<span>⏱ <span class="mono">${esc(r.duration)}</span></span>` : ''}
+    </div>` : ''}
+    ${diffBadges.length ? `<div class="badge-row">${diffBadges.join(' ')}</div>` : ''}
+    ${r.description ? `<p class="excerpt">${esc(r.description)}</p>` : ''}
+  </div>`;
 }
 
 
