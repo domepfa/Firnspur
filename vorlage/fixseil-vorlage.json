@@ -66,7 +66,8 @@
       "createdBy": "Name",
       "createdAt": "2026-08-30T00:00:00.000Z",
       "updatedAt": "2026-08-30T00:00:00.000Z",
-      "updatedBy": "Name"
+      "updatedBy": "Name",
+      "topoImages": []
     },
     {
       "id": "t_beispiel_msl001",
@@ -131,7 +132,8 @@
       "createdBy": "Name",
       "createdAt": "2026-08-30T00:00:00.000Z",
       "updatedAt": "2026-08-30T00:00:00.000Z",
-      "updatedBy": "Name"
+      "updatedBy": "Name",
+      "topoImages": []
     }
   ],
   "huts": [
@@ -148,7 +150,10 @@
         "aug",
         "sep"
       ],
-      "staffedNote": "Ab 20. Juni bewartet, davor nur auf Anfrage.",
+      "staffedMonthsPartial": [
+        "mai"
+      ],
+      "staffedNote": "Im Mai nur an Wochenenden bewartet.",
       "winterraum": "Vorhanden, 12 Plätze, unverschlossen zugänglich.",
       "winterraumMonths": [
         "okt",
@@ -157,9 +162,9 @@
         "jan",
         "feb",
         "maer",
-        "apr",
-        "mai"
+        "apr"
       ],
+      "winterraumMonthsPartial": [],
       "winterraumNote": "",
       "approach": "Anfahrt bis Randa, dann zu Fuss oder mit Seilbahn.",
       "approachTypes": [
@@ -179,21 +184,41 @@
           "lon": 7.7847
         }
       ],
-      "accessElevationSummer": "1400",
-      "accessDurationSummer": "3-4",
-      "accessDifficultySummer": "WS",
-      "accessDifficultySummerT": "",
-      "accessSummer": "Beschreibung der Sommer-Zustiegsroute.",
-      "accessElevationWinter": "1650",
-      "accessDurationWinter": "4-5",
-      "accessDifficultyWinter": "ZS-",
-      "accessWinter": "Beschreibung der Winter-Zustiegsroute (Lawinenhänge, Spurverlauf).",
+      "manualTrack": [],
+      "accessRoutes": [
+        {
+          "id": "ar_beispiel001",
+          "name": "Sommer — ab Randa",
+          "season": "sommer",
+          "elevation": "1400",
+          "duration": "3-4",
+          "difficulty": "WS",
+          "difficultyT": "",
+          "description": "Beschreibung der Sommer-Zustiegsroute.",
+          "gpxLink": "",
+          "trackSimplified": null,
+          "manualTrack": []
+        },
+        {
+          "id": "ar_beispiel002",
+          "name": "Winter — ab Randa",
+          "season": "winter",
+          "elevation": "1650",
+          "duration": "4-5",
+          "difficulty": "ZS-",
+          "difficultyT": "",
+          "description": "Beschreibung der Winter-Zustiegsroute (Lawinenhänge, Spurverlauf).",
+          "gpxLink": "",
+          "trackSimplified": null,
+          "manualTrack": []
+        }
+      ],
       "contact": "Telefon: 027 123 45 67, www.domhuette.ch",
       "notes": "Reservation empfohlen, v.a. im Hochsommer.",
       "completions": [],
       "createdBy": "Name",
-      "createdAt": "2026-08-30T00:00:00.000Z",
-      "updatedAt": "2026-08-30T00:00:00.000Z",
+      "createdAt": "2026-09-01T00:00:00.000Z",
+      "updatedAt": "2026-09-01T00:00:00.000Z",
       "updatedBy": "Name"
     }
   ]
