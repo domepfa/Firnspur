@@ -468,7 +468,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v60-hut-zustiege-liste';
+const APP_VERSION = 'v61-offline-download-gps';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -681,6 +681,7 @@ function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
 function closeModal(){
+  stopLiveGpsOnMap();
   state.modal = null;
   render();
   if(modalHistoryPushed){
@@ -860,6 +861,7 @@ async function deleteAccessRoute(hutId, routeId){
   render();
   showToast('Zustieg gelöscht.');
 }
+
 function setFormBusy(formId, busy){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -871,7 +873,6 @@ function setFormBusy(formId, busy){
     else if(btn.dataset.origText){ btn.textContent = btn.dataset.origText; }
   }
 }
-
 function showFormError(formId, message){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -1508,7 +1509,7 @@ function tourDetailHtml(id){
       ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${t.trackSimplified ? `<span class="hint">🔴 Rot: aufgezeichneter GPX-Track</span><br/>` : ''}
       ${(t.manualTrack && t.manualTrack.length) ? `<span class="hint">🔵 Blau: manuell geplante Linie</span>` : ''}
-      ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
+      ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${t.id}" data-act="quick-edit-toggle" data-id="${t.id}" data-kind="tour">✏️ Punkte/Linie direkt bearbeiten</button>
       <div id="quick-edit-map-${t.id}" style="margin-top:10px; display:none;"></div>
@@ -1517,6 +1518,7 @@ function tourDetailHtml(id){
       <input type="hidden" id="quick-manual-track-hidden-${t.id}" value='${esc(JSON.stringify(t.manualTrack||[]))}'/>
       <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${t.id}" data-act="quick-save" data-id="${t.id}" data-kind="tour">💾 Änderungen speichern</button>
     </div>
+    ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? offlineSectionHtml(t.id) : ''}
     ${(t.gpxLink || t.trackSimplified) ? `<div class="detail-section">
       <h4>GPX-Track</h4>
       ${t.gpxLink ? `<p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>` : ''}
@@ -1713,6 +1715,7 @@ function hutDetailHtml(id){
 }
 
 /* ================= Agenda ================= */
+
 /* ================= Agenda: Status-Workflow ================= */
 
 
@@ -1899,6 +1902,64 @@ function wireModalHandlers(){
 
   root.querySelectorAll('[data-act="close-modal"]').forEach(el=> el.onclick = closeModal);
 
+  if(state.modal && state.modal.type==='tour-detail'){
+    refreshOfflineSectionUI(state.modal.payload);
+  }
+
+  // Event-Delegation für Offline-Download/Löschen/GPS — auf .modal, nicht root, da
+  // data-stop/stopPropagation() Klicks innerhalb des Fensters bewusst stoppt (siehe Fixseil).
+  const modalEl = root.querySelector('.modal');
+  if(modalEl) modalEl.addEventListener('click', (e)=>{
+    const downloadOfflineBtn = e.target.closest('[data-act="download-offline"]');
+    if(downloadOfflineBtn){
+      const offlineId = downloadOfflineBtn.getAttribute('data-offline-id');
+      const item = state.tours.find(t=>t.id===offlineId);
+      if(!item) return;
+      const coords = [];
+      (item.points||[]).forEach(p=> coords.push([p.lat, p.lon]));
+      (item.trackSimplified||[]).forEach(c=> coords.push(c));
+      (item.manualTrack||[]).forEach(c=> coords.push(c));
+      downloadOfflineBtn.disabled = true;
+      downloadOfflineBtn.textContent = 'Wird heruntergeladen… 0%';
+      downloadTourOffline(offlineId, item.name, coords, item.topoImages||[], (done,total)=>{
+        downloadOfflineBtn.textContent = `Wird heruntergeladen… ${Math.round(done/total*100)}%`;
+      }).then(()=>{
+        showToast('Für unterwegs heruntergeladen.');
+        refreshOfflineSectionUI(offlineId);
+      }).catch(err=>{
+        showToast('Fehler beim Herunterladen: ' + (err && err.message ? err.message : err), true);
+        downloadOfflineBtn.disabled = false;
+        downloadOfflineBtn.textContent = '🔽 Für unterwegs herunterladen';
+      });
+      return;
+    }
+    const deleteOfflineBtn = e.target.closest('[data-act="delete-offline"]');
+    if(deleteOfflineBtn){
+      const offlineId = deleteOfflineBtn.getAttribute('data-offline-id');
+      deleteTourOfflineData(offlineId).then(()=>{
+        showToast('Offline-Daten gelöscht.');
+        refreshOfflineSectionUI(offlineId);
+      });
+      return;
+    }
+    const gpsToggleBtn = e.target.closest('[data-act="toggle-live-gps"]');
+    if(gpsToggleBtn){
+      const offlineId = gpsToggleBtn.getAttribute('data-offline-id');
+      const mapInner = window.__activeLeafletMaps && window.__activeLeafletMaps['map-tour-' + offlineId + '-inner'];
+      if(!mapInner){
+        showToast('Bitte zuerst "🗺️ Karte anzeigen" antippen.', true);
+        return;
+      }
+      if(gpsWatchId === null){
+        startLiveGpsOnMap(mapInner);
+        gpsToggleBtn.textContent = '📍 Standort ausblenden';
+      }else{
+        stopLiveGpsOnMap();
+        gpsToggleBtn.textContent = '📍 Standort auf Karte zeigen';
+      }
+    }
+  });
+
   const gpsFetchBtn = root.querySelector('#gps-fetch-btn');
   if(gpsFetchBtn) gpsFetchBtn.addEventListener('click', startGpsLookup);
 
@@ -1941,11 +2002,12 @@ function wireModalHandlers(){
       const pointsJson = btn.getAttribute('data-points');
       const trackJson = btn.getAttribute('data-track');
       const manualTrackJson = btn.getAttribute('data-manual-track');
+      const offlineId = btn.getAttribute('data-offline-id') || null;
       let pts = [], track = [], manualTrack = [];
       try{ pts = JSON.parse(pointsJson || '[]'); }catch(e){ pts = []; }
       try{ track = JSON.parse(trackJson || '[]'); }catch(e){ track = []; }
       try{ manualTrack = JSON.parse(manualTrackJson || '[]'); }catch(e){ manualTrack = []; }
-      renderTrackDisplayMap(target, pts, track, manualTrack);
+      renderTrackDisplayMap(target, pts, track, manualTrack, offlineId);
     });
   });
 
@@ -2534,6 +2596,7 @@ try{
   if(savedName) state.myName = savedName;
 }catch(e){}
 loadAuthFromStorage();
+cleanupExpiredOfflineDownloads();
 wireAppSwitchSwipe('./fixseil.html');
 function toggleEmergencyCard(){
   if(state.modal && state.modal.type==='emergency'){ closeModal(); }
@@ -2575,5 +2638,4 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
-
 
