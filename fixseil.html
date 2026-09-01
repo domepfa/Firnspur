@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v54-offline-download-gps';
+const APP_VERSION = 'v55-topo-gallery-gps-bugfix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2245,10 +2245,9 @@ function wireModalHandlers(){
     }
     const viewImg = e.target.closest('[data-act="view-topo-image"]');
     if(viewImg){
-      const container = viewImg.closest('.chips') || viewImg.parentElement;
-      const allImgs = Array.from(container.querySelectorAll('[data-act="view-topo-image"]'));
-      const images = allImgs.map(el=>({ id: el.getAttribute('data-image-id'), url: el.getAttribute('data-url') }));
-      const startIndex = allImgs.indexOf(viewImg);
+      let images = [];
+      try{ images = JSON.parse(viewImg.getAttribute('data-images') || '[]'); }catch(err){ images = []; }
+      const startIndex = parseInt(viewImg.getAttribute('data-index'), 10) || 0;
       let offlineId = null;
       if(state.modal){
         if(state.modal.type==='tour-detail') offlineId = state.modal.payload;
@@ -2298,7 +2297,7 @@ function wireModalHandlers(){
         return;
       }
       if(gpsWatchId === null){
-        startLiveGpsOnMap(mapInner);
+        startLiveGpsOnMap(mapInner, offlineId);
         gpsToggleBtn.textContent = '📍 Standort ausblenden';
       }else{
         stopLiveGpsOnMap();
