@@ -1113,6 +1113,9 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     registerMap(mapDivId, map);
     const tileLayer = offlineId ? createOfflineAwareTileLayer(offlineId) : L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', { maxZoom: 18, attribution: '© swisstopo' });
     tileLayer.addTo(map);
+    if(offlineId && gpsActiveOfflineId === offlineId){
+      startLiveGpsOnMap(map, offlineId); // GPS lief bereits für diese Tour — auf die neue Karte (z. B. Vollbild) mitnehmen
+    }
     const boundsItems = [];
     if(hasTrack){
       L.polyline(trackCoords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
@@ -2065,9 +2068,10 @@ function topoImageThumbsHtml(hiddenListId){
   let images = [];
   try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
   if(!images.length) return '';
+  const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url}))));
   return `<div class="chips" style="margin-top:8px;">${images.map((img,i)=>
     `<span class="chip" style="background:var(--ice-light); border-color:transparent; padding:3px 8px 3px 3px; display:inline-flex; align-items:center; gap:6px;">
-      <img src="${esc(img.url)}" data-act="view-topo-image" data-url="${esc(img.url)}" data-image-id="${esc(img.id||'')}" style="width:32px; height:32px; object-fit:cover; border-radius:2px; cursor:pointer;"/>
+      <img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:32px; height:32px; object-fit:cover; border-radius:2px; cursor:pointer;"/>
       Bild ${i+1}
       <button type="button" data-act="remove-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">×</button>
     </span>`
@@ -2129,8 +2133,9 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
 
 function topoImagesGalleryHtml(images){
   if(!images || !images.length) return '';
+  const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url}))));
   return `<div class="chips topo-gallery" style="margin-top:6px;">${images.map((img,i)=>
-    `<img src="${esc(img.url)}" data-act="view-topo-image" data-url="${esc(img.url)}" data-image-id="${esc(img.id||'')}" style="width:70px; height:70px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer;"/>`
+    `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:70px; height:70px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer;"/>`
   ).join('')}</div>`;
 }
 
@@ -2409,9 +2414,11 @@ function createOfflineAwareTileLayer(offlineId){
 /* ================= Live-GPS-Standort auf der Karte ================= */
 let gpsWatchId = null;
 let gpsMarker = null;
-function startLiveGpsOnMap(map){
+let gpsActiveOfflineId = null; // für welche Tour GPS aktuell läuft — überlebt einen Kartenwechsel (z. B. beim Öffnen der Vollbildansicht)
+function startLiveGpsOnMap(map, offlineId){
   if(!navigator.geolocation) return;
   stopLiveGpsOnMap();
+  gpsActiveOfflineId = offlineId || null;
   gpsWatchId = navigator.geolocation.watchPosition((pos)=>{
     const latlng = [pos.coords.latitude, pos.coords.longitude];
     if(!gpsMarker){
@@ -2424,6 +2431,7 @@ function startLiveGpsOnMap(map){
   }, { enableHighAccuracy:true, maximumAge:5000 });
 }
 function stopLiveGpsOnMap(){
+  gpsActiveOfflineId = null;
   if(gpsWatchId !== null){ try{ navigator.geolocation.clearWatch(gpsWatchId); }catch(e){} gpsWatchId = null; }
   if(gpsMarker){ try{ gpsMarker.remove(); }catch(e){} gpsMarker = null; }
 }
