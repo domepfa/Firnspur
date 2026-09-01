@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v51-topo-bilder-msl';
+const APP_VERSION = 'v52-topo-vorschau-klickbar-sticker';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1321,6 +1321,7 @@ function tourCardHtml(t){
           : `${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}`
         }
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
+        ${(t.topoImages && t.topoImages.length) ? `<span class="badge" style="background:var(--signal-deep); color:#3D2E12;">📷 Topo</span>` : ''}
       </div>
     </div>
     ${t.routeName ? `<p class="excerpt" style="font-style:italic;">${esc(t.routeName)}</p>` : ''}
