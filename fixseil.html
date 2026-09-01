@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v55-topo-gallery-gps-bugfix';
+const APP_VERSION = 'v57-offline-ohne-standort';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1824,7 +1824,7 @@ function tourDetailHtml(id){
       <input type="hidden" id="quick-manual-track-hidden-${t.id}" value='${esc(JSON.stringify(t.manualTrack||[]))}'/>
       <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${t.id}" data-act="quick-save" data-id="${t.id}" data-kind="tour">💾 Änderungen speichern</button>
     </div>
-    ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? offlineSectionHtml(t.id) : ''}
+    ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.topoImages && t.topoImages.length)) ? offlineSectionHtml(t.id) : ''}
     ${(t.gpxLink || t.trackSimplified) ? `<div class="detail-section">
       <h4>GPX-Track</h4>
       ${t.gpxLink ? `<p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>` : ''}
