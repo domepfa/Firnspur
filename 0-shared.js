@@ -33,6 +33,7 @@ function renderDebugPanel(){
 
 /* ================= Firebase ================= */
 const FIREBASE_URL = 'https://firnspur-default-rtdb.europe-west1.firebasedatabase.app';
+const STORAGE_BUCKET = 'firnspur.firebasestorage.app'; // Cloud Storage, appübergreifend geteilt
 async function fbGet(path){
   try{
     await ensureValidAuthToken();
@@ -653,6 +654,7 @@ function makeFullscreenButton(renderFn, onCloseCallback){
   btn.addEventListener('click', ()=> openFullscreenMap(renderFn, onCloseCallback||null));
   return btn;
 }
+
 function renderMiniMap(containerId, lat, lon, label){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
@@ -708,7 +710,6 @@ function fetchLocationIntoForm(latInputId, lonInputId, statusId){
     { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
   );
 }
-
 /* ================= Interaktive Punkte-Karte (mehrere Stecknadeln, manuell setzbar) ================= */
 function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks){
   // refTracks: Array von {coords, color, label} — beliebig viele statische Referenzlinien (z. B. hochgeladene GPX-Tracks), nur zur Orientierung, hier nicht bearbeitbar
@@ -1329,6 +1330,7 @@ function loginScreenHtml(){
     </div>
   </div>`;
 }
+
 function wireLoginScreen(){
   const btn = document.getElementById('login-submit-btn');
   const input = document.getElementById('login-password-input');
@@ -1421,8 +1423,6 @@ function wireAppSwitchSwipe(otherAppUrl){
     }
   });
 }
-
-
 /* ================= Vorlagen fuer ChatGPT/Gemini + Bedienungsanleitung (direkt in der App) ================= */
 const VORLAGE_ANLEITUNG_TEXT = `# Anleitung für ChatGPT/Gemini: Touren-Daten im richtigen Format erstellen
 
@@ -2010,5 +2010,140 @@ function accessRouteRowHtml(r, index, hutId){
     ${r.description ? `<p class="excerpt">${esc(r.description)}</p>` : ''}
   </div>`;
 }
+
+/* ================= Topo-Bilder (MSL/Hochtour) — Cloud Storage ================= */
+const TOPO_IMAGES_PATH = 'topoImages';
+const TOPO_IMAGE_MAX_COUNT = 3;
+
+function compressImageFile(file, maxWidth, quality){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let w = img.width, h = img.height;
+        if(w > maxWidth){ h = Math.round(h * (maxWidth / w)); w = maxWidth; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob((blob)=>{
+          if(blob) resolve(blob); else reject(new Error('Komprimierung fehlgeschlagen.'));
+        }, 'image/jpeg', quality);
+      };
+      img.onerror = ()=> reject(new Error('Bild konnte nicht gelesen werden — ist es eine gültige Bilddatei?'));
+      img.src = reader.result;
+    };
+    reader.onerror = ()=> reject(new Error('Datei konnte nicht gelesen werden.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadTopoImageBlob(blob, storagePath){
+  await ensureValidAuthToken();
+  const url = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o?name=${encodeURIComponent(storagePath)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + authState.idToken, 'Content-Type': 'image/jpeg' },
+    body: blob
+  });
+  if(!res.ok) throw new Error('Upload fehlgeschlagen (Status ' + res.status + ')');
+  const data = await res.json();
+  const token = data.downloadTokens;
+  return `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`;
+}
+
+async function deleteTopoImageFile(storagePath){
+  try{
+    await ensureValidAuthToken();
+    const url = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodeURIComponent(storagePath)}`;
+    const res = await fetch(url, { method:'DELETE', headers:{ 'Authorization': 'Bearer ' + authState.idToken } });
+    return res.ok;
+  }catch(e){ return false; }
+}
+
+function topoImageThumbsHtml(hiddenListId){
+  const hiddenInput = document.getElementById(hiddenListId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  if(!images.length) return '';
+  return `<div class="chips" style="margin-top:8px;">${images.map((img,i)=>
+    `<span class="chip" style="background:var(--ice-light); border-color:transparent; padding:3px 8px 3px 3px; display:inline-flex; align-items:center; gap:6px;">
+      <img src="${esc(img.url)}" style="width:32px; height:32px; object-fit:cover; border-radius:2px;"/>
+      Bild ${i+1}
+      <button type="button" data-act="remove-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">×</button>
+    </span>`
+  ).join('')}</div>`;
+}
+
+function removeTopoImageLocal(hiddenListId, imageId){
+  const hiddenInput = document.getElementById(hiddenListId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  const removed = images.find(img=>img.id===imageId);
+  images = images.filter(img=>img.id!==imageId);
+  if(hiddenInput) hiddenInput.value = JSON.stringify(images);
+  if(removed && removed.storagePath) deleteTopoImageFile(removed.storagePath).catch(()=>{});
+  const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
+  if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(hiddenListId);
+}
+
+function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, statusId){
+  const files = fileInputEl.files;
+  if(!files || !files.length) return;
+  const statusEl = document.getElementById(statusId);
+  const hiddenInput = document.getElementById(hiddenListId);
+  const tourIdInput = document.getElementById(tourIdHiddenId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  let tourId = tourIdInput ? tourIdInput.value : '';
+  if(!tourId){ tourId = uid('t'); if(tourIdInput) tourIdInput.value = tourId; }
+  const filesToAdd = Array.from(files).slice(0, Math.max(0, TOPO_IMAGE_MAX_COUNT - images.length));
+  if(!filesToAdd.length){
+    if(statusEl) statusEl.textContent = `Maximal ${TOPO_IMAGE_MAX_COUNT} Bilder pro Tour — zuerst eins entfernen.`;
+    fileInputEl.value = '';
+    return;
+  }
+  (async ()=>{
+    for(let i=0; i<filesToAdd.length; i++){
+      const file = filesToAdd[i];
+      if(statusEl) statusEl.textContent = `Bild ${images.length+1}/${TOPO_IMAGE_MAX_COUNT} wird komprimiert…`;
+      try{
+        const blob = await compressImageFile(file, 1200, 0.78);
+        const imgId = uid('img');
+        const storagePath = `${TOPO_IMAGES_PATH}/${tourId}/${imgId}.jpg`;
+        if(statusEl) statusEl.textContent = `Bild ${images.length+1}/${TOPO_IMAGE_MAX_COUNT} wird hochgeladen…`;
+        const url = await uploadTopoImageBlob(blob, storagePath);
+        images.push({id: imgId, url, storagePath});
+        if(hiddenInput) hiddenInput.value = JSON.stringify(images);
+        const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
+        if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(hiddenListId);
+      }catch(err){
+        if(statusEl) statusEl.textContent = 'Fehler beim Hochladen: ' + (err && err.message ? err.message : err);
+        fileInputEl.value = '';
+        return;
+      }
+    }
+    if(statusEl) statusEl.textContent = `✓ ${images.length}/${TOPO_IMAGE_MAX_COUNT} Bilder hochgeladen.`;
+    fileInputEl.value = '';
+  })();
+}
+
+function topoImagesGalleryHtml(images){
+  if(!images || !images.length) return '';
+  return `<div class="chips" style="margin-top:6px;">${images.map((img,i)=>
+    `<img src="${esc(img.url)}" data-act="view-topo-image" data-url="${esc(img.url)}" style="width:70px; height:70px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer;"/>`
+  ).join('')}</div>`;
+}
+
+function showTopoImageLightbox(url){
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px;';
+  overlay.innerHTML = `<img src="${esc(url)}" style="max-width:100%; max-height:100%; object-fit:contain; border-radius:4px;"/>
+    <button type="button" style="position:absolute; top:16px; right:16px; background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:22px; line-height:1;">×</button>`;
+  overlay.addEventListener('click', ()=> overlay.remove());
+  document.body.appendChild(overlay);
+}
+
 
 
