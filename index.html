@@ -468,7 +468,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v61-offline-download-gps';
+const APP_VERSION = 'v62-topo-gallery-gps-bugfix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1746,7 +1746,6 @@ function buildPersonGroups(){
   });
   return groups;
 }
-
 function abgeschlossenViewHtml(){
   const groups = buildPersonGroups();
   const names = Object.keys(groups);
@@ -1951,7 +1950,7 @@ function wireModalHandlers(){
         return;
       }
       if(gpsWatchId === null){
-        startLiveGpsOnMap(mapInner);
+        startLiveGpsOnMap(mapInner, offlineId);
         gpsToggleBtn.textContent = '📍 Standort ausblenden';
       }else{
         stopLiveGpsOnMap();
@@ -2638,4 +2637,5 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
+
 
