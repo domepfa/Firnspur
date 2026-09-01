@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v52-topo-vorschau-klickbar-sticker';
+const APP_VERSION = 'v53-topo-lightbox-bugfix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2226,8 +2226,11 @@ function wireModalHandlers(){
   if(topoImageInput) topoImageInput.addEventListener('change', ()=>{
     handleTopoImageUpload(topoImageInput, 'tour-id-for-track', 'topo-images-hidden', 'topo-image-status');
   });
-  // Event-Delegation, da die Miniaturbilder nach Upload/Entfernen dynamisch neu gezeichnet werden
-  root.addEventListener('click', (e)=>{
+  // Event-Delegation, da die Miniaturbilder nach Upload/Entfernen dynamisch neu gezeichnet werden.
+  // Wichtig: auf .modal verdrahten, nicht auf root — Klicks innerhalb des Fensters werden dort bewusst
+  // per data-stop/stopPropagation() gestoppt (damit sie das Fenster nicht schliessen), würden also nie bei root ankommen.
+  const modalEl = root.querySelector('.modal');
+  if(modalEl) modalEl.addEventListener('click', (e)=>{
     const removeBtn = e.target.closest('[data-act="remove-topo-image-local"]');
     if(removeBtn){
       e.preventDefault();
