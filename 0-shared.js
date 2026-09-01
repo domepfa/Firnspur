@@ -2069,7 +2069,7 @@ function topoImageThumbsHtml(hiddenListId){
   if(!images.length) return '';
   return `<div class="chips" style="margin-top:8px;">${images.map((img,i)=>
     `<span class="chip" style="background:var(--ice-light); border-color:transparent; padding:3px 8px 3px 3px; display:inline-flex; align-items:center; gap:6px;">
-      <img src="${esc(img.url)}" style="width:32px; height:32px; object-fit:cover; border-radius:2px;"/>
+      <img src="${esc(img.url)}" data-act="view-topo-image" data-url="${esc(img.url)}" style="width:32px; height:32px; object-fit:cover; border-radius:2px; cursor:pointer;"/>
       Bild ${i+1}
       <button type="button" data-act="remove-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">×</button>
     </span>`
