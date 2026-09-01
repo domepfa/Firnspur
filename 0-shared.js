@@ -603,7 +603,6 @@ function ensureLeafletLoaded(){
   });
   return leafletLoadPromise;
 }
-
 /* ================= Vollbild-Karte (generisch, für alle Kartenansichten) ================= */
 function ensureFullscreenMapOverlay(){
   let overlay = document.getElementById('fullscreen-map-overlay');
@@ -710,6 +709,7 @@ function fetchLocationIntoForm(latInputId, lonInputId, statusId){
     { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
   );
 }
+
 /* ================= Interaktive Punkte-Karte (mehrere Stecknadeln, manuell setzbar) ================= */
 function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks){
   // refTracks: Array von {coords, color, label} — beliebig viele statische Referenzlinien (z. B. hochgeladene GPX-Tracks), nur zur Orientierung, hier nicht bearbeitbar
@@ -1088,7 +1088,7 @@ async function downloadFullGpx(trackPathPrefix, tourId, tourName){
   }
 }
 
-function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoords){
+function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoords, offlineId){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
   ensureLeafletLoaded().then(()=>{
@@ -1111,10 +1111,8 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     const startView = hasTrack ? trackCoords[0] : (hasManualTrack ? manualTrackCoords[0] : [points[0].lat, points[0].lon]);
     const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
-    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
-      maxZoom: 18,
-      attribution: '© swisstopo'
-    }).addTo(map);
+    const tileLayer = offlineId ? createOfflineAwareTileLayer(offlineId) : L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', { maxZoom: 18, attribution: '© swisstopo' });
+    tileLayer.addTo(map);
     const boundsItems = [];
     if(hasTrack){
       L.polyline(trackCoords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
@@ -1136,7 +1134,7 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
       map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
-      const btn = makeFullscreenButton(function(id){ renderTrackDisplayMap(id, points||[], trackCoords||[], manualTrackCoords||[]); });
+      const btn = makeFullscreenButton(function(id){ renderTrackDisplayMap(id, points||[], trackCoords||[], manualTrackCoords||[], offlineId); });
       el2.appendChild(btn);
     }
   }).catch(err=>{
@@ -1229,7 +1227,6 @@ function findToursSharingPoints(currentTour, allTours, maxMeters){
     return otherPoints.some(op => myPoints.some(mp => haversineMeters(mp.lat, mp.lon, op.lat, op.lon) <= maxMeters));
   });
 }
-
 /* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */
 async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId){
   let points = [], manualTrack = [];
@@ -1423,6 +1420,8 @@ function wireAppSwitchSwipe(otherAppUrl){
     }
   });
 }
+
+
 /* ================= Vorlagen fuer ChatGPT/Gemini + Bedienungsanleitung (direkt in der App) ================= */
 const VORLAGE_ANLEITUNG_TEXT = `# Anleitung für ChatGPT/Gemini: Touren-Daten im richtigen Format erstellen
 
@@ -1851,7 +1850,6 @@ function migrateHutAccessRoutes(h){
   }
   return h;
 }
-
 function accessRouteDifficultyRangeHtml(routes){
   if(!routes || !routes.length) return '';
   const sacCodes = routes.map(r=>r.difficulty).filter(Boolean);
@@ -2069,7 +2067,7 @@ function topoImageThumbsHtml(hiddenListId){
   if(!images.length) return '';
   return `<div class="chips" style="margin-top:8px;">${images.map((img,i)=>
     `<span class="chip" style="background:var(--ice-light); border-color:transparent; padding:3px 8px 3px 3px; display:inline-flex; align-items:center; gap:6px;">
-      <img src="${esc(img.url)}" data-act="view-topo-image" data-url="${esc(img.url)}" style="width:32px; height:32px; object-fit:cover; border-radius:2px; cursor:pointer;"/>
+      <img src="${esc(img.url)}" data-act="view-topo-image" data-url="${esc(img.url)}" data-image-id="${esc(img.id||'')}" style="width:32px; height:32px; object-fit:cover; border-radius:2px; cursor:pointer;"/>
       Bild ${i+1}
       <button type="button" data-act="remove-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">×</button>
     </span>`
@@ -2131,18 +2129,331 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
 
 function topoImagesGalleryHtml(images){
   if(!images || !images.length) return '';
-  return `<div class="chips" style="margin-top:6px;">${images.map((img,i)=>
-    `<img src="${esc(img.url)}" data-act="view-topo-image" data-url="${esc(img.url)}" style="width:70px; height:70px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer;"/>`
+  return `<div class="chips topo-gallery" style="margin-top:6px;">${images.map((img,i)=>
+    `<img src="${esc(img.url)}" data-act="view-topo-image" data-url="${esc(img.url)}" data-image-id="${esc(img.id||'')}" style="width:70px; height:70px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer;"/>`
   ).join('')}</div>`;
 }
 
-function showTopoImageLightbox(url){
+function showTopoImageLightbox(images, startIndex, offlineId){
+  if(!images || !images.length) return;
+  let idx = startIndex || 0;
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px;';
-  overlay.innerHTML = `<img src="${esc(url)}" style="max-width:100%; max-height:100%; object-fit:contain; border-radius:4px;"/>
-    <button type="button" style="position:absolute; top:16px; right:16px; background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:22px; line-height:1;">×</button>`;
-  overlay.addEventListener('click', ()=> overlay.remove());
+  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; touch-action:pan-y;';
+
+  const imgEl = document.createElement('img');
+  imgEl.style.cssText = 'max-width:100%; max-height:100%; object-fit:contain; border-radius:4px;';
+  overlay.appendChild(imgEl);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button'; closeBtn.textContent = '×';
+  closeBtn.style.cssText = 'position:absolute; top:16px; right:16px; background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:22px; line-height:1;';
+  closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); overlay.remove(); });
+  overlay.appendChild(closeBtn);
+
+  let counterEl = null;
+  function goTo(n){ idx = (n + images.length) % images.length; updateImage(); }
+  if(images.length > 1){
+    const prevBtn = document.createElement('button');
+    prevBtn.type = 'button'; prevBtn.textContent = '‹';
+    prevBtn.style.cssText = 'position:absolute; left:10px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:44px; height:44px; font-size:24px;';
+    prevBtn.addEventListener('click', (e)=>{ e.stopPropagation(); goTo(idx-1); });
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button'; nextBtn.textContent = '›';
+    nextBtn.style.cssText = 'position:absolute; right:10px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:44px; height:44px; font-size:24px;';
+    nextBtn.addEventListener('click', (e)=>{ e.stopPropagation(); goTo(idx+1); });
+    counterEl = document.createElement('div');
+    counterEl.style.cssText = 'position:absolute; bottom:16px; left:50%; transform:translateX(-50%); color:#fff; font-size:13px; background:rgba(0,0,0,0.5); padding:4px 12px; border-radius:12px;';
+    overlay.appendChild(prevBtn);
+    overlay.appendChild(nextBtn);
+    overlay.appendChild(counterEl);
+  }
+
+  async function updateImage(){
+    const item = images[idx];
+    let src = item.url;
+    if(offlineId && item.id){
+      try{
+        const blob = await idbGet('images', offlineId + '_' + item.id);
+        if(blob) src = URL.createObjectURL(blob);
+      }catch(e){ /* kein Offline-Bild vorhanden — normale URL bleibt bestehen */ }
+    }
+    imgEl.src = src;
+    if(counterEl) counterEl.textContent = `${idx+1} / ${images.length}`;
+  }
+  updateImage();
+
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+
+  let touchStartX = null;
+  overlay.addEventListener('touchstart', (e)=>{ touchStartX = e.touches[0].clientX; }, {passive:true});
+  overlay.addEventListener('touchend', (e)=>{
+    if(touchStartX===null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    touchStartX = null;
+    if(Math.abs(dx) > 50){ if(dx>0) goTo(idx-1); else goTo(idx+1); }
+  }, {passive:true});
+
   document.body.appendChild(overlay);
+}
+
+/* ================= Offline-Download für unterwegs (Kartenkacheln + Bilder, 7 Tage) ================= */
+const OFFLINE_DB_NAME = 'bergtouren-offline';
+const OFFLINE_DAYS = 7;
+const OFFLINE_ZOOMS = [13, 14, 15, 16];
+const OFFLINE_MAX_TILES = 500;
+
+function openOfflineDB(){
+  return new Promise((resolve, reject)=>{
+    if(!window.indexedDB){ reject(new Error('Offline-Speicher wird von diesem Browser nicht unterstützt.')); return; }
+    const req = indexedDB.open(OFFLINE_DB_NAME, 1);
+    req.onupgradeneeded = (e)=>{
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains('tiles')) db.createObjectStore('tiles');
+      if(!db.objectStoreNames.contains('images')) db.createObjectStore('images');
+      if(!db.objectStoreNames.contains('downloads')) db.createObjectStore('downloads');
+    };
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error || new Error('Offline-Datenbank konnte nicht geöffnet werden.'));
+  });
+}
+async function idbPut(storeName, key, value){
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).put(value, key);
+    tx.oncomplete = ()=> resolve();
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+async function idbGet(storeName, key){
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(storeName, 'readonly');
+    const req = tx.objectStore(storeName).get(key);
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function idbGetAllEntries(storeName){
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(storeName, 'readonly');
+    const store = tx.objectStore(storeName);
+    const keysReq = store.getAllKeys();
+    const valsReq = store.getAll();
+    let keys=null, vals=null;
+    keysReq.onsuccess = ()=> keys = keysReq.result;
+    valsReq.onsuccess = ()=> vals = valsReq.result;
+    tx.oncomplete = ()=> resolve((keys||[]).map((k,i)=>({key:k, value:(vals||[])[i]})));
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+async function idbDeleteByPrefix(storeName, prefix){
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    const req = store.openCursor();
+    req.onsuccess = (e)=>{
+      const cursor = e.target.result;
+      if(cursor){
+        if(String(cursor.key).indexOf(prefix)===0) cursor.delete();
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = ()=> resolve();
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+async function idbDeleteKey(storeName, key){
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).delete(key);
+    tx.oncomplete = ()=> resolve();
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+
+function lonToTileX(lon, z){ return Math.floor((lon+180)/360*Math.pow(2,z)); }
+function latToTileY(lat, z){
+  const rad = lat*Math.PI/180;
+  return Math.floor((1 - Math.log(Math.tan(rad)+1/Math.cos(rad))/Math.PI)/2 * Math.pow(2,z));
+}
+
+function computeOfflineTileList(allCoords){
+  if(!allCoords.length) return [];
+  let minLat=90, maxLat=-90, minLon=180, maxLon=-180;
+  allCoords.forEach(([lat,lon])=>{
+    if(lat<minLat) minLat=lat; if(lat>maxLat) maxLat=lat;
+    if(lon<minLon) minLon=lon; if(lon>maxLon) maxLon=lon;
+  });
+  const buf = 0.01; // grober Puffer rund um die Route
+  minLat-=buf; maxLat+=buf; minLon-=buf; maxLon+=buf;
+  const tiles = [];
+  OFFLINE_ZOOMS.forEach(z=>{
+    const xMin = lonToTileX(minLon,z), xMax = lonToTileX(maxLon,z);
+    const yMin = latToTileY(maxLat,z), yMax = latToTileY(minLat,z);
+    for(let x=xMin; x<=xMax; x++){
+      for(let y=yMin; y<=yMax; y++){
+        tiles.push({z,x,y});
+      }
+    }
+  });
+  return tiles;
+}
+
+async function deleteTourOfflineData(offlineId){
+  await idbDeleteByPrefix('tiles', offlineId + '_');
+  await idbDeleteByPrefix('images', offlineId + '_');
+  await idbDeleteKey('downloads', offlineId);
+}
+
+async function getTourOfflineStatus(offlineId){
+  try{
+    const record = await idbGet('downloads', offlineId);
+    if(!record) return null;
+    if(Date.now() > record.expiresAt){
+      await deleteTourOfflineData(offlineId);
+      return null;
+    }
+    return record;
+  }catch(e){ return null; }
+}
+
+async function cleanupExpiredOfflineDownloads(){
+  try{
+    const all = await idbGetAllEntries('downloads');
+    const now = Date.now();
+    for(const entry of all){
+      if(entry.value && entry.value.expiresAt < now){
+        await deleteTourOfflineData(entry.key);
+      }
+    }
+  }catch(e){ /* Offline-Speicher evtl. nicht verfügbar — kein Problem, still ignorieren */ }
+}
+
+async function downloadTourOffline(offlineId, tourName, allCoords, images, onProgress){
+  await deleteTourOfflineData(offlineId);
+  const tileList = computeOfflineTileList(allCoords);
+  if(!tileList.length) throw new Error('Keine Standortdaten zum Herunterladen vorhanden — zuerst Punkte oder eine Linie erfassen.');
+  if(tileList.length > OFFLINE_MAX_TILES) throw new Error('Das abgedeckte Gebiet ist zu gross für den Offline-Download (mehr als ' + OFFLINE_MAX_TILES + ' Kartenkacheln).');
+  const totalSteps = tileList.length + (images ? images.length : 0);
+  let done = 0;
+  for(const {z,x,y} of tileList){
+    try{
+      const url = `https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/${z}/${x}/${y}.jpeg`;
+      const res = await fetch(url);
+      if(res.ok){
+        const blob = await res.blob();
+        await idbPut('tiles', `${offlineId}_${z}_${x}_${y}`, blob);
+      }
+    }catch(e){ /* einzelne Kachel überspringen, Rest weiter versuchen */ }
+    done++;
+    if(onProgress) onProgress(done, totalSteps);
+  }
+  if(images && images.length){
+    for(const img of images){
+      try{
+        const res = await fetch(img.url);
+        if(res.ok){
+          const blob = await res.blob();
+          await idbPut('images', `${offlineId}_${img.id}`, blob);
+        }
+      }catch(e){}
+      done++;
+      if(onProgress) onProgress(done, totalSteps);
+    }
+  }
+  const now = Date.now();
+  const expiresAt = now + OFFLINE_DAYS*24*60*60*1000;
+  await idbPut('downloads', offlineId, { offlineId, tourName, downloadedAt: now, expiresAt, tileCount: tileList.length, imageCount: (images?images.length:0) });
+  return true;
+}
+
+function formatOfflineRemaining(expiresAt){
+  const msLeft = expiresAt - Date.now();
+  if(msLeft <= 0) return 'abgelaufen';
+  const daysLeft = Math.floor(msLeft / (24*60*60*1000));
+  const hoursLeft = Math.floor((msLeft % (24*60*60*1000)) / (60*60*1000));
+  if(daysLeft >= 1) return `noch ${daysLeft} Tag${daysLeft===1?'':'e'} offline verfügbar`;
+  return `noch ${hoursLeft} Std. offline verfügbar`;
+}
+
+function createOfflineAwareTileLayer(offlineId){
+  const OfflineTileLayer = L.TileLayer.extend({
+    createTile: function(coords, done){
+      const tile = document.createElement('img');
+      const z = coords.z, x = coords.x, y = coords.y;
+      const networkUrl = `https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/${z}/${x}/${y}.jpeg`;
+      idbGet('tiles', `${offlineId}_${z}_${x}_${y}`).then(blob=>{
+        if(blob){
+          tile.src = URL.createObjectURL(blob);
+          done(null, tile);
+        }else{
+          tile.onload = ()=> done(null, tile);
+          tile.onerror = ()=> done(new Error('Kachel nicht verfügbar'), tile);
+          tile.src = networkUrl;
+        }
+      }).catch(()=>{
+        tile.onload = ()=> done(null, tile);
+        tile.onerror = ()=> done(new Error('Kachel nicht verfügbar'), tile);
+        tile.src = networkUrl;
+      });
+      return tile;
+    }
+  });
+  return new OfflineTileLayer('', { maxZoom: 18, attribution: '© swisstopo' });
+}
+
+/* ================= Live-GPS-Standort auf der Karte ================= */
+let gpsWatchId = null;
+let gpsMarker = null;
+function startLiveGpsOnMap(map){
+  if(!navigator.geolocation) return;
+  stopLiveGpsOnMap();
+  gpsWatchId = navigator.geolocation.watchPosition((pos)=>{
+    const latlng = [pos.coords.latitude, pos.coords.longitude];
+    if(!gpsMarker){
+      gpsMarker = L.circleMarker(latlng, {radius:8, color:'#fff', weight:3, fillColor:'#1565C0', fillOpacity:1, pane:'markerPane'}).addTo(map);
+    }else{
+      gpsMarker.setLatLng(latlng);
+    }
+  }, (err)=>{
+    dlog('GPS-Standort nicht verfügbar: ' + (err && err.message ? err.message : err), 'err');
+  }, { enableHighAccuracy:true, maximumAge:5000 });
+}
+function stopLiveGpsOnMap(){
+  if(gpsWatchId !== null){ try{ navigator.geolocation.clearWatch(gpsWatchId); }catch(e){} gpsWatchId = null; }
+  if(gpsMarker){ try{ gpsMarker.remove(); }catch(e){} gpsMarker = null; }
+}
+
+/* ================= Offline-Bereich: Anzeige in der Detailansicht ================= */
+function offlineSectionHtml(offlineId){
+  return `<div class="detail-section" id="offline-section-${offlineId}">
+    <h4>Für unterwegs</h4>
+    <div id="offline-body-${offlineId}"><p style="font-size:13px; color:var(--ink-soft);">Lädt…</p></div>
+  </div>`;
+}
+
+async function refreshOfflineSectionUI(offlineId){
+  const bodyEl = document.getElementById('offline-body-' + offlineId);
+  if(!bodyEl) return;
+  const status = await getTourOfflineStatus(offlineId);
+  if(status){
+    bodyEl.innerHTML = `
+      <p style="font-size:13px; color:var(--ok); margin:0 0 8px 0;">✓ ${formatOfflineRemaining(status.expiresAt)}</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="btn secondary" id="gps-toggle-${offlineId}" data-act="toggle-live-gps" data-offline-id="${offlineId}">📍 Standort auf Karte zeigen</button>
+        <button type="button" class="btn secondary" data-act="delete-offline" data-offline-id="${offlineId}" style="color:var(--danger);">🗑️ Offline-Daten löschen</button>
+      </div>
+    `;
+  }else{
+    bodyEl.innerHTML = `
+      <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Lädt Kartenausschnitt und Bilder herunter, ${OFFLINE_DAYS} Tage offline verfügbar — praktisch, bevor's losgeht.</p>
+      <button type="button" class="btn secondary" id="download-offline-btn-${offlineId}" data-act="download-offline" data-offline-id="${offlineId}">🔽 Für unterwegs herunterladen</button>
+    `;
+  }
 }
 
 
