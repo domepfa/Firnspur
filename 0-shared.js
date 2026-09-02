@@ -926,8 +926,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     renderList();
     if(!isFullscreen){
       const btn = makeFullscreenButton(
-        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, gpxReferenceTrack); },
-        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, gpxReferenceTrack); }
+        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, refTracks); },
+        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks); }
       );
       wrapDiv.appendChild(btn);
     }
@@ -1230,6 +1230,7 @@ function findToursSharingPoints(currentTour, allTours, maxMeters){
     return otherPoints.some(op => myPoints.some(mp => haversineMeters(mp.lat, mp.lon, op.lat, op.lon) <= maxMeters));
   });
 }
+
 /* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */
 async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId){
   let points = [], manualTrack = [];
@@ -1250,7 +1251,6 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId){
   render();
   showToast(ok ? 'Punkte/Linie gespeichert.' : 'Lokal gespeichert, aber nicht synchronisiert.', !ok);
 }
-
 /* ================= Login (Firebase Authentication, einmalig pro Gerät) ================= */
 const FIREBASE_API_KEY = 'AIzaSyDKHMUoOL5aosFU7OhCt22REbyOvXqAXmU';
 const AUTH_EMAIL = 'firn@spur.so'; // gemeinsames Gruppen-Login — das Passwort ist das eigentliche Geheimnis
@@ -1853,6 +1853,7 @@ function migrateHutAccessRoutes(h){
   }
   return h;
 }
+
 function accessRouteDifficultyRangeHtml(routes){
   if(!routes || !routes.length) return '';
   const sacCodes = routes.map(r=>r.difficulty).filter(Boolean);
@@ -1874,7 +1875,6 @@ function accessRouteDifficultyRangeHtml(routes){
   }
   return parts.join(' · ');
 }
-
 function accessRouteLegendHtml(routes){
   return routes.map((r,i)=>{
     const color = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
@@ -1998,7 +1998,7 @@ function accessRouteRowHtml(r, index, hutId){
   const diffBadges = [];
   if(r.difficulty) diffBadges.push(`<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${r.difficulty}</span>`);
   if(r.difficultyT) diffBadges.push(`<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span>`);
-  return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="edit-access-route" data-hut-id="${hutId}" data-route-id="${r.id}" tabindex="0" role="button">
+  return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="open-access-route" data-hut-id="${hutId}" data-route-id="${r.id}" tabindex="0" role="button">
     <div class="card-top">
       <h3 style="font-size:15px;">${seasonIcon} ${esc(r.name)}</h3>
       <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; margin-top:4px;"></span>
@@ -2009,6 +2009,35 @@ function accessRouteRowHtml(r, index, hutId){
     </div>` : ''}
     ${diffBadges.length ? `<div class="badge-row">${diffBadges.join(' ')}</div>` : ''}
     ${r.description ? `<p class="excerpt">${esc(r.description)}</p>` : ''}
+  </div>`;
+}
+
+function accessRouteDetailHtml(hutId, route){
+  const r = route;
+  const seasonIcon = r.season==='sommer' ? '🌞' : (r.season==='winter' ? '❄️' : '📍');
+  const seasonLabel = r.season==='sommer' ? 'Sommer' : (r.season==='winter' ? 'Winter' : '');
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${seasonIcon} ${esc(r.name)}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    ${seasonLabel ? `<span class="badge" style="background:var(--ice-deep); margin-bottom:10px; display:inline-block;">${seasonLabel}</span>` : ''}
+    ${(r.elevation || r.duration) ? `<div class="detail-stats">
+      ${r.elevation ? `<div class="detail-stat"><div class="num">${esc(r.elevation)}</div><div class="lbl">Hm</div></div>` : ''}
+      ${r.duration ? `<div class="detail-stat"><div class="num">${esc(r.duration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+    </div>` : ''}
+    ${(r.difficulty || r.difficultyT) ? `<div style="margin:10px 0;">
+      ${r.difficulty ? `<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${r.difficulty}</span> ` : ''}
+      ${r.difficultyT ? `<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span>` : ''}
+    </div>` : ''}
+    ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(r.description)}</p></div>` : ''}
+    ${r.gpxLink ? `<div class="detail-section"><h4>GPX-Link</h4><p><a href="${esc(r.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(r.gpxLink)}</a></p></div>` : ''}
+    ${(r.trackSimplified || (r.manualTrack && r.manualTrack.length)) ? `<div class="detail-section">
+      <h4>Karte</h4>
+      <button type="button" class="btn secondary" data-act="show-access-route-map" data-track='${esc(JSON.stringify(r.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(r.manualTrack||[]))}' data-target="map-access-route-${r.id}">🗺️ Karte anzeigen</button>
+      <div id="map-access-route-${r.id}" style="margin-top:10px;"></div>
+    </div>` : ''}
+    <div class="form-actions">
+      <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+      <button type="button" class="btn" data-act="edit-access-route" data-hut-id="${esc(hutId)}" data-route-id="${esc(r.id)}">✏️ Bearbeiten</button>
+    </div>
   </div>`;
 }
 
