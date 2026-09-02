@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v59-zustieg-karte-navigation-fix';
+const APP_VERSION = 'v60-msl-zustieg-abstieg';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -560,6 +560,8 @@ const GPX_TRACKS_PATH = 'fixseil/gpxTracks'; // eigener, separater Pfad — wird
 const HUT_GPX_SUMMER_PATH = 'hutGpxTracksSummer'; // appübergreifend geteilt, wie die Hütten selbst
 const HUT_GPX_WINTER_PATH = 'hutGpxTracksWinter';
 const ACCESS_ROUTE_GPX_PATH = 'hutAccessRouteGpxTracks'; // appübergreifend geteilt, wie die Hütten selbst
+const MSL_ACCESS_ROUTE_GPX_PATH = 'mslAccessRouteGpxTracks'; // Zustiege bei MSL-Touren
+const MSL_DESCENT_ROUTE_GPX_PATH = 'mslDescentRouteGpxTracks'; // Abstiege bei MSL-Touren
 const OTHER_TOURS_PATH = 'tours';
 const OWN_APP_LABEL = '🧗 Hochtour';
 const OTHER_APP_LABEL = '🎿 Skitour';
@@ -787,11 +789,13 @@ function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===i
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
 function closeModal(){
   stopLiveGpsOnMap();
-  // Zustiege sind "verschachtelt" unter einer Hütte — beim Schliessen zurück zur
-  // Hütten-Detailansicht statt ganz zur Übersicht, damit man nicht jedes Mal neu
-  // hinein navigieren muss.
+  // Zustiege sind "verschachtelt" unter einer Hütte / Tour — beim Schliessen zurück
+  // zur jeweiligen Detailansicht statt ganz zur Übersicht, damit man nicht jedes
+  // Mal neu hinein navigieren muss.
   if(state.modal && (state.modal.type==='access-route-detail' || state.modal.type==='edit-access-route') && state.modal.payload && state.modal.payload.hutId){
     state.modal = {type:'hut-detail', payload: state.modal.payload.hutId};
+  }else if(state.modal && (state.modal.type==='tour-route-detail' || state.modal.type==='edit-tour-route') && state.modal.payload && state.modal.payload.tourId){
+    state.modal = {type:'tour-detail', payload: state.modal.payload.tourId};
   }else{
     state.modal = null;
   }
@@ -991,6 +995,155 @@ async function deleteAccessRoute(hutId, routeId){
   showToast('Zustieg gelöscht.');
 }
 
+/* ================= MSL: Zustiege & Abstiege pro Tour (analog zu Hütten-Zustiegen,
+   aber nur Sommer und nur Wanderskala T, kein SAC/Jahreszeit-Feld nötig) ================= */
+function ensureTourRouteArrays(t){
+  if(!Array.isArray(t.accessRoutes)) t.accessRoutes = [];
+  if(!Array.isArray(t.descentRoutes)) t.descentRoutes = [];
+  return t;
+}
+
+function tourRouteFieldName(kind){ return kind==='descent' ? 'descentRoutes' : 'accessRoutes'; }
+function tourRouteGpxPath(kind){ return kind==='descent' ? MSL_DESCENT_ROUTE_GPX_PATH : MSL_ACCESS_ROUTE_GPX_PATH; }
+function tourRouteTitle(kind){ return kind==='descent' ? 'Abstieg' : 'Zustieg'; }
+
+function tourRouteRowHtml(r, index, tourId, kind){
+  const color = ACCESS_ROUTE_COLORS[index % ACCESS_ROUTE_COLORS.length];
+  const icon = kind==='descent' ? '🔽' : '🚶';
+  return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="open-tour-route" data-tour-id="${tourId}" data-kind="${kind}" data-route-id="${r.id}" tabindex="0" role="button">
+    <div class="card-top">
+      <h3 style="font-size:15px;">${icon} ${esc(r.name)}</h3>
+      <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; margin-top:4px;"></span>
+    </div>
+    ${(r.elevation || r.duration) ? `<div class="stat-row">
+      ${r.elevation ? `<span>↑ <span class="mono">${esc(r.elevation)}</span> Hm</span>` : ''}
+      ${r.duration ? `<span>⏱ <span class="mono">${esc(r.duration)}</span></span>` : ''}
+    </div>` : ''}
+    ${r.difficultyT ? `<div class="badge-row"><span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span></div>` : ''}
+    ${r.description ? `<p class="excerpt">${esc(r.description)}</p>` : ''}
+  </div>`;
+}
+
+function tourRouteDetailHtml(tourId, route, kind){
+  const r = route;
+  const icon = kind==='descent' ? '🔽' : '🚶';
+  const title = tourRouteTitle(kind);
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${icon} ${esc(r.name)}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <span class="badge" style="background:var(--ice-deep); margin-bottom:10px; display:inline-block;">${title}</span>
+    ${(r.elevation || r.duration) ? `<div class="detail-stats">
+      ${r.elevation ? `<div class="detail-stat"><div class="num">${esc(r.elevation)}</div><div class="lbl">Hm</div></div>` : ''}
+      ${r.duration ? `<div class="detail-stat"><div class="num">${esc(r.duration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+    </div>` : ''}
+    ${r.difficultyT ? `<div style="margin:10px 0;"><span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span></div>` : ''}
+    ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(r.description)}</p></div>` : ''}
+    ${r.gpxLink ? `<div class="detail-section"><h4>GPX-Link</h4><p><a href="${esc(r.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(r.gpxLink)}</a></p></div>` : ''}
+    ${(r.trackSimplified || (r.manualTrack && r.manualTrack.length)) ? `<div class="detail-section">
+      <h4>Karte</h4>
+      <button type="button" class="btn secondary" data-act="show-tour-route-map" data-track='${esc(JSON.stringify(r.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(r.manualTrack||[]))}' data-target="map-tour-route-${r.id}">🗺️ Karte anzeigen</button>
+      <div id="map-tour-route-${r.id}" style="margin-top:10px;"></div>
+    </div>` : ''}
+    <div class="form-actions">
+      <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+      <button type="button" class="btn" data-act="edit-tour-route" data-tour-id="${esc(tourId)}" data-kind="${kind}" data-route-id="${esc(r.id)}">✏️ Bearbeiten</button>
+    </div>
+  </div>`;
+}
+
+function tourRouteFormHtml(tourId, kind, route){
+  const r = route || {};
+  const title = tourRouteTitle(kind);
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${route?title+' bearbeiten':'Neuer '+title}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <form id="tour-route-form" novalidate>
+      <input type="hidden" name="tourId" value="${esc(tourId)}"/>
+      <input type="hidden" name="kind" value="${esc(kind)}"/>
+      <input type="hidden" name="routeId" value="${esc(r.id||'')}"/>
+      <div class="field"><label>Name *</label><input required name="name" value="${esc(r.name||'')}" placeholder="${kind==='descent' ? 'z. B. Fussabstieg über Normalweg' : 'z. B. ab Parkplatz XY'}"/></div>
+      <div class="row2">
+        <div class="field"><label>Höhenmeter (Hm)</label><input name="elevation" value="${esc(r.elevation||'')}"/></div>
+        <div class="field"><label>Zeitbedarf</label><input name="duration" value="${esc(r.duration||'')}"/></div>
+      </div>
+      <div class="field"><label>Wanderskala (T)</label>
+        <select name="difficultyT">
+          <option value="">— keine Angabe —</option>
+          ${HIKE_SCALE_ORDER.map(c=>`<option value="${c}" ${r.difficultyT===c?'selected':''}>${c} — ${HIKE_SCALE[c].label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Beschreibung</label><textarea name="description">${esc(r.description||'')}</textarea></div>
+      <div class="field"><label>Link zu einer GPX-Datei</label><input type="url" name="gpxLink" value="${esc(r.gpxLink||'')}"/></div>
+      <div class="field"><label>Eigenen GPX-Track hochladen</label>
+        <input type="file" id="tour-route-gpx-input" accept=".gpx,application/gpx+xml"/>
+        <p id="tour-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
+        <input type="hidden" name="trackSimplified" id="tour-route-track-hidden" value='${esc(r.trackSimplified ? JSON.stringify(r.trackSimplified) : "")}'/>
+        <input type="hidden" name="routeIdForTrack" id="tour-route-id-for-track" value="${esc(r.id||'')}"/>
+      </div>
+      <div class="field"><label>Route auf der Karte einzeichnen (falls kein GPX vorhanden)</label>
+        <button type="button" class="btn secondary" id="tour-route-map-toggle-btn">🗺️ Karte öffnen</button>
+        <div class="hint">✏️ Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
+        <div id="tour-route-map" style="margin-top:10px; display:none;"></div>
+        <input type="hidden" name="manualTrack" id="tour-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        ${route ? `<button type="button" class="btn danger" data-act="delete-tour-route" data-tour-id="${esc(tourId)}" data-kind="${kind}" data-route-id="${esc(r.id)}" style="margin-right:auto;">Löschen</button>` : ''}
+        <button type="button" id="tour-route-save-btn" class="btn">${route?'Speichern':title+' hinzufügen'}</button>
+      </div>
+    </form>
+  </div>`;
+}
+
+async function submitTourRouteForm(form){
+  const t = state.tours.find(x=>x.id===form.tourId);
+  if(!t) return;
+  ensureTourRouteArrays(t);
+  const kind = form.kind;
+  const field = tourRouteFieldName(kind);
+  let track = null;
+  try{ track = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ track = null; }
+  let manual = [];
+  try{ manual = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ manual = []; }
+  const routeData = {
+    id: form.routeId || uid('tr'),
+    name: (form.name||'').trim(),
+    elevation: form.elevation||'',
+    duration: form.duration||'',
+    difficultyT: form.difficultyT||'',
+    description: form.description||'',
+    gpxLink: form.gpxLink||'',
+    trackSimplified: track,
+    manualTrack: manual
+  };
+  const idx = t[field].findIndex(r=>r.id===routeData.id);
+  if(idx>=0) t[field][idx] = routeData; else t[field].push(routeData);
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  closeModal();
+  state.modal = {type:'tour-detail', payload:t.id};
+  render();
+  const ok = await saveTourCloud(t).catch(()=>false);
+  t._unsynced = !ok;
+  if(!ok){ markUnsaved(); showToast(tourRouteTitle(kind)+' lokal gespeichert, aber nicht synchronisiert.', true); }
+  else{ showToast(tourRouteTitle(kind)+' gespeichert.'); }
+  render();
+}
+
+async function deleteTourRoute(tourId, kind, routeId){
+  const t = state.tours.find(x=>x.id===tourId);
+  if(!t) return;
+  const field = tourRouteFieldName(kind);
+  t[field] = (t[field]||[]).filter(r=>r.id!==routeId);
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  closeModal();
+  state.modal = {type:'tour-detail', payload:tourId};
+  render();
+  const ok = await saveTourCloud(t).catch(()=>false);
+  t._unsynced = !ok;
+  if(!ok) markUnsaved();
+  render();
+  showToast(tourRouteTitle(kind)+' gelöscht.');
+}
 function setFormBusy(formId, busy){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -1469,6 +1622,8 @@ function renderModal(){
   else if(m.type==='edit-hut') inner = hutFormHtml(m.payload);
   else if(m.type==='edit-access-route') inner = accessRouteFormHtml(m.payload.hutId, m.payload.route);
   else if(m.type==='access-route-detail') inner = accessRouteDetailHtml(m.payload.hutId, m.payload.route);
+  else if(m.type==='edit-tour-route') inner = tourRouteFormHtml(m.payload.tourId, m.payload.kind, m.payload.route);
+  else if(m.type==='tour-route-detail') inner = tourRouteDetailHtml(m.payload.tourId, m.payload.route, m.payload.kind);
   else if(m.type==='hut-detail') inner = hutDetailHtml(m.payload);
   else if(m.type==='export') inner = exportModalHtml();
   else if(m.type==='import') inner = importModalHtml();
@@ -1832,6 +1987,34 @@ function tourDetailHtml(id){
       <input type="hidden" id="quick-manual-track-hidden-${t.id}" value='${esc(JSON.stringify(t.manualTrack||[]))}'/>
       <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${t.id}" data-act="quick-save" data-id="${t.id}" data-kind="tour">💾 Änderungen speichern</button>
     </div>
+    ${isMsl ? (() => {
+      ensureTourRouteArrays(t);
+      const accessRoutes = t.accessRoutes || [];
+      const descentRoutes = t.descentRoutes || [];
+      const accessRange = accessRouteDifficultyRangeHtml(accessRoutes);
+      const descentRange = accessRouteDifficultyRangeHtml(descentRoutes);
+      return `
+      <div class="detail-section">
+        <h4>Zustiege${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
+        ${accessRoutes.length ? `
+          ${accessRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${accessRange}</p>` : ''}
+          <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-target="map-tour-access-${t.id}">🗺️ Karte anzeigen</button>
+          <div id="map-tour-access-${t.id}" style="margin-bottom:10px;"></div>
+          <div class="grid">${accessRoutes.map((r,i)=>tourRouteRowHtml(r,i,t.id,'access')).join('')}</div>
+        ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
+        <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-tour-route" data-tour-id="${t.id}" data-kind="access">+ Zustieg hinzufügen</button>
+      </div>
+      <div class="detail-section">
+        <h4>Abstiege${descentRoutes.length ? ` (${descentRoutes.length})` : ''}</h4>
+        ${descentRoutes.length ? `
+          ${descentRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${descentRange}</p>` : ''}
+          <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-target="map-tour-descent-${t.id}">🗺️ Karte anzeigen</button>
+          <div id="map-tour-descent-${t.id}" style="margin-bottom:10px;"></div>
+          <div class="grid">${descentRoutes.map((r,i)=>tourRouteRowHtml(r,i,t.id,'descent')).join('')}</div>
+        ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
+        <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-tour-route" data-tour-id="${t.id}" data-kind="descent">+ Abstieg hinzufügen</button>
+      </div>`;
+    })() : ''}
     ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.topoImages && t.topoImages.length)) ? offlineSectionHtml(t.id) : ''}
     ${(t.gpxLink || t.trackSimplified) ? `<div class="detail-section">
       <h4>GPX-Track</h4>
@@ -2769,6 +2952,52 @@ function wireModalHandlers(){
     });
   }
 
+  const tourRouteForm = document.getElementById('tour-route-form');
+  if(tourRouteForm){
+    const gpxInput = document.getElementById('tour-route-gpx-input');
+    if(gpxInput) gpxInput.addEventListener('change', ()=>{
+      const kindField = tourRouteForm.querySelector('[name="kind"]');
+      const kind = kindField ? kindField.value : 'access';
+      handleGpxFileUpload(gpxInput, tourRouteGpxPath(kind), 'tour-route-id-for-track', 'tour-route-track-hidden', 'tour-route-gpx-status');
+    });
+
+    const routeMapToggleBtn = document.getElementById('tour-route-map-toggle-btn');
+    if(routeMapToggleBtn) routeMapToggleBtn.addEventListener('click', ()=>{
+      const mapDiv = document.getElementById('tour-route-map');
+      if(mapDiv) mapDiv.style.display = '';
+      const trackHidden = document.getElementById('tour-route-track-hidden');
+      const refTracks = [];
+      if(trackHidden && trackHidden.value){
+        try{ const t = JSON.parse(trackHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8384F', label:'🔴 Rot: hochgeladener GPX-Track'}); }catch(e){}
+      }
+      if(!document.getElementById('tour-route-points-dummy')){
+        const dummy = document.createElement('input');
+        dummy.type = 'hidden'; dummy.id = 'tour-route-points-dummy'; dummy.value = '[]';
+        document.body.appendChild(dummy);
+      }
+      renderPointsEditorMap('tour-route-map', 'tour-route-points-dummy', 'tour-route-points-dummy-list', 'tour-route-manual-track-hidden', refTracks);
+    });
+
+    const routeSaveBtn = document.getElementById('tour-route-save-btn');
+    if(routeSaveBtn) routeSaveBtn.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const fd = new FormData(tourRouteForm);
+      const data = Object.fromEntries(fd.entries());
+      if(!data.name || !data.name.trim()){
+        showFormError('tour-route-form', 'Bitte einen Namen eingeben.');
+        return;
+      }
+      submitTourRouteForm(data);
+    });
+
+    const deleteRouteBtn = tourRouteForm.parentElement ? tourRouteForm.parentElement.querySelector('[data-act="delete-tour-route"]') : null;
+    if(deleteRouteBtn) deleteRouteBtn.addEventListener('click', ()=>{
+      if(confirm('Diesen Eintrag wirklich löschen?')){
+        deleteTourRoute(deleteRouteBtn.getAttribute('data-tour-id'), deleteRouteBtn.getAttribute('data-kind'), deleteRouteBtn.getAttribute('data-route-id'));
+      }
+    });
+  }
+
   root.querySelectorAll('[data-act="show-access-routes-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const target = btn.getAttribute('data-target');
@@ -2776,6 +3005,26 @@ function wireModalHandlers(){
       try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
       try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
       renderHutAccessRoutesMap(target, pts, routes);
+    });
+  });
+
+  root.querySelectorAll('[data-act="show-tour-routes-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const target = btn.getAttribute('data-target');
+      let pts = [], routes = [];
+      try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
+      try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
+      renderHutAccessRoutesMap(target, pts, routes);
+    });
+  });
+
+  root.querySelectorAll('[data-act="show-tour-route-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const target = btn.getAttribute('data-target');
+      let track = [], manualTrack = [];
+      try{ track = JSON.parse(btn.getAttribute('data-track') || '[]'); }catch(e){ track = []; }
+      try{ manualTrack = JSON.parse(btn.getAttribute('data-manual-track') || '[]'); }catch(e){ manualTrack = []; }
+      renderTrackDisplayMap(target, [], track, manualTrack);
     });
   });
 
@@ -2938,6 +3187,33 @@ function wireModalHandlers(){
       renderTrackDisplayMap(target, [], track, manualTrack);
     });
   });
+
+  root.querySelectorAll('[data-act="add-tour-route"]').forEach(el=> el.onclick = ()=>{
+    state.modal = {type:'edit-tour-route', payload:{tourId: el.getAttribute('data-tour-id'), kind: el.getAttribute('data-kind'), route:null}};
+    render();
+  });
+  root.querySelectorAll('[data-act="open-tour-route"]').forEach(el=> el.onclick = ()=>{
+    const tourId = el.getAttribute('data-tour-id');
+    const kind = el.getAttribute('data-kind');
+    const routeId = el.getAttribute('data-route-id');
+    const t = state.tours.find(x=>x.id===tourId);
+    const field = tourRouteFieldName(kind);
+    const route = t && t[field] ? t[field].find(r=>r.id===routeId) : null;
+    if(!route) return;
+    state.modal = {type:'tour-route-detail', payload:{tourId, kind, route}};
+    render();
+  });
+  root.querySelectorAll('[data-act="edit-tour-route"]').forEach(el=> el.onclick = ()=>{
+    const tourId = el.getAttribute('data-tour-id');
+    const kind = el.getAttribute('data-kind');
+    const routeId = el.getAttribute('data-route-id');
+    const t = state.tours.find(x=>x.id===tourId);
+    const field = tourRouteFieldName(kind);
+    const route = t && t[field] ? t[field].find(r=>r.id===routeId) : null;
+    if(!route) return;
+    state.modal = {type:'edit-tour-route', payload:{tourId, kind, route}};
+    render();
+  });
 }
 
 /* ================= Global error safety net ================= */
@@ -3004,5 +3280,4 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
-
 
