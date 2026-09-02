@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v60-msl-zustieg-abstieg';
+const APP_VERSION = 'v61-typo-abstiegsart-fixes';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -879,7 +879,8 @@ async function submitTourForm(form, existing){
     t.crevasseRisk = form.crevasseRisk || 'nein';
     t.exposition = form.expositionHochtour || [];
     t.gefahren = form.gefahrenHochtour || [];
-    t.mandatoryDifficulty = ''; t.cruxDifficulty = ''; t.pitchCount = ''; t.longestPitch = ''; t.protection = ''; t.descentType = '';
+    t.mandatoryDifficulty = ''; t.cruxDifficulty = ''; t.pitchCount = ''; t.longestPitch = ''; t.protection = '';
+    t.descentType = form.descentTypeHochtour || '';
   }
 
   t.updatedAt = new Date().toISOString();
@@ -1015,8 +1016,9 @@ function tourRouteRowHtml(r, index, tourId, kind){
       <h3 style="font-size:15px;">${icon} ${esc(r.name)}</h3>
       <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; margin-top:4px;"></span>
     </div>
-    ${(r.elevation || r.duration) ? `<div class="stat-row">
-      ${r.elevation ? `<span>↑ <span class="mono">${esc(r.elevation)}</span> Hm</span>` : ''}
+    ${(r.elevation || r.elevationUp || r.duration) ? `<div class="stat-row">
+      ${r.elevation ? `<span>${kind==='descent'?'↓':'↑'} <span class="mono">${esc(r.elevation)}</span> Hm</span>` : ''}
+      ${r.elevationUp ? `<span>↑ <span class="mono">${esc(r.elevationUp)}</span> Hm Gegenanstieg</span>` : ''}
       ${r.duration ? `<span>⏱ <span class="mono">${esc(r.duration)}</span></span>` : ''}
     </div>` : ''}
     ${r.difficultyT ? `<div class="badge-row"><span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span></div>` : ''}
@@ -1031,8 +1033,9 @@ function tourRouteDetailHtml(tourId, route, kind){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${icon} ${esc(r.name)}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <span class="badge" style="background:var(--ice-deep); margin-bottom:10px; display:inline-block;">${title}</span>
-    ${(r.elevation || r.duration) ? `<div class="detail-stats">
-      ${r.elevation ? `<div class="detail-stat"><div class="num">${esc(r.elevation)}</div><div class="lbl">Hm</div></div>` : ''}
+    ${(r.elevation || r.elevationUp || r.duration) ? `<div class="detail-stats">
+      ${r.elevation ? `<div class="detail-stat"><div class="num">${kind==='descent'?'↓':'↑'} ${esc(r.elevation)}</div><div class="lbl">Hm</div></div>` : ''}
+      ${r.elevationUp ? `<div class="detail-stat"><div class="num">↑ ${esc(r.elevationUp)}</div><div class="lbl">Hm Gegenanstieg</div></div>` : ''}
       ${r.duration ? `<div class="detail-stat"><div class="num">${esc(r.duration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>` : ''}
     ${r.difficultyT ? `<div style="margin:10px 0;"><span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span></div>` : ''}
@@ -1061,9 +1064,10 @@ function tourRouteFormHtml(tourId, kind, route){
       <input type="hidden" name="routeId" value="${esc(r.id||'')}"/>
       <div class="field"><label>Name *</label><input required name="name" value="${esc(r.name||'')}" placeholder="${kind==='descent' ? 'z. B. Fussabstieg über Normalweg' : 'z. B. ab Parkplatz XY'}"/></div>
       <div class="row2">
-        <div class="field"><label>Höhenmeter (Hm)</label><input name="elevation" value="${esc(r.elevation||'')}"/></div>
+        <div class="field"><label>Höhenmeter ${kind==='descent'?'abwärts (↓)':'(Hm)'}</label><input name="elevation" value="${esc(r.elevation||'')}"/></div>
         <div class="field"><label>Zeitbedarf</label><input name="duration" value="${esc(r.duration||'')}"/></div>
       </div>
+      ${kind==='descent' ? `<div class="field"><label>Höhenmeter aufwärts (Gegenanstieg, falls nötig)</label><input name="elevationUp" value="${esc(r.elevationUp||'')}" placeholder="z. B. 80"/></div>` : ''}
       <div class="field"><label>Wanderskala (T)</label>
         <select name="difficultyT">
           <option value="">— keine Angabe —</option>
@@ -1107,6 +1111,7 @@ async function submitTourRouteForm(form){
     id: form.routeId || uid('tr'),
     name: (form.name||'').trim(),
     elevation: form.elevation||'',
+    elevationUp: form.elevationUp||'',
     duration: form.duration||'',
     difficultyT: form.difficultyT||'',
     description: form.description||'',
@@ -1475,7 +1480,7 @@ function tourCardHtml(t){
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
     <div class="agenda-date-row" style="font-size:12px; margin-bottom:6px;">${isMsl ? '🧗 MSL — Mehrseillängen' : '🏔️ Hochtour'}</div>
     <div class="card-top">
-      <h3>${done ? '✓ ' : ''}${esc(t.name)}</h3>
+      <h3 style="font-style:italic;">${done ? '✓ ' : ''}${esc(t.name)}</h3>
       <div class="badge-row">
         ${isMsl
           ? `${t.mandatoryDifficulty ? `<span class="badge climb">${esc(t.mandatoryDifficulty)}</span>` : ''}`
@@ -1485,7 +1490,7 @@ function tourCardHtml(t){
         ${(t.topoImages && t.topoImages.length) ? `<span class="badge" style="background:var(--signal-deep); color:#3D2E12;">📷 Topo</span>` : ''}
       </div>
     </div>
-    ${t.routeName ? `<p class="excerpt" style="font-style:italic;">${esc(t.routeName)}</p>` : ''}
+    ${t.routeName ? `<h3 style="margin:-4px 0 0 0;">${esc(t.routeName)}</h3>` : ''}
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
@@ -1768,6 +1773,12 @@ function tourFormHtml(existing){
           </div>
           <input type="hidden" name="crevasseRisk" id="crevasse-hidden" value="${esc(t.crevasseRisk||'nein')}"/>
         </div>
+        <div class="field"><label>Abstiegsart</label>
+          <div class="chips">
+            ${DESCENT_TYPES.map(d=>`<button type="button" class="chip descent-chip-ht ${t.descentType===d?'on':''}" style="${t.descentType===d?'background:var(--ice-deep)':''}" data-value="${d}">${d}</button>`).join('')}
+          </div>
+          <input type="hidden" name="descentTypeHochtour" id="descent-hidden-ht" value="${esc((t.tourCategory||'hochtour')!=='msl' ? (t.descentType||'') : '')}"/>
+        </div>
         <div class="field"><label>Exposition</label>
           <div class="chips">
             ${EXPOSITIONS.map(x=>`<button type="button" class="chip exposition-hochtour-chip ${(t.exposition||[]).includes(x)?'on':''}" style="${(t.exposition||[]).includes(x)?'background:var(--ice-deep)':''}" data-value="${x}">${x}</button>`).join('')}
@@ -1894,7 +1905,8 @@ function tourFormHtml(existing){
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(t.manualTrack || []))}'/>
       </div>
       <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
-      <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abstiegsroute, Varianten, Abseilstellen …">${esc(t.descent||'')}</textarea></div>
+      <div id="descent-freetext-field" class="field" style="${(t.tourCategory||'hochtour')!=='msl'?'':'display:none;'}"><label>Abstieg</label><textarea name="descent" placeholder="Abstiegsroute, Varianten, Abseilstellen …">${esc(t.descent||'')}</textarea></div>
+      <div id="descent-msl-hint" class="hint" style="margin:-4px 0 9px 0; ${(t.tourCategory||'hochtour')==='msl'?'':'display:none;'}">Abstieg wird unten in der Detailansicht über "+ Abstieg hinzufügen" strukturiert erfasst (mit Karte/GPX).</div>
       <div class="field"><label>Zustieg über Hütte</label>
         <select name="hutId"><option value="">— keine —</option>${hutOptions}</select>
         <div class="hint">Fehlt die Hütte? Erst unter „Hütten" anlegen, dann hier verlinken.</div>
@@ -1938,11 +1950,11 @@ function tourDetailHtml(id){
           `}
           ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
         </div>
-        <h2>${esc(t.name)}</h2>
+        <h2 style="font-style:italic;">${esc(t.name)}</h2>
       </div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
-    ${t.routeName ? `<p style="color:var(--ink-soft); font-size:14px; font-style:italic; margin:0 0 4px 0;">${esc(t.routeName)}</p>` : ''}
+    ${t.routeName ? `<h2 style="margin:0 0 6px 0;">${esc(t.routeName)}</h2>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-tour-status" data-id="${t.id}">${tourStatusLabel(t)} — antippen zum Ändern</button>
     <div class="detail-stats">
@@ -1956,7 +1968,7 @@ function tourDetailHtml(id){
 
     ${!isMsl && (t.glacier==='ja' || t.crevasseRisk!=='nein') ? `<div class="detail-section"><h4>Gletscher &amp; Spalten</h4><p>${t.glacier==='ja'?'Gletscher: Ja':''}${t.glacier==='ja' && t.crevasseRisk && t.crevasseRisk!=='nein' ? ' · ' : ''}${t.crevasseRisk==='moeglich'?'Spaltenrisiko: möglich':t.crevasseRisk==='ausgepraegt'?'Spaltenrisiko: ausgeprägt':''}</p></div>` : ''}
     ${isMsl && protectionInfo ? `<div class="detail-section"><h4>Absicherung</h4><p>${protectionInfo.label} — ${protectionInfo.desc}</p></div>` : ''}
-    ${isMsl && t.descentType ? `<div class="detail-section"><h4>Abstieg (Sicherheit)</h4><p>${esc(t.descentType)}</p></div>` : ''}
+    ${t.descentType ? `<div class="detail-section"><h4>Abstiegsart</h4><p>${esc(t.descentType)}</p></div>` : ''}
     ${(t.exposition && t.exposition.length) ? `<div class="detail-section"><h4>Exposition</h4><p>${t.exposition.map(esc).join(', ')}</p></div>` : ''}
     ${(t.gefahren && t.gefahren.length) ? `<div class="detail-section"><h4>Gefahren</h4><p>${t.gefahren.map(esc).join(', ')}</p></div>` : ''}
     ${(t.material && t.material.length) || t.quickdrawCount ? `<div class="detail-section"><h4>Material</h4><p>${[...(t.material||[]), t.quickdrawCount ? `${t.quickdrawCount}× Expressschlingen` : ''].filter(Boolean).map(esc).join(', ')}</p></div>` : ''}
@@ -2026,7 +2038,7 @@ function tourDetailHtml(id){
       <div class="grid" style="margin-top:6px;">${related.map(tourCardHtml).join('')}</div>
     </div>` : ''; })()}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
-    ${t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
+    ${!isMsl && t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
 
     <div class="detail-section">
       <h4>Erledigt (${(t.completions||[]).length})</h4>
@@ -2304,6 +2316,7 @@ async function submitCompletion(kind, id, name, date){
 }
 
 /* ================= Event wiring ================= */
+
 function wireGlobalHandlers(){
   const app = document.getElementById('app');
   app.querySelectorAll('[data-act]').forEach(el=>{
@@ -2715,6 +2728,8 @@ function wireModalHandlers(){
     // Tourtyp-Chips (Hochtour / MSL) — blendet passenden Sicherheits-Block ein/aus
     const hochtourFields = document.getElementById('hochtour-safety-fields');
     const mslFields = document.getElementById('msl-safety-fields');
+    const descentFreetextField = document.getElementById('descent-freetext-field');
+    const descentMslHint = document.getElementById('descent-msl-hint');
     tourForm.querySelectorAll('.type-chip').forEach(chip=>{
       chip.addEventListener('click', ()=>{
         const wasOn = chip.classList.contains('on');
@@ -2723,6 +2738,8 @@ function wireModalHandlers(){
           document.getElementById('tourcategory-hidden').value = '';
           if(hochtourFields) hochtourFields.style.display = 'none';
           if(mslFields) mslFields.style.display = 'none';
+          if(descentFreetextField) descentFreetextField.style.display = '';
+          if(descentMslHint) descentMslHint.style.display = 'none';
           return;
         }
         const type = chip.getAttribute('data-type');
@@ -2730,6 +2747,8 @@ function wireModalHandlers(){
         document.getElementById('tourcategory-hidden').value = type;
         if(hochtourFields) hochtourFields.style.display = (type==='hochtour') ? '' : 'none';
         if(mslFields) mslFields.style.display = (type==='msl') ? '' : 'none';
+        if(descentFreetextField) descentFreetextField.style.display = (type==='msl') ? 'none' : '';
+        if(descentMslHint) descentMslHint.style.display = (type==='msl') ? '' : 'none';
       });
     });
     // Generische Single-Select-Chip-Gruppe (Gletscher, Spaltenrisiko, Absicherung, Abstieg)
@@ -2753,6 +2772,7 @@ function wireModalHandlers(){
     wireSingleSelectChips('crevasse-chip', 'crevasse-hidden');
     wireSingleSelectChips('protection-chip', 'protection-hidden');
     wireSingleSelectChips('descent-chip', 'descent-hidden');
+    wireSingleSelectChips('descent-chip-ht', 'descent-hidden-ht');
     // Mehrfachauswahl-Chips (Material, Exposition, Gefahren) — Klick schaltet "on" um
     function wireMultiToggleChips(className){
       tourForm.querySelectorAll('.'+className).forEach(btn=>{
@@ -3280,4 +3300,3 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
-
