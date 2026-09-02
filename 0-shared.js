@@ -156,7 +156,7 @@ function makeCategoryIcon(category){
 }
 const REGION_SUBAREAS = {
   'Wallis': ['Nikolaital/Zermatt','Saastal','Val d\'Anniviers','Lötschental','Goms','Unterwallis','Nufenenpass','Grimselpass','Furkapass','Simplonpass','Grosser St. Bernhard'],
-  'Berner Oberland': ['Lauterbrunnental','Haslital','Kandertal','Diemtigtal','Justistal','Saanenland/Gstaad','Grimselpass','Sustenpass','Jochpass','Grosse Scheidegg'],
+  'Berner Oberland': ['Lauterbrunnental','Haslital','Kandertal','Simmental','Diemtigtal','Justistal','Saanenland/Gstaad','Grimselpass','Sustenpass','Jochpass','Grosse Scheidegg'],
   'Graubünden': ['Engadin','Prättigau','Albula','Surselva','Bergell','Puschlav','Julierpass','Albulapass','Flüelapass','Ofenpass','Splügenpass','Berninapass'],
   'Tessin': ['Bedretto','Maggiatal','Blenio','Leventina','San Bernardino','Nufenenpass','Gotthardpass','Lukmanierpass'],
   'Zentralschweiz': ['Urner Alpen','Glarner Alpen','Nidwalden','Schwyz','Sustenpass','Klausenpass','Gotthardpass','Jochpass'],
@@ -1424,7 +1424,6 @@ function wireAppSwitchSwipe(otherAppUrl){
   });
 }
 
-
 /* ================= Vorlagen fuer ChatGPT/Gemini + Bedienungsanleitung (direkt in der App) ================= */
 const VORLAGE_ANLEITUNG_TEXT = `# Anleitung für ChatGPT/Gemini: Touren-Daten im richtigen Format erstellen
 
@@ -1492,8 +1491,8 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - **Wallis**: Nikolaital/Zermatt, Saastal, Val d'Anniviers, Lötschental, Goms,
     Unterwallis, Nufenenpass, Grimselpass, Furkapass, Simplonpass,
     Grosser St. Bernhard
-  - **Berner Oberland**: Lauterbrunnental, Haslital, Kandertal, Diemtigtal,
-    Justistal, Saanenland/Gstaad, Grimselpass, Sustenpass, Jochpass,
+  - **Berner Oberland**: Lauterbrunnental, Haslital, Kandertal, Simmental,
+    Diemtigtal, Justistal, Saanenland/Gstaad, Grimselpass, Sustenpass, Jochpass,
     Grosse Scheidegg
   - **Graubünden**: Engadin, Prättigau, Albula, Surselva, Bergell, Puschlav,
     Julierpass, Albulapass, Flüelapass, Ofenpass, Splügenpass, Berninapass
@@ -1730,7 +1729,6 @@ function renderMarkdownBasic(text){
   if(inList) html += '</ul>';
   return html;
 }
-
 function vorlagenModalHtml(tourVorlageJson){
   return `<div class="modal" data-stop="1" style="max-width:560px;">
     <div class="modal-head"><h2>📋 Ressourcen &amp; Vorlagen</h2><button class="x-btn" data-act="close-modal">×</button></div>
@@ -2500,6 +2498,4 @@ async function refreshOfflineSectionUI(offlineId){
     `;
   }
 }
-
-
 
