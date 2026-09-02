@@ -468,7 +468,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v65-zustieg-karte-navigation-fix';
+const APP_VERSION = 'v66-typo-route-gipfel';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -868,7 +868,6 @@ async function deleteAccessRoute(hutId, routeId){
   render();
   showToast('Zustieg gelöscht.');
 }
-
 function setFormBusy(formId, busy){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -1114,13 +1113,13 @@ function tourCardHtml(t){
   return `
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
     <div class="card-top">
-      <h3>${t.completed ? '✓ ' : ''}${esc(t.name)}</h3>
+      <h3 style="font-style:italic;">${t.completed ? '✓ ' : ''}${esc(t.name)}</h3>
       <div class="badge-row">
         ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
       </div>
     </div>
-    ${t.routeName ? `<p class="excerpt" style="font-style:italic;">${esc(t.routeName)}</p>` : ''}
+    ${t.routeName ? `<h3 style="margin:-4px 0 0 0;">${esc(t.routeName)}</h3>` : ''}
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
@@ -1482,11 +1481,11 @@ function tourDetailHtml(id){
         ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty} · ${d.label}</span>` : `<span class="badge" style="background:var(--ink-faint)">unbewertet</span>`}
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
       </div>
-        <h2>${esc(t.name)}</h2>
+        <h2 style="font-style:italic;">${esc(t.name)}</h2>
       </div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
-    ${t.routeName ? `<p style="color:var(--ink-soft); font-size:14px; font-style:italic; margin:0 0 4px 0;">${esc(t.routeName)}</p>` : ''}
+    ${t.routeName ? `<h2 style="margin:0 0 6px 0;">${esc(t.routeName)}</h2>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-tour-status" data-id="${t.id}">${tourStatusLabel(t)} — antippen zum Ändern</button>
     <div class="detail-stats">
@@ -2663,5 +2662,4 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
-
 
