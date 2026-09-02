@@ -539,7 +539,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v57-offline-ohne-standort';
+const APP_VERSION = 'v58-zustieg-detailansicht-fullscreen-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1461,6 +1461,7 @@ function renderModal(){
   else if(m.type==='tour-detail') inner = tourDetailHtml(m.payload);
   else if(m.type==='edit-hut') inner = hutFormHtml(m.payload);
   else if(m.type==='edit-access-route') inner = accessRouteFormHtml(m.payload.hutId, m.payload.route);
+  else if(m.type==='access-route-detail') inner = accessRouteDetailHtml(m.payload.hutId, m.payload.route);
   else if(m.type==='hut-detail') inner = hutDetailHtml(m.payload);
   else if(m.type==='export') inner = exportModalHtml();
   else if(m.type==='import') inner = importModalHtml();
@@ -2903,6 +2904,15 @@ function wireModalHandlers(){
     state.modal = {type:'edit-access-route', payload:{hutId: el.getAttribute('data-hut-id'), route:null}};
     render();
   });
+  root.querySelectorAll('[data-act="open-access-route"]').forEach(el=> el.onclick = ()=>{
+    const hutId = el.getAttribute('data-hut-id');
+    const routeId = el.getAttribute('data-route-id');
+    const hut = state.huts.find(h=>h.id===hutId);
+    const route = hut && hut.accessRoutes ? hut.accessRoutes.find(r=>r.id===routeId) : null;
+    if(!route) return;
+    state.modal = {type:'access-route-detail', payload:{hutId, route}};
+    render();
+  });
   root.querySelectorAll('[data-act="edit-access-route"]').forEach(el=> el.onclick = ()=>{
     const hutId = el.getAttribute('data-hut-id');
     const routeId = el.getAttribute('data-route-id');
@@ -2911,6 +2921,15 @@ function wireModalHandlers(){
     if(!route) return;
     state.modal = {type:'edit-access-route', payload:{hutId, route}};
     render();
+  });
+  root.querySelectorAll('[data-act="show-access-route-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const target = btn.getAttribute('data-target');
+      let track = [], manualTrack = [];
+      try{ track = JSON.parse(btn.getAttribute('data-track') || '[]'); }catch(e){ track = []; }
+      try{ manualTrack = JSON.parse(btn.getAttribute('data-manual-track') || '[]'); }catch(e){ manualTrack = []; }
+      renderTrackDisplayMap(target, [], track, manualTrack);
+    });
   });
 }
 
