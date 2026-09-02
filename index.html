@@ -468,7 +468,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v64-zustieg-detailansicht-fullscreen-fix';
+const APP_VERSION = 'v65-zustieg-karte-navigation-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -682,7 +682,14 @@ function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===i
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
 function closeModal(){
   stopLiveGpsOnMap();
-  state.modal = null;
+  // Zustiege sind "verschachtelt" unter einer Hütte — beim Schliessen zurück zur
+  // Hütten-Detailansicht statt ganz zur Übersicht, damit man nicht jedes Mal neu
+  // hinein navigieren muss.
+  if(state.modal && (state.modal.type==='access-route-detail' || state.modal.type==='edit-access-route') && state.modal.payload && state.modal.payload.hutId){
+    state.modal = {type:'hut-detail', payload: state.modal.payload.hutId};
+  }else{
+    state.modal = null;
+  }
   render();
   if(modalHistoryPushed){
     modalHistoryPushed = false;
@@ -873,7 +880,6 @@ function setFormBusy(formId, busy){
     else if(btn.dataset.origText){ btn.textContent = btn.dataset.origText; }
   }
 }
-
 function showFormError(formId, message){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -888,6 +894,7 @@ function showFormError(formId, message){
   box.textContent = message;
   box.scrollIntoView({behavior:'smooth', block:'center'});
 }
+
 /* ================= Sortierung ================= */
 
 function toggleDiffFilter(code){
