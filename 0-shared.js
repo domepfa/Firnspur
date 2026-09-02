@@ -1895,7 +1895,10 @@ function renderHutAccessRoutesMap(containerId, points, routes){
       color: ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length]
     })).filter(t=>t.coords);
     const hasPoints = points && points.length;
-    if(!tracks.length && !hasPoints) return;
+    if(!tracks.length && !hasPoints){
+      if(el2) el2.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Keine Kartendaten vorhanden — noch kein Zustieg hat eine Linie oder einen GPX-Track.</p>';
+      return;
+    }
     const mapDivId = containerId + '-inner';
     destroyExistingMap(mapDivId);
     el2.innerHTML = '';
@@ -1915,14 +1918,18 @@ function renderHutAccessRoutesMap(containerId, points, routes){
     }).addTo(map);
     const boundsItems = [];
     tracks.forEach(t=>{
-      L.polyline(t.coords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
-      const line = L.polyline(t.coords, {color:t.color, weight:4, opacity:1}).addTo(map);
-      boundsItems.push(line);
+      try{
+        L.polyline(t.coords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+        const line = L.polyline(t.coords, {color:t.color, weight:4, opacity:1}).addTo(map);
+        boundsItems.push(line);
+      }catch(e){ /* einzelne fehlerhafte Linie überspringen, Rest der Karte trotzdem zeigen */ }
     });
     if(hasPoints){
       points.forEach(p=>{
-        const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
-        boundsItems.push(m);
+        try{
+          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
+          boundsItems.push(m);
+        }catch(e){ /* einzelner fehlerhafter Punkt überspringen */ }
       });
     }
     if(boundsItems.length){
