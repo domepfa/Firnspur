@@ -674,9 +674,19 @@ function renderStandaloneMap(containerId){
     });
 
     // Alle eigenen Touren (Punkte & Tracks) auf der Karte anzeigen — analog zur Skitouren-Ebene,
-    // aber immer sichtbar (das ist ja der Zweck dieser Übersichtskarte). Langes Drücken auf
-    // einen Punkt/Track öffnet die jeweilige Tour direkt.
-    const boundsItems = [];
+    // aber immer sichtbar (das ist ja der Zweck dieser Übersichtskarte), nach Tourenart farblich
+    // unterschieden und einzeln ein-/ausblendbar. Langes Drücken auf einen Punkt/Track öffnet
+    // die jeweilige Tour direkt.
+    const TOUR_CATEGORY_META = {
+      hochtour: { label: '🏔️ Hochtour', color: '#6A3FA0' },
+      msl: { label: '🧗 MSL', color: '#1E8A7A' },
+      skitour: { label: '🎿 Skitour', color: '#1F4D63' }
+    };
+    function tourCategoryKey(t){
+      if(t.tourCategory === 'msl') return 'msl';
+      if(t.tourCategory === 'hochtour') return 'hochtour';
+      return 'skitour'; // Skitour-App: Touren haben kein tourCategory-Feld
+    }
     function openTourFromMap(tourId){
       closeTopOverlayLayer();
       if(typeof openTourDetail === 'function') openTourDetail(tourId);
@@ -696,31 +706,68 @@ function renderStandaloneMap(containerId){
       wrap.appendChild(btn);
       return wrap;
     }
+    const categoryLayers = {}; // key -> L.layerGroup()
+    const allBoundsItems = [];
     (state.tours || []).forEach(t=>{
+      const catKey = tourCategoryKey(t);
+      const color = (TOUR_CATEGORY_META[catKey] || TOUR_CATEGORY_META.skitour).color;
+      if(!categoryLayers[catKey]) categoryLayers[catKey] = L.layerGroup();
+      const layer = categoryLayers[catKey];
       const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
       if(track){
         try{
-          const line = L.polyline(track, {color:'#6A3FA0', weight:3.5, opacity:0.85}).addTo(map);
+          const line = L.polyline(track, {color, weight:3.5, opacity:0.85}).addTo(layer);
           line.on('contextmenu', (e)=>{
             L.DomEvent.preventDefault(e.originalEvent);
             L.popup().setLatLng(e.latlng).setContent(tourOpenPopupContent(t)).openOn(map);
           });
-          boundsItems.push(line);
+          allBoundsItems.push(line);
         }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
       }
       (t.points||[]).forEach(p=>{
         try{
-          const m = L.circleMarker([p.lat, p.lon], {radius:7, color:'#fff', weight:2, fillColor:'#6A3FA0', fillOpacity:1}).addTo(map);
+          const m = L.circleMarker([p.lat, p.lon], {radius:7, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
           m.on('contextmenu', (e)=>{
             L.DomEvent.preventDefault(e.originalEvent);
             L.popup().setLatLng(e.latlng).setContent(tourOpenPopupContent(t)).openOn(map);
           });
-          boundsItems.push(m);
+          allBoundsItems.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
       });
     });
-    if(boundsItems.length){
-      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+    const presentCategories = Object.keys(categoryLayers);
+    presentCategories.forEach(key=> categoryLayers[key].addTo(map));
+    if(allBoundsItems.length){
+      map.fitBounds(L.featureGroup(allBoundsItems).getBounds(), {padding:[30,30]});
+    }
+    // Umschalt-Chips — auch bei nur einer Tourenart (z. B. in der Skitour-App), damit sich die
+    // eigenen Touren bei Bedarf auch ganz ausblenden lassen. Als echtes Leaflet-Control, damit
+    // es zuverlässig über der Karte liegt.
+    if(presentCategories.length >= 1){
+      const TourFilterControl = L.Control.extend({
+        options: { position: 'topleft' },
+        onAdd: function(){
+          const wrap = L.DomUtil.create('div', 'chips');
+          wrap.style.cssText = 'background:rgba(255,255,255,0.95); padding:6px; border-radius:8px; gap:6px; display:flex; flex-wrap:wrap; max-width:220px;';
+          L.DomEvent.disableClickPropagation(wrap);
+          presentCategories.forEach(key=>{
+            const meta = TOUR_CATEGORY_META[key];
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'chip on';
+            btn.style.cssText = 'background:' + meta.color + '; color:#fff; border-color:transparent; font-size:12px; padding:5px 10px;';
+            btn.textContent = meta.label;
+            btn.addEventListener('click', ()=>{
+              const isOn = btn.classList.toggle('on');
+              if(isOn){ btn.style.background = meta.color; btn.style.color = '#fff'; map.addLayer(categoryLayers[key]); }
+              else{ btn.style.background = ''; btn.style.color = meta.color; map.removeLayer(categoryLayers[key]); }
+            });
+            wrap.appendChild(btn);
+          });
+          return wrap;
+        }
+      });
+      map.addControl(new TourFilterControl());
     }
 
     // Als echtes Leaflet-Control eingebunden (statt als loses DOM-Element über der Karte) —
