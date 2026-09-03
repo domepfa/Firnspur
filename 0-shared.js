@@ -675,8 +675,8 @@ function renderStandaloneMap(containerId){
 
     // Alle eigenen Touren (Punkte & Tracks) auf der Karte anzeigen — analog zur Skitouren-Ebene,
     // aber immer sichtbar (das ist ja der Zweck dieser Übersichtskarte), nach Tourenart farblich
-    // unterschieden und einzeln ein-/ausblendbar. Langes Drücken auf einen Punkt/Track öffnet
-    // die jeweilige Tour direkt.
+    // unterschieden und einzeln ein-/ausblendbar. Antippen eines Punkts/Tracks öffnet die
+    // jeweilige Tour direkt.
     const TOUR_CATEGORY_META = {
       hochtour: { label: '🏔️ Hochtour', color: '#6A3FA0' },
       msl: { label: '🧗 MSL', color: '#1E8A7A' },
@@ -749,16 +749,19 @@ function renderStandaloneMap(containerId){
     }
     const categoryLayers = {}; // key -> L.layerGroup()
     const allBoundsItems = [];
-    // Fügt einen Track (Linie) und/oder Punkte einer Kategorie hinzu; langes Drücken
-    // öffnet über popupContentFn() das jeweilige Original-Element direkt.
+    // Fügt einen Track (Linie) und/oder Punkte einer Kategorie hinzu; Antippen öffnet über
+    // popupContentFn() das jeweilige Original-Element direkt. Normales 'click' statt 'contextmenu'
+    // (langes Drücken), da auf dieser reinen Übersichtskarte nichts versehentlich gesetzt/verändert
+    // werden kann — und langes Drücken auf manchen Mobilgeräten (z. B. iOS Safari) beim Antippen
+    // eines Kartenelements ohnehin nicht zuverlässig als contextmenu-Ereignis ankommt.
     function addMapEntity(catKey, color, track, points, popupContentFn){
       if(!categoryLayers[catKey]) categoryLayers[catKey] = L.layerGroup();
       const layer = categoryLayers[catKey];
       if(track && track.length){
         try{
           const line = L.polyline(track, {color, weight:3.5, opacity:0.85}).addTo(layer);
-          line.on('contextmenu', (e)=>{
-            L.DomEvent.preventDefault(e.originalEvent);
+          line.on('click', (e)=>{
+            L.DomEvent.stopPropagation(e);
             L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
           });
           allBoundsItems.push(line);
@@ -767,8 +770,8 @@ function renderStandaloneMap(containerId){
       (points||[]).forEach(p=>{
         try{
           const m = L.circleMarker([p.lat, p.lon], {radius:7, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
-          m.on('contextmenu', (e)=>{
-            L.DomEvent.preventDefault(e.originalEvent);
+          m.on('click', (e)=>{
+            L.DomEvent.stopPropagation(e);
             L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
           });
           allBoundsItems.push(m);
