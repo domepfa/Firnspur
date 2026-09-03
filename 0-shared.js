@@ -661,7 +661,17 @@ function renderStandaloneMap(containerId){
     el2.appendChild(mapDiv);
     const map = L.map(mapDivId, {attributionControl:true}).setView([46.8182, 8.2275], 8);
     registerMap(mapDivId, map);
-    addBaseLayerSwitcher(map);
+    const { skitourenLayer } = addBaseLayerSwitcher(map);
+
+    // Ist die Skitouren-Ebene eingeschaltet, zeigt ein Klick Infos zur angetippten Route
+    // (Name, GPX-Download) — analog zum Punkte/Linie-Editor.
+    map.on('click', async (e)=>{
+      if(!skitourenLayer || !map.hasLayer(skitourenLayer)) return;
+      const feature = await identifySkitourAt(map, e.latlng);
+      if(feature){
+        L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature)).openOn(map);
+      }
+    });
 
     // Als echtes Leaflet-Control eingebunden (statt als loses DOM-Element über der Karte) —
     // so landet der Button garantiert in Leaflets eigener Control-Ebene, oberhalb der
@@ -794,6 +804,43 @@ function geojsonToLatLngs(geometry){
   if(geometry.type === 'LineString') return geometry.coordinates.map(c=>[c[1], c[0]]);
   if(geometry.type === 'MultiLineString') return geometry.coordinates.flat().map(c=>[c[1], c[0]]);
   return [];
+}
+
+// Popup-Inhalt für eine per identifySkitourAt() gefundene Skitour — Name (falls bekannt)
+// plus GPX-Download. Geteilt zwischen der Standalone-Karte und dem Punkte/Linie-Editor.
+function buildSkitourPopupContent(feature){
+  const wrap = document.createElement('div');
+  wrap.style.minWidth = '190px';
+  // Je nach angeforderter Geometrie-Form liefert swisstopo die Sachdaten mal unter
+  // "attributes" (ESRI-Stil), mal unter "properties" (GeoJSON-Stil) — beides abdecken.
+  const attrs = feature.attributes || feature.properties || {};
+  const knownName = attrs.name || attrs.bezeichnung || attrs.routenname || attrs.label || attrs.title || attrs.routename || attrs.strecke;
+  const name = knownName || 'Skitour';
+  const title = document.createElement('p');
+  title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+  title.textContent = '⛷️ ' + name;
+  wrap.appendChild(title);
+  if(!knownName){
+    // Temporär, bis das echte Namensfeld bekannt ist: alle Rohdaten anzeigen, damit wir
+    // den richtigen Feldnamen identifizieren können.
+    const debugKeys = Object.keys(attrs).filter(k=> attrs[k] !== null && attrs[k] !== '' && k !== 'geometry');
+    if(debugKeys.length){
+      const debugP = document.createElement('p');
+      debugP.style.cssText = 'margin:0 0 8px 0; font-size:11px; color:#888; max-height:120px; overflow-y:auto;';
+      debugP.textContent = debugKeys.map(k=> k + ': ' + attrs[k]).join(' | ');
+      wrap.appendChild(debugP);
+    }
+  }
+  const coords = geojsonToLatLngs(feature.geometry);
+  if(coords.length){
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = '📥 GPX herunterladen';
+    btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+    btn.addEventListener('click', ()=> downloadTrackAsGpx(coords, name));
+    wrap.appendChild(btn);
+  }
+  return wrap;
 }
 
 function renderMiniMap(containerId, lat, lon, label){
@@ -1125,39 +1172,6 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       }
       calcRouteBtn.disabled = false;
     });
-
-    function buildSkitourPopupContent(feature){
-      const wrap = document.createElement('div');
-      wrap.style.minWidth = '190px';
-      const attrs = feature.attributes || {};
-      const knownName = attrs.name || attrs.bezeichnung || attrs.routenname || attrs.label || attrs.title || attrs.routename || attrs.strecke;
-      const name = knownName || 'Skitour';
-      const title = document.createElement('p');
-      title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
-      title.textContent = '⛷️ ' + name;
-      wrap.appendChild(title);
-      if(!knownName){
-        // Temporär, bis das echte Namensfeld bekannt ist: alle Rohdaten anzeigen, damit wir
-        // den richtigen Feldnamen identifizieren können.
-        const debugKeys = Object.keys(attrs).filter(k=> attrs[k] !== null && attrs[k] !== '' && k !== 'geometry');
-        if(debugKeys.length){
-          const debugP = document.createElement('p');
-          debugP.style.cssText = 'margin:0 0 8px 0; font-size:11px; color:#888; max-height:120px; overflow-y:auto;';
-          debugP.textContent = debugKeys.map(k=> k + ': ' + attrs[k]).join(' | ');
-          wrap.appendChild(debugP);
-        }
-      }
-      const coords = geojsonToLatLngs(feature.geometry);
-      if(coords.length){
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.textContent = '📥 GPX herunterladen';
-        btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
-        btn.addEventListener('click', ()=> downloadTrackAsGpx(coords, name));
-        wrap.appendChild(btn);
-      }
-      return wrap;
-    }
 
     map.on('click', async (e)=>{
       if(mode==='line'){
