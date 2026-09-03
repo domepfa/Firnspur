@@ -635,6 +635,69 @@ function closeFullscreenMap(){
   if(container) container.innerHTML = '';
   if(overlay._onClose){ overlay._onClose(); overlay._onClose = null; }
 }
+
+/* ================= Eigenständige Karte (unabhängig von einer Tour), mit Standort/Navi =================
+   Öffnet die Vollbild-Karte direkt, ohne dass vorher eine Tour/Hütte geöffnet sein muss —
+   erreichbar über den Button "🗺️ Karte" oben in der App-Umschalt-Leiste. */
+function openStandaloneMap(){
+  openFullscreenMap(renderStandaloneMap, function(){
+    const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
+    if(m){ try{ m.stopLocate(); }catch(e){} }
+  });
+}
+
+function renderStandaloneMap(containerId){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:#fff;">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = 'width:100%; height:100%;';
+    el2.appendChild(mapDiv);
+    const map = L.map(mapDivId, {attributionControl:true}).setView([46.8182, 8.2275], 8);
+    registerMap(mapDivId, map);
+    addBaseLayerSwitcher(map);
+
+    let gpsMarker = null;
+    let gpsActive = false;
+    const gpsBtn = document.createElement('button');
+    gpsBtn.type = 'button';
+    gpsBtn.textContent = '🧭 Standort anzeigen';
+    gpsBtn.style.cssText = 'position:absolute; bottom:14px; right:14px; z-index:210; background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 16px; height:44px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.4); display:flex; align-items:center; gap:6px;';
+    gpsBtn.addEventListener('click', ()=>{
+      if(!gpsActive){
+        map.locate({ setView:true, maxZoom:15, watch:true, enableHighAccuracy:true });
+        gpsActive = true;
+        gpsBtn.textContent = '🧭 Standort ausblenden';
+      }else{
+        map.stopLocate();
+        gpsActive = false;
+        gpsBtn.textContent = '🧭 Standort anzeigen';
+      }
+    });
+    map.on('locationfound', (e)=>{
+      if(!gpsMarker){
+        gpsMarker = L.circleMarker(e.latlng, {radius:8, color:'#fff', weight:3, fillColor:'#1565C0', fillOpacity:1}).addTo(map);
+      }else{
+        gpsMarker.setLatLng(e.latlng);
+      }
+    });
+    map.on('locationerror', (err)=>{
+      showToast('Standort konnte nicht ermittelt werden: ' + (err && err.message ? err.message : ''), true);
+      gpsActive = false;
+      gpsBtn.textContent = '🧭 Standort anzeigen';
+    });
+    el2.appendChild(gpsBtn);
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:#fff;">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
 function destroyExistingMap(leafletContainerId){
   window.__activeLeafletMaps = window.__activeLeafletMaps || {};
   if(window.__activeLeafletMaps[leafletContainerId]){
@@ -1048,11 +1111,23 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       const wrap = document.createElement('div');
       wrap.style.minWidth = '190px';
       const attrs = feature.attributes || {};
-      const name = attrs.name || attrs.bezeichnung || attrs.routenname || attrs.label || 'Skitour';
+      const knownName = attrs.name || attrs.bezeichnung || attrs.routenname || attrs.label || attrs.title || attrs.routename || attrs.strecke;
+      const name = knownName || 'Skitour';
       const title = document.createElement('p');
       title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
       title.textContent = '⛷️ ' + name;
       wrap.appendChild(title);
+      if(!knownName){
+        // Temporär, bis das echte Namensfeld bekannt ist: alle Rohdaten anzeigen, damit wir
+        // den richtigen Feldnamen identifizieren können.
+        const debugKeys = Object.keys(attrs).filter(k=> attrs[k] !== null && attrs[k] !== '' && k !== 'geometry');
+        if(debugKeys.length){
+          const debugP = document.createElement('p');
+          debugP.style.cssText = 'margin:0 0 8px 0; font-size:11px; color:#888; max-height:120px; overflow-y:auto;';
+          debugP.textContent = debugKeys.map(k=> k + ': ' + attrs[k]).join(' | ');
+          wrap.appendChild(debugP);
+        }
+      }
       const coords = geojsonToLatLngs(feature.geometry);
       if(coords.length){
         const btn = document.createElement('button');
