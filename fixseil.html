@@ -61,13 +61,14 @@
   .app-switch-bar{
     background:var(--ink); display:flex; justify-content:center; gap:0;
   }
-  .app-switch-bar a{
+  .app-switch-bar a, .app-switch-bar button{
     color:rgba(255,255,255,0.55); text-decoration:none; font-size:13.5px; font-weight:700;
     letter-spacing:0.03em; display:flex; align-items:center; justify-content:center; gap:7px;
     padding:11px 20px; flex:1; max-width:220px; text-transform:uppercase;
     border-bottom:3px solid transparent; transition:background .12s ease, color .12s ease;
+    background:none; border-left:none; border-right:none; border-top:none; font-family:inherit; cursor:pointer;
   }
-  .app-switch-bar a:hover{background:rgba(255,255,255,0.08); color:#fff;}
+  .app-switch-bar a:hover, .app-switch-bar button:hover{background:rgba(255,255,255,0.08); color:#fff;}
   .app-switch-bar a.active{color:#fff; border-bottom-color:var(--signal, #F2B705); background:rgba(255,255,255,0.06);}
 
   /* ===== Fels-Hero ===== */
@@ -337,6 +338,7 @@
 <div class="app-switch-bar">
   <a href="./index.html">🎿 Skitour</a>
   <a href="./fixseil.html" class="active">🧗 Hochtour/MSL</a>
+  <button type="button" id="standalone-map-btn">🗺️ Karte</button>
 </div>
 <div id="app"></div>
 <button class="emergency-tab" id="emergency-btn">SOS</button>
@@ -3964,6 +3966,8 @@ try{
 loadAuthFromStorage();
 cleanupExpiredOfflineDownloads();
 wireAppSwitchSwipe('./index.html');
+const standaloneMapBtn = document.getElementById('standalone-map-btn');
+if(standaloneMapBtn) standaloneMapBtn.addEventListener('click', openStandaloneMap);
 function toggleEmergencyCard(){
   if(state.modal && state.modal.type==='emergency'){ closeModal(); }
   else{ state.modal = {type:'emergency'}; render(); }
