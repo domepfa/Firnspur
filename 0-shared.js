@@ -680,7 +680,10 @@ function renderStandaloneMap(containerId){
     const TOUR_CATEGORY_META = {
       hochtour: { label: '🏔️ Hochtour', color: '#6A3FA0' },
       msl: { label: '🧗 MSL', color: '#1E8A7A' },
-      skitour: { label: '🎿 Skitour', color: '#1F4D63' }
+      skitour: { label: '🎿 Skitour', color: '#1F4D63' },
+      huette: { label: '🛖 Hütten', color: '#8A5A2E' },
+      sektor: { label: '⛺ Sektoren', color: '#4A6B3A' },
+      zustieg: { label: '🚶 Zustiege', color: '#C2472D' }
     };
     // Welche Tourenarten überhaupt möglich sind, hängt von der App ab (nicht von
     // Zufällen in den Daten wie z. B. alten Hochtour/MSL-Einträgen ohne tourCategory-Feld
@@ -695,50 +698,128 @@ function renderStandaloneMap(containerId){
       closeTopOverlayLayer();
       if(typeof openTourDetail === 'function') openTourDetail(tourId);
     }
-    function tourOpenPopupContent(t){
+    function openHutFromMap(hutId){
+      closeTopOverlayLayer();
+      if(typeof openHutDetail === 'function') openHutDetail(hutId);
+    }
+    function openHutAccessRouteFromMap(hutId, routeId){
+      closeTopOverlayLayer();
+      const hut = (state.huts||[]).find(h=>h.id===hutId);
+      const route = hut && hut.accessRoutes ? hut.accessRoutes.find(r=>r.id===routeId) : null;
+      if(!hut || !route) return;
+      state.modal = {type:'access-route-detail', payload:{hutId, route}};
+      render();
+    }
+    function openSektorFromMap(sektorId){
+      closeTopOverlayLayer();
+      if(typeof openSektorDetail === 'function') openSektorDetail(sektorId);
+    }
+    function openTourRouteFromMap(tourId, kind, routeId){
+      closeTopOverlayLayer();
+      const t = (state.tours||[]).find(x=>x.id===tourId);
+      const list = t ? (kind==='descent' ? t.descentRoutes : t.accessRoutes) : null;
+      const route = list ? list.find(r=>r.id===routeId) : null;
+      if(!t || !route) return;
+      state.modal = {type:'tour-route-detail', payload:{tourId, kind, route}};
+      render();
+    }
+    function openSektorRouteFromMap(sektorId, kind, routeId){
+      closeTopOverlayLayer();
+      const sek = (state.sektoren||[]).find(x=>x.id===sektorId);
+      const list = sek ? (kind==='descent' ? sek.descentRoutes : sek.accessRoutes) : null;
+      const route = list ? list.find(r=>r.id===routeId) : null;
+      if(!sek || !route) return;
+      state.modal = {type:'sektor-route-detail', payload:{sektorId, kind, route}};
+      render();
+    }
+    function mapPopupContent(icon, title, buttonLabel, onOpen){
       const wrap = document.createElement('div');
       wrap.style.minWidth = '170px';
-      const title = document.createElement('p');
-      title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
-      title.textContent = '🏔️ ' + t.name + (t.routeName ? ' – ' + t.routeName : '');
-      wrap.appendChild(title);
+      const titleEl = document.createElement('p');
+      titleEl.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+      titleEl.textContent = icon + ' ' + title;
+      wrap.appendChild(titleEl);
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = 'Tour öffnen';
+      btn.textContent = buttonLabel;
       btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
-      btn.addEventListener('click', ()=> openTourFromMap(t.id));
+      btn.addEventListener('click', onOpen);
       wrap.appendChild(btn);
       return wrap;
     }
     const categoryLayers = {}; // key -> L.layerGroup()
     const allBoundsItems = [];
-    (state.tours || []).forEach(t=>{
-      const catKey = tourCategoryKey(t);
-      const color = (TOUR_CATEGORY_META[catKey] || TOUR_CATEGORY_META.skitour).color;
+    // Fügt einen Track (Linie) und/oder Punkte einer Kategorie hinzu; langes Drücken
+    // öffnet über popupContentFn() das jeweilige Original-Element direkt.
+    function addMapEntity(catKey, color, track, points, popupContentFn){
       if(!categoryLayers[catKey]) categoryLayers[catKey] = L.layerGroup();
       const layer = categoryLayers[catKey];
-      const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
-      if(track){
+      if(track && track.length){
         try{
           const line = L.polyline(track, {color, weight:3.5, opacity:0.85}).addTo(layer);
           line.on('contextmenu', (e)=>{
             L.DomEvent.preventDefault(e.originalEvent);
-            L.popup().setLatLng(e.latlng).setContent(tourOpenPopupContent(t)).openOn(map);
+            L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
           });
           allBoundsItems.push(line);
         }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
       }
-      (t.points||[]).forEach(p=>{
+      (points||[]).forEach(p=>{
         try{
           const m = L.circleMarker([p.lat, p.lon], {radius:7, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
           m.on('contextmenu', (e)=>{
             L.DomEvent.preventDefault(e.originalEvent);
-            L.popup().setLatLng(e.latlng).setContent(tourOpenPopupContent(t)).openOn(map);
+            L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
           });
           allBoundsItems.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
       });
+    }
+    function routeTrack(r){
+      return (r.trackSimplified && r.trackSimplified.length) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length ? r.manualTrack : null);
+    }
+    (state.tours || []).forEach(t=>{
+      const catKey = tourCategoryKey(t);
+      const color = (TOUR_CATEGORY_META[catKey] || TOUR_CATEGORY_META.skitour).color;
+      const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
+      addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id)));
     });
+    // Hütten (beide Apps) — eigener Standort/Linie, plus deren Zustiege.
+    (state.huts || []).forEach(h=>{
+      const track = (h.manualTrack && h.manualTrack.length) ? h.manualTrack : null;
+      addMapEntity('huette', TOUR_CATEGORY_META.huette.color, track, h.points, ()=> mapPopupContent('🛖', h.name, 'Hütte öffnen', ()=> openHutFromMap(h.id)));
+      (h.accessRoutes || []).forEach(r=>{
+        const rTrack = routeTrack(r);
+        if(!rTrack) return;
+        addMapEntity('zustieg', TOUR_CATEGORY_META.zustieg.color, rTrack, null, ()=> mapPopupContent('🚶', r.name, 'Zustieg öffnen', ()=> openHutAccessRouteFromMap(h.id, r.id)));
+      });
+    });
+    if(isFixseilApp){
+      // MSL-Touren: strukturierte Zustiege & Abstiege.
+      (state.tours || []).forEach(t=>{
+        ['accessRoutes','descentRoutes'].forEach(field=>{
+          const kind = field==='descentRoutes' ? 'descent' : 'access';
+          (t[field] || []).forEach(r=>{
+            const rTrack = routeTrack(r);
+            if(!rTrack) return;
+            addMapEntity('zustieg', TOUR_CATEGORY_META.zustieg.color, rTrack, null, ()=> mapPopupContent('🚶', r.name, (kind==='descent'?'Abstieg':'Zustieg') + ' öffnen', ()=> openTourRouteFromMap(t.id, kind, r.id)));
+          });
+        });
+      });
+      // Sektoren: Ausgangspunkt(e) plus deren Zustiege/Abstiege.
+      (state.sektoren || []).forEach(sek=>{
+        const track = (sek.manualTrack && sek.manualTrack.length) ? sek.manualTrack : null;
+        addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id)));
+        ['accessRoutes','descentRoutes'].forEach(field=>{
+          const kind = field==='descentRoutes' ? 'descent' : 'access';
+          (sek[field] || []).forEach(r=>{
+            const rTrack = routeTrack(r);
+            if(!rTrack) return;
+            addMapEntity('zustieg', TOUR_CATEGORY_META.zustieg.color, rTrack, null, ()=> mapPopupContent('🚶', r.name, (kind==='descent'?'Abstieg':'Zustieg') + ' öffnen', ()=> openSektorRouteFromMap(sek.id, kind, r.id)));
+          });
+        });
+      });
+    }
     const presentCategories = Object.keys(categoryLayers);
     presentCategories.forEach(key=> categoryLayers[key].addTo(map));
     if(allBoundsItems.length){
