@@ -2886,11 +2886,12 @@ function topoImageThumbsHtml(hiddenListId){
   let images = [];
   try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
   if(!images.length) return '';
-  const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url}))));
+  const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url, rotation:img.rotation||0}))));
   return `<div class="chips" style="margin-top:8px;">${images.map((img,i)=>
     `<span class="chip" style="background:var(--ice-light); border-color:transparent; padding:3px 8px 3px 3px; display:inline-flex; align-items:center; gap:6px;">
-      <img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:32px; height:32px; object-fit:cover; border-radius:2px; cursor:pointer;"/>
+      <img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:32px; height:32px; object-fit:cover; border-radius:2px; cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>
       Bild ${i+1}
+      <button type="button" data-act="rotate-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="90° drehen — z. B. wenn quer statt hoch hochgeladen" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">🔄</button>
       <button type="button" data-act="remove-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">×</button>
     </span>`
   ).join('')}</div>`;
@@ -2904,6 +2905,20 @@ function removeTopoImageLocal(hiddenListId, imageId){
   images = images.filter(img=>img.id!==imageId);
   if(hiddenInput) hiddenInput.value = JSON.stringify(images);
   if(removed && removed.storagePath) deleteTopoImageFile(removed.storagePath).catch(()=>{});
+  const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
+  if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(hiddenListId);
+}
+
+// Dreht ein Topo-Bild um 90° (nur die Anzeige-Drehung als Metadatum — das Original-Bild bleibt
+// unverändert). Praktisch für Bilder, die quer statt hoch hochgeladen wurden.
+function rotateTopoImageLocal(hiddenListId, imageId){
+  const hiddenInput = document.getElementById(hiddenListId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  const img = images.find(im=>im.id===imageId);
+  if(!img) return;
+  img.rotation = ((img.rotation||0) + 90) % 360;
+  if(hiddenInput) hiddenInput.value = JSON.stringify(images);
   const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
   if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(hiddenListId);
 }
@@ -2951,9 +2966,9 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
 
 function topoImagesGalleryHtml(images){
   if(!images || !images.length) return '';
-  const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url}))));
+  const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url, rotation:img.rotation||0}))));
   return `<div class="chips topo-gallery" style="margin-top:6px;">${images.map((img,i)=>
-    `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:70px; height:70px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer;"/>`
+    `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:70px; height:70px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>`
   ).join('')}</div>`;
 }
 
@@ -2969,10 +2984,10 @@ function showTopoImageLightbox(images, startIndex, offlineId){
 
   // ===== Zoom (Pinch, Doppeltipp, Mausrad) & Verschieben im gezoomten Zustand =====
   const ZOOM_MIN = 1, ZOOM_MAX = 4;
-  let scale = 1, panX = 0, panY = 0;
+  let scale = 1, panX = 0, panY = 0, currentRotation = 0;
   function applyTransform(withTransition){
     imgEl.style.transition = withTransition ? 'transform 0.18s ease-out' : 'none';
-    imgEl.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    imgEl.style.transform = `rotate(${currentRotation}deg) translate(${panX}px, ${panY}px) scale(${scale})`;
   }
   function clampPan(){
     // Grobe Begrenzung, damit das Bild beim Verschieben nicht zu weit aus dem Bild verschwindet.
@@ -3014,6 +3029,17 @@ function showTopoImageLightbox(images, startIndex, offlineId){
 
   function updateImage(){
     const item = images[idx];
+    // Bei um 90°/270° gedrehten Bildern vertauschen sich Breite/Höhe der sichtbaren Fläche —
+    // sonst würde das gedrehte Bild über den Bildschirmrand hinausragen bzw. winzig erscheinen.
+    currentRotation = item.rotation || 0;
+    if(currentRotation===90 || currentRotation===270){
+      imgEl.style.maxWidth = 'calc(100vh - 40px)';
+      imgEl.style.maxHeight = 'calc(100vw - 40px)';
+    }else{
+      imgEl.style.maxWidth = '100%';
+      imgEl.style.maxHeight = '100%';
+    }
+    applyTransform(false);
     // Bild sofort anzeigen — nicht auf die Offline-Prüfung warten, damit im
     // Zweifel (z. B. hängender IndexedDB-Zugriff) trotzdem etwas erscheint.
     imgEl.src = item.url;

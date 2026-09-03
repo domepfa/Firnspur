@@ -2983,6 +2983,12 @@ function wireModalHandlers(){
       removeTopoImageLocal(removeBtn.getAttribute('data-hidden-id'), removeBtn.getAttribute('data-image-id'));
       return;
     }
+    const rotateBtn = e.target.closest('[data-act="rotate-topo-image-local"]');
+    if(rotateBtn){
+      e.preventDefault();
+      rotateTopoImageLocal(rotateBtn.getAttribute('data-hidden-id'), rotateBtn.getAttribute('data-image-id'));
+      return;
+    }
     const viewImg = e.target.closest('[data-act="view-topo-image"]');
     if(viewImg){
       let images = [];
