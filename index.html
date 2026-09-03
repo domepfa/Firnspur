@@ -1418,7 +1418,10 @@ function tourFormHtml(existing){
         <div class="field"><label>Aufstieg (Hm)</label><input name="elevationGain" value="${esc(t.elevationGain||'')}" placeholder="z. B. 1200"/></div>
         <div class="field"><label>Abfahrt (Hm, falls abweichend)</label><input name="elevationLoss" value="${esc(t.elevationLoss||'')}" placeholder="z. B. 1600"/></div>
       </div>
-      <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/></div>
+      <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" id="tour-link-input" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/>
+        <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">🔍 Auf Camptocamp.org suchen</button>
+        <div id="camptocamp-search-box" style="margin-top:10px; display:none;"></div>
+      </div>
       <div class="field"><label>Link zu einer GPX-Datei (optional)</label><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></div>
       <div class="field"><label>Eigenen GPX-Track hochladen</label>
         <input type="file" id="gpx-file-input" accept=".gpx,application/gpx+xml"/>
@@ -1997,6 +2000,15 @@ function wireModalHandlers(){
       try{ const t = JSON.parse(hutWinterHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#1565C0', label:'🔵 Blau: Winter-Zustieg (GPX)'}); }catch(e){}
     }
     renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', refTracks);
+  });
+
+  const camptocampToggleBtn = root.querySelector('#camptocamp-search-toggle-btn');
+  if(camptocampToggleBtn) camptocampToggleBtn.addEventListener('click', ()=>{
+    const box = document.getElementById('camptocamp-search-box');
+    if(!box) return;
+    const opening = box.style.display === 'none';
+    box.style.display = opening ? '' : 'none';
+    if(opening) renderCamptocampSearchBox('camptocamp-search-box', 'tour-link-input');
   });
 
   const gpxFileInput = root.querySelector('#gpx-file-input');
