@@ -1999,6 +1999,11 @@ function wireModalHandlers(){
     if(hutWinterHidden && hutWinterHidden.value){
       try{ const t = JSON.parse(hutWinterHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#1565C0', label:'🔵 Blau: Winter-Zustieg (GPX)'}); }catch(e){}
     }
+    // Zustiege des Elements immer mit anzeigen, damit auf jeder Karte innerhalb einer Hütte/Tour
+    // dasselbe zu sehen ist und nichts beim Wechsel zwischen den Ansichten übersehen wird.
+    let editEntity = state.modal && state.modal.payload;
+    if(state.modal && state.modal.type==='edit-hut' && editEntity) migrateHutAccessRoutes(editEntity);
+    refTracks = refTracks.concat(siblingRouteRefTracks(editEntity, null));
     renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', refTracks);
   });
 
@@ -2101,8 +2106,10 @@ function wireModalHandlers(){
       if(item && kind==='hut'){
         if(item.trackSimplifiedSummer && item.trackSimplifiedSummer.length) refTracks.push({coords:item.trackSimplifiedSummer, color:'#E8B93E', label:'🟡 Gelb: Sommer-Zustieg (GPX)'});
         if(item.trackSimplifiedWinter && item.trackSimplifiedWinter.length) refTracks.push({coords:item.trackSimplifiedWinter, color:'#1565C0', label:'🔵 Blau: Winter-Zustieg (GPX)'});
+        migrateHutAccessRoutes(item);
       }
-      renderPointsEditorMap(`quick-edit-map-${id}`, `quick-points-hidden-${id}`, `quick-edit-list-${id}`, `quick-manual-track-hidden-${id}`, refTracks);
+      const qeRefTracks = refTracks.concat(siblingRouteRefTracks(item, null));
+      renderPointsEditorMap(`quick-edit-map-${id}`, `quick-points-hidden-${id}`, `quick-edit-list-${id}`, `quick-manual-track-hidden-${id}`, qeRefTracks);
     });
   });
 
@@ -2433,7 +2440,15 @@ function wireModalHandlers(){
         dummy.type = 'hidden'; dummy.id = 'access-route-points-dummy'; dummy.value = '[]';
         document.body.appendChild(dummy);
       }
-      renderPointsEditorMap('access-route-map', 'access-route-points-dummy', 'access-route-points-dummy-list', 'access-route-manual-track-hidden', refTracks);
+      // Geschwister-Zustiege sowie der Standort der Hütte selbst als Referenz — damit man sieht,
+      // was schon existiert, statt eine neue Linie "blind" über bestehende zu zeichnen.
+      const hutIdField = accessRouteForm.querySelector('[name="hutId"]');
+      const routeIdField = accessRouteForm.querySelector('[name="routeId"]');
+      const hut = hutIdField ? state.huts.find(h=>h.id===hutIdField.value) : null;
+      if(hut) migrateHutAccessRoutes(hut);
+      const arRefTracks = refTracks.concat(siblingRouteRefTracks(hut, routeIdField ? routeIdField.value : null));
+      const arRefPoints = ownPointRefPoints(hut, hut ? hut.name : 'Hütte', '#8A5A2E');
+      renderPointsEditorMap('access-route-map', 'access-route-points-dummy', 'access-route-points-dummy-list', 'access-route-manual-track-hidden', arRefTracks, arRefPoints);
     });
 
     const routeSaveBtn = document.getElementById('access-route-save-btn');
