@@ -562,6 +562,9 @@ const HUT_GPX_WINTER_PATH = 'hutGpxTracksWinter';
 const ACCESS_ROUTE_GPX_PATH = 'hutAccessRouteGpxTracks'; // appübergreifend geteilt, wie die Hütten selbst
 const MSL_ACCESS_ROUTE_GPX_PATH = 'mslAccessRouteGpxTracks'; // Zustiege bei MSL-Touren
 const MSL_DESCENT_ROUTE_GPX_PATH = 'mslDescentRouteGpxTracks'; // Abstiege bei MSL-Touren
+const SEKTOREN_PATH = 'fixseil/sektoren';
+const SEKTOR_ACCESS_ROUTE_GPX_PATH = 'sektorAccessRouteGpxTracks'; // Zustiege bei Sektoren
+const SEKTOR_DESCENT_ROUTE_GPX_PATH = 'sektorDescentRouteGpxTracks'; // Abstiege bei Sektoren
 const OTHER_TOURS_PATH = 'tours';
 const OWN_APP_LABEL = '🧗 Hochtour';
 const OTHER_APP_LABEL = '🎿 Skitour';
@@ -598,7 +601,7 @@ const PROTECTION_LEVELS = [
   {value:'alpin', label:'●●○○ Alpin', desc:'zusätzliche mobile Sicherungsmittel sinnvoll'},
   {value:'ernst', label:'●○○○ Ernst', desc:'weite Abstände oder schwieriger Rückzug'}
 ];
-const DESCENT_TYPES = ['Fussabstieg','Abseilen','Fussabstieg und Abseilen'];
+const DESCENT_TYPES = ['Fussabstieg','Abseilen','Kombination'];
 
 /* ================= State ================= */
 let state = {
@@ -606,6 +609,7 @@ let state = {
   loading: true,
   tours: [],
   huts: [],
+  sektoren: [],
   agenda: [],
   otherAppTours: [],
   myName: null,
@@ -644,7 +648,7 @@ function latestCompletion(arr){
 function cacheLocalSnapshot(){
   try{
     localStorage.setItem('fixseil-cache', JSON.stringify({
-      tours: state.tours, huts: state.huts, agenda: state.agenda, cachedAt: new Date().toISOString()
+      tours: state.tours, huts: state.huts, sektoren: state.sektoren, agenda: state.agenda, cachedAt: new Date().toISOString()
     }));
   }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
 }
@@ -657,7 +661,7 @@ function loadLocalSnapshot(){
 
 async function loadAll(){
   state.loading = true; render();
-  const [toursObj, hutsObjResult, agendaObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH) ]);
+  const [toursObj, hutsObjResult, agendaObj, sektorenObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH), fbGet(SEKTOREN_PATH) ]);
   let hutsObj = hutsObjResult;
   const cached = loadLocalSnapshot();
 
@@ -679,12 +683,13 @@ async function loadAll(){
     }catch(e){ dlog('Hütten-Migration fehlgeschlagen (versuche es beim nächsten Laden erneut): ' + (e&&e.message?e.message:e), 'err'); }
   }
 
-  if(!toursObj && !hutsObj && !agendaObj){
+  if(!toursObj && !hutsObj && !agendaObj && !sektorenObj){
     // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
     state.loading = false;
     if(cached){
       state.tours = cached.tours || [];
       state.huts = cached.huts || [];
+      state.sektoren = cached.sektoren || [];
       state.agenda = cached.agenda || [];
       state.offlineMode = true;
       state.offlineCachedAt = cached.cachedAt;
@@ -698,9 +703,11 @@ async function loadAll(){
 
   const tours = (toursObj ? Object.values(toursObj) : []).filter(t=>t && t.id);
   const huts = (hutsObj ? Object.values(hutsObj) : []).filter(h=>h && h.id);
+  const sektoren = (sektorenObj ? Object.values(sektorenObj) : []).filter(s=>s && s.id);
   const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id).map(migrateAgendaStatus);
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
+  sektoren.sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
 
   // Lokale, noch nicht synchronisierte Einträge nicht verlieren — sowohl aus dem
   // aktuellen Speicher als auch aus dem lokalen Cache (wichtig nach einem
@@ -713,6 +720,10 @@ async function loadAll(){
     ...state.huts.filter(x=>x._unsynced),
     ...((cached && cached.huts) ? cached.huts.filter(x=>x._unsynced) : [])
   ]).filter(x=>!huts.find(y=>y.id===x.id));
+  const unsyncedSektoren = dedupeById([
+    ...state.sektoren.filter(x=>x._unsynced),
+    ...((cached && cached.sektoren) ? cached.sektoren.filter(x=>x._unsynced) : [])
+  ]).filter(x=>!sektoren.find(y=>y.id===x.id));
   const unsyncedAgenda = dedupeById([
     ...state.agenda.filter(x=>x._unsynced),
     ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
@@ -720,6 +731,7 @@ async function loadAll(){
 
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
+  state.sektoren = [...unsyncedSektoren, ...sektoren];
   state.agenda = [...unsyncedAgenda, ...agenda];
   state.loading = false;
   state.offlineMode = false;
@@ -737,6 +749,11 @@ async function loadAll(){
     h._unsynced = !ok;
     if(ok) render();
   });
+  unsyncedSektoren.forEach(async s=>{
+    const ok = await saveSektorCloud(s).catch(()=>false);
+    s._unsynced = !ok;
+    if(ok) render();
+  });
   unsyncedAgenda.forEach(async a=>{
     const ok = await saveAgendaCloud(a).catch(()=>false);
     a._unsynced = !ok;
@@ -746,6 +763,18 @@ async function loadAll(){
 
 async function saveTourCloud(tour){ return await fbSet(TOURS_PATH+'/'+tour.id, tour); }
 async function saveHutCloud(hut){ return await fbSet(HUTS_PATH+'/'+hut.id, hut); }
+async function saveSektorCloud(sek){ return await fbSet(SEKTOREN_PATH+'/'+sek.id, sek); }
+function removeSektor(id){
+  state.sektoren = state.sektoren.filter(x=>x.id!==id);
+  fbDelete(SEKTOREN_PATH+'/'+id).catch(()=>{});
+  // Verlinkung bei betroffenen MSL-Touren lösen, damit sie nicht auf einen gelöschten Sektor zeigen.
+  state.tours.forEach(t=>{
+    if(t.sektorId===id){
+      t.sektorId = '';
+      saveTourCloud(t).catch(()=>{});
+    }
+  });
+}
 
 async function loadOtherAppTours(){
   const obj = await fbGet(OTHER_TOURS_PATH);
@@ -787,22 +816,28 @@ function openTourDetail(id){ state.modal = {type:'tour-detail', payload:id}; ren
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
-function closeModal(){
+function openAddSektor(){ ensureName(()=>{ state.modal = {type:'edit-sektor', payload:null}; render(); }); }
+function openEditSektor(id){ ensureName(()=>{ const s = state.sektoren.find(x=>x.id===id); state.modal = {type:'edit-sektor', payload:s}; render(); }); }
+function openSektorDetail(id){ state.modal = {type:'sektor-detail', payload:id}; render(); }
+function closeModal(fromPopstate){
   stopLiveGpsOnMap();
-  // Zustiege sind "verschachtelt" unter einer Hütte / Tour — beim Schliessen zurück
-  // zur jeweiligen Detailansicht statt ganz zur Übersicht, damit man nicht jedes
-  // Mal neu hinein navigieren muss.
+  // Zustiege/Abstiege sind "verschachtelt" unter einer Hütte / Tour / Sektor — beim
+  // Schliessen zurück zur jeweiligen Detailansicht statt ganz zur Übersicht, damit
+  // man nicht jedes Mal neu hinein navigieren muss. Ein Klick auf X/Zurück (oder die
+  // Hardware-Zurück-Taste) schliesst dadurch immer nur die zuoberst offene Ebene.
   if(state.modal && (state.modal.type==='access-route-detail' || state.modal.type==='edit-access-route') && state.modal.payload && state.modal.payload.hutId){
     state.modal = {type:'hut-detail', payload: state.modal.payload.hutId};
   }else if(state.modal && (state.modal.type==='tour-route-detail' || state.modal.type==='edit-tour-route') && state.modal.payload && state.modal.payload.tourId){
     state.modal = {type:'tour-detail', payload: state.modal.payload.tourId};
+  }else if(state.modal && (state.modal.type==='sektor-route-detail' || state.modal.type==='edit-sektor-route') && state.modal.payload && state.modal.payload.sektorId){
+    state.modal = {type:'sektor-detail', payload: state.modal.payload.sektorId};
   }else{
     state.modal = null;
   }
   render();
-  if(modalHistoryPushed){
+  if(!state.modal && modalHistoryPushed){
     modalHistoryPushed = false;
-    try{ history.back(); }catch(e){}
+    if(!fromPopstate) consumeHistoryEntry();
   }
 }
 function openExport(){ state.modal = {type:'export'}; render(); }
@@ -848,6 +883,7 @@ async function submitTourForm(form, existing){
   t.ropeType = form.ropeType || '';
   t.ropeLength = form.ropeLength || '';
   t.hutId = form.hutId || '';
+  t.sektorId = (t.tourCategory==='msl') ? (form.sektorId || '') : '';
   t.tourLink = form.tourLink;
   t.gpxLink = form.gpxLink || '';
   try{ t.trackSimplified = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ t.trackSimplified = null; }
@@ -1149,6 +1185,295 @@ async function deleteTourRoute(tourId, kind, routeId){
   render();
   showToast(tourRouteTitle(kind)+' gelöscht.');
 }
+
+/* ================= Sektor: Formular, Detail & geteilte Zustiege/Abstiege =================
+   Ein Sektor bündelt mehrere MSL-Touren mit gemeinsamem Ausgangspunkt. Er hat eigene
+   Zustiege/Abstiege (analog zum Hütten-Zustiegssystem bzw. den MSL-Touren-Zustiegen oben) —
+   verlinkte Touren zeigen automatisch diese statt eigener (siehe tourDetailHtml). */
+async function submitSektorForm(form, existing){
+  const s = (existing && existing.id) ? {...existing} : {id: uid('sek'), createdBy: state.myName, createdAt: new Date().toISOString()};
+  s.name = form.name.trim();
+  s.region = form.region || '';
+  s.subregion = form.subregion || '';
+  s.description = form.description || '';
+  try{ s.points = form.points ? JSON.parse(form.points) : []; }catch(e){ s.points = []; }
+  try{ s.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ s.manualTrack = []; }
+  ensureSektorRouteArrays(s);
+  s.updatedAt = new Date().toISOString();
+  s.updatedBy = state.myName;
+
+  const idx = state.sektoren.findIndex(x=>x.id===s.id);
+  if(idx>=0) state.sektoren[idx] = s; else state.sektoren.unshift(s);
+  closeModal();
+  state.modal = {type:'sektor-detail', payload:s.id};
+  render();
+
+  const ok = await saveSektorCloud(s).catch(()=>false);
+  s._unsynced = !ok;
+  if(!ok){
+    markUnsaved();
+    showToast('Sektor ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+  }else{
+    showToast('Sektor gespeichert und synchronisiert.');
+  }
+  render();
+}
+
+function sektorFormHtml(existing){
+  const s = existing || {};
+  const isKnownRegion = REGIONS.includes(s.region);
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${existing?'Sektor bearbeiten':'Neuer Sektor'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <form id="sektor-form" novalidate>
+      <div class="field"><label>Name *</label><input required name="name" value="${esc(s.name||'')}" placeholder="z. B. Chatzenfluh Nordwand"/></div>
+      <div class="field"><label>Region</label>
+        <div class="chips" id="region-chips">
+          ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${s.region===r?'on':''}" style="${s.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
+          <button type="button" class="chip region-chip ${s.region && !isKnownRegion?'on':''}" style="${s.region && !isKnownRegion?'background:var(--ice-deep)':''}" data-region="__other__">Anderes</button>
+        </div>
+        <input type="text" id="region-other-input" value="${!isKnownRegion?esc(s.region||''):''}" placeholder="eigene Region eintragen" style="margin-top:8px; ${s.region && !isKnownRegion?'':'display:none;'}"/>
+        <input type="hidden" name="region" id="region-hidden-input" value="${esc(s.region||'')}"/>
+      </div>
+      <div class="field" id="subregion-field" style="${(isKnownRegion && REGION_SUBAREAS[s.region])?'':'display:none;'}">
+        <label>Teilgebiet / Pass (optional)</label>
+        <div class="chips" id="subregion-chips">${renderSubregionChipsHtml(s.region, s.subregion)}</div>
+        <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(s.subregion||'')}"/>
+      </div>
+      <div class="field"><label>Beschreibung</label><textarea name="description" placeholder="Charakter des Sektors, Übersicht …">${esc(s.description||'')}</textarea></div>
+      <div class="field"><label>Gemeinsamer Ausgangspunkt — Punkte &amp; Linie auf der Karte</label>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
+        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <div id="points-map" style="margin-top:10px; display:none;"></div>
+        <div id="points-list"></div>
+        <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(s.points || []))}'/>
+        <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(s.manualTrack || []))}'/>
+      </div>
+      <div class="field" style="background:var(--ice-light); border-radius:var(--radius); padding:12px;">
+        <label style="margin-bottom:4px;">Zustiege &amp; Abstiege</label>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0;">${existing ? 'Werden in der Detailansicht des Sektors verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege/Abstiege hinzufügen.'}</p>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" id="sektor-save-btn" class="btn">${existing?'Speichern':'Sektor anlegen'}</button>
+      </div>
+      <button type="button" id="sektor-fab-save-btn" class="fab-save">✓ Speichern</button>
+      ${existing ? `
+      <div id="delete-sektor-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
+        <button type="button" id="delete-sektor-trigger" data-id="${s.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Sektor löschen</button>
+        <div id="delete-sektor-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
+          Wirklich unwiderruflich löschen? Verlinkte Touren verlieren die Sektor-Zuordnung.
+          <button type="button" id="delete-sektor-yes" data-id="${s.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
+          <button type="button" id="delete-sektor-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+        </div>
+      </div>` : ''}
+    </form>
+  </div>`;
+}
+
+function sektorDetailHtml(id){
+  const sek = state.sektoren.find(x=>x.id===id);
+  if(!sek) return `<div class="modal" data-stop="1"><p>Sektor nicht gefunden.</p></div>`;
+  ensureSektorRouteArrays(sek);
+  const linked = state.tours.filter(t=>t.sektorId===sek.id);
+  const accessRoutes = sek.accessRoutes || [];
+  const descentRoutes = sek.descentRoutes || [];
+  const accessRange = accessRouteDifficultyRangeHtml(accessRoutes);
+  const descentRange = accessRouteDifficultyRangeHtml(descentRoutes);
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head">
+      <div><h2 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h2>${sek.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}</div>
+      <button class="x-btn" data-act="close-modal">×</button>
+    </div>
+    ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
+    ${(sek.points && sek.points.length) || (sek.manualTrack && sek.manualTrack.length) ? `<div class="detail-section">
+      <h4>Ausgangspunkt${sek.points && sek.points.length>1?'e':''}</h4>
+      ${(sek.points && sek.points.length) ? `<div class="chips" style="margin-bottom:8px;">${sek.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      <button type="button" class="btn secondary" data-act="show-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-track='[]' data-manual-track='${esc(JSON.stringify(sek.manualTrack||[]))}' data-target="map-sektor-${sek.id}">🗺️ Karte anzeigen</button>
+      <div id="map-sektor-${sek.id}" style="margin-top:10px;"></div>
+    </div>` : ''}
+    <div class="detail-section">
+      <h4>Zustiege${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
+      ${accessRoutes.length ? `
+        ${accessRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${accessRange}</p>` : ''}
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-target="map-sektor-access-${sek.id}">🗺️ Karte anzeigen</button>
+        <div id="map-sektor-access-${sek.id}" style="margin-bottom:10px;"></div>
+        <div class="grid">${accessRoutes.map((r,i)=>sektorRouteRowHtml(r,i,sek.id,'access')).join('')}</div>
+      ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
+      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="access">+ Zustieg hinzufügen</button>
+    </div>
+    <div class="detail-section">
+      <h4>Abstiege${descentRoutes.length ? ` (${descentRoutes.length})` : ''}</h4>
+      ${descentRoutes.length ? `
+        ${descentRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${descentRange}</p>` : ''}
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-target="map-sektor-descent-${sek.id}">🗺️ Karte anzeigen</button>
+        <div id="map-sektor-descent-${sek.id}" style="margin-bottom:10px;"></div>
+        <div class="grid">${descentRoutes.map((r,i)=>sektorRouteRowHtml(r,i,sek.id,'descent')).join('')}</div>
+      ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
+      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="descent">+ Abstieg hinzufügen</button>
+    </div>
+    <div class="detail-section">
+      <h4>Touren in diesem Sektor (${linked.length})</h4>
+      ${linked.length ? `<div class="grid" style="margin-top:6px;">${linked.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour mit diesem Sektor verlinkt.</p>`}
+    </div>
+    ${sek._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
+    <div class="form-actions">
+      <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+      <button type="button" class="btn" data-act="edit-sektor" data-id="${sek.id}">✏️ Bearbeiten</button>
+    </div>
+  </div>`;
+}
+
+function ensureSektorRouteArrays(sek){
+  if(!Array.isArray(sek.accessRoutes)) sek.accessRoutes = [];
+  if(!Array.isArray(sek.descentRoutes)) sek.descentRoutes = [];
+  return sek;
+}
+function sektorRouteFieldName(kind){ return kind==='descent' ? 'descentRoutes' : 'accessRoutes'; }
+function sektorRouteGpxPath(kind){ return kind==='descent' ? SEKTOR_DESCENT_ROUTE_GPX_PATH : SEKTOR_ACCESS_ROUTE_GPX_PATH; }
+function sektorRouteTitle(kind){ return kind==='descent' ? 'Abstieg' : 'Zustieg'; }
+
+function sektorRouteRowHtml(r, index, sektorId, kind){
+  const color = ACCESS_ROUTE_COLORS[index % ACCESS_ROUTE_COLORS.length];
+  const icon = kind==='descent' ? '🔽' : '🚶';
+  return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="open-sektor-route" data-sektor-id="${sektorId}" data-kind="${kind}" data-route-id="${r.id}" tabindex="0" role="button">
+    <div class="card-top">
+      <h3 style="font-size:15px;">${icon} ${esc(r.name)}</h3>
+      <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; margin-top:4px;"></span>
+    </div>
+    ${(r.elevation || r.elevationUp || r.duration) ? `<div class="stat-row">
+      ${r.elevation ? `<span>${kind==='descent'?'↓':'↑'} <span class="mono">${esc(r.elevation)}</span> Hm</span>` : ''}
+      ${r.elevationUp ? `<span>↑ <span class="mono">${esc(r.elevationUp)}</span> Hm Gegenanstieg</span>` : ''}
+      ${r.duration ? `<span>⏱ <span class="mono">${esc(r.duration)}</span></span>` : ''}
+    </div>` : ''}
+    ${r.difficultyT ? `<div class="badge-row"><span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span></div>` : ''}
+    ${r.description ? `<p class="excerpt">${esc(r.description)}</p>` : ''}
+  </div>`;
+}
+
+function sektorRouteDetailHtml(sektorId, route, kind){
+  const r = route;
+  const icon = kind==='descent' ? '🔽' : '🚶';
+  const title = sektorRouteTitle(kind);
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${icon} ${esc(r.name)}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <span class="badge" style="background:var(--ice-deep); margin-bottom:10px; display:inline-block;">${title}</span>
+    ${(r.elevation || r.elevationUp || r.duration) ? `<div class="detail-stats">
+      ${r.elevation ? `<div class="detail-stat"><div class="num">${kind==='descent'?'↓':'↑'} ${esc(r.elevation)}</div><div class="lbl">Hm</div></div>` : ''}
+      ${r.elevationUp ? `<div class="detail-stat"><div class="num">↑ ${esc(r.elevationUp)}</div><div class="lbl">Hm Gegenanstieg</div></div>` : ''}
+      ${r.duration ? `<div class="detail-stat"><div class="num">${esc(r.duration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+    </div>` : ''}
+    ${r.difficultyT ? `<div style="margin:10px 0;"><span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span></div>` : ''}
+    ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(r.description)}</p></div>` : ''}
+    ${r.gpxLink ? `<div class="detail-section"><h4>GPX-Link</h4><p><a href="${esc(r.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(r.gpxLink)}</a></p></div>` : ''}
+    ${(r.trackSimplified || (r.manualTrack && r.manualTrack.length)) ? `<div class="detail-section">
+      <h4>Karte</h4>
+      <button type="button" class="btn secondary" data-act="show-sektor-route-map" data-track='${esc(JSON.stringify(r.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(r.manualTrack||[]))}' data-target="map-sektor-route-${r.id}">🗺️ Karte anzeigen</button>
+      <div id="map-sektor-route-${r.id}" style="margin-top:10px;"></div>
+    </div>` : ''}
+    <div class="form-actions">
+      <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+      <button type="button" class="btn" data-act="edit-sektor-route" data-sektor-id="${esc(sektorId)}" data-kind="${kind}" data-route-id="${esc(r.id)}">✏️ Bearbeiten</button>
+    </div>
+  </div>`;
+}
+
+function sektorRouteFormHtml(sektorId, kind, route){
+  const r = route || {};
+  const title = sektorRouteTitle(kind);
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${route?title+' bearbeiten':'Neuer '+title}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <form id="sektor-route-form" novalidate>
+      <input type="hidden" name="sektorId" value="${esc(sektorId)}"/>
+      <input type="hidden" name="kind" value="${esc(kind)}"/>
+      <input type="hidden" name="routeId" value="${esc(r.id||'')}"/>
+      <div class="field"><label>Name *</label><input required name="name" value="${esc(r.name||'')}" placeholder="${kind==='descent' ? 'z. B. Fussabstieg über Normalweg' : 'z. B. ab Parkplatz XY'}"/></div>
+      <div class="row2">
+        <div class="field"><label>Höhenmeter ${kind==='descent'?'abwärts (↓)':'(Hm)'}</label><input name="elevation" value="${esc(r.elevation||'')}"/></div>
+        <div class="field"><label>Zeitbedarf</label><input name="duration" value="${esc(r.duration||'')}"/></div>
+      </div>
+      ${kind==='descent' ? `<div class="field"><label>Höhenmeter aufwärts (Gegenanstieg, falls nötig)</label><input name="elevationUp" value="${esc(r.elevationUp||'')}" placeholder="z. B. 80"/></div>` : ''}
+      <div class="field"><label>Wanderskala (T)</label>
+        <select name="difficultyT">
+          <option value="">— keine Angabe —</option>
+          ${HIKE_SCALE_ORDER.map(c=>`<option value="${c}" ${r.difficultyT===c?'selected':''}>${c} — ${HIKE_SCALE[c].label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Beschreibung</label><textarea name="description">${esc(r.description||'')}</textarea></div>
+      <div class="field"><label>Link zu einer GPX-Datei</label><input type="url" name="gpxLink" value="${esc(r.gpxLink||'')}"/></div>
+      <div class="field"><label>Eigenen GPX-Track hochladen</label>
+        <input type="file" id="sektor-route-gpx-input" accept=".gpx,application/gpx+xml"/>
+        <p id="sektor-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
+        <input type="hidden" name="trackSimplified" id="sektor-route-track-hidden" value='${esc(r.trackSimplified ? JSON.stringify(r.trackSimplified) : "")}'/>
+        <input type="hidden" name="routeIdForTrack" id="sektor-route-id-for-track" value="${esc(r.id||'')}"/>
+      </div>
+      <div class="field"><label>Route auf der Karte einzeichnen (falls kein GPX vorhanden)</label>
+        <button type="button" class="btn secondary" id="sektor-route-map-toggle-btn">🗺️ Karte öffnen</button>
+        <div class="hint">✏️ Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
+        <div id="sektor-route-map" style="margin-top:10px; display:none;"></div>
+        <input type="hidden" name="manualTrack" id="sektor-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        ${route ? `<button type="button" class="btn danger" data-act="delete-sektor-route" data-sektor-id="${esc(sektorId)}" data-kind="${kind}" data-route-id="${esc(r.id)}" style="margin-right:auto;">Löschen</button>` : ''}
+        <button type="button" id="sektor-route-save-btn" class="btn">${route?'Speichern':title+' hinzufügen'}</button>
+      </div>
+    </form>
+  </div>`;
+}
+
+async function submitSektorRouteForm(form){
+  const sek = state.sektoren.find(x=>x.id===form.sektorId);
+  if(!sek) return;
+  ensureSektorRouteArrays(sek);
+  const kind = form.kind;
+  const field = sektorRouteFieldName(kind);
+  let track = null;
+  try{ track = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ track = null; }
+  let manual = [];
+  try{ manual = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ manual = []; }
+  const routeData = {
+    id: form.routeId || uid('sr'),
+    name: (form.name||'').trim(),
+    elevation: form.elevation||'',
+    elevationUp: form.elevationUp||'',
+    duration: form.duration||'',
+    difficultyT: form.difficultyT||'',
+    description: form.description||'',
+    gpxLink: form.gpxLink||'',
+    trackSimplified: track,
+    manualTrack: manual
+  };
+  const idx = sek[field].findIndex(r=>r.id===routeData.id);
+  if(idx>=0) sek[field][idx] = routeData; else sek[field].push(routeData);
+  sek.updatedAt = new Date().toISOString();
+  sek.updatedBy = state.myName;
+  closeModal();
+  state.modal = {type:'sektor-detail', payload:sek.id};
+  render();
+  const ok = await saveSektorCloud(sek).catch(()=>false);
+  sek._unsynced = !ok;
+  if(!ok){ markUnsaved(); showToast(sektorRouteTitle(kind)+' lokal gespeichert, aber nicht synchronisiert.', true); }
+  else{ showToast(sektorRouteTitle(kind)+' gespeichert.'); }
+  render();
+}
+
+async function deleteSektorRoute(sektorId, kind, routeId){
+  const sek = state.sektoren.find(x=>x.id===sektorId);
+  if(!sek) return;
+  const field = sektorRouteFieldName(kind);
+  sek[field] = (sek[field]||[]).filter(r=>r.id!==routeId);
+  sek.updatedAt = new Date().toISOString();
+  sek.updatedBy = state.myName;
+  closeModal();
+  state.modal = {type:'sektor-detail', payload:sektorId};
+  render();
+  const ok = await saveSektorCloud(sek).catch(()=>false);
+  sek._unsynced = !ok;
+  if(!ok) markUnsaved();
+  render();
+  showToast(sektorRouteTitle(kind)+' gelöscht.');
+}
+
 function setFormBusy(formId, busy){
   const form = document.getElementById(formId);
   if(!form) return;
@@ -1296,12 +1621,13 @@ function shellHtml(){
       <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">🏔️ Touren</button>
       <button class="tab ${state.view==='msl'?'active':''}" data-act="view-msl">🧗 MSL</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
+      <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">🧭 Sektoren</button>
       <button class="tab ${state.view==='agenda'?'active':''}" data-act="view-agenda">📅 Agenda</button>
       <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
     </div>
   </div>
   <main>
-    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : abgeschlossenViewHtml())}
+    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='sektoren' ? sektorenViewHtml() : state.view==='agenda' ? agendaViewHtml() : abgeschlossenViewHtml())}
   </main>
   <div id="modal-root"></div>
   `;
@@ -1480,17 +1806,17 @@ function tourCardHtml(t){
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
     <div class="agenda-date-row" style="font-size:12px; margin-bottom:6px;">${isMsl ? '🧗 MSL — Mehrseillängen' : '🏔️ Hochtour'}</div>
     <div class="card-top">
-      <h3 style="font-style:italic;">${done ? '✓ ' : ''}${esc(t.name)}</h3>
+      <h3 style="color:var(--ice-deep);">${done ? '✓ ' : ''}${esc(t.name)}</h3>
       <div class="badge-row">
         ${isMsl
-          ? `${t.mandatoryDifficulty ? `<span class="badge climb">${esc(t.mandatoryDifficulty)}</span>` : ''}`
+          ? `${t.mandatoryDifficulty ? `<span class="badge climb">${esc(t.mandatoryDifficulty)}</span>` : ''}${t.pitchCount ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.pitchCount)} SL</span>` : ''}`
           : `${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}`
         }
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
         ${(t.topoImages && t.topoImages.length) ? `<span class="badge" style="background:var(--signal-deep); color:#3D2E12;">📷 Topo</span>` : ''}
       </div>
     </div>
-    ${t.routeName ? `<h3 style="margin:-4px 0 0 0;">${esc(t.routeName)}</h3>` : ''}
+    ${t.routeName ? `<h3 style="margin:-4px 0 0 0; color:var(--ink-soft);">${esc(t.routeName)}</h3>` : ''}
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
@@ -1615,6 +1941,57 @@ function hutCardHtml(h){
   </div>`;
 }
 
+/* ================= Sektoren view (bündelt MSL-Touren mit gemeinsamem Ausgangspunkt) ================= */
+function filteredSektoren(){
+  let list = state.sektoren;
+  if(state.search.trim()){
+    const q = state.search.trim().toLowerCase();
+    list = list.filter(s=> (s.name||'').toLowerCase().includes(q) || (s.region||'').toLowerCase().includes(q));
+  }
+  return list.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
+}
+
+function sektorenViewHtml(){
+  const list = filteredSektoren();
+  return `
+    <div class="toolbar">
+      <input class="search-input" type="text" placeholder="Sektor oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
+      <button class="btn" data-act="add-sektor">+ Neuer Sektor</button>
+    </div>
+    ${list.length ? `<div class="grid">${list.map(sektorCardHtml).join('')}</div>` : emptySektoren()}
+  `;
+}
+
+function emptySektoren(){
+  const hasAny = state.sektoren.length>0;
+  return `<div class="empty">
+    <h3>${hasAny ? 'Kein Sektor passt zu diesem Filter' : 'Noch kein Sektor erfasst'}</h3>
+    <p>${hasAny ? 'Suche anpassen oder einen neuen Sektor hinzufügen.' : 'Ein Sektor bündelt mehrere MSL-Touren mit gemeinsamem Ausgangspunkt und geteilten Zustiegen/Abstiegen.'}</p>
+    <button class="btn" data-act="add-sektor">+ Neuer Sektor</button>
+  </div>`;
+}
+
+function sektorCardHtml(sek){
+  ensureSektorRouteArrays(sek);
+  const linkedCount = state.tours.filter(t=>t.sektorId===sek.id).length;
+  const accessRoutes = sek.accessRoutes || [];
+  const descentRoutes = sek.descentRoutes || [];
+  return `
+  <div class="card" data-act="open-sektor" data-id="${sek.id}" tabindex="0" role="button">
+    <div class="card-top">
+      <h3 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h3>
+    </div>
+    ${sek.region ? `<p class="excerpt">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}
+    <span class="hut-link-chip">${linkedCount} Tour${linkedCount===1?'':'en'}</span>
+    ${accessRoutes.length ? `<span class="hut-link-chip">🚶 ${accessRoutes.length} Zustieg${accessRoutes.length===1?'':'e'}</span>` : ''}
+    ${descentRoutes.length ? `<span class="hut-link-chip">🔽 ${descentRoutes.length} Abstieg${descentRoutes.length===1?'':'e'}</span>` : ''}
+    ${sek._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
+    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
+      <span>von ${esc(sek.createdBy||'?')} · ${fmtDate(sek.createdAt)}</span>
+    </div>
+  </div>`;
+}
+
 /* ================= Modal rendering ================= */
 function renderModal(){
   pushModalHistoryIfNeeded();
@@ -1630,6 +2007,10 @@ function renderModal(){
   else if(m.type==='edit-tour-route') inner = tourRouteFormHtml(m.payload.tourId, m.payload.kind, m.payload.route);
   else if(m.type==='tour-route-detail') inner = tourRouteDetailHtml(m.payload.tourId, m.payload.route, m.payload.kind);
   else if(m.type==='hut-detail') inner = hutDetailHtml(m.payload);
+  else if(m.type==='edit-sektor') inner = sektorFormHtml(m.payload);
+  else if(m.type==='sektor-detail') inner = sektorDetailHtml(m.payload);
+  else if(m.type==='edit-sektor-route') inner = sektorRouteFormHtml(m.payload.sektorId, m.payload.kind, m.payload.route);
+  else if(m.type==='sektor-route-detail') inner = sektorRouteDetailHtml(m.payload.sektorId, m.payload.route, m.payload.kind);
   else if(m.type==='export') inner = exportModalHtml();
   else if(m.type==='import') inner = importModalHtml();
   else if(m.type==='vorlagen') inner = vorlagenModalHtml(TOUR_VORLAGE_JSON);
@@ -1708,7 +2089,7 @@ function nameModalHtml(){
 function tourFormHtml(existing){
   const t = existing || {};
   const hutOptions = state.huts.map(h=>`<option value="${h.id}" ${t.hutId===h.id?'selected':''}>${esc(h.name)}</option>`).join('');
-  const REGIONS = ['Wallis','Berner Oberland','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
+  const sektorOptions = state.sektoren.map(sek=>`<option value="${sek.id}" ${t.sektorId===sek.id?'selected':''}>${esc(sek.name)}</option>`).join('');
   const isKnownRegion = REGIONS.includes(t.region);
   const selectedMaterial = Array.isArray(t.material) ? t.material : [];
   const ROPE_TYPES = ['Gletscherseil','Einfachseil','Halbseilstrang','Zwillingsseil'];
@@ -1806,10 +2187,7 @@ function tourFormHtml(existing){
             </select>
           </div>
         </div>
-        <div class="row2">
-          <div class="field"><label>Anzahl Seillängen</label><input name="pitchCount" value="${esc(t.pitchCount||'')}" placeholder="z. B. 8"/></div>
-          <div class="field"><label>Längste Seillänge</label><input name="longestPitch" value="${esc(t.longestPitch||'')}" placeholder="z. B. 35m"/></div>
-        </div>
+        <div class="field"><label>Längste Seillänge</label><input name="longestPitch" value="${esc(t.longestPitch||'')}" placeholder="z. B. 35m"/></div>
         <div class="field"><label>Absicherung</label>
           <div class="chips" style="flex-direction:column; align-items:flex-start; gap:8px;">
             ${PROTECTION_LEVELS.map(p=>`<button type="button" class="chip protection-chip ${t.protection===p.value?'on':''}" style="${t.protection===p.value?'background:var(--ice-deep)':''}; text-align:left;" data-value="${p.value}">${p.label} <span style="font-weight:400; opacity:0.8;">— ${p.desc}</span></button>`).join('')}
@@ -1879,6 +2257,11 @@ function tourFormHtml(existing){
       </div>
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. Querung unter dem Bergschrund, kurze Eispassage am Grat …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Spaltenrisiko, Steinschlag, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
+      <div id="pitchcount-field" class="field" style="${t.tourCategory==='msl'?'':'display:none;'} background:var(--ice-light); border-radius:var(--radius); padding:12px 14px;">
+        <label style="font-weight:700; font-size:15px;">Anzahl Seillängen</label>
+        <input name="pitchCount" value="${esc(t.pitchCount||'')}" placeholder="z. B. 8" style="font-size:20px; font-weight:700; text-align:center;"/>
+      </div>
+      <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
           <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('auto')?'on':''}" style="${(t.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
@@ -1904,12 +2287,15 @@ function tourFormHtml(existing){
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(t.manualTrack || []))}'/>
       </div>
-      <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div id="descent-freetext-field" class="field" style="${(t.tourCategory||'hochtour')!=='msl'?'':'display:none;'}"><label>Abstieg</label><textarea name="descent" placeholder="Abstiegsroute, Varianten, Abseilstellen …">${esc(t.descent||'')}</textarea></div>
       <div id="descent-msl-hint" class="hint" style="margin:-4px 0 9px 0; ${(t.tourCategory||'hochtour')==='msl'?'':'display:none;'}">Abstieg wird unten in der Detailansicht über "+ Abstieg hinzufügen" strukturiert erfasst (mit Karte/GPX).</div>
       <div class="field"><label>Zustieg über Hütte</label>
         <select name="hutId"><option value="">— keine —</option>${hutOptions}</select>
         <div class="hint">Fehlt die Hütte? Erst unter „Hütten" anlegen, dann hier verlinken.</div>
+      </div>
+      <div id="sektor-field" class="field" style="${t.tourCategory==='msl'?'':'display:none;'}"><label>Sektor (optional)</label>
+        <select name="sektorId"><option value="">— keiner —</option>${sektorOptions}</select>
+        <div class="hint">Ist ein Sektor verlinkt, übernimmt die Tour dessen Zustiege/Abstiege automatisch statt eigener. Fehlt der Sektor? Erst unter „Sektoren" anlegen.</div>
       </div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
@@ -1950,11 +2336,11 @@ function tourDetailHtml(id){
           `}
           ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
         </div>
-        <h2 style="font-style:italic;">${esc(t.name)}</h2>
+        <h2 style="color:var(--ice-deep);">${esc(t.name)}</h2>
       </div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
-    ${t.routeName ? `<h2 style="margin:0 0 6px 0;">${esc(t.routeName)}</h2>` : ''}
+    ${t.routeName ? `<h2 style="margin:0 0 6px 0; color:var(--ink-soft);">${esc(t.routeName)}</h2>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-tour-status" data-id="${t.id}">${tourStatusLabel(t)} — antippen zum Ändern</button>
     <div class="detail-stats">
@@ -1977,6 +2363,7 @@ function tourDetailHtml(id){
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
     ${(t.topoImages && t.topoImages.length) ? `<div class="detail-section"><h4>Topo</h4>${topoImagesGalleryHtml(t.topoImages)}</div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
+    ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
       ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length)) ? `<div class="chips" style="margin-bottom:8px;">
@@ -2000,6 +2387,31 @@ function tourDetailHtml(id){
       <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${t.id}" data-act="quick-save" data-id="${t.id}" data-kind="tour">💾 Änderungen speichern</button>
     </div>
     ${isMsl ? (() => {
+      const linkedSektor = t.sektorId ? state.sektoren.find(x=>x.id===t.sektorId) : null;
+      if(linkedSektor){
+        ensureSektorRouteArrays(linkedSektor);
+        const accessRoutes = linkedSektor.accessRoutes || [];
+        const descentRoutes = linkedSektor.descentRoutes || [];
+        const accessRange = accessRouteDifficultyRangeHtml(accessRoutes);
+        const descentRange = accessRouteDifficultyRangeHtml(descentRoutes);
+        return `
+        <div class="detail-section">
+          <h4>Zustiege${accessRoutes.length ? ` (${accessRoutes.length})` : ''} <span style="font-weight:400; font-size:12.5px; color:var(--ink-soft);">— vom Sektor „${esc(linkedSektor.name)}"</span></h4>
+          ${accessRoutes.length ? `
+            ${accessRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${accessRange}</p>` : ''}
+            <div class="grid">${accessRoutes.map((r,i)=>sektorRouteRowHtml(r,i,linkedSektor.id,'access')).join('')}</div>
+          ` : `<p style="font-size:13px; color:var(--ink-soft);">Der Sektor hat noch keinen Zustieg erfasst.</p>`}
+          <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-sektor" data-id="${linkedSektor.id}">🧭 Sektor öffnen &amp; Zustiege verwalten</button>
+        </div>
+        <div class="detail-section">
+          <h4>Abstiege${descentRoutes.length ? ` (${descentRoutes.length})` : ''} <span style="font-weight:400; font-size:12.5px; color:var(--ink-soft);">— vom Sektor „${esc(linkedSektor.name)}"</span></h4>
+          ${descentRoutes.length ? `
+            ${descentRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${descentRange}</p>` : ''}
+            <div class="grid">${descentRoutes.map((r,i)=>sektorRouteRowHtml(r,i,linkedSektor.id,'descent')).join('')}</div>
+          ` : `<p style="font-size:13px; color:var(--ink-soft);">Der Sektor hat noch keinen Abstieg erfasst.</p>`}
+          <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-sektor" data-id="${linkedSektor.id}">🧭 Sektor öffnen &amp; Abstiege verwalten</button>
+        </div>`;
+      }
       ensureTourRouteArrays(t);
       const accessRoutes = t.accessRoutes || [];
       const descentRoutes = t.descentRoutes || [];
@@ -2037,7 +2449,6 @@ function tourDetailHtml(id){
       <h4>Weitere Touren ab hier (${related.length})</h4>
       <div class="grid" style="margin-top:6px;">${related.map(tourCardHtml).join('')}</div>
     </div>` : ''; })()}
-    ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${!isMsl && t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
 
     <div class="detail-section">
@@ -2056,7 +2467,6 @@ function tourDetailHtml(id){
 
 function hutFormHtml(existing){
   const h = existing || {};
-  const REGIONS = ['Wallis','Berner Oberland','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
   const isKnownRegion = REGIONS.includes(h.region);
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${existing?'Hütte bearbeiten':'Neue Hütte'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
@@ -2324,6 +2734,7 @@ function wireGlobalHandlers(){
     if(act==='view-touren') el.onclick = ()=>setView('touren');
     else if(act==='view-msl') el.onclick = ()=>setView('msl');
     else if(act==='view-huetten') el.onclick = ()=>setView('huetten');
+    else if(act==='view-sektoren') el.onclick = ()=>setView('sektoren');
     else if(act==='view-agenda') el.onclick = ()=>setView('agenda');
     else if(act==='view-abgeschlossen') el.onclick = ()=>setView('abgeschlossen');
     else if(act==='change-name') el.onclick = ()=>{ state.modal = {type:'name'}; render(); };
@@ -2332,9 +2743,11 @@ function wireGlobalHandlers(){
     else if(act==='add-tour') el.onclick = openAddTour;
     else if(act==='add-msl') el.onclick = openAddMsl;
     else if(act==='add-hut') el.onclick = openAddHut;
+    else if(act==='add-sektor') el.onclick = openAddSektor;
     else if(act==='add-agenda') el.onclick = openAddAgenda;
     else if(act==='open-tour') { el.onclick = ()=>openTourDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openTourDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-hut') { el.onclick = ()=>openHutDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openHutDetail(el.getAttribute('data-id'));}; }
+    else if(act==='open-sektor') { el.onclick = ()=>openSektorDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openSektorDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-agenda') { el.onclick = ()=>{ state.modal={type:'agenda-detail', payload:el.getAttribute('data-id')}; render(); }; }
     else if(act==='filter-diff') el.onclick = ()=>toggleDiffFilter(el.getAttribute('data-code'));
     else if(act==='filter-region') el.onclick = ()=>toggleRegionFilter(el.getAttribute('data-region'));
@@ -2377,7 +2790,7 @@ function wireGlobalHandlers(){
 function renderListOnly(){
   const main = document.querySelector('main');
   if(!main) return;
-  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : abgeschlossenViewHtml());
+  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='sektoren' ? sektorenViewHtml() : state.view==='agenda' ? agendaViewHtml() : abgeschlossenViewHtml());
   wireGlobalHandlers();
   const input = main.querySelector('.search-input');
   if(input){ input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
@@ -2730,6 +3143,8 @@ function wireModalHandlers(){
     const mslFields = document.getElementById('msl-safety-fields');
     const descentFreetextField = document.getElementById('descent-freetext-field');
     const descentMslHint = document.getElementById('descent-msl-hint');
+    const pitchCountField = document.getElementById('pitchcount-field');
+    const sektorField = document.getElementById('sektor-field');
     tourForm.querySelectorAll('.type-chip').forEach(chip=>{
       chip.addEventListener('click', ()=>{
         const wasOn = chip.classList.contains('on');
@@ -2740,6 +3155,8 @@ function wireModalHandlers(){
           if(mslFields) mslFields.style.display = 'none';
           if(descentFreetextField) descentFreetextField.style.display = '';
           if(descentMslHint) descentMslHint.style.display = 'none';
+          if(pitchCountField) pitchCountField.style.display = 'none';
+          if(sektorField) sektorField.style.display = 'none';
           return;
         }
         const type = chip.getAttribute('data-type');
@@ -2749,6 +3166,8 @@ function wireModalHandlers(){
         if(mslFields) mslFields.style.display = (type==='msl') ? '' : 'none';
         if(descentFreetextField) descentFreetextField.style.display = (type==='msl') ? 'none' : '';
         if(descentMslHint) descentMslHint.style.display = (type==='msl') ? '' : 'none';
+        if(pitchCountField) pitchCountField.style.display = (type==='msl') ? '' : 'none';
+        if(sektorField) sektorField.style.display = (type==='msl') ? '' : 'none';
       });
     });
     // Generische Single-Select-Chip-Gruppe (Gletscher, Spaltenrisiko, Absicherung, Abstieg)
@@ -3169,12 +3588,15 @@ function wireModalHandlers(){
   }
   wireDeleteConfirm('tour', removeTour, 'Tour');
   wireDeleteConfirm('hut', removeHut, 'Hütte');
+  wireDeleteConfirm('sektor', removeSektor, 'Sektor');
   wireDeleteConfirm('agenda', removeAgendaItem, 'Termin');
 
   root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-hut"]').forEach(el=> el.onclick = ()=>openHutDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="edit-sektor"]').forEach(el=> el.onclick = ()=>openEditSektor(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="open-sektor"]').forEach(el=> el.onclick = ()=>openSektorDetail(el.getAttribute('data-id')));
 
   root.querySelectorAll('[data-act="add-access-route"]').forEach(el=> el.onclick = ()=>{
     state.modal = {type:'edit-access-route', payload:{hutId: el.getAttribute('data-hut-id'), route:null}};
@@ -3234,6 +3656,174 @@ function wireModalHandlers(){
     state.modal = {type:'edit-tour-route', payload:{tourId, kind, route}};
     render();
   });
+
+  root.querySelectorAll('[data-act="add-sektor-route"]').forEach(el=> el.onclick = ()=>{
+    state.modal = {type:'edit-sektor-route', payload:{sektorId: el.getAttribute('data-sektor-id'), kind: el.getAttribute('data-kind'), route:null}};
+    render();
+  });
+  root.querySelectorAll('[data-act="open-sektor-route"]').forEach(el=> el.onclick = ()=>{
+    const sektorId = el.getAttribute('data-sektor-id');
+    const kind = el.getAttribute('data-kind');
+    const routeId = el.getAttribute('data-route-id');
+    const sek = state.sektoren.find(x=>x.id===sektorId);
+    const field = sektorRouteFieldName(kind);
+    const route = sek && sek[field] ? sek[field].find(r=>r.id===routeId) : null;
+    if(!route) return;
+    state.modal = {type:'sektor-route-detail', payload:{sektorId, kind, route}};
+    render();
+  });
+  root.querySelectorAll('[data-act="edit-sektor-route"]').forEach(el=> el.onclick = ()=>{
+    const sektorId = el.getAttribute('data-sektor-id');
+    const kind = el.getAttribute('data-kind');
+    const routeId = el.getAttribute('data-route-id');
+    const sek = state.sektoren.find(x=>x.id===sektorId);
+    const field = sektorRouteFieldName(kind);
+    const route = sek && sek[field] ? sek[field].find(r=>r.id===routeId) : null;
+    if(!route) return;
+    state.modal = {type:'edit-sektor-route', payload:{sektorId, kind, route}};
+    render();
+  });
+  root.querySelectorAll('[data-act="show-sektor-routes-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const target = btn.getAttribute('data-target');
+      let pts = [], routes = [];
+      try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
+      try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
+      renderHutAccessRoutesMap(target, pts, routes);
+    });
+  });
+  root.querySelectorAll('[data-act="show-sektor-route-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const target = btn.getAttribute('data-target');
+      let track = [], manualTrack = [];
+      try{ track = JSON.parse(btn.getAttribute('data-track') || '[]'); }catch(e){ track = []; }
+      try{ manualTrack = JSON.parse(btn.getAttribute('data-manual-track') || '[]'); }catch(e){ manualTrack = []; }
+      renderTrackDisplayMap(target, [], track, manualTrack);
+    });
+  });
+
+  const sektorRouteForm = document.getElementById('sektor-route-form');
+  if(sektorRouteForm){
+    const sektorGpxInput = document.getElementById('sektor-route-gpx-input');
+    if(sektorGpxInput) sektorGpxInput.addEventListener('change', ()=>{
+      const kindField = sektorRouteForm.querySelector('[name="kind"]');
+      const kind = kindField ? kindField.value : 'access';
+      handleGpxFileUpload(sektorGpxInput, sektorRouteGpxPath(kind), 'sektor-route-id-for-track', 'sektor-route-track-hidden', 'sektor-route-gpx-status');
+    });
+
+    const sektorRouteMapToggleBtn = document.getElementById('sektor-route-map-toggle-btn');
+    if(sektorRouteMapToggleBtn) sektorRouteMapToggleBtn.addEventListener('click', ()=>{
+      const mapDiv = document.getElementById('sektor-route-map');
+      if(mapDiv) mapDiv.style.display = '';
+      const trackHidden = document.getElementById('sektor-route-track-hidden');
+      const refTracks = [];
+      if(trackHidden && trackHidden.value){
+        try{ const t = JSON.parse(trackHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8384F', label:'🔴 Rot: hochgeladener GPX-Track'}); }catch(e){}
+      }
+      if(!document.getElementById('sektor-route-points-dummy')){
+        const dummy = document.createElement('input');
+        dummy.type = 'hidden'; dummy.id = 'sektor-route-points-dummy'; dummy.value = '[]';
+        document.body.appendChild(dummy);
+      }
+      renderPointsEditorMap('sektor-route-map', 'sektor-route-points-dummy', 'sektor-route-points-dummy-list', 'sektor-route-manual-track-hidden', refTracks);
+    });
+
+    const sektorRouteSaveBtn = document.getElementById('sektor-route-save-btn');
+    if(sektorRouteSaveBtn) sektorRouteSaveBtn.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const fd = new FormData(sektorRouteForm);
+      const data = Object.fromEntries(fd.entries());
+      if(!data.name || !data.name.trim()){
+        showFormError('sektor-route-form', 'Bitte einen Namen eingeben.');
+        return;
+      }
+      submitSektorRouteForm(data);
+    });
+
+    const deleteSektorRouteBtn = sektorRouteForm.parentElement ? sektorRouteForm.parentElement.querySelector('[data-act="delete-sektor-route"]') : null;
+    if(deleteSektorRouteBtn) deleteSektorRouteBtn.addEventListener('click', ()=>{
+      if(confirm('Diesen Eintrag wirklich löschen?')){
+        deleteSektorRoute(deleteSektorRouteBtn.getAttribute('data-sektor-id'), deleteSektorRouteBtn.getAttribute('data-kind'), deleteSektorRouteBtn.getAttribute('data-route-id'));
+      }
+    });
+  }
+
+  const sektorForm = document.getElementById('sektor-form');
+  if(sektorForm){
+    const sektorSaveBtn = document.getElementById('sektor-save-btn');
+    if(sektorSaveBtn){
+      sektorSaveBtn.addEventListener('click', (e)=>{
+        e.preventDefault();
+        try{
+          const fd = new FormData(sektorForm);
+          const data = Object.fromEntries(fd.entries());
+          if(!data.name || !data.name.trim()){
+            showFormError('sektor-form', 'Bitte einen Namen für den Sektor eingeben (ganz oben im Formular).');
+            return;
+          }
+          submitSektorForm(data, state.modal.payload);
+        }catch(err){
+          showFormError('sektor-form', 'Unerwarteter Fehler: ' + (err.message || err));
+        }
+      });
+    }
+    const sektorFabSaveBtn = document.getElementById('sektor-fab-save-btn');
+    if(sektorFabSaveBtn) sektorFabSaveBtn.addEventListener('click', ()=>{ if(sektorSaveBtn) sektorSaveBtn.click(); });
+
+    // Region-Chips (identisch zum Touren-/Hütten-Formular)
+    const sektorRegionHidden = document.getElementById('region-hidden-input');
+    const sektorRegionOtherInput = document.getElementById('region-other-input');
+    const sektorSubregionField = document.getElementById('subregion-field');
+    const sektorSubregionChipsWrap = document.getElementById('subregion-chips');
+    const sektorSubregionHidden = document.getElementById('subregion-hidden');
+    sektorForm.querySelectorAll('.region-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        const wasOn = chip.classList.contains('on');
+        sektorForm.querySelectorAll('.region-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){
+          sektorRegionOtherInput.style.display = 'none';
+          sektorRegionOtherInput.value = '';
+          sektorRegionHidden.value = '';
+          if(sektorSubregionField){ sektorSubregionField.style.display = 'none'; sektorSubregionHidden.value = ''; }
+          return;
+        }
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        const region = chip.getAttribute('data-region');
+        if(region==='__other__'){
+          sektorRegionOtherInput.style.display = '';
+          sektorRegionOtherInput.focus();
+          sektorRegionHidden.value = sektorRegionOtherInput.value;
+          if(sektorSubregionField){ sektorSubregionField.style.display = 'none'; sektorSubregionHidden.value = ''; }
+        }else{
+          sektorRegionOtherInput.style.display = 'none';
+          sektorRegionHidden.value = region;
+          if(sektorSubregionField && sektorSubregionChipsWrap){
+            const subs = REGION_SUBAREAS[region] || [];
+            if(subs.length){
+              sektorSubregionChipsWrap.innerHTML = renderSubregionChipsHtml(region, '');
+              sektorSubregionHidden.value = '';
+              sektorSubregionField.style.display = '';
+            }else{
+              sektorSubregionField.style.display = 'none';
+              sektorSubregionHidden.value = '';
+            }
+          }
+        }
+      });
+    });
+    if(sektorRegionOtherInput) sektorRegionOtherInput.addEventListener('input', ()=>{ sektorRegionHidden.value = sektorRegionOtherInput.value; });
+    if(sektorSubregionChipsWrap){
+      sektorSubregionChipsWrap.addEventListener('click', (e)=>{
+        const btn = e.target.closest('.subregion-chip');
+        if(!btn) return;
+        const wasOn = btn.classList.contains('on');
+        sektorSubregionChipsWrap.querySelectorAll('.subregion-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){ sektorSubregionHidden.value = ''; return; }
+        btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
+        sektorSubregionHidden.value = btn.getAttribute('data-subregion');
+      });
+    }
+  }
 }
 
 /* ================= Global error safety net ================= */
