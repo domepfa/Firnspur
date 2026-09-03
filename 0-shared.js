@@ -1219,6 +1219,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     routeActionsRow.appendChild(routeStatus);
     wrapDiv.appendChild(routeActionsRow);
 
+    // Ausserhalb von routeActionsRow (also nicht an den Route-Modus gebunden), damit die Kennzahlen
+    // der zuletzt berechneten Route sichtbar bleiben, auch nachdem automatisch in den Punkt-Modus
+    // zurückgewechselt wird.
+    const routeStatsEl = document.createElement('p');
+    routeStatsEl.style.cssText = 'display:none; margin:8px 0 0 0; font-size:12.5px; color:var(--ink-soft);';
+    wrapDiv.appendChild(routeStatsEl);
+
     el2.appendChild(wrapDiv);
 
     let points = [];
@@ -1385,14 +1392,19 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       calcRouteBtn.disabled = true;
       try{
         const calculated = await fetchCalculatedRoute(routeWaypoints);
-        manualTrack = calculated;
+        manualTrack = calculated.coords;
         redrawLine();
         persistTrack();
         routeWaypoints = [];
         redrawRoute();
         routeStatus.textContent = '';
         setMode('point');
-        showToast('Route berechnet und als Linie übernommen.');
+        const statsText = formatRouteStats(calculated);
+        if(statsText){
+          routeStatsEl.textContent = '🧭 ' + statsText;
+          routeStatsEl.style.display = '';
+        }
+        showToast('Route berechnet' + (statsText ? ': ' + statsText : '') + '.');
       }catch(err){
         routeStatus.textContent = '⚠ ' + (err && err.message ? err.message : 'Route konnte nicht berechnet werden.');
       }
@@ -1592,6 +1604,10 @@ const OPENROUTESERVICE_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLC
 
 async function fetchCalculatedRoute(waypoints){
   // waypoints: Array von [lat, lon], mindestens 2 Punkte.
+  // Rückgabe: {coords, distanceM, durationS, ascentM, descentM} — Distanz/Zeit liefert ORS immer,
+  // Höhenmeter (ascent/descent) nur, wenn elevation:true angefragt wird (Geometrie wird dann 3D).
+  // Die Zeit ist eine grobe Wanderzeit-Schätzung von ORS (Tobler-Funktion, ohne Pausen) — kein
+  // Ersatz für eine SAC-Zeitangabe, aber ein brauchbarer erster Anhaltspunkt.
   if(!OPENROUTESERVICE_API_KEY){
     throw new Error('Noch kein API-Key für die Routenberechnung hinterlegt.');
   }
@@ -1604,7 +1620,7 @@ async function fetchCalculatedRoute(waypoints){
     res = await fetch('https://api.openrouteservice.org/v2/directions/foot-hiking/geojson', {
       method: 'POST',
       headers: { 'Authorization': OPENROUTESERVICE_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ coordinates })
+      body: JSON.stringify({ coordinates, elevation: true })
     });
   }catch(e){
     throw new Error('Route konnte nicht berechnet werden (keine Internetverbindung?).');
@@ -1615,8 +1631,41 @@ async function fetchCalculatedRoute(waypoints){
     throw new Error(msg);
   }
   const data = await res.json();
-  const coords = (data.features && data.features[0] && data.features[0].geometry.coordinates) || [];
-  return coords.map(c=> [c[1], c[0]]); // zurück zu [lat, lon]
+  const feature = data.features && data.features[0];
+  const rawCoords = (feature && feature.geometry.coordinates) || [];
+  const coords = rawCoords.map(c=> [c[1], c[0]]); // zurück zu [lat, lon], Höhe (falls 3D) bleibt aussen vor
+  const props = (feature && feature.properties) || {};
+  const summary = props.summary || {};
+  // Höhenmeter stehen laut ORS-Schema in summary.ascent/.descent; als Rückfallebene (manche
+  // Antworten liefern sie stattdessen nur pro Segment) wird notfalls über alle Segmente summiert.
+  const segments = Array.isArray(props.segments) ? props.segments : [];
+  const segAscent = segments.reduce((sum,s)=> sum + (typeof s.ascent==='number' ? s.ascent : 0), 0);
+  const segDescent = segments.reduce((sum,s)=> sum + (typeof s.descent==='number' ? s.descent : 0), 0);
+  const ascentM = typeof summary.ascent==='number' ? summary.ascent : (segments.length ? segAscent : null);
+  const descentM = typeof summary.descent==='number' ? summary.descent : (segments.length ? segDescent : null);
+  return {
+    coords,
+    distanceM: typeof summary.distance==='number' ? summary.distance : null,
+    durationS: typeof summary.duration==='number' ? summary.duration : null,
+    ascentM,
+    descentM
+  };
+}
+// Formatiert die Kennzahlen einer berechneten Route für die Anzeige (Distanz, Höhenmeter, grobe Zeit).
+function formatRouteStats(r){
+  const parts = [];
+  if(typeof r.distanceM==='number'){
+    parts.push(r.distanceM >= 1000 ? (r.distanceM/1000).toFixed(1).replace('.', ',') + ' km' : Math.round(r.distanceM) + ' m');
+  }
+  if(typeof r.ascentM==='number' || typeof r.descentM==='number'){
+    parts.push('↑ ' + Math.round(r.ascentM||0) + ' Hm / ↓ ' + Math.round(r.descentM||0) + ' Hm');
+  }
+  if(typeof r.durationS==='number'){
+    const totalMin = Math.round(r.durationS/60);
+    const h = Math.floor(totalMin/60), m = totalMin%60;
+    parts.push('ca. ' + (h>0 ? h+' Std. ' : '') + m+' Min.');
+  }
+  return parts.length ? parts.join(' · ') + ' (grobe Schätzung, ohne Pausen)' : '';
 }
 
 // Baut aus einer Koordinatenliste eine GPX-Datei und löst den Download aus —
