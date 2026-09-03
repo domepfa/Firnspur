@@ -1265,9 +1265,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
 
     function persist(){
       hiddenInput.value = JSON.stringify(points);
+      markModalDirty();
       renderList();
     }
     function persistTrack(){
+      markModalDirty();
       if(manualTrackHidden) manualTrackHidden.value = JSON.stringify(manualTrack);
     }
     function renderList(){
@@ -1599,6 +1601,7 @@ function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simpl
       const simplified = simplifyTrackForStorage(points, 200);
       const simplifiedInput = document.getElementById(simplifiedHiddenId);
       if(simplifiedInput) simplifiedInput.value = JSON.stringify(simplified.map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]));
+      markModalDirty();
 
       const tourIdInput = document.getElementById(tourIdHiddenId);
       let trackId = tourIdInput.value;
@@ -2168,36 +2171,38 @@ function closeTopOverlayLayer(){
   consumeHistoryEntry();
 }
 
-/* ================= Autosave beim Verlassen einer Bearbeiten-Maske =================
-   Verlässt man eine Bearbeiten-Maske (X, Klick daneben, Zurück-Taste) OHNE auf "Speichern"
-   zu tippen, wurden die Eingaben bisher verworfen — das führte zu Datenverlust. closeModal()
-   ruft deshalb zuerst tryAutosaveOnClose() auf: ist ein Name eingetragen, wird automatisch
-   genau der bestehende Speichern-Button angeklickt (identische Validierung/Logik wie beim
-   manuellen Speichern), was closeModal() selbst rekursiv erneut aufruft — daher die
-   autosaveInFlight-Sperre gegen Endlosschleifen. Ist kein Name eingetragen, gibt es nichts
-   sinnvoll zu speichern; dann wird ganz normal (verwerfend) geschlossen. */
-const AUTOSAVE_FORM_MAP = {
-  'edit-tour': {formId:'tour-form', saveBtnId:'tour-save-btn'},
-  'edit-hut': {formId:'hut-form', saveBtnId:'hut-save-btn'},
-  'edit-sektor': {formId:'sektor-form', saveBtnId:'sektor-save-btn'},
-  'edit-access-route': {formId:'access-route-form', saveBtnId:'access-route-save-btn'},
-  'edit-tour-route': {formId:'tour-route-form', saveBtnId:'tour-route-save-btn'},
-  'edit-sektor-route': {formId:'sektor-route-form', saveBtnId:'sektor-route-save-btn'}
-};
-let autosaveInFlight = false;
-function tryAutosaveOnClose(){
-  if(autosaveInFlight || !state.modal) return false;
-  const cfg = AUTOSAVE_FORM_MAP[state.modal.type];
-  if(!cfg) return false;
-  const form = document.getElementById(cfg.formId);
-  const saveBtn = document.getElementById(cfg.saveBtnId);
-  if(!form || !saveBtn) return false;
-  const nameField = form.querySelector('[name="name"]');
-  if(!nameField || !nameField.value.trim()) return false;
-  autosaveInFlight = true;
-  saveBtn.click();
-  autosaveInFlight = false;
-  return true;
+/* ================= "Ungespeicherte Änderungen"-Warnung beim Verlassen einer Bearbeiten-Maske =====
+   Frühere Idee war, beim Verlassen (X, Klick daneben, Zurück-Taste) automatisch zu speichern —
+   das führte aber dazu, dass auch versehentliche Änderungen unbemerkt übernommen wurden. Jetzt
+   wird stattdessen nur noch nachgefragt: hat sich seit dem Öffnen der Maske etwas geändert,
+   fragt closeModal() vor dem Verwerfen einmal nach ("Ungespeicherte Änderungen verwerfen?").
+   Speichern und Löschen laufen unverändert direkt durch (skipDirtyCheck-Parameter). */
+const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-sektor','edit-access-route','edit-tour-route','edit-sektor-route'];
+let modalIsDirty = false;
+let lastDirtyTrackedModalKey = null;
+function modalDirtyTrackingKey(){
+  if(!state.modal || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return null;
+  const p = state.modal.payload;
+  const entityId = p && (p.id || (p.route && p.route.id));
+  return state.modal.type + '|' + (entityId || 'new');
+}
+// Bei jedem Render einer Bearbeiten-Maske aufgerufen: erkennt, ob eine NEUE Sitzung begonnen hat
+// (dann wird der Dirty-Status zurückgesetzt) oder ob es sich nur um ein erneutes Rendern derselben
+// Sitzung handelt (z. B. nach Umschalten Hochtour/MSL) — dann bleibt der Status bestehen.
+function syncModalDirtyTracking(){
+  const key = modalDirtyTrackingKey();
+  if(key !== lastDirtyTrackedModalKey){
+    modalIsDirty = false;
+    lastDirtyTrackedModalKey = key;
+  }
+}
+function markModalDirty(){ modalIsDirty = true; }
+// true = Schliessen darf weitergehen; false = Nutzer hat abgebrochen (Maske bleibt offen).
+function confirmDiscardIfDirty(){
+  if(!modalIsDirty || !state.modal || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return true;
+  const ok = confirm('Ungespeicherte Änderungen verwerfen?');
+  if(ok) modalIsDirty = false;
+  return ok;
 }
 
 window.addEventListener('popstate', ()=>{
@@ -2800,7 +2805,7 @@ function accessRouteFormHtml(hutId, route){
         <input type="hidden" name="manualTrack" id="access-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         ${route ? `<button type="button" class="btn danger" data-act="delete-access-route" data-hut-id="${esc(hutId)}" data-route-id="${esc(r.id)}" style="margin-right:auto;">Löschen</button>` : ''}
         <button type="button" id="access-route-save-btn" class="btn">${route?'Speichern':'Zustieg hinzufügen'}</button>
       </div>
@@ -2931,6 +2936,7 @@ function removeTopoImageLocal(hiddenListId, imageId){
   const removed = images.find(img=>img.id===imageId);
   images = images.filter(img=>img.id!==imageId);
   if(hiddenInput) hiddenInput.value = JSON.stringify(images);
+  markModalDirty();
   if(removed && removed.storagePath) deleteTopoImageFile(removed.storagePath).catch(()=>{});
   const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
   if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(hiddenListId);
@@ -2946,6 +2952,7 @@ function rotateTopoImageLocal(hiddenListId, imageId){
   if(!img) return;
   img.rotation = ((img.rotation||0) + 90) % 360;
   if(hiddenInput) hiddenInput.value = JSON.stringify(images);
+  markModalDirty();
   const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
   if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(hiddenListId);
 }
@@ -2978,6 +2985,7 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
         const url = await uploadTopoImageBlob(blob, storagePath);
         images.push({id: imgId, url, storagePath});
         if(hiddenInput) hiddenInput.value = JSON.stringify(images);
+        markModalDirty();
         const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
         if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(hiddenListId);
       }catch(err){
