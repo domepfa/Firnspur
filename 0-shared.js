@@ -1079,9 +1079,39 @@ function fetchLocationIntoForm(latInputId, lonInputId, statusId){
 }
 
 /* ================= Interaktive Punkte-Karte (mehrere Stecknadeln, manuell setzbar) ================= */
-function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks){
-  // refTracks: Array von {coords, color, label} — beliebig viele statische Referenzlinien (z. B. hochgeladene GPX-Tracks), nur zur Orientierung, hier nicht bearbeitbar
+// Referenz-Tracks für die Karte eines Elements mit Zustiegen/Abstiegen (Hütte, MSL-Tour, Sektor):
+// alle bereits erfassten Routen ausser der ggf. gerade selbst bearbeiteten — so ist innerhalb eines
+// Elements auf jeder Karte (eigene Punkte, einzelner Zustieg/Abstieg …) dasselbe zu sehen, nichts
+// geht beim Wechseln zwischen den Ansichten "verloren".
+function siblingRouteRefTracks(entity, excludeRouteId){
+  if(!entity) return [];
+  const out = [];
+  let colorIdx = 0;
+  ['accessRoutes','descentRoutes'].forEach(field=>{
+    const kindLabel = field==='descentRoutes' ? 'Abstieg' : 'Zustieg';
+    (entity[field] || []).forEach(r=>{
+      const color = ACCESS_ROUTE_COLORS[colorIdx % ACCESS_ROUTE_COLORS.length];
+      colorIdx++;
+      if(r.id === excludeRouteId) return;
+      const track = (r.trackSimplified && r.trackSimplified.length) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length ? r.manualTrack : null);
+      if(track) out.push({coords:track, color, label:'🚶 ' + kindLabel + ': ' + (r.name||'?')});
+    });
+  });
+  return out;
+}
+// Referenz-Punkte für die Karte eines Zustiegs/Abstiegs: die eigenen Standort-Punkte des
+// übergeordneten Elements, damit man auch dort sieht, wo dieses selbst liegt.
+function ownPointRefPoints(entity, label, color){
+  if(!entity || !entity.points || !entity.points.length) return [];
+  return entity.points.map(p=> ({lat:p.lat, lon:p.lon, label: label + (p.label ? ' – ' + p.label : ''), color: color||'#4A3524'}));
+}
+function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints){
+  // refTracks: Array von {coords, color, label} — beliebig viele statische Referenzlinien (z. B. hochgeladene GPX-Tracks
+  // oder Zustiege/Abstiege desselben Elements), nur zur Orientierung, hier nicht bearbeitbar.
+  // refPoints: Array von {lat, lon, label, color} — analog, einzelne Referenz-Standorte (z. B. der Standort
+  // der übergeordneten Hütte/Tour/Sektor beim Bearbeiten eines einzelnen Zustiegs).
   refTracks = Array.isArray(refTracks) ? refTracks.filter(rt=>rt && rt.coords && rt.coords.length) : [];
+  refPoints = Array.isArray(refPoints) ? refPoints.filter(rp=>rp && typeof rp.lat==='number' && typeof rp.lon==='number') : [];
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
   ensureLeafletLoaded().then(()=>{
@@ -1129,6 +1159,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       refHint.textContent = `${rt.label || 'Referenz-Track'} (zur Orientierung, nicht bearbeitbar hier).`;
       wrapDiv.appendChild(refHint);
     });
+    if(refPoints.length){
+      const refPointHint = document.createElement('p');
+      refPointHint.className = 'hint';
+      refPointHint.style.marginBottom = '4px';
+      refPointHint.textContent = 'Kleine Punkte zur Orientierung: eigene Standorte des übergeordneten Eintrags (nicht bearbeitbar hier).';
+      wrapDiv.appendChild(refPointHint);
+    }
 
     const mapDiv = document.createElement('div');
     mapDiv.id = mapDivId;
@@ -1190,8 +1227,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     let mode = 'point';
 
     const firstRefTrack = refTracks.length ? refTracks[0].coords : null;
-    const center = points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : [46.8182, 8.2275]));
-    const zoom = (points.length || manualTrack.length || firstRefTrack) ? 13 : 8;
+    const firstRefPoint = refPoints.length ? [refPoints[0].lat, refPoints[0].lon] : null;
+    const center = points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : (firstRefPoint || [46.8182, 8.2275])));
+    const zoom = (points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8;
     const map = L.map(mapDivId).setView(center, zoom);
     registerMap(mapDivId, map);
     const { skitourenLayer } = addBaseLayerSwitcher(map);
@@ -1199,6 +1237,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     refTracks.forEach(rt=>{
       L.polyline(rt.coords, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
       L.polyline(rt.coords, {color: rt.color || '#E8384F', weight:3, opacity:0.8}).addTo(map);
+    });
+    refPoints.forEach(rp=>{
+      L.circleMarker([rp.lat, rp.lon], {radius:6, color:'#fff', weight:2, fillColor: rp.color || '#4A3524', fillOpacity:0.9}).bindTooltip(rp.label || '').addTo(map);
     });
 
     const markerLayer = L.layerGroup().addTo(map);
@@ -1398,8 +1439,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     renderList();
     if(!isFullscreen){
       const btn = makeFullscreenButton(
-        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, refTracks); },
-        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks); }
+        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, refTracks, refPoints); },
+        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints); }
       );
       wrapDiv.appendChild(btn);
     }
