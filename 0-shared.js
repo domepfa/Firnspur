@@ -746,13 +746,21 @@ function addBaseLayerSwitcher(map){
     maxZoom: 18,
     attribution: '© swisstopo'
   });
+  // Hangneigungsklassen ab 30° (SLF/SAC-Empfehlung) — essenziell für die Lawinen-Einschätzung
+  // bei der Skitourenplanung. Standardmässig etwas transparent, damit das Gelände darunter
+  // noch erkennbar bleibt (analog zur Voreinstellung auf map.geo.admin.ch).
+  const hangneigungLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.hangneigung-ueber_30/default/current/3857/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    opacity: 0.6,
+    attribution: '© swisstopo'
+  });
   streetLayer.addTo(map);
   L.control.layers(
     { '🗺️ Karte': streetLayer, '🛰️ Satellit': satelliteLayer },
-    { '⛷️ Skitouren': skitourenLayer },
+    { '⛷️ Skitouren': skitourenLayer, '⚠️ Hangneigung ab 30°': hangneigungLayer },
     { position: 'bottomleft', collapsed: true }
   ).addTo(map);
-  return { streetLayer, satelliteLayer, skitourenLayer };
+  return { streetLayer, satelliteLayer, skitourenLayer, hangneigungLayer };
 }
 
 // Fragt swisstopos "identify"-Dienst ab, um herauszufinden, welche eingezeichnete Skitour
