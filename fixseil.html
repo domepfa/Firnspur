@@ -113,9 +113,11 @@
   /* ===== Wegweiser-Tabs ===== */
   .tabs{
     max-width:1000px; margin:0 auto; padding:0 20px;
-    display:flex; gap:14px; transform:translateY(20px);
+    display:flex; gap:14px; justify-content:center; transform:translateY(20px);
     position:relative; z-index:2;
+    overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
   }
+  .tabs::-webkit-scrollbar{ display:none; }
   .tab{
     background:none; border:none; box-shadow:none; clip-path:none;
     color:rgba(255,255,255,0.62);
@@ -123,6 +125,7 @@
     font-size:14px;
     padding:10px 14px 8px 14px;
     border-bottom:2px solid transparent;
+    flex-shrink:0; white-space:nowrap;
   }
   .tab.active{color:#fff; border-bottom-color:var(--signal, #F2B705);}
   .tab:hover{color:#fff;}
@@ -1270,6 +1273,86 @@ function sektorFormHtml(existing){
   </div>`;
 }
 
+function sektorOverviewLegendHtml(sektorId){
+  const linkedTours = state.tours.filter(t=>t.sektorId===sektorId);
+  return linkedTours.map((t,i)=>{
+    const color = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
+    return `<span class="hint" style="display:inline-flex; align-items:center; gap:4px; margin-right:10px;"><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color};"></span>${esc(t.name)}${t.routeName ? ' – '+esc(t.routeName) : ''}</span>`;
+  }).join('');
+}
+
+// Zentrale Sektor-Übersichtskarte: fasst die Punkte/Tracks des Sektors selbst UND aller
+// verlinkten Touren auf einer Karte zusammen — liest live aus state, keine Doppel-Eingabe nötig.
+function renderSektorOverviewMap(containerId, sektorId){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const sek = state.sektoren.find(x=>x.id===sektorId);
+    if(!sek){ el2.innerHTML = ''; return; }
+    const linkedTours = state.tours.filter(t=>t.sektorId===sektorId);
+    const tourEntries = linkedTours.map((t,i)=>({ tour:t, color: ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length] }));
+    const hasSektorPoints = sek.points && sek.points.length;
+    const hasAny = hasSektorPoints || tourEntries.some(e=> (e.tour.points && e.tour.points.length) || (e.tour.trackSimplified && e.tour.trackSimplified.length) || (e.tour.manualTrack && e.tour.manualTrack.length));
+    if(!hasAny){
+      el2.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Noch keine Kartendaten — weder beim Sektor noch bei den verlinkten Touren.</p>';
+      return;
+    }
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:280px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const firstTourPoint = tourEntries.map(e=> e.tour.points && e.tour.points.length ? e.tour.points[0] : null).find(Boolean);
+    const startPoint = hasSektorPoints ? sek.points[0] : firstTourPoint;
+    const map = L.map(mapDivId).setView(startPoint ? [startPoint.lat, startPoint.lon] : [46.8182, 8.2275], startPoint ? 13 : 8);
+    registerMap(mapDivId, map);
+    addBaseLayerSwitcher(map);
+    const boundsItems = [];
+    if(hasSektorPoints){
+      sek.points.forEach(p=>{
+        try{
+          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(sek.name)}</strong><br/>${esc(p.label||'Punkt')}`);
+          boundsItems.push(m);
+        }catch(e){ /* einzelner fehlerhafter Punkt überspringen */ }
+      });
+    }
+    tourEntries.forEach(({tour:t, color})=>{
+      const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
+      if(track){
+        try{
+          L.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
+          const line = L.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
+          boundsItems.push(line);
+        }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
+      }
+      (t.points||[]).forEach(p=>{
+        try{
+          const m = L.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
+            .bindPopup(`<strong>${esc(t.name)}</strong>${t.routeName ? ' – '+esc(t.routeName) : ''}<br/>${esc(p.label||'Punkt')}`);
+          boundsItems.push(m);
+        }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
+      });
+    });
+    if(boundsItems.length){
+      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+    }
+    if(!isFullscreen){
+      const btn = makeFullscreenButton(function(id){ renderSektorOverviewMap(id, sektorId); });
+      el2.appendChild(btn);
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
 function sektorDetailHtml(id){
   const sek = state.sektoren.find(x=>x.id===id);
   if(!sek) return `<div class="modal" data-stop="1"><p>Sektor nicht gefunden.</p></div>`;
@@ -1285,6 +1368,19 @@ function sektorDetailHtml(id){
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
+    ${(() => {
+      const hasSektorPoints = sek.points && sek.points.length;
+      const hasTourData = linked.some(t=> (t.points && t.points.length) || (t.trackSimplified && t.trackSimplified.length) || (t.manualTrack && t.manualTrack.length));
+      if(!hasSektorPoints && !hasTourData) return '';
+      const legend = sektorOverviewLegendHtml(sek.id);
+      return `<div class="detail-section">
+        <h4>🗺️ Übersichtskarte</h4>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Alle Punkte &amp; Tracks der verlinkten Touren, automatisch zusammengeführt — keine erneute Eingabe nötig.</p>
+        ${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-overview-map" data-sektor-id="${sek.id}" data-target="map-sektor-overview-${sek.id}">🗺️ Karte anzeigen</button>
+        <div id="map-sektor-overview-${sek.id}"></div>
+      </div>`;
+    })()}
     ${(sek.points && sek.points.length) || (sek.manualTrack && sek.manualTrack.length) ? `<div class="detail-section">
       <h4>Ausgangspunkt${sek.points && sek.points.length>1?'e':''}</h4>
       ${(sek.points && sek.points.length) ? `<div class="chips" style="margin-bottom:8px;">${sek.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
@@ -3699,6 +3795,11 @@ function wireModalHandlers(){
       try{ track = JSON.parse(btn.getAttribute('data-track') || '[]'); }catch(e){ track = []; }
       try{ manualTrack = JSON.parse(btn.getAttribute('data-manual-track') || '[]'); }catch(e){ manualTrack = []; }
       renderTrackDisplayMap(target, [], track, manualTrack);
+    });
+  });
+  root.querySelectorAll('[data-act="show-sektor-overview-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      renderSektorOverviewMap(btn.getAttribute('data-target'), btn.getAttribute('data-sektor-id'));
     });
   });
 

@@ -656,6 +656,21 @@ function makeFullscreenButton(renderFn, onCloseCallback){
   return btn;
 }
 
+/* ================= Kartenebenen: Landeskarte + Satellit (zum Wechseln) ================= */
+function addBaseLayerSwitcher(map){
+  const streetLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
+    maxZoom: 18,
+    attribution: '© swisstopo'
+  });
+  const satelliteLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg', {
+    maxZoom: 18,
+    attribution: '© swisstopo'
+  });
+  streetLayer.addTo(map);
+  L.control.layers({ '🗺️ Karte': streetLayer, '🛰️ Satellit': satelliteLayer }, null, { position: 'bottomleft', collapsed: true }).addTo(map);
+  return { streetLayer, satelliteLayer };
+}
+
 function renderMiniMap(containerId, lat, lon, label){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
@@ -674,10 +689,7 @@ function renderMiniMap(containerId, lat, lon, label){
     el2.appendChild(mapDiv);
     const map = L.map(mapDivId, {attributionControl:true}).setView([lat, lon], isFullscreen ? 15 : 14);
     registerMap(mapDivId, map);
-    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
-      maxZoom: 18,
-      attribution: '© swisstopo'
-    }).addTo(map);
+    addBaseLayerSwitcher(map);
     L.marker([lat, lon]).addTo(map).bindPopup(label || '').openPopup();
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderMiniMap(id, lat, lon, label); });
@@ -794,10 +806,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const zoom = (points.length || manualTrack.length || firstRefTrack) ? 13 : 8;
     const map = L.map(mapDivId).setView(center, zoom);
     registerMap(mapDivId, map);
-    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
-      maxZoom: 18,
-      attribution: '© swisstopo'
-    }).addTo(map);
+    addBaseLayerSwitcher(map);
 
     refTracks.forEach(rt=>{
       L.polyline(rt.coords, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
@@ -957,10 +966,7 @@ function renderPointsDisplayMap(containerId, points){
     el2.appendChild(mapDiv);
     const map = L.map(mapDivId).setView([points[0].lat, points[0].lon], isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
-    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
-      maxZoom: 18,
-      attribution: '© swisstopo'
-    }).addTo(map);
+    addBaseLayerSwitcher(map);
     const group = [];
     points.forEach(p=>{
       const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
@@ -1113,8 +1119,11 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     const startView = hasTrack ? trackCoords[0] : (hasManualTrack ? manualTrackCoords[0] : [points[0].lat, points[0].lon]);
     const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
-    const tileLayer = offlineId ? createOfflineAwareTileLayer(offlineId) : L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', { maxZoom: 18, attribution: '© swisstopo' });
-    tileLayer.addTo(map);
+    if(offlineId){
+      createOfflineAwareTileLayer(offlineId).addTo(map); // Offline-Kacheln nur für die Landeskarte zwischengespeichert — kein Ebenen-Wechsel hier
+    }else{
+      addBaseLayerSwitcher(map);
+    }
     if(offlineId && gpsActiveOfflineId === offlineId){
       startLiveGpsOnMap(map, offlineId); // GPS lief bereits für diese Tour — auf die neue Karte (z. B. Vollbild) mitnehmen
     }
@@ -1173,10 +1182,7 @@ function renderHutTrackDisplayMap(containerId, points, summerTrack, winterTrack,
     const startView = hasSummer ? summerTrack[0] : (hasWinter ? winterTrack[0] : (hasManual ? manualTrack[0] : [points[0].lat, points[0].lon]));
     const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
-    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
-      maxZoom: 18,
-      attribution: '© swisstopo'
-    }).addTo(map);
+    addBaseLayerSwitcher(map);
     const boundsItems = [];
     if(hasSummer){
       L.polyline(summerTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
@@ -1953,10 +1959,7 @@ function renderHutAccessRoutesMap(containerId, points, routes){
     const startView = tracks.length ? tracks[0].coords[0] : [points[0].lat, points[0].lon];
     const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
-    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
-      maxZoom: 18,
-      attribution: '© swisstopo'
-    }).addTo(map);
+    addBaseLayerSwitcher(map);
     const boundsItems = [];
     tracks.forEach(t=>{
       try{
@@ -2223,8 +2226,27 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; touch-action:pan-y;';
 
   const imgEl = document.createElement('img');
-  imgEl.style.cssText = 'max-width:100%; max-height:100%; object-fit:contain; border-radius:4px;';
+  imgEl.style.cssText = 'max-width:100%; max-height:100%; object-fit:contain; border-radius:4px; touch-action:none; transform-origin:center center;';
   overlay.appendChild(imgEl);
+
+  // ===== Zoom (Pinch, Doppeltipp, Mausrad) & Verschieben im gezoomten Zustand =====
+  const ZOOM_MIN = 1, ZOOM_MAX = 4;
+  let scale = 1, panX = 0, panY = 0;
+  function applyTransform(withTransition){
+    imgEl.style.transition = withTransition ? 'transform 0.18s ease-out' : 'none';
+    imgEl.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+  }
+  function clampPan(){
+    // Grobe Begrenzung, damit das Bild beim Verschieben nicht zu weit aus dem Bild verschwindet.
+    const maxOffset = (scale - 1) * (imgEl.clientWidth || overlay.clientWidth) * 0.6;
+    panX = Math.max(-maxOffset, Math.min(maxOffset, panX));
+    const maxOffsetY = (scale - 1) * (imgEl.clientHeight || overlay.clientHeight) * 0.6;
+    panY = Math.max(-maxOffsetY, Math.min(maxOffsetY, panY));
+  }
+  function resetZoom(withTransition){
+    scale = 1; panX = 0; panY = 0;
+    applyTransform(withTransition);
+  }
 
   function closeLightbox(){ overlay.remove(); }
 
@@ -2235,7 +2257,7 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   overlay.appendChild(closeBtn);
 
   let counterEl = null;
-  function goTo(n){ idx = (n + images.length) % images.length; updateImage(); }
+  function goTo(n){ idx = (n + images.length) % images.length; resetZoom(false); updateImage(); }
   if(images.length > 1){
     const prevBtn = document.createElement('button');
     prevBtn.type = 'button'; prevBtn.textContent = '‹';
@@ -2267,16 +2289,92 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   }
   updateImage();
 
-  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeTopOverlayLayer(); });
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay && scale===1) closeTopOverlayLayer(); });
+
+  function touchDist(touches){
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.hypot(dx, dy);
+  }
 
   let touchStartX = null;
-  overlay.addEventListener('touchstart', (e)=>{ touchStartX = e.touches[0].clientX; }, {passive:true});
-  overlay.addEventListener('touchend', (e)=>{
-    if(touchStartX===null) return;
-    const dx = e.changedTouches[0].clientX - touchStartX;
-    touchStartX = null;
-    if(Math.abs(dx) > 50){ if(dx>0) goTo(idx-1); else goTo(idx+1); }
+  let pinchStartDist = null, pinchStartScale = 1;
+  let panStartX = null, panStartY = null, panOriginX = 0, panOriginY = 0;
+  let lastTapTime = 0, lastTapX = 0, lastTapY = 0;
+
+  overlay.addEventListener('touchstart', (e)=>{
+    if(e.touches.length === 2){
+      touchStartX = null;
+      pinchStartDist = touchDist(e.touches);
+      pinchStartScale = scale;
+    }else if(e.touches.length === 1){
+      pinchStartDist = null;
+      if(scale > 1){
+        panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY;
+        panOriginX = panX; panOriginY = panY;
+      }else{
+        touchStartX = e.touches[0].clientX;
+      }
+    }
   }, {passive:true});
+
+  overlay.addEventListener('touchmove', (e)=>{
+    if(e.touches.length === 2 && pinchStartDist){
+      e.preventDefault();
+      const newDist = touchDist(e.touches);
+      scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pinchStartScale * (newDist / pinchStartDist)));
+      clampPan();
+      applyTransform(false);
+    }else if(e.touches.length === 1 && panStartX !== null){
+      e.preventDefault();
+      panX = panOriginX + (e.touches[0].clientX - panStartX);
+      panY = panOriginY + (e.touches[0].clientY - panStartY);
+      clampPan();
+      applyTransform(false);
+    }
+  }, {passive:false});
+
+  overlay.addEventListener('touchend', (e)=>{
+    if(e.touches.length > 0) return; // erst reagieren, wenn wirklich alle Finger weg sind
+    if(pinchStartDist){
+      pinchStartDist = null;
+      if(scale < 1.05) resetZoom(true);
+      return;
+    }
+    if(panStartX !== null){
+      panStartX = null; panStartY = null;
+      return;
+    }
+    if(touchStartX !== null){
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - touchStartX;
+      touchStartX = null;
+      if(Math.abs(dx) > 50){ goTo(dx>0 ? idx-1 : idx+1); return; }
+      // Doppeltipp erkennen (zwei kurz aufeinanderfolgende Taps am gleichen Ort) → rein-/rauszoomen
+      const now = Date.now();
+      const closeToLastTap = Math.hypot(touch.clientX - lastTapX, touch.clientY - lastTapY) < 40;
+      if(now - lastTapTime < 300 && closeToLastTap){
+        if(scale > 1) resetZoom(true);
+        else{ scale = 2.5; applyTransform(true); }
+        lastTapTime = 0;
+      }else{
+        lastTapTime = now; lastTapX = touch.clientX; lastTapY = touch.clientY;
+      }
+    }
+  }, {passive:true});
+
+  // Doppelklick (Desktop/Maus) zoomt rein/raus
+  imgEl.addEventListener('dblclick', (e)=>{
+    e.stopPropagation();
+    if(scale > 1) resetZoom(true);
+    else{ scale = 2.5; applyTransform(true); }
+  });
+  // Mausrad zoomt rein/raus (Desktop)
+  overlay.addEventListener('wheel', (e)=>{
+    e.preventDefault();
+    scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale - e.deltaY * 0.0025));
+    if(scale <= 1.01){ resetZoom(false); }else{ clampPan(); applyTransform(false); }
+  }, {passive:false});
 
   document.body.appendChild(overlay);
   pushOverlayLayer(closeLightbox);

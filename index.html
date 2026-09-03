@@ -114,9 +114,11 @@
   /* ===== Signpost tabs ===== */
   .tabs{
     max-width:1000px; margin:0 auto; padding:0 20px;
-    display:flex; gap:14px; transform:translateY(20px);
+    display:flex; gap:14px; justify-content:center; transform:translateY(20px);
     position:relative; z-index:2;
+    overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
   }
+  .tabs::-webkit-scrollbar{ display:none; }
   .tab{
     background:none; border:none; box-shadow:none; clip-path:none;
     color:rgba(255,255,255,0.62);
@@ -124,6 +126,7 @@
     font-size:14px;
     padding:10px 14px 8px 14px;
     border-bottom:2px solid transparent;
+    flex-shrink:0; white-space:nowrap;
   }
   .tab.active{color:#fff; border-bottom-color:var(--signal, #F2B705);}
   .tab:hover{color:#fff;}
