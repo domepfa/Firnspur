@@ -2005,7 +2005,14 @@ function wireModalHandlers(){
     let editEntity = state.modal && state.modal.payload;
     if(state.modal && state.modal.type==='edit-hut' && editEntity) migrateHutAccessRoutes(editEntity);
     refTracks = refTracks.concat(siblingRouteRefTracks(editEntity, null));
-    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', refTracks);
+    // Bei "Route berechnen" Aufstieg/Abfahrt/Zeitbedarf gleich ins Tourformular übernehmen.
+    const tourFormForAutofill = document.getElementById('tour-form');
+    const pmAutofillFields = tourFormForAutofill ? {
+      ascent: tourFormForAutofill.querySelector('[name="elevationGain"]'),
+      descent: tourFormForAutofill.querySelector('[name="elevationLoss"]'),
+      duration: tourFormForAutofill.querySelector('[name="duration"]')
+    } : null;
+    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', refTracks, undefined, pmAutofillFields);
   });
 
   const camptocampToggleBtn = root.querySelector('#camptocamp-search-toggle-btn');
@@ -2449,7 +2456,8 @@ function wireModalHandlers(){
       if(hut) migrateHutAccessRoutes(hut);
       const arRefTracks = refTracks.concat(siblingRouteRefTracks(hut, routeIdField ? routeIdField.value : null));
       const arRefPoints = ownPointRefPoints(hut, hut ? hut.name : 'Hütte', '#8A5A2E');
-      renderPointsEditorMap('access-route-map', 'access-route-points-dummy', 'access-route-points-dummy-list', 'access-route-manual-track-hidden', arRefTracks, arRefPoints);
+      const arAutofillFields = { ascent: accessRouteForm.querySelector('[name="elevation"]'), duration: accessRouteForm.querySelector('[name="duration"]') };
+      renderPointsEditorMap('access-route-map', 'access-route-points-dummy', 'access-route-points-dummy-list', 'access-route-manual-track-hidden', arRefTracks, arRefPoints, arAutofillFields);
     });
 
     const routeSaveBtn = document.getElementById('access-route-save-btn');
