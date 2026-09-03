@@ -673,6 +673,56 @@ function renderStandaloneMap(containerId){
       }
     });
 
+    // Alle eigenen Touren (Punkte & Tracks) auf der Karte anzeigen — analog zur Skitouren-Ebene,
+    // aber immer sichtbar (das ist ja der Zweck dieser Übersichtskarte). Langes Drücken auf
+    // einen Punkt/Track öffnet die jeweilige Tour direkt.
+    const boundsItems = [];
+    function openTourFromMap(tourId){
+      closeTopOverlayLayer();
+      if(typeof openTourDetail === 'function') openTourDetail(tourId);
+    }
+    function tourOpenPopupContent(t){
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '170px';
+      const title = document.createElement('p');
+      title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+      title.textContent = '🏔️ ' + t.name + (t.routeName ? ' – ' + t.routeName : '');
+      wrap.appendChild(title);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Tour öffnen';
+      btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+      btn.addEventListener('click', ()=> openTourFromMap(t.id));
+      wrap.appendChild(btn);
+      return wrap;
+    }
+    (state.tours || []).forEach(t=>{
+      const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
+      if(track){
+        try{
+          const line = L.polyline(track, {color:'#6A3FA0', weight:3.5, opacity:0.85}).addTo(map);
+          line.on('contextmenu', (e)=>{
+            L.DomEvent.preventDefault(e.originalEvent);
+            L.popup().setLatLng(e.latlng).setContent(tourOpenPopupContent(t)).openOn(map);
+          });
+          boundsItems.push(line);
+        }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
+      }
+      (t.points||[]).forEach(p=>{
+        try{
+          const m = L.circleMarker([p.lat, p.lon], {radius:7, color:'#fff', weight:2, fillColor:'#6A3FA0', fillOpacity:1}).addTo(map);
+          m.on('contextmenu', (e)=>{
+            L.DomEvent.preventDefault(e.originalEvent);
+            L.popup().setLatLng(e.latlng).setContent(tourOpenPopupContent(t)).openOn(map);
+          });
+          boundsItems.push(m);
+        }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
+      });
+    });
+    if(boundsItems.length){
+      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+    }
+
     // Als echtes Leaflet-Control eingebunden (statt als loses DOM-Element über der Karte) —
     // so landet der Button garantiert in Leaflets eigener Control-Ebene, oberhalb der
     // Kartenkacheln, statt visuell dahinter zu verschwinden.
