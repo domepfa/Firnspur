@@ -681,6 +681,39 @@ function addBaseLayerSwitcher(map){
   return { streetLayer, satelliteLayer, skitourenLayer };
 }
 
+// Fragt swisstopos "identify"-Dienst ab, um herauszufinden, welche eingezeichnete Skitour
+// (falls überhaupt eine) sich an einer angetippten Stelle befindet — inkl. Name & Geometrie,
+// damit sie als Info angezeigt und als GPX exportiert werden kann.
+async function identifySkitourAt(map, latlng){
+  try{
+    const b = map.getBounds();
+    const size = map.getSize();
+    const params = new URLSearchParams({
+      geometryType: 'esriGeometryPoint',
+      geometry: latlng.lng + ',' + latlng.lat,
+      geometryFormat: 'geojson',
+      layers: 'all:ch.swisstopo-karto.skitouren',
+      tolerance: '8',
+      mapExtent: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(','),
+      imageDisplay: size.x + ',' + size.y + ',96',
+      sr: '4326',
+      returnGeometry: 'true'
+    });
+    const res = await fetch('https://api3.geo.admin.ch/rest/services/all/MapServer/identify?' + params.toString());
+    if(!res.ok) return null;
+    const data = await res.json();
+    return (data.results && data.results.length) ? data.results[0] : null;
+  }catch(e){ return null; }
+}
+
+// GeoJSON-Geometrie (EPSG:4326, [lon,lat]) in Leaflet-Koordinaten ([lat,lon]) umwandeln.
+function geojsonToLatLngs(geometry){
+  if(!geometry) return [];
+  if(geometry.type === 'LineString') return geometry.coordinates.map(c=>[c[1], c[0]]);
+  if(geometry.type === 'MultiLineString') return geometry.coordinates.flat().map(c=>[c[1], c[0]]);
+  return [];
+}
+
 function renderMiniMap(containerId, lat, lon, label){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
@@ -772,6 +805,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     modeRow.appendChild(routeModeBtn);
     wrapDiv.appendChild(modeRow);
 
+    const pointHint = document.createElement('p');
+    pointHint.className = 'hint';
+    pointHint.style.marginBottom = '4px';
+    pointHint.textContent = 'Lange drücken, um einen Punkt zu setzen. Normal antippen zeigt Infos zur Skitouren-Ebene (falls eingeschaltet).';
+    wrapDiv.appendChild(pointHint);
+
     refTracks.forEach(rt=>{
       const refHint = document.createElement('p');
       refHint.className = 'hint';
@@ -844,7 +883,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const zoom = (points.length || manualTrack.length || firstRefTrack) ? 13 : 8;
     const map = L.map(mapDivId).setView(center, zoom);
     registerMap(mapDivId, map);
-    addBaseLayerSwitcher(map);
+    const { skitourenLayer } = addBaseLayerSwitcher(map);
 
     refTracks.forEach(rt=>{
       L.polyline(rt.coords, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
@@ -960,6 +999,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       routeModeBtn.style.background = mode==='route' ? 'var(--ice-deep)' : '';
       lineActionsRow.style.display = mode==='line' ? 'flex' : 'none';
       routeActionsRow.style.display = mode==='route' ? 'flex' : 'none';
+      pointHint.style.display = mode==='point' ? '' : 'none';
     }
     pointModeBtn.addEventListener('click', ()=> setMode('point'));
     lineModeBtn.addEventListener('click', ()=> setMode('line'));
@@ -1004,7 +1044,28 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       calcRouteBtn.disabled = false;
     });
 
-    map.on('click', (e)=>{
+    function buildSkitourPopupContent(feature){
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '190px';
+      const attrs = feature.attributes || {};
+      const name = attrs.name || attrs.bezeichnung || attrs.routenname || attrs.label || 'Skitour';
+      const title = document.createElement('p');
+      title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+      title.textContent = '⛷️ ' + name;
+      wrap.appendChild(title);
+      const coords = geojsonToLatLngs(feature.geometry);
+      if(coords.length){
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = '📥 GPX herunterladen';
+        btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+        btn.addEventListener('click', ()=> downloadTrackAsGpx(coords, name));
+        wrap.appendChild(btn);
+      }
+      return wrap;
+    }
+
+    map.on('click', async (e)=>{
       if(mode==='line'){
         manualTrack.push([e.latlng.lat, e.latlng.lng]);
         redrawLine();
@@ -1012,11 +1073,35 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       }else if(mode==='route'){
         routeWaypoints.push([e.latlng.lat, e.latlng.lng]);
         redrawRoute();
-      }else{
+      }else if(skitourenLayer && map.hasLayer(skitourenLayer)){
+        // Punkt-Modus + Skitouren-Ebene eingeschaltet: ein normaler Klick zeigt Infos zur
+        // angetippten Route, statt einen Punkt zu setzen (das geht per langem Drücken, s. u.).
+        const feature = await identifySkitourAt(map, e.latlng);
+        if(feature){
+          L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature)).openOn(map);
+        }
+      }
+    });
+
+    // Langes Drücken (auf dem Handy) bzw. Rechtsklick (Desktop) öffnet ein kleines Menü zum
+    // gezielten Setzen eines Punkts — ein normaler Klick setzt im Punkt-Modus keinen mehr.
+    map.on('contextmenu', (e)=>{
+      if(mode!=='point') return;
+      L.DomEvent.preventDefault(e.originalEvent);
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '170px';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '📍 Punkt hier setzen';
+      btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+      btn.addEventListener('click', ()=>{
         points.push({ label:'', lat: e.latlng.lat, lon: e.latlng.lng, _justAdded:true });
         redraw();
         persist();
-      }
+        map.closePopup();
+      });
+      wrap.appendChild(btn);
+      L.popup().setLatLng(e.latlng).setContent(wrap).openOn(map);
     });
 
     redraw();
