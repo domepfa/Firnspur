@@ -122,6 +122,7 @@
   .tabs-inner{
     display:flex; gap:14px; width:max-content; margin:0 auto;
   }
+  .route-waypoint-label{ background:none; border:none; box-shadow:none; color:#fff; font-weight:700; font-size:11px; }
   .tab{
     background:none; border:none; box-shadow:none; clip-path:none;
     color:rgba(255,255,255,0.62);
@@ -1533,10 +1534,11 @@ function tourDetailHtml(id){
       <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${t.id}" data-act="quick-save" data-id="${t.id}" data-kind="tour">💾 Änderungen speichern</button>
     </div>
     ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.topoImages && t.topoImages.length)) ? offlineSectionHtml(t.id) : ''}
-    ${(t.gpxLink || t.trackSimplified) ? `<div class="detail-section">
+    ${(t.gpxLink || t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? `<div class="detail-section">
       <h4>GPX-Track</h4>
       ${t.gpxLink ? `<p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>` : ''}
       ${t.trackSimplified ? `<button type="button" class="btn secondary" data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}">📥 GPX herunterladen (Originaldatei)</button>` : ''}
+      ${(!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? `<button type="button" class="btn secondary" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}">📥 Route als GPX exportieren</button>` : ''}
     </div>` : ''}
     ${(() => { const related = findToursSharingPoints(t, state.tours, 300); return related.length ? `<div class="detail-section">
       <h4>Weitere Touren ab hier (${related.length})</h4>
@@ -1678,6 +1680,7 @@ function hutDetailHtml(id){
       ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${(h.manualTrack && h.manualTrack.length) ? `<span class="hint">🔴 Rot: selbst eingezeichnet</span>` : ''}
       <button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-hut-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-summer-track='[]' data-winter-track='[]' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
+      ${(h.manualTrack && h.manualTrack.length) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(h.manualTrack))}' data-name="${esc(h.name)}">📥 Route als GPX exportieren</button>` : ''}
       <div id="map-hut-${h.id}" style="margin-top:10px;"></div>
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${h.id}" data-act="quick-edit-toggle" data-id="${h.id}" data-kind="hut">✏️ Punkte/Linie direkt bearbeiten</button>
       <div id="quick-edit-map-${h.id}" style="margin-top:10px; display:none;"></div>
@@ -2034,6 +2037,13 @@ function wireModalHandlers(){
     });
   });
 
+  root.querySelectorAll('[data-act="download-manual-gpx"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      let track = [];
+      try{ track = JSON.parse(btn.getAttribute('data-track') || '[]'); }catch(e){ track = []; }
+      downloadTrackAsGpx(track, btn.getAttribute('data-name'));
+    });
+  });
   root.querySelectorAll('[data-act="download-gpx"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       downloadFullGpx(GPX_TRACKS_PATH, btn.getAttribute('data-id'), btn.getAttribute('data-name'));

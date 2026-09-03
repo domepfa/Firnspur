@@ -754,8 +754,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const lineModeBtn = document.createElement('button');
     lineModeBtn.type = 'button'; lineModeBtn.className = 'chip';
     lineModeBtn.textContent = '✏️ Linie zeichnen';
+    const routeModeBtn = document.createElement('button');
+    routeModeBtn.type = 'button'; routeModeBtn.className = 'chip';
+    routeModeBtn.textContent = '🧭 Route berechnen';
     modeRow.appendChild(pointModeBtn);
     modeRow.appendChild(lineModeBtn);
+    modeRow.appendChild(routeModeBtn);
     wrapDiv.appendChild(modeRow);
 
     refTracks.forEach(rt=>{
@@ -791,6 +795,30 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     lineActionsRow.appendChild(finishBtn);
     wrapDiv.appendChild(lineActionsRow);
 
+    const routeActionsRow = document.createElement('div');
+    routeActionsRow.style.cssText = 'display:none; gap:8px; margin-top:8px; flex-wrap:wrap; align-items:center;';
+    const routeHint = document.createElement('p');
+    routeHint.className = 'hint';
+    routeHint.style.cssText = 'width:100%; margin:0 0 2px 0;';
+    routeHint.textContent = 'Start, ggf. Zwischenziele und Ziel antippen — dann "Route berechnen". Die App sucht dann einen echten Wanderweg zwischen den Punkten.';
+    const routeUndoBtn = document.createElement('button');
+    routeUndoBtn.type = 'button'; routeUndoBtn.className = 'btn secondary'; routeUndoBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    routeUndoBtn.textContent = '↺ Letzten Wegpunkt entfernen';
+    const clearRouteBtn = document.createElement('button');
+    clearRouteBtn.type = 'button'; clearRouteBtn.className = 'btn secondary'; clearRouteBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; color:#B0392C;';
+    clearRouteBtn.textContent = '🗑️ Wegpunkte löschen';
+    const calcRouteBtn = document.createElement('button');
+    calcRouteBtn.type = 'button'; calcRouteBtn.className = 'btn'; calcRouteBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    calcRouteBtn.textContent = '🧭 Route berechnen';
+    const routeStatus = document.createElement('p');
+    routeStatus.style.cssText = 'width:100%; margin:4px 0 0 0; font-size:12.5px; color:var(--ink-soft);';
+    routeActionsRow.appendChild(routeHint);
+    routeActionsRow.appendChild(routeUndoBtn);
+    routeActionsRow.appendChild(clearRouteBtn);
+    routeActionsRow.appendChild(calcRouteBtn);
+    routeActionsRow.appendChild(routeStatus);
+    wrapDiv.appendChild(routeActionsRow);
+
     el2.appendChild(wrapDiv);
 
     let points = [];
@@ -815,6 +843,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
 
     const markerLayer = L.layerGroup().addTo(map);
     let lineLayer = L.layerGroup().addTo(map);
+    let routeLayer = L.layerGroup().addTo(map);
+    let routeWaypoints = [];
 
     function persist(){
       hiddenInput.value = JSON.stringify(points);
@@ -899,16 +929,31 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
     redrawLine();
 
+    function redrawRoute(){
+      routeLayer.clearLayers();
+      routeWaypoints.forEach((wp, i)=>{
+        L.circleMarker(wp, {radius:8, color:'#fff', weight:2, fillColor:'#2F6B44', fillOpacity:1}).addTo(routeLayer)
+          .bindTooltip(String(i+1), {permanent:true, direction:'center', className:'route-waypoint-label'});
+      });
+      if(routeWaypoints.length > 1){
+        L.polyline(routeWaypoints, {color:'#2F6B44', weight:2, opacity:0.6, dashArray:'6,6'}).addTo(routeLayer);
+      }
+    }
+
     function setMode(newMode){
       mode = newMode;
       pointModeBtn.className = mode==='point' ? 'chip on' : 'chip';
       pointModeBtn.style.background = mode==='point' ? 'var(--ice-deep)' : '';
       lineModeBtn.className = mode==='line' ? 'chip on' : 'chip';
       lineModeBtn.style.background = mode==='line' ? 'var(--ice-deep)' : '';
+      routeModeBtn.className = mode==='route' ? 'chip on' : 'chip';
+      routeModeBtn.style.background = mode==='route' ? 'var(--ice-deep)' : '';
       lineActionsRow.style.display = mode==='line' ? 'flex' : 'none';
+      routeActionsRow.style.display = mode==='route' ? 'flex' : 'none';
     }
     pointModeBtn.addEventListener('click', ()=> setMode('point'));
     lineModeBtn.addEventListener('click', ()=> setMode('line'));
+    routeModeBtn.addEventListener('click', ()=> setMode('route'));
     undoBtn.addEventListener('click', ()=>{
       manualTrack.pop();
       redrawLine();
@@ -921,11 +966,42 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     });
     finishBtn.addEventListener('click', ()=> setMode('point'));
 
+    routeUndoBtn.addEventListener('click', ()=>{
+      routeWaypoints.pop();
+      redrawRoute();
+    });
+    clearRouteBtn.addEventListener('click', ()=>{
+      routeWaypoints.length = 0;
+      redrawRoute();
+      routeStatus.textContent = '';
+    });
+    calcRouteBtn.addEventListener('click', async ()=>{
+      routeStatus.textContent = 'Route wird berechnet…';
+      calcRouteBtn.disabled = true;
+      try{
+        const calculated = await fetchCalculatedRoute(routeWaypoints);
+        manualTrack = calculated;
+        redrawLine();
+        persistTrack();
+        routeWaypoints = [];
+        redrawRoute();
+        routeStatus.textContent = '';
+        setMode('point');
+        showToast('Route berechnet und als Linie übernommen.');
+      }catch(err){
+        routeStatus.textContent = '⚠ ' + (err && err.message ? err.message : 'Route konnte nicht berechnet werden.');
+      }
+      calcRouteBtn.disabled = false;
+    });
+
     map.on('click', (e)=>{
       if(mode==='line'){
         manualTrack.push([e.latlng.lat, e.latlng.lng]);
         redrawLine();
         persistTrack();
+      }else if(mode==='route'){
+        routeWaypoints.push([e.latlng.lat, e.latlng.lng]);
+        redrawRoute();
       }else{
         points.push({ label:'', lat: e.latlng.lat, lon: e.latlng.lng, _justAdded:true });
         redraw();
@@ -1076,6 +1152,59 @@ function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simpl
   };
   reader.onerror = ()=>{ if(statusEl) statusEl.textContent = 'Datei konnte nicht gelesen werden.'; };
   reader.readAsText(file);
+}
+
+/* ================= Routenplaner (OpenRouteService) =================
+   Kostenlosen API-Key holen: https://openrouteservice.org/dev/#/signup
+   (Free-Plan, kein Kreditkarte nötig). Key hier eintragen, um die
+   Routenberechnung zu aktivieren — ohne Key gibt's nur eine klare
+   Fehlermeldung im UI, der Rest der App funktioniert unabhängig davon. */
+const OPENROUTESERVICE_API_KEY = '';
+
+async function fetchCalculatedRoute(waypoints){
+  // waypoints: Array von [lat, lon], mindestens 2 Punkte.
+  if(!OPENROUTESERVICE_API_KEY){
+    throw new Error('Noch kein API-Key für die Routenberechnung hinterlegt.');
+  }
+  if(!waypoints || waypoints.length < 2){
+    throw new Error('Mindestens zwei Punkte (Start und Ziel) nötig.');
+  }
+  const coordinates = waypoints.map(w=> [w[1], w[0]]); // ORS erwartet [lon, lat]
+  let res;
+  try{
+    res = await fetch('https://api.openrouteservice.org/v2/directions/foot-hiking/geojson', {
+      method: 'POST',
+      headers: { 'Authorization': OPENROUTESERVICE_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ coordinates })
+    });
+  }catch(e){
+    throw new Error('Route konnte nicht berechnet werden (keine Internetverbindung?).');
+  }
+  if(!res.ok){
+    let msg = 'Route konnte nicht berechnet werden.';
+    try{ const err = await res.json(); if(err && err.error && err.error.message) msg = err.error.message; }catch(e){}
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  const coords = (data.features && data.features[0] && data.features[0].geometry.coordinates) || [];
+  return coords.map(c=> [c[1], c[0]]); // zurück zu [lat, lon]
+}
+
+// Baut aus einer Koordinatenliste eine GPX-Datei und löst den Download aus —
+// für manuell gezeichnete oder berechnete Tracks (kein Original-Upload nötig).
+function downloadTrackAsGpx(coords, name){
+  if(!coords || !coords.length){ showToast('Kein Track zum Exportieren vorhanden.', true); return; }
+  const points = coords.map(c=> `    <trkpt lat="${c[0]}" lon="${c[1]}"></trkpt>`).join('\n');
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Firnspur" xmlns="http://www.topografix.com/GPX/1/1">\n  <trk>\n    <name>${esc(name || 'Track')}</name>\n    <trkseg>\n${points}\n    </trkseg>\n  </trk>\n</gpx>`;
+  const blob = new Blob([gpx], {type:'application/gpx+xml'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (name || 'track').replace(/[^a-z0-9äöüÄÖÜ_\- ]/gi,'').trim() + '.gpx';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
 }
 
 async function downloadFullGpx(trackPathPrefix, tourId, tourName){
