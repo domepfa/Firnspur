@@ -682,10 +682,14 @@ function renderStandaloneMap(containerId){
       msl: { label: '🧗 MSL', color: '#1E8A7A' },
       skitour: { label: '🎿 Skitour', color: '#1F4D63' }
     };
+    // Welche Tourenarten überhaupt möglich sind, hängt von der App ab (nicht von
+    // Zufällen in den Daten wie z. B. alten Hochtour/MSL-Einträgen ohne tourCategory-Feld
+    // aus der Zeit vor dieser Unterscheidung) — sonst könnte in der Skitour-App fälschlich
+    // ein Hochtour-Chip auftauchen bzw. in der Hochtour/MSL-App ein Skitour-Chip.
+    const isFixseilApp = typeof SEKTOREN_PATH !== 'undefined';
     function tourCategoryKey(t){
-      if(t.tourCategory === 'msl') return 'msl';
-      if(t.tourCategory === 'hochtour') return 'hochtour';
-      return 'skitour'; // Skitour-App: Touren haben kein tourCategory-Feld
+      if(!isFixseilApp) return 'skitour'; // Skitour-App: nur diese eine Tourenart möglich
+      return t.tourCategory === 'msl' ? 'msl' : 'hochtour'; // Hochtour/MSL-App: 'hochtour' auch als Fallback für alte Touren ohne das Feld
     }
     function openTourFromMap(tourId){
       closeTopOverlayLayer();
