@@ -113,11 +113,14 @@
   /* ===== Wegweiser-Tabs ===== */
   .tabs{
     max-width:1000px; margin:0 auto; padding:0 20px;
-    display:flex; gap:14px; justify-content:center; transform:translateY(20px);
+    transform:translateY(20px);
     position:relative; z-index:2;
     overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
   }
   .tabs::-webkit-scrollbar{ display:none; }
+  .tabs-inner{
+    display:flex; gap:14px; width:max-content; margin:0 auto;
+  }
   .tab{
     background:none; border:none; box-shadow:none; clip-path:none;
     color:rgba(255,255,255,0.62);
@@ -1713,14 +1716,14 @@ function shellHtml(){
         </div>
       </div>
     </div>
-    <div class="tabs">
+    <div class="tabs"><div class="tabs-inner">
       <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">🏔️ Touren</button>
       <button class="tab ${state.view==='msl'?'active':''}" data-act="view-msl">🧗 MSL</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
       <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">🧭 Sektoren</button>
       <button class="tab ${state.view==='agenda'?'active':''}" data-act="view-agenda">📅 Agenda</button>
       <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
-    </div>
+    </div></div>
   </div>
   <main>
     ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='sektoren' ? sektorenViewHtml() : state.view==='agenda' ? agendaViewHtml() : abgeschlossenViewHtml())}
