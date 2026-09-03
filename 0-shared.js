@@ -666,9 +666,19 @@ function addBaseLayerSwitcher(map){
     maxZoom: 18,
     attribution: '© swisstopo'
   });
+  // Zuschaltbare Overlays (zusätzlich zur Karte/Satellit-Auswahl, standardmässig aus) — offizielle
+  // swisstopo-Routen-Ebenen, gerendert als Kacheln über der jeweils gewählten Grundkarte.
+  const skitourenLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo-karto.skitouren/default/current/3857/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '© swisstopo'
+  });
   streetLayer.addTo(map);
-  L.control.layers({ '🗺️ Karte': streetLayer, '🛰️ Satellit': satelliteLayer }, null, { position: 'bottomleft', collapsed: true }).addTo(map);
-  return { streetLayer, satelliteLayer };
+  L.control.layers(
+    { '🗺️ Karte': streetLayer, '🛰️ Satellit': satelliteLayer },
+    { '⛷️ Skitouren': skitourenLayer },
+    { position: 'bottomleft', collapsed: true }
+  ).addTo(map);
+  return { streetLayer, satelliteLayer, skitourenLayer };
 }
 
 function renderMiniMap(containerId, lat, lon, label){
