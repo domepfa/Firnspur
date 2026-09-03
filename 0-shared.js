@@ -1410,6 +1410,105 @@ function downloadTrackAsGpx(coords, name){
   setTimeout(()=>URL.revokeObjectURL(url), 2000);
 }
 
+/* ================= Camptocamp.org-Suche (offene, kostenlose API — kein Login nötig) =================
+   ⚠ Die genaue Antwortstruktur der API konnte hier nicht live gegengeprüft werden. Der Aufbau
+   folgt der dokumentierten/bekannten Konvention (c2corg v6_api), mit defensiver Auswertung
+   mehrerer möglicher Feldnamen — bitte einmal live testen. */
+async function searchCamptocamp(query){
+  const res = await fetch('https://api.camptocamp.org/search?q=' + encodeURIComponent(query) + '&limit=10&l=de');
+  if(!res.ok) throw new Error('Suche fehlgeschlagen (Status ' + res.status + ').');
+  const data = await res.json();
+  const bucket = data.routes || data.results || data;
+  const documents = (bucket && bucket.documents) || (Array.isArray(bucket) ? bucket : []) || [];
+  return documents;
+}
+
+function extractCamptocampTitle(doc){
+  if(doc.title) return doc.title;
+  if(Array.isArray(doc.locales) && doc.locales.length){
+    const loc = doc.locales.find(l=> l.lang==='de') || doc.locales[0];
+    if(loc && loc.title) return loc.title;
+  }
+  return null;
+}
+
+// Baut eine kleine Such-Widget (Eingabefeld + Ergebnisliste) in das Element mit der ID
+// containerId. Ein Klick auf "Link übernehmen" trägt die camptocamp.org-URL in das Feld mit
+// der ID tourLinkInputId ein — sonst keine Übernahme weiterer Felder (bewusst zurückhaltend,
+// solange die Feldnamen der API nicht bestätigt sind).
+function renderCamptocampSearchBox(containerId, tourLinkInputId){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  el.innerHTML = '';
+  const inputRow = document.createElement('div');
+  inputRow.style.cssText = 'display:flex; gap:8px;';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'z. B. Aletschhorn';
+  input.style.cssText = 'flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); font-size:15px; box-sizing:border-box;';
+  const searchBtn = document.createElement('button');
+  searchBtn.type = 'button';
+  searchBtn.className = 'btn secondary';
+  searchBtn.textContent = 'Suchen';
+  inputRow.appendChild(input);
+  inputRow.appendChild(searchBtn);
+  el.appendChild(inputRow);
+  const resultsEl = document.createElement('div');
+  resultsEl.style.cssText = 'margin-top:10px;';
+  el.appendChild(resultsEl);
+
+  async function doSearch(){
+    const q = input.value.trim();
+    if(!q) return;
+    resultsEl.innerHTML = '<p class="hint">Suche läuft…</p>';
+    try{
+      const docs = await searchCamptocamp(q);
+      if(!docs.length){
+        resultsEl.innerHTML = '<p class="hint">Keine Treffer.</p>';
+        return;
+      }
+      resultsEl.innerHTML = '';
+      docs.slice(0, 10).forEach(doc=>{
+        const id = doc.document_id || doc.id;
+        const title = extractCamptocampTitle(doc) || ('Route' + (id ? ' #' + id : ''));
+        const url = id ? ('https://www.camptocamp.org/routes/' + id) : null;
+        const row = document.createElement('div');
+        row.style.cssText = 'border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; margin-bottom:8px;';
+        const nameP = document.createElement('p');
+        nameP.style.cssText = 'margin:0 0 6px 0; font-weight:700;';
+        nameP.textContent = title;
+        row.appendChild(nameP);
+        if(url){
+          const btnRow = document.createElement('div');
+          btnRow.style.cssText = 'display:flex; gap:10px; flex-wrap:wrap; align-items:center;';
+          const useBtn = document.createElement('button');
+          useBtn.type = 'button';
+          useBtn.className = 'btn secondary';
+          useBtn.style.fontSize = '12.5px';
+          useBtn.textContent = '✓ Link übernehmen';
+          useBtn.addEventListener('click', ()=>{
+            const linkInput = document.getElementById(tourLinkInputId);
+            if(linkInput) linkInput.value = url;
+            showToast('Link übernommen.');
+          });
+          btnRow.appendChild(useBtn);
+          const openA = document.createElement('a');
+          openA.href = url; openA.target = '_blank'; openA.rel = 'noopener noreferrer';
+          openA.textContent = '↗ Auf camptocamp.org öffnen';
+          openA.style.fontSize = '12.5px';
+          btnRow.appendChild(openA);
+          row.appendChild(btnRow);
+        }
+        resultsEl.appendChild(row);
+      });
+    }catch(err){
+      resultsEl.innerHTML = '<p class="hint" style="color:var(--danger);">⚠ ' + (err && err.message ? err.message : 'Suche fehlgeschlagen.') + '</p>';
+    }
+  }
+  searchBtn.addEventListener('click', doSearch);
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); doSearch(); } });
+}
+
 async function downloadFullGpx(trackPathPrefix, tourId, tourName){
   try{
     const data = await fbGet(trackPathPrefix + '/' + tourId);
