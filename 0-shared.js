@@ -612,7 +612,7 @@ function ensureFullscreenMapOverlay(){
     overlay.id = 'fullscreen-map-overlay';
     overlay.style.cssText = 'position:fixed; inset:0; z-index:200; background:#000; display:none;';
     overlay.innerHTML = `
-      <button id="fullscreen-map-close" style="position:absolute; top:14px; right:14px; z-index:210; background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 18px; height:46px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.5); display:flex; align-items:center; gap:6px;">✕ Schliessen</button>
+      <button id="fullscreen-map-close" style="position:absolute; top:14px; right:14px; z-index:100000; background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 18px; height:46px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.5); display:flex; align-items:center; gap:6px;">✕ Schliessen</button>
       <div id="fullscreen-map-container" style="width:100%; height:100%;"></div>
     `;
     document.body.appendChild(overlay);
@@ -663,36 +663,47 @@ function renderStandaloneMap(containerId){
     registerMap(mapDivId, map);
     addBaseLayerSwitcher(map);
 
-    let gpsMarker = null;
-    let gpsActive = false;
-    const gpsBtn = document.createElement('button');
-    gpsBtn.type = 'button';
-    gpsBtn.textContent = '🧭 Standort anzeigen';
-    gpsBtn.style.cssText = 'position:absolute; bottom:14px; right:14px; z-index:210; background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 16px; height:44px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.4); display:flex; align-items:center; gap:6px;';
-    gpsBtn.addEventListener('click', ()=>{
-      if(!gpsActive){
-        map.locate({ setView:true, maxZoom:15, watch:true, enableHighAccuracy:true });
-        gpsActive = true;
-        gpsBtn.textContent = '🧭 Standort ausblenden';
-      }else{
-        map.stopLocate();
-        gpsActive = false;
-        gpsBtn.textContent = '🧭 Standort anzeigen';
+    // Als echtes Leaflet-Control eingebunden (statt als loses DOM-Element über der Karte) —
+    // so landet der Button garantiert in Leaflets eigener Control-Ebene, oberhalb der
+    // Kartenkacheln, statt visuell dahinter zu verschwinden.
+    const GpsControl = L.Control.extend({
+      options: { position: 'bottomright' },
+      onAdd: function(ctrlMap){
+        const btn = L.DomUtil.create('button', '');
+        btn.type = 'button';
+        btn.textContent = '🧭 Standort anzeigen';
+        btn.style.cssText = 'background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 16px; height:44px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.4); margin:0 10px 10px 0;';
+        L.DomEvent.disableClickPropagation(btn);
+        L.DomEvent.disableScrollPropagation(btn);
+        let gpsMarker = null;
+        let gpsActive = false;
+        btn.addEventListener('click', ()=>{
+          if(!gpsActive){
+            ctrlMap.locate({ setView:true, maxZoom:15, watch:true, enableHighAccuracy:true });
+            gpsActive = true;
+            btn.textContent = '🧭 Standort ausblenden';
+          }else{
+            ctrlMap.stopLocate();
+            gpsActive = false;
+            btn.textContent = '🧭 Standort anzeigen';
+          }
+        });
+        ctrlMap.on('locationfound', (e)=>{
+          if(!gpsMarker){
+            gpsMarker = L.circleMarker(e.latlng, {radius:8, color:'#fff', weight:3, fillColor:'#1565C0', fillOpacity:1}).addTo(ctrlMap);
+          }else{
+            gpsMarker.setLatLng(e.latlng);
+          }
+        });
+        ctrlMap.on('locationerror', (err)=>{
+          showToast('Standort konnte nicht ermittelt werden: ' + (err && err.message ? err.message : ''), true);
+          gpsActive = false;
+          btn.textContent = '🧭 Standort anzeigen';
+        });
+        return btn;
       }
     });
-    map.on('locationfound', (e)=>{
-      if(!gpsMarker){
-        gpsMarker = L.circleMarker(e.latlng, {radius:8, color:'#fff', weight:3, fillColor:'#1565C0', fillOpacity:1}).addTo(map);
-      }else{
-        gpsMarker.setLatLng(e.latlng);
-      }
-    });
-    map.on('locationerror', (err)=>{
-      showToast('Standort konnte nicht ermittelt werden: ' + (err && err.message ? err.message : ''), true);
-      gpsActive = false;
-      gpsBtn.textContent = '🧭 Standort anzeigen';
-    });
-    el2.appendChild(gpsBtn);
+    map.addControl(new GpsControl());
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
     if(el3) el3.innerHTML = '<p style="font-size:13px; color:#fff;">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
