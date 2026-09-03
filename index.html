@@ -680,20 +680,21 @@ function openTourDetail(id){ state.modal = {type:'tour-detail', payload:id}; ren
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
-function closeModal(){
+function closeModal(fromPopstate){
   stopLiveGpsOnMap();
   // Zustiege sind "verschachtelt" unter einer Hütte — beim Schliessen zurück zur
   // Hütten-Detailansicht statt ganz zur Übersicht, damit man nicht jedes Mal neu
-  // hinein navigieren muss.
+  // hinein navigieren muss. Ein Klick auf X/Zurück (oder die Hardware-Zurück-Taste)
+  // schliesst dadurch immer nur die zuoberst offene Ebene.
   if(state.modal && (state.modal.type==='access-route-detail' || state.modal.type==='edit-access-route') && state.modal.payload && state.modal.payload.hutId){
     state.modal = {type:'hut-detail', payload: state.modal.payload.hutId};
   }else{
     state.modal = null;
   }
   render();
-  if(modalHistoryPushed){
+  if(!state.modal && modalHistoryPushed){
     modalHistoryPushed = false;
-    try{ history.back(); }catch(e){}
+    if(!fromPopstate) consumeHistoryEntry();
   }
 }
 function openExport(){ state.modal = {type:'export'}; render(); }
@@ -1113,13 +1114,13 @@ function tourCardHtml(t){
   return `
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
     <div class="card-top">
-      <h3 style="font-style:italic;">${t.completed ? '✓ ' : ''}${esc(t.name)}</h3>
+      <h3 style="color:var(--ice-deep);">${t.completed ? '✓ ' : ''}${esc(t.name)}</h3>
       <div class="badge-row">
         ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
       </div>
     </div>
-    ${t.routeName ? `<h3 style="margin:-4px 0 0 0;">${esc(t.routeName)}</h3>` : ''}
+    ${t.routeName ? `<h3 style="margin:-4px 0 0 0; color:var(--ink-soft);">${esc(t.routeName)}</h3>` : ''}
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
@@ -1335,7 +1336,6 @@ function completeFormHtml(kind, id){
 function tourFormHtml(existing){
   const t = existing || {};
   const hutOptions = state.huts.map(h=>`<option value="${h.id}" ${t.hutId===h.id?'selected':''}>${esc(h.name)}</option>`).join('');
-  const REGIONS = ['Wallis','Berner Oberland','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
   const isKnownRegion = REGIONS.includes(t.region);
   const MATERIAL = MATERIAL_SKI;
   const selectedMaterial = Array.isArray(t.material) ? t.material : [];
@@ -1420,6 +1420,7 @@ function tourFormHtml(existing){
       </div>
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. steile Rinne kurz vor dem Gipfel, ausgesetzte Querung …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Lawinenhänge, Gletscherspalten, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
+      <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
           <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('auto')?'on':''}" style="${(t.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
@@ -1445,7 +1446,6 @@ function tourFormHtml(existing){
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(t.manualTrack || []))}'/>
       </div>
-      <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abfahrtsroute, Varianten …">${esc(t.descent||'')}</textarea></div>
       <div class="field"><label>Verknüpfte Hütte</label>
         <select name="hutId"><option value="">— keine —</option>${hutOptions}</select>
@@ -1481,11 +1481,11 @@ function tourDetailHtml(id){
         ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty} · ${d.label}</span>` : `<span class="badge" style="background:var(--ink-faint)">unbewertet</span>`}
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
       </div>
-        <h2 style="font-style:italic;">${esc(t.name)}</h2>
+        <h2 style="color:var(--ice-deep);">${esc(t.name)}</h2>
       </div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
-    ${t.routeName ? `<h2 style="margin:0 0 6px 0;">${esc(t.routeName)}</h2>` : ''}
+    ${t.routeName ? `<h2 style="margin:0 0 6px 0; color:var(--ink-soft);">${esc(t.routeName)}</h2>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-tour-status" data-id="${t.id}">${tourStatusLabel(t)} — antippen zum Ändern</button>
     <div class="detail-stats">
@@ -1503,6 +1503,7 @@ function tourDetailHtml(id){
     ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
+    ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
       ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length)) ? `<div class="chips" style="margin-bottom:8px;">
@@ -1535,7 +1536,6 @@ function tourDetailHtml(id){
       <h4>Weitere Touren ab hier (${related.length})</h4>
       <div class="grid" style="margin-top:6px;">${related.map(tourCardHtml).join('')}</div>
     </div>` : ''; })()}
-    ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
 
     <div class="detail-section">
@@ -1559,7 +1559,6 @@ function tourDetailHtml(id){
 
 function hutFormHtml(existing){
   const h = existing || {};
-  const REGIONS = ['Wallis','Berner Oberland','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
   const isKnownRegion = REGIONS.includes(h.region);
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${existing?'Hütte bearbeiten':'Neue Hütte'}</h2><button class="x-btn" data-act="close-modal">×</button></div>

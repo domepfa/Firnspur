@@ -154,6 +154,7 @@ function makeCategoryIcon(category){
     popupAnchor: [0,-28]
   });
 }
+const REGIONS = ['Wallis','Berner Oberland','Simmental','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
 const REGION_SUBAREAS = {
   'Wallis': ['Nikolaital/Zermatt','Saastal','Val d\'Anniviers','Lötschental','Goms','Unterwallis','Nufenenpass','Grimselpass','Furkapass','Simplonpass','Grosser St. Bernhard'],
   'Berner Oberland': ['Lauterbrunnental','Haslital','Kandertal','Simmental','Diemtigtal','Justistal','Saanenland/Gstaad','Grimselpass','Sustenpass','Jochpass','Grosse Scheidegg'],
@@ -615,7 +616,7 @@ function ensureFullscreenMapOverlay(){
       <div id="fullscreen-map-container" style="width:100%; height:100%;"></div>
     `;
     document.body.appendChild(overlay);
-    document.getElementById('fullscreen-map-close').addEventListener('click', closeFullscreenMap);
+    document.getElementById('fullscreen-map-close').addEventListener('click', closeTopOverlayLayer);
   }
   return overlay;
 }
@@ -624,6 +625,7 @@ function openFullscreenMap(renderFn, onCloseCallback){
   overlay.style.display = 'block';
   overlay._onClose = onCloseCallback || null;
   renderFn('fullscreen-map-container');
+  pushOverlayLayer(closeFullscreenMap);
 }
 function closeFullscreenMap(){
   const overlay = document.getElementById('fullscreen-map-overlay');
@@ -1385,19 +1387,60 @@ function hutStatusLabel(h){
   return (!h.status || h.status==='entwurf') ? '📝 Entwurf' : '✅ Vollständig';
 }
 
-/* ================= Zurück-Taste schliesst offene Fenster (statt App zu verlassen) ================= */
+/* ================= Zurück-Taste/X schliesst immer nur die zuoberst offene Ebene =================
+   Es gibt zwei Arten von "Ebenen":
+   - das Modal-System (state.modal) — verschachtelte Fenster (z. B. Zustieg-Detail über Hütten-Detail)
+     schliessen sich dort Schritt für Schritt zur jeweiligen Elternebene (siehe closeModal()); dafür
+     wird EIN History-Eintrag "offen gehalten", solange irgendein Modal sichtbar ist, und erst beim
+     endgültigen Schliessen (state.modal wird null) konsumiert.
+   - "Overlay-Ebenen" (Vollbild-Karte, Bild-Vollbildansicht) liegen visuell über dem Modal-System und
+     sind komplett unabhängig davon; jede pusht ihren eigenen History-Eintrag, damit Zurück/Hardware-
+     Zurück erst diese schliesst, bevor je wieder das Modal darunter betroffen ist. */
 let modalHistoryPushed = false;
+let overlayLayers = []; // Stack von Close-Callbacks, zuletzt geöffnete Overlay-Ebene zuoberst
+let suppressNextPopstateHandling = false;
+
 function pushModalHistoryIfNeeded(){
   if(!modalHistoryPushed){
-    try{ history.pushState({modalOpen:true}, '', location.href); }catch(e){}
+    try{ history.pushState({fsLayer:'modal'}, '', location.href); }catch(e){}
     modalHistoryPushed = true;
   }
 }
+
+// Von uns selbst ausgelöstes "Zurück" (X-Button o. Ä.): konsumiert den zugehörigen History-Eintrag,
+// ohne dass der popstate-Handler die Ebene ein zweites Mal schliesst.
+function consumeHistoryEntry(){
+  suppressNextPopstateHandling = true;
+  try{ history.back(); }catch(e){ suppressNextPopstateHandling = false; }
+}
+
+// Registriert eine neue Overlay-Ebene (Vollbild-Karte, Bild-Vollbildansicht) über dem Modal-System.
+// closeFn schliesst die Ebene rein visuell (DOM ausblenden/entfernen) und wird genau einmal aufgerufen —
+// egal ob über einen Schliessen-Button (closeTopOverlayLayer) oder die Hardware-Zurück-Taste (popstate).
+function pushOverlayLayer(closeFn){
+  overlayLayers.push(closeFn);
+  try{ history.pushState({fsLayer:'overlay'}, '', location.href); }catch(e){}
+}
+// Manuelles Schliessen der obersten Overlay-Ebene (Schliessen-Button/X).
+function closeTopOverlayLayer(){
+  if(!overlayLayers.length) return;
+  const closeFn = overlayLayers.pop();
+  if(closeFn){ try{ closeFn(); }catch(e){} }
+  consumeHistoryEntry();
+}
+
 window.addEventListener('popstate', ()=>{
+  if(suppressNextPopstateHandling){ suppressNextPopstateHandling = false; return; }
+  // Oberste Ebene zuerst: offene Vollbild-Karte / Bild-Vollbildansicht schliesst nur sich selbst.
+  if(overlayLayers.length){
+    const closeFn = overlayLayers.pop();
+    if(closeFn){ try{ closeFn(); }catch(e){} }
+    return;
+  }
   if(typeof state !== 'undefined' && state.modal){
-    state.modal = null;
     modalHistoryPushed = false;
-    render();
+    if(typeof closeModal === 'function'){ closeModal(true); }
+    else{ state.modal = null; if(typeof render === 'function') render(); }
   }else{
     modalHistoryPushed = false;
   }
@@ -1539,7 +1582,7 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - \`pitchCount\`: Anzahl Seillängen (Zahl als Text)
   - \`longestPitch\`: längste Seillänge (z. B. "35m")
   - \`protection\`: "sehr-gut", "gut", "alpin", oder "ernst"
-  - \`descentType\`: "Fussabstieg", "Abseilen", oder "Fussabstieg und Abseilen"
+  - \`descentType\`: "Fussabstieg", "Abseilen", oder "Kombination"
 
   Franz. Kletterskala: 1, 2a-, 2a, 2a+, 2b-, 2b, 2b+, 2c-, 2c, 2c+, 3a-, 3a, 3a+,
   3b-, 3b, 3b+, 3c-, 3c, 3c+, 4a- ... bis 7a (jeweils mit -/+ Abstufungen)
@@ -2183,10 +2226,12 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   imgEl.style.cssText = 'max-width:100%; max-height:100%; object-fit:contain; border-radius:4px;';
   overlay.appendChild(imgEl);
 
+  function closeLightbox(){ overlay.remove(); }
+
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button'; closeBtn.textContent = '×';
   closeBtn.style.cssText = 'position:absolute; top:16px; right:16px; background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:22px; line-height:1;';
-  closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); overlay.remove(); });
+  closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); closeTopOverlayLayer(); });
   overlay.appendChild(closeBtn);
 
   let counterEl = null;
@@ -2222,7 +2267,7 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   }
   updateImage();
 
-  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeTopOverlayLayer(); });
 
   let touchStartX = null;
   overlay.addEventListener('touchstart', (e)=>{ touchStartX = e.touches[0].clientX; }, {passive:true});
@@ -2234,6 +2279,7 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   }, {passive:true});
 
   document.body.appendChild(overlay);
+  pushOverlayLayer(closeLightbox);
 }
 
 /* ================= Offline-Download für unterwegs (Kartenkacheln + Bilder, 7 Tage) ================= */
