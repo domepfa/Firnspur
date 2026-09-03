@@ -689,8 +689,14 @@ function openTourDetail(id){ state.modal = {type:'tour-detail', payload:id}; ren
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
-function closeModal(fromPopstate){
-  if(tryAutosaveOnClose()) return;
+function closeModal(fromPopstate, skipDirtyCheck){
+  if(!skipDirtyCheck && !confirmDiscardIfDirty()){
+    // Nutzer will weiter bearbeiten — nichts schliessen. Bei der Hardware-/Browser-Zurück-Taste
+    // wurde der History-Eintrag bereits konsumiert; render() stellt ihn über
+    // pushModalHistoryIfNeeded() automatisch wieder her.
+    render();
+    return;
+  }
   stopLiveGpsOnMap();
   // Zustiege sind "verschachtelt" unter einer Hütte — beim Schliessen zurück zur
   // Hütten-Detailansicht statt ganz zur Übersicht, damit man nicht jedes Mal neu
@@ -772,7 +778,7 @@ async function submitTourForm(form, existing){
 
   const idx = state.tours.findIndex(x=>x.id===t.id);
   if(idx>=0) state.tours[idx] = t; else state.tours.unshift(t);
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'tour-detail', payload:t.id};
   render();
 
@@ -814,7 +820,7 @@ async function submitHutForm(form, existing){
 
   const idx = state.huts.findIndex(x=>x.id===h.id);
   if(idx>=0) state.huts[idx] = h; else state.huts.push(h);
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'hut-detail', payload:h.id};
   render();
 
@@ -854,7 +860,7 @@ async function submitAccessRouteForm(form){
   if(idx>=0) hut.accessRoutes[idx] = routeData; else hut.accessRoutes.push(routeData);
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'hut-detail', payload:hut.id};
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);
@@ -870,7 +876,7 @@ async function deleteAccessRoute(hutId, routeId){
   hut.accessRoutes = (hut.accessRoutes||[]).filter(r=>r.id!==routeId);
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'hut-detail', payload:hutId};
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);
@@ -1465,7 +1471,7 @@ function tourFormHtml(existing){
         <div class="hint">Fehlt die Hütte? Erst unter „Hütten“ anlegen, dann hier verlinken.</div>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="tour-save-btn" class="btn">${existing?'Speichern':'Tour anlegen'}</button>
       </div>
       <button type="button" id="tour-fab-save-btn" class="fab-save">✓ Speichern</button>
@@ -1631,7 +1637,7 @@ function hutFormHtml(existing){
       <div class="field"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, SAC-Sektion …"/></div>
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="hut-save-btn" class="btn">${existing?'Speichern':'Hütte anlegen'}</button>
       </div>
       <button type="button" id="hut-fab-save-btn" class="fab-save">✓ Speichern</button>
@@ -1916,11 +1922,21 @@ function renderListOnly(){
 function wireModalHandlers(){
   const root = document.getElementById('modal-root');
   dlog('Modal gerendert: ' + (state.modal ? state.modal.type : 'keins'));
+  syncModalDirtyTracking();
+  // Erkennt Änderungen an Text-/Auswahlfeldern sowie Chip-Klicks, um beim Verlassen einer
+  // Bearbeiten-Maske gezielt nachfragen zu können, ob ungespeicherte Änderungen verworfen
+  // werden sollen. Nur einmal verdrahtet (modal-root bleibt über Renders hinweg bestehen).
+  if(!root.dataset.dirtyWired){
+    root.dataset.dirtyWired = '1';
+    root.addEventListener('input', ()=> markModalDirty());
+    root.addEventListener('change', ()=> markModalDirty());
+    root.addEventListener('click', (e)=>{ if(e.target.closest('button.chip')) markModalDirty(); });
+  }
   const overlay = root.querySelector('.overlay');
   overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeModal(); });
   root.querySelectorAll('[data-stop]').forEach(el=> el.addEventListener('click', e=>e.stopPropagation()));
 
-  root.querySelectorAll('[data-act="close-modal"]').forEach(el=> el.onclick = closeModal);
+  root.querySelectorAll('[data-act="close-modal"]').forEach(el=> el.onclick = ()=> closeModal());
 
   if(state.modal && state.modal.type==='tour-detail'){
     refreshOfflineSectionUI(state.modal.payload);
@@ -2605,7 +2621,7 @@ function wireModalHandlers(){
     });
     if(yesBtn) yesBtn.addEventListener('click', ()=>{
       removeFn(yesBtn.getAttribute('data-id'));
-      closeModal();
+      closeModal(false, true);
       showToast(onDeletedGoTo + ' gelöscht.');
     });
   }

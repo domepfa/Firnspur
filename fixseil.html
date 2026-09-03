@@ -828,8 +828,14 @@ function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; rende
 function openAddSektor(){ ensureName(()=>{ state.modal = {type:'edit-sektor', payload:null}; render(); }); }
 function openEditSektor(id){ ensureName(()=>{ const s = state.sektoren.find(x=>x.id===id); state.modal = {type:'edit-sektor', payload:s}; render(); }); }
 function openSektorDetail(id){ state.modal = {type:'sektor-detail', payload:id}; render(); }
-function closeModal(fromPopstate){
-  if(tryAutosaveOnClose()) return;
+function closeModal(fromPopstate, skipDirtyCheck){
+  if(!skipDirtyCheck && !confirmDiscardIfDirty()){
+    // Nutzer will weiter bearbeiten — nichts schliessen. Bei der Hardware-/Browser-Zurück-Taste
+    // wurde der History-Eintrag bereits konsumiert; render() stellt ihn über
+    // pushModalHistoryIfNeeded() automatisch wieder her.
+    render();
+    return;
+  }
   stopLiveGpsOnMap();
   // Zustiege/Abstiege sind "verschachtelt" unter einer Hütte / Tour / Sektor — beim
   // Schliessen zurück zur jeweiligen Detailansicht statt ganz zur Übersicht, damit
@@ -934,7 +940,7 @@ async function submitTourForm(form, existing){
 
   const idx = state.tours.findIndex(x=>x.id===t.id);
   if(idx>=0) state.tours[idx] = t; else state.tours.unshift(t);
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'tour-detail', payload:t.id};
   render();
 
@@ -976,7 +982,7 @@ async function submitHutForm(form, existing){
 
   const idx = state.huts.findIndex(x=>x.id===h.id);
   if(idx>=0) state.huts[idx] = h; else state.huts.push(h);
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'hut-detail', payload:h.id};
   render();
 
@@ -1016,7 +1022,7 @@ async function submitAccessRouteForm(form){
   if(idx>=0) hut.accessRoutes[idx] = routeData; else hut.accessRoutes.push(routeData);
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'hut-detail', payload:hut.id};
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);
@@ -1032,7 +1038,7 @@ async function deleteAccessRoute(hutId, routeId){
   hut.accessRoutes = (hut.accessRoutes||[]).filter(r=>r.id!==routeId);
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'hut-detail', payload:hutId};
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);
@@ -1135,7 +1141,7 @@ function tourRouteFormHtml(tourId, kind, route){
         <input type="hidden" name="manualTrack" id="tour-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         ${route ? `<button type="button" class="btn danger" data-act="delete-tour-route" data-tour-id="${esc(tourId)}" data-kind="${kind}" data-route-id="${esc(r.id)}" style="margin-right:auto;">Löschen</button>` : ''}
         <button type="button" id="tour-route-save-btn" class="btn">${route?'Speichern':title+' hinzufügen'}</button>
       </div>
@@ -1169,7 +1175,7 @@ async function submitTourRouteForm(form){
   if(idx>=0) t[field][idx] = routeData; else t[field].push(routeData);
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'tour-detail', payload:t.id};
   render();
   const ok = await saveTourCloud(t).catch(()=>false);
@@ -1186,7 +1192,7 @@ async function deleteTourRoute(tourId, kind, routeId){
   t[field] = (t[field]||[]).filter(r=>r.id!==routeId);
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'tour-detail', payload:tourId};
   render();
   const ok = await saveTourCloud(t).catch(()=>false);
@@ -1214,7 +1220,7 @@ async function submitSektorForm(form, existing){
 
   const idx = state.sektoren.findIndex(x=>x.id===s.id);
   if(idx>=0) state.sektoren[idx] = s; else state.sektoren.unshift(s);
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'sektor-detail', payload:s.id};
   render();
 
@@ -1263,7 +1269,7 @@ function sektorFormHtml(existing){
         <p style="font-size:13px; color:var(--ink-soft); margin:0;">${existing ? 'Werden in der Detailansicht des Sektors verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege/Abstiege hinzufügen.'}</p>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="sektor-save-btn" class="btn">${existing?'Speichern':'Sektor anlegen'}</button>
       </div>
       <button type="button" id="sektor-fab-save-btn" class="fab-save">✓ Speichern</button>
@@ -1516,7 +1522,7 @@ function sektorRouteFormHtml(sektorId, kind, route){
         <input type="hidden" name="manualTrack" id="sektor-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         ${route ? `<button type="button" class="btn danger" data-act="delete-sektor-route" data-sektor-id="${esc(sektorId)}" data-kind="${kind}" data-route-id="${esc(r.id)}" style="margin-right:auto;">Löschen</button>` : ''}
         <button type="button" id="sektor-route-save-btn" class="btn">${route?'Speichern':title+' hinzufügen'}</button>
       </div>
@@ -1550,7 +1556,7 @@ async function submitSektorRouteForm(form){
   if(idx>=0) sek[field][idx] = routeData; else sek[field].push(routeData);
   sek.updatedAt = new Date().toISOString();
   sek.updatedBy = state.myName;
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'sektor-detail', payload:sek.id};
   render();
   const ok = await saveSektorCloud(sek).catch(()=>false);
@@ -1567,7 +1573,7 @@ async function deleteSektorRoute(sektorId, kind, routeId){
   sek[field] = (sek[field]||[]).filter(r=>r.id!==routeId);
   sek.updatedAt = new Date().toISOString();
   sek.updatedBy = state.myName;
-  closeModal();
+  closeModal(false, true);
   state.modal = {type:'sektor-detail', payload:sektorId};
   render();
   const ok = await saveSektorCloud(sek).catch(()=>false);
@@ -2404,7 +2410,7 @@ function tourFormHtml(existing){
         <div class="hint">Ist ein Sektor verlinkt, übernimmt die Tour dessen Zustiege/Abstiege automatisch statt eigener. Fehlt der Sektor? Erst unter „Sektoren" anlegen.</div>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="tour-save-btn" class="btn">${(existing&&existing.id)?'Speichern':'Tour anlegen'}</button>
       </div>
       <button type="button" id="tour-fab-save-btn" class="fab-save">✓ Speichern</button>
@@ -2632,7 +2638,7 @@ function hutFormHtml(existing){
       <div class="field"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, Sektion …"/></div>
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="hut-save-btn" class="btn">${existing?'Speichern':'Hütte anlegen'}</button>
       </div>
       <button type="button" id="hut-fab-save-btn" class="fab-save">✓ Speichern</button>
@@ -2907,11 +2913,21 @@ function renderListOnly(){
 function wireModalHandlers(){
   const root = document.getElementById('modal-root');
   dlog('Modal gerendert: ' + (state.modal ? state.modal.type : 'keins'));
+  syncModalDirtyTracking();
+  // Erkennt Änderungen an Text-/Auswahlfeldern sowie Chip-Klicks, um beim Verlassen einer
+  // Bearbeiten-Maske gezielt nachfragen zu können, ob ungespeicherte Änderungen verworfen
+  // werden sollen. Nur einmal verdrahtet (modal-root bleibt über Renders hinweg bestehen).
+  if(!root.dataset.dirtyWired){
+    root.dataset.dirtyWired = '1';
+    root.addEventListener('input', ()=> markModalDirty());
+    root.addEventListener('change', ()=> markModalDirty());
+    root.addEventListener('click', (e)=>{ if(e.target.closest('button.chip')) markModalDirty(); });
+  }
   const overlay = root.querySelector('.overlay');
   overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeModal(); });
   root.querySelectorAll('[data-stop]').forEach(el=> el.addEventListener('click', e=>e.stopPropagation()));
 
-  root.querySelectorAll('[data-act="close-modal"]').forEach(el=> el.onclick = closeModal);
+  root.querySelectorAll('[data-act="close-modal"]').forEach(el=> el.onclick = ()=> closeModal());
 
   if(state.modal && state.modal.type==='tour-detail'){
     refreshOfflineSectionUI(state.modal.payload);
@@ -3750,7 +3766,7 @@ function wireModalHandlers(){
     });
     if(yesBtn) yesBtn.addEventListener('click', ()=>{
       removeFn(yesBtn.getAttribute('data-id'));
-      closeModal();
+      closeModal(false, true);
       showToast(onDeletedGoTo + ' gelöscht.');
     });
   }
