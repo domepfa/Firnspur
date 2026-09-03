@@ -1159,7 +1159,7 @@ function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simpl
    (Free-Plan, kein Kreditkarte nötig). Key hier eintragen, um die
    Routenberechnung zu aktivieren — ohne Key gibt's nur eine klare
    Fehlermeldung im UI, der Rest der App funktioniert unabhängig davon. */
-const OPENROUTESERVICE_API_KEY = '';
+const OPENROUTESERVICE_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImMzNGNmZWNmY2Q3YzRjODlhNGJkNzVjOThlZjkyMjg4IiwiaCI6Im11cm11cjY0In0=';
 
 async function fetchCalculatedRoute(waypoints){
   // waypoints: Array von [lat, lon], mindestens 2 Punkte.
