@@ -690,6 +690,7 @@ function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
 function closeModal(fromPopstate){
+  if(tryAutosaveOnClose()) return;
   stopLiveGpsOnMap();
   // Zustiege sind "verschachtelt" unter einer Hütte — beim Schliessen zurück zur
   // Hütten-Detailansicht statt ganz zur Übersicht, damit man nicht jedes Mal neu
@@ -1464,7 +1465,7 @@ function tourFormHtml(existing){
         <div class="hint">Fehlt die Hütte? Erst unter „Hütten“ anlegen, dann hier verlinken.</div>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
         <button type="button" id="tour-save-btn" class="btn">${existing?'Speichern':'Tour anlegen'}</button>
       </div>
       <button type="button" id="tour-fab-save-btn" class="fab-save">✓ Speichern</button>
@@ -1630,7 +1631,7 @@ function hutFormHtml(existing){
       <div class="field"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, SAC-Sektion …"/></div>
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
         <button type="button" id="hut-save-btn" class="btn">${existing?'Speichern':'Hütte anlegen'}</button>
       </div>
       <button type="button" id="hut-fab-save-btn" class="fab-save">✓ Speichern</button>

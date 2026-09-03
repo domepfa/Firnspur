@@ -2092,6 +2092,38 @@ function closeTopOverlayLayer(){
   consumeHistoryEntry();
 }
 
+/* ================= Autosave beim Verlassen einer Bearbeiten-Maske =================
+   Verlässt man eine Bearbeiten-Maske (X, Klick daneben, Zurück-Taste) OHNE auf "Speichern"
+   zu tippen, wurden die Eingaben bisher verworfen — das führte zu Datenverlust. closeModal()
+   ruft deshalb zuerst tryAutosaveOnClose() auf: ist ein Name eingetragen, wird automatisch
+   genau der bestehende Speichern-Button angeklickt (identische Validierung/Logik wie beim
+   manuellen Speichern), was closeModal() selbst rekursiv erneut aufruft — daher die
+   autosaveInFlight-Sperre gegen Endlosschleifen. Ist kein Name eingetragen, gibt es nichts
+   sinnvoll zu speichern; dann wird ganz normal (verwerfend) geschlossen. */
+const AUTOSAVE_FORM_MAP = {
+  'edit-tour': {formId:'tour-form', saveBtnId:'tour-save-btn'},
+  'edit-hut': {formId:'hut-form', saveBtnId:'hut-save-btn'},
+  'edit-sektor': {formId:'sektor-form', saveBtnId:'sektor-save-btn'},
+  'edit-access-route': {formId:'access-route-form', saveBtnId:'access-route-save-btn'},
+  'edit-tour-route': {formId:'tour-route-form', saveBtnId:'tour-route-save-btn'},
+  'edit-sektor-route': {formId:'sektor-route-form', saveBtnId:'sektor-route-save-btn'}
+};
+let autosaveInFlight = false;
+function tryAutosaveOnClose(){
+  if(autosaveInFlight || !state.modal) return false;
+  const cfg = AUTOSAVE_FORM_MAP[state.modal.type];
+  if(!cfg) return false;
+  const form = document.getElementById(cfg.formId);
+  const saveBtn = document.getElementById(cfg.saveBtnId);
+  if(!form || !saveBtn) return false;
+  const nameField = form.querySelector('[name="name"]');
+  if(!nameField || !nameField.value.trim()) return false;
+  autosaveInFlight = true;
+  saveBtn.click();
+  autosaveInFlight = false;
+  return true;
+}
+
 window.addEventListener('popstate', ()=>{
   if(suppressNextPopstateHandling){ suppressNextPopstateHandling = false; return; }
   // Oberste Ebene zuerst: offene Vollbild-Karte / Bild-Vollbildansicht schliesst nur sich selbst.
@@ -2692,7 +2724,7 @@ function accessRouteFormHtml(hutId, route){
         <input type="hidden" name="manualTrack" id="access-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
         ${route ? `<button type="button" class="btn danger" data-act="delete-access-route" data-hut-id="${esc(hutId)}" data-route-id="${esc(r.id)}" style="margin-right:auto;">Löschen</button>` : ''}
         <button type="button" id="access-route-save-btn" class="btn">${route?'Speichern':'Zustieg hinzufügen'}</button>
       </div>

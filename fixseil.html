@@ -829,6 +829,7 @@ function openAddSektor(){ ensureName(()=>{ state.modal = {type:'edit-sektor', pa
 function openEditSektor(id){ ensureName(()=>{ const s = state.sektoren.find(x=>x.id===id); state.modal = {type:'edit-sektor', payload:s}; render(); }); }
 function openSektorDetail(id){ state.modal = {type:'sektor-detail', payload:id}; render(); }
 function closeModal(fromPopstate){
+  if(tryAutosaveOnClose()) return;
   stopLiveGpsOnMap();
   // Zustiege/Abstiege sind "verschachtelt" unter einer Hütte / Tour / Sektor — beim
   // Schliessen zurück zur jeweiligen Detailansicht statt ganz zur Übersicht, damit
@@ -1134,7 +1135,7 @@ function tourRouteFormHtml(tourId, kind, route){
         <input type="hidden" name="manualTrack" id="tour-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
         ${route ? `<button type="button" class="btn danger" data-act="delete-tour-route" data-tour-id="${esc(tourId)}" data-kind="${kind}" data-route-id="${esc(r.id)}" style="margin-right:auto;">Löschen</button>` : ''}
         <button type="button" id="tour-route-save-btn" class="btn">${route?'Speichern':title+' hinzufügen'}</button>
       </div>
@@ -1262,7 +1263,7 @@ function sektorFormHtml(existing){
         <p style="font-size:13px; color:var(--ink-soft); margin:0;">${existing ? 'Werden in der Detailansicht des Sektors verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege/Abstiege hinzufügen.'}</p>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
         <button type="button" id="sektor-save-btn" class="btn">${existing?'Speichern':'Sektor anlegen'}</button>
       </div>
       <button type="button" id="sektor-fab-save-btn" class="fab-save">✓ Speichern</button>
@@ -1515,7 +1516,7 @@ function sektorRouteFormHtml(sektorId, kind, route){
         <input type="hidden" name="manualTrack" id="sektor-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
         ${route ? `<button type="button" class="btn danger" data-act="delete-sektor-route" data-sektor-id="${esc(sektorId)}" data-kind="${kind}" data-route-id="${esc(r.id)}" style="margin-right:auto;">Löschen</button>` : ''}
         <button type="button" id="sektor-route-save-btn" class="btn">${route?'Speichern':title+' hinzufügen'}</button>
       </div>
@@ -2403,7 +2404,7 @@ function tourFormHtml(existing){
         <div class="hint">Ist ein Sektor verlinkt, übernimmt die Tour dessen Zustiege/Abstiege automatisch statt eigener. Fehlt der Sektor? Erst unter „Sektoren" anlegen.</div>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
         <button type="button" id="tour-save-btn" class="btn">${(existing&&existing.id)?'Speichern':'Tour anlegen'}</button>
       </div>
       <button type="button" id="tour-fab-save-btn" class="fab-save">✓ Speichern</button>
@@ -2631,7 +2632,7 @@ function hutFormHtml(existing){
       <div class="field"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, Sektion …"/></div>
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
       <div class="form-actions">
-        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
         <button type="button" id="hut-save-btn" class="btn">${existing?'Speichern':'Hütte anlegen'}</button>
       </div>
       <button type="button" id="hut-fab-save-btn" class="fab-save">✓ Speichern</button>
