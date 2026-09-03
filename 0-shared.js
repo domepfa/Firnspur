@@ -1108,7 +1108,9 @@ function ownPointRefPoints(entity, label, color){
   if(!entity || !entity.points || !entity.points.length) return [];
   return entity.points.map(p=> ({lat:p.lat, lon:p.lon, label: label + (p.label ? ' – ' + p.label : ''), color: color||'#4A3524'}));
 }
-function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints){
+function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields){
+  // autofillFields (optional): {ascent, descent, duration} — Formularfelder (DOM-Elemente), die nach
+  // "Route berechnen" automatisch mit den berechneten Werten befüllt werden.
   // refTracks: Array von {coords, color, label} — beliebig viele statische Referenzlinien (z. B. hochgeladene GPX-Tracks
   // oder Zustiege/Abstiege desselben Elements), nur zur Orientierung, hier nicht bearbeitbar.
   // refPoints: Array von {lat, lon, label, color} — analog, einzelne Referenz-Standorte (z. B. der Standort
@@ -1256,6 +1258,10 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     let lineLayer = L.layerGroup().addTo(map);
     let routeLayer = L.layerGroup().addTo(map);
     let routeWaypoints = [];
+    // Kennzahlen der zuletzt berechneten Route — auf den Strich tippen zeigt sie erneut an
+    // (klein/vergänglich unter der Karte reicht sonst nicht: kaum lesbar und beim Verlassen weg).
+    // Wird zurückgesetzt, sobald die Linie manuell verändert wird (dann stimmen die Zahlen nicht mehr).
+    let lastRouteStats = null;
 
     function persist(){
       hiddenInput.value = JSON.stringify(points);
@@ -1335,7 +1341,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       lineLayer.clearLayers();
       if(manualTrack.length){
         L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(lineLayer);
-        L.polyline(manualTrack, {color:'#1565C0', weight:4, opacity:1}).addTo(lineLayer);
+        const line = L.polyline(manualTrack, {color:'#1565C0', weight:4, opacity:1}).addTo(lineLayer);
+        if(lastRouteStats){
+          const statsText = formatRouteStats(lastRouteStats);
+          if(statsText){
+            line.on('click', (e)=>{
+              L.DomEvent.stopPropagation(e);
+              L.popup().setLatLng(e.latlng).setContent('<strong>🧭 Berechnete Route</strong><br>' + statsText).openOn(map);
+            });
+          }
+        }
       }
     }
     redrawLine();
@@ -1368,11 +1383,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     routeModeBtn.addEventListener('click', ()=> setMode('route'));
     undoBtn.addEventListener('click', ()=>{
       manualTrack.pop();
+      lastRouteStats = null;
       redrawLine();
       persistTrack();
     });
     clearLineBtn.addEventListener('click', ()=>{
       manualTrack.length = 0;
+      lastRouteStats = null;
       redrawLine();
       persistTrack();
     });
@@ -1393,6 +1410,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       try{
         const calculated = await fetchCalculatedRoute(routeWaypoints);
         manualTrack = calculated.coords;
+        lastRouteStats = calculated;
         redrawLine();
         persistTrack();
         routeWaypoints = [];
@@ -1401,8 +1419,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         setMode('point');
         const statsText = formatRouteStats(calculated);
         if(statsText){
-          routeStatsEl.textContent = '🧭 ' + statsText;
+          routeStatsEl.textContent = '🧭 ' + statsText + ' — auf den Routenstrich tippen zeigt dies erneut an.';
           routeStatsEl.style.display = '';
+        }
+        if(autofillFields){
+          if(autofillFields.ascent && typeof calculated.ascentM==='number') autofillFields.ascent.value = String(Math.round(calculated.ascentM));
+          if(autofillFields.descent && typeof calculated.descentM==='number') autofillFields.descent.value = String(Math.round(calculated.descentM));
+          if(autofillFields.duration && typeof calculated.durationS==='number') autofillFields.duration.value = formatDurationShort(calculated.durationS);
         }
         showToast('Route berechnet' + (statsText ? ': ' + statsText : '') + '.');
       }catch(err){
@@ -1414,6 +1437,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     map.on('click', async (e)=>{
       if(mode==='line'){
         manualTrack.push([e.latlng.lat, e.latlng.lng]);
+        lastRouteStats = null;
         redrawLine();
         persistTrack();
       }else if(mode==='route'){
@@ -1454,8 +1478,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     renderList();
     if(!isFullscreen){
       const btn = makeFullscreenButton(
-        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, refTracks, refPoints); },
-        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints); }
+        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, refTracks, refPoints, autofillFields); },
+        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields); }
       );
       wrapDiv.appendChild(btn);
     }
@@ -1652,6 +1676,11 @@ async function fetchCalculatedRoute(waypoints){
   };
 }
 // Formatiert die Kennzahlen einer berechneten Route für die Anzeige (Distanz, Höhenmeter, grobe Zeit).
+function formatDurationShort(durationS){
+  const totalMin = Math.round(durationS/60);
+  const h = Math.floor(totalMin/60), m = totalMin%60;
+  return 'ca. ' + (h>0 ? h+' Std. ' : '') + m+' Min.';
+}
 function formatRouteStats(r){
   const parts = [];
   if(typeof r.distanceM==='number'){
@@ -1661,9 +1690,7 @@ function formatRouteStats(r){
     parts.push('↑ ' + Math.round(r.ascentM||0) + ' Hm / ↓ ' + Math.round(r.descentM||0) + ' Hm');
   }
   if(typeof r.durationS==='number'){
-    const totalMin = Math.round(r.durationS/60);
-    const h = Math.floor(totalMin/60), m = totalMin%60;
-    parts.push('ca. ' + (h>0 ? h+' Std. ' : '') + m+' Min.');
+    parts.push(formatDurationShort(r.durationS));
   }
   return parts.length ? parts.join(' · ') + ' (grobe Schätzung, ohne Pausen)' : '';
 }
