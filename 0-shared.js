@@ -1282,7 +1282,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // Kennzahlen der zuletzt berechneten Route — auf den Strich tippen zeigt sie erneut an
     // (klein/vergänglich unter der Karte reicht sonst nicht: kaum lesbar und beim Verlassen weg).
     // Wird zurückgesetzt, sobald die Linie manuell verändert wird (dann stimmen die Zahlen nicht mehr).
-    let lastRouteStats = null;
+    // An das (formularweit stabile) manualTrackHidden-Element gehängt statt nur in dieser
+    // Funktionsinstanz gehalten: renderPointsEditorMap wird bei jedem "Karte öffnen" und beim
+    // Wechsel in die Vollbildansicht (und zurück) komplett neu aufgerufen — ohne diese Ablage
+    // wären die Kennzahlen (und damit Tippen-zum-Anzeigen sowie der Löschen-Knopf) danach weg,
+    // obwohl die Route selbst (in manualTrack) weiterhin da und sichtbar ist.
+    let lastRouteStats = (manualTrackHidden && manualTrackHidden._routeStats) || null;
+    function setLastRouteStats(v){
+      lastRouteStats = v;
+      if(manualTrackHidden) manualTrackHidden._routeStats = v;
+    }
 
     function persist(){
       hiddenInput.value = JSON.stringify(points);
@@ -1380,6 +1389,10 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       }
     }
     redrawLine();
+    // Kennzahlen-Kärtchen (inkl. Löschen-Knopf) gleich wiederherstellen, falls für die aktuelle
+    // Linie schon welche vorliegen (z. B. nach Rückkehr aus der Vollbildansicht) — sonst wäre die
+    // Route zwar noch sichtbar, aber ohne erneut antippbaren Popup und ohne Löschen-Möglichkeit.
+    if(lastRouteStats) renderRouteStatCards(routeStatsEl, lastRouteStats, clearCalculatedRoute);
 
     function redrawRoute(){
       routeLayer.clearLayers();
@@ -1424,7 +1437,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     routeModeBtn.addEventListener('click', ()=> setMode('route'));
     undoBtn.addEventListener('click', ()=>{
       manualTrack.pop();
-      lastRouteStats = null;
+      setLastRouteStats(null);
       routeStatsEl.style.display = 'none';
       routeStatsEl.innerHTML = '';
       redrawLine();
@@ -1432,7 +1445,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     });
     clearLineBtn.addEventListener('click', ()=>{
       manualTrack.length = 0;
-      lastRouteStats = null;
+      setLastRouteStats(null);
       routeStatsEl.style.display = 'none';
       routeStatsEl.innerHTML = '';
       redrawLine();
@@ -1453,7 +1466,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // statt dass man erst wissen muss, dass eine Route technisch auch nur eine "Linie" ist.
     function clearCalculatedRoute(){
       manualTrack = [];
-      lastRouteStats = null;
+      setLastRouteStats(null);
       redrawLine();
       persistTrack();
       routeStatsEl.style.display = 'none';
@@ -1479,7 +1492,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       try{
         const calculated = await fetchCalculatedRoute(routeWaypoints);
         manualTrack = calculated.coords;
-        lastRouteStats = calculated;
+        setLastRouteStats(calculated);
         redrawLine();
         persistTrack();
         routeWaypoints = [];
@@ -1515,7 +1528,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     map.on('click', async (e)=>{
       if(mode==='line'){
         manualTrack.push([e.latlng.lat, e.latlng.lng]);
-        lastRouteStats = null;
+        setLastRouteStats(null);
+        routeStatsEl.style.display = 'none';
+        routeStatsEl.innerHTML = '';
         redrawLine();
         persistTrack();
       }else if(mode==='route'){
