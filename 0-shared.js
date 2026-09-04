@@ -1134,18 +1134,26 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     if(isFullscreen){
       wrapDiv.style.cssText = 'height:100%; display:flex; flex-direction:column; box-sizing:border-box; padding:56px 12px 12px 12px;';
     }
+    // Segmentierter Umschalter statt einzelner loser Chips — grössere Tippflächen, und die
+    // Farbe jedes Modus entspricht genau der Farbe, die er auf der Karte zeichnet (Blau =
+    // Linie, Grün = Route), damit auf einen Blick klar ist, was gerade aktiv ist.
+    const MODE_META = {
+      point: { label: '📍 Punkt', color: 'var(--ice-deep)' },
+      line: { label: '✏️ Linie', color: '#1565C0' },
+      route: { label: '🧭 Route', color: '#2F6B44' }
+    };
     const modeRow = document.createElement('div');
-    modeRow.className = 'chips';
-    modeRow.style.marginBottom = '8px';
-    const pointModeBtn = document.createElement('button');
-    pointModeBtn.type = 'button'; pointModeBtn.className = 'chip on'; pointModeBtn.style.background = 'var(--ice-deep)';
-    pointModeBtn.textContent = '📍 Punkt setzen';
-    const lineModeBtn = document.createElement('button');
-    lineModeBtn.type = 'button'; lineModeBtn.className = 'chip';
-    lineModeBtn.textContent = '✏️ Linie zeichnen';
-    const routeModeBtn = document.createElement('button');
-    routeModeBtn.type = 'button'; routeModeBtn.className = 'chip';
-    routeModeBtn.textContent = '🧭 Route berechnen';
+    modeRow.style.cssText = 'display:flex; gap:4px; margin-bottom:10px; background:var(--ice-light); padding:4px; border-radius:20px;';
+    function makeModeBtn(key){
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.style.cssText = 'flex:1; border:none; background:transparent; border-radius:16px; padding:10px 4px; font-size:13px; font-weight:700; cursor:pointer; transition:background 0.15s ease, color 0.15s ease; color:var(--ink-soft);';
+      btn.textContent = MODE_META[key].label;
+      return btn;
+    }
+    const pointModeBtn = makeModeBtn('point');
+    const lineModeBtn = makeModeBtn('line');
+    const routeModeBtn = makeModeBtn('route');
     modeRow.appendChild(pointModeBtn);
     modeRow.appendChild(lineModeBtn);
     modeRow.appendChild(routeModeBtn);
@@ -1197,35 +1205,45 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     lineActionsRow.appendChild(finishBtn);
     wrapDiv.appendChild(lineActionsRow);
 
+    // Route-Modus als eigene, grün getönte Karte (passend zur grünen Routen-Farbe auf der Karte) —
+    // mit Zähler, wie viele Wegpunkte schon gesetzt sind, und einem grossen, deutlich erkennbaren
+    // "Route berechnen"-Knopf, der erst ab zwei Wegpunkten farbig/aktiv wird.
     const routeActionsRow = document.createElement('div');
-    routeActionsRow.style.cssText = 'display:none; gap:8px; margin-top:8px; flex-wrap:wrap; align-items:center;';
+    routeActionsRow.style.cssText = 'display:none; margin-top:8px; padding:10px 12px; background:#EAF3EC; border-left:3px solid #2F6B44; border-radius:4px;';
     const routeHint = document.createElement('p');
     routeHint.className = 'hint';
-    routeHint.style.cssText = 'width:100%; margin:0 0 2px 0;';
-    routeHint.textContent = 'Start, ggf. Zwischenziele und Ziel antippen — dann "Route berechnen". Die App sucht dann einen echten Wanderweg zwischen den Punkten.';
+    routeHint.style.cssText = 'margin:0 0 8px 0;';
+    routeHint.textContent = 'Start, ggf. Zwischenziele und Ziel antippen — die App sucht dann einen echten Wanderweg dazwischen.';
+    const routeWaypointCount = document.createElement('span');
+    routeWaypointCount.style.cssText = 'display:inline-block; margin-bottom:8px; font-size:12px; font-weight:700; color:#2F6B44; background:#fff; border:1px solid #2F6B44; border-radius:12px; padding:3px 10px;';
+    const routeSmallBtnsRow = document.createElement('div');
+    routeSmallBtnsRow.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;';
     const routeUndoBtn = document.createElement('button');
     routeUndoBtn.type = 'button'; routeUndoBtn.className = 'btn secondary'; routeUndoBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
     routeUndoBtn.textContent = '↺ Letzten Wegpunkt entfernen';
     const clearRouteBtn = document.createElement('button');
     clearRouteBtn.type = 'button'; clearRouteBtn.className = 'btn secondary'; clearRouteBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; color:#B0392C;';
     clearRouteBtn.textContent = '🗑️ Wegpunkte löschen';
+    routeSmallBtnsRow.appendChild(routeUndoBtn);
+    routeSmallBtnsRow.appendChild(clearRouteBtn);
     const calcRouteBtn = document.createElement('button');
-    calcRouteBtn.type = 'button'; calcRouteBtn.className = 'btn'; calcRouteBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    calcRouteBtn.type = 'button';
+    calcRouteBtn.style.cssText = 'display:block; width:100%; border:none; border-radius:6px; padding:13px; font-size:14.5px; font-weight:700; cursor:pointer; transition:background 0.15s ease, box-shadow 0.15s ease;';
     calcRouteBtn.textContent = '🧭 Route berechnen';
     const routeStatus = document.createElement('p');
-    routeStatus.style.cssText = 'width:100%; margin:4px 0 0 0; font-size:12.5px; color:var(--ink-soft);';
+    routeStatus.style.cssText = 'margin:8px 0 0 0; font-size:12.5px;';
     routeActionsRow.appendChild(routeHint);
-    routeActionsRow.appendChild(routeUndoBtn);
-    routeActionsRow.appendChild(clearRouteBtn);
+    routeActionsRow.appendChild(routeWaypointCount);
+    routeActionsRow.appendChild(routeSmallBtnsRow);
     routeActionsRow.appendChild(calcRouteBtn);
     routeActionsRow.appendChild(routeStatus);
     wrapDiv.appendChild(routeActionsRow);
 
     // Ausserhalb von routeActionsRow (also nicht an den Route-Modus gebunden), damit die Kennzahlen
     // der zuletzt berechneten Route sichtbar bleiben, auch nachdem automatisch in den Punkt-Modus
-    // zurückgewechselt wird.
-    const routeStatsEl = document.createElement('p');
-    routeStatsEl.style.cssText = 'display:none; margin:8px 0 0 0; font-size:12.5px; color:var(--ink-soft);';
+    // zurückgewechselt wird. Als kleine Kennzahlen-Kärtchen statt einer einzelnen Textzeile.
+    const routeStatsEl = document.createElement('div');
+    routeStatsEl.style.cssText = 'display:none; margin-top:8px; gap:6px; flex-wrap:wrap;';
     wrapDiv.appendChild(routeStatsEl);
 
     el2.appendChild(wrapDiv);
@@ -1366,20 +1384,35 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(routeWaypoints.length > 1){
         L.polyline(routeWaypoints, {color:'#2F6B44', weight:2, opacity:0.6, dashArray:'6,6'}).addTo(routeLayer);
       }
+      updateRoutePanelState();
+    }
+    // Zähler + Zustand des "Route berechnen"-Knopfs: erst ab zwei Wegpunkten farbig/aktiv,
+    // sonst gedämpft und deaktiviert — macht auf einen Blick klar, wann es losgehen kann.
+    function updateRoutePanelState(){
+      const n = routeWaypoints.length;
+      routeWaypointCount.textContent = n===0 ? 'Noch keine Wegpunkte gesetzt' : n===1 ? '1 Wegpunkt gesetzt — noch ein Ziel antippen' : n + ' Wegpunkte gesetzt';
+      const ready = n >= 2;
+      calcRouteBtn.disabled = !ready;
+      calcRouteBtn.style.background = ready ? '#2F6B44' : 'var(--line)';
+      calcRouteBtn.style.color = ready ? '#fff' : 'var(--ink-faint)';
+      calcRouteBtn.style.boxShadow = ready ? '0 2px 8px rgba(47,107,68,0.4)' : 'none';
+      calcRouteBtn.style.cursor = ready ? 'pointer' : 'default';
     }
 
     function setMode(newMode){
       mode = newMode;
-      pointModeBtn.className = mode==='point' ? 'chip on' : 'chip';
-      pointModeBtn.style.background = mode==='point' ? 'var(--ice-deep)' : '';
-      lineModeBtn.className = mode==='line' ? 'chip on' : 'chip';
-      lineModeBtn.style.background = mode==='line' ? 'var(--ice-deep)' : '';
-      routeModeBtn.className = mode==='route' ? 'chip on' : 'chip';
-      routeModeBtn.style.background = mode==='route' ? 'var(--ice-deep)' : '';
+      [['point',pointModeBtn],['line',lineModeBtn],['route',routeModeBtn]].forEach(([key,btn])=>{
+        const active = mode===key;
+        btn.style.background = active ? MODE_META[key].color : 'transparent';
+        btn.style.color = active ? '#fff' : 'var(--ink-soft)';
+        btn.style.boxShadow = active ? '0 1px 4px rgba(0,0,0,0.25)' : 'none';
+      });
       lineActionsRow.style.display = mode==='line' ? 'flex' : 'none';
-      routeActionsRow.style.display = mode==='route' ? 'flex' : 'none';
+      routeActionsRow.style.display = mode==='route' ? 'block' : 'none';
       pointHint.style.display = mode==='point' ? '' : 'none';
     }
+    setMode('point');
+    updateRoutePanelState();
     pointModeBtn.addEventListener('click', ()=> setMode('point'));
     lineModeBtn.addEventListener('click', ()=> setMode('line'));
     routeModeBtn.addEventListener('click', ()=> setMode('route'));
@@ -1407,7 +1440,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       routeStatus.textContent = '';
     });
     calcRouteBtn.addEventListener('click', async ()=>{
-      routeStatus.textContent = 'Route wird berechnet…';
+      if(routeWaypoints.length < 2) return;
+      routeStatus.style.color = 'var(--ink-soft)';
+      routeStatus.textContent = '⏳ Route wird berechnet…';
       calcRouteBtn.disabled = true;
       try{
         const calculated = await fetchCalculatedRoute(routeWaypoints);
@@ -1419,21 +1454,19 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         redrawRoute();
         routeStatus.textContent = '';
         setMode('point');
-        const statsText = formatRouteStats(calculated);
-        if(statsText){
-          routeStatsEl.textContent = '🧭 ' + statsText + ' — auf den Routenstrich tippen zeigt dies erneut an.';
-          routeStatsEl.style.display = '';
-        }
+        renderRouteStatCards(routeStatsEl, calculated);
         if(autofillFields){
           if(autofillFields.ascent && typeof calculated.ascentM==='number') autofillFields.ascent.value = String(Math.round(calculated.ascentM));
           if(autofillFields.descent && typeof calculated.descentM==='number') autofillFields.descent.value = String(Math.round(calculated.descentM));
           if(autofillFields.duration && typeof calculated.durationS==='number') autofillFields.duration.value = formatDurationShort(calculated.durationS);
         }
+        const statsText = formatRouteStats(calculated);
         showToast('Route berechnet' + (statsText ? ': ' + statsText : '') + '.');
       }catch(err){
+        routeStatus.style.color = 'var(--danger)';
         routeStatus.textContent = '⚠ ' + (err && err.message ? err.message : 'Route konnte nicht berechnet werden.');
       }
-      calcRouteBtn.disabled = false;
+      updateRoutePanelState();
     });
 
     map.on('click', async (e)=>{
@@ -1696,6 +1729,29 @@ function formatRouteStats(r){
     parts.push(formatDurationShort(r.durationS));
   }
   return parts.length ? parts.join(' · ') + ' (grobe Schätzung, ohne Pausen)' : '';
+}
+// Zeigt die Kennzahlen einer berechneten Route als kleine, farbige Kärtchen statt einer
+// einzelnen schwer lesbaren Textzeile — je eins für Distanz, Höhenmeter und Zeit.
+function renderRouteStatCards(el, r){
+  const cards = [];
+  if(typeof r.distanceM==='number'){
+    cards.push({icon:'📏', value: r.distanceM >= 1000 ? (r.distanceM/1000).toFixed(1).replace('.', ',') + ' km' : Math.round(r.distanceM) + ' m', label:'Distanz'});
+  }
+  if(typeof r.ascentM==='number' || typeof r.descentM==='number'){
+    cards.push({icon:'⛰️', value: '↑' + Math.round(r.ascentM||0) + ' / ↓' + Math.round(r.descentM||0), label:'Hm'});
+  }
+  if(typeof r.durationS==='number'){
+    cards.push({icon:'⏱️', value: formatDurationShort(r.durationS).replace('ca. ', ''), label:'Zeit (Schätzung)'});
+  }
+  if(!cards.length){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'flex';
+  el.innerHTML = cards.map(c=>
+    `<div style="flex:1; min-width:80px; background:#EAF3EC; border-radius:6px; padding:8px 6px; text-align:center;">
+      <div style="font-size:16px;">${c.icon}</div>
+      <div style="font-size:14px; font-weight:700; color:#2F6B44;">${esc(c.value)}</div>
+      <div style="font-size:10.5px; color:var(--ink-soft);">${esc(c.label)}</div>
+    </div>`
+  ).join('') + '<p style="width:100%; margin:6px 0 0 0; font-size:11.5px; color:var(--ink-faint);">Auf den Routenstrich tippen zeigt dies erneut an. Grobe Schätzung, ohne Pausen.</p>';
 }
 
 // Baut aus einer Koordinatenliste eine GPX-Datei und löst den Download aus —
