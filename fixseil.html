@@ -2365,7 +2365,7 @@ function tourFormHtml(existing){
         <div class="hint">Werden automatisch verkleinert vor dem Hochladen (spart Speicherplatz und Datenvolumen).</div>
         <p id="topo-image-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${(t.topoImages && t.topoImages.length) ? `✓ ${t.topoImages.length}/${TOPO_IMAGE_MAX_COUNT} Bilder hochgeladen.` : 'Noch keine Bilder hochgeladen.'}</p>
         <input type="hidden" name="topoImages" id="topo-images-hidden" value='${esc(t.topoImages ? JSON.stringify(t.topoImages) : "[]")}'/>
-        <div id="topo-images-hidden-thumbs">${topoImageThumbsHtml('topo-images-hidden')}</div>
+        <div id="topo-images-hidden-thumbs">${topoImageThumbsHtml(t.topoImages, 'topo-images-hidden')}</div>
       </div>
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. Querung unter dem Bergschrund, kurze Eispassage am Grat …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Spaltenrisiko, Steinschlag, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
