@@ -2913,11 +2913,12 @@ async function deleteTopoImageFile(storagePath){
   }catch(e){ return false; }
 }
 
-function topoImageThumbsHtml(hiddenListId){
-  const hiddenInput = document.getElementById(hiddenListId);
-  let images = [];
-  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
-  if(!images.length) return '';
+// images wird explizit übergeben (statt aus dem hiddenListId-Feld gelesen): beim allerersten
+// Rendern eines Formulars existiert das zugehörige Hidden-Input im DOM noch gar nicht — das
+// Formular-HTML wird ja gerade erst als String gebaut. Ein DOM-Read an dieser Stelle liefe daher
+// leer, und die Miniaturansicht (samt Dreh-/Entfernen-Buttons) würde beim Öffnen fehlen.
+function topoImageThumbsHtml(images, hiddenListId){
+  if(!images || !images.length) return '';
   const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url, rotation:img.rotation||0}))));
   return `<div class="chips" style="margin-top:8px;">${images.map((img,i)=>
     `<span class="chip" style="background:var(--ice-light); border-color:transparent; padding:3px 8px 3px 3px; display:inline-flex; align-items:center; gap:6px;">
@@ -2939,7 +2940,7 @@ function removeTopoImageLocal(hiddenListId, imageId){
   markModalDirty();
   if(removed && removed.storagePath) deleteTopoImageFile(removed.storagePath).catch(()=>{});
   const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
-  if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(hiddenListId);
+  if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
 }
 
 // Dreht ein Topo-Bild um 90° (nur die Anzeige-Drehung als Metadatum — das Original-Bild bleibt
@@ -2954,7 +2955,7 @@ function rotateTopoImageLocal(hiddenListId, imageId){
   if(hiddenInput) hiddenInput.value = JSON.stringify(images);
   markModalDirty();
   const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
-  if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(hiddenListId);
+  if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
 }
 
 function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, statusId){
@@ -2987,7 +2988,7 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
         if(hiddenInput) hiddenInput.value = JSON.stringify(images);
         markModalDirty();
         const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
-        if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(hiddenListId);
+        if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
       }catch(err){
         if(statusEl) statusEl.textContent = 'Fehler beim Hochladen: ' + (err && err.message ? err.message : err);
         fileInputEl.value = '';
