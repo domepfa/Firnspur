@@ -759,8 +759,11 @@ function renderStandaloneMap(containerId){
       const layer = categoryLayers[catKey];
       if(track && track.length){
         try{
+          // Breite unsichtbare Klickfläche unter der sichtbaren, dünnen Linie — deutlich
+          // leichter mit dem Finger zu treffen.
+          const hitLine = L.polyline(track, {color:'#000', weight:22, opacity:0}).addTo(layer);
           const line = L.polyline(track, {color, weight:3.5, opacity:0.85}).addTo(layer);
-          line.on('click', (e)=>{
+          hitLine.on('click', (e)=>{
             L.DomEvent.stopPropagation(e);
             L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
           });
@@ -769,7 +772,7 @@ function renderStandaloneMap(containerId){
       }
       (points||[]).forEach(p=>{
         try{
-          const m = L.circleMarker([p.lat, p.lon], {radius:7, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
+          const m = L.circleMarker([p.lat, p.lon], {radius:11, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
           m.on('click', (e)=>{
             L.DomEvent.stopPropagation(e);
             L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
@@ -1360,12 +1363,15 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function redrawLine(){
       lineLayer.clearLayers();
       if(manualTrack.length){
+        // Deutlich breitere, unsichtbare Klickfläche unter der sichtbaren Linie — auf einer
+        // schmalen 4px-Linie mit dem Finger genau zu treffen ist auf dem Handy sehr schwierig.
+        const hitLine = L.polyline(manualTrack, {color:'#000', weight:26, opacity:0}).addTo(lineLayer);
         L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(lineLayer);
-        const line = L.polyline(manualTrack, {color:'#1565C0', weight:4, opacity:1}).addTo(lineLayer);
+        L.polyline(manualTrack, {color:'#1565C0', weight:4, opacity:1}).addTo(lineLayer);
         if(lastRouteStats){
           const statsText = formatRouteStats(lastRouteStats);
           if(statsText){
-            line.on('click', (e)=>{
+            hitLine.on('click', (e)=>{
               L.DomEvent.stopPropagation(e);
               L.popup().setLatLng(e.latlng).setContent('<strong>🧭 Berechnete Route</strong><br>' + statsText).openOn(map);
             });
@@ -1378,7 +1384,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function redrawRoute(){
       routeLayer.clearLayers();
       routeWaypoints.forEach((wp, i)=>{
-        L.circleMarker(wp, {radius:8, color:'#fff', weight:2, fillColor:'#2F6B44', fillOpacity:1}).addTo(routeLayer)
+        L.circleMarker(wp, {radius:11, color:'#fff', weight:2, fillColor:'#2F6B44', fillOpacity:1}).addTo(routeLayer)
           .bindTooltip(String(i+1), {permanent:true, direction:'center', className:'route-waypoint-label'});
       });
       if(routeWaypoints.length > 1){
@@ -1419,12 +1425,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     undoBtn.addEventListener('click', ()=>{
       manualTrack.pop();
       lastRouteStats = null;
+      routeStatsEl.style.display = 'none';
+      routeStatsEl.innerHTML = '';
       redrawLine();
       persistTrack();
     });
     clearLineBtn.addEventListener('click', ()=>{
       manualTrack.length = 0;
       lastRouteStats = null;
+      routeStatsEl.style.display = 'none';
+      routeStatsEl.innerHTML = '';
       redrawLine();
       persistTrack();
     });
@@ -1439,6 +1449,28 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       redrawRoute();
       routeStatus.textContent = '';
     });
+    // Löscht die zuletzt berechnete Route wieder — direkt neben den Kennzahlen erreichbar,
+    // statt dass man erst wissen muss, dass eine Route technisch auch nur eine "Linie" ist.
+    function clearCalculatedRoute(){
+      manualTrack = [];
+      lastRouteStats = null;
+      redrawLine();
+      persistTrack();
+      routeStatsEl.style.display = 'none';
+      routeStatsEl.innerHTML = '';
+      showToast('Berechnete Route gelöscht.');
+    }
+    // Kurzes Aufblitzen, damit sichtbar ist, WELCHES Feld gerade automatisch befüllt wurde —
+    // sonst leicht zu übersehen, vor allem wenn das Feld nicht im sichtbaren Bereich liegt.
+    function flashFilledField(fieldEl){
+      if(!fieldEl) return;
+      fieldEl.scrollIntoView({behavior:'smooth', block:'center'});
+      const prevBg = fieldEl.style.backgroundColor;
+      const prevTransition = fieldEl.style.transition;
+      fieldEl.style.transition = 'background-color 0.3s ease';
+      fieldEl.style.backgroundColor = '#FFF3C4';
+      setTimeout(()=>{ fieldEl.style.backgroundColor = prevBg; setTimeout(()=>{ fieldEl.style.transition = prevTransition; }, 350); }, 1400);
+    }
     calcRouteBtn.addEventListener('click', async ()=>{
       if(routeWaypoints.length < 2) return;
       routeStatus.style.color = 'var(--ink-soft)';
@@ -1454,14 +1486,25 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         redrawRoute();
         routeStatus.textContent = '';
         setMode('point');
-        renderRouteStatCards(routeStatsEl, calculated);
+        renderRouteStatCards(routeStatsEl, calculated, clearCalculatedRoute);
+        const filledLabels = [];
         if(autofillFields){
-          if(autofillFields.ascent && typeof calculated.ascentM==='number') autofillFields.ascent.value = String(Math.round(calculated.ascentM));
-          if(autofillFields.descent && typeof calculated.descentM==='number') autofillFields.descent.value = String(Math.round(calculated.descentM));
-          if(autofillFields.duration && typeof calculated.durationS==='number') autofillFields.duration.value = formatDurationShort(calculated.durationS);
+          if(autofillFields.ascent && typeof calculated.ascentM==='number'){
+            autofillFields.ascent.value = String(Math.round(calculated.ascentM));
+            flashFilledField(autofillFields.ascent);
+            filledLabels.push('Aufstieg');
+          }
+          if(autofillFields.descent && typeof calculated.descentM==='number'){
+            autofillFields.descent.value = String(Math.round(calculated.descentM));
+            filledLabels.push('Abstieg');
+          }
+          if(autofillFields.duration && typeof calculated.durationS==='number'){
+            autofillFields.duration.value = formatDurationShort(calculated.durationS);
+            filledLabels.push('Zeitbedarf');
+          }
         }
         const statsText = formatRouteStats(calculated);
-        showToast('Route berechnet' + (statsText ? ': ' + statsText : '') + '.');
+        showToast('Route berechnet' + (statsText ? ': ' + statsText : '') + (filledLabels.length ? ' — im Formular übernommen: ' + filledLabels.join(', ') + '.' : (autofillFields ? ' (keine passenden Felder automatisch befüllt.)' : '')));
       }catch(err){
         routeStatus.style.color = 'var(--danger)';
         routeStatus.textContent = '⚠ ' + (err && err.message ? err.message : 'Route konnte nicht berechnet werden.');
@@ -1731,8 +1774,10 @@ function formatRouteStats(r){
   return parts.length ? parts.join(' · ') + ' (grobe Schätzung, ohne Pausen)' : '';
 }
 // Zeigt die Kennzahlen einer berechneten Route als kleine, farbige Kärtchen statt einer
-// einzelnen schwer lesbaren Textzeile — je eins für Distanz, Höhenmeter und Zeit.
-function renderRouteStatCards(el, r){
+// einzelnen schwer lesbaren Textzeile — je eins für Distanz, Höhenmeter und Zeit — plus einen
+// Löschen-Knopf direkt daneben (vorher liess sich die berechnete Route nur finden, indem man
+// erst in den Linie-Modus wechselte — nicht offensichtlich, da sie ja über "Route" entstand).
+function renderRouteStatCards(el, r, onDelete){
   const cards = [];
   if(typeof r.distanceM==='number'){
     cards.push({icon:'📏', value: r.distanceM >= 1000 ? (r.distanceM/1000).toFixed(1).replace('.', ',') + ' km' : Math.round(r.distanceM) + ' m', label:'Distanz'});
@@ -1751,7 +1796,11 @@ function renderRouteStatCards(el, r){
       <div style="font-size:14px; font-weight:700; color:#2F6B44;">${esc(c.value)}</div>
       <div style="font-size:10.5px; color:var(--ink-soft);">${esc(c.label)}</div>
     </div>`
-  ).join('') + '<p style="width:100%; margin:6px 0 0 0; font-size:11.5px; color:var(--ink-faint);">Auf den Routenstrich tippen zeigt dies erneut an. Grobe Schätzung, ohne Pausen.</p>';
+  ).join('')
+    + '<button type="button" data-act="delete-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid var(--danger); color:var(--danger); border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">🗑️ Diese Route löschen</button>'
+    + '<p style="width:100%; margin:6px 0 0 0; font-size:11.5px; color:var(--ink-faint);">Auf den Routenstrich tippen zeigt dies erneut an. Grobe Schätzung, ohne Pausen.</p>';
+  const deleteBtn = el.querySelector('[data-act="delete-calculated-route"]');
+  if(deleteBtn && onDelete) deleteBtn.addEventListener('click', onDelete);
 }
 
 // Baut aus einer Koordinatenliste eine GPX-Datei und löst den Download aus —
