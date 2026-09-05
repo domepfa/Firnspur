@@ -633,7 +633,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v63-sektor-vorschlag';
+const APP_VERSION = 'v64-fix-msl-tab-rueckkehr';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -905,8 +905,17 @@ async function submitName(nameVal){
 /* ================= Actions ================= */
 function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:{tourCategory:'hochtour'}}; render(); }); }
 function openAddMsl(){ dlog('Klick auf "+ Neue MSL-Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:{tourCategory:'msl'}}; render(); }); }
-function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); state.modal = {type:'edit-tour', payload:t}; render(); }); }
-function openTourDetail(id){ state.modal = {type:'tour-detail', payload:id}; render(); }
+function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); if(t) state.view = t.tourCategory==='msl' ? 'msl' : 'touren'; state.modal = {type:'edit-tour', payload:t}; render(); }); }
+function openTourDetail(id){
+  const t = state.tours.find(x=>x.id===id);
+  // Tour-Detail/Bearbeiten ist manchmal über einen Cross-Link erreichbar (z. B. "Weitere Touren
+  // ab hier" auf einer anderen Tour, oder ein Sektor-/Hütten-Eintrag), ohne dass zuvor der
+  // passende Tab (Touren/MSL) angetippt wurde. Damit man beim Schliessen wieder in der richtigen
+  // Übersicht landet statt im zuvor aktiven Tab, wird dieser hier auf die Tour-Kategorie synchronisiert.
+  if(t) state.view = t.tourCategory==='msl' ? 'msl' : 'touren';
+  state.modal = {type:'tour-detail', payload:id};
+  render();
+}
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
