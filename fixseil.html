@@ -474,7 +474,7 @@ const TOUR_VORLAGE_JSON = `{
       ],
       "manualTrack": [],
       "hutId": "",
-      "sektorId": "",
+      "sektorId": "sek_beispiel001",
       "tourLink": "https://www.camptocamp.org/...",
       "gpxLink": "",
       "crux": "Schlüsselstelle im Quergang, umgehbar für tieferen Grad.",
@@ -482,34 +482,8 @@ const TOUR_VORLAGE_JSON = `{
       "approach": "Ausgangspunkt: Balm b. Günsberg.",
       "ascent": "Zustieg ab Parkplatz, ca. 20 Min. auf gutem Weg.",
       "descent": "",
-      "accessRoutes": [
-        {
-          "id": "tr_beispiel001",
-          "name": "Ab Parkplatz Balm b. Günsberg",
-          "elevation": "150",
-          "elevationUp": "",
-          "duration": "0:20",
-          "difficultyT": "T2",
-          "description": "Guter Weg bis zum Wandfuss, letzte Meter über Schrofen.",
-          "gpxLink": "",
-          "trackSimplified": null,
-          "manualTrack": []
-        }
-      ],
-      "descentRoutes": [
-        {
-          "id": "tr_beispiel002",
-          "name": "Fussabstieg über Normalweg",
-          "elevation": "600",
-          "elevationUp": "0",
-          "duration": "1-1:30",
-          "difficultyT": "T3",
-          "description": "Zurück zum Wandfuss und auf markiertem Weg zum Ausgangspunkt.",
-          "gpxLink": "",
-          "trackSimplified": null,
-          "manualTrack": []
-        }
-      ],
+      "accessRoutes": [],
+      "descentRoutes": [],
       "status": "entwurf",
       "conditions": null,
       "completions": [],
@@ -607,9 +581,59 @@ const TOUR_VORLAGE_JSON = `{
       "updatedAt": "2026-09-05T00:00:00.000Z",
       "updatedBy": "Name"
     }
+  ],
+  "sektoren": [
+    {
+      "id": "sek_beispiel001",
+      "name": "Balmflue",
+      "region": "Jura",
+      "subregion": "Solothurner Jura",
+      "description": "Sonniger Kalkfelsen mit mehreren Routen, gemeinsamer Zustieg ab Balm b. Günsberg.",
+      "points": [
+        {
+          "label": "Parkplatz Balm b. Günsberg",
+          "lat": 47.2073,
+          "lon": 7.5372,
+          "category": "parkplatz"
+        }
+      ],
+      "manualTrack": [],
+      "accessRoutes": [
+        {
+          "id": "tr_beispiel001",
+          "name": "Ab Parkplatz Balm b. Günsberg",
+          "elevation": "150",
+          "elevationUp": "",
+          "duration": "0:20",
+          "difficultyT": "T2",
+          "description": "Guter Weg bis zum Wandfuss, letzte Meter über Schrofen.",
+          "gpxLink": "",
+          "trackSimplified": null,
+          "manualTrack": []
+        }
+      ],
+      "descentRoutes": [
+        {
+          "id": "tr_beispiel002",
+          "name": "Fussabstieg über Normalweg",
+          "elevation": "600",
+          "elevationUp": "0",
+          "duration": "1-1:30",
+          "difficultyT": "T3",
+          "description": "Zurück zum Wandfuss und auf markiertem Weg zum Ausgangspunkt.",
+          "gpxLink": "",
+          "trackSimplified": null,
+          "manualTrack": []
+        }
+      ],
+      "createdBy": "Name",
+      "createdAt": "2026-09-05T00:00:00.000Z",
+      "updatedAt": "2026-09-05T00:00:00.000Z",
+      "updatedBy": "Name"
+    }
   ]
 }`;
-const APP_VERSION = 'v61-typo-abstiegsart-fixes';
+const APP_VERSION = 'v62-sektoren-import';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -926,7 +950,8 @@ function mergeImportedData(json){
   catch(e){ throw new Error('Das eingefügte Format ist kein gültiges JSON.'); }
   const importedTours = Array.isArray(data.tours) ? data.tours : [];
   const importedHuts = Array.isArray(data.huts) ? data.huts : [];
-  let addedTours = 0, updatedTours = 0, addedHuts = 0, updatedHuts = 0;
+  const importedSektoren = Array.isArray(data.sektoren) ? data.sektoren : [];
+  let addedTours = 0, updatedTours = 0, addedHuts = 0, updatedHuts = 0, addedSektoren = 0, updatedSektoren = 0;
   importedTours.forEach(t=>{
     if(!t || !t.id || !t.name) return;
     const idx = state.tours.findIndex(x=>x.id===t.id);
@@ -939,9 +964,16 @@ function mergeImportedData(json){
     if(idx>=0){ state.huts[idx] = h; updatedHuts++; }
     else { state.huts.push(h); addedHuts++; }
   });
+  importedSektoren.forEach(sek=>{
+    if(!sek || !sek.id || !sek.name) return;
+    const idx = state.sektoren.findIndex(x=>x.id===sek.id);
+    if(idx>=0){ state.sektoren[idx] = sek; updatedSektoren++; }
+    else { state.sektoren.unshift(sek); addedSektoren++; }
+  });
   importedTours.forEach(t=> saveTourCloud(t).catch(()=>markUnsaved()));
   importedHuts.forEach(h=> saveHutCloud(h).catch(()=>markUnsaved()));
-  return {addedTours, updatedTours, addedHuts, updatedHuts};
+  importedSektoren.forEach(sek=> saveSektorCloud(sek).catch(()=>markUnsaved()));
+  return {addedTours, updatedTours, addedHuts, updatedHuts, addedSektoren, updatedSektoren};
 }
 
 async function submitTourForm(form, existing){
@@ -2220,7 +2252,7 @@ function importModalHtml(){
       <input type="file" id="import-file" accept="application/json,.json,.txt"/>
     </div>
     <p style="font-size:12.5px; color:var(--ink-soft); margin:10px 0 6px 0;">— oder Text einfügen —</p>
-    <textarea placeholder="{ &quot;tours&quot;: [...], &quot;huts&quot;: [...] }" style="width:100%; min-height:160px; font-family:'JetBrains Mono'; font-size:11.5px;" id="import-text"></textarea>
+    <textarea placeholder="{ &quot;tours&quot;: [...], &quot;huts&quot;: [...], &quot;sektoren&quot;: [...] }" style="width:100%; min-height:160px; font-family:'JetBrains Mono'; font-size:11.5px;" id="import-text"></textarea>
     <div class="form-error" id="import-error" style="display:none;"></div>
     <div class="form-actions">
       <button class="btn secondary" data-act="close-modal">Abbrechen</button>
@@ -3344,7 +3376,7 @@ function wireModalHandlers(){
       const res = mergeImportedData(val);
       closeModal();
       render();
-      showToast(`Importiert: ${res.addedTours} neue Touren, ${res.updatedTours} aktualisiert, ${res.addedHuts} neue Hütten, ${res.updatedHuts} aktualisiert.`);
+      showToast(`Importiert: ${res.addedTours} neue Touren, ${res.updatedTours} aktualisiert, ${res.addedHuts} neue Hütten, ${res.updatedHuts} aktualisiert, ${res.addedSektoren} neue Sektoren, ${res.updatedSektoren} aktualisiert.`);
     }catch(e){
       errBox.style.display = 'block';
       errBox.textContent = e.message || 'Import fehlgeschlagen.';
