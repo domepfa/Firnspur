@@ -266,6 +266,33 @@ function agendaTypeColor(type){
   if(type==='msl') return 'var(--signal-deep, #A87A1F)';
   return 'var(--ice)';
 }
+// Löst die strukturierten Zustiege/Abstiege einer per Agenda verlinkten Tour auf — inklusive
+// dem Fall, dass eine MSL-Tour ihre Routen nicht selbst trägt, sondern über einen Sektor teilt.
+// state.sektoren existiert nur in Fixseil; in Firnspur bleibt das schlicht ein leeres Ergebnis.
+function resolveAgendaTourRoutes(tourRef){
+  if(!tourRef) return {accessRoutes:[], descentRoutes:[], tour:null};
+  const list = tourRef.source==='own' ? state.tours : state.otherAppTours;
+  const tour = (list||[]).find(t=>t.id===tourRef.id);
+  if(!tour || tour.tourCategory!=='msl') return {accessRoutes:[], descentRoutes:[], tour: tour||null};
+  let accessRoutes = tour.accessRoutes || [];
+  let descentRoutes = tour.descentRoutes || [];
+  if(!accessRoutes.length && !descentRoutes.length && tour.sektorId && typeof state.sektoren !== 'undefined'){
+    const sek = state.sektoren.find(s=>s.id===tour.sektorId);
+    if(sek){ accessRoutes = sek.accessRoutes || []; descentRoutes = sek.descentRoutes || []; }
+  }
+  return {accessRoutes, descentRoutes, tour};
+}
+// Best-effort Deep-Link auf die öffentliche SBB-Fahrplansuche — keine offizielle API, kein
+// Schlüssel nötig. Ausgangsort bleibt bewusst leer: SBB fragt beim Öffnen selbst danach.
+function buildSbbLink(destination, dateStr){
+  const params = new URLSearchParams();
+  if(destination) params.set('nach', destination);
+  if(dateStr){
+    const [y,m,d] = dateStr.split('-');
+    if(y && m && d) params.set('datum', `${d}.${m}.${y}`);
+  }
+  return 'https://www.sbb.ch/en/buying/pages/fahrplan/fahrplan.xhtml?' + params.toString();
+}
 function agendaViewHtml(){
   const groups = {};
   AGENDA_STATUS_ORDER.forEach(s=> groups[s] = []);
@@ -324,6 +351,9 @@ function agendaDetailHtml(id){
     ? `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)} – ${fmtWeekday(a.endDate)}, ${fmtDateShort(a.endDate)}`
     : `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)}`;
   const joined = state.myName && (a.participants||[]).some(p=>p.by===state.myName);
+  const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes(a.tourRef);
+  const chosenAccess = a.accessRouteId ? accessRoutes.find(r=>r.id===a.accessRouteId) : null;
+  const chosenDescent = a.descentRouteId ? descentRoutes.find(r=>r.id===a.descentRouteId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div>
@@ -338,6 +368,20 @@ function agendaDetailHtml(id){
       <div class="detail-stat"><div class="num">${dateLabel}</div><div class="lbl">Zeitraum</div></div>
     </div>
     ${a.meetingPoint ? `<div class="detail-section"><h4>Treffpunkt</h4><p>${esc(a.meetingPoint)}</p></div>` : ''}
+    ${(chosenAccess || chosenDescent) ? `<div class="detail-section">
+      <h4>Route</h4>
+      ${chosenAccess ? `<p style="margin:0 0 4px 0;">🚶 Zustieg: ${esc(chosenAccess.name||'?')}</p>` : ''}
+      ${chosenDescent ? `<p style="margin:0;">🚶 Abstieg: ${esc(chosenDescent.name||'?')}</p>` : ''}
+    </div>` : ''}
+    ${a.anreiseType ? `<div class="detail-section">
+      <h4>Anreise</h4>
+      <p style="margin:0 0 8px 0;">${a.anreiseType==='auto' ? '🚗 Auto' : '🚉 Öffentlicher Verkehr'}${a.anreiseOrt ? ' — ' + esc(a.anreiseOrt) : ''}</p>
+      ${a.anreiseType==='oev' ? `<a href="${esc(buildSbbLink(a.anreiseOrt, a.startDate))}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block;">🚉 SBB Fahrplan öffnen</a>` : ''}
+    </div>` : ''}
+    ${a.endOption ? `<div class="detail-section">
+      <h4>Nach der Tour</h4>
+      <p style="margin:0;">${a.endOption==='huette' ? '🛖 Hütte' : '🏠 Heimweg'}${a.endNote ? ' — ' + esc(a.endNote) : ''}</p>
+    </div>` : ''}
     <div class="field"><label>Status</label>${agendaStatusSelectHtml(a)}</div>
     ${a.note ? `<div class="detail-section"><h4>Notiz</h4><p>${esc(a.note)}</p></div>` : ''}
     <div class="detail-section">
@@ -391,7 +435,34 @@ function agendaFormHtml(){
         </select>
       </div>
       <div class="field" id="agenda-custom-field"><label>Geplante Tour</label><input name="customName" placeholder="z. B. Wildspitze über Vent"/></div>
+      <div class="field" id="agenda-route-fields" style="display:none;">
+        <label>Zustieg</label>
+        <select name="accessRouteId" id="agenda-access-route-select"><option value="">— nicht festgelegt —</option></select>
+        <label style="margin-top:10px; display:block;">Abstieg</label>
+        <select name="descentRouteId" id="agenda-descent-route-select"><option value="">— nicht festgelegt —</option></select>
+      </div>
       <div class="field"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof"/></div>
+      <div class="field">
+        <label>Anreise</label>
+        <div class="chips">
+          <button type="button" class="chip anreise-chip" data-anreise="auto">🚗 Auto</button>
+          <button type="button" class="chip anreise-chip" data-anreise="oev">🚉 Öffentlich</button>
+        </div>
+        <input type="hidden" name="anreiseType" id="anreise-type-hidden" value=""/>
+        <div id="anreise-oev-field" style="display:none; margin-top:8px;">
+          <input name="anreiseOrt" placeholder="Zielort für Fahrplan, z. B. Kandersteg"/>
+          <button type="button" class="btn secondary" id="sbb-link-btn" style="margin-top:8px;">🚉 SBB Fahrplan öffnen</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Nach der Tour</label>
+        <div class="chips">
+          <button type="button" class="chip end-option-chip" data-end="huette">🛖 Hütte</button>
+          <button type="button" class="chip end-option-chip" data-end="heimweg">🏠 Heimweg</button>
+        </div>
+        <input type="hidden" name="endOption" id="end-option-hidden" value=""/>
+        <input name="endNote" id="end-note-input" style="margin-top:8px; display:none;"/>
+      </div>
       <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Ausrüstung, offene Fragen …"></textarea></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
@@ -404,11 +475,13 @@ async function submitAgendaForm(form){
   const startDate = form.startDate;
   if(!startDate){ showFormError('agenda-form', 'Bitte ein Startdatum wählen.'); return; }
   let tourName = '';
+  let tourRef = null;
   if(form.tourChoice && form.tourChoice!=='custom'){
     const [src, refId] = form.tourChoice.split(':');
     const list = src==='own' ? state.tours : state.otherAppTours;
     const ref = list.find(t=>t.id===refId);
     tourName = ref ? ref.name : (form.customName||'').trim();
+    if(ref) tourRef = {source: src, id: refId};
   }else{
     tourName = (form.customName||'').trim();
   }
@@ -417,7 +490,10 @@ async function submitAgendaForm(form){
   const a = {
     id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
     type: form.type||'ski', startDate, endDate: form.endDate||'',
-    tourName, meetingPoint: form.meetingPoint||'', note: form.note||'',
+    tourName, tourRef, meetingPoint: form.meetingPoint||'', note: form.note||'',
+    accessRouteId: form.accessRouteId||'', descentRouteId: form.descentRouteId||'',
+    anreiseType: form.anreiseType||'', anreiseOrt: form.anreiseOrt||'',
+    endOption: form.endOption||'', endNote: form.endNote||'',
     participants: [{by: state.myName, joinedAt: new Date().toISOString()}],
     status: 'geplant'
   };

@@ -504,7 +504,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v74-tour-export';
+const APP_VERSION = 'v75-agenda-planung';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2279,11 +2279,61 @@ function wireModalHandlers(){
       if(src==='own'){ typeSelect.value = 'ski'; }
       else{ typeSelect.value = ref.tourCategory==='msl' ? 'msl' : 'hochtour'; }
     }
+    const accessRouteSelect = document.getElementById('agenda-access-route-select');
+    const descentRouteSelect = document.getElementById('agenda-descent-route-select');
+    const routeFieldsWrap = document.getElementById('agenda-route-fields');
+    function syncRouteFieldsFromTourChoice(){
+      if(!routeFieldsWrap || !tourSelect) return;
+      const val = tourSelect.value;
+      if(val==='custom'){ routeFieldsWrap.style.display = 'none'; accessRouteSelect.innerHTML = ''; descentRouteSelect.innerHTML = ''; return; }
+      const [src, refId] = val.split(':');
+      const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes({source:src, id:refId});
+      if(!accessRoutes.length && !descentRoutes.length){ routeFieldsWrap.style.display = 'none'; return; }
+      routeFieldsWrap.style.display = '';
+      const opt = r => `<option value="${esc(r.id)}">${esc(r.name||'?')}</option>`;
+      accessRouteSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + accessRoutes.map(opt).join('');
+      descentRouteSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + descentRoutes.map(opt).join('');
+    }
     if(tourSelect){
-      tourSelect.addEventListener('change', ()=>{ syncCustomFieldVisibility(); syncTypeFromTourChoice(); });
+      tourSelect.addEventListener('change', ()=>{ syncCustomFieldVisibility(); syncTypeFromTourChoice(); syncRouteFieldsFromTourChoice(); });
       syncCustomFieldVisibility();
       syncTypeFromTourChoice();
+      syncRouteFieldsFromTourChoice();
     }
+
+    const anreiseHidden = document.getElementById('anreise-type-hidden');
+    const anreiseOevField = document.getElementById('anreise-oev-field');
+    agendaForm.querySelectorAll('.anreise-chip').forEach(chip=>{
+      chip.onclick = ()=>{
+        const val = chip.getAttribute('data-anreise');
+        const already = anreiseHidden.value === val;
+        agendaForm.querySelectorAll('.anreise-chip').forEach(c=>{ c.classList.remove('on'); c.style.background = ''; });
+        anreiseHidden.value = already ? '' : val;
+        if(!already){ chip.classList.add('on'); chip.style.background = 'var(--ice-deep)'; }
+        anreiseOevField.style.display = anreiseHidden.value==='oev' ? '' : 'none';
+      };
+    });
+    const sbbLinkBtn = document.getElementById('sbb-link-btn');
+    if(sbbLinkBtn) sbbLinkBtn.onclick = ()=>{
+      const ortInput = agendaForm.querySelector('input[name="anreiseOrt"]');
+      const dateInput = agendaForm.querySelector('input[name="startDate"]');
+      window.open(buildSbbLink(ortInput ? ortInput.value.trim() : '', dateInput ? dateInput.value : ''), '_blank', 'noopener');
+    };
+
+    const endOptionHidden = document.getElementById('end-option-hidden');
+    const endNoteInput = document.getElementById('end-note-input');
+    agendaForm.querySelectorAll('.end-option-chip').forEach(chip=>{
+      chip.onclick = ()=>{
+        const val = chip.getAttribute('data-end');
+        const already = endOptionHidden.value === val;
+        agendaForm.querySelectorAll('.end-option-chip').forEach(c=>{ c.classList.remove('on'); c.style.background = ''; });
+        endOptionHidden.value = already ? '' : val;
+        if(!already){ chip.classList.add('on'); chip.style.background = 'var(--ice-deep)'; }
+        endNoteInput.style.display = endOptionHidden.value ? '' : 'none';
+        endNoteInput.placeholder = endOptionHidden.value==='huette' ? 'Name der Hütte' : endOptionHidden.value==='heimweg' ? 'Notiz zum Heimweg (optional)' : '';
+      };
+    });
+
     const agendaSaveBtn = document.getElementById('agenda-save-btn');
     if(agendaSaveBtn){
       agendaSaveBtn.addEventListener('click', (e)=>{
