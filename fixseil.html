@@ -637,7 +637,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v70-planer-fixes';
+const APP_VERSION = 'v71-export-filter';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -986,7 +986,8 @@ function mergeImportedData(json){
   const importedTours = Array.isArray(data.tours) ? data.tours : [];
   const importedHuts = Array.isArray(data.huts) ? data.huts : [];
   const importedSektoren = Array.isArray(data.sektoren) ? data.sektoren : [];
-  let addedTours = 0, updatedTours = 0, addedHuts = 0, updatedHuts = 0, addedSektoren = 0, updatedSektoren = 0;
+  const importedAgenda = Array.isArray(data.agenda) ? data.agenda : [];
+  let addedTours = 0, updatedTours = 0, addedHuts = 0, updatedHuts = 0, addedSektoren = 0, updatedSektoren = 0, addedAgenda = 0, updatedAgenda = 0;
   importedTours.forEach(t=>{
     if(!t || !t.id || !t.name) return;
     const idx = state.tours.findIndex(x=>x.id===t.id);
@@ -1005,10 +1006,17 @@ function mergeImportedData(json){
     if(idx>=0){ state.sektoren[idx] = sek; updatedSektoren++; }
     else { state.sektoren.unshift(sek); addedSektoren++; }
   });
+  importedAgenda.forEach(a=>{
+    if(!a || !a.id || !a.tourName) return;
+    const idx = state.agenda.findIndex(x=>x.id===a.id);
+    if(idx>=0){ state.agenda[idx] = a; updatedAgenda++; }
+    else { state.agenda.unshift(a); addedAgenda++; }
+  });
   importedTours.forEach(t=> saveTourCloud(t).catch(()=>markUnsaved()));
   importedHuts.forEach(h=> saveHutCloud(h).catch(()=>markUnsaved()));
   importedSektoren.forEach(sek=> saveSektorCloud(sek).catch(()=>markUnsaved()));
-  return {addedTours, updatedTours, addedHuts, updatedHuts, addedSektoren, updatedSektoren};
+  importedAgenda.forEach(a=> saveAgendaCloud(a).catch(()=>markUnsaved()));
+  return {addedTours, updatedTours, addedHuts, updatedHuts, addedSektoren, updatedSektoren, addedAgenda, updatedAgenda};
 }
 
 async function submitTourForm(form, existing){
@@ -2316,17 +2324,46 @@ function renderModal(){
   wireModalHandlers();
 }
 
+// Baut die Export-Nutzlast anhand der aktuell angehakten Filter-Chips im Export-Fenster.
+// Bewusst nicht "alles immer" (wie früher) — man will z. B. oft nur die eigenen MSL-Touren an
+// jemanden weitergeben, nicht die ganze Sammlung samt Hütten/Sektoren/Agenda.
+function buildExportData(){
+  const chips = document.querySelectorAll('#export-filter-chips .chip');
+  const selected = new Set();
+  chips.forEach(c=>{ if(c.classList.contains('on')) selected.add(c.getAttribute('data-export-key')); });
+  const data = {};
+  const tours = [];
+  if(selected.has('tours-hochtour')) tours.push(...state.tours.filter(t=>(t.tourCategory||'hochtour')!=='msl'));
+  if(selected.has('tours-msl')) tours.push(...state.tours.filter(t=>t.tourCategory==='msl'));
+  if(tours.length) data.tours = tours;
+  if(selected.has('huts')) data.huts = state.huts;
+  if(selected.has('sektoren')) data.sektoren = state.sektoren;
+  if(selected.has('agenda')) data.agenda = state.agenda;
+  return data;
+}
+function refreshExportText(){
+  const ta = document.getElementById('export-text');
+  if(ta) ta.value = JSON.stringify(buildExportData(), null, 2);
+}
 function exportModalHtml(){
-  const data = {tours: state.tours, huts: state.huts};
-  const json = JSON.stringify(data, null, 2);
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Exportieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Lade eine Datei herunter und teile sie mit deinen Freunden (z. B. per WhatsApp/E-Mail) — oder kopiere den Text. Sie importieren die Datei/den Text, um eure Sammlungen zusammenzuführen.</p>
+    <div class="field">
+      <label>Was exportieren?</label>
+      <div class="chips" id="export-filter-chips">
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-hochtour" data-act="toggle-export-filter">🏔️ Hochtour</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-msl" data-act="toggle-export-filter">🧗 MSL</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="huts" data-act="toggle-export-filter">🛖 Hütten</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="sektoren" data-act="toggle-export-filter">🧭 Sektoren</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="agenda" data-act="toggle-export-filter">📅 Agenda</button>
+      </div>
+    </div>
     <div class="form-actions" style="margin-bottom:12px;">
       <button class="btn" data-act="download-export">📥 Als Datei herunterladen</button>
       <button class="btn secondary" data-act="copy-export">In Zwischenablage kopieren</button>
     </div>
-    <textarea readonly style="width:100%; min-height:180px; font-family:'JetBrains Mono'; font-size:11.5px;" id="export-text">${esc(json)}</textarea>
+    <textarea readonly style="width:100%; min-height:180px; font-family:'JetBrains Mono'; font-size:11.5px;" id="export-text"></textarea>
     <div class="form-actions">
       <button class="btn secondary" data-act="close-modal">Schliessen</button>
     </div>
@@ -3428,6 +3465,18 @@ function wireModalHandlers(){
     }
   }
 
+  const exportChips = root.querySelectorAll('[data-act="toggle-export-filter"]');
+  if(exportChips.length){
+    exportChips.forEach(chip=>{
+      chip.onclick = ()=>{
+        chip.classList.toggle('on');
+        chip.style.background = chip.classList.contains('on') ? 'var(--ice-deep)' : '';
+        refreshExportText();
+      };
+    });
+    refreshExportText();
+  }
+
   const copyExportBtn = root.querySelector('[data-act="copy-export"]');
   if(copyExportBtn) copyExportBtn.onclick = async ()=>{
     const ta = document.getElementById('export-text');
@@ -3480,7 +3529,7 @@ function wireModalHandlers(){
       const res = mergeImportedData(val);
       closeModal();
       render();
-      showToast(`Importiert: ${res.addedTours} neue Touren, ${res.updatedTours} aktualisiert, ${res.addedHuts} neue Hütten, ${res.updatedHuts} aktualisiert, ${res.addedSektoren} neue Sektoren, ${res.updatedSektoren} aktualisiert.`);
+      showToast(`Importiert: ${res.addedTours} neue Touren, ${res.updatedTours} aktualisiert, ${res.addedHuts} neue Hütten, ${res.updatedHuts} aktualisiert, ${res.addedSektoren} neue Sektoren, ${res.updatedSektoren} aktualisiert, ${res.addedAgenda} neue Termine, ${res.updatedAgenda} aktualisiert.`);
     }catch(e){
       errBox.style.display = 'block';
       errBox.textContent = e.message || 'Import fehlgeschlagen.';
