@@ -363,12 +363,17 @@ async function loadAgendaWeather(agendaId){
   if(el !== document.getElementById('agenda-weather-' + agendaId)) return; // Modal inzwischen geschlossen/gewechselt
   if(w.status==='ok'){
     const info = weatherCodeInfo(w.weathercode);
+    window.__agendaWeatherCache = window.__agendaWeatherCache || {};
+    window.__agendaWeatherCache[agendaId] = { icon: info.icon, label: info.label, tempMin: w.tempMin, tempMax: w.tempMax, precipitation: w.precipitation, windMax: w.windMax, locationLabel: loc.label };
     el.innerHTML = `<div class="detail-section">
       <h4>Wetter${loc.label ? ' — ' + esc(loc.label) : ''}</h4>
       <p style="font-size:15px; margin:0 0 4px 0;">${info.icon} ${esc(info.label)}</p>
       <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(w.tempMin)}° / ${Math.round(w.tempMax)}° · 💧 ${w.precipitation} mm · 💨 ${Math.round(w.windMax)} km/h</p>
-      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Prognose von Open-Meteo für den Zustieg — kann sich noch ändern.</p>
+      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose von Open-Meteo für den Zustieg — kann sich noch ändern.</p>
+      <button type="button" class="btn secondary" id="save-weather-snapshot-btn-${agendaId}">📥 Für unterwegs speichern</button>
     </div>`;
+    const snapBtn = document.getElementById('save-weather-snapshot-btn-' + agendaId);
+    if(snapBtn) snapBtn.onclick = ()=> saveWeatherSnapshot(agendaId);
   }else if(w.status==='too-far'){
     el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">Prognose erst ca. 16 Tage vor dem Termin verfügbar.</p></div>`;
   }else if(w.status==='past'){
@@ -376,6 +381,22 @@ async function loadAgendaWeather(agendaId){
   }else{
     el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">${esc(w.message||'Wetterdaten nicht verfügbar.')}</p></div>`;
   }
+}
+// Friert die zuletzt geladene Wetterprognose auf dem Agenda-Eintrag ein (Offline-Snapshot) — nützlich,
+// weil die Live-Vorhersage in loadAgendaWeather() ohne Netz gar nicht erst geladen werden kann.
+// Bewusst ein expliziter Knopf statt automatisch beim Laden: der Zeitpunkt "kurz vor dem Losgehen,
+// solange noch Empfang da ist" ist der einzig sinnvolle für einen Offline-Stand.
+async function saveWeatherSnapshot(agendaId){
+  const a = state.agenda.find(x=>x.id===agendaId);
+  const cached = window.__agendaWeatherCache && window.__agendaWeatherCache[agendaId];
+  if(!a || !cached) return;
+  a.weatherSnapshot = { savedAt: new Date().toISOString(), ...cached };
+  render();
+  const ok = await saveAgendaCloud(a).catch(()=>false);
+  a._unsynced = !ok;
+  if(!ok) markUnsaved();
+  showToast('Wetterstand für unterwegs gespeichert.');
+  render();
 }
 function agendaViewHtml(){
   const groups = {};
@@ -451,6 +472,12 @@ function agendaDetailHtml(id){
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${dateLabel}</div><div class="lbl">Zeitraum</div></div>
     </div>
+    ${a.weatherSnapshot ? `<div class="detail-section" style="background:var(--ice-light);">
+      <h4>📥 Für unterwegs gespeichert${a.weatherSnapshot.locationLabel ? ' — ' + esc(a.weatherSnapshot.locationLabel) : ''}</h4>
+      <p style="font-size:15px; margin:0 0 4px 0;">${a.weatherSnapshot.icon||'🌡️'} ${esc(a.weatherSnapshot.label||'')}</p>
+      <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(a.weatherSnapshot.tempMin)}° / ${Math.round(a.weatherSnapshot.tempMax)}° · 💧 ${a.weatherSnapshot.precipitation} mm · 💨 ${Math.round(a.weatherSnapshot.windMax)} km/h</p>
+      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Stand vom ${esc(fmtDate(a.weatherSnapshot.savedAt))} — bleibt auch ohne Netz sichtbar.</p>
+    </div>` : ''}
     <div id="agenda-weather-${a.id}"></div>
     ${a.meetingPoint ? `<div class="detail-section"><h4>Treffpunkt</h4><p>${esc(a.meetingPoint)}</p></div>` : ''}
     ${(chosenAccess || chosenDescent) ? `<div class="detail-section">
