@@ -1283,6 +1283,7 @@ function renderStandaloneMap(containerId){
               ${(typeof plannerResult.ascentM==='number' || typeof plannerResult.descentM==='number') ? statCardHtml('⛰️', '↑'+Math.round(plannerResult.ascentM||0)+' / ↓'+Math.round(plannerResult.descentM||0)) : ''}
               ${typeof plannerResult.durationS==='number' ? statCardHtml('⏱️', formatDurationShort(plannerResult.durationS).replace('ca. ', '')) : ''}
             </div>
+            ${elevationProfileSvgHtml(plannerResult.elevationProfile)}
             <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Grobe Schätzung, ohne Pausen. Eigene Position während der Wanderung: Button "🧭 Standort anzeigen" unten rechts auf der Karte.</p>
             <div style="display:flex; gap:8px; margin-top:10px;">
               <button type="button" class="btn secondary" data-act="planner-discard" style="flex:1;">Verwerfen</button>
@@ -2265,12 +2266,23 @@ async function fetchCalculatedRoute(waypoints){
   const segDescent = segments.reduce((sum,s)=> sum + (typeof s.descent==='number' ? s.descent : 0), 0);
   const ascentM = typeof summary.ascent==='number' ? summary.ascent : (segments.length ? segAscent : null);
   const descentM = typeof summary.descent==='number' ? summary.descent : (segments.length ? segDescent : null);
+  // Höhenprofil fürs Diagramm: kumulierte Distanz + Höhe je Wegpunkt, aus der 3D-Geometrie
+  // (rawCoords[i] = [lon, lat, ele]) — bisher wurde die Höhe hier verworfen (siehe coords oben).
+  let elevationProfile = null;
+  if(rawCoords.length && rawCoords[0].length>=3){
+    let dist = 0;
+    elevationProfile = rawCoords.map((c,i)=>{
+      if(i>0) dist += haversineMeters(rawCoords[i-1][1], rawCoords[i-1][0], c[1], c[0]);
+      return {distM: dist, eleM: c[2]};
+    });
+  }
   return {
     coords,
     distanceM: typeof summary.distance==='number' ? summary.distance : null,
     durationS: typeof summary.duration==='number' ? summary.duration : null,
     ascentM,
-    descentM
+    descentM,
+    elevationProfile
   };
 }
 // Ortssuche (Name -> Koordinaten) für den Wanderungsplaner auf der Übersichtskarte — nutzt dieselbe
@@ -2301,6 +2313,32 @@ async function geocodePlaces(query, count){
 }
 // Formatiert die Dauer einer berechneten Route im "H:MM"-Format, passend zum sonst in der App
 // verwendeten Zeitbedarf-Feld (z. B. "1:45"), statt der ausgeschriebenen Kurzform für Stat-Karten.
+// Reines Inline-SVG (keine Chart-Bibliothek nötig) für das Höhenprofil einer berechneten Route.
+function elevationProfileSvgHtml(profile){
+  if(!profile || profile.length<2) return '';
+  const w = 300, h = 90, pad = 4;
+  const eles = profile.map(p=>p.eleM);
+  const minEle = Math.min(...eles), maxEle = Math.max(...eles);
+  const eleRange = Math.max(maxEle-minEle, 1);
+  const maxDist = profile[profile.length-1].distM || 1;
+  const points = profile.map(p=>{
+    const x = pad + (p.distM/maxDist)*(w-2*pad);
+    const y = pad + (1 - (p.eleM-minEle)/eleRange)*(h-2*pad);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const areaPoints = `${pad},${h-pad} ${points} ${w-pad},${h-pad}`;
+  return `<div style="margin-top:10px;">
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%; height:70px; display:block;">
+      <polygon points="${areaPoints}" fill="#EAF3EC" stroke="none"/>
+      <polyline points="${points}" fill="none" stroke="#2F6B44" stroke-width="2"/>
+    </svg>
+    <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--ink-faint); margin-top:2px;">
+      <span>${Math.round(minEle)} m</span>
+      <span>Höhenprofil</span>
+      <span>${Math.round(maxEle)} m</span>
+    </div>
+  </div>`;
+}
 function formatDurationHM(durationS){
   const totalMin = Math.round(durationS/60);
   const h = Math.floor(totalMin/60), m = totalMin%60;
