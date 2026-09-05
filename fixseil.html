@@ -87,6 +87,10 @@
     filter: brightness(1.15) contrast(1.05);
     z-index:0;
   }
+  .hero.hero-msl::before{
+    background-image: url('msl-hero.jpg');
+    background-position: center 60%;
+  }
   .hero::after{
     content:'';
     position:absolute; inset:0;
@@ -337,8 +341,8 @@
 <body>
 <div class="app-switch-bar">
   <a href="./index.html">🎿 Skitour</a>
-  <a href="./fixseil.html" class="active">🧗 Hochtour/MSL</a>
-  <button type="button" id="standalone-map-btn">🗺️ Karte</button>
+  <a href="./fixseil.html" id="switch-hochtour">🏔️ Hochtour</a>
+  <a href="./fixseil.html?view=msl" id="switch-msl">🧗 MSL</a>
 </div>
 <div id="app"></div>
 <button class="emergency-tab" id="emergency-btn">SOS</button>
@@ -633,7 +637,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v65-fix-history-app-switch';
+const APP_VERSION = 'v66-msl-eigenes-kapitel';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -729,6 +733,11 @@ let state = {
   offlineCachedAt: null,
   modal: null
 };
+// Direkter Einstieg per Link aus der oberen Umschalt-Leiste ("🧗 MSL" führt hierher mit
+// ?view=msl), damit man nicht immer erst über "Hochtour" navigieren muss.
+try{
+  if(new URLSearchParams(location.search).get('view')==='msl') state.view = 'msl';
+}catch(e){}
 
 
 
@@ -1850,6 +1859,17 @@ function render(){
   wireGlobalHandlers();
   if(state.modal) renderModal();
   if(!state.loading) cacheLocalSnapshot();
+  syncAppSwitchBar();
+}
+// Die Umschalt-Leiste liegt ausserhalb von #app (bleibt über render() hinweg bestehen) und muss
+// darum separat markiert werden, welcher der beiden Links (Hochtour/MSL) gerade "aktiv" ist.
+function syncAppSwitchBar(){
+  const hochtourLink = document.getElementById('switch-hochtour');
+  const mslLink = document.getElementById('switch-msl');
+  if(!hochtourLink || !mslLink) return;
+  const isMslView = state.view==='msl';
+  hochtourLink.classList.toggle('active', !isMslView);
+  mslLink.classList.toggle('active', isMslView);
 }
 
 function shellHtml(){
@@ -1863,10 +1883,10 @@ function shellHtml(){
     ⚠ Änderungen konnten nicht mit der Cloud synchronisiert werden (Internetverbindung prüfen) — exportiere zur Sicherheit eine Datei.
     <button data-act="export-data">Jetzt exportieren</button>
   </div>` : ''}
-  <div class="hero">
+  <div class="hero ${state.view==='msl' ? 'hero-msl' : ''}">
     <div class="hero-top">
       <div class="brand">
-        <h1>Hochtour/MSL</h1>
+        <h1>${state.view==='msl' ? 'MSL' : 'Hochtour'}</h1>
       </div>
       <div class="who">
         <div class="who-row">
@@ -1928,6 +1948,7 @@ function tourenViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn" data-act="add-tour">+ Neue Tour</button>
+      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar" style="margin-bottom:10px;">
       <span style="font-size:13px; color:var(--ink-soft);">Sortieren nach</span>
@@ -2012,6 +2033,7 @@ function mslViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn" data-act="add-msl">+ Neue MSL-Tour</button>
+      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar" style="margin-bottom:14px;">
       <span style="font-size:13px; color:var(--ink-soft);">Sortieren nach</span>
@@ -2072,7 +2094,6 @@ function tourCardHtml(t){
           : `${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}`
         }
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
-        ${(t.topoImages && t.topoImages.length) ? `<span class="badge" style="background:var(--signal-deep); color:#3D2E12;">📷 Topo</span>` : ''}
       </div>
     </div>
     ${t.routeName ? `<h3 style="margin:-4px 0 0 0; color:var(--ink-soft);">${esc(t.routeName)}</h3>` : ''}
@@ -2086,6 +2107,7 @@ function tourCardHtml(t){
     ${last ? `<span class="hut-link-chip" style="background:#E3EFE6; color:#2F6B44;">✓ ${esc(last.by)} · ${esc(fmtDateOnly(last.date))}${t.completions.length>1 ? ` (+${t.completions.length-1})` : ''}</span>` : ''}
     ${t.crux ? `<div class="conditions-note">⚠ ${esc(t.crux)}</div>` : ''}
     ${t._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
+    ${(t.topoImages && t.topoImages.length) ? `<button type="button" class="hut-link-chip" style="background:var(--signal-deep); color:#fff; border:none; cursor:pointer;" data-act="open-topo-from-card" data-id="${t.id}" data-images='${esc(JSON.stringify(t.topoImages))}'>📷 Topo ansehen</button>` : ''}
     <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
       <span>von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}</span>
       <span style="color:var(--ink-faint);">${tourStatusLabel(t)}</span>
@@ -2127,6 +2149,7 @@ function huettenViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Hütte oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn" data-act="add-hut">+ Neue Hütte</button>
+      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar" style="margin-bottom:10px;">
       <span style="font-size:13px; color:var(--ink-soft);">Sortieren nach</span>
@@ -2216,6 +2239,7 @@ function sektorenViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Sektor oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn" data-act="add-sektor">+ Neuer Sektor</button>
+      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     ${list.length ? `<div class="grid">${list.map(sektorCardHtml).join('')}</div>` : emptySektoren()}
   `;
@@ -3014,6 +3038,13 @@ function wireGlobalHandlers(){
     else if(act==='add-msl') el.onclick = openAddMsl;
     else if(act==='add-hut') el.onclick = openAddHut;
     else if(act==='add-sektor') el.onclick = openAddSektor;
+    else if(act==='open-standalone-map') el.onclick = openStandaloneMap;
+    else if(act==='open-topo-from-card') el.onclick = (e)=>{
+      e.stopPropagation();
+      let images = [];
+      try{ images = JSON.parse(el.getAttribute('data-images')||'[]'); }catch(err){ images = []; }
+      showTopoImageLightbox(images, 0, el.getAttribute('data-id'));
+    };
     else if(act==='add-agenda') el.onclick = openAddAgenda;
     else if(act==='open-tour') { el.onclick = ()=>openTourDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openTourDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-hut') { el.onclick = ()=>openHutDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openHutDetail(el.getAttribute('data-id'));}; }
@@ -4212,8 +4243,6 @@ try{
 loadAuthFromStorage();
 cleanupExpiredOfflineDownloads();
 wireAppSwitchSwipe('./index.html');
-const standaloneMapBtn = document.getElementById('standalone-map-btn');
-if(standaloneMapBtn) standaloneMapBtn.addEventListener('click', openStandaloneMap);
 function toggleEmergencyCard(){
   if(state.modal && state.modal.type==='emergency'){ closeModal(); }
   else{ state.modal = {type:'emergency'}; render(); }
