@@ -337,8 +337,8 @@
 <body>
 <div class="app-switch-bar">
   <a href="./index.html" class="active">🎿 Skitour</a>
-  <a href="./fixseil.html">🧗 Hochtour/MSL</a>
-  <button type="button" id="standalone-map-btn">🗺️ Karte</button>
+  <a href="./fixseil.html">🏔️ Hochtour</a>
+  <a href="./fixseil.html?view=msl">🧗 MSL</a>
 </div>
 <div id="app"></div>
 <button class="emergency-tab" id="emergency-btn">SOS</button>
@@ -504,7 +504,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v67-fix-history-app-switch';
+const APP_VERSION = 'v68-msl-eigenes-kapitel';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1104,6 +1104,7 @@ function tourenViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn" data-act="add-tour">+ Neue Tour</button>
+      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar" style="margin-bottom:10px;">
       <span style="font-size:13px; color:var(--ink-soft);">Sortieren nach</span>
@@ -1222,6 +1223,7 @@ function huettenViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Hütte oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn" data-act="add-hut">+ Neue Hütte</button>
+      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar" style="margin-bottom:10px;">
       <span style="font-size:13px; color:var(--ink-soft);">Sortieren nach</span>
@@ -1902,6 +1904,7 @@ function wireGlobalHandlers(){
     else if(act==='import-data') el.onclick = openImport;
     else if(act==='add-tour') el.onclick = openAddTour;
     else if(act==='add-hut') el.onclick = openAddHut;
+    else if(act==='open-standalone-map') el.onclick = openStandaloneMap;
     else if(act==='add-agenda') el.onclick = openAddAgenda;
     else if(act==='open-tour') { el.onclick = ()=>openTourDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openTourDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-hut') { el.onclick = ()=>openHutDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openHutDetail(el.getAttribute('data-id'));}; }
@@ -2725,8 +2728,6 @@ try{
 loadAuthFromStorage();
 cleanupExpiredOfflineDownloads();
 wireAppSwitchSwipe('./fixseil.html');
-const standaloneMapBtn = document.getElementById('standalone-map-btn');
-if(standaloneMapBtn) standaloneMapBtn.addEventListener('click', openStandaloneMap);
 function toggleEmergencyCard(){
   if(state.modal && state.modal.type==='emergency'){ closeModal(); }
   else{ state.modal = {type:'emergency'}; render(); }
