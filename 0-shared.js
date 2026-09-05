@@ -293,6 +293,90 @@ function buildSbbLink(destination, dateStr){
   }
   return 'https://www.sbb.ch/en/buying/pages/fahrplan/fahrplan.xhtml?' + params.toString();
 }
+// WMO-Wettercodes (Open-Meteo) grob zusammengefasst auf Icon + verständliches Label.
+function weatherCodeInfo(code){
+  const table = {
+    0:['☀️','Klar'], 1:['🌤️','Überwiegend klar'], 2:['⛅','Teilweise bewölkt'], 3:['☁️','Bedeckt'],
+    45:['🌫️','Nebel'], 48:['🌫️','Nebel mit Reifablagerung'],
+    51:['🌦️','Leichter Nieselregen'], 53:['🌦️','Nieselregen'], 55:['🌦️','Starker Nieselregen'],
+    56:['🌧️','Gefrierender Nieselregen'], 57:['🌧️','Starker gefrierender Nieselregen'],
+    61:['🌧️','Leichter Regen'], 63:['🌧️','Regen'], 65:['🌧️','Starker Regen'],
+    66:['🌧️','Gefrierender Regen'], 67:['🌧️','Starker gefrierender Regen'],
+    71:['❄️','Leichter Schneefall'], 73:['❄️','Schneefall'], 75:['❄️','Starker Schneefall'], 77:['❄️','Schneegriesel'],
+    80:['🌦️','Leichte Regenschauer'], 81:['🌦️','Regenschauer'], 82:['🌦️','Heftige Regenschauer'],
+    85:['🌨️','Leichte Schneeschauer'], 86:['🌨️','Starke Schneeschauer'],
+    95:['⛈️','Gewitter'], 96:['⛈️','Gewitter mit Hagel'], 99:['⛈️','Starkes Gewitter mit Hagel']
+  };
+  const entry = table[code];
+  return entry ? {icon: entry[0], label: entry[1]} : {icon:'🌡️', label:'Unbekannt'};
+}
+// Wettervorhersage via Open-Meteo — kostenlos, kein API-Key, keine Lizenzfrage. Die kostenlose
+// Vorhersage reicht rund 16 Tage in die Zukunft; weiter entfernte oder vergangene Termine bekommen
+// einen klaren Status statt einer falschen/leeren Antwort.
+async function fetchWeatherForecast(lat, lon, dateStr){
+  const target = new Date(dateStr + 'T00:00:00');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diffDays = Math.round((target - today) / 86400000);
+  if(diffDays < 0) return {status:'past'};
+  if(diffDays > 16) return {status:'too-far'};
+  let res;
+  try{
+    res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max&timezone=auto&start_date=${dateStr}&end_date=${dateStr}`);
+  }catch(e){
+    return {status:'error', message:'Wetterdaten nicht verfügbar (keine Internetverbindung?).'};
+  }
+  if(!res.ok) return {status:'error', message:'Wetterdaten nicht verfügbar.'};
+  const data = await res.json();
+  const d = data.daily;
+  if(!d || !Array.isArray(d.time) || !d.time.length) return {status:'error', message:'Keine Wetterdaten für dieses Datum.'};
+  return {
+    status: 'ok',
+    weathercode: d.weathercode[0],
+    tempMax: d.temperature_2m_max[0],
+    tempMin: d.temperature_2m_min[0],
+    precipitation: d.precipitation_sum[0],
+    windMax: d.windspeed_10m_max[0]
+  };
+}
+// Ort für die Wettervorhersage eines Agenda-Termins: der erste erfasste Punkt der verlinkten Tour.
+// Freitext-Termine (kein tourRef) oder Touren ohne Punkte liefern bewusst null — raten wäre falsch.
+function resolveAgendaWeatherLocation(a){
+  if(!a || !a.tourRef) return null;
+  const list = a.tourRef.source==='own' ? state.tours : state.otherAppTours;
+  const tour = (list||[]).find(t=>t.id===a.tourRef.id);
+  const pt = tour && Array.isArray(tour.points) ? tour.points[0] : null;
+  const lat = pt ? parseFloat(pt.lat) : NaN;
+  const lon = pt ? parseFloat(pt.lon) : NaN;
+  if(isNaN(lat) || isNaN(lon)) return null;
+  return {lat, lon, label: tour.region || ''};
+}
+async function loadAgendaWeather(agendaId){
+  const a = state.agenda.find(x=>x.id===agendaId);
+  const el = document.getElementById('agenda-weather-' + agendaId);
+  if(!a || !el || !a.startDate) return;
+  const loc = resolveAgendaWeatherLocation(a);
+  if(!loc) return;
+  el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13.5px; color:var(--ink-soft);">Wird geladen…</p></div>`;
+  let w;
+  try{ w = await fetchWeatherForecast(loc.lat, loc.lon, a.startDate); }
+  catch(e){ w = {status:'error', message:'Wetterdaten nicht verfügbar.'}; }
+  if(el !== document.getElementById('agenda-weather-' + agendaId)) return; // Modal inzwischen geschlossen/gewechselt
+  if(w.status==='ok'){
+    const info = weatherCodeInfo(w.weathercode);
+    el.innerHTML = `<div class="detail-section">
+      <h4>Wetter${loc.label ? ' — ' + esc(loc.label) : ''}</h4>
+      <p style="font-size:15px; margin:0 0 4px 0;">${info.icon} ${esc(info.label)}</p>
+      <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(w.tempMin)}° / ${Math.round(w.tempMax)}° · 💧 ${w.precipitation} mm · 💨 ${Math.round(w.windMax)} km/h</p>
+      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Prognose von Open-Meteo für den Zustieg — kann sich noch ändern.</p>
+    </div>`;
+  }else if(w.status==='too-far'){
+    el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">Prognose erst ca. 16 Tage vor dem Termin verfügbar.</p></div>`;
+  }else if(w.status==='past'){
+    el.innerHTML = '';
+  }else{
+    el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">${esc(w.message||'Wetterdaten nicht verfügbar.')}</p></div>`;
+  }
+}
 function agendaViewHtml(){
   const groups = {};
   AGENDA_STATUS_ORDER.forEach(s=> groups[s] = []);
@@ -367,6 +451,7 @@ function agendaDetailHtml(id){
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${dateLabel}</div><div class="lbl">Zeitraum</div></div>
     </div>
+    <div id="agenda-weather-${a.id}"></div>
     ${a.meetingPoint ? `<div class="detail-section"><h4>Treffpunkt</h4><p>${esc(a.meetingPoint)}</p></div>` : ''}
     ${(chosenAccess || chosenDescent) ? `<div class="detail-section">
       <h4>Route</h4>

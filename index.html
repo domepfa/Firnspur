@@ -504,7 +504,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v76-hoehenprofil';
+const APP_VERSION = 'v77-wetter';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2259,6 +2259,7 @@ function wireModalHandlers(){
     sel.addEventListener('click', e=> e.stopPropagation());
     sel.addEventListener('change', ()=> setAgendaStatus(sel.getAttribute('data-id'), sel.value));
   });
+  if(state.modal && state.modal.type==='agenda-detail') loadAgendaWeather(state.modal.payload);
 
   const agendaForm = document.getElementById('agenda-form');
   if(agendaForm){
