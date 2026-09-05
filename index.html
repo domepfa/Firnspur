@@ -504,7 +504,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v66-typo-route-gipfel';
+const APP_VERSION = 'v67-fix-history-app-switch';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -716,7 +716,7 @@ function openTourDetail(id){ state.modal = {type:'tour-detail', payload:id}; ren
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
-function closeModal(fromPopstate, skipDirtyCheck){
+function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(!skipDirtyCheck && !confirmDiscardIfDirty()){
     // Nutzer will weiter bearbeiten — nichts schliessen. Bei der Hardware-/Browser-Zurück-Taste
     // wurde der History-Eintrag bereits konsumiert; render() stellt ihn über
@@ -735,7 +735,14 @@ function closeModal(fromPopstate, skipDirtyCheck){
     state.modal = null;
   }
   render();
-  if(!state.modal && modalHistoryPushed){
+  // keepHistoryLayer: der Aufrufer öffnet direkt im Anschluss ein neues Modal (z. B. nach dem
+  // Speichern zur Detailansicht) — dann ist die Modal-"Ebene" aus Sicht der Browser-Historie nie
+  // wirklich geschlossen worden, also darf hier kein history.back() ausgelöst werden. Das wäre
+  // sonst ein synchrones history.back() gefolgt von einem sofortigen history.pushState() (beim
+  // Öffnen des neuen Modals) — genau diese Kombination verhält sich browserübergreifend
+  // inkonsistent und kann die Historie verwirren, sodass eine spätere Zurück-Aktion zu weit
+  // zurückspringt (bis auf die andere App).
+  if(!state.modal && modalHistoryPushed && !keepHistoryLayer){
     modalHistoryPushed = false;
     if(!fromPopstate) consumeHistoryEntry();
   }
@@ -805,7 +812,7 @@ async function submitTourForm(form, existing){
 
   const idx = state.tours.findIndex(x=>x.id===t.id);
   if(idx>=0) state.tours[idx] = t; else state.tours.unshift(t);
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'tour-detail', payload:t.id};
   render();
 
@@ -847,7 +854,7 @@ async function submitHutForm(form, existing){
 
   const idx = state.huts.findIndex(x=>x.id===h.id);
   if(idx>=0) state.huts[idx] = h; else state.huts.push(h);
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'hut-detail', payload:h.id};
   render();
 
@@ -887,7 +894,7 @@ async function submitAccessRouteForm(form){
   if(idx>=0) hut.accessRoutes[idx] = routeData; else hut.accessRoutes.push(routeData);
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'hut-detail', payload:hut.id};
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);
@@ -903,7 +910,7 @@ async function deleteAccessRoute(hutId, routeId){
   hut.accessRoutes = (hut.accessRoutes||[]).filter(r=>r.id!==routeId);
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'hut-detail', payload:hutId};
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);

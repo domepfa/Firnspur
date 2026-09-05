@@ -633,7 +633,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v64-fix-msl-tab-rueckkehr';
+const APP_VERSION = 'v65-fix-history-app-switch';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -922,7 +922,7 @@ function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; rende
 function openAddSektor(){ ensureName(()=>{ state.modal = {type:'edit-sektor', payload:null}; render(); }); }
 function openEditSektor(id){ ensureName(()=>{ const s = state.sektoren.find(x=>x.id===id); state.modal = {type:'edit-sektor', payload:s}; render(); }); }
 function openSektorDetail(id){ state.modal = {type:'sektor-detail', payload:id}; render(); }
-function closeModal(fromPopstate, skipDirtyCheck){
+function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(!skipDirtyCheck && !confirmDiscardIfDirty()){
     // Nutzer will weiter bearbeiten — nichts schliessen. Bei der Hardware-/Browser-Zurück-Taste
     // wurde der History-Eintrag bereits konsumiert; render() stellt ihn über
@@ -945,7 +945,14 @@ function closeModal(fromPopstate, skipDirtyCheck){
     state.modal = null;
   }
   render();
-  if(!state.modal && modalHistoryPushed){
+  // keepHistoryLayer: der Aufrufer öffnet direkt im Anschluss ein neues Modal (z. B. nach dem
+  // Speichern zur Detailansicht) — dann ist die Modal-"Ebene" aus Sicht der Browser-Historie nie
+  // wirklich geschlossen worden, also darf hier kein history.back() ausgelöst werden. Das wäre
+  // sonst ein synchrones history.back() gefolgt von einem sofortigen history.pushState() (beim
+  // Öffnen des neuen Modals) — genau diese Kombination verhält sich browserübergreifend
+  // inkonsistent und kann die Historie verwirren, sodass eine spätere Zurück-Aktion zu weit
+  // zurückspringt (bis auf die andere App).
+  if(!state.modal && modalHistoryPushed && !keepHistoryLayer){
     modalHistoryPushed = false;
     if(!fromPopstate) consumeHistoryEntry();
   }
@@ -1042,7 +1049,7 @@ async function submitTourForm(form, existing){
 
   const idx = state.tours.findIndex(x=>x.id===t.id);
   if(idx>=0) state.tours[idx] = t; else state.tours.unshift(t);
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'tour-detail', payload:t.id};
   render();
 
@@ -1084,7 +1091,7 @@ async function submitHutForm(form, existing){
 
   const idx = state.huts.findIndex(x=>x.id===h.id);
   if(idx>=0) state.huts[idx] = h; else state.huts.push(h);
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'hut-detail', payload:h.id};
   render();
 
@@ -1124,7 +1131,7 @@ async function submitAccessRouteForm(form){
   if(idx>=0) hut.accessRoutes[idx] = routeData; else hut.accessRoutes.push(routeData);
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'hut-detail', payload:hut.id};
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);
@@ -1140,7 +1147,7 @@ async function deleteAccessRoute(hutId, routeId){
   hut.accessRoutes = (hut.accessRoutes||[]).filter(r=>r.id!==routeId);
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'hut-detail', payload:hutId};
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);
@@ -1277,7 +1284,7 @@ async function submitTourRouteForm(form){
   if(idx>=0) t[field][idx] = routeData; else t[field].push(routeData);
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'tour-detail', payload:t.id};
   render();
   const ok = await saveTourCloud(t).catch(()=>false);
@@ -1294,7 +1301,7 @@ async function deleteTourRoute(tourId, kind, routeId){
   t[field] = (t[field]||[]).filter(r=>r.id!==routeId);
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'tour-detail', payload:tourId};
   render();
   const ok = await saveTourCloud(t).catch(()=>false);
@@ -1335,7 +1342,7 @@ async function createSektorFromTours(tourIds){
   };
   state.sektoren.unshift(sek);
   tours.forEach(t=>{ t.sektorId = sek.id; t.accessRoutes = []; t.descentRoutes = []; t.updatedAt = new Date().toISOString(); t.updatedBy = state.myName; });
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'sektor-detail', payload:sek.id};
   render();
   const ok = await saveSektorCloud(sek).catch(()=>false);
@@ -1363,7 +1370,7 @@ async function submitSektorForm(form, existing){
 
   const idx = state.sektoren.findIndex(x=>x.id===s.id);
   if(idx>=0) state.sektoren[idx] = s; else state.sektoren.unshift(s);
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'sektor-detail', payload:s.id};
   render();
 
@@ -1699,7 +1706,7 @@ async function submitSektorRouteForm(form){
   if(idx>=0) sek[field][idx] = routeData; else sek[field].push(routeData);
   sek.updatedAt = new Date().toISOString();
   sek.updatedBy = state.myName;
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'sektor-detail', payload:sek.id};
   render();
   const ok = await saveSektorCloud(sek).catch(()=>false);
@@ -1716,7 +1723,7 @@ async function deleteSektorRoute(sektorId, kind, routeId){
   sek[field] = (sek[field]||[]).filter(r=>r.id!==routeId);
   sek.updatedAt = new Date().toISOString();
   sek.updatedBy = state.myName;
-  closeModal(false, true);
+  closeModal(false, true, true);
   state.modal = {type:'sektor-detail', payload:sektorId};
   render();
   const ok = await saveSektorCloud(sek).catch(()=>false);
