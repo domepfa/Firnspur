@@ -637,7 +637,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v71-export-filter';
+const APP_VERSION = 'v72-tour-export';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -977,6 +977,7 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   }
 }
 function openExport(){ state.modal = {type:'export'}; render(); }
+function openTourExport(id){ state.modal = {type:'export', payload:{tourId:id}}; render(); }
 function openImport(){ ensureName(()=>{ state.modal = {type:'import'}; render(); }); }
 
 function mergeImportedData(json){
@@ -2312,7 +2313,7 @@ function renderModal(){
   else if(m.type==='sektor-detail') inner = sektorDetailHtml(m.payload);
   else if(m.type==='edit-sektor-route') inner = sektorRouteFormHtml(m.payload.sektorId, m.payload.kind, m.payload.route);
   else if(m.type==='sektor-route-detail') inner = sektorRouteDetailHtml(m.payload.sektorId, m.payload.route, m.payload.kind);
-  else if(m.type==='export') inner = exportModalHtml();
+  else if(m.type==='export') inner = exportModalHtml(m.payload);
   else if(m.type==='import') inner = importModalHtml();
   else if(m.type==='vorlagen') inner = vorlagenModalHtml(TOUR_VORLAGE_JSON);
   else if(m.type==='bedienungsanleitung') inner = bedienungsanleitungModalHtml();
@@ -2328,6 +2329,11 @@ function renderModal(){
 // Bewusst nicht "alles immer" (wie früher) — man will z. B. oft nur die eigenen MSL-Touren an
 // jemanden weitergeben, nicht die ganze Sammlung samt Hütten/Sektoren/Agenda.
 function buildExportData(){
+  const singleTourId = state.modal && state.modal.type==='export' && state.modal.payload && state.modal.payload.tourId;
+  if(singleTourId){
+    const tour = state.tours.find(t=>t.id===singleTourId);
+    return tour ? {tours:[tour]} : {};
+  }
   const chips = document.querySelectorAll('#export-filter-chips .chip');
   const selected = new Set();
   chips.forEach(c=>{ if(c.classList.contains('on')) selected.add(c.getAttribute('data-export-key')); });
@@ -2345,10 +2351,13 @@ function refreshExportText(){
   const ta = document.getElementById('export-text');
   if(ta) ta.value = JSON.stringify(buildExportData(), null, 2);
 }
-function exportModalHtml(){
+function exportModalHtml(payload){
+  const singleTour = payload && payload.tourId ? state.tours.find(t=>t.id===payload.tourId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Exportieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
-    <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Lade eine Datei herunter und teile sie mit deinen Freunden (z. B. per WhatsApp/E-Mail) — oder kopiere den Text. Sie importieren die Datei/den Text, um eure Sammlungen zusammenzuführen.</p>
+    ${singleTour
+      ? `<p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Nur diese Tour: <strong>${esc(singleTour.name)}</strong>. Lade sie herunter oder kopiere den Text, um sie mit jemandem zu teilen.</p>`
+      : `<p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Lade eine Datei herunter und teile sie mit deinen Freunden (z. B. per WhatsApp/E-Mail) — oder kopiere den Text. Sie importieren die Datei/den Text, um eure Sammlungen zusammenzuführen.</p>
     <div class="field">
       <label>Was exportieren?</label>
       <div class="chips" id="export-filter-chips">
@@ -2358,7 +2367,8 @@ function exportModalHtml(){
         <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="sektoren" data-act="toggle-export-filter">🧭 Sektoren</button>
         <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="agenda" data-act="toggle-export-filter">📅 Agenda</button>
       </div>
-    </div>
+    </div>`
+    }
     <div class="form-actions" style="margin-bottom:12px;">
       <button class="btn" data-act="download-export">📥 Als Datei herunterladen</button>
       <button class="btn secondary" data-act="copy-export">In Zwischenablage kopieren</button>
@@ -2801,6 +2811,7 @@ function tourDetailHtml(id){
     <div class="detail-actions">
       <button class="btn secondary" data-act="mark-done" data-kind="tour" data-id="${t.id}">✓ Als erledigt markieren</button>
       <button class="btn secondary" data-act="edit-tour" data-id="${t.id}">Bearbeiten</button>
+      <button class="btn secondary" data-act="export-tour" data-id="${t.id}">📤 Exportieren</button>
     </div>
   </div>`;
 }
@@ -3465,9 +3476,8 @@ function wireModalHandlers(){
     }
   }
 
-  const exportChips = root.querySelectorAll('[data-act="toggle-export-filter"]');
-  if(exportChips.length){
-    exportChips.forEach(chip=>{
+  if(root.querySelector('#export-text')){
+    root.querySelectorAll('[data-act="toggle-export-filter"]').forEach(chip=>{
       chip.onclick = ()=>{
         chip.classList.toggle('on');
         chip.style.background = chip.classList.contains('on') ? 'var(--ice-deep)' : '';
@@ -4022,6 +4032,7 @@ function wireModalHandlers(){
   wireDeleteConfirm('agenda', removeAgendaItem, 'Termin');
 
   root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="export-tour"]').forEach(el=> el.onclick = ()=>openTourExport(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-hut"]').forEach(el=> el.onclick = ()=>openHutDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
