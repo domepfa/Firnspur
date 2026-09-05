@@ -15,9 +15,10 @@ Das gilt für alle Felder gleichermassen, ganz besonders aber für Koordinaten
 
 ## Wichtigste Regeln
 
-- Struktur exakt beibehalten: `{"tours": [...], "huts": [...]}`. Ein drittes Feld
-  `"sektoren"` gibt es NICHT — Sektoren (siehe ganz unten) lassen sich aktuell
-  nicht per Import anlegen, nur manuell in der App.
+- Struktur exakt beibehalten: `{"tours": [...], "huts": [...]}`. Nur für Fixseil
+  (Hochtour/MSL) gibt es zusätzlich ein drittes, optionales Feld `"sektoren":
+  [...]` (siehe ganz unten) — Firnspur (Skitour) kennt keine Sektoren, dort
+  bleibt es bei den zwei Feldern `"tours"`/`"huts"`.
 - **id**: IMMER eine neue, eindeutige Zeichenfolge pro Tour/Hütte (z. B. `t_` +
   zufällige Buchstaben/Zahlen, bzw. `h_` für Hütten). Niemals zwei Einträge mit
   gleicher id, ausser man will einen bestehenden Eintrag bewusst überschreiben.
@@ -131,11 +132,13 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - `descent`: bei MSL IMMER leerer String `""` lassen — der Abstieg wird bei
     MSL-Touren ausschliesslich strukturiert über `descentRoutes` erfasst
     (siehe unten), nicht als Freitext
-  - `sektorId`: IMMER leerer String `""` lassen. Ein Sektor bündelt mehrere
-    MSL-Touren mit gemeinsamem Zustieg/Abstieg, lässt sich aber nur manuell in
-    der App anlegen — nicht per Import. Verweist eine Tour auf einen Sektor,
-    übernimmt sie dessen Zustiege/Abstiege automatisch und die eigenen
-    `accessRoutes`/`descentRoutes` der Tour werden ignoriert.
+  - `sektorId`: Normalerweise leerer String `""`. Nur setzen, wenn diese Tour
+    zu einem Sektor gehört, den du im selben Import über `"sektoren"` (siehe
+    unten) mit anlegst oder auf einen bereits bestehenden Sektor verweist —
+    dann `sektorId` exakt auf die `id` dieses Sektors setzen. Verweist eine
+    Tour auf einen Sektor, übernimmt sie dessen Zustiege/Abstiege automatisch
+    und die eigenen `accessRoutes`/`descentRoutes` der Tour werden ignoriert
+    (dort trotzdem `[]` eintragen, nie raten).
 
   Franz. Kletterskala: 1, 2a-, 2a, 2a+, 2b-, 2b, 2b+, 2c-, 2c, 2c+, 3a-, 3a, 3a+,
   3b-, 3b, 3b+, 3c-, 3c, 3c+, 4a- ... bis 7a (jeweils mit -/+ Abstufungen)
@@ -237,19 +240,41 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - `notes`: Sonstiges (z. B. Reservationshinweise)
 - `completions`: immer `[]` (wird von der App selbst befüllt)
 
-## Sektoren — nicht per Import möglich
+## Felder-Erklärung (Sektoren — nur Fixseil, optionales Feld `"sektoren"`)
 
 Ein Sektor bündelt mehrere MSL-Touren mit gemeinsamem Ausgangspunkt und
-geteilten Zustiegen/Abstiegen (analog zu Hütten-Zustiegen). Sektoren lassen
-sich aktuell **nicht** über den JSON-Import anlegen, nur direkt in der App
-unter "Sektoren". Trage in dieser JSON-Datei daher nie ein `"sektoren"`-Feld
-ein, und lasse `sektorId` bei MSL-Touren immer leer.
+geteilten Zustiegen/Abstiegen (analog zu Hütten-Zustiegen). Nur relevant für
+Fixseil (Hochtour/MSL) — Firnspur kennt keine Sektoren. Nur eintragen, wenn
+aus der Quelle klar hervorgeht, dass mehrere Touren denselben Zustieg/
+Ausgangspunkt teilen; sonst `"sektoren": []` lassen und `sektorId` bei den
+Touren leer lassen.
+
+- `id`: eindeutige Kennung, Format `sek_` + zufällige Buchstaben/Zahlen
+- `name`: Bezeichnung des Sektors (Pflichtfeld), z. B. "Chatzenfluh Nordwand"
+- `region`/`subregion`: wie oben bei Touren
+- `description`: Freitext, Charakter/Übersicht des Sektors, optional
+- `points`/`manualTrack`: wie oben bei Touren/Hütten — `manualTrack` immer `[]`
+- `accessRoutes`/`descentRoutes`: gemeinsame Zustiege/Abstiege für alle Touren
+  dieses Sektors. Gleiche Struktur wie bei den MSL-Touren weiter oben (Felder
+  `id` (Format `tr_` + zufällige Buchstaben/Zahlen), `name`, `elevation`,
+  `elevationUp` (nur bei `descentRoutes`, sonst `""`), `duration`,
+  `difficultyT`, `description`, `gpxLink` (immer `""`), `trackSimplified`
+  (immer `null`), `manualTrack` (immer `[]`)). Falls keine Angaben vorliegen,
+  beide als `[]` lassen.
+- `createdBy`/`createdAt`/`updatedBy`/`updatedAt`: wie bei Touren/Hütten
+
+Um eine MSL-Tour mit einem Sektor zu verknüpfen: Sektor unter `"sektoren"`
+anlegen und die `id` dieses Sektors bei der Tour in `sektorId` eintragen (siehe
+oben). Die Tour braucht dann keine eigenen `accessRoutes`/`descentRoutes`
+mehr (dort `[]` eintragen) — sie übernimmt automatisch die des Sektors.
 
 ## Auftrag an ChatGPT/Gemini
 
-Erstelle nach diesem Muster einen oder mehrere Touren-/Hütten-Einträge basierend
-auf den Informationen, die ich dir gebe (z. B. Screenshot, Text, Link). Prüfe
-zuerst, ob es sich um eine Tour (Gipfel, Route) oder eine Hütte
-(Übernachtungsmöglichkeit) handelt, und trage den Eintrag entsprechend im
-richtigen Feld ("tours" bzw. "huts") ein. Gib mir am Ende NUR die vollständige,
-gültige JSON-Datei zurück, bereit zum Kopieren.
+Erstelle nach diesem Muster einen oder mehrere Touren-/Hütten-Einträge (bei
+Fixseil optional auch Sektoren) basierend auf den Informationen, die ich dir
+gebe (z. B. Screenshot, Text, Link). Prüfe zuerst, ob es sich um eine Tour
+(Gipfel, Route), eine Hütte (Übernachtungsmöglichkeit) oder — nur bei Fixseil,
+falls mehrere Touren klar denselben Zustieg teilen — einen Sektor handelt, und
+trage den Eintrag entsprechend im richtigen Feld ("tours", "huts" bzw.
+"sektoren") ein. Gib mir am Ende NUR die vollständige, gültige JSON-Datei
+zurück, bereit zum Kopieren.
