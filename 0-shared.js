@@ -485,6 +485,10 @@ function agendaDetailHtml(id){
       ${chosenAccess ? `<p style="margin:0 0 4px 0;">🚶 Zustieg: ${esc(chosenAccess.name||'?')}</p>` : ''}
       ${chosenDescent ? `<p style="margin:0;">🚶 Abstieg: ${esc(chosenDescent.name||'?')}</p>` : ''}
     </div>` : ''}
+    ${(a.etappen && a.etappen.length) ? `<div class="detail-section">
+      <h4>Etappen</h4>
+      ${a.etappen.slice().sort((x,y)=>(x.date||'').localeCompare(y.date||'')).map(e=>`<p style="margin:0 0 4px 0; font-size:14px;">📅 ${e.date ? esc(fmtDateShort(e.date)) : '?'} — ${esc(e.label||'')}</p>`).join('')}
+    </div>` : ''}
     ${a.anreiseType ? `<div class="detail-section">
       <h4>Anreise</h4>
       <p style="margin:0 0 8px 0;">${a.anreiseType==='auto' ? '🚗 Auto' : '🚉 Öffentlicher Verkehr'}${a.anreiseOrt ? ' — ' + esc(a.anreiseOrt) : ''}</p>
@@ -537,6 +541,11 @@ function printTourenzettel(agendaId){
   if(a.meetingPoint) rows.push(['Treffpunkt', a.meetingPoint]);
   if(chosenAccess) rows.push(['Zustieg', chosenAccess.name||'']);
   if(chosenDescent) rows.push(['Abstieg', chosenDescent.name||'']);
+  if(a.etappen && a.etappen.length){
+    const etappenText = a.etappen.slice().sort((x,y)=>(x.date||'').localeCompare(y.date||''))
+      .map(e=>(e.date ? fmtDateShort(e.date) : '?') + ' — ' + (e.label||'')).join('; ');
+    rows.push(['Etappen', etappenText]);
+  }
   if(a.anreiseType) rows.push(['Anreise', (a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' — '+a.anreiseOrt : '')]);
   if(a.endOption) rows.push(['Nach der Tour', (a.endOption==='huette'?'Hütte':'Heimweg') + (a.endNote ? ' — '+a.endNote : '')]);
   if(a.plannedReturnTime) rows.push(['Geplante Rückkehr', a.plannedReturnTime]);
@@ -608,6 +617,11 @@ function agendaFormHtml(){
         <label style="margin-top:10px; display:block;">Abstieg</label>
         <select name="descentRouteId" id="agenda-descent-route-select"><option value="">— nicht festgelegt —</option></select>
       </div>
+      <div class="field">
+        <label>Weitere Etappen (optional, für Mehrtagestouren)</label>
+        <div id="etappen-list"></div>
+        <button type="button" class="btn secondary" id="add-etappe-btn">+ Etappe hinzufügen</button>
+      </div>
       <div class="field"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof"/></div>
       <div class="field">
         <label>Anreise</label>
@@ -662,6 +676,7 @@ async function submitAgendaForm(form){
     id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
     type: form.type||'ski', startDate, endDate: form.endDate||'',
     tourName, tourRef, meetingPoint: form.meetingPoint||'', note: form.note||'',
+    etappen: Array.isArray(form.etappen) ? form.etappen : [],
     accessRouteId: form.accessRouteId||'', descentRouteId: form.descentRouteId||'',
     anreiseType: form.anreiseType||'', anreiseOrt: form.anreiseOrt||'',
     endOption: form.endOption||'', endNote: form.endNote||'',

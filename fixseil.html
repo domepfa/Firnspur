@@ -637,7 +637,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v78-wetter-offline';
+const APP_VERSION = 'v79-etappen';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3518,12 +3518,33 @@ function wireModalHandlers(){
       };
     });
 
+    const etappenList = document.getElementById('etappen-list');
+    function addEtappeRow(date, label){
+      const row = document.createElement('div');
+      row.className = 'etappe-row';
+      row.style.cssText = 'display:flex; gap:6px; margin-bottom:6px; align-items:center;';
+      row.innerHTML = `
+        <input type="date" class="etappe-date" value="${date||''}" style="flex:0 0 140px; padding:6px 8px; border:1px solid var(--line); border-radius:var(--radius); font-size:13px;"/>
+        <input type="text" class="etappe-label" placeholder="z. B. Konkordiahütte" style="flex:1; padding:6px 8px; border:1px solid var(--line); border-radius:var(--radius); font-size:13px;"/>
+        <button type="button" class="etappe-remove" style="background:none; border:none; color:var(--danger); font-weight:700; cursor:pointer; padding:0 6px; font-size:16px;">×</button>
+      `;
+      row.querySelector('.etappe-label').value = label||'';
+      row.querySelector('.etappe-remove').onclick = ()=> row.remove();
+      etappenList.appendChild(row);
+    }
+    const addEtappeBtn = document.getElementById('add-etappe-btn');
+    if(addEtappeBtn) addEtappeBtn.onclick = ()=> addEtappeRow('', '');
+
     const agendaSaveBtn = document.getElementById('agenda-save-btn');
     if(agendaSaveBtn){
       agendaSaveBtn.addEventListener('click', (e)=>{
         e.preventDefault();
         const fd = new FormData(agendaForm);
         const data = Object.fromEntries(fd.entries());
+        data.etappen = Array.from(agendaForm.querySelectorAll('.etappe-row')).map(row=>({
+          date: row.querySelector('.etappe-date').value,
+          label: row.querySelector('.etappe-label').value.trim()
+        })).filter(e=> e.date || e.label);
         submitAgendaForm(data);
       });
     }
