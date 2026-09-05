@@ -695,14 +695,17 @@ function renderStandaloneMap(containerId){
       return t.tourCategory === 'msl' ? 'msl' : 'hochtour'; // Hochtour/MSL-App: 'hochtour' auch als Fallback für alte Touren ohne das Feld
     }
     function openTourFromMap(tourId){
+      modalOpenedFromStandaloneMap = true;
       closeTopOverlayLayer();
       if(typeof openTourDetail === 'function') openTourDetail(tourId);
     }
     function openHutFromMap(hutId){
+      modalOpenedFromStandaloneMap = true;
       closeTopOverlayLayer();
       if(typeof openHutDetail === 'function') openHutDetail(hutId);
     }
     function openHutAccessRouteFromMap(hutId, routeId){
+      modalOpenedFromStandaloneMap = true;
       closeTopOverlayLayer();
       const hut = (state.huts||[]).find(h=>h.id===hutId);
       const route = hut && hut.accessRoutes ? hut.accessRoutes.find(r=>r.id===routeId) : null;
@@ -711,10 +714,12 @@ function renderStandaloneMap(containerId){
       render();
     }
     function openSektorFromMap(sektorId){
+      modalOpenedFromStandaloneMap = true;
       closeTopOverlayLayer();
       if(typeof openSektorDetail === 'function') openSektorDetail(sektorId);
     }
     function openTourRouteFromMap(tourId, kind, routeId){
+      modalOpenedFromStandaloneMap = true;
       closeTopOverlayLayer();
       const t = (state.tours||[]).find(x=>x.id===tourId);
       const list = t ? (kind==='descent' ? t.descentRoutes : t.accessRoutes) : null;
@@ -724,6 +729,7 @@ function renderStandaloneMap(containerId){
       render();
     }
     function openSektorRouteFromMap(sektorId, kind, routeId){
+      modalOpenedFromStandaloneMap = true;
       closeTopOverlayLayer();
       const sek = (state.sektoren||[]).find(x=>x.id===sektorId);
       const list = sek ? (kind==='descent' ? sek.descentRoutes : sek.accessRoutes) : null;
@@ -2261,6 +2267,11 @@ function hutStatusLabel(h){
 let modalHistoryPushed = false;
 let overlayLayers = []; // Stack von Close-Callbacks, zuletzt geöffnete Overlay-Ebene zuoberst
 let suppressNextPopstateHandling = false;
+// Merkt sich, ob die aktuell offene Detailansicht von der Vollbild-Übersichtskarte aus geöffnet
+// wurde (siehe openTourFromMap() etc. unten) — damit closeModal() beim endgültigen Schliessen
+// wieder dorthin zurückkehrt statt einfach zur normalen Übersicht. Wird auch bei einem
+// Tab-Wechsel zurückgesetzt (siehe setView()), da man die Karte dann bewusst verlassen hat.
+let modalOpenedFromStandaloneMap = false;
 
 function pushModalHistoryIfNeeded(){
   if(!modalHistoryPushed){
