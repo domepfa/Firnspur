@@ -15,7 +15,9 @@ Das gilt für alle Felder gleichermassen, ganz besonders aber für Koordinaten
 
 ## Wichtigste Regeln
 
-- Struktur exakt beibehalten: `{"tours": [...], "huts": [...]}`
+- Struktur exakt beibehalten: `{"tours": [...], "huts": [...]}`. Ein drittes Feld
+  `"sektoren"` gibt es NICHT — Sektoren (siehe ganz unten) lassen sich aktuell
+  nicht per Import anlegen, nur manuell in der App.
 - **id**: IMMER eine neue, eindeutige Zeichenfolge pro Tour/Hütte (z. B. `t_` +
   zufällige Buchstaben/Zahlen, bzw. `h_` für Hütten). Niemals zwei Einträge mit
   gleicher id, ausser man will einen bestehenden Eintrag bewusst überschreiben.
@@ -26,7 +28,7 @@ Das gilt für alle Felder gleichermassen, ganz besonders aber für Koordinaten
 - `"status"`: neue Touren immer `"entwurf"` (bedeutet: noch nicht fertig
   ausgearbeitet/verifiziert)
 - `"createdAt"`/`"updatedAt"`: aktuelles Datum im Format
-  `"2026-08-25T00:00:00.000Z"` (Uhrzeit kann immer 00:00:00 sein)
+  `"2026-09-05T00:00:00.000Z"` (Uhrzeit kann immer 00:00:00 sein)
 
 ## Standort-Punkte (points)
 
@@ -35,12 +37,18 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 
 ```json
 "points": [
-  {"label": "Parkplatz XY", "lat": 46.5, "lon": 7.9}
+  {"label": "Parkplatz XY", "lat": 46.5, "lon": 7.9, "category": "parkplatz"}
 ]
 ```
 
 - `label`: kurze Bezeichnung, was der Punkt ist
 - `lat`/`lon`: WGS84-Koordinaten (Dezimalgrad, mit Punkt statt Komma)
+- `category`: optional — bestimmt Symbol/Farbe des Punkts auf der Karte. Gültige
+  Werte: `""` (Standard-Pin), `"gefahr"` (Gefahrenstelle), `"rueckzug"`
+  (Rückzugspunkt), `"wasser"` (Wasserstelle), `"rast"` (Rastplatz), `"biwak"`
+  (Biwak/Übernachtung), `"parkplatz"`, `"toilette"`, `"haltestelle"` (ÖV),
+  `"abzweigung"` (Abzweigung/Orientierung). Bei Unsicherheit einfach weglassen
+  oder `""` — nie eine Kategorie raten, die nicht klar aus der Quelle hervorgeht.
 - Mehrere Punkte pro Eintrag möglich
 - **Koordinaten nur bei eindeutigen GPS-Daten eintragen.** Steht in der Quelle keine
   klare, konkrete Koordinate (z. B. ein GPS-Wert, ein exakter Kartenpunkt) — auch
@@ -48,7 +56,7 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   bleibt `"points": []`. Kein Schätzen anhand von Ortsnamen, keine Koordinaten
   aus dem eigenen Wissen ergänzen, auch wenn der Ort bekannt vorkommt.
 - `"manualTrack"`: immer `[]` lassen (wird nur direkt in der App per Hand
-  gezeichnet, nicht per JSON-Import befüllt)
+  gezeichnet oder per GPX-Upload/Routenberechnung befüllt, nicht per JSON-Import)
 
 ## Felder-Erklärung (Firnspur = Skitour)
 
@@ -58,15 +66,19 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - `targetAltitude`: Gipfelhöhe in Metern (nur Zahl, als Text)
 - `elevationGain`/`elevationLoss`: Höhenmeter Aufstieg / Abfahrt
 - `duration`: Zeitbedarf, z. B. "4-5" oder "1:45-2:45"
-- `region`: Wallis, Berner Oberland, Graubünden, Tessin, Zentralschweiz, Jura,
-  Freiburger Alpen, Waadtländer Alpen (oder eigener Text)
+- `region`: Wallis, Berner Oberland, Simmental, Graubünden, Tessin,
+  Zentralschweiz, Jura, Freiburger Alpen, Waadtländer Alpen (oder eigener Text)
 - `subregion`: Teilgebiet/Pass innerhalb der Region (optional). Gültige Werte:
   - **Wallis**: Nikolaital/Zermatt, Saastal, Val d'Anniviers, Lötschental, Goms,
     Unterwallis, Nufenenpass, Grimselpass, Furkapass, Simplonpass,
     Grosser St. Bernhard
-  - **Berner Oberland**: Lauterbrunnental, Haslital, Kandertal, Diemtigtal,
-    Justistal, Saanenland/Gstaad, Grimselpass, Sustenpass, Jochpass,
-    Grosse Scheidegg
+  - **Berner Oberland**: Lauterbrunnental, Haslital, Kandertal, Simmental,
+    Diemtigtal, Justistal, Saanenland/Gstaad, Grimselpass, Sustenpass,
+    Jochpass, Grosse Scheidegg
+  - **Simmental**: keine eigenen Teilgebiete — subregion bleibt hier immer leer
+    (auch wenn "Simmental" gleichzeitig als Teilgebiet von Berner Oberland
+    existiert — beide Einträge sind unabhängig voneinander, so wie es die App
+    aktuell vorsieht)
   - **Graubünden**: Engadin, Prättigau, Albula, Surselva, Bergell, Puschlav,
     Julierpass, Albulapass, Flüelapass, Ofenpass, Splügenpass, Berninapass
   - **Tessin**: Bedretto, Maggiatal, Blenio, Leventina, San Bernardino,
@@ -105,6 +117,8 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - `climbGrade`: max. Felsschwierigkeit, franz. Skala (z. B. "3a")
   - `glacier`: "ja"/"nein"
   - `crevasseRisk`: "nein", "moeglich", "ausgepraegt"
+  - `descentType`: "Fussabstieg", "Abseilen", oder "Kombination"
+  - `descent`: Freitext-Beschreibung der Abfahrt/des Abstiegs
 
   **Falls tourCategory = "msl" (Mehrseillängen-Klettertour):**
   - `mandatoryDifficulty`: obligatorische Schwierigkeit, franz. Skala
@@ -112,7 +126,16 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - `pitchCount`: Anzahl Seillängen (Zahl als Text)
   - `longestPitch`: längste Seillänge (z. B. "35m")
   - `protection`: "sehr-gut", "gut", "alpin", oder "ernst"
-  - `descentType`: "Fussabstieg", "Abseilen", oder "Fussabstieg und Abseilen"
+  - `descentType`: "Fussabstieg", "Abseilen", oder "Kombination" — grobe
+    Einordnung, zusätzlich zu den strukturierten Abstiegen weiter unten
+  - `descent`: bei MSL IMMER leerer String `""` lassen — der Abstieg wird bei
+    MSL-Touren ausschliesslich strukturiert über `descentRoutes` erfasst
+    (siehe unten), nicht als Freitext
+  - `sektorId`: IMMER leerer String `""` lassen. Ein Sektor bündelt mehrere
+    MSL-Touren mit gemeinsamem Zustieg/Abstieg, lässt sich aber nur manuell in
+    der App anlegen — nicht per Import. Verweist eine Tour auf einen Sektor,
+    übernimmt sie dessen Zustiege/Abstiege automatisch und die eigenen
+    `accessRoutes`/`descentRoutes` der Tour werden ignoriert.
 
   Franz. Kletterskala: 1, 2a-, 2a, 2a+, 2b-, 2b, 2b+, 2c-, 2c, 2c+, 3a-, 3a, 3a+,
   3b-, 3b, 3b+, 3c-, 3c, 3c+, 4a- ... bis 7a (jeweils mit -/+ Abstufungen)
@@ -125,9 +148,37 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - `gefahren` (MSL): Steinschlag, brüchiger Fels, Runout, schwieriger Rückzug,
     nasser Fels, komplexer Abstieg, Abseilstellen, ausgesetzter Zustieg
   - `ropeType`: zusätzlich "Gletscherseil" möglich
+  - `ascent`: Freitext-Beschreibung des Aufstiegs — bei Hochtour UND MSL gleich
+    verwendbar (unabhängig von den strukturierten Zustiegen bei MSL)
   - `topoImages`: IMMER leeres Array `[]` — Foto-Scans von Topo-Kletterführern
     werden ausschliesslich manuell in der App hochgeladen (Copyright-Gründe),
     niemals von ChatGPT/Gemini befüllen oder Bild-URLs erfinden.
+
+  **Strukturierte Zustiege/Abstiege bei MSL-Touren (`accessRoutes`/`descentRoutes`):**
+  Nur bei `tourCategory: "msl"` relevant (bei Hochtour bleiben beide Felder
+  leere Arrays `[]`, dort zählt nur die Freitext-Beschreibung in `ascent`/
+  `descent`). Beliebig viele Einträge möglich, z. B. mehrere Zustiegsvarianten.
+  Struktur identisch für `accessRoutes` und `descentRoutes`, JEDER Eintrag hat:
+  - `id`: eindeutige Kennung, Format `tr_` + zufällige Buchstaben/Zahlen
+  - `name`: Bezeichnung (Pflichtfeld) — z. B. "Ab Parkplatz XY",
+    "Fussabstieg über Normalweg"
+  - `elevation`: Höhenmeter (nur Zahl, als Text) — bei `descentRoutes` die
+    Abstiegs-Höhenmeter (abwärts)
+  - `elevationUp`: NUR bei `descentRoutes` relevant — Gegenanstieg in Hm, falls
+    der Abstieg zwischendurch wieder aufwärts führt; bei `accessRoutes` immer
+    leerer String `""`
+  - `duration`: Zeitbedarf, z. B. "1-2"
+  - `difficultyT`: Schweizer Wanderskala ("T1" bis "T6"), oder leer — KEINE
+    separate SAC-Skala hier (anders als bei Zustiegen zu Hütten, siehe unten)
+  - `description`: Beschreibung dieses Zustiegs/Abstiegs
+  - `gpxLink`: IMMER leer `""` — kein Link erfinden
+  - `trackSimplified`: IMMER `null` — nur von der App selbst befüllt (eigener
+    GPX-Upload)
+  - `manualTrack`: IMMER leeres Array `[]` — nur von der App selbst befüllt
+    (von Hand gezeichnet oder per Routenberechnung)
+
+  Falls keine Zustiegs-/Abstiegsinformationen vorliegen, als leeres Array `[]`
+  lassen statt Einträge zu erfinden.
 
 ## Felder-Erklärung (Hütten — identisch in Firnspur & Fixseil)
 
@@ -185,6 +236,14 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - `contact`: Telefon/Website/Sektion
 - `notes`: Sonstiges (z. B. Reservationshinweise)
 - `completions`: immer `[]` (wird von der App selbst befüllt)
+
+## Sektoren — nicht per Import möglich
+
+Ein Sektor bündelt mehrere MSL-Touren mit gemeinsamem Ausgangspunkt und
+geteilten Zustiegen/Abstiegen (analog zu Hütten-Zustiegen). Sektoren lassen
+sich aktuell **nicht** über den JSON-Import anlegen, nur direkt in der App
+unter "Sektoren". Trage in dieser JSON-Datei daher nie ein `"sektoren"`-Feld
+ein, und lasse `sektorId` bei MSL-Touren immer leer.
 
 ## Auftrag an ChatGPT/Gemini
 

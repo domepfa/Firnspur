@@ -37,12 +37,14 @@
         {
           "label": "Parkplatz Engstlenalp",
           "lat": 46.7423,
-          "lon": 8.2661
+          "lon": 8.2661,
+          "category": "parkplatz"
         },
         {
           "label": "Bushaltestelle",
           "lat": 46.7419,
-          "lon": 8.2655
+          "lon": 8.2655,
+          "category": "haltestelle"
         }
       ],
       "manualTrack": [],
@@ -103,12 +105,14 @@
         {
           "label": "Domhütte",
           "lat": 46.0967,
-          "lon": 7.8494
+          "lon": 7.8494,
+          "category": "biwak"
         },
         {
           "label": "Parkplatz Randa",
           "lat": 46.0958,
-          "lon": 7.7847
+          "lon": 7.7847,
+          "category": "parkplatz"
         }
       ],
       "manualTrack": [],
