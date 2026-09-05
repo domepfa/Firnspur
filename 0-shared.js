@@ -655,6 +655,7 @@ function renderStandaloneMap(containerId){
     const mapDivId = containerId + '-inner';
     destroyExistingMap(mapDivId);
     el2.innerHTML = '';
+    el2.style.position = 'relative';
     const mapDiv = document.createElement('div');
     mapDiv.id = mapDivId;
     mapDiv.style.cssText = 'width:100%; height:100%;';
@@ -666,6 +667,15 @@ function renderStandaloneMap(containerId){
     // Ist die Skitouren-Ebene eingeschaltet, zeigt ein Klick Infos zur angetippten Route
     // (Name, GPX-Download) — analog zum Punkte/Linie-Editor.
     map.on('click', async (e)=>{
+      // Wartet der Wanderungsplaner gerade auf einen Kartenklick für Start/Ziel (siehe weiter
+      // unten), wird der Klick dafür verwendet und nicht mehr an die Skitouren-Erkennung
+      // weitergereicht.
+      if(typeof plannerPicking !== 'undefined' && plannerPicking){
+        const which = plannerPicking;
+        plannerPicking = null;
+        setPlannerPoint(which, e.latlng.lat, e.latlng.lng, which==='start' ? 'Punkt auf der Karte' : 'Zielpunkt auf der Karte');
+        return;
+      }
       if(!skitourenLayer || !map.hasLayer(skitourenLayer)) return;
       const feature = await identifySkitourAt(map, e.latlng);
       if(feature){
@@ -907,6 +917,226 @@ function renderStandaloneMap(containerId){
         return btn;
       }
     });
+    map.addControl(new GpsControl());
+
+    /* ================= Spontane Wanderung planen (Start/Ziel, Route berechnen, optional als
+       Tour-Entwurf speichern) — eine ausklappbare Kachel am unteren Kartenrand, unabhängig von
+       einer bestehenden Tour: für kurzfristige Planung direkt auf der Übersichtskarte. */
+    let plannerExpanded = false;
+    let plannerStart = null; // {lat, lon, label}
+    let plannerEnd = null;
+    let plannerStartMode = 'gps'; // 'gps' | 'map'
+    let plannerEndMode = 'search'; // 'search' | 'map'
+    let plannerPicking = null; // 'start' | 'end' | null — wartet auf einen Kartenklick
+    let plannerEndQuery = '';
+    let plannerSearchBusy = false;
+    let plannerCalcBusy = false;
+    let plannerResult = null; // {coords, distanceM, durationS, ascentM, descentM}
+    let plannerStartMarker = null, plannerEndMarker = null, plannerRouteLine = null;
+
+    const plannerPanel = document.createElement('div');
+    plannerPanel.id = 'planner-panel';
+    L.DomEvent.disableClickPropagation(plannerPanel);
+    L.DomEvent.disableScrollPropagation(plannerPanel);
+    el2.appendChild(plannerPanel);
+
+    function setPlannerPoint(which, lat, lon, label){
+      const point = {lat, lon, label};
+      if(which==='start'){
+        plannerStart = point;
+        if(plannerStartMarker) map.removeLayer(plannerStartMarker);
+        plannerStartMarker = L.circleMarker([lat,lon], {radius:9, color:'#fff', weight:2, fillColor:'#2F6B44', fillOpacity:1}).addTo(map).bindTooltip('Start: ' + label);
+      }else{
+        plannerEnd = point;
+        if(plannerEndMarker) map.removeLayer(plannerEndMarker);
+        plannerEndMarker = L.circleMarker([lat,lon], {radius:9, color:'#fff', weight:2, fillColor:'#B0392C', fillOpacity:1}).addTo(map).bindTooltip('Ziel: ' + label);
+      }
+      // Ein bereits berechnetes Ergebnis wird ungültig, sobald sich ein Punkt ändert.
+      plannerResult = null;
+      if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
+      renderPlannerPanel();
+    }
+
+    function useMyLocationAsStart(){
+      if(!navigator.geolocation){ showToast('Geolokalisierung wird von diesem Gerät/Browser nicht unterstützt.', true); return; }
+      showToast('Standort wird ermittelt…');
+      navigator.geolocation.getCurrentPosition(
+        (pos)=> setPlannerPoint('start', pos.coords.latitude, pos.coords.longitude, 'Mein Standort'),
+        ()=> showToast('Standort konnte nicht ermittelt werden.', true),
+        {enableHighAccuracy:true, timeout:10000}
+      );
+    }
+
+    async function searchAndSetEnd(query){
+      if(!query || !query.trim()) return;
+      plannerSearchBusy = true; renderPlannerPanel();
+      try{
+        const hit = await geocodePlace(query.trim());
+        if(!hit) showToast('Kein Ort mit diesem Namen gefunden.', true);
+        else setPlannerPoint('end', hit.lat, hit.lon, hit.label);
+      }catch(e){
+        showToast('Suche fehlgeschlagen: ' + (e && e.message ? e.message : e), true);
+      }
+      plannerSearchBusy = false;
+      renderPlannerPanel();
+    }
+
+    async function calculatePlannerRoute(){
+      if(!plannerStart || !plannerEnd || plannerCalcBusy) return;
+      plannerCalcBusy = true; renderPlannerPanel();
+      try{
+        const result = await fetchCalculatedRoute([[plannerStart.lat, plannerStart.lon], [plannerEnd.lat, plannerEnd.lon]]);
+        plannerResult = result;
+        if(plannerRouteLine) map.removeLayer(plannerRouteLine);
+        plannerRouteLine = L.polyline(result.coords, {color:'#1565C0', weight:5, opacity:0.9}).addTo(map);
+        map.fitBounds(plannerRouteLine.getBounds(), {padding:[40,40]});
+      }catch(e){
+        showToast('Route konnte nicht berechnet werden: ' + (e && e.message ? e.message : e), true);
+      }
+      plannerCalcBusy = false;
+      renderPlannerPanel();
+    }
+
+    function discardPlannerRoute(){
+      plannerResult = null;
+      if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
+      renderPlannerPanel();
+    }
+
+    // Legt aus Start/Ziel/berechneter Route einen neuen Tour-Entwurf an (Status "entwurf") —
+    // Felder analog zu einer über das normale Formular neu angelegten Tour, damit die Anzeige
+    // (Kartenübersicht, Detailansicht) ohne Sonderfälle funktioniert. In Fixseil zusätzlich mit
+    // den MSL/Hochtour-spezifischen Feldern (leer/neutral), da tourCategory dort Pflicht ist.
+    function savePlannerRouteAsDraft(){
+      if(!plannerStart || !plannerEnd) return;
+      ensureName(()=>{
+        const isFixseilAppNow = typeof SEKTOREN_PATH !== 'undefined';
+        const name = (plannerStart.label + ' → ' + plannerEnd.label).slice(0, 120);
+        const t = {
+          id: uid('t'), name, routeName: '',
+          difficulty: '', targetAltitude: '',
+          elevationGain: plannerResult && typeof plannerResult.ascentM==='number' ? String(Math.round(plannerResult.ascentM)) : '',
+          elevationLoss: plannerResult && typeof plannerResult.descentM==='number' ? String(Math.round(plannerResult.descentM)) : '',
+          duration: plannerResult && typeof plannerResult.durationS==='number' ? formatDurationHM(plannerResult.durationS) : '',
+          region: '', subregion: '',
+          material: [], exposition: [], gefahren: [],
+          glacier: 'nein', ropeType: '', ropeLength: '',
+          approachTypes: [], stayTypes: [],
+          points: [
+            {label: plannerStart.label, lat: plannerStart.lat, lon: plannerStart.lon, category: ''},
+            {label: plannerEnd.label, lat: plannerEnd.lat, lon: plannerEnd.lon, category: ''}
+          ],
+          manualTrack: plannerResult ? plannerResult.coords : [],
+          hutId: '', tourLink: '', gpxLink: '',
+          crux: '', special: '', approach: '', ascent: '', descent: '',
+          status: 'entwurf', conditions: null, completions: [],
+          createdBy: state.myName, createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(), updatedBy: state.myName
+        };
+        if(isFixseilAppNow){
+          t.tourCategory = 'hochtour';
+          t.climbGrade = ''; t.crevasseRisk = 'nein';
+          t.mandatoryDifficulty = ''; t.cruxDifficulty = ''; t.pitchCount = ''; t.longestPitch = ''; t.protection = '';
+          t.descentType = ''; t.sektorId = ''; t.quickdrawCount = ''; t.topoImages = [];
+          t.accessRoutes = []; t.descentRoutes = [];
+        }
+        state.tours.unshift(t);
+        closeTopOverlayLayer();
+        render();
+        saveTourCloud(t).then(ok=>{
+          if(!ok){ t._unsynced = true; markUnsaved(); showToast('Entwurf lokal gespeichert, aber nicht synchronisiert.', true); }
+          else showToast('Als Tour-Entwurf gespeichert — Details kannst du jetzt ergänzen.');
+          render();
+        }).catch(()=>{ t._unsynced = true; markUnsaved(); render(); });
+        if(typeof openTourDetail === 'function') openTourDetail(t.id);
+      });
+    }
+
+    function statCardHtml(icon, value){
+      return `<div style="flex:1; background:#EAF3EC; border-radius:6px; padding:8px 6px; text-align:center;">
+        <div style="font-size:16px;">${icon}</div>
+        <div style="font-size:14px; font-weight:700; color:#2F6B44;">${esc(value)}</div>
+      </div>`;
+    }
+
+    function renderPlannerPanel(){
+      const canCalc = plannerStart && plannerEnd && !plannerCalcBusy;
+      // Collapsed: kompakte Pille unten links, damit sie nicht mit dem Leaflet-Standort-Button
+      // (unten rechts) kollidiert. Expanded: volle Breite als Bottom-Sheet, dann ist der
+      // Standort-Button ohnehin verdeckt (Karte wird zu diesem Zeitpunkt nicht bedient).
+      plannerPanel.style.cssText = plannerExpanded
+        ? 'position:absolute; left:0; right:0; bottom:0; z-index:1000; background:#fff; border-radius:14px 14px 0 0; box-shadow:0 -4px 20px rgba(0,0,0,0.35); max-height:72%; overflow-y:auto;'
+        : 'position:absolute; left:12px; bottom:12px; z-index:1000; background:#fff; border-radius:24px; box-shadow:0 3px 12px rgba(0,0,0,0.4); width:auto;';
+      plannerPanel.innerHTML = `
+        <button type="button" data-act="planner-toggle" style="${plannerExpanded ? 'width:100%;' : ''} padding:12px 18px; background:none; border:none; font-family:'Oswald', sans-serif; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; font-size:14px; color:var(--ice-deep); display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer; white-space:nowrap;">
+          🧭 Wanderung planen ${plannerExpanded ? '▾' : '▸'}
+        </button>
+        ${plannerExpanded ? `
+        <div style="padding:0 16px 18px 16px;">
+          <div style="margin-bottom:12px;">
+            <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:var(--ink-soft); margin-bottom:5px;">Start</label>
+            <div class="chips" style="margin-bottom:6px;">
+              <button type="button" class="chip ${plannerStartMode==='gps'?'on':''}" style="${plannerStartMode==='gps'?'background:var(--ice-deep)':''}" data-act="planner-start-gps">📍 Mein Standort</button>
+              <button type="button" class="chip ${plannerStartMode==='map'?'on':''}" style="${plannerStartMode==='map'?'background:var(--ice-deep)':''}" data-act="planner-start-map">🗺️ Punkt auf Karte</button>
+            </div>
+            ${plannerPicking==='start' ? `<p style="font-size:12.5px; color:var(--ice-deep); margin:0;">Tippe auf die Karte, um den Startpunkt zu setzen…</p>` : ''}
+            ${plannerStart ? `<p style="font-size:13px; color:var(--ink); margin:0;">✓ ${esc(plannerStart.label)}</p>` : ''}
+          </div>
+          <div style="margin-bottom:14px;">
+            <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:var(--ink-soft); margin-bottom:5px;">Ziel</label>
+            <div style="display:flex; gap:6px; margin-bottom:6px;">
+              <input type="text" id="planner-search-input" placeholder="Ortsname eingeben…" style="flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); font-size:14px;"/>
+              <button type="button" class="btn secondary" data-act="planner-search-btn" ${plannerSearchBusy?'disabled':''}>${plannerSearchBusy ? '…' : 'Suchen'}</button>
+            </div>
+            <button type="button" class="chip ${plannerEndMode==='map'?'on':''}" style="${plannerEndMode==='map'?'background:var(--ice-deep)':''}" data-act="planner-end-map">🗺️ Punkt auf Karte</button>
+            ${plannerPicking==='end' ? `<p style="font-size:12.5px; color:var(--ice-deep); margin:6px 0 0 0;">Tippe auf die Karte, um den Zielpunkt zu setzen…</p>` : ''}
+            ${plannerEnd ? `<p style="font-size:13px; color:var(--ink); margin:6px 0 0 0;">✓ ${esc(plannerEnd.label)}</p>` : ''}
+          </div>
+          <button type="button" class="btn" data-act="planner-calc" style="width:100%;" ${canCalc?'':'disabled'}>${plannerCalcBusy ? 'Berechne…' : '🧭 Route berechnen'}</button>
+          ${plannerResult ? `
+            <div style="display:flex; gap:8px; margin-top:12px;">
+              ${typeof plannerResult.distanceM==='number' ? statCardHtml('📏', plannerResult.distanceM>=1000 ? (plannerResult.distanceM/1000).toFixed(1).replace('.',',')+' km' : Math.round(plannerResult.distanceM)+' m') : ''}
+              ${(typeof plannerResult.ascentM==='number' || typeof plannerResult.descentM==='number') ? statCardHtml('⛰️', '↑'+Math.round(plannerResult.ascentM||0)+' / ↓'+Math.round(plannerResult.descentM||0)) : ''}
+              ${typeof plannerResult.durationS==='number' ? statCardHtml('⏱️', formatDurationShort(plannerResult.durationS).replace('ca. ', '')) : ''}
+            </div>
+            <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Grobe Schätzung, ohne Pausen.</p>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button type="button" class="btn secondary" data-act="planner-discard" style="flex:1;">Verwerfen</button>
+              <button type="button" class="btn" data-act="planner-save" style="flex:1;">💾 Als Entwurf speichern</button>
+            </div>
+          ` : ''}
+        </div>` : ''}
+      `;
+      wirePlannerPanel();
+    }
+
+    function wirePlannerPanel(){
+      const toggleBtn = plannerPanel.querySelector('[data-act="planner-toggle"]');
+      if(toggleBtn) toggleBtn.onclick = ()=>{ plannerExpanded = !plannerExpanded; renderPlannerPanel(); };
+      const startGpsBtn = plannerPanel.querySelector('[data-act="planner-start-gps"]');
+      if(startGpsBtn) startGpsBtn.onclick = ()=>{ plannerStartMode = 'gps'; plannerPicking = null; useMyLocationAsStart(); };
+      const startMapBtn = plannerPanel.querySelector('[data-act="planner-start-map"]');
+      if(startMapBtn) startMapBtn.onclick = ()=>{ plannerStartMode = 'map'; plannerPicking = 'start'; renderPlannerPanel(); showToast('Tippe auf die Karte, um den Startpunkt zu setzen.'); };
+      const endMapBtn = plannerPanel.querySelector('[data-act="planner-end-map"]');
+      if(endMapBtn) endMapBtn.onclick = ()=>{ plannerEndMode = 'map'; plannerPicking = 'end'; renderPlannerPanel(); showToast('Tippe auf die Karte, um den Zielpunkt zu setzen.'); };
+      const searchInput = plannerPanel.querySelector('#planner-search-input');
+      if(searchInput){
+        searchInput.value = plannerEndQuery;
+        searchInput.oninput = (e)=>{ plannerEndQuery = e.target.value; };
+        searchInput.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); searchAndSetEnd(plannerEndQuery); } };
+      }
+      const searchBtn = plannerPanel.querySelector('[data-act="planner-search-btn"]');
+      if(searchBtn) searchBtn.onclick = ()=> searchAndSetEnd(plannerEndQuery);
+      const calcBtn = plannerPanel.querySelector('[data-act="planner-calc"]');
+      if(calcBtn) calcBtn.onclick = calculatePlannerRoute;
+      const discardBtn = plannerPanel.querySelector('[data-act="planner-discard"]');
+      if(discardBtn) discardBtn.onclick = discardPlannerRoute;
+      const saveBtn = plannerPanel.querySelector('[data-act="planner-save"]');
+      if(saveBtn) saveBtn.onclick = savePlannerRouteAsDraft;
+    }
+
+    renderPlannerPanel();
+
     map.addControl(new GpsControl());
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
@@ -1774,6 +2004,38 @@ async function fetchCalculatedRoute(waypoints){
     ascentM,
     descentM
   };
+}
+// Ortssuche (Name -> Koordinaten) für den Wanderungsplaner auf der Übersichtskarte — nutzt dieselbe
+// OpenRouteService-Anbindung/denselben Key wie fetchCalculatedRoute(), aber deren separate
+// Geocoding-Schnittstelle (Pelias-basiert, Key als Query-Parameter statt Authorization-Header).
+// Auf die Schweiz eingegrenzt, da die App nur Schweizer Regionen kennt (reduziert Fehltreffer).
+async function geocodePlace(query){
+  if(!OPENROUTESERVICE_API_KEY){
+    throw new Error('Noch kein API-Key für die Ortssuche hinterlegt.');
+  }
+  let res;
+  try{
+    res = await fetch('https://api.openrouteservice.org/geocode/search?api_key=' + encodeURIComponent(OPENROUTESERVICE_API_KEY) + '&text=' + encodeURIComponent(query) + '&size=1&boundary.country=CH');
+  }catch(e){
+    throw new Error('Suche fehlgeschlagen (keine Internetverbindung?).');
+  }
+  if(!res.ok){
+    throw new Error('Suche fehlgeschlagen.');
+  }
+  const data = await res.json();
+  const feature = data.features && data.features[0];
+  if(!feature) return null;
+  const coords = feature.geometry && feature.geometry.coordinates;
+  if(!coords) return null;
+  const label = (feature.properties && (feature.properties.label || feature.properties.name)) || query;
+  return { lat: coords[1], lon: coords[0], label };
+}
+// Formatiert die Dauer einer berechneten Route im "H:MM"-Format, passend zum sonst in der App
+// verwendeten Zeitbedarf-Feld (z. B. "1:45"), statt der ausgeschriebenen Kurzform für Stat-Karten.
+function formatDurationHM(durationS){
+  const totalMin = Math.round(durationS/60);
+  const h = Math.floor(totalMin/60), m = totalMin%60;
+  return h + ':' + String(m).padStart(2,'0');
 }
 // Formatiert die Kennzahlen einer berechneten Route für die Anzeige (Distanz, Höhenmeter, grobe Zeit).
 function formatDurationShort(durationS){
