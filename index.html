@@ -504,7 +504,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v77-wetter';
+const APP_VERSION = 'v78-tourenzettel';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2255,6 +2255,8 @@ function wireModalHandlers(){
 
   const toggleParticipationBtn = root.querySelector('[data-act="toggle-participation"]');
   if(toggleParticipationBtn) toggleParticipationBtn.onclick = ()=> toggleParticipation(toggleParticipationBtn.getAttribute('data-id'));
+  const printTourenzettelBtn = root.querySelector('[data-act="print-tourenzettel"]');
+  if(printTourenzettelBtn) printTourenzettelBtn.onclick = ()=> printTourenzettel(printTourenzettelBtn.getAttribute('data-id'));
   root.querySelectorAll('.agenda-status-select').forEach(sel=>{
     sel.addEventListener('click', e=> e.stopPropagation());
     sel.addEventListener('change', ()=> setAgendaStatus(sel.getAttribute('data-id'), sel.value));

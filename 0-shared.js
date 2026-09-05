@@ -467,6 +467,11 @@ function agendaDetailHtml(id){
       <h4>Nach der Tour</h4>
       <p style="margin:0;">${a.endOption==='huette' ? '🛖 Hütte' : '🏠 Heimweg'}${a.endNote ? ' — ' + esc(a.endNote) : ''}</p>
     </div>` : ''}
+    ${(a.plannedReturnTime || a.emergencyContact) ? `<div class="detail-section">
+      <h4>Sicherheit</h4>
+      ${a.plannedReturnTime ? `<p style="margin:0 0 4px 0;">⏰ Geplante Rückkehr: ${esc(a.plannedReturnTime)}</p>` : ''}
+      ${a.emergencyContact ? `<p style="margin:0;">📞 Notfallkontakt: ${esc(a.emergencyContact)}</p>` : ''}
+    </div>` : ''}
     <div class="field"><label>Status</label>${agendaStatusSelectHtml(a)}</div>
     ${a.note ? `<div class="detail-section"><h4>Notiz</h4><p>${esc(a.note)}</p></div>` : ''}
     <div class="detail-section">
@@ -476,6 +481,7 @@ function agendaDetailHtml(id){
     <div class="meta-line" style="margin-top:16px;">Vorgeschlagen von ${esc(a.createdBy||'?')} · ${fmtDate(a.createdAt)}</div>
     <div class="detail-actions">
       <button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>
+      <button class="btn secondary" data-act="print-tourenzettel" data-id="${a.id}">🖨️ Tourenzettel drucken</button>
     </div>
     <div id="delete-agenda-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
       <button type="button" id="delete-agenda-trigger" data-id="${a.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Termin löschen</button>
@@ -486,6 +492,55 @@ function agendaDetailHtml(id){
       </div>
     </div>
   </div>`;
+}
+// Baut ein eigenständiges, druckfreundliches Tourenzettel-Dokument für einen Agenda-Termin, zum
+// Ausdrucken/Zurücklassen bei einer Kontaktperson. Bewusst ein separates Fenster statt @media
+// print über die ganze App: die App-Ansicht enthält Overlays/fixe Elemente, die beim Drucken nur
+// stören würden — ein schlankes eigenes Dokument bleibt robust und übersichtlich.
+function printTourenzettel(agendaId){
+  const a = state.agenda.find(x=>x.id===agendaId);
+  if(!a) return;
+  const dateLabel = a.endDate && a.endDate!==a.startDate
+    ? `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)} – ${fmtWeekday(a.endDate)}, ${fmtDateShort(a.endDate)}`
+    : `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)}`;
+  const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes(a.tourRef);
+  const chosenAccess = a.accessRouteId ? accessRoutes.find(r=>r.id===a.accessRouteId) : null;
+  const chosenDescent = a.descentRouteId ? descentRoutes.find(r=>r.id===a.descentRouteId) : null;
+  const rows = [['Datum', dateLabel]];
+  if(a.meetingPoint) rows.push(['Treffpunkt', a.meetingPoint]);
+  if(chosenAccess) rows.push(['Zustieg', chosenAccess.name||'']);
+  if(chosenDescent) rows.push(['Abstieg', chosenDescent.name||'']);
+  if(a.anreiseType) rows.push(['Anreise', (a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' — '+a.anreiseOrt : '')]);
+  if(a.endOption) rows.push(['Nach der Tour', (a.endOption==='huette'?'Hütte':'Heimweg') + (a.endNote ? ' — '+a.endNote : '')]);
+  if(a.plannedReturnTime) rows.push(['Geplante Rückkehr', a.plannedReturnTime]);
+  if(a.emergencyContact) rows.push(['Notfallkontakt', a.emergencyContact]);
+  rows.push(['Teilnehmer', (a.participants||[]).map(p=>p.by).join(', ') || '—']);
+  if(a.note) rows.push(['Notiz', a.note]);
+
+  const win = window.open('', '_blank');
+  if(!win){ showToast('Pop-up wurde blockiert — bitte Pop-ups für diese Seite erlauben.', true); return; }
+  const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Tourenzettel — ${escHtml(a.tourName||'Termin')}</title>
+    <style>
+      body{ font-family: Arial, sans-serif; padding: 24px; color:#1a1a1a; max-width: 640px; margin:0 auto; }
+      h1{ font-size: 20px; margin: 0 0 4px 0; }
+      .sub{ color:#555; font-size:13px; margin-bottom:20px; }
+      table{ width:100%; border-collapse: collapse; }
+      td{ padding:8px 6px; border-bottom:1px solid #ddd; vertical-align:top; font-size:14px; }
+      td:first-child{ font-weight:700; width:160px; color:#333; }
+      .foot{ margin-top:24px; font-size:11px; color:#888; }
+      @media print{ .no-print{ display:none; } }
+    </style>
+  </head><body>
+    <h1>🏔️ Tourenzettel</h1>
+    <div class="sub">${escHtml(a.tourName||'Termin')}</div>
+    <table>${rows.map(([k,v])=>`<tr><td>${escHtml(k)}</td><td>${escHtml(v)}</td></tr>`).join('')}</table>
+    <div class="foot">Erstellt mit Firnspur/Fixseil am ${escHtml(new Date().toLocaleDateString('de-CH'))}.</div>
+    <div class="no-print" style="margin-top:20px;"><button onclick="window.print()">Drucken</button></div>
+  </body></html>`);
+  win.document.close();
+  win.focus();
+  try{ win.print(); }catch(e){}
 }
 function openAddAgenda(){
   ensureName(async ()=>{
@@ -548,6 +603,10 @@ function agendaFormHtml(){
         <input type="hidden" name="endOption" id="end-option-hidden" value=""/>
         <input name="endNote" id="end-note-input" style="margin-top:8px; display:none;"/>
       </div>
+      <div class="row2">
+        <div class="field"><label>Geplante Rückkehrzeit</label><input name="plannedReturnTime" placeholder="z. B. 18:00"/></div>
+        <div class="field"><label>Notfallkontakt</label><input name="emergencyContact" placeholder="Name, Telefonnummer"/></div>
+      </div>
       <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Ausrüstung, offene Fragen …"></textarea></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
@@ -579,6 +638,7 @@ async function submitAgendaForm(form){
     accessRouteId: form.accessRouteId||'', descentRouteId: form.descentRouteId||'',
     anreiseType: form.anreiseType||'', anreiseOrt: form.anreiseOrt||'',
     endOption: form.endOption||'', endNote: form.endNote||'',
+    plannedReturnTime: form.plannedReturnTime||'', emergencyContact: form.emergencyContact||'',
     participants: [{by: state.myName, joinedAt: new Date().toISOString()}],
     status: 'geplant'
   };
