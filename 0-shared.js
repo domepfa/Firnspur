@@ -642,14 +642,7 @@ function closeFullscreenMap(){
 function openStandaloneMap(){
   openFullscreenMap(renderStandaloneMap, function(){
     const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
-    if(m){
-      try{ m.stopLocate(); }catch(e){}
-      // Läuft noch die Live-Position-Verfolgung des Wanderungsplaners (siehe togglePlannerLiveLocation()
-      // in renderStandaloneMap), muss sie beim Schliessen der Karte gestoppt werden, sonst bleibt die
-      // GPS-Ortung im Hintergrund aktiv (Akku) — die Watch-ID hängt dafür extra am Map-Objekt, da
-      // die Planner-Variable selbst nur innerhalb von renderStandaloneMap() erreichbar ist.
-      if(m.__plannerLiveWatchId != null){ try{ navigator.geolocation.clearWatch(m.__plannerLiveWatchId); }catch(e){} }
-    }
+    if(m){ try{ m.stopLocate(); }catch(e){} }
   });
 }
 
@@ -951,10 +944,10 @@ function renderStandaloneMap(containerId){
     let plannerPicking = null; // 'start' | 'end' | 'waypoint' | null — wartet auf einen Kartenklick
     let plannerEndQuery = '';
     let plannerSearchBusy = false;
+    let plannerEndCandidates = null; // Trefferliste der letzten Suche, zur Auswahl bei Mehrdeutigkeit
     let plannerCalcBusy = false;
     let plannerResult = null; // {coords, distanceM, durationS, ascentM, descentM}
     let plannerStartMarker = null, plannerEndMarker = null, plannerRouteLine = null;
-    let plannerLiveWatchId = null, plannerLiveMarker = null;
 
     const plannerPanel = document.createElement('div');
     plannerPanel.id = 'planner-panel';
@@ -993,6 +986,7 @@ function renderStandaloneMap(containerId){
         plannerStartMarker.unbindTooltip().bindTooltip('Start: ' + label);
       }else{
         plannerEnd = point;
+        plannerEndCandidates = null;
         if(plannerEndMarker){
           plannerEndMarker.setLatLng([lat,lon]);
         }else{
@@ -1038,32 +1032,6 @@ function renderStandaloneMap(containerId){
       renderPlannerPanel();
     }
 
-    function togglePlannerLiveLocation(){
-      if(plannerLiveWatchId !== null){
-        navigator.geolocation.clearWatch(plannerLiveWatchId);
-        plannerLiveWatchId = null;
-        map.__plannerLiveWatchId = null;
-        if(plannerLiveMarker){ map.removeLayer(plannerLiveMarker); plannerLiveMarker = null; }
-        renderPlannerPanel();
-        return;
-      }
-      if(!navigator.geolocation){ showToast('Geolokalisierung wird von diesem Gerät/Browser nicht unterstützt.', true); return; }
-      plannerLiveWatchId = navigator.geolocation.watchPosition(
-        (pos)=>{
-          const ll = [pos.coords.latitude, pos.coords.longitude];
-          if(!plannerLiveMarker){
-            plannerLiveMarker = L.circleMarker(ll, {radius:8, color:'#fff', weight:3, fillColor:'#1565C0', fillOpacity:1}).addTo(map);
-          }else{
-            plannerLiveMarker.setLatLng(ll);
-          }
-        },
-        ()=>{ showToast('Standort konnte nicht ermittelt werden.', true); },
-        {enableHighAccuracy:true}
-      );
-      map.__plannerLiveWatchId = plannerLiveWatchId;
-      renderPlannerPanel();
-    }
-
     function useMyLocationAsStart(){
       if(!navigator.geolocation){ showToast('Geolokalisierung wird von diesem Gerät/Browser nicht unterstützt.', true); return; }
       showToast('Standort wird ermittelt…');
@@ -1074,18 +1042,29 @@ function renderStandaloneMap(containerId){
       );
     }
 
+    // Zeigt bei Mehrdeutigkeit (z. B. mehrere Orte namens "Bern") eine Trefferliste zur Auswahl,
+    // statt kommentarlos den ersten Treffer zu übernehmen — vorher liess sich nicht nachvollziehen,
+    // welcher Ort tatsächlich gemeint war.
     async function searchAndSetEnd(query){
       if(!query || !query.trim()) return;
-      plannerSearchBusy = true; renderPlannerPanel();
+      plannerSearchBusy = true; plannerEndCandidates = null; renderPlannerPanel();
       try{
-        const hit = await geocodePlace(query.trim());
-        if(!hit) showToast('Kein Ort mit diesem Namen gefunden.', true);
-        else setPlannerPoint('end', hit.lat, hit.lon, hit.label);
+        const hits = await geocodePlaces(query.trim(), 5);
+        if(!hits.length) showToast('Kein Ort mit diesem Namen gefunden.', true);
+        else if(hits.length===1) setPlannerPoint('end', hits[0].lat, hits[0].lon, hits[0].label);
+        else plannerEndCandidates = hits;
       }catch(e){
         showToast('Suche fehlgeschlagen: ' + (e && e.message ? e.message : e), true);
       }
       plannerSearchBusy = false;
       renderPlannerPanel();
+    }
+
+    function chooseEndCandidate(index){
+      const hit = plannerEndCandidates && plannerEndCandidates[index];
+      if(!hit) return;
+      plannerEndCandidates = null;
+      setPlannerPoint('end', hit.lat, hit.lon, hit.label);
     }
 
     async function calculatePlannerRoute(){
@@ -1170,15 +1149,18 @@ function renderStandaloneMap(containerId){
 
     function renderPlannerPanel(){
       const canCalc = plannerStart && plannerEnd && !plannerCalcBusy;
-      // Collapsed: kompakte Pille unten links, damit sie nicht mit dem Leaflet-Standort-Button
-      // (unten rechts) kollidiert. Expanded: volle Breite als Bottom-Sheet, dann ist der
-      // Standort-Button ohnehin verdeckt (Karte wird zu diesem Zeitpunkt nicht bedient).
+      // Collapsed: kleiner, runder Icon-Button unten mittig — bewusst nicht in einer Ecke und
+      // nicht als breite Textpille, da Leaflet die Ecken bereits selbst belegt (Ebenen-Auswahl
+      // unten links, Standort-Button unten rechts, Tourenart-Filter oben links); so bleibt auch
+      // auf schmalen Handy-Bildschirmen garantiert Abstand zu beiden unteren Controls.
+      // Expanded: volle Breite als Bottom-Sheet, dann sind die Kartensteuerelemente ohnehin
+      // vorübergehend verdeckt (die Karte wird zu diesem Zeitpunkt nicht bedient).
       plannerPanel.style.cssText = plannerExpanded
         ? 'position:absolute; left:0; right:0; bottom:0; z-index:1000; background:#fff; border-radius:14px 14px 0 0; box-shadow:0 -4px 20px rgba(0,0,0,0.35); max-height:72%; overflow-y:auto;'
-        : 'position:absolute; left:12px; bottom:12px; z-index:1000; background:#fff; border-radius:24px; box-shadow:0 3px 12px rgba(0,0,0,0.4); width:auto;';
+        : 'position:absolute; left:50%; bottom:12px; transform:translateX(-50%); z-index:1000; background:#fff; border-radius:50%; box-shadow:0 3px 12px rgba(0,0,0,0.4); width:52px; height:52px;';
       plannerPanel.innerHTML = `
-        <button type="button" data-act="planner-toggle" style="${plannerExpanded ? 'width:100%;' : ''} padding:12px 18px; background:none; border:none; font-family:'Oswald', sans-serif; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; font-size:14px; color:var(--ice-deep); display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer; white-space:nowrap;">
-          🧭 Wanderung planen ${plannerExpanded ? '▾' : '▸'}
+        <button type="button" data-act="planner-toggle" title="Wanderung planen" style="${plannerExpanded ? 'width:100%; padding:12px 18px; justify-content:center;' : 'width:52px; height:52px; padding:0; justify-content:center; font-size:22px;'} background:none; border:none; font-family:'Oswald', sans-serif; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; font-size:${plannerExpanded ? '14px' : '22px'}; color:var(--ice-deep); display:flex; align-items:center; gap:8px; cursor:pointer; white-space:nowrap; border-radius:50%;">
+          ${plannerExpanded ? '🧭 Wanderung planen ▾' : '🧭'}
         </button>
         ${plannerExpanded ? `
         <div style="padding:0 16px 18px 16px;">
@@ -1210,6 +1192,12 @@ function renderStandaloneMap(containerId){
             </div>
             <button type="button" class="chip ${plannerEndMode==='map'?'on':''}" style="${plannerEndMode==='map'?'background:var(--ice-deep)':''}" data-act="planner-end-map">🗺️ Punkt auf Karte</button>
             ${plannerPicking==='end' ? `<p style="font-size:12.5px; color:var(--ice-deep); margin:6px 0 0 0;">Tippe auf die Karte, um den Zielpunkt zu setzen…</p>` : ''}
+            ${plannerEndCandidates ? `
+              <p style="font-size:12.5px; color:var(--ink-soft); margin:8px 0 4px 0;">Welcher Ort ist gemeint?</p>
+              <div style="display:flex; flex-direction:column; gap:4px;">
+                ${plannerEndCandidates.map((c,i)=>`<button type="button" data-act="planner-end-candidate" data-index="${i}" style="text-align:left; background:var(--ice-light); border:none; border-radius:4px; padding:8px 10px; font-size:13px; color:var(--ink); cursor:pointer;">📍 ${esc(c.label)}</button>`).join('')}
+              </div>
+            ` : ''}
             ${plannerEnd ? `<p style="font-size:13px; color:var(--ink); margin:6px 0 0 0;">✓ ${esc(plannerEnd.label)} <span style="color:var(--ink-faint); font-size:11.5px;">(auf der Karte verschiebbar)</span></p>` : ''}
           </div>
           <button type="button" class="btn" data-act="planner-calc" style="width:100%;" ${canCalc?'':'disabled'}>${plannerCalcBusy ? 'Berechne…' : '🧭 Route berechnen'}</button>
@@ -1219,9 +1207,8 @@ function renderStandaloneMap(containerId){
               ${(typeof plannerResult.ascentM==='number' || typeof plannerResult.descentM==='number') ? statCardHtml('⛰️', '↑'+Math.round(plannerResult.ascentM||0)+' / ↓'+Math.round(plannerResult.descentM||0)) : ''}
               ${typeof plannerResult.durationS==='number' ? statCardHtml('⏱️', formatDurationShort(plannerResult.durationS).replace('ca. ', '')) : ''}
             </div>
-            <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Grobe Schätzung, ohne Pausen.</p>
-            <button type="button" class="btn secondary" data-act="planner-live-toggle" style="width:100%; margin-top:10px;">${plannerLiveWatchId!==null ? '⏹️ Live-Position stoppen' : '📍 Live-Position auf der Route anzeigen'}</button>
-            <div style="display:flex; gap:8px; margin-top:8px;">
+            <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Grobe Schätzung, ohne Pausen. Eigene Position während der Wanderung: Button "🧭 Standort anzeigen" unten rechts auf der Karte.</p>
+            <div style="display:flex; gap:8px; margin-top:10px;">
               <button type="button" class="btn secondary" data-act="planner-discard" style="flex:1;">Verwerfen</button>
               <button type="button" class="btn" data-act="planner-save" style="flex:1;">💾 Als Entwurf speichern</button>
             </div>
@@ -1258,10 +1245,11 @@ function renderStandaloneMap(containerId){
       }
       const searchBtn = plannerPanel.querySelector('[data-act="planner-search-btn"]');
       if(searchBtn) searchBtn.onclick = ()=> searchAndSetEnd(plannerEndQuery);
+      plannerPanel.querySelectorAll('[data-act="planner-end-candidate"]').forEach(btn=>{
+        btn.onclick = ()=> chooseEndCandidate(parseInt(btn.getAttribute('data-index'), 10));
+      });
       const calcBtn = plannerPanel.querySelector('[data-act="planner-calc"]');
       if(calcBtn) calcBtn.onclick = calculatePlannerRoute;
-      const liveToggleBtn = plannerPanel.querySelector('[data-act="planner-live-toggle"]');
-      if(liveToggleBtn) liveToggleBtn.onclick = togglePlannerLiveLocation;
       const discardBtn = plannerPanel.querySelector('[data-act="planner-discard"]');
       if(discardBtn) discardBtn.onclick = discardPlannerRoute;
       const saveBtn = plannerPanel.querySelector('[data-act="planner-save"]');
@@ -2213,13 +2201,13 @@ async function fetchCalculatedRoute(waypoints){
 // OpenRouteService-Anbindung/denselben Key wie fetchCalculatedRoute(), aber deren separate
 // Geocoding-Schnittstelle (Pelias-basiert, Key als Query-Parameter statt Authorization-Header).
 // Auf die Schweiz eingegrenzt, da die App nur Schweizer Regionen kennt (reduziert Fehltreffer).
-async function geocodePlace(query){
+async function geocodePlaces(query, count){
   if(!OPENROUTESERVICE_API_KEY){
     throw new Error('Noch kein API-Key für die Ortssuche hinterlegt.');
   }
   let res;
   try{
-    res = await fetch('https://api.openrouteservice.org/geocode/search?api_key=' + encodeURIComponent(OPENROUTESERVICE_API_KEY) + '&text=' + encodeURIComponent(query) + '&size=1&boundary.country=CH');
+    res = await fetch('https://api.openrouteservice.org/geocode/search?api_key=' + encodeURIComponent(OPENROUTESERVICE_API_KEY) + '&text=' + encodeURIComponent(query) + '&size=' + (count||5) + '&boundary.country=CH');
   }catch(e){
     throw new Error('Suche fehlgeschlagen (keine Internetverbindung?).');
   }
@@ -2227,12 +2215,13 @@ async function geocodePlace(query){
     throw new Error('Suche fehlgeschlagen.');
   }
   const data = await res.json();
-  const feature = data.features && data.features[0];
-  if(!feature) return null;
-  const coords = feature.geometry && feature.geometry.coordinates;
-  if(!coords) return null;
-  const label = (feature.properties && (feature.properties.label || feature.properties.name)) || query;
-  return { lat: coords[1], lon: coords[0], label };
+  const features = Array.isArray(data.features) ? data.features : [];
+  return features.map(feature=>{
+    const coords = feature.geometry && feature.geometry.coordinates;
+    if(!coords) return null;
+    const label = (feature.properties && (feature.properties.label || feature.properties.name)) || query;
+    return { lat: coords[1], lon: coords[0], label };
+  }).filter(Boolean);
 }
 // Formatiert die Dauer einer berechneten Route im "H:MM"-Format, passend zum sonst in der App
 // verwendeten Zeitbedarf-Feld (z. B. "1:45"), statt der ausgeschriebenen Kurzform für Stat-Karten.
