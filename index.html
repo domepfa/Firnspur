@@ -387,12 +387,14 @@ const TOUR_VORLAGE_JSON = `{
         {
           "label": "Parkplatz Engstlenalp",
           "lat": 46.7423,
-          "lon": 8.2661
+          "lon": 8.2661,
+          "category": "parkplatz"
         },
         {
           "label": "Bushaltestelle",
           "lat": 46.7419,
-          "lon": 8.2655
+          "lon": 8.2655,
+          "category": "haltestelle"
         }
       ],
       "manualTrack": [],
@@ -427,7 +429,10 @@ const TOUR_VORLAGE_JSON = `{
         "aug",
         "sep"
       ],
-      "staffedNote": "Ab 20. Juni bewartet, davor nur auf Anfrage.",
+      "staffedMonthsPartial": [
+        "mai"
+      ],
+      "staffedNote": "Im Mai nur an Wochenenden bewartet.",
       "winterraum": "Vorhanden, 12 Plätze, unverschlossen zugänglich.",
       "winterraumMonths": [
         "okt",
@@ -436,9 +441,9 @@ const TOUR_VORLAGE_JSON = `{
         "jan",
         "feb",
         "maer",
-        "apr",
-        "mai"
+        "apr"
       ],
+      "winterraumMonthsPartial": [],
       "winterraumNote": "",
       "approach": "Anfahrt bis Randa, dann zu Fuss oder mit Seilbahn.",
       "approachTypes": [
@@ -450,29 +455,51 @@ const TOUR_VORLAGE_JSON = `{
         {
           "label": "Domhütte",
           "lat": 46.0967,
-          "lon": 7.8494
+          "lon": 7.8494,
+          "category": "biwak"
         },
         {
           "label": "Parkplatz Randa",
           "lat": 46.0958,
-          "lon": 7.7847
+          "lon": 7.7847,
+          "category": "parkplatz"
         }
       ],
-      "accessElevationSummer": "1400",
-      "accessDurationSummer": "3-4",
-      "accessDifficultySummer": "WS",
-      "accessDifficultySummerT": "",
-      "accessSummer": "Beschreibung der Sommer-Zustiegsroute.",
-      "accessElevationWinter": "1650",
-      "accessDurationWinter": "4-5",
-      "accessDifficultyWinter": "ZS-",
-      "accessWinter": "Beschreibung der Winter-Zustiegsroute (Lawinenhänge, Spurverlauf).",
+      "manualTrack": [],
+      "accessRoutes": [
+        {
+          "id": "ar_beispiel001",
+          "name": "Sommer — ab Randa",
+          "season": "sommer",
+          "elevation": "1400",
+          "duration": "3-4",
+          "difficulty": "WS",
+          "difficultyT": "",
+          "description": "Beschreibung der Sommer-Zustiegsroute.",
+          "gpxLink": "",
+          "trackSimplified": null,
+          "manualTrack": []
+        },
+        {
+          "id": "ar_beispiel002",
+          "name": "Winter — ab Randa",
+          "season": "winter",
+          "elevation": "1650",
+          "duration": "4-5",
+          "difficulty": "ZS-",
+          "difficultyT": "",
+          "description": "Beschreibung der Winter-Zustiegsroute (Lawinenhänge, Spurverlauf).",
+          "gpxLink": "",
+          "trackSimplified": null,
+          "manualTrack": []
+        }
+      ],
       "contact": "Telefon: 027 123 45 67, www.domhuette.ch",
       "notes": "Reservation empfohlen, v.a. im Hochsommer.",
       "completions": [],
       "createdBy": "Name",
-      "createdAt": "2026-08-30T00:00:00.000Z",
-      "updatedAt": "2026-08-30T00:00:00.000Z",
+      "createdAt": "2026-09-01T00:00:00.000Z",
+      "updatedAt": "2026-09-01T00:00:00.000Z",
       "updatedBy": "Name"
     }
   ]

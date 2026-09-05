@@ -364,7 +364,7 @@ const TOUR_VORLAGE_JSON = `{
       "pitchCount": "",
       "longestPitch": "",
       "protection": "",
-      "descentType": "",
+      "descentType": "Fussabstieg",
       "targetAltitude": "4545",
       "elevationGain": "1400",
       "elevationLoss": "1400",
@@ -398,11 +398,13 @@ const TOUR_VORLAGE_JSON = `{
         {
           "label": "Domhütte (Ausgangspunkt)",
           "lat": 46.0967,
-          "lon": 7.8494
+          "lon": 7.8494,
+          "category": ""
         }
       ],
       "manualTrack": [],
       "hutId": "",
+      "sektorId": "",
       "tourLink": "https://www.sac-cas.ch/...",
       "gpxLink": "",
       "crux": "Ausgesetzte Gratpassage kurz vor dem Gipfel.",
@@ -410,13 +412,16 @@ const TOUR_VORLAGE_JSON = `{
       "approach": "Zustieg über die Domhütte.",
       "ascent": "Beschreibung der Aufstiegsroute.",
       "descent": "Beschreibung der Abstiegsroute.",
+      "accessRoutes": [],
+      "descentRoutes": [],
       "status": "entwurf",
       "conditions": null,
       "completions": [],
       "createdBy": "Name",
-      "createdAt": "2026-08-30T00:00:00.000Z",
-      "updatedAt": "2026-08-30T00:00:00.000Z",
-      "updatedBy": "Name"
+      "createdAt": "2026-09-05T00:00:00.000Z",
+      "updatedAt": "2026-09-05T00:00:00.000Z",
+      "updatedBy": "Name",
+      "topoImages": []
     },
     {
       "id": "t_beispiel_msl001",
@@ -463,25 +468,56 @@ const TOUR_VORLAGE_JSON = `{
         {
           "label": "Parkplatz Balm b. Günsberg",
           "lat": 47.2073,
-          "lon": 7.5372
+          "lon": 7.5372,
+          "category": "parkplatz"
         }
       ],
       "manualTrack": [],
       "hutId": "",
-      "tourLink": "https://www.sac-cas.ch/...",
+      "sektorId": "",
+      "tourLink": "https://www.camptocamp.org/...",
       "gpxLink": "",
       "crux": "Schlüsselstelle im Quergang, umgehbar für tieferen Grad.",
       "special": "Beliebte Route, an Wochenenden oft Wartezeiten.",
       "approach": "Ausgangspunkt: Balm b. Günsberg.",
-      "ascent": "",
-      "descent": "Zu Fuss über einen guten Weg.",
+      "ascent": "Zustieg ab Parkplatz, ca. 20 Min. auf gutem Weg.",
+      "descent": "",
+      "accessRoutes": [
+        {
+          "id": "tr_beispiel001",
+          "name": "Ab Parkplatz Balm b. Günsberg",
+          "elevation": "150",
+          "elevationUp": "",
+          "duration": "0:20",
+          "difficultyT": "T2",
+          "description": "Guter Weg bis zum Wandfuss, letzte Meter über Schrofen.",
+          "gpxLink": "",
+          "trackSimplified": null,
+          "manualTrack": []
+        }
+      ],
+      "descentRoutes": [
+        {
+          "id": "tr_beispiel002",
+          "name": "Fussabstieg über Normalweg",
+          "elevation": "600",
+          "elevationUp": "0",
+          "duration": "1-1:30",
+          "difficultyT": "T3",
+          "description": "Zurück zum Wandfuss und auf markiertem Weg zum Ausgangspunkt.",
+          "gpxLink": "",
+          "trackSimplified": null,
+          "manualTrack": []
+        }
+      ],
       "status": "entwurf",
       "conditions": null,
       "completions": [],
       "createdBy": "Name",
-      "createdAt": "2026-08-30T00:00:00.000Z",
-      "updatedAt": "2026-08-30T00:00:00.000Z",
-      "updatedBy": "Name"
+      "createdAt": "2026-09-05T00:00:00.000Z",
+      "updatedAt": "2026-09-05T00:00:00.000Z",
+      "updatedBy": "Name",
+      "topoImages": []
     }
   ],
   "huts": [
@@ -498,7 +534,10 @@ const TOUR_VORLAGE_JSON = `{
         "aug",
         "sep"
       ],
-      "staffedNote": "Ab 20. Juni bewartet, davor nur auf Anfrage.",
+      "staffedMonthsPartial": [
+        "mai"
+      ],
+      "staffedNote": "Im Mai nur an Wochenenden bewartet.",
       "winterraum": "Vorhanden, 12 Plätze, unverschlossen zugänglich.",
       "winterraumMonths": [
         "okt",
@@ -507,9 +546,9 @@ const TOUR_VORLAGE_JSON = `{
         "jan",
         "feb",
         "maer",
-        "apr",
-        "mai"
+        "apr"
       ],
+      "winterraumMonthsPartial": [],
       "winterraumNote": "",
       "approach": "Anfahrt bis Randa, dann zu Fuss oder mit Seilbahn.",
       "approachTypes": [
@@ -521,29 +560,51 @@ const TOUR_VORLAGE_JSON = `{
         {
           "label": "Domhütte",
           "lat": 46.0967,
-          "lon": 7.8494
+          "lon": 7.8494,
+          "category": "biwak"
         },
         {
           "label": "Parkplatz Randa",
           "lat": 46.0958,
-          "lon": 7.7847
+          "lon": 7.7847,
+          "category": "parkplatz"
         }
       ],
-      "accessElevationSummer": "1400",
-      "accessDurationSummer": "3-4",
-      "accessDifficultySummer": "WS",
-      "accessDifficultySummerT": "",
-      "accessSummer": "Beschreibung der Sommer-Zustiegsroute.",
-      "accessElevationWinter": "1650",
-      "accessDurationWinter": "4-5",
-      "accessDifficultyWinter": "ZS-",
-      "accessWinter": "Beschreibung der Winter-Zustiegsroute (Lawinenhänge, Spurverlauf).",
+      "manualTrack": [],
+      "accessRoutes": [
+        {
+          "id": "ar_beispiel001",
+          "name": "Sommer — ab Randa",
+          "season": "sommer",
+          "elevation": "1400",
+          "duration": "3-4",
+          "difficulty": "WS",
+          "difficultyT": "",
+          "description": "Beschreibung der Sommer-Zustiegsroute.",
+          "gpxLink": "",
+          "trackSimplified": null,
+          "manualTrack": []
+        },
+        {
+          "id": "ar_beispiel002",
+          "name": "Winter — ab Randa",
+          "season": "winter",
+          "elevation": "1650",
+          "duration": "4-5",
+          "difficulty": "ZS-",
+          "difficultyT": "",
+          "description": "Beschreibung der Winter-Zustiegsroute (Lawinenhänge, Spurverlauf).",
+          "gpxLink": "",
+          "trackSimplified": null,
+          "manualTrack": []
+        }
+      ],
       "contact": "Telefon: 027 123 45 67, www.domhuette.ch",
       "notes": "Reservation empfohlen, v.a. im Hochsommer.",
       "completions": [],
       "createdBy": "Name",
-      "createdAt": "2026-08-30T00:00:00.000Z",
-      "updatedAt": "2026-08-30T00:00:00.000Z",
+      "createdAt": "2026-09-05T00:00:00.000Z",
+      "updatedAt": "2026-09-05T00:00:00.000Z",
       "updatedBy": "Name"
     }
   ]
