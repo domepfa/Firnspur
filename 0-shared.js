@@ -1507,6 +1507,69 @@ function makeFullscreenButton(renderFn, onCloseCallback){
   return btn;
 }
 
+// Standard-Skala der europäischen Lawinenwarndienste (EAWS), 5 Stufen mit fest definierten Farben.
+const SLF_DANGER_LEVELS = {
+  low: {level:1, color:'#ccff66', label:'1 – Gering'},
+  moderate: {level:2, color:'#ffff00', label:'2 – Mässig'},
+  considerable: {level:3, color:'#ff9900', label:'3 – Erheblich'},
+  high: {level:4, color:'#ff0000', label:'4 – Gross'},
+  very_high: {level:5, color:'#800000', label:'5 – Sehr gross'}
+};
+// Lawinen-Gefahrenstufen als Kartenebene — offene Daten von aws.slf.ch (CC BY 4.0, kein API-Key
+// nötig): Warnregionen-Geometrie (GeoJSON) + aktuelles Bulletin (EAWS-CAAML-JSON, Standardformat
+// vieler europäischer Lawinenwarndienste). Bewusst defensiv geparst (mehrere mögliche Feldnamen
+// für die Regions-ID, "worst case" bei mehreren Höhenbändern/Expositionen) — bei unerwarteter
+// Antwortform gibt es "keine Daten" statt eines Fehlers oder einer falschen Einfärbung.
+async function fetchSlfDangerRegions(){
+  const [regionsRes, bulletinRes] = await Promise.all([
+    fetch('https://aws.slf.ch/api/warningregion/'),
+    fetch('https://aws.slf.ch/api/bulletin/caaml')
+  ]);
+  if(!regionsRes.ok || !bulletinRes.ok) throw new Error('Lawinendaten aktuell nicht abrufbar.');
+  const regionsData = await regionsRes.json();
+  const bulletinData = await bulletinRes.json();
+  const features = Array.isArray(regionsData.features) ? regionsData.features : [];
+  if(!features.length) throw new Error('Keine Warnregionen erhalten.');
+  const bulletins = Array.isArray(bulletinData) ? bulletinData : (Array.isArray(bulletinData.bulletins) ? bulletinData.bulletins : []);
+  const dangerByRegion = {};
+  bulletins.forEach(b=>{
+    const ratings = Array.isArray(b.dangerRatings) ? b.dangerRatings : [];
+    let maxInfo = null;
+    ratings.forEach(r=>{
+      const info = SLF_DANGER_LEVELS[r.mainValue];
+      if(info && (!maxInfo || info.level > maxInfo.level)) maxInfo = info;
+    });
+    if(!maxInfo) return;
+    (Array.isArray(b.regions) ? b.regions : []).forEach(rr=>{
+      const rid = rr.regionID || rr.id;
+      if(rid) dangerByRegion[rid] = maxInfo;
+    });
+  });
+  return { features, dangerByRegion };
+}
+function slfRegionId(feature){
+  const p = feature.properties || {};
+  return p.regionID || p.id || p.RegionID || p.region_id || null;
+}
+async function loadSlfDangerLayer(layerGroup){
+  try{
+    const { features, dangerByRegion } = await fetchSlfDangerRegions();
+    let matched = 0;
+    features.forEach(f=>{
+      const rid = slfRegionId(f);
+      const info = rid ? dangerByRegion[rid] : null;
+      if(!info) return; // keine gemeldete Gefahrenstufe für diese Region -> nicht einfärben statt raten
+      matched++;
+      const layer = L.geoJSON(f, { style: { fillColor: info.color, fillOpacity: 0.45, color:'#555', weight:1 } });
+      layer.bindPopup(`<b>Lawinengefahr: Stufe ${esc(info.label)}</b><br/><a href="https://www.slf.ch/en/services-and-products/avalanche-bulletin/" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`);
+      layerGroup.addLayer(layer);
+    });
+    if(!matched) showToast('Lawinen-Gefahrenstufen aktuell nicht zuordenbar.', true);
+  }catch(e){
+    showToast('Lawinendaten aktuell nicht verfügbar: ' + (e && e.message ? e.message : e), true);
+  }
+}
+
 /* ================= Kartenebenen: Landeskarte + Satellit (zum Wechseln) ================= */
 function addBaseLayerSwitcher(map){
   const streetLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
@@ -1543,12 +1606,29 @@ function addBaseLayerSwitcher(map){
     attribution: '© ASTRA/swisstopo/SchweizMobil'
   });
   streetLayer.addTo(map);
+  const overlays = { '⛷️ Skitouren': skitourenLayer, '⚠️ Hangneigung ab 30°': hangneigungLayer, '🚧 Wegsperrungen': wegsperrungenLayer };
+  // Lawinen-Gefahrenstufen nur in Firnspur/Skitour relevant (nicht bei MSL/Klettertouren auf Fels).
+  // SEKTOREN_PATH ist nur in Fixseil definiert — dessen Fehlen erkennt hier zuverlässig die andere App.
+  // Standardmässig ausgeschaltet: die Daten werden erst beim ersten Einschalten geladen, nicht bei
+  // jedem Kartenaufruf (Traffic/Ladezeit sparen für ein Feature, das nicht immer gebraucht wird).
+  let slfDangerLayer = null;
+  if(typeof SEKTOREN_PATH === 'undefined'){
+    slfDangerLayer = L.layerGroup();
+    let slfLoaded = false;
+    map.on('overlayadd', (e)=>{
+      if(e.layer === slfDangerLayer && !slfLoaded){
+        slfLoaded = true;
+        loadSlfDangerLayer(slfDangerLayer);
+      }
+    });
+    overlays['🔺 Lawinengefahr (SLF)'] = slfDangerLayer;
+  }
   L.control.layers(
     { '🗺️ Karte': streetLayer, '🛰️ Satellit': satelliteLayer },
-    { '⛷️ Skitouren': skitourenLayer, '⚠️ Hangneigung ab 30°': hangneigungLayer, '🚧 Wegsperrungen': wegsperrungenLayer },
+    overlays,
     { position: 'bottomleft', collapsed: true }
   ).addTo(map);
-  return { streetLayer, satelliteLayer, skitourenLayer, hangneigungLayer, wegsperrungenLayer };
+  return { streetLayer, satelliteLayer, skitourenLayer, hangneigungLayer, wegsperrungenLayer, slfDangerLayer };
 }
 
 // Fragt swisstopos "identify"-Dienst ab, um herauszufinden, welche eingezeichnete Skitour
