@@ -642,7 +642,14 @@ function closeFullscreenMap(){
 function openStandaloneMap(){
   openFullscreenMap(renderStandaloneMap, function(){
     const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
-    if(m){ try{ m.stopLocate(); }catch(e){} }
+    if(m){
+      try{ m.stopLocate(); }catch(e){}
+      // Läuft noch die Live-Position-Verfolgung des Wanderungsplaners (siehe togglePlannerLiveLocation()
+      // in renderStandaloneMap), muss sie beim Schliessen der Karte gestoppt werden, sonst bleibt die
+      // GPS-Ortung im Hintergrund aktiv (Akku) — die Watch-ID hängt dafür extra am Map-Objekt, da
+      // die Planner-Variable selbst nur innerhalb von renderStandaloneMap() erreichbar ist.
+      if(m.__plannerLiveWatchId != null){ try{ navigator.geolocation.clearWatch(m.__plannerLiveWatchId); }catch(e){} }
+    }
   });
 }
 
@@ -662,24 +669,37 @@ function renderStandaloneMap(containerId){
     el2.appendChild(mapDiv);
     const map = L.map(mapDivId, {attributionControl:true}).setView([46.8182, 8.2275], 8);
     registerMap(mapDivId, map);
-    const { skitourenLayer } = addBaseLayerSwitcher(map);
+    const { skitourenLayer, wegsperrungenLayer } = addBaseLayerSwitcher(map);
 
-    // Ist die Skitouren-Ebene eingeschaltet, zeigt ein Klick Infos zur angetippten Route
-    // (Name, GPX-Download) — analog zum Punkte/Linie-Editor.
+    // Ist die Skitouren- oder Wegsperrungen-Ebene eingeschaltet, zeigt ein Klick Infos zur
+    // angetippten Route/Sperrung — analog zum Punkte/Linie-Editor.
     map.on('click', async (e)=>{
-      // Wartet der Wanderungsplaner gerade auf einen Kartenklick für Start/Ziel (siehe weiter
-      // unten), wird der Klick dafür verwendet und nicht mehr an die Skitouren-Erkennung
-      // weitergereicht.
+      // Wartet der Wanderungsplaner gerade auf einen Kartenklick für Start/Ziel/Zwischenpunkt
+      // (siehe weiter unten), wird der Klick dafür verwendet und nicht mehr an die Skitouren-/
+      // Sperrungs-Erkennung weitergereicht. Bei Zwischenpunkten bleibt der Auswahlmodus aktiv,
+      // damit mehrere hintereinander gesetzt werden können, ohne den Button erneut zu drücken.
       if(typeof plannerPicking !== 'undefined' && plannerPicking){
+        if(plannerPicking === 'waypoint'){
+          addPlannerWaypoint(e.latlng.lat, e.latlng.lng);
+          return;
+        }
         const which = plannerPicking;
         plannerPicking = null;
         setPlannerPoint(which, e.latlng.lat, e.latlng.lng, which==='start' ? 'Punkt auf der Karte' : 'Zielpunkt auf der Karte');
         return;
       }
-      if(!skitourenLayer || !map.hasLayer(skitourenLayer)) return;
-      const feature = await identifySkitourAt(map, e.latlng);
-      if(feature){
-        L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature)).openOn(map);
+      if(skitourenLayer && map.hasLayer(skitourenLayer)){
+        const feature = await identifySkitourAt(map, e.latlng);
+        if(feature){
+          L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature)).openOn(map);
+          return;
+        }
+      }
+      if(wegsperrungenLayer && map.hasLayer(wegsperrungenLayer)){
+        const feature = await identifyWegsperrungAt(map, e.latlng);
+        if(feature){
+          L.popup().setLatLng(e.latlng).setContent(buildWegsperrungPopupContent(feature)).openOn(map);
+        }
       }
     });
 
@@ -925,14 +945,16 @@ function renderStandaloneMap(containerId){
     let plannerExpanded = false;
     let plannerStart = null; // {lat, lon, label}
     let plannerEnd = null;
+    let plannerWaypoints = []; // [{lat, lon, marker}] — in Reihenfolge Start -> Ziel
     let plannerStartMode = 'gps'; // 'gps' | 'map'
     let plannerEndMode = 'search'; // 'search' | 'map'
-    let plannerPicking = null; // 'start' | 'end' | null — wartet auf einen Kartenklick
+    let plannerPicking = null; // 'start' | 'end' | 'waypoint' | null — wartet auf einen Kartenklick
     let plannerEndQuery = '';
     let plannerSearchBusy = false;
     let plannerCalcBusy = false;
     let plannerResult = null; // {coords, distanceM, durationS, ascentM, descentM}
     let plannerStartMarker = null, plannerEndMarker = null, plannerRouteLine = null;
+    let plannerLiveWatchId = null, plannerLiveMarker = null;
 
     const plannerPanel = document.createElement('div');
     plannerPanel.id = 'planner-panel';
@@ -940,20 +962,105 @@ function renderStandaloneMap(containerId){
     L.DomEvent.disableScrollPropagation(plannerPanel);
     el2.appendChild(plannerPanel);
 
+    // Farbige Punkt-Icons als echte L.marker (statt L.circleMarker) — nur L.marker unterstützt
+    // in Leaflet ohne Zusatz-Plugin das Ziehen (draggable:true), was Start/Ziel/Zwischenpunkte
+    // direkt auf der Karte korrigierbar macht.
+    function makePlannerDivIcon(color, label){
+      return L.divIcon({
+        className: '', iconSize: [18,18], iconAnchor: [9,9],
+        html: `<div style="width:18px; height:18px; border-radius:50%; background:${color}; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; font-size:9px; color:#fff; font-weight:700; line-height:1;">${label||''}</div>`
+      });
+    }
+
+    function invalidatePlannerResult(){
+      plannerResult = null;
+      if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
+    }
+
     function setPlannerPoint(which, lat, lon, label){
       const point = {lat, lon, label};
       if(which==='start'){
         plannerStart = point;
-        if(plannerStartMarker) map.removeLayer(plannerStartMarker);
-        plannerStartMarker = L.circleMarker([lat,lon], {radius:9, color:'#fff', weight:2, fillColor:'#2F6B44', fillOpacity:1}).addTo(map).bindTooltip('Start: ' + label);
+        if(plannerStartMarker){
+          plannerStartMarker.setLatLng([lat,lon]);
+        }else{
+          plannerStartMarker = L.marker([lat,lon], {icon: makePlannerDivIcon('#2F6B44','S'), draggable:true}).addTo(map);
+          plannerStartMarker.on('dragend', ()=>{
+            const ll = plannerStartMarker.getLatLng();
+            setPlannerPoint('start', ll.lat, ll.lng, 'Startpunkt (verschoben)');
+          });
+        }
+        plannerStartMarker.unbindTooltip().bindTooltip('Start: ' + label);
       }else{
         plannerEnd = point;
-        if(plannerEndMarker) map.removeLayer(plannerEndMarker);
-        plannerEndMarker = L.circleMarker([lat,lon], {radius:9, color:'#fff', weight:2, fillColor:'#B0392C', fillOpacity:1}).addTo(map).bindTooltip('Ziel: ' + label);
+        if(plannerEndMarker){
+          plannerEndMarker.setLatLng([lat,lon]);
+        }else{
+          plannerEndMarker = L.marker([lat,lon], {icon: makePlannerDivIcon('#B0392C','Z'), draggable:true}).addTo(map);
+          plannerEndMarker.on('dragend', ()=>{
+            const ll = plannerEndMarker.getLatLng();
+            setPlannerPoint('end', ll.lat, ll.lng, 'Zielpunkt (verschoben)');
+          });
+        }
+        plannerEndMarker.unbindTooltip().bindTooltip('Ziel: ' + label);
       }
       // Ein bereits berechnetes Ergebnis wird ungültig, sobald sich ein Punkt ändert.
-      plannerResult = null;
-      if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
+      invalidatePlannerResult();
+      renderPlannerPanel();
+    }
+
+    function renumberPlannerWaypointIcons(){
+      plannerWaypoints.forEach((wp,i)=> wp.marker.setIcon(makePlannerDivIcon('#1565C0', String(i+1))));
+    }
+
+    function addPlannerWaypoint(lat, lon){
+      const wp = {lat, lon};
+      const marker = L.marker([lat,lon], {icon: makePlannerDivIcon('#1565C0', String(plannerWaypoints.length+1)), draggable:true}).addTo(map);
+      marker.on('dragend', ()=>{
+        const ll = marker.getLatLng();
+        wp.lat = ll.lat; wp.lon = ll.lng;
+        invalidatePlannerResult();
+        renderPlannerPanel();
+      });
+      wp.marker = marker;
+      plannerWaypoints.push(wp);
+      invalidatePlannerResult();
+      renderPlannerPanel();
+    }
+
+    function removePlannerWaypoint(index){
+      const wp = plannerWaypoints[index];
+      if(!wp) return;
+      map.removeLayer(wp.marker);
+      plannerWaypoints.splice(index, 1);
+      renumberPlannerWaypointIcons();
+      invalidatePlannerResult();
+      renderPlannerPanel();
+    }
+
+    function togglePlannerLiveLocation(){
+      if(plannerLiveWatchId !== null){
+        navigator.geolocation.clearWatch(plannerLiveWatchId);
+        plannerLiveWatchId = null;
+        map.__plannerLiveWatchId = null;
+        if(plannerLiveMarker){ map.removeLayer(plannerLiveMarker); plannerLiveMarker = null; }
+        renderPlannerPanel();
+        return;
+      }
+      if(!navigator.geolocation){ showToast('Geolokalisierung wird von diesem Gerät/Browser nicht unterstützt.', true); return; }
+      plannerLiveWatchId = navigator.geolocation.watchPosition(
+        (pos)=>{
+          const ll = [pos.coords.latitude, pos.coords.longitude];
+          if(!plannerLiveMarker){
+            plannerLiveMarker = L.circleMarker(ll, {radius:8, color:'#fff', weight:3, fillColor:'#1565C0', fillOpacity:1}).addTo(map);
+          }else{
+            plannerLiveMarker.setLatLng(ll);
+          }
+        },
+        ()=>{ showToast('Standort konnte nicht ermittelt werden.', true); },
+        {enableHighAccuracy:true}
+      );
+      map.__plannerLiveWatchId = plannerLiveWatchId;
       renderPlannerPanel();
     }
 
@@ -985,7 +1092,9 @@ function renderStandaloneMap(containerId){
       if(!plannerStart || !plannerEnd || plannerCalcBusy) return;
       plannerCalcBusy = true; renderPlannerPanel();
       try{
-        const result = await fetchCalculatedRoute([[plannerStart.lat, plannerStart.lon], [plannerEnd.lat, plannerEnd.lon]]);
+        const waypointCoords = plannerWaypoints.map(w=> [w.lat, w.lon]);
+        const coords = [[plannerStart.lat, plannerStart.lon], ...waypointCoords, [plannerEnd.lat, plannerEnd.lon]];
+        const result = await fetchCalculatedRoute(coords);
         plannerResult = result;
         if(plannerRouteLine) map.removeLayer(plannerRouteLine);
         plannerRouteLine = L.polyline(result.coords, {color:'#1565C0', weight:5, opacity:0.9}).addTo(map);
@@ -998,8 +1107,7 @@ function renderStandaloneMap(containerId){
     }
 
     function discardPlannerRoute(){
-      plannerResult = null;
-      if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
+      invalidatePlannerResult();
       renderPlannerPanel();
     }
 
@@ -1024,6 +1132,7 @@ function renderStandaloneMap(containerId){
           approachTypes: [], stayTypes: [],
           points: [
             {label: plannerStart.label, lat: plannerStart.lat, lon: plannerStart.lon, category: ''},
+            ...plannerWaypoints.map((w,i)=> ({label: 'Zwischenpunkt ' + (i+1), lat: w.lat, lon: w.lon, category: ''})),
             {label: plannerEnd.label, lat: plannerEnd.lat, lon: plannerEnd.lon, category: ''}
           ],
           manualTrack: plannerResult ? plannerResult.coords : [],
@@ -1080,7 +1189,18 @@ function renderStandaloneMap(containerId){
               <button type="button" class="chip ${plannerStartMode==='map'?'on':''}" style="${plannerStartMode==='map'?'background:var(--ice-deep)':''}" data-act="planner-start-map">🗺️ Punkt auf Karte</button>
             </div>
             ${plannerPicking==='start' ? `<p style="font-size:12.5px; color:var(--ice-deep); margin:0;">Tippe auf die Karte, um den Startpunkt zu setzen…</p>` : ''}
-            ${plannerStart ? `<p style="font-size:13px; color:var(--ink); margin:0;">✓ ${esc(plannerStart.label)}</p>` : ''}
+            ${plannerStart ? `<p style="font-size:13px; color:var(--ink); margin:0;">✓ ${esc(plannerStart.label)} <span style="color:var(--ink-faint); font-size:11.5px;">(auf der Karte verschiebbar)</span></p>` : ''}
+          </div>
+          <div style="margin-bottom:14px;">
+            <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:var(--ink-soft); margin-bottom:5px;">Zwischenpunkte (optional)</label>
+            ${plannerWaypoints.length ? `<div style="display:flex; flex-direction:column; gap:4px; margin-bottom:6px;">
+              ${plannerWaypoints.map((wp,i)=>`<div style="display:flex; align-items:center; justify-content:space-between; background:var(--ice-light); border-radius:4px; padding:5px 9px; font-size:12.5px;">
+                <span>${i+1}. Zwischenpunkt <span style="color:var(--ink-faint);">(verschiebbar)</span></span>
+                <button type="button" data-act="planner-waypoint-remove" data-index="${i}" style="background:none; border:none; color:var(--danger); font-weight:700; cursor:pointer; padding:0 4px;">×</button>
+              </div>`).join('')}
+            </div>` : ''}
+            <button type="button" class="chip ${plannerPicking==='waypoint'?'on':''}" style="${plannerPicking==='waypoint'?'background:var(--ice-deep)':''}" data-act="planner-add-waypoint">➕ Zwischenpunkt auf Karte setzen</button>
+            ${plannerPicking==='waypoint' ? `<p style="font-size:12.5px; color:var(--ice-deep); margin:6px 0 0 0;">Tippe auf die Karte — beliebig oft, dann nochmal antippen zum Beenden.</p>` : ''}
           </div>
           <div style="margin-bottom:14px;">
             <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:var(--ink-soft); margin-bottom:5px;">Ziel</label>
@@ -1090,7 +1210,7 @@ function renderStandaloneMap(containerId){
             </div>
             <button type="button" class="chip ${plannerEndMode==='map'?'on':''}" style="${plannerEndMode==='map'?'background:var(--ice-deep)':''}" data-act="planner-end-map">🗺️ Punkt auf Karte</button>
             ${plannerPicking==='end' ? `<p style="font-size:12.5px; color:var(--ice-deep); margin:6px 0 0 0;">Tippe auf die Karte, um den Zielpunkt zu setzen…</p>` : ''}
-            ${plannerEnd ? `<p style="font-size:13px; color:var(--ink); margin:6px 0 0 0;">✓ ${esc(plannerEnd.label)}</p>` : ''}
+            ${plannerEnd ? `<p style="font-size:13px; color:var(--ink); margin:6px 0 0 0;">✓ ${esc(plannerEnd.label)} <span style="color:var(--ink-faint); font-size:11.5px;">(auf der Karte verschiebbar)</span></p>` : ''}
           </div>
           <button type="button" class="btn" data-act="planner-calc" style="width:100%;" ${canCalc?'':'disabled'}>${plannerCalcBusy ? 'Berechne…' : '🧭 Route berechnen'}</button>
           ${plannerResult ? `
@@ -1100,7 +1220,8 @@ function renderStandaloneMap(containerId){
               ${typeof plannerResult.durationS==='number' ? statCardHtml('⏱️', formatDurationShort(plannerResult.durationS).replace('ca. ', '')) : ''}
             </div>
             <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Grobe Schätzung, ohne Pausen.</p>
-            <div style="display:flex; gap:8px; margin-top:10px;">
+            <button type="button" class="btn secondary" data-act="planner-live-toggle" style="width:100%; margin-top:10px;">${plannerLiveWatchId!==null ? '⏹️ Live-Position stoppen' : '📍 Live-Position auf der Route anzeigen'}</button>
+            <div style="display:flex; gap:8px; margin-top:8px;">
               <button type="button" class="btn secondary" data-act="planner-discard" style="flex:1;">Verwerfen</button>
               <button type="button" class="btn" data-act="planner-save" style="flex:1;">💾 Als Entwurf speichern</button>
             </div>
@@ -1119,6 +1240,16 @@ function renderStandaloneMap(containerId){
       if(startMapBtn) startMapBtn.onclick = ()=>{ plannerStartMode = 'map'; plannerPicking = 'start'; renderPlannerPanel(); showToast('Tippe auf die Karte, um den Startpunkt zu setzen.'); };
       const endMapBtn = plannerPanel.querySelector('[data-act="planner-end-map"]');
       if(endMapBtn) endMapBtn.onclick = ()=>{ plannerEndMode = 'map'; plannerPicking = 'end'; renderPlannerPanel(); showToast('Tippe auf die Karte, um den Zielpunkt zu setzen.'); };
+      const addWaypointBtn = plannerPanel.querySelector('[data-act="planner-add-waypoint"]');
+      if(addWaypointBtn) addWaypointBtn.onclick = ()=>{
+        // Erneutes Antippen beendet den (sonst dauerhaften) Auswahlmodus wieder.
+        plannerPicking = (plannerPicking==='waypoint') ? null : 'waypoint';
+        renderPlannerPanel();
+        if(plannerPicking==='waypoint') showToast('Tippe auf die Karte, um Zwischenpunkte zu setzen.');
+      };
+      plannerPanel.querySelectorAll('[data-act="planner-waypoint-remove"]').forEach(btn=>{
+        btn.onclick = ()=> removePlannerWaypoint(parseInt(btn.getAttribute('data-index'), 10));
+      });
       const searchInput = plannerPanel.querySelector('#planner-search-input');
       if(searchInput){
         searchInput.value = plannerEndQuery;
@@ -1129,6 +1260,8 @@ function renderStandaloneMap(containerId){
       if(searchBtn) searchBtn.onclick = ()=> searchAndSetEnd(plannerEndQuery);
       const calcBtn = plannerPanel.querySelector('[data-act="planner-calc"]');
       if(calcBtn) calcBtn.onclick = calculatePlannerRoute;
+      const liveToggleBtn = plannerPanel.querySelector('[data-act="planner-live-toggle"]');
+      if(liveToggleBtn) liveToggleBtn.onclick = togglePlannerLiveLocation;
       const discardBtn = plannerPanel.querySelector('[data-act="planner-discard"]');
       if(discardBtn) discardBtn.onclick = discardPlannerRoute;
       const saveBtn = plannerPanel.querySelector('[data-act="planner-save"]');
@@ -1188,13 +1321,24 @@ function addBaseLayerSwitcher(map){
     opacity: 0.6,
     attribution: '© swisstopo'
   });
+  // Wegsperrungen/Umleitungen auf dem Wanderwegnetz — offizielle, offene Geodaten von ASTRA/
+  // swisstopo/Schweizer Wanderwege/SchweizMobil (opendata.swiss), stündlich bis täglich
+  // aktualisiert. Nur Sperrungen ab 1 Woche Dauer, die vor Ort signalisiert sind (keine
+  // saisonalen wie Schnee/Eis). Als WMS eingebunden (kein eigenes WMTS-Kachelschema bekannt).
+  const wegsperrungenLayer = L.tileLayer.wms('https://wms.geo.admin.ch', {
+    layers: 'ch.astra.wanderland-sperrungen_umleitungen',
+    format: 'image/png',
+    transparent: true,
+    maxZoom: 18,
+    attribution: '© ASTRA/swisstopo/SchweizMobil'
+  });
   streetLayer.addTo(map);
   L.control.layers(
     { '🗺️ Karte': streetLayer, '🛰️ Satellit': satelliteLayer },
-    { '⛷️ Skitouren': skitourenLayer, '⚠️ Hangneigung ab 30°': hangneigungLayer },
+    { '⛷️ Skitouren': skitourenLayer, '⚠️ Hangneigung ab 30°': hangneigungLayer, '🚧 Wegsperrungen': wegsperrungenLayer },
     { position: 'bottomleft', collapsed: true }
   ).addTo(map);
-  return { streetLayer, satelliteLayer, skitourenLayer, hangneigungLayer };
+  return { streetLayer, satelliteLayer, skitourenLayer, hangneigungLayer, wegsperrungenLayer };
 }
 
 // Fragt swisstopos "identify"-Dienst ab, um herauszufinden, welche eingezeichnete Skitour
@@ -1220,6 +1364,66 @@ async function identifySkitourAt(map, latlng){
     const data = await res.json();
     return (data.results && data.results.length) ? data.results[0] : null;
   }catch(e){ return null; }
+}
+
+// Fragt dieselbe geo.admin.ch-"identify"-Schnittstelle für die Wegsperrungen-Ebene ab —
+// analog zu identifySkitourAt(), nur mit anderem Layer-Namen.
+async function identifyWegsperrungAt(map, latlng){
+  try{
+    const b = map.getBounds();
+    const size = map.getSize();
+    const params = new URLSearchParams({
+      geometryType: 'esriGeometryPoint',
+      geometry: latlng.lng + ',' + latlng.lat,
+      geometryFormat: 'geojson',
+      layers: 'all:ch.astra.wanderland-sperrungen_umleitungen',
+      tolerance: '8',
+      mapExtent: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(','),
+      imageDisplay: size.x + ',' + size.y + ',96',
+      sr: '4326',
+      returnGeometry: 'true'
+    });
+    const res = await fetch('https://api3.geo.admin.ch/rest/services/all/MapServer/identify?' + params.toString());
+    if(!res.ok) return null;
+    const data = await res.json();
+    return (data.results && data.results.length) ? data.results[0] : null;
+  }catch(e){ return null; }
+}
+// Baut den Popup-Inhalt für eine angetippte Wegsperrung. Das genaue Namensschema der
+// Beschreibungs-Felder ist von aussen nicht zuverlässig dokumentiert (mehrsprachige Varianten
+// wie content_provider_de) — daher wie bei buildSkitourPopupContent() ein bekanntes Feld
+// bevorzugt anzeigen, sonst alle Rohdaten auflisten, statt "undefined" zu riskieren.
+function buildWegsperrungPopupContent(feature){
+  const wrap = document.createElement('div');
+  wrap.style.minWidth = '200px';
+  const attrs = feature.attributes || feature.properties || {};
+  const title = document.createElement('p');
+  title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+  title.textContent = '🚧 Wegsperrung / Umleitung';
+  wrap.appendChild(title);
+  const knownDesc = attrs.content_provider_de || attrs.beschreibung_de || attrs.description_de || attrs.info_de || attrs.text_de;
+  if(knownDesc){
+    const descP = document.createElement('p');
+    descP.style.cssText = 'margin:0 0 8px 0; font-size:13px;';
+    descP.textContent = knownDesc;
+    wrap.appendChild(descP);
+  }else{
+    const debugKeys = Object.keys(attrs).filter(k=> attrs[k] !== null && attrs[k] !== '' && k !== 'geometry');
+    if(debugKeys.length){
+      const debugP = document.createElement('p');
+      debugP.style.cssText = 'margin:0 0 8px 0; font-size:11px; color:#888; max-height:120px; overflow-y:auto;';
+      debugP.textContent = debugKeys.map(k=> k + ': ' + attrs[k]).join(' | ');
+      wrap.appendChild(debugP);
+    }
+  }
+  const link = document.createElement('a');
+  link.href = 'https://schweizmobil.ch';
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.style.cssText = 'font-size:12.5px;';
+  link.textContent = 'Details auf SchweizMobil ↗';
+  wrap.appendChild(link);
+  return wrap;
 }
 
 // GeoJSON-Geometrie (EPSG:4326, [lon,lat]) in Leaflet-Koordinaten ([lat,lon]) umwandeln.
