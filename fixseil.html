@@ -633,7 +633,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v62-sektoren-import';
+const APP_VERSION = 'v63-sektor-vorschlag';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1293,6 +1293,47 @@ async function deleteTourRoute(tourId, kind, routeId){
   if(!ok) markUnsaved();
   render();
   showToast(tourRouteTitle(kind)+' gelöscht.');
+}
+
+/* ================= Sektor-Vorschläge: gleicher Gipfel/gemeinsamer Ausgangspunkt =================
+   Erkennt MSL-Touren, die noch keinem Sektor zugeordnet sind, aber vermutlich zusammengehören
+   (gleicher Gipfelname und/oder ein Punkt in der Nähe eines Punkts von currentTour). Dient als
+   Vorschlag in der Tour-Detailansicht, nie automatisch — der Nutzer bestätigt die Zusammenlegung. */
+function findSektorCandidateTours(currentTour, allTours, maxMeters){
+  maxMeters = maxMeters || 300;
+  if(currentTour.tourCategory!=='msl' || currentTour.sektorId) return [];
+  const myName = (currentTour.name||'').trim().toLowerCase();
+  const myPoints = currentTour.points || [];
+  return allTours.filter(t=>{
+    if(t.id===currentTour.id || t.tourCategory!=='msl' || t.sektorId) return false;
+    const sameName = myName && (t.name||'').trim().toLowerCase()===myName;
+    const otherPoints = t.points || [];
+    const sharesPoint = myPoints.length && otherPoints.length && myPoints.some(mp=>otherPoints.some(op=>haversineMeters(mp.lat,mp.lon,op.lat,op.lon)<=maxMeters));
+    return sameName || sharesPoint;
+  });
+}
+async function createSektorFromTours(tourIds){
+  const tours = tourIds.map(id=>state.tours.find(t=>t.id===id)).filter(Boolean);
+  if(tours.length<2) return;
+  const base = tours[0];
+  const names = tours.map(t=>'„'+t.name+(t.routeName?' – '+t.routeName:'')+'"').join(', ');
+  if(!confirm('Sektor „'+base.name+'" aus '+tours.length+' Touren erstellen?\n\n'+names+'\n\nDie Touren werden mit dem neuen Sektor verknüpft; bereits erfasste eigene Zustiege/Abstiege der ersten Tour werden in den Sektor übernommen.')) return;
+  const sek = {
+    id: uid('sek'), name: base.name, region: base.region||'', subregion: base.subregion||'',
+    description: '', points: base.points||[], manualTrack: [],
+    accessRoutes: (base.accessRoutes||[]).slice(), descentRoutes: (base.descentRoutes||[]).slice(),
+    createdBy: state.myName, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), updatedBy: state.myName
+  };
+  state.sektoren.unshift(sek);
+  tours.forEach(t=>{ t.sektorId = sek.id; t.accessRoutes = []; t.descentRoutes = []; t.updatedAt = new Date().toISOString(); t.updatedBy = state.myName; });
+  closeModal(false, true);
+  state.modal = {type:'sektor-detail', payload:sek.id};
+  render();
+  const ok = await saveSektorCloud(sek).catch(()=>false);
+  if(!ok) markUnsaved();
+  await Promise.all(tours.map(t=> saveTourCloud(t).catch(()=>{ t._unsynced = true; markUnsaved(); })));
+  showToast(ok ? 'Sektor erstellt und Touren verknüpft.' : 'Sektor lokal erstellt, aber nicht synchronisiert.', !ok);
+  render();
 }
 
 /* ================= Sektor: Formular, Detail & geteilte Zustiege/Abstiege =================
@@ -2622,7 +2663,13 @@ function tourDetailHtml(id){
       const descentRoutes = t.descentRoutes || [];
       const accessRange = accessRouteDifficultyRangeHtml(accessRoutes);
       const descentRange = accessRouteDifficultyRangeHtml(descentRoutes);
+      const sektorCandidates = findSektorCandidateTours(t, state.tours, 300);
       return `
+      ${sektorCandidates.length ? `<div class="detail-section" style="background:#EAF3EC; border-left:3px solid #2F6B44;">
+        <h4>🧭 Sektor-Vorschlag</h4>
+        <p style="font-size:13.5px; margin:0 0 10px 0;">${sektorCandidates.length===1 ? 'Diese Tour teilt sich vermutlich einen Zustieg mit:' : 'Diese Tour teilt sich vermutlich einen Zustieg mit ' + sektorCandidates.length + ' weiteren Touren:'} ${sektorCandidates.map(c=>`„${esc(c.name)}${c.routeName?' – '+esc(c.routeName):''}"`).join(', ')}. Zu einem gemeinsamen Sektor zusammenlegen?</p>
+        <button type="button" class="btn secondary" data-act="create-sektor-from-tours" data-tour-ids='${esc(JSON.stringify([t.id, ...sektorCandidates.map(c=>c.id)]))}'>🧭 Sektor erstellen</button>
+      </div>` : ''}
       <div class="detail-section">
         <h4>Zustiege${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
         ${accessRoutes.length ? `
@@ -3874,6 +3921,10 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-sektor"]').forEach(el=> el.onclick = ()=>openEditSektor(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-sektor"]').forEach(el=> el.onclick = ()=>openSektorDetail(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="create-sektor-from-tours"]').forEach(el=> el.onclick = ()=>{
+    let ids=[]; try{ ids = JSON.parse(el.getAttribute('data-tour-ids')||'[]'); }catch(e){ ids=[]; }
+    createSektorFromTours(ids);
+  });
 
   root.querySelectorAll('[data-act="add-access-route"]').forEach(el=> el.onclick = ()=>{
     state.modal = {type:'edit-access-route', payload:{hutId: el.getAttribute('data-hut-id'), route:null}};
