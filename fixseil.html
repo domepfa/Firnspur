@@ -652,7 +652,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v91-agenda-globaler-zugang';
+const APP_VERSION = 'v92-gpx-track-entfernen';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1299,6 +1299,7 @@ function tourRouteFormHtml(tourId, kind, route){
       <div class="field"><label>Eigenen GPX-Track hochladen</label>
         <input type="file" id="tour-route-gpx-input" accept=".gpx,application/gpx+xml"/>
         <p id="tour-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
+        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="tour-route-gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>` : ''}
         <input type="hidden" name="trackSimplified" id="tour-route-track-hidden" value='${esc(r.trackSimplified ? JSON.stringify(r.trackSimplified) : "")}'/>
         <input type="hidden" name="routeIdForTrack" id="tour-route-id-for-track" value="${esc(r.id||'')}"/>
       </div>
@@ -1721,6 +1722,7 @@ function sektorRouteFormHtml(sektorId, kind, route){
       <div class="field"><label>Eigenen GPX-Track hochladen</label>
         <input type="file" id="sektor-route-gpx-input" accept=".gpx,application/gpx+xml"/>
         <p id="sektor-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
+        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="sektor-route-gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>` : ''}
         <input type="hidden" name="trackSimplified" id="sektor-route-track-hidden" value='${esc(r.trackSimplified ? JSON.stringify(r.trackSimplified) : "")}'/>
         <input type="hidden" name="routeIdForTrack" id="sektor-route-id-for-track" value="${esc(r.id||'')}"/>
       </div>
@@ -2639,6 +2641,7 @@ function tourFormHtml(existing){
         <input type="file" id="gpx-file-input" accept=".gpx,application/gpx+xml"/>
         <div class="hint">Wird automatisch für die Kartenanzeige vereinfacht. Die Originaldatei bleibt separat gespeichert und ist jederzeit als Volldownload abrufbar.</div>
         <p id="gpx-upload-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${t.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
+        ${t.trackSimplified ? `<button type="button" class="btn secondary" id="gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>` : ''}
         <input type="hidden" name="trackSimplified" id="track-simplified-hidden" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
         <input type="hidden" name="tourIdForTrack" id="tour-id-for-track" value="${esc(t.id||'')}"/>
       </div>
@@ -3285,6 +3288,10 @@ function wireModalHandlers(){
   if(gpxFileInput) gpxFileInput.addEventListener('change', ()=>{
     handleGpxFileUpload(gpxFileInput, GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status');
   });
+  const gpxRemoveBtn = root.querySelector('#gpx-remove-btn');
+  if(gpxRemoveBtn) gpxRemoveBtn.addEventListener('click', ()=>{
+    removeGpxTrack(GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status', 'gpx-remove-btn');
+  });
   const gpxFileInputHutSummer = root.querySelector('#gpx-file-input-summer');
   if(gpxFileInputHutSummer) gpxFileInputHutSummer.addEventListener('change', ()=>{
     handleGpxFileUpload(gpxFileInputHutSummer, HUT_GPX_SUMMER_PATH, 'hut-id-for-track', 'track-simplified-summer-hidden', 'gpx-upload-status-summer');
@@ -3906,6 +3913,10 @@ function wireModalHandlers(){
     if(gpxInput) gpxInput.addEventListener('change', ()=>{
       handleGpxFileUpload(gpxInput, ACCESS_ROUTE_GPX_PATH, 'access-route-id-for-track', 'access-route-track-hidden', 'access-route-gpx-status');
     });
+    const gpxRemoveBtn = document.getElementById('access-route-gpx-remove-btn');
+    if(gpxRemoveBtn) gpxRemoveBtn.addEventListener('click', ()=>{
+      removeGpxTrack(ACCESS_ROUTE_GPX_PATH, 'access-route-id-for-track', 'access-route-track-hidden', 'access-route-gpx-status', 'access-route-gpx-remove-btn');
+    });
 
     const routeMapToggleBtn = document.getElementById('access-route-map-toggle-btn');
     if(routeMapToggleBtn) routeMapToggleBtn.addEventListener('click', ()=>{
@@ -3960,6 +3971,12 @@ function wireModalHandlers(){
       const kindField = tourRouteForm.querySelector('[name="kind"]');
       const kind = kindField ? kindField.value : 'access';
       handleGpxFileUpload(gpxInput, tourRouteGpxPath(kind), 'tour-route-id-for-track', 'tour-route-track-hidden', 'tour-route-gpx-status');
+    });
+    const gpxRemoveBtn = document.getElementById('tour-route-gpx-remove-btn');
+    if(gpxRemoveBtn) gpxRemoveBtn.addEventListener('click', ()=>{
+      const kindField = tourRouteForm.querySelector('[name="kind"]');
+      const kind = kindField ? kindField.value : 'access';
+      removeGpxTrack(tourRouteGpxPath(kind), 'tour-route-id-for-track', 'tour-route-track-hidden', 'tour-route-gpx-status', 'tour-route-gpx-remove-btn');
     });
 
     const routeMapToggleBtn = document.getElementById('tour-route-map-toggle-btn');
@@ -4294,6 +4311,12 @@ function wireModalHandlers(){
       const kindField = sektorRouteForm.querySelector('[name="kind"]');
       const kind = kindField ? kindField.value : 'access';
       handleGpxFileUpload(sektorGpxInput, sektorRouteGpxPath(kind), 'sektor-route-id-for-track', 'sektor-route-track-hidden', 'sektor-route-gpx-status');
+    });
+    const sektorGpxRemoveBtn = document.getElementById('sektor-route-gpx-remove-btn');
+    if(sektorGpxRemoveBtn) sektorGpxRemoveBtn.addEventListener('click', ()=>{
+      const kindField = sektorRouteForm.querySelector('[name="kind"]');
+      const kind = kindField ? kindField.value : 'access';
+      removeGpxTrack(sektorRouteGpxPath(kind), 'sektor-route-id-for-track', 'sektor-route-track-hidden', 'sektor-route-gpx-status', 'sektor-route-gpx-remove-btn');
     });
 
     const sektorRouteMapToggleBtn = document.getElementById('sektor-route-map-toggle-btn');

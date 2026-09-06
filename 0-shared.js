@@ -2661,6 +2661,22 @@ function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simpl
   reader.onerror = ()=>{ if(statusEl) statusEl.textContent = 'Datei konnte nicht gelesen werden.'; };
   reader.readAsText(file);
 }
+// Ein einmal hochgeladener GPX-Track liess sich bisher nur durch eine neue Datei überschreiben,
+// nicht vollständig entfernen. Löscht sowohl die vereinfachte Linie (im Formular, wird beim
+// Speichern übernommen) als auch die Originaldatei in der Cloud.
+async function removeGpxTrack(trackPathPrefix, tourIdHiddenId, simplifiedHiddenId, statusId, removeBtnId){
+  const tourIdInput = document.getElementById(tourIdHiddenId);
+  const trackId = tourIdInput ? tourIdInput.value : '';
+  const simplifiedInput = document.getElementById(simplifiedHiddenId);
+  if(simplifiedInput) simplifiedInput.value = '';
+  markModalDirty();
+  const statusEl = document.getElementById(statusId);
+  if(statusEl) statusEl.textContent = 'Track wird entfernt…';
+  const removeBtn = removeBtnId ? document.getElementById(removeBtnId) : null;
+  if(removeBtn) removeBtn.style.display = 'none';
+  if(trackId) await fbDelete(trackPathPrefix + '/' + trackId).catch(()=>{});
+  if(statusEl) statusEl.textContent = 'Noch kein Track hochgeladen.';
+}
 
 /* ================= Routenplaner (OpenRouteService) =================
    Kostenlosen API-Key holen: https://openrouteservice.org/dev/#/signup
@@ -4070,6 +4086,7 @@ function accessRouteFormHtml(hutId, route){
       <div class="field"><label>Eigenen GPX-Track hochladen</label>
         <input type="file" id="access-route-gpx-input" accept=".gpx,application/gpx+xml"/>
         <p id="access-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
+        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="access-route-gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>` : ''}
         <input type="hidden" name="trackSimplified" id="access-route-track-hidden" value='${esc(r.trackSimplified ? JSON.stringify(r.trackSimplified) : "")}'/>
         <input type="hidden" name="routeIdForTrack" id="access-route-id-for-track" value="${esc(r.id||'')}"/>
       </div>
