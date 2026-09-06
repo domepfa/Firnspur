@@ -262,6 +262,20 @@
     touch-action:none;
   }
   .emergency-tab:hover{opacity:1;}
+  /* Agenda gilt für alle drei Kategorien (Skitour/Hochtour/MSL) gleichermassen — deshalb bewusst
+     nicht als weiterer Tab in der oberen Kategorie-Leiste, sondern als eigener, dezenter Zugang
+     am rechten Rand (spiegelbildlich zum SOS-Tab links), von überall aus erreichbar. */
+  .agenda-tab{
+    position:fixed; top:50%; right:0; transform:translateY(-50%); z-index:70;
+    background:var(--ink); color:#fff; border:none;
+    padding:12px 5px; border-radius:8px 0 0 8px;
+    font-family:'Oswald'; font-size:11px; font-weight:700; letter-spacing:0.08em;
+    writing-mode:vertical-rl; text-orientation:mixed;
+    box-shadow:var(--shadow); cursor:pointer; opacity:0.72;
+    touch-action:none;
+  }
+  .agenda-tab:hover, .agenda-tab.active{opacity:1;}
+  .agenda-tab.active{background:var(--ice-deep);}
 
   /* ===== Detail panel ===== */
   .detail-badge-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px;}
@@ -342,6 +356,7 @@
 </div>
 <div id="app"></div>
 <button class="emergency-tab" id="emergency-btn">SOS</button>
+<button class="agenda-tab" id="agenda-tab-btn">📅 Agenda</button>
 <button class="debug-toggle" id="debug-toggle-btn" onclick="toggleDebugPanel()">Diagnose v12</button>
 <div id="debug-panel-root"></div>
 
@@ -504,7 +519,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v88-agenda-feinschliff';
+const APP_VERSION = 'v89-agenda-globaler-zugang';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1059,6 +1074,13 @@ function render(){
   wireGlobalHandlers();
   if(state.modal) renderModal();
   if(!state.loading) cacheLocalSnapshot();
+  syncAgendaTabButton();
+}
+// Der Agenda-Tab liegt ausserhalb von #app (bleibt über render() hinweg bestehen) und muss darum
+// separat markiert werden, wenn er gerade aktiv ist.
+function syncAgendaTabButton(){
+  const btn = document.getElementById('agenda-tab-btn');
+  if(btn) btn.classList.toggle('active', state.view==='agenda');
 }
 
 function shellHtml(){
@@ -1088,7 +1110,6 @@ function shellHtml(){
     <div class="tabs"><div class="tabs-inner">
       <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">🎿 Touren</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
-      <button class="tab ${state.view==='agenda'?'active':''}" data-act="view-agenda">📅 Agenda</button>
       <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
     </div></div>
   </div>
@@ -1975,7 +1996,6 @@ function wireGlobalHandlers(){
     const act = el.getAttribute('data-act');
     if(act==='view-touren') el.onclick = ()=>setView('touren');
     else if(act==='view-huetten') el.onclick = ()=>setView('huetten');
-    else if(act==='view-agenda') el.onclick = ()=>setView('agenda');
     else if(act==='view-abgeschlossen') el.onclick = ()=>setView('abgeschlossen');
     else if(act==='change-name') el.onclick = ()=>{ state.modal = {type:'name'}; render(); };
     else if(act==='export-data') el.onclick = openExport;
@@ -2920,6 +2940,7 @@ emergencyTab.addEventListener('touchend', (e)=>{
     state.modal = {type:'emergency'}; render();
   }
 });
+document.getElementById('agenda-tab-btn').addEventListener('click', ()=>setView('agenda'));
 
 if(isLoggedIn()){
   dlog('App gestartet — Version ' + APP_VERSION);
