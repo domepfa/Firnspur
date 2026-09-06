@@ -519,7 +519,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v91-topo-bild-zuschneiden';
+const APP_VERSION = 'v92-agenda-ungesichert-warnung';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -745,10 +745,12 @@ function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===i
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
 function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(!skipDirtyCheck && !confirmDiscardIfDirty()){
-    // Nutzer will weiter bearbeiten — nichts schliessen. Bei der Hardware-/Browser-Zurück-Taste
-    // wurde der History-Eintrag bereits konsumiert; render() stellt ihn über
-    // pushModalHistoryIfNeeded() automatisch wieder her.
-    render();
+    // Nutzer will weiter bearbeiten — nichts schliessen, und explizit NICHT render() aufrufen:
+    // das würde die Maske komplett neu aus dem gespeicherten Ausgangszustand aufbauen und damit
+    // genau die unges­icherten Eingaben verwerfen, die der Nutzer gerade bewusst behalten wollte.
+    // Bei der Hardware-/Browser-Zurück-Taste wurde der History-Eintrag bereits konsumiert (siehe
+    // popstate-Handler) — den stellen wir hier gezielt wieder her, ohne die Maske neu zu rendern.
+    if(fromPopstate) pushModalHistoryIfNeeded();
     return;
   }
   stopLiveGpsOnMap();

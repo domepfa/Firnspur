@@ -3366,7 +3366,7 @@ function closeTopOverlayLayer(){
    wird stattdessen nur noch nachgefragt: hat sich seit dem Öffnen der Maske etwas geändert,
    fragt closeModal() vor dem Verwerfen einmal nach ("Ungespeicherte Änderungen verwerfen?").
    Speichern und Löschen laufen unverändert direkt durch (skipDirtyCheck-Parameter). */
-const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-sektor','edit-access-route','edit-tour-route','edit-sektor-route'];
+const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-sektor','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda'];
 let modalIsDirty = false;
 let lastDirtyTrackedModalKey = null;
 function modalDirtyTrackingKey(){
