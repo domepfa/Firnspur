@@ -2670,12 +2670,14 @@ async function geocodePlaces(query, count){
     return { lat: coords[1], lon: coords[0], label };
   }).filter(Boolean);
 }
-// Verlinkt die MeteoSwiss-Lokalprognose (z. B. meteoswiss.admin.ch/local-forecasts/zurich/8001.html) —
+// Verlinkt die MeteoSchweiz-Lokalprognose (z. B. meteoschweiz.admin.ch/local-forecasts/zurich/8001.html) —
 // dafür braucht es Ortsname + PLZ, die per Reverse-Geocoding (gleiche ORS/Pelias-Anbindung wie
 // geocodePlaces) aus den Koordinaten ermittelt werden. Schlägt das fehl (kein Treffer, keine PLZ,
-// kein API-Key, Netzwerkfehler), landet man stattdessen auf der allgemeinen MeteoSwiss-Wetterseite
+// kein API-Key, Netzwerkfehler), landet man stattdessen auf der allgemeinen MeteoSchweiz-Startseite
 // statt auf einem geratenen, evtl. falschen Link — lieber weniger präzise als kaputt.
-const METEOSWISS_FALLBACK_URL = 'https://www.meteoswiss.admin.ch/de/weather.html';
+// Wichtig: Die deutsche Sprache steckt hier nicht in einem Pfad-Präfix, sondern im Domainnamen
+// selbst — meteoswiss.admin.ch ist Englisch, meteoschweiz.admin.ch Deutsch (per Screenshot bestätigt).
+const METEOSWISS_FALLBACK_URL = 'https://www.meteoschweiz.admin.ch/';
 async function buildMeteoSwissLink(lat, lon){
   if(!OPENROUTESERVICE_API_KEY) return METEOSWISS_FALLBACK_URL;
   try{
@@ -2692,7 +2694,7 @@ async function buildMeteoSwissLink(lat, lon){
       .normalize('NFD').replace(combiningDiacritics, '')
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     if(!slug) return METEOSWISS_FALLBACK_URL;
-    return `https://www.meteoswiss.admin.ch/de/local-forecasts/${slug}/${plz}.html`;
+    return `https://www.meteoschweiz.admin.ch/local-forecasts/${slug}/${plz}.html`;
   }catch(e){
     return METEOSWISS_FALLBACK_URL;
   }
