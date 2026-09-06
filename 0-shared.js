@@ -283,9 +283,11 @@ function resolveAgendaTourRoutes(tourRef){
   return {accessRoutes, descentRoutes, tour};
 }
 // Best-effort Deep-Link auf die öffentliche SBB-Fahrplansuche — keine offizielle API, kein
-// Schlüssel nötig. Ausgangsort bleibt bewusst leer: SBB fragt beim Öffnen selbst danach.
-function buildSbbLink(destination, dateStr){
+// Schlüssel nötig. Ausgangsort: der Treffpunkt des Termins, falls vorhanden — sonst fragt SBB
+// beim Öffnen selbst danach (z. B. "Mein Standort").
+function buildSbbLink(destination, dateStr, origin){
   const params = new URLSearchParams();
+  if(origin) params.set('von', origin);
   if(destination) params.set('nach', destination);
   if(dateStr){
     const [y,m,d] = dateStr.split('-');
@@ -311,9 +313,32 @@ function weatherCodeInfo(code){
   const entry = table[code];
   return entry ? {icon: entry[0], label: entry[1]} : {icon:'🌡️', label:'Unbekannt'};
 }
-// Wettervorhersage via Open-Meteo — kostenlos, kein API-Key, keine Lizenzfrage. Die kostenlose
-// Vorhersage reicht rund 16 Tage in die Zukunft; weiter entfernte oder vergangene Termine bekommen
-// einen klaren Status statt einer falschen/leeren Antwort.
+// Lädt Tageswerte von einem Open-Meteo-kompatiblen Endpunkt (gleiche Parameter/Antwortform bei
+// allen deren spezialisierten Modell-Endpunkten). Gibt bei jedem Problem einfach null zurück —
+// die Aufrufer entscheiden dann selbst über Fallback vs. Fehlermeldung.
+async function fetchOpenMeteoDaily(baseUrl, lat, lon, startDate, endDate, extraParams){
+  try{
+    const res = await fetch(`${baseUrl}?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max&timezone=auto&start_date=${startDate}&end_date=${endDate}${extraParams||''}`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    const d = data.daily;
+    if(!d || !Array.isArray(d.time) || !d.time.length) return null;
+    return d.time.map((date,i)=>({
+      date,
+      weathercode: d.weathercode[i],
+      tempMax: d.temperature_2m_max[i],
+      tempMin: d.temperature_2m_min[i],
+      precipitation: d.precipitation_sum[i],
+      windMax: d.windspeed_10m_max[i]
+    }));
+  }catch(e){
+    return null;
+  }
+}
+// Wettervorhersage: primär über Open-Meteos dedizierten MeteoSwiss-ICON-Endpunkt (regionales,
+// hochaufgelöstes Modell des Bundesamts, ca. 5 Tage Reichweite) — bei Termine weiter in der
+// Zukunft oder falls dieser Endpunkt ausfällt, Rückfall auf Open-Meteos allgemeinen Multi-
+// Modell-Endpunkt (ca. 16 Tage Reichweite). Beides kostenlos, kein API-Key, keine Lizenzfrage.
 async function fetchWeatherForecast(lat, lon, dateStr){
   const target = new Date(dateStr + 'T00:00:00');
   const today = new Date(); today.setHours(0,0,0,0);
@@ -321,30 +346,22 @@ async function fetchWeatherForecast(lat, lon, dateStr){
   if(diffDays < 0) return {status:'past'};
   if(diffDays > 16) return {status:'too-far'};
   // Zusätzlich zum Starttag noch 2 Folgetage mitladen ("Prognosen" statt nur ein Einzelwert) —
-  // Open-Meteo liefert einfach weniger Tage zurück, falls das Ende der 16-Tage-Reichweite
+  // beide Endpunkte liefern einfach weniger Tage zurück, falls das Ende ihrer Reichweite
   // dazwischenkommt, das ist kein Fehlerfall.
   const endDate = new Date(target.getTime() + 2*86400000).toISOString().slice(0,10);
-  let res;
-  try{
-    res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max&timezone=auto&start_date=${dateStr}&end_date=${endDate}`);
-  }catch(e){
-    return {status:'error', message:'Wetterdaten nicht verfügbar (keine Internetverbindung?).'};
+  let days = null, source = null;
+  if(diffDays <= 5){
+    days = await fetchOpenMeteoDaily('https://api.open-meteo.com/v1/meteoswiss', lat, lon, dateStr, endDate, '&models=meteoswiss_icon_ch2');
+    if(days) source = 'MeteoSchweiz (ICON-CH2)';
   }
-  if(!res.ok) return {status:'error', message:'Wetterdaten nicht verfügbar.'};
-  const data = await res.json();
-  const d = data.daily;
-  if(!d || !Array.isArray(d.time) || !d.time.length) return {status:'error', message:'Keine Wetterdaten für dieses Datum.'};
-  const days = d.time.map((date,i)=>({
-    date,
-    weathercode: d.weathercode[i],
-    tempMax: d.temperature_2m_max[i],
-    tempMin: d.temperature_2m_min[i],
-    precipitation: d.precipitation_sum[i],
-    windMax: d.windspeed_10m_max[i]
-  }));
+  if(!days){
+    days = await fetchOpenMeteoDaily('https://api.open-meteo.com/v1/forecast', lat, lon, dateStr, endDate);
+    source = 'Open-Meteo';
+  }
+  if(!days) return {status:'error', message:'Wetterdaten nicht verfügbar (keine Internetverbindung?).'};
   return {
     status: 'ok',
-    days,
+    days, source,
     weathercode: days[0].weathercode,
     tempMax: days[0].tempMax,
     tempMin: days[0].tempMin,
@@ -378,14 +395,18 @@ async function loadAgendaWeather(agendaId){
     return;
   }
   el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13.5px; color:var(--ink-soft);">Wird geladen…</p></div>`;
-  let w;
-  try{ w = await fetchWeatherForecast(loc.lat, loc.lon, a.startDate); }
-  catch(e){ w = {status:'error', message:'Wetterdaten nicht verfügbar.'}; }
+  let w, meteoSwissLink;
+  try{
+    [w, meteoSwissLink] = await Promise.all([
+      fetchWeatherForecast(loc.lat, loc.lon, a.startDate),
+      buildMeteoSwissLink(loc.lat, loc.lon)
+    ]);
+  }catch(e){ w = {status:'error', message:'Wetterdaten nicht verfügbar.'}; meteoSwissLink = METEOSWISS_FALLBACK_URL; }
   if(el !== document.getElementById('agenda-weather-' + agendaId)) return; // Modal inzwischen geschlossen/gewechselt
   if(w.status==='ok'){
     const info = weatherCodeInfo(w.weathercode);
     window.__agendaWeatherCache = window.__agendaWeatherCache || {};
-    window.__agendaWeatherCache[agendaId] = { icon: info.icon, label: info.label, tempMin: w.tempMin, tempMax: w.tempMax, precipitation: w.precipitation, windMax: w.windMax, locationLabel: loc.label };
+    window.__agendaWeatherCache[agendaId] = { icon: info.icon, label: info.label, tempMin: w.tempMin, tempMax: w.tempMax, precipitation: w.precipitation, windMax: w.windMax, locationLabel: loc.label, source: w.source, meteoSwissLink };
     const followingDays = (w.days || []).slice(1); // Starttag selbst steht schon oben, hier nur die Folgetage
     el.innerHTML = `<div class="detail-section">
       <h4>Wetter${loc.label ? ' — ' + esc(loc.label) : ''}</h4>
@@ -401,8 +422,11 @@ async function loadAgendaWeather(agendaId){
           </div>`;
         }).join('')}
       </div>` : ''}
-      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose von Open-Meteo für den Zustieg — kann sich noch ändern.</p>
-      <button type="button" class="btn secondary" id="save-weather-snapshot-btn-${agendaId}">📥 Für unterwegs speichern</button>
+      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose: ${esc(w.source||'Open-Meteo')} — kann sich noch ändern.</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <a href="${esc(meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary">🌦️ MeteoSchweiz öffnen</a>
+        <button type="button" class="btn secondary" id="save-weather-snapshot-btn-${agendaId}">📥 Für unterwegs speichern</button>
+      </div>
     </div>`;
     const snapBtn = document.getElementById('save-weather-snapshot-btn-' + agendaId);
     if(snapBtn) snapBtn.onclick = ()=> saveWeatherSnapshot(agendaId);
@@ -508,7 +532,8 @@ function agendaDetailHtml(id){
       <h4>📥 Für unterwegs gespeichert${a.weatherSnapshot.locationLabel ? ' — ' + esc(a.weatherSnapshot.locationLabel) : ''}</h4>
       <p style="font-size:15px; margin:0 0 4px 0;">${a.weatherSnapshot.icon||'🌡️'} ${esc(a.weatherSnapshot.label||'')}</p>
       <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(a.weatherSnapshot.tempMin)}° / ${Math.round(a.weatherSnapshot.tempMax)}° · 💧 ${a.weatherSnapshot.precipitation} mm · 💨 ${Math.round(a.weatherSnapshot.windMax)} km/h</p>
-      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Stand vom ${esc(fmtDate(a.weatherSnapshot.savedAt))} — bleibt auch ohne Netz sichtbar.</p>
+      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Stand vom ${esc(fmtDate(a.weatherSnapshot.savedAt))}${a.weatherSnapshot.source ? ' · ' + esc(a.weatherSnapshot.source) : ''} — bleibt auch ohne Netz sichtbar.</p>
+      ${a.weatherSnapshot.meteoSwissLink ? `<a href="${esc(a.weatherSnapshot.meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block; margin-top:8px;">🌦️ MeteoSchweiz öffnen</a>` : ''}
     </div>` : ''}
     <div id="agenda-weather-${a.id}"></div>
     ${a.meetingPoint ? `<div class="detail-section"><h4>Treffpunkt</h4><p>${esc(a.meetingPoint)}</p></div>` : ''}
@@ -524,7 +549,7 @@ function agendaDetailHtml(id){
     ${a.anreiseType ? `<div class="detail-section">
       <h4>Anreise</h4>
       <p style="margin:0 0 8px 0;">${a.anreiseType==='auto' ? '🚗 Auto' : '🚉 Öffentlicher Verkehr'}${a.anreiseOrt ? ' — ' + esc(a.anreiseOrt) : ''}</p>
-      ${a.anreiseType==='oev' ? `<a href="${esc(buildSbbLink(a.anreiseOrt, a.startDate))}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block;">🚉 SBB Fahrplan öffnen</a>` : ''}
+      ${a.anreiseType==='oev' ? `<a href="${esc(buildSbbLink(a.anreiseOrt, a.startDate, a.meetingPoint))}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block;">🚉 SBB Fahrplan öffnen</a>` : ''}
     </div>` : ''}
     ${a.endOption ? `<div class="detail-section">
       <h4>Nach der Tour</h4>
@@ -2644,6 +2669,33 @@ async function geocodePlaces(query, count){
     const label = (feature.properties && (feature.properties.label || feature.properties.name)) || query;
     return { lat: coords[1], lon: coords[0], label };
   }).filter(Boolean);
+}
+// Verlinkt die MeteoSwiss-Lokalprognose (z. B. meteoswiss.admin.ch/local-forecasts/zurich/8001.html) —
+// dafür braucht es Ortsname + PLZ, die per Reverse-Geocoding (gleiche ORS/Pelias-Anbindung wie
+// geocodePlaces) aus den Koordinaten ermittelt werden. Schlägt das fehl (kein Treffer, keine PLZ,
+// kein API-Key, Netzwerkfehler), landet man stattdessen auf der allgemeinen MeteoSwiss-Wetterseite
+// statt auf einem geratenen, evtl. falschen Link — lieber weniger präzise als kaputt.
+const METEOSWISS_FALLBACK_URL = 'https://www.meteoswiss.admin.ch/weather.html';
+async function buildMeteoSwissLink(lat, lon){
+  if(!OPENROUTESERVICE_API_KEY) return METEOSWISS_FALLBACK_URL;
+  try{
+    const res = await fetch(`https://api.openrouteservice.org/geocode/reverse?api_key=${encodeURIComponent(OPENROUTESERVICE_API_KEY)}&point.lat=${lat}&point.lon=${lon}&boundary.country=CHE&size=1`);
+    if(!res.ok) return METEOSWISS_FALLBACK_URL;
+    const data = await res.json();
+    const props = data.features && data.features[0] && data.features[0].properties;
+    if(!props) return METEOSWISS_FALLBACK_URL;
+    const plz = props.postalcode || props.postal_code || props.zip;
+    const localityRaw = props.locality || props.localadmin || props.county || props.region;
+    if(!plz || !localityRaw) return METEOSWISS_FALLBACK_URL;
+    const combiningDiacritics = new RegExp('[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']', 'g');
+    const slug = localityRaw.toLowerCase()
+      .normalize('NFD').replace(combiningDiacritics, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if(!slug) return METEOSWISS_FALLBACK_URL;
+    return `https://www.meteoswiss.admin.ch/local-forecasts/${slug}/${plz}.html`;
+  }catch(e){
+    return METEOSWISS_FALLBACK_URL;
+  }
 }
 // Formatiert die Dauer einer berechneten Route im "H:MM"-Format, passend zum sonst in der App
 // verwendeten Zeitbedarf-Feld (z. B. "1:45"), statt der ausgeschriebenen Kurzform für Stat-Karten.
