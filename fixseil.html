@@ -637,7 +637,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v81-sbb-wetter-fix';
+const APP_VERSION = 'v82-meteoschweiz';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3501,7 +3501,8 @@ function wireModalHandlers(){
     if(sbbLinkBtn) sbbLinkBtn.onclick = ()=>{
       const ortInput = agendaForm.querySelector('input[name="anreiseOrt"]');
       const dateInput = agendaForm.querySelector('input[name="startDate"]');
-      window.open(buildSbbLink(ortInput ? ortInput.value.trim() : '', dateInput ? dateInput.value : ''), '_blank', 'noopener');
+      const meetingInput = agendaForm.querySelector('input[name="meetingPoint"]');
+      window.open(buildSbbLink(ortInput ? ortInput.value.trim() : '', dateInput ? dateInput.value : '', meetingInput ? meetingInput.value.trim() : ''), '_blank', 'noopener');
     };
 
     const endOptionHidden = document.getElementById('end-option-hidden');
