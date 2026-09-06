@@ -637,7 +637,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v87-touren-verknuepfung-zurueck';
+const APP_VERSION = 'v88-touren-tab-erreichbar';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -728,6 +728,10 @@ let state = {
   hutSortBy: 'name',
   hutSortDir: 'asc',
   tourCategoryFilter: '',
+  // Merkt sich, ob man zuletzt in Hochtour- oder MSL-Touren unterwegs war — auch während man
+  // Hütten/Sektoren/Agenda/Done ansieht, damit der "Touren"-Tab dort weiterhin zur richtigen
+  // Liste zurückführt, ohne Hochtour UND MSL doppelt als eigene Tabs anzeigen zu müssen.
+  tourCategoryContext: 'hochtour',
   hasUnsavedChanges: false,
   offlineMode: false,
   offlineCachedAt: null,
@@ -736,7 +740,7 @@ let state = {
 // Direkter Einstieg per Link aus der oberen Umschalt-Leiste ("🧗 MSL" führt hierher mit
 // ?view=msl), damit man nicht immer erst über "Hochtour" navigieren muss.
 try{
-  if(new URLSearchParams(location.search).get('view')==='msl') state.view = 'msl';
+  if(new URLSearchParams(location.search).get('view')==='msl'){ state.view = 'msl'; state.tourCategoryContext = 'msl'; }
 }catch(e){}
 
 
@@ -1869,7 +1873,12 @@ function resetHutFilters(){
   render();
 }
 function setSearch(v){ state.search = v; render(); }
-function setView(v){ state.view = v; state.modal = null; modalOpenedFromStandaloneMap = false; render(); }
+function setView(v){
+  state.view = v;
+  if(v==='touren') state.tourCategoryContext = 'hochtour';
+  else if(v==='msl') state.tourCategoryContext = 'msl';
+  state.modal = null; modalOpenedFromStandaloneMap = false; render();
+}
 
 /* ================= Render: shell ================= */
 function render(){
@@ -1886,9 +1895,9 @@ function syncAppSwitchBar(){
   const hochtourLink = document.getElementById('switch-hochtour');
   const mslLink = document.getElementById('switch-msl');
   if(!hochtourLink || !mslLink) return;
-  const isMslView = state.view==='msl';
-  hochtourLink.classList.toggle('active', !isMslView);
-  mslLink.classList.toggle('active', isMslView);
+  const isMsl = state.tourCategoryContext==='msl';
+  hochtourLink.classList.toggle('active', !isMsl);
+  mslLink.classList.toggle('active', isMsl);
 }
 
 function shellHtml(){
@@ -1916,6 +1925,7 @@ function shellHtml(){
       </div>
     </div>
     <div class="tabs"><div class="tabs-inner">
+      <button class="tab ${(state.view==='touren'||state.view==='msl')?'active':''}" data-act="view-tours-context">${state.tourCategoryContext==='msl'?'🧗 MSL':'🏔️ Touren'}</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
       <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">🧭 Sektoren</button>
       <button class="tab ${state.view==='agenda'?'active':''}" data-act="view-agenda">📅 Agenda</button>
@@ -3083,6 +3093,7 @@ function wireGlobalHandlers(){
     const act = el.getAttribute('data-act');
     if(act==='view-touren') el.onclick = ()=>setView('touren');
     else if(act==='view-msl') el.onclick = ()=>setView('msl');
+    else if(act==='view-tours-context') el.onclick = ()=>setView(state.tourCategoryContext==='msl' ? 'msl' : 'touren');
     else if(act==='view-huetten') el.onclick = ()=>setView('huetten');
     else if(act==='view-sektoren') el.onclick = ()=>setView('sektoren');
     else if(act==='view-agenda') el.onclick = ()=>setView('agenda');
