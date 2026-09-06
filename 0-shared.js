@@ -2675,7 +2675,7 @@ async function geocodePlaces(query, count){
 // geocodePlaces) aus den Koordinaten ermittelt werden. Schlägt das fehl (kein Treffer, keine PLZ,
 // kein API-Key, Netzwerkfehler), landet man stattdessen auf der allgemeinen MeteoSwiss-Wetterseite
 // statt auf einem geratenen, evtl. falschen Link — lieber weniger präzise als kaputt.
-const METEOSWISS_FALLBACK_URL = 'https://www.meteoswiss.admin.ch/weather.html';
+const METEOSWISS_FALLBACK_URL = 'https://www.meteoswiss.admin.ch/de/weather.html';
 async function buildMeteoSwissLink(lat, lon){
   if(!OPENROUTESERVICE_API_KEY) return METEOSWISS_FALLBACK_URL;
   try{
@@ -2692,7 +2692,7 @@ async function buildMeteoSwissLink(lat, lon){
       .normalize('NFD').replace(combiningDiacritics, '')
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     if(!slug) return METEOSWISS_FALLBACK_URL;
-    return `https://www.meteoswiss.admin.ch/local-forecasts/${slug}/${plz}.html`;
+    return `https://www.meteoswiss.admin.ch/de/local-forecasts/${slug}/${plz}.html`;
   }catch(e){
     return METEOSWISS_FALLBACK_URL;
   }
