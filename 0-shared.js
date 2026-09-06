@@ -76,6 +76,71 @@ async function fbDelete(path){
   }
 }
 
+/* ================= Namen-Schutz & persönliche Merkliste =================
+   Kein echtes Login — das gemeinsame App-Passwort (signInWithPassword) regelt bereits den
+   Zugriff auf die Daten insgesamt. Das hier verhindert nur Verwechslungen: wer einen Namen
+   zum ersten Mal einträgt, vergibt ein frei wählbares Passwort dafür; will jemand denselben
+   Namen später wieder benutzen (anderes Gerät, versehentlich derselbe Name), muss das
+   Passwort übereinstimmen. Gespeichert wird nur ein Hash, kein Klartext. */
+async function sha256Hex(text){
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function sanitizeNameKey(name){
+  return (name||'').trim().toLowerCase().replace(/[.#$\[\]\/]/g, '_');
+}
+async function claimOrVerifyName(name, pin){
+  const key = sanitizeNameKey(name);
+  if(!key) return {ok:false, reason:'empty-name'};
+  let existing, fetchFailed = false;
+  try{
+    await ensureValidAuthToken();
+    const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
+    const res = await fetch(FIREBASE_URL + '/' + USERS_PATH + '/' + key + '.json' + authParam);
+    if(!res.ok){ fetchFailed = true; }
+    else{ existing = await res.json(); }
+  }catch(e){ fetchFailed = true; }
+  if(fetchFailed){
+    // Offline/Fehler: nicht aussperren, aber auch keinen neuen Eintrag anlegen — sonst könnte
+    // später beim Synchronisieren versehentlich ein bestehendes Passwort überschrieben werden.
+    return {ok:true, unverified:true};
+  }
+  if(!existing){
+    if(!pin) return {ok:false, reason:'need-pin'};
+    const pinHash = await sha256Hex(pin);
+    fbSet(USERS_PATH + '/' + key, {name: name.trim(), pinHash, createdAt: new Date().toISOString()}).catch(()=>{});
+    return {ok:true};
+  }
+  if(!existing.pinHash) return {ok:true}; // Alter Eintrag von vor diesem Feature — nicht aussperren
+  const pinHash = await sha256Hex(pin||'');
+  if(pinHash === existing.pinHash) return {ok:true};
+  return {ok:false, reason:'wrong-pin'};
+}
+// Persönliche Merkliste (★) — pro Namen in der Cloud gespeichert, damit sie geräteübergreifend
+// erhalten bleibt, aber beim Anzeigen nur die eigenen markierten Einträge gezeigt werden.
+async function loadFavorites(){
+  if(!state.myName){ state.favorites = new Set(); return; }
+  const key = sanitizeNameKey(state.myName);
+  const obj = await fbGet(USERS_PATH + '/' + key + '/favorites').catch(()=>null);
+  state.favorites = new Set(obj ? Object.keys(obj) : []);
+  render();
+}
+function isFavorite(id){ return !!(state.favorites && state.favorites.has(id)); }
+async function toggleFavorite(id){
+  if(!state.myName){ ensureName(()=>toggleFavorite(id)); return; }
+  const key = sanitizeNameKey(state.myName);
+  const already = isFavorite(id);
+  if(already) state.favorites.delete(id); else state.favorites.add(id);
+  render();
+  if(already) await fbDelete(USERS_PATH + '/' + key + '/favorites/' + id).catch(()=>{});
+  else await fbSet(USERS_PATH + '/' + key + '/favorites/' + id, true).catch(()=>{});
+}
+function favoriteToggleButtonHtml(id){
+  const on = isFavorite(id);
+  return `<button type="button" class="fav-toggle-btn" data-act="toggle-favorite" data-id="${esc(id)}" title="${on ? 'Von Merkliste entfernen' : 'Zur Merkliste hinzufügen'}" style="background:none; border:none; cursor:pointer; font-size:20px; line-height:1; padding:2px 6px; flex-shrink:0;">${on ? '⭐' : '☆'}</button>`;
+}
+
 /* ================= Basis-Hilfsfunktionen ================= */
 function uid(prefix){ return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8); }
 function dedupeById(arr){

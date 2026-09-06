@@ -637,7 +637,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v88-touren-tab-erreichbar';
+const APP_VERSION = 'v89-merkliste-namensschutz';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -666,6 +666,7 @@ const SEKTOR_DESCENT_ROUTE_GPX_PATH = 'sektorDescentRouteGpxTracks'; // Abstiege
 const OTHER_TOURS_PATH = 'tours';
 const OWN_APP_LABEL = '🧗 Hochtour';
 const OTHER_APP_LABEL = '🎿 Skitour';
+const USERS_PATH = 'users'; // appübergreifend geteilt (Namen-Passwortschutz + Merkliste)
 
 
 /* ================= Fachliche Daten ================= */
@@ -732,6 +733,8 @@ let state = {
   // Hütten/Sektoren/Agenda/Done ansieht, damit der "Touren"-Tab dort weiterhin zur richtigen
   // Liste zurückführt, ohne Hochtour UND MSL doppelt als eigene Tabs anzeigen zu müssen.
   tourCategoryContext: 'hochtour',
+  favorites: new Set(),
+  onlyFavorites: false,
   hasUnsavedChanges: false,
   offlineMode: false,
   offlineCachedAt: null,
@@ -904,14 +907,23 @@ function ensureName(after){
   state.modal = {type:'name', after};
   render();
 }
-async function submitName(nameVal){
+async function submitName(nameVal, pinVal){
   const n = (nameVal||'').trim();
   if(!n) return;
+  const after = state.modal && state.modal.after;
+  const submitBtn = document.querySelector('[data-act="submit-name"]');
+  if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = 'Prüfe…'; }
+  const result = await claimOrVerifyName(n, pinVal||'');
+  if(!result.ok){
+    state.modal = { type:'name', after, error: result.reason==='wrong-pin' ? 'Falsches Passwort für diesen Namen.' : 'Bitte ein Passwort eingeben.' };
+    render();
+    return;
+  }
   state.myName = n;
   try{ localStorage.setItem('fixseil-myname', n); }catch(e){}
-  const after = state.modal && state.modal.after;
   state.modal = null;
   render();
+  loadFavorites();
   if(after) after();
 }
 
@@ -1942,6 +1954,7 @@ function shellHtml(){
 /* ================= Touren view (Hochtour) ================= */
 function filteredTours(){
   let list = state.tours.filter(t=> (t.tourCategory||'hochtour')==='hochtour');
+  if(state.onlyFavorites) list = list.filter(t=>isFavorite(t.id));
   if(state.activeDiffFilters.size){
     list = list.filter(t=>state.activeDiffFilters.has(t.difficulty));
   }
@@ -1981,7 +1994,10 @@ function tourenViewHtml(){
       <span style="font-size:13px; color:var(--ink-soft);">Sortieren nach</span>
       ${sortControlHtml('tour', TOUR_SORT_OPTIONS, state.tourSortBy, state.tourSortDir)}
     </div>
-    <button type="button" class="btn secondary" id="tour-filter-toggle-btn" style="margin-bottom:10px;">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+    <div style="display:flex; gap:8px; margin-bottom:10px;">
+      <button type="button" class="btn secondary" id="tour-filter-toggle-btn">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+      <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">⭐ Nur Merkliste</button>
+    </div>
     <div id="tour-filter-panel" style="display:${activeFilterCount ? '' : 'none'}; margin-bottom:14px;">
       <div class="field"><label>Schwierigkeit</label>
         <div class="chips">
@@ -2033,6 +2049,7 @@ function emptyTouren(){
 /* ================= MSL view ================= */
 function filteredMslTours(){
   let list = state.tours.filter(t=> t.tourCategory==='msl');
+  if(state.onlyFavorites) list = list.filter(t=>isFavorite(t.id));
   if(state.activeRegionFilters.size){
     list = list.filter(t=>state.activeRegionFilters.has(t.region));
   }
@@ -2066,7 +2083,10 @@ function mslViewHtml(){
       <span style="font-size:13px; color:var(--ink-soft);">Sortieren nach</span>
       ${sortControlHtml('msl', MSL_SORT_OPTIONS, state.tourSortBy, state.tourSortDir)}
     </div>
-    <button type="button" class="btn secondary" id="tour-filter-toggle-btn" style="margin-bottom:10px;">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+    <div style="display:flex; gap:8px; margin-bottom:10px;">
+      <button type="button" class="btn secondary" id="tour-filter-toggle-btn">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+      <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">⭐ Nur Merkliste</button>
+    </div>
     <div id="tour-filter-panel" style="display:${activeFilterCount ? '' : 'none'}; margin-bottom:14px;">
       ${usedRegions.length ? `<div class="field"><label>Region</label>
         <div class="chips">
@@ -2112,7 +2132,10 @@ function tourCardHtml(t){
   const last = latestCompletion(t.completions);
   return `
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
-    <div class="agenda-date-row" style="font-size:12px; margin-bottom:6px;">${isMsl ? '🧗 MSL — Mehrseillängen' : '🏔️ Hochtour'}</div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <div class="agenda-date-row" style="font-size:12px; margin-bottom:0;">${isMsl ? '🧗 MSL — Mehrseillängen' : '🏔️ Hochtour'}</div>
+      ${favoriteToggleButtonHtml(t.id)}
+    </div>
     <div class="card-top">
       <h3 style="color:var(--ice-deep);">${done ? '✓ ' : ''}${esc(t.name)}</h3>
       <div class="badge-row">
@@ -2423,10 +2446,14 @@ function completionModalHtml(payload){
 }
 
 function nameModalHtml(){
+  const errorMsg = state.modal && state.modal.error;
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Wie heisst du?</h2></div>
-    <p style="font-size:14px; color:var(--ink-soft); margin:0 0 14px 0;">Dein Name wird bei Touren und Hütten angezeigt, die du hinzufügst oder bearbeitest. Er wird nur auf diesem Gerät gespeichert.</p>
-    <div class="field"><label>Name</label><input type="text" id="name-input" placeholder="z. B. Simone" autofocus/></div>
+    <p style="font-size:14px; color:var(--ink-soft); margin:0 0 10px 0;">Dein Name wird bei Touren und Hütten angezeigt, die du hinzufügst oder bearbeitest.</p>
+    <div class="field"><label>Name</label><input type="text" id="name-input" value="${esc((state.myName||''))}" placeholder="z. B. Simone" autofocus/></div>
+    <div class="field"><label>Passwort</label><input type="password" id="name-pin-input" placeholder="frei wählbar"/></div>
+    <p style="font-size:12px; color:var(--ink-faint); margin:0 0 14px 0;">Schützt deinen Namen vor Verwechslungen: Beim ersten Mal legst du hier ein Passwort für diesen Namen fest — danach brauchst du es, um wieder als "dieser Name" zu gelten (auch auf einem anderen Gerät).</p>
+    ${errorMsg ? `<p style="color:var(--danger); font-size:13px; margin:0 0 14px 0;">${esc(errorMsg)}</p>` : ''}
     <div class="form-actions">
       <button class="btn secondary" data-act="close-modal">Abbrechen</button>
       <button class="btn" data-act="submit-name">Weiter</button>
@@ -2689,7 +2716,10 @@ function tourDetailHtml(id){
         </div>
         <h2 style="color:var(--ice-deep);">${esc(t.name)}</h2>
       </div>
-      <button class="x-btn" data-act="close-modal">×</button>
+      <div style="display:flex; align-items:flex-start; gap:4px;">
+        ${favoriteToggleButtonHtml(t.id)}
+        <button class="x-btn" data-act="close-modal">×</button>
+      </div>
     </div>
     ${t.routeName ? `<h2 style="margin:0 0 6px 0; color:var(--ink-soft);">${esc(t.routeName)}</h2>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
@@ -3112,6 +3142,8 @@ function wireGlobalHandlers(){
       try{ images = JSON.parse(el.getAttribute('data-images')||'[]'); }catch(err){ images = []; }
       showTopoImageLightbox(images, 0, el.getAttribute('data-id'));
     };
+    else if(act==='toggle-favorite') el.onclick = (e)=>{ e.stopPropagation(); toggleFavorite(el.getAttribute('data-id')); };
+    else if(act==='toggle-only-favorites') el.onclick = ()=>{ state.onlyFavorites = !state.onlyFavorites; render(); };
     else if(act==='add-agenda') el.onclick = openAddAgenda;
     else if(act==='open-tour') { el.onclick = ()=>openTourDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openTourDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-hut') { el.onclick = ()=>openHutDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openHutDetail(el.getAttribute('data-id'));}; }
@@ -3632,10 +3664,13 @@ function wireModalHandlers(){
   const submitNameBtn = root.querySelector('[data-act="submit-name"]');
   if(submitNameBtn) submitNameBtn.onclick = ()=>{
     const val = document.getElementById('name-input').value;
-    submitName(val);
+    const pin = document.getElementById('name-pin-input').value;
+    submitName(val, pin);
   };
   const nameInput = document.getElementById('name-input');
-  if(nameInput) nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitName(nameInput.value); } });
+  const namePinInput = document.getElementById('name-pin-input');
+  if(nameInput) nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitName(nameInput.value, namePinInput.value); } });
+  if(namePinInput) namePinInput.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitName(nameInput.value, namePinInput.value); } });
 
   const tourForm = document.getElementById('tour-form');
   dlog('tour-form im DOM gefunden: ' + !!tourForm);
@@ -4429,6 +4464,7 @@ emergencyTab.addEventListener('touchend', (e)=>{
 if(isLoggedIn()){
   dlog('App gestartet — Version ' + APP_VERSION);
   loadAll();
+  if(state.myName) loadFavorites();
 }else{
   document.getElementById('app').innerHTML = loginScreenHtml();
   wireLoginScreen();
