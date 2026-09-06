@@ -637,7 +637,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v84-meteoschweiz-domain';
+const APP_VERSION = 'v85-keine-kategorie-mischung';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2795,10 +2795,14 @@ function tourDetailHtml(id){
       ${t.trackSimplified ? `<button type="button" class="btn secondary" data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}">📥 GPX herunterladen (Originaldatei)</button>` : ''}
       ${(!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? `<button type="button" class="btn secondary" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}">📥 Route als GPX exportieren</button>` : ''}
     </div>` : ''}
-    ${(() => { const related = findToursSharingPoints(t, state.tours, 300); return related.length ? `<div class="detail-section">
+    ${(() => {
+      const sameCategoryTours = state.tours.filter(x=> (x.tourCategory||'hochtour')===(t.tourCategory||'hochtour'));
+      const related = findToursSharingPoints(t, sameCategoryTours, 300);
+      return related.length ? `<div class="detail-section">
       <h4>Weitere Touren ab hier (${related.length})</h4>
       <div class="grid" style="margin-top:6px;">${related.map(tourCardHtml).join('')}</div>
-    </div>` : ''; })()}
+    </div>` : '';
+    })()}
     ${!isMsl && t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
 
     <div class="detail-section">
