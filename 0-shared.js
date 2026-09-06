@@ -4268,7 +4268,10 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
   }
   (async ()=>{
     for(let i=0; i<filesToAdd.length; i++){
-      const file = filesToAdd[i];
+      const rawFile = filesToAdd[i];
+      const cropped = await openImageCropDialog(rawFile);
+      if(!cropped) continue; // "Bild überspringen" oder Zurück-Taste — dieses Bild nicht übernehmen
+      const file = cropped;
       if(statusEl) statusEl.textContent = `Bild ${images.length+1}/${TOPO_IMAGE_MAX_COUNT} wird komprimiert…`;
       try{
         const blob = await compressImageFile(file, 1200, 0.78);
@@ -4287,7 +4290,7 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
         return;
       }
     }
-    if(statusEl) statusEl.textContent = `✓ ${images.length}/${TOPO_IMAGE_MAX_COUNT} Bilder hochgeladen.`;
+    if(statusEl) statusEl.textContent = images.length ? `✓ ${images.length}/${TOPO_IMAGE_MAX_COUNT} Bilder hochgeladen.` : 'Noch keine Bilder hochgeladen.';
     fileInputEl.value = '';
   })();
 }
@@ -4470,6 +4473,158 @@ function showTopoImageLightbox(images, startIndex, offlineId){
 
   document.body.appendChild(overlay);
   pushOverlayLayer(closeLightbox);
+}
+
+/* ================= Zuschneiden von Topo-Bildern vor dem Hochladen =================
+   Bewusst VOR dem Hochladen, auf der lokal ausgewählten Datei: ein Zuschnitt am bereits
+   hochgeladenen Bild müsste es per <canvas> aus der Firebase-Storage-URL neu einlesen — das
+   scheitert ohne eigens am Storage-Bucket gesetzte CORS-Regeln. Die Dreh-Funktion oben umgeht
+   dasselbe Problem, indem sie nur eine Anzeige-Metadaten-Drehung speichert statt die Pixel zu
+   verändern; ein echter Zuschnitt braucht dagegen Pixelzugriff, den es nur vor dem Hochladen
+   ohne Weiteres gibt. Gibt eine Promise zurück: das zugeschnittene Blob, die Originaldatei
+   („Ohne Zuschneiden verwenden“ oder Zurück-Taste), oder null bei „Bild überspringen“.
+   Bild überspringen liefert dasselbe null wie die Zurück-Taste — beides heisst "dieses Bild
+   nicht übernehmen", ist also bewusst identisch behandelt. */
+function openImageCropDialog(file){
+  return new Promise((resolve)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:210; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:16px; touch-action:none;';
+
+        const hint = document.createElement('div');
+        hint.textContent = 'Ausschnitt wählen: Ecken ziehen zum Grösse ändern, Rahmen verschieben';
+        hint.style.cssText = 'color:#fff; font-size:13px; margin-bottom:10px; text-align:center;';
+        overlay.appendChild(hint);
+
+        const stage = document.createElement('div');
+        stage.style.cssText = 'position:relative; touch-action:none; line-height:0;';
+        const imgEl = document.createElement('img');
+        imgEl.src = reader.result;
+        imgEl.draggable = false;
+        imgEl.style.cssText = 'display:block; max-width:calc(100vw - 32px); max-height:60vh; user-select:none; -webkit-user-drag:none;';
+        stage.appendChild(imgEl);
+
+        const box = document.createElement('div');
+        box.style.cssText = 'position:absolute; border:2px solid #fff; box-sizing:border-box; box-shadow:0 0 0 2000px rgba(0,0,0,0.55); touch-action:none; cursor:move;';
+        stage.appendChild(box);
+
+        const CORNERS = ['nw','ne','sw','se'];
+        const handles = {};
+        CORNERS.forEach(c=>{
+          const h = document.createElement('div');
+          h.style.cssText = `position:absolute; width:26px; height:26px; margin:-13px; background:#fff; border-radius:50%; touch-action:none; cursor:${(c==='nw'||c==='se')?'nwse-resize':'nesw-resize'};`;
+          h.style[c.includes('n')?'top':'bottom'] = '0';
+          h.style[c.includes('w')?'left':'right'] = '0';
+          box.appendChild(h);
+          handles[c] = h;
+        });
+
+        overlay.appendChild(stage);
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; justify-content:center;';
+        const applyBtn = document.createElement('button');
+        applyBtn.type = 'button'; applyBtn.textContent = '✓ Zuschnitt übernehmen'; applyBtn.className = 'btn';
+        const skipBtn = document.createElement('button');
+        skipBtn.type = 'button'; skipBtn.textContent = 'Ohne Zuschneiden verwenden'; skipBtn.className = 'btn secondary';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button'; cancelBtn.textContent = 'Bild überspringen'; cancelBtn.className = 'btn secondary';
+        btnRow.appendChild(applyBtn); btnRow.appendChild(skipBtn); btnRow.appendChild(cancelBtn);
+        overlay.appendChild(btnRow);
+
+        document.body.appendChild(overlay);
+
+        const MIN_SIZE = 30;
+        let boxRect = {left:0, top:0, width:0, height:0};
+        function renderBox(){
+          box.style.left = boxRect.left + 'px';
+          box.style.top = boxRect.top + 'px';
+          box.style.width = boxRect.width + 'px';
+          box.style.height = boxRect.height + 'px';
+        }
+        function initBox(){
+          const iw = imgEl.clientWidth, ih = imgEl.clientHeight;
+          stage.style.width = iw + 'px';
+          stage.style.height = ih + 'px';
+          const margin = Math.min(iw, ih) * 0.1;
+          boxRect = { left: margin, top: margin, width: iw - margin*2, height: ih - margin*2 };
+          renderBox();
+        }
+        // Läuft nach dem Layout — direkt nach dem Anhängen ist imgEl.clientWidth/Height noch 0.
+        requestAnimationFrame(initBox);
+        function clampBox(){
+          const iw = imgEl.clientWidth, ih = imgEl.clientHeight;
+          boxRect.width = Math.max(MIN_SIZE, Math.min(boxRect.width, iw));
+          boxRect.height = Math.max(MIN_SIZE, Math.min(boxRect.height, ih));
+          boxRect.left = Math.max(0, Math.min(boxRect.left, iw - boxRect.width));
+          boxRect.top = Math.max(0, Math.min(boxRect.top, ih - boxRect.height));
+        }
+
+        let dragMode = null, dragStartX = 0, dragStartY = 0, startBox = null;
+        function onPointerMove(e){
+          if(!dragMode) return;
+          const dx = e.clientX - dragStartX, dy = e.clientY - dragStartY;
+          if(dragMode==='move'){
+            boxRect.left = startBox.left + dx;
+            boxRect.top = startBox.top + dy;
+          }else{
+            let {left, top, width, height} = startBox;
+            if(dragMode.includes('w')){ left = startBox.left + dx; width = startBox.width - dx; }
+            if(dragMode.includes('e')){ width = startBox.width + dx; }
+            if(dragMode.includes('n')){ top = startBox.top + dy; height = startBox.height - dy; }
+            if(dragMode.includes('s')){ height = startBox.height + dy; }
+            if(width < MIN_SIZE){ if(dragMode.includes('w')) left = startBox.left + startBox.width - MIN_SIZE; width = MIN_SIZE; }
+            if(height < MIN_SIZE){ if(dragMode.includes('n')) top = startBox.top + startBox.height - MIN_SIZE; height = MIN_SIZE; }
+            boxRect = {left, top, width, height};
+          }
+          clampBox();
+          renderBox();
+        }
+        function onPointerUp(){
+          dragMode = null;
+          document.removeEventListener('pointermove', onPointerMove);
+          document.removeEventListener('pointerup', onPointerUp);
+        }
+        function onPointerDown(mode, e){
+          e.preventDefault(); e.stopPropagation();
+          dragMode = mode;
+          dragStartX = e.clientX; dragStartY = e.clientY;
+          startBox = {...boxRect};
+          document.addEventListener('pointermove', onPointerMove);
+          document.addEventListener('pointerup', onPointerUp);
+        }
+        box.addEventListener('pointerdown', (e)=>{ if(e.target===box) onPointerDown('move', e); });
+        CORNERS.forEach(c=> handles[c].addEventListener('pointerdown', (e)=> onPointerDown(c, e)));
+
+        // Genau ein Rückgabepfad: alle Buttons setzen pendingResult und schliessen dann über den
+        // Overlay-Stack — so löst auch die Hardware-Zurück-Taste (popstate ruft denselben
+        // registrierten closeFn) korrekt auf (dann bleibt pendingResult bei null = übersprungen).
+        let pendingResult = null;
+        pushOverlayLayer(()=>{ overlay.remove(); resolve(pendingResult); });
+        function closeWith(result){ pendingResult = result; closeTopOverlayLayer(); }
+
+        applyBtn.addEventListener('click', ()=>{
+          const scaleX = img.naturalWidth / imgEl.clientWidth;
+          const scaleY = img.naturalHeight / imgEl.clientHeight;
+          const sx = Math.round(boxRect.left * scaleX), sy = Math.round(boxRect.top * scaleY);
+          const sw = Math.round(boxRect.width * scaleX), sh = Math.round(boxRect.height * scaleY);
+          const canvas = document.createElement('canvas');
+          canvas.width = sw; canvas.height = sh;
+          canvas.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+          canvas.toBlob((blob)=> closeWith(blob || file), 'image/jpeg', 0.92);
+        });
+        skipBtn.addEventListener('click', ()=> closeWith(file));
+        cancelBtn.addEventListener('click', ()=> closeWith(null));
+      };
+      img.onerror = ()=> resolve(file);
+      img.src = reader.result;
+    };
+    reader.onerror = ()=> resolve(file);
+    reader.readAsDataURL(file);
+  });
 }
 
 /* ================= Offline-Download für unterwegs (Kartenkacheln + Bilder, 7 Tage) ================= */
