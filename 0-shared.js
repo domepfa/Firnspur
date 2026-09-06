@@ -291,7 +291,8 @@ function buildSbbLink(destination, dateStr){
     const [y,m,d] = dateStr.split('-');
     if(y && m && d) params.set('datum', `${d}.${m}.${y}`);
   }
-  return 'https://www.sbb.ch/de/buying/pages/fahrplan/fahrplan.xhtml?' + params.toString();
+  params.set('suche', 'true');
+  return 'https://www.sbb.ch/de/kaufen/pages/fahrplan/fahrplan.xhtml?' + params.toString();
 }
 // WMO-Wettercodes (Open-Meteo) grob zusammengefasst auf Icon + verständliches Label.
 function weatherCodeInfo(code){
@@ -319,9 +320,13 @@ async function fetchWeatherForecast(lat, lon, dateStr){
   const diffDays = Math.round((target - today) / 86400000);
   if(diffDays < 0) return {status:'past'};
   if(diffDays > 16) return {status:'too-far'};
+  // Zusätzlich zum Starttag noch 2 Folgetage mitladen ("Prognosen" statt nur ein Einzelwert) —
+  // Open-Meteo liefert einfach weniger Tage zurück, falls das Ende der 16-Tage-Reichweite
+  // dazwischenkommt, das ist kein Fehlerfall.
+  const endDate = new Date(target.getTime() + 2*86400000).toISOString().slice(0,10);
   let res;
   try{
-    res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max&timezone=auto&start_date=${dateStr}&end_date=${dateStr}`);
+    res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max&timezone=auto&start_date=${dateStr}&end_date=${endDate}`);
   }catch(e){
     return {status:'error', message:'Wetterdaten nicht verfügbar (keine Internetverbindung?).'};
   }
@@ -329,13 +334,22 @@ async function fetchWeatherForecast(lat, lon, dateStr){
   const data = await res.json();
   const d = data.daily;
   if(!d || !Array.isArray(d.time) || !d.time.length) return {status:'error', message:'Keine Wetterdaten für dieses Datum.'};
+  const days = d.time.map((date,i)=>({
+    date,
+    weathercode: d.weathercode[i],
+    tempMax: d.temperature_2m_max[i],
+    tempMin: d.temperature_2m_min[i],
+    precipitation: d.precipitation_sum[i],
+    windMax: d.windspeed_10m_max[i]
+  }));
   return {
     status: 'ok',
-    weathercode: d.weathercode[0],
-    tempMax: d.temperature_2m_max[0],
-    tempMin: d.temperature_2m_min[0],
-    precipitation: d.precipitation_sum[0],
-    windMax: d.windspeed_10m_max[0]
+    days,
+    weathercode: days[0].weathercode,
+    tempMax: days[0].tempMax,
+    tempMin: days[0].tempMin,
+    precipitation: days[0].precipitation,
+    windMax: days[0].windMax
   };
 }
 // Ort für die Wettervorhersage eines Agenda-Termins: der erste erfasste Punkt der verlinkten Tour.
@@ -372,10 +386,21 @@ async function loadAgendaWeather(agendaId){
     const info = weatherCodeInfo(w.weathercode);
     window.__agendaWeatherCache = window.__agendaWeatherCache || {};
     window.__agendaWeatherCache[agendaId] = { icon: info.icon, label: info.label, tempMin: w.tempMin, tempMax: w.tempMax, precipitation: w.precipitation, windMax: w.windMax, locationLabel: loc.label };
+    const followingDays = (w.days || []).slice(1); // Starttag selbst steht schon oben, hier nur die Folgetage
     el.innerHTML = `<div class="detail-section">
       <h4>Wetter${loc.label ? ' — ' + esc(loc.label) : ''}</h4>
       <p style="font-size:15px; margin:0 0 4px 0;">${info.icon} ${esc(info.label)}</p>
       <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(w.tempMin)}° / ${Math.round(w.tempMax)}° · 💧 ${w.precipitation} mm · 💨 ${Math.round(w.windMax)} km/h</p>
+      ${followingDays.length ? `<div style="display:flex; gap:8px; margin-top:8px;">
+        ${followingDays.map(day=>{
+          const dInfo = weatherCodeInfo(day.weathercode);
+          return `<div style="flex:1; background:var(--ice-light); border-radius:6px; padding:6px; text-align:center;">
+            <div style="font-size:11px; color:var(--ink-soft); margin-bottom:2px;">${esc(fmtDateShort(day.date))}</div>
+            <div style="font-size:16px;">${dInfo.icon}</div>
+            <div style="font-size:12px; color:var(--ink-soft);">${Math.round(day.tempMin)}° / ${Math.round(day.tempMax)}°</div>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
       <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose von Open-Meteo für den Zustieg — kann sich noch ändern.</p>
       <button type="button" class="btn secondary" id="save-weather-snapshot-btn-${agendaId}">📥 Für unterwegs speichern</button>
     </div>`;
@@ -1621,7 +1646,7 @@ async function fetchSlfDangerRegions(){
       if(rid) dangerByRegion[rid] = maxInfo;
     });
   });
-  return { features, dangerByRegion };
+  return { features, dangerByRegion, bulletinCount: bulletins.length };
 }
 function slfRegionId(feature){
   const p = feature.properties || {};
@@ -1629,7 +1654,7 @@ function slfRegionId(feature){
 }
 async function loadSlfDangerLayer(layerGroup){
   try{
-    const { features, dangerByRegion } = await fetchSlfDangerRegions();
+    const { features, dangerByRegion, bulletinCount } = await fetchSlfDangerRegions();
     let matched = 0;
     features.forEach(f=>{
       const rid = slfRegionId(f);
@@ -1640,7 +1665,15 @@ async function loadSlfDangerLayer(layerGroup){
       layer.bindPopup(`<b>Lawinengefahr: Stufe ${esc(info.label)}</b><br/><a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`);
       layerGroup.addLayer(layer);
     });
-    if(!matched) showToast('Lawinen-Gefahrenstufen aktuell nicht zuordenbar.', true);
+    if(!matched){
+      // Ausserhalb der Wintersaison veröffentlicht das SLF meist gar kein Bulletin (bulletinCount
+      // dann 0) — das ist der Normalfall im Sommer/Herbst, kein Fehler. Nur wenn Bulletins da
+      // sind, aber keiner Region zugeordnet werden konnte, deutet das auf ein echtes Problem hin.
+      const msg = bulletinCount===0
+        ? 'Aktuell kein Lawinenbulletin veröffentlicht (ausserhalb der Wintersaison meist normal).'
+        : 'Lawinen-Gefahrenstufen aktuell nicht zuordenbar.';
+      showToast(msg, true);
+    }
   }catch(e){
     showToast('Lawinendaten aktuell nicht verfügbar: ' + (e && e.message ? e.message : e), true);
   }
