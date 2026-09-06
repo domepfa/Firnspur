@@ -326,18 +326,31 @@ function agendaTypeLabel(type){
   if(type==='msl') return '🧗 Mehrseillängen';
   return '🎿 Skitour';
 }
+// Feste Hex-Farben statt CSS-Variablen: --ice/--ice-deep/--signal-deep sind pro App das eigene
+// Markenthema (blau in Firnspur, braun in Fixseil) — ein Termin muss aber unabhängig davon,
+// in welcher App man ihn gerade öffnet, immer dieselbe Farbe für seine Art zeigen.
 function agendaTypeColor(type){
-  if(type==='hochtour') return 'var(--ice-deep)';
-  if(type==='msl') return 'var(--signal-deep, #A87A1F)';
-  return 'var(--ice)';
+  if(type==='hochtour') return '#4A3524';
+  if(type==='msl') return '#A87A1F';
+  return '#2E6E8E';
+}
+// Findet die per Agenda-Termin verlinkte Tour unabhängig davon, in welcher der beiden Apps man
+// den Termin gerade betrachtet. tourRef.source ('own'/'other') wird beim Erstellen relativ zur
+// damals aktiven App vergeben — beim späteren Ansehen in der JEWEILS ANDEREN App würde "own" das
+// Gegenteil bedeuten. Deshalb hier bewusst NICHT nach source unterscheiden, sondern einfach beide
+// geladenen Touren-Listen (eigene + der anderen App) nach der ID durchsuchen.
+function findAgendaLinkedTour(tourRef){
+  if(!tourRef) return null;
+  return (state.tours||[]).find(t=>t.id===tourRef.id)
+    || (state.otherAppTours||[]).find(t=>t.id===tourRef.id)
+    || null;
 }
 // Löst die strukturierten Zustiege/Abstiege einer per Agenda verlinkten Tour auf — inklusive
 // dem Fall, dass eine MSL-Tour ihre Routen nicht selbst trägt, sondern über einen Sektor teilt.
 // state.sektoren existiert nur in Fixseil; in Firnspur bleibt das schlicht ein leeres Ergebnis.
 function resolveAgendaTourRoutes(tourRef){
   if(!tourRef) return {accessRoutes:[], descentRoutes:[], tour:null};
-  const list = tourRef.source==='own' ? state.tours : state.otherAppTours;
-  const tour = (list||[]).find(t=>t.id===tourRef.id);
+  const tour = findAgendaLinkedTour(tourRef);
   if(!tour || tour.tourCategory!=='msl') return {accessRoutes:[], descentRoutes:[], tour: tour||null};
   let accessRoutes = tour.accessRoutes || [];
   let descentRoutes = tour.descentRoutes || [];
@@ -438,8 +451,7 @@ async function fetchWeatherForecast(lat, lon, dateStr){
 // Freitext-Termine (kein tourRef) oder Touren ohne Punkte liefern bewusst null — raten wäre falsch.
 function resolveAgendaWeatherLocation(a){
   if(!a || !a.tourRef) return null;
-  const list = a.tourRef.source==='own' ? state.tours : state.otherAppTours;
-  const tour = (list||[]).find(t=>t.id===a.tourRef.id);
+  const tour = findAgendaLinkedTour(a.tourRef);
   const pt = tour && Array.isArray(tour.points) ? tour.points[0] : null;
   const lat = pt ? parseFloat(pt.lat) : NaN;
   const lon = pt ? parseFloat(pt.lon) : NaN;
@@ -706,6 +718,14 @@ function openAddAgenda(){
     state.modal = {type:'add-agenda'};
     render();
   });
+}
+// state.otherAppTours wird sonst nur beim Anlegen eines neuen Termins geladen — ein Termin kann
+// aber auch von der jeweils anderen App aus verlinkt sein. Ohne diesen Vorab-Load bliebe die
+// Zustiegs-/Abstiegs-/Wetter-Auflösung leer, weil findAgendaLinkedTour() nichts zu durchsuchen hätte.
+async function openAgendaDetail(id){
+  if(!state.otherAppTours.length) await loadOtherAppTours();
+  state.modal = {type:'agenda-detail', payload:id};
+  render();
 }
 function agendaFormHtml(){
   const today = todayStr();

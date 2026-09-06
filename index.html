@@ -1986,7 +1986,7 @@ function wireGlobalHandlers(){
     else if(act==='add-agenda') el.onclick = openAddAgenda;
     else if(act==='open-tour') { el.onclick = ()=>openTourDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openTourDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-hut') { el.onclick = ()=>openHutDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openHutDetail(el.getAttribute('data-id'));}; }
-    else if(act==='open-agenda') { el.onclick = ()=>{ state.modal={type:'agenda-detail', payload:el.getAttribute('data-id')}; render(); }; }
+    else if(act==='open-agenda') { el.onclick = ()=>openAgendaDetail(el.getAttribute('data-id')); }
     else if(act==='filter-diff') el.onclick = ()=>toggleDiffFilter(el.getAttribute('data-code'));
     else if(act==='filter-region') el.onclick = ()=>toggleRegionFilter(el.getAttribute('data-region'));
     else if(act==='reset-tour-filters') el.onclick = ()=>resetTourFilters();
@@ -2054,6 +2054,7 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-stop]').forEach(el=> el.addEventListener('click', e=>e.stopPropagation()));
 
   root.querySelectorAll('[data-act="close-modal"]').forEach(el=> el.onclick = ()=> closeModal());
+  root.querySelectorAll('[data-act="toggle-favorite"]').forEach(el=> el.onclick = (e)=>{ e.stopPropagation(); toggleFavorite(el.getAttribute('data-id')); });
 
   if(state.modal && state.modal.type==='tour-detail'){
     refreshOfflineSectionUI(state.modal.payload);
