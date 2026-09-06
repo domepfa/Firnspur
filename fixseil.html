@@ -637,7 +637,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v85-keine-kategorie-mischung';
+const APP_VERSION = 'v86-tableiste-vereinfacht';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1916,8 +1916,6 @@ function shellHtml(){
       </div>
     </div>
     <div class="tabs"><div class="tabs-inner">
-      <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">🏔️ Touren</button>
-      <button class="tab ${state.view==='msl'?'active':''}" data-act="view-msl">🧗 MSL</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
       <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">🧭 Sektoren</button>
       <button class="tab ${state.view==='agenda'?'active':''}" data-act="view-agenda">📅 Agenda</button>
@@ -4396,6 +4394,13 @@ function toggleEmergencyCard(){
   if(state.modal && state.modal.type==='emergency'){ closeModal(); }
   else{ state.modal = {type:'emergency'}; render(); }
 }
+// Hochtour/MSL sind dieselbe Datei — ein Klick wechselt darum sofort clientseitig (setView)
+// statt die Seite neu zu laden. Die href bleibt als Fallback (z. B. "In neuem Tab öffnen").
+const switchHochtourLink = document.getElementById('switch-hochtour');
+if(switchHochtourLink) switchHochtourLink.addEventListener('click', (e)=>{ e.preventDefault(); setView('touren'); history.replaceState(null, '', './fixseil.html'); });
+const switchMslLink = document.getElementById('switch-msl');
+if(switchMslLink) switchMslLink.addEventListener('click', (e)=>{ e.preventDefault(); setView('msl'); history.replaceState(null, '', './fixseil.html?view=msl'); });
+
 const emergencyTab = document.getElementById('emergency-btn');
 emergencyTab.addEventListener('click', toggleEmergencyCard);
 let emergencySwipeStart = null;
