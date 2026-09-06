@@ -291,7 +291,7 @@ function buildSbbLink(destination, dateStr){
     const [y,m,d] = dateStr.split('-');
     if(y && m && d) params.set('datum', `${d}.${m}.${y}`);
   }
-  return 'https://www.sbb.ch/en/buying/pages/fahrplan/fahrplan.xhtml?' + params.toString();
+  return 'https://www.sbb.ch/de/buying/pages/fahrplan/fahrplan.xhtml?' + params.toString();
 }
 // WMO-Wettercodes (Open-Meteo) grob zusammengefasst auf Icon + verständliches Label.
 function weatherCodeInfo(code){
@@ -355,7 +355,14 @@ async function loadAgendaWeather(agendaId){
   const el = document.getElementById('agenda-weather-' + agendaId);
   if(!a || !el || !a.startDate) return;
   const loc = resolveAgendaWeatherLocation(a);
-  if(!loc) return;
+  if(!loc){
+    // Nicht einfach nichts anzeigen — sonst wirkt es, als gäbe es die Funktion gar nicht.
+    const reason = !a.tourRef
+      ? 'Nur bei Terminen mit verlinkter Tour verfügbar (nicht bei freien Text-Vorschlägen).'
+      : 'Die verlinkte Tour hat noch keinen Kartenpunkt hinterlegt.';
+    el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">${reason}</p></div>`;
+    return;
+  }
   el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13.5px; color:var(--ink-soft);">Wird geladen…</p></div>`;
   let w;
   try{ w = await fetchWeatherForecast(loc.lat, loc.lon, a.startDate); }
@@ -1127,26 +1134,55 @@ function renderStandaloneMap(containerId){
     // eigenen Touren bei Bedarf auch ganz ausblenden lassen. Als echtes Leaflet-Control, damit
     // es zuverlässig über der Karte liegt.
     if(presentCategories.length >= 1){
+      // Zugeklappt (Standard) nur ein kleiner Knopf, damit die Karte selbst nicht sofort von
+      // der Filterleiste verdeckt wird — v.a. bei mehreren Tourenarten wurde das schnell breit.
+      // Der An/Aus-Zustand pro Kategorie bleibt in filterState erhalten, auch wenn man die
+      // Leiste zuklappt und wieder öffnet.
+      const filterState = {};
+      presentCategories.forEach(key=> filterState[key] = true);
       const TourFilterControl = L.Control.extend({
         options: { position: 'topleft' },
         onAdd: function(){
-          const wrap = L.DomUtil.create('div', 'chips');
-          wrap.style.cssText = 'background:rgba(255,255,255,0.95); padding:6px; border-radius:8px; gap:6px; display:flex; flex-wrap:wrap; max-width:220px;';
+          const wrap = L.DomUtil.create('div', '');
           L.DomEvent.disableClickPropagation(wrap);
-          presentCategories.forEach(key=>{
-            const meta = TOUR_CATEGORY_META[key];
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'chip on';
-            btn.style.cssText = 'background:' + meta.color + '; color:#fff; border-color:transparent; font-size:12px; padding:5px 10px;';
-            btn.textContent = meta.label;
-            btn.addEventListener('click', ()=>{
-              const isOn = btn.classList.toggle('on');
-              if(isOn){ btn.style.background = meta.color; btn.style.color = '#fff'; map.addLayer(categoryLayers[key]); }
-              else{ btn.style.background = ''; btn.style.color = meta.color; map.removeLayer(categoryLayers[key]); }
-            });
-            wrap.appendChild(btn);
-          });
+          let expanded = false;
+          function renderControl(){
+            wrap.innerHTML = '';
+            if(!expanded){
+              wrap.style.cssText = 'background:#fff; border-radius:50%; width:40px; height:40px; box-shadow:0 2px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px;';
+              wrap.onclick = ()=>{ expanded = true; renderControl(); };
+              wrap.title = 'Tourenarten filtern';
+              wrap.textContent = '🔎';
+            }else{
+              wrap.style.cssText = 'background:rgba(255,255,255,0.95); padding:6px; border-radius:8px; gap:6px; display:flex; flex-wrap:wrap; align-items:center; max-width:220px;';
+              wrap.onclick = null;
+              presentCategories.forEach(key=>{
+                const meta = TOUR_CATEGORY_META[key];
+                const isOn = filterState[key];
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'chip' + (isOn ? ' on' : '');
+                btn.style.cssText = 'background:' + (isOn ? meta.color : '') + '; color:' + (isOn ? '#fff' : meta.color) + '; border-color:transparent; font-size:12px; padding:5px 10px;';
+                btn.textContent = meta.label;
+                btn.addEventListener('click', ()=>{
+                  filterState[key] = !filterState[key];
+                  const on = filterState[key];
+                  btn.classList.toggle('on', on);
+                  btn.style.background = on ? meta.color : '';
+                  btn.style.color = on ? '#fff' : meta.color;
+                  if(on) map.addLayer(categoryLayers[key]); else map.removeLayer(categoryLayers[key]);
+                });
+                wrap.appendChild(btn);
+              });
+              const closeBtn = document.createElement('button');
+              closeBtn.type = 'button';
+              closeBtn.textContent = '✕';
+              closeBtn.style.cssText = 'background:none; border:none; font-size:14px; cursor:pointer; padding:2px 4px; color:var(--ink-soft);';
+              closeBtn.addEventListener('click', ()=>{ expanded = false; renderControl(); });
+              wrap.appendChild(closeBtn);
+            }
+          }
+          renderControl();
           return wrap;
         }
       });
@@ -1419,7 +1455,7 @@ function renderStandaloneMap(containerId){
       // Expanded: volle Breite als Bottom-Sheet, dann sind die Kartensteuerelemente ohnehin
       // vorübergehend verdeckt (die Karte wird zu diesem Zeitpunkt nicht bedient).
       plannerPanel.style.cssText = plannerExpanded
-        ? 'position:absolute; left:0; right:0; bottom:0; z-index:1000; background:#fff; border-radius:14px 14px 0 0; box-shadow:0 -4px 20px rgba(0,0,0,0.35); max-height:72%; overflow-y:auto;'
+        ? 'position:absolute; left:0; right:0; bottom:0; z-index:1000; background:#fff; border-radius:14px 14px 0 0; box-shadow:0 -4px 20px rgba(0,0,0,0.35); max-height:55%; overflow-y:auto;'
         : 'position:absolute; left:50%; bottom:12px; transform:translateX(-50%); z-index:1000; background:#fff; border-radius:50%; box-shadow:0 3px 12px rgba(0,0,0,0.4); width:52px; height:52px;';
       plannerPanel.innerHTML = `
         <button type="button" data-act="planner-toggle" title="Wanderung planen" style="${plannerExpanded ? 'width:100%; padding:12px 18px; justify-content:center;' : 'width:52px; height:52px; padding:0; justify-content:center; font-size:22px;'} background:none; border:none; font-family:'Oswald', sans-serif; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; font-size:${plannerExpanded ? '14px' : '22px'}; color:var(--ice-deep); display:flex; align-items:center; gap:8px; cursor:pointer; white-space:nowrap; border-radius:50%;">
@@ -1438,7 +1474,7 @@ function renderStandaloneMap(containerId){
           </div>
           <div style="margin-bottom:14px;">
             <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:var(--ink-soft); margin-bottom:5px;">Zwischenpunkte (optional)</label>
-            ${plannerWaypoints.length ? `<div style="display:flex; flex-direction:column; gap:4px; margin-bottom:6px;">
+            ${plannerWaypoints.length ? `<div style="display:flex; flex-direction:column; gap:4px; margin-bottom:6px; max-height:110px; overflow-y:auto;">
               ${plannerWaypoints.map((wp,i)=>`<div style="display:flex; align-items:center; justify-content:space-between; background:var(--ice-light); border-radius:4px; padding:5px 9px; font-size:12.5px;">
                 <span>${i+1}. Zwischenpunkt <span style="color:var(--ink-faint);">(verschiebbar)</span></span>
                 <button type="button" data-act="planner-waypoint-remove" data-index="${i}" style="background:none; border:none; color:var(--danger); font-weight:700; cursor:pointer; padding:0 4px;">×</button>
@@ -1521,8 +1557,6 @@ function renderStandaloneMap(containerId){
     }
 
     renderPlannerPanel();
-
-    map.addControl(new GpsControl());
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
     if(el3) el3.innerHTML = '<p style="font-size:13px; color:#fff;">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
@@ -1603,7 +1637,7 @@ async function loadSlfDangerLayer(layerGroup){
       if(!info) return; // keine gemeldete Gefahrenstufe für diese Region -> nicht einfärben statt raten
       matched++;
       const layer = L.geoJSON(f, { style: { fillColor: info.color, fillOpacity: 0.45, color:'#555', weight:1 } });
-      layer.bindPopup(`<b>Lawinengefahr: Stufe ${esc(info.label)}</b><br/><a href="https://www.slf.ch/en/services-and-products/avalanche-bulletin/" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`);
+      layer.bindPopup(`<b>Lawinengefahr: Stufe ${esc(info.label)}</b><br/><a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`);
       layerGroup.addLayer(layer);
     });
     if(!matched) showToast('Lawinen-Gefahrenstufen aktuell nicht zuordenbar.', true);
