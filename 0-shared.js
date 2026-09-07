@@ -582,6 +582,79 @@ function agendaCardHtml(a){
     ${agendaStatusSelectHtml(a)}
   </div>`;
 }
+// Lesbare Tag-für-Tag-Darstellung eines strukturierten Mehrtages-Plans (a.days) — für Detailansicht
+// und Tourenzettel-Druck gemeinsam genutzt. Jedes Segment löst seine Zustiegs-/Abstiegsrouten über
+// die JEWEILS EIGENE verlinkte Tour auf, nicht über a.tourRef (das gibt es bei days-Terminen nicht).
+function agendaDaySegmentDetailLines(seg){
+  const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes(seg.tourRef);
+  const chosenAccess = seg.accessRouteId ? accessRoutes.find(r=>r.id===seg.accessRouteId) : null;
+  const chosenDescent = seg.descentRouteId ? descentRoutes.find(r=>r.id===seg.descentRouteId) : null;
+  const lines = [];
+  if(chosenAccess) lines.push(`🚶 Zustieg: ${esc(chosenAccess.name||'?')}`);
+  if(seg.tourName) lines.push(`⛰️ Tour: ${esc(seg.tourName)}`);
+  if(chosenDescent) lines.push(`🚶 Abstieg: ${esc(chosenDescent.name||'?')}`);
+  return lines;
+}
+function agendaDayOvernightLabel(day){
+  if(!day.overnight || !day.overnight.type) return '';
+  if(day.overnight.type==='huette'){
+    const hut = day.overnight.hutId ? state.huts.find(h=>h.id===day.overnight.hutId) : null;
+    return '🛖 Hütte' + (hut ? ': ' + esc(hut.name) : '');
+  }
+  if(day.overnight.type==='biwak') return '⛺ Biwak';
+  return '📍 ' + esc(day.overnight.customLabel || 'Andere Unterkunft');
+}
+function agendaDayDetailBlockHtml(day, dayIdx, isFirst, isLast){
+  const dateLabel = day.date ? fmtWeekday(day.date) + ', ' + fmtDateShort(day.date) : '?';
+  const overnightLabel = !isLast ? agendaDayOvernightLabel(day) : '';
+  const segLines = (day.segments||[]).flatMap(agendaDaySegmentDetailLines);
+  return `<div class="detail-section" style="border-left:3px solid var(--ice-light); padding-left:12px;">
+    <h4>Tag ${dayIdx+1} — ${esc(dateLabel)}</h4>
+    ${isFirst && day.anreiseType ? `<p style="margin:0 0 4px 0; font-size:14px;">${day.anreiseType==='auto'?'🚗 Anreise: Auto':'🚉 Anreise: Öffentlich'}${day.anreiseOrt?' — '+esc(day.anreiseOrt):''}</p>` : ''}
+    ${segLines.map(l=>`<p style="margin:0 0 4px 0; font-size:14px;">${l}</p>`).join('')}
+    ${overnightLabel ? `<p style="margin:4px 0 0 0; font-size:14px;">🌙 Übernachtung: ${overnightLabel}</p>` : ''}
+    ${isLast && day.abreiseType ? `<p style="margin:4px 0 0 0; font-size:14px;">${day.abreiseType==='auto'?'🚗 Rückreise: Auto':'🚉 Rückreise: Öffentlich'}${day.abreiseOrt?' — '+esc(day.abreiseOrt):''}</p>` : ''}
+  </div>`;
+}
+function agendaDayPlanDetailHtml(a){
+  if(!a.days || !a.days.length) return '';
+  return a.days.map((day,i)=> agendaDayDetailBlockHtml(day, i, i===0, i===a.days.length-1)).join('');
+}
+// Unformatierte Variante von agendaDayOvernightLabel für den Tourenzettel-Druck (dort wird der
+// gesamte Zellentext separat escaped — ein bereits mit esc() versehener HTML-String würde dort
+// doppelt escaped).
+function agendaDayOvernightPlainLabel(day){
+  if(!day.overnight || !day.overnight.type) return '';
+  if(day.overnight.type==='huette'){
+    const hut = day.overnight.hutId ? state.huts.find(h=>h.id===day.overnight.hutId) : null;
+    return 'Hütte' + (hut ? ': ' + hut.name : '');
+  }
+  if(day.overnight.type==='biwak') return 'Biwak';
+  return day.overnight.customLabel || 'Andere Unterkunft';
+}
+function agendaDayPlanTourenzettelRows(a){
+  if(!a.days || !a.days.length) return [];
+  return a.days.map((day, i)=>{
+    const isFirst = i===0, isLast = i===a.days.length-1;
+    const parts = [];
+    if(isFirst && day.anreiseType) parts.push('Anreise: ' + (day.anreiseType==='auto'?'Auto':'Öffentlich') + (day.anreiseOrt ? ' — '+day.anreiseOrt : ''));
+    (day.segments||[]).forEach(seg=>{
+      const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes(seg.tourRef);
+      const chosenAccess = seg.accessRouteId ? accessRoutes.find(r=>r.id===seg.accessRouteId) : null;
+      const chosenDescent = seg.descentRouteId ? descentRoutes.find(r=>r.id===seg.descentRouteId) : null;
+      if(chosenAccess) parts.push('Zustieg: ' + (chosenAccess.name||''));
+      if(seg.tourName) parts.push('Tour: ' + seg.tourName);
+      if(chosenDescent) parts.push('Abstieg: ' + (chosenDescent.name||''));
+    });
+    if(!isLast){
+      const overnightLabel = agendaDayOvernightPlainLabel(day);
+      if(overnightLabel) parts.push('Übernachtung: ' + overnightLabel);
+    }
+    if(isLast && day.abreiseType) parts.push('Rückreise: ' + (day.abreiseType==='auto'?'Auto':'Öffentlich') + (day.abreiseOrt ? ' — '+day.abreiseOrt : ''));
+    const dateLabel = day.date ? fmtDateShort(day.date) : '?';
+    return [`Tag ${i+1} (${dateLabel})`, parts.join('; ')];
+  });
+}
 function agendaDetailHtml(id){
   const a = state.agenda.find(x=>x.id===id);
   if(!a) return `<div class="modal" data-stop="1"><p>Termin nicht gefunden.</p></div>`;
@@ -614,6 +687,7 @@ function agendaDetailHtml(id){
     </div>` : ''}
     <div id="agenda-weather-${a.id}"></div>
     ${a.meetingPoint ? `<div class="detail-section"><h4>Treffpunkt</h4><p>${esc(a.meetingPoint)}</p></div>` : ''}
+    ${a.days && a.days.length ? agendaDayPlanDetailHtml(a) : `
     ${(chosenAccess || chosenDescent) ? `<div class="detail-section">
       <h4>Route</h4>
       ${chosenAccess ? `<p style="margin:0 0 4px 0;">🚶 Zustieg: ${esc(chosenAccess.name||'?')}</p>` : ''}
@@ -632,6 +706,7 @@ function agendaDetailHtml(id){
       <h4>Nach der Tour</h4>
       <p style="margin:0;">${a.endOption==='huette' ? '🛖 Hütte' : '🏠 Heimweg'}${a.endNote ? ' — ' + esc(a.endNote) : ''}</p>
     </div>` : ''}
+    `}
     ${(a.plannedReturnTime || a.emergencyContact) ? `<div class="detail-section">
       <h4>Sicherheit</h4>
       ${a.plannedReturnTime ? `<p style="margin:0 0 4px 0;">⏰ Geplante Rückkehr: ${esc(a.plannedReturnTime)}</p>` : ''}
@@ -673,15 +748,19 @@ function printTourenzettel(agendaId){
   const chosenDescent = a.descentRouteId ? descentRoutes.find(r=>r.id===a.descentRouteId) : null;
   const rows = [['Datum', dateLabel]];
   if(a.meetingPoint) rows.push(['Treffpunkt', a.meetingPoint]);
-  if(chosenAccess) rows.push(['Zustieg', chosenAccess.name||'']);
-  if(chosenDescent) rows.push(['Abstieg', chosenDescent.name||'']);
-  if(a.etappen && a.etappen.length){
-    const etappenText = a.etappen.slice().sort((x,y)=>(x.date||'').localeCompare(y.date||''))
-      .map(e=>(e.date ? fmtDateShort(e.date) : '?') + ' — ' + (e.label||'')).join('; ');
-    rows.push(['Etappen', etappenText]);
+  if(a.days && a.days.length){
+    rows.push(...agendaDayPlanTourenzettelRows(a));
+  }else{
+    if(chosenAccess) rows.push(['Zustieg', chosenAccess.name||'']);
+    if(chosenDescent) rows.push(['Abstieg', chosenDescent.name||'']);
+    if(a.etappen && a.etappen.length){
+      const etappenText = a.etappen.slice().sort((x,y)=>(x.date||'').localeCompare(y.date||''))
+        .map(e=>(e.date ? fmtDateShort(e.date) : '?') + ' — ' + (e.label||'')).join('; ');
+      rows.push(['Etappen', etappenText]);
+    }
+    if(a.anreiseType) rows.push(['Anreise', (a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' — '+a.anreiseOrt : '')]);
+    if(a.endOption) rows.push(['Nach der Tour', (a.endOption==='huette'?'Hütte':'Heimweg') + (a.endNote ? ' — '+a.endNote : '')]);
   }
-  if(a.anreiseType) rows.push(['Anreise', (a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' — '+a.anreiseOrt : '')]);
-  if(a.endOption) rows.push(['Nach der Tour', (a.endOption==='huette'?'Hütte':'Heimweg') + (a.endNote ? ' — '+a.endNote : '')]);
   if(a.plannedReturnTime) rows.push(['Geplante Rückkehr', a.plannedReturnTime]);
   if(a.emergencyContact) rows.push(['Notfallkontakt', a.emergencyContact]);
   rows.push(['Teilnehmer', (a.participants||[]).map(p=>p.by).join(', ') || '—']);
@@ -729,14 +808,12 @@ async function openAgendaDetail(id){
 }
 function agendaFormHtml(){
   const today = todayStr();
-  const ownOptions = state.tours.map(t=>`<option value="own:${t.id}">${OWN_APP_LABEL} — ${esc(t.name)}</option>`).join('');
-  const otherOptions = state.otherAppTours.map(t=>`<option value="other:${t.id}">${OTHER_APP_LABEL} — ${esc(t.name)}</option>`).join('');
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Neuer Termin</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="agenda-form" novalidate>
       <div class="row2">
-        <div class="field"><label>Startdatum *</label><input required type="date" name="startDate" value="${today}"/></div>
-        <div class="field"><label>Enddatum (optional)</label><input type="date" name="endDate"/></div>
+        <div class="field"><label>Startdatum *</label><input required type="date" name="startDate" id="agenda-start-date" value="${today}"/></div>
+        <div class="field"><label>Enddatum (optional)</label><input type="date" name="endDate" id="agenda-end-date"/></div>
       </div>
       <div class="field"><label>Art</label>
         <select name="type">
@@ -745,47 +822,8 @@ function agendaFormHtml(){
           <option value="msl">🧗 Mehrseillängen</option>
         </select>
       </div>
-      <div class="field"><label>Tour</label>
-        <select name="tourChoice" id="agenda-tour-select">
-          <option value="custom">— Neuer Vorschlag (Freitext) —</option>
-          ${ownOptions}
-          ${otherOptions}
-        </select>
-      </div>
-      <div class="field" id="agenda-custom-field"><label>Geplante Tour</label><input name="customName" placeholder="z. B. Wildspitze über Vent"/></div>
-      <div class="field" id="agenda-route-fields" style="display:none;">
-        <label>Zustieg</label>
-        <select name="accessRouteId" id="agenda-access-route-select"><option value="">— nicht festgelegt —</option></select>
-        <label style="margin-top:10px; display:block;">Abstieg</label>
-        <select name="descentRouteId" id="agenda-descent-route-select"><option value="">— nicht festgelegt —</option></select>
-      </div>
-      <div class="field">
-        <label>Weitere Etappen (optional, für Mehrtagestouren)</label>
-        <div id="etappen-list"></div>
-        <button type="button" class="btn secondary" id="add-etappe-btn">+ Etappe hinzufügen</button>
-      </div>
+      <div id="agenda-day-plan-container"></div>
       <div class="field"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof"/></div>
-      <div class="field">
-        <label>Anreise</label>
-        <div class="chips">
-          <button type="button" class="chip anreise-chip" data-anreise="auto">🚗 Auto</button>
-          <button type="button" class="chip anreise-chip" data-anreise="oev">🚉 Öffentlich</button>
-        </div>
-        <input type="hidden" name="anreiseType" id="anreise-type-hidden" value=""/>
-        <div id="anreise-oev-field" style="display:none; margin-top:8px;">
-          <input name="anreiseOrt" placeholder="Zielort für Fahrplan, z. B. Kandersteg"/>
-          <button type="button" class="btn secondary" id="sbb-link-btn" style="margin-top:8px;">🚉 SBB Fahrplan öffnen</button>
-        </div>
-      </div>
-      <div class="field">
-        <label>Nach der Tour</label>
-        <div class="chips">
-          <button type="button" class="chip end-option-chip" data-end="huette">🛖 Hütte</button>
-          <button type="button" class="chip end-option-chip" data-end="heimweg">🏠 Heimweg</button>
-        </div>
-        <input type="hidden" name="endOption" id="end-option-hidden" value=""/>
-        <input name="endNote" id="end-note-input" style="margin-top:8px; display:none;"/>
-      </div>
       <div class="row2">
         <div class="field"><label>Geplante Rückkehrzeit</label><input name="plannedReturnTime" placeholder="z. B. 18:00"/></div>
         <div class="field"><label>Notfallkontakt</label><input name="emergencyContact" placeholder="Name, Telefonnummer"/></div>
@@ -798,30 +836,436 @@ function agendaFormHtml(){
     </form>
   </div>`;
 }
+// Die klassischen Felder für einen eintägigen Termin — unverändert gegenüber vorher, nur aus der
+// Formular-Vorlage herausgelöst, damit sie bei einem Mehrtages-Datum (siehe unten) durch den
+// strukturierten Tagesplan ersetzt werden können, ohne das Formular selbst neu zu bauen.
+function agendaSingleDayFieldsHtml(){
+  const ownOptions = state.tours.map(t=>`<option value="own:${t.id}">${OWN_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+  const otherOptions = state.otherAppTours.map(t=>`<option value="other:${t.id}">${OTHER_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+  return `
+    <div class="field"><label>Tour</label>
+      <select name="tourChoice" id="agenda-tour-select">
+        <option value="custom">— Neuer Vorschlag (Freitext) —</option>
+        ${ownOptions}
+        ${otherOptions}
+      </select>
+    </div>
+    <div class="field" id="agenda-custom-field"><label>Geplante Tour</label><input name="customName" placeholder="z. B. Wildspitze über Vent"/></div>
+    <div class="field" id="agenda-route-fields" style="display:none;">
+      <label>Zustieg</label>
+      <select name="accessRouteId" id="agenda-access-route-select"><option value="">— nicht festgelegt —</option></select>
+      <label style="margin-top:10px; display:block;">Abstieg</label>
+      <select name="descentRouteId" id="agenda-descent-route-select"><option value="">— nicht festgelegt —</option></select>
+    </div>
+    <div class="field">
+      <label>Anreise</label>
+      <div class="chips">
+        <button type="button" class="chip anreise-chip" data-anreise="auto">🚗 Auto</button>
+        <button type="button" class="chip anreise-chip" data-anreise="oev">🚉 Öffentlich</button>
+      </div>
+      <input type="hidden" name="anreiseType" id="anreise-type-hidden" value=""/>
+      <div id="anreise-oev-field" style="display:none; margin-top:8px;">
+        <input name="anreiseOrt" placeholder="Zielort für Fahrplan, z. B. Kandersteg"/>
+        <button type="button" class="btn secondary" id="sbb-link-btn" style="margin-top:8px;">🚉 SBB Fahrplan öffnen</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Nach der Tour</label>
+      <div class="chips">
+        <button type="button" class="chip end-option-chip" data-end="huette">🛖 Hütte</button>
+        <button type="button" class="chip end-option-chip" data-end="heimweg">🏠 Heimweg</button>
+      </div>
+      <input type="hidden" name="endOption" id="end-option-hidden" value=""/>
+      <input name="endNote" id="end-note-input" style="margin-top:8px; display:none;"/>
+    </div>
+  `;
+}
+
+/* ================= Mehrtägige Termine: strukturierter Tagesplan =================
+   Bei Start- ≠ Enddatum ersetzt ein Tag-für-Tag-Ablauf die einfachen Tour-/Anreise-Felder oben:
+   pro Tag mindestens eine Tour (Zustieg/Tour/Abstieg, per "+" beliebig erweiterbar), Übernachtung
+   (Biwak/Hütte-Auswahl/Andere-Freitext) an allen Tagen ausser dem letzten, Anreise nur am ersten
+   und Rückreise nur am letzten Tag. Der Entwurf lebt in agendaDayPlanDraft (nicht im DOM allein),
+   damit er beim Ändern des Datumsbereichs erhalten bleibt statt bei jedem Neu-Rendern verloren zu
+   gehen — collectAgendaDayPlanFromDom() liest den jeweils aktuellen DOM-Stand vorher zurück ein. */
+let agendaDayPlanDraft = null;
+function blankAgendaDaySegment(){
+  return { tourChoice:'custom', tourName:'', tourRef:null, accessRouteId:'', descentRouteId:'' };
+}
+function blankAgendaDay(date){
+  return { date, anreiseType:'', anreiseOrt:'', segments:[blankAgendaDaySegment()], overnight:{type:'', hutId:'', customLabel:''}, abreiseType:'', abreiseOrt:'' };
+}
+function agendaDateRangeArray(startDate, endDate){
+  if(!startDate || !endDate) return [];
+  const start = new Date(startDate + 'T00:00:00');
+  const end = new Date(endDate + 'T00:00:00');
+  if(isNaN(start) || isNaN(end) || end < start) return [];
+  const out = [];
+  const d = new Date(start);
+  while(d <= end){
+    out.push(d.toISOString().slice(0,10));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+// Tage werden per Position (nicht per Datum) abgeglichen: verschiebt man z. B. das Enddatum um
+// einen Tag nach hinten, bleibt Tag 1/2/... unverändert erhalten und nur ein neuer Tag kommt dazu.
+function syncAgendaDaysToRange(existingDays, startDate, endDate){
+  const dates = agendaDateRangeArray(startDate, endDate);
+  return dates.map((date, i) => {
+    const prev = existingDays && existingDays[i];
+    return prev ? {...prev, date} : blankAgendaDay(date);
+  });
+}
+function agendaDaySegmentHtml(seg, dayIdx, segIdx){
+  const ownOptions = state.tours.map(t=>`<option value="own:${t.id}" ${seg.tourChoice==='own:'+t.id?'selected':''}>${OWN_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+  const otherOptions = state.otherAppTours.map(t=>`<option value="other:${t.id}" ${seg.tourChoice==='other:'+t.id?'selected':''}>${OTHER_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+  const hasRoutes = seg.tourChoice!=='custom';
+  return `<div class="agenda-day-segment" data-day="${dayIdx}" data-seg="${segIdx}" style="border:1px solid var(--line); border-radius:var(--radius); padding:10px; margin-bottom:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <label style="margin:0;">Tour${segIdx>0 ? ' (weitere)' : ''}</label>
+      ${segIdx>0 ? `<button type="button" class="agenda-seg-remove" data-day="${dayIdx}" data-seg="${segIdx}" style="background:none; border:none; color:var(--danger); font-weight:700; cursor:pointer; font-size:16px; padding:0 4px;">×</button>` : ''}
+    </div>
+    <select class="agenda-day-tour-select" data-day="${dayIdx}" data-seg="${segIdx}">
+      <option value="custom" ${seg.tourChoice==='custom'?'selected':''}>— Neuer Vorschlag (Freitext) —</option>
+      ${ownOptions}${otherOptions}
+    </select>
+    <input type="text" class="agenda-day-custom-name" data-day="${dayIdx}" data-seg="${segIdx}" placeholder="z. B. Wildspitze über Vent" value="${esc(seg.tourChoice==='custom' ? (seg.tourName||'') : '')}" style="margin-top:6px; width:100%; box-sizing:border-box; ${seg.tourChoice==='custom'?'':'display:none;'}"/>
+    <div class="agenda-day-route-fields" data-day="${dayIdx}" data-seg="${segIdx}" style="margin-top:6px; ${hasRoutes?'':'display:none;'}">
+      <label style="font-size:12.5px;">Zustieg</label>
+      <select class="agenda-day-access-select" data-day="${dayIdx}" data-seg="${segIdx}"><option value="">— nicht festgelegt —</option></select>
+      <label style="font-size:12.5px; margin-top:6px; display:block;">Abstieg</label>
+      <select class="agenda-day-descent-select" data-day="${dayIdx}" data-seg="${segIdx}"><option value="">— nicht festgelegt —</option></select>
+    </div>
+  </div>`;
+}
+function agendaDayOvernightHtml(day, dayIdx){
+  const hutOptions = state.huts.map(h=>`<option value="${esc(h.id)}" ${day.overnight.type==='huette' && day.overnight.hutId===h.id ? 'selected':''}>${esc(h.name)}</option>`).join('');
+  const chip = (val, label) => `<button type="button" class="chip agenda-overnight-chip ${day.overnight.type===val?'on':''}" style="${day.overnight.type===val?'background:var(--ice-deep)':''}" data-day="${dayIdx}" data-overnight="${val}">${label}</button>`;
+  return `<div class="field">
+    <label>Übernachtung</label>
+    <div class="chips">
+      ${chip('biwak', '⛺ Biwak')}
+      ${chip('huette', '🛖 Hütte')}
+      ${chip('andere', '📍 Andere')}
+    </div>
+    <select class="agenda-overnight-hut-select" data-day="${dayIdx}" style="margin-top:8px; ${day.overnight.type==='huette'?'':'display:none;'}">
+      <option value="">— Hütte wählen —</option>
+      ${hutOptions}
+    </select>
+    <input type="text" class="agenda-overnight-custom" data-day="${dayIdx}" placeholder="z. B. Zeltplatz, Privatunterkunft" value="${esc(day.overnight.type==='andere' ? (day.overnight.customLabel||'') : '')}" style="margin-top:8px; ${day.overnight.type==='andere'?'':'display:none;'}"/>
+  </div>`;
+}
+function agendaDayTravelHtml(day, dayIdx, kind){ // kind: 'anreise' (nur erster Tag) | 'abreise' (nur letzter Tag, = Rückreise)
+  const isAnreise = kind==='anreise';
+  const typeVal = isAnreise ? day.anreiseType : day.abreiseType;
+  const ortVal = isAnreise ? day.anreiseOrt : day.abreiseOrt;
+  const chip = (val, label) => `<button type="button" class="chip agenda-travel-chip ${typeVal===val?'on':''}" style="${typeVal===val?'background:var(--ice-deep)':''}" data-day="${dayIdx}" data-kind="${kind}" data-travel="${val}">${label}</button>`;
+  return `<div class="field">
+    <label>${isAnreise ? 'Anreise' : 'Rückreise'}</label>
+    <div class="chips">
+      ${chip('auto', '🚗 Auto')}
+      ${chip('oev', '🚉 Öffentlich')}
+    </div>
+    <div class="agenda-travel-oev-field" data-day="${dayIdx}" data-kind="${kind}" style="margin-top:8px; ${typeVal==='oev'?'':'display:none;'}">
+      <input type="text" class="agenda-travel-ort" data-day="${dayIdx}" data-kind="${kind}" placeholder="${isAnreise?'Zielort für Fahrplan, z. B. Kandersteg':'Zielort für Rückfahrt'}" value="${esc(ortVal||'')}"/>
+    </div>
+  </div>`;
+}
+function agendaDayBlockHtml(day, dayIdx, isFirst, isLast){
+  const dateLabel = day.date ? fmtWeekday(day.date) + ', ' + fmtDateShort(day.date) : '?';
+  return `<div class="agenda-day-block" data-day="${dayIdx}" data-date="${esc(day.date||'')}" style="border:1px solid var(--line); border-radius:var(--radius); padding:12px; margin-bottom:12px;">
+    <h4 style="margin:0 0 10px 0;">📅 Tag ${dayIdx+1} — ${esc(dateLabel)}</h4>
+    ${isFirst ? agendaDayTravelHtml(day, dayIdx, 'anreise') : ''}
+    <div class="agenda-day-segments" data-day="${dayIdx}">
+      ${day.segments.map((seg,segIdx)=> agendaDaySegmentHtml(seg, dayIdx, segIdx)).join('')}
+    </div>
+    <button type="button" class="btn secondary agenda-add-segment-btn" data-day="${dayIdx}" style="font-size:12.5px; margin-bottom:10px;">+ Weitere Tour an diesem Tag</button>
+    ${!isLast ? agendaDayOvernightHtml(day, dayIdx) : ''}
+    ${isLast ? agendaDayTravelHtml(day, dayIdx, 'abreise') : ''}
+  </div>`;
+}
+function agendaDayPlanHtml(days){
+  return `<div class="field"><label>Tagesplan</label></div>` + days.map((day,i)=> agendaDayBlockHtml(day, i, i===0, i===days.length-1)).join('');
+}
+// Liest Zustieg/Abstieg-Auswahl für ein Segment neu ein (abhängig von der dort gewählten Tour) —
+// gleiche Logik wie beim eintägigen Formular, nur pro Segment statt einmal fürs ganze Formular.
+function syncAgendaDaySegmentRouteFields(segEl){
+  const tourSelect = segEl.querySelector('.agenda-day-tour-select');
+  const customInput = segEl.querySelector('.agenda-day-custom-name');
+  const routeWrap = segEl.querySelector('.agenda-day-route-fields');
+  const accessSelect = segEl.querySelector('.agenda-day-access-select');
+  const descentSelect = segEl.querySelector('.agenda-day-descent-select');
+  const val = tourSelect.value;
+  customInput.style.display = val==='custom' ? '' : 'none';
+  if(val==='custom'){ routeWrap.style.display = 'none'; return; }
+  const [src, refId] = val.split(':');
+  const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes({source:src, id:refId});
+  if(!accessRoutes.length && !descentRoutes.length){ routeWrap.style.display = 'none'; return; }
+  routeWrap.style.display = '';
+  const opt = r => `<option value="${esc(r.id)}">${esc(r.name||'?')}</option>`;
+  accessSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + accessRoutes.map(opt).join('');
+  descentSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + descentRoutes.map(opt).join('');
+}
+// Liest den kompletten aktuellen DOM-Stand des Tagesplans in ein days-Array zurück — läuft vor
+// jedem Neu-Rendern (Datumsänderung, Tour hinzufügen/entfernen), damit nichts verloren geht.
+function collectAgendaDayPlanFromDom(container){
+  const dayBlocks = Array.from(container.querySelectorAll('.agenda-day-block'));
+  return dayBlocks.map((block, dayIdx)=>{
+    const isFirst = dayIdx===0;
+    const isLast = dayIdx===dayBlocks.length-1;
+    const segments = Array.from(block.querySelectorAll('.agenda-day-segment')).map(segEl=>{
+      const tourSelect = segEl.querySelector('.agenda-day-tour-select');
+      const tourChoice = tourSelect ? tourSelect.value : 'custom';
+      const customInput = segEl.querySelector('.agenda-day-custom-name');
+      let tourName = '', tourRef = null;
+      if(tourChoice!=='custom'){
+        const [src, refId] = tourChoice.split(':');
+        const list = src==='own' ? state.tours : state.otherAppTours;
+        const ref = list.find(t=>t.id===refId);
+        tourName = ref ? ref.name : '';
+        if(ref) tourRef = {source:src, id:refId};
+      }else{
+        tourName = customInput ? customInput.value.trim() : '';
+      }
+      const accessSelect = segEl.querySelector('.agenda-day-access-select');
+      const descentSelect = segEl.querySelector('.agenda-day-descent-select');
+      return { tourChoice, tourName, tourRef, accessRouteId: accessSelect?accessSelect.value:'', descentRouteId: descentSelect?descentSelect.value:'' };
+    });
+    const anreiseChip = isFirst ? block.querySelector('.agenda-travel-chip.on[data-kind="anreise"]') : null;
+    const anreiseOrtInput = isFirst ? block.querySelector('.agenda-travel-ort[data-kind="anreise"]') : null;
+    const abreiseChip = isLast ? block.querySelector('.agenda-travel-chip.on[data-kind="abreise"]') : null;
+    const abreiseOrtInput = isLast ? block.querySelector('.agenda-travel-ort[data-kind="abreise"]') : null;
+    const overnightChip = !isLast ? block.querySelector('.agenda-overnight-chip.on') : null;
+    const overnightHutSelect = block.querySelector('.agenda-overnight-hut-select');
+    const overnightCustomInput = block.querySelector('.agenda-overnight-custom');
+    return {
+      date: block.getAttribute('data-date') || '',
+      anreiseType: anreiseChip ? anreiseChip.getAttribute('data-travel') : '',
+      anreiseOrt: anreiseOrtInput ? anreiseOrtInput.value.trim() : '',
+      segments: segments.length ? segments : [blankAgendaDaySegment()],
+      overnight: {
+        type: overnightChip ? overnightChip.getAttribute('data-overnight') : '',
+        hutId: overnightHutSelect ? overnightHutSelect.value : '',
+        customLabel: overnightCustomInput ? overnightCustomInput.value.trim() : ''
+      },
+      abreiseType: abreiseChip ? abreiseChip.getAttribute('data-travel') : '',
+      abreiseOrt: abreiseOrtInput ? abreiseOrtInput.value.trim() : ''
+    };
+  });
+}
+// Baut den Bereich unterhalb von "Art" neu auf: klassische Einzeltag-Felder, solange kein
+// (abweichendes) Enddatum gesetzt ist, sonst der Tag-für-Tag-Plan. Wird beim ersten Öffnen des
+// Formulars UND bei jeder Änderung von Start-/Enddatum aufgerufen.
+function syncAgendaDayPlanMode(agendaForm){
+  const container = agendaForm.querySelector('#agenda-day-plan-container');
+  if(!container) return;
+  const startDate = agendaForm.querySelector('#agenda-start-date').value;
+  const endDate = agendaForm.querySelector('#agenda-end-date').value;
+  const isMultiDay = !!(startDate && endDate && endDate > startDate);
+  if(container.dataset.mode==='multi'){
+    // Vor jedem Neu-Rendern zuerst den aktuellen DOM-Stand sichern (Tour-Auswahl, Übernachtung
+    // usw.) — sonst gingen Eingaben verloren, die keinen Rebuild ausgelöst haben.
+    agendaDayPlanDraft = collectAgendaDayPlanFromDom(container);
+  }
+  if(!isMultiDay){
+    container.dataset.mode = 'single';
+    container.innerHTML = agendaSingleDayFieldsHtml();
+    agendaDayPlanDraft = null;
+    wireAgendaSingleDayFieldHandlers(agendaForm);
+    return;
+  }
+  agendaDayPlanDraft = syncAgendaDaysToRange(agendaDayPlanDraft, startDate, endDate);
+  container.dataset.mode = 'multi';
+  container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft);
+  container.querySelectorAll('.agenda-day-segment').forEach(segEl => syncAgendaDaySegmentRouteFields(segEl));
+}
+// Verdrahtet die klassischen Einzeltag-Felder — identisch zum bisherigen Verhalten, nur hierher
+// verschoben, weil sie jetzt bei jedem Moduswechsel neu ins DOM eingefügt werden.
+function wireAgendaSingleDayFieldHandlers(agendaForm){
+  const tourSelect = agendaForm.querySelector('#agenda-tour-select');
+  const customField = agendaForm.querySelector('#agenda-custom-field');
+  const routeFieldsWrap = agendaForm.querySelector('#agenda-route-fields');
+  const accessRouteSelect = agendaForm.querySelector('#agenda-access-route-select');
+  const descentRouteSelect = agendaForm.querySelector('#agenda-descent-route-select');
+  function syncCustomFieldVisibility(){
+    if(customField) customField.style.display = (tourSelect && tourSelect.value!=='custom') ? 'none' : '';
+  }
+  function syncTypeFromTourChoice(){
+    if(!tourSelect || tourSelect.value==='custom') return;
+    const [src, refId] = tourSelect.value.split(':');
+    const list = src==='own' ? state.tours : state.otherAppTours;
+    const ref = list.find(t=>t.id===refId);
+    if(!ref) return;
+    const typeSelect = agendaForm.querySelector('select[name="type"]');
+    if(!typeSelect) return;
+    // Nur Hochtour/MSL-Touren tragen ein tourCategory-Feld (Skitouren nie, unabhängig davon, ob
+    // das in dieser App die "eigenen" oder die "anderen" Touren sind) — app-unabhängig also anhand
+    // dieses Felds entscheiden statt anhand von src (das würde je nach App das Gegenteil bedeuten).
+    typeSelect.value = ref.tourCategory ? (ref.tourCategory==='msl' ? 'msl' : 'hochtour') : 'ski';
+  }
+  function syncRouteFieldsFromTourChoice(){
+    if(!tourSelect || !routeFieldsWrap) return;
+    if(tourSelect.value==='custom'){ routeFieldsWrap.style.display = 'none'; accessRouteSelect.innerHTML = ''; descentRouteSelect.innerHTML = ''; return; }
+    const [src, refId] = tourSelect.value.split(':');
+    const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes({source:src, id:refId});
+    if(!accessRoutes.length && !descentRoutes.length){ routeFieldsWrap.style.display = 'none'; return; }
+    routeFieldsWrap.style.display = '';
+    const opt = r => `<option value="${esc(r.id)}">${esc(r.name||'?')}</option>`;
+    accessRouteSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + accessRoutes.map(opt).join('');
+    descentRouteSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + descentRoutes.map(opt).join('');
+  }
+  if(tourSelect){
+    tourSelect.addEventListener('change', ()=>{ syncCustomFieldVisibility(); syncTypeFromTourChoice(); syncRouteFieldsFromTourChoice(); });
+    syncCustomFieldVisibility();
+    syncTypeFromTourChoice();
+    syncRouteFieldsFromTourChoice();
+  }
+  const anreiseHidden = agendaForm.querySelector('#anreise-type-hidden');
+  const anreiseOevField = agendaForm.querySelector('#anreise-oev-field');
+  agendaForm.querySelectorAll('.anreise-chip').forEach(chip=>{
+    chip.onclick = ()=>{
+      const val = chip.getAttribute('data-anreise');
+      const already = anreiseHidden.value === val;
+      agendaForm.querySelectorAll('.anreise-chip').forEach(c=>{ c.classList.remove('on'); c.style.background = ''; });
+      anreiseHidden.value = already ? '' : val;
+      if(!already){ chip.classList.add('on'); chip.style.background = 'var(--ice-deep)'; }
+      anreiseOevField.style.display = anreiseHidden.value==='oev' ? '' : 'none';
+    };
+  });
+  const sbbLinkBtn = agendaForm.querySelector('#sbb-link-btn');
+  if(sbbLinkBtn) sbbLinkBtn.onclick = ()=>{
+    const ortInput = agendaForm.querySelector('input[name="anreiseOrt"]');
+    const dateInput = agendaForm.querySelector('input[name="startDate"]');
+    const meetingInput = agendaForm.querySelector('input[name="meetingPoint"]');
+    window.open(buildSbbLink(ortInput ? ortInput.value.trim() : '', dateInput ? dateInput.value : '', meetingInput ? meetingInput.value.trim() : ''), '_blank', 'noopener');
+  };
+  const endOptionHidden = agendaForm.querySelector('#end-option-hidden');
+  const endNoteInput = agendaForm.querySelector('#end-note-input');
+  agendaForm.querySelectorAll('.end-option-chip').forEach(chip=>{
+    chip.onclick = ()=>{
+      const val = chip.getAttribute('data-end');
+      const already = endOptionHidden.value === val;
+      agendaForm.querySelectorAll('.end-option-chip').forEach(c=>{ c.classList.remove('on'); c.style.background = ''; });
+      endOptionHidden.value = already ? '' : val;
+      if(!already){ chip.classList.add('on'); chip.style.background = 'var(--ice-deep)'; }
+      endNoteInput.style.display = endOptionHidden.value ? '' : 'none';
+      endNoteInput.placeholder = endOptionHidden.value==='huette' ? 'Name der Hütte' : endOptionHidden.value==='heimweg' ? 'Notiz zum Heimweg (optional)' : '';
+    };
+  });
+}
+// Event-Delegation auf dem Container statt Einzel-Listenern: Tage/Segmente werden dynamisch
+// hinzugefügt/entfernt, eine Delegation muss darum nicht nach jedem Neu-Rendern neu verdrahtet
+// werden. Wird einmal beim Öffnen des Formulars aufgerufen.
+function wireAgendaDayPlanContainer(agendaForm){
+  const container = agendaForm.querySelector('#agenda-day-plan-container');
+  if(!container) return;
+  container.addEventListener('click', (e)=>{
+    const addSegBtn = e.target.closest('.agenda-add-segment-btn');
+    if(addSegBtn){
+      const dayIdx = Number(addSegBtn.getAttribute('data-day'));
+      agendaDayPlanDraft = collectAgendaDayPlanFromDom(container);
+      agendaDayPlanDraft[dayIdx].segments.push(blankAgendaDaySegment());
+      container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft);
+      container.querySelectorAll('.agenda-day-segment').forEach(segEl => syncAgendaDaySegmentRouteFields(segEl));
+      markModalDirty();
+      return;
+    }
+    const removeSegBtn = e.target.closest('.agenda-seg-remove');
+    if(removeSegBtn){
+      const dayIdx = Number(removeSegBtn.getAttribute('data-day'));
+      const segIdx = Number(removeSegBtn.getAttribute('data-seg'));
+      agendaDayPlanDraft = collectAgendaDayPlanFromDom(container);
+      agendaDayPlanDraft[dayIdx].segments.splice(segIdx, 1);
+      container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft);
+      container.querySelectorAll('.agenda-day-segment').forEach(segEl => syncAgendaDaySegmentRouteFields(segEl));
+      markModalDirty();
+      return;
+    }
+    const overnightChip = e.target.closest('.agenda-overnight-chip');
+    if(overnightChip){
+      const dayIdx = overnightChip.getAttribute('data-day');
+      const val = overnightChip.getAttribute('data-overnight');
+      const block = overnightChip.closest('.agenda-day-block');
+      const already = overnightChip.classList.contains('on');
+      block.querySelectorAll('.agenda-overnight-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+      const hutSelect = block.querySelector('.agenda-overnight-hut-select');
+      const customInput = block.querySelector('.agenda-overnight-custom');
+      if(already){
+        hutSelect.style.display = 'none'; customInput.style.display = 'none';
+      }else{
+        overnightChip.classList.add('on'); overnightChip.style.background = 'var(--ice-deep)';
+        hutSelect.style.display = val==='huette' ? '' : 'none';
+        customInput.style.display = val==='andere' ? '' : 'none';
+      }
+      return;
+    }
+    const travelChip = e.target.closest('.agenda-travel-chip');
+    if(travelChip){
+      const kind = travelChip.getAttribute('data-kind');
+      const val = travelChip.getAttribute('data-travel');
+      const block = travelChip.closest('.agenda-day-block');
+      const already = travelChip.classList.contains('on');
+      block.querySelectorAll(`.agenda-travel-chip[data-kind="${kind}"]`).forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+      const oevField = block.querySelector(`.agenda-travel-oev-field[data-kind="${kind}"]`);
+      if(already){
+        oevField.style.display = 'none';
+      }else{
+        travelChip.classList.add('on'); travelChip.style.background = 'var(--ice-deep)';
+        oevField.style.display = val==='oev' ? '' : 'none';
+      }
+      return;
+    }
+  });
+  container.addEventListener('change', (e)=>{
+    const tourSelect = e.target.closest('.agenda-day-tour-select');
+    if(tourSelect){ syncAgendaDaySegmentRouteFields(tourSelect.closest('.agenda-day-segment')); markModalDirty(); }
+  });
+}
 async function submitAgendaForm(form){
   const startDate = form.startDate;
   if(!startDate){ showFormError('agenda-form', 'Bitte ein Startdatum wählen.'); return; }
-  let tourName = '';
-  let tourRef = null;
-  if(form.tourChoice && form.tourChoice!=='custom'){
-    const [src, refId] = form.tourChoice.split(':');
-    const list = src==='own' ? state.tours : state.otherAppTours;
-    const ref = list.find(t=>t.id===refId);
-    tourName = ref ? ref.name : (form.customName||'').trim();
-    if(ref) tourRef = {source: src, id: refId};
+  const isMultiDay = Array.isArray(form.days) && form.days.length>0;
+  let tourName = '', tourRef = null;
+  let accessRouteId = '', descentRouteId = '';
+  let anreiseType = '', anreiseOrt = '';
+  let endOption = '', endNote = '';
+  let days = null;
+  if(isMultiDay){
+    days = form.days;
+    const firstNamedSeg = days.flatMap(d=>d.segments).find(s=> s.tourName);
+    tourName = firstNamedSeg ? firstNamedSeg.tourName : '';
+    const firstSegWithRef = days[0].segments.find(s=>s.tourRef);
+    tourRef = firstSegWithRef ? firstSegWithRef.tourRef : null;
+    accessRouteId = days[0].segments[0] ? days[0].segments[0].accessRouteId : '';
+    descentRouteId = days[days.length-1].segments.slice(-1)[0] ? days[days.length-1].segments.slice(-1)[0].descentRouteId : '';
+    anreiseType = days[0].anreiseType; anreiseOrt = days[0].anreiseOrt;
+    const lastDay = days[days.length-1];
+    endOption = lastDay.abreiseType ? 'heimweg' : '';
   }else{
-    tourName = (form.customName||'').trim();
+    if(form.tourChoice && form.tourChoice!=='custom'){
+      const [src, refId] = form.tourChoice.split(':');
+      const list = src==='own' ? state.tours : state.otherAppTours;
+      const ref = list.find(t=>t.id===refId);
+      tourName = ref ? ref.name : (form.customName||'').trim();
+      if(ref) tourRef = {source: src, id: refId};
+    }else{
+      tourName = (form.customName||'').trim();
+    }
+    accessRouteId = form.accessRouteId||''; descentRouteId = form.descentRouteId||'';
+    anreiseType = form.anreiseType||''; anreiseOrt = form.anreiseOrt||'';
+    endOption = form.endOption||''; endNote = form.endNote||'';
   }
-  if(!tourName){ showFormError('agenda-form', 'Bitte eine Tour auswählen oder einen Vorschlag eintragen.'); return; }
+  if(!tourName){ showFormError('agenda-form', isMultiDay ? 'Bitte für mindestens einen Tag eine Tour auswählen oder einen Vorschlag eintragen.' : 'Bitte eine Tour auswählen oder einen Vorschlag eintragen.'); return; }
 
   const a = {
     id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
     type: form.type||'ski', startDate, endDate: form.endDate||'',
     tourName, tourRef, meetingPoint: form.meetingPoint||'', note: form.note||'',
-    etappen: Array.isArray(form.etappen) ? form.etappen : [],
-    accessRouteId: form.accessRouteId||'', descentRouteId: form.descentRouteId||'',
-    anreiseType: form.anreiseType||'', anreiseOrt: form.anreiseOrt||'',
-    endOption: form.endOption||'', endNote: form.endNote||'',
+    days,
+    accessRouteId, descentRouteId,
+    anreiseType, anreiseOrt,
+    endOption, endNote,
     plannedReturnTime: form.plannedReturnTime||'', emergencyContact: form.emergencyContact||'',
     participants: [{by: state.myName, joinedAt: new Date().toISOString()}],
     status: 'geplant'
