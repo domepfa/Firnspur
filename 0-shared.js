@@ -2975,6 +2975,152 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
   });
 }
 
+/* ================= Editierbarer GPX-Track =================
+   Ein hochgeladener GPX-Track (z. B. von einer Uhr aufgezeichnet) war bisher nur eine feste
+   Referenzlinie — nützlich zur Orientierung, aber nicht anpassbar, selbst wenn die Aufzeichnung
+   an einer Stelle einen schlechteren Weg zeigt als eigentlich möglich gewesen wäre. Anders als
+   beim Zuschneiden von Topo-Bildern gibt es hier kein CORS-Problem: der vereinfachte Track ist
+   nur eine Koordinatenliste, die schon im Formular liegt, kein extern zu ladendes Bild. Punkte
+   lassen sich hier direkt verschieben (ziehen), am Ende anhängen (Karte antippen) oder gezielt
+   entfernen (langes Drücken/Rechtsklick auf einen Punkt). "Änderungen speichern" schreibt die
+   bearbeitete Linie zusätzlich als neue Originaldatei zurück, sodass auch der bestehende
+   "GPX herunterladen"-Button danach die korrigierte Version liefert. */
+function renderGpxTrackEditorMap(containerId, hiddenInputId, tourIdHiddenId, trackPathPrefix, statusId){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    const hiddenInput = document.getElementById(hiddenInputId);
+    if(!el2 || !hiddenInput) return;
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+
+    const wrapDiv = document.createElement('div');
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.style.marginBottom = '6px';
+    hint.textContent = 'Punkt ziehen zum Verschieben, langes Drücken/Rechtsklick zum Entfernen, Karte antippen fügt einen Punkt am Ende hinzu.';
+    wrapDiv.appendChild(hint);
+
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = 'height:280px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    wrapDiv.appendChild(mapDiv);
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;';
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button'; resetBtn.className = 'btn secondary'; resetBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    resetBtn.textContent = '↺ Auf Originalzustand zurücksetzen';
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button'; saveBtn.className = 'btn'; saveBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    saveBtn.textContent = '💾 Änderungen speichern & Original ersetzen';
+    btnRow.appendChild(resetBtn);
+    btnRow.appendChild(saveBtn);
+    wrapDiv.appendChild(btnRow);
+    const saveStatus = document.createElement('p');
+    saveStatus.style.cssText = 'font-size:12.5px; color:var(--ink-soft); margin:6px 0 0 0;';
+    wrapDiv.appendChild(saveStatus);
+
+    el2.appendChild(wrapDiv);
+
+    let points = [];
+    try{ points = JSON.parse(hiddenInput.value || '[]'); }catch(e){ points = []; }
+    const originalPoints = points.map(p=>[p[0], p[1]]);
+
+    const center = points.length ? points[Math.floor(points.length/2)] : [46.8182, 8.2275];
+    const map = L.map(mapDivId).setView(center, points.length ? 13 : 8);
+    registerMap(mapDivId, map);
+    addBaseLayerSwitcher(map);
+    if(points.length > 1){ try{ map.fitBounds(L.polyline(points).getBounds(), {padding:[20,20]}); }catch(e){} }
+
+    const lineLayer = L.layerGroup().addTo(map);
+    const markerLayer = L.layerGroup().addTo(map);
+
+    function persist(){
+      hiddenInput.value = JSON.stringify(points.map(p=>[Math.round(p[0]*1e6)/1e6, Math.round(p[1]*1e6)/1e6]));
+      markModalDirty();
+    }
+    function redraw(){
+      lineLayer.clearLayers();
+      markerLayer.clearLayers();
+      if(points.length > 1){
+        L.polyline(points, {color:'#ffffff', weight:6, opacity:0.6}).addTo(lineLayer);
+        L.polyline(points, {color:'#E8384F', weight:3, opacity:0.9}).addTo(lineLayer);
+      }
+      points.forEach((pt, i)=>{
+        // L.marker statt L.circleMarker: nur L.marker unterstützt draggable nativ (CircleMarker
+        // ist eine reine SVG-Form ohne DOM-Icon, an dem Leaflets Drag-Handler ansetzen könnte).
+        const vertexIcon = L.divIcon({
+          className: 'gpx-edit-vertex-icon',
+          html: '<div style="width:14px; height:14px; border-radius:50%; background:#E8384F; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>',
+          iconSize: [14,14], iconAnchor: [7,7]
+        });
+        const marker = L.marker(pt, {icon: vertexIcon, draggable: true}).addTo(markerLayer);
+        marker.on('dragend', ()=>{
+          const ll = marker.getLatLng();
+          points[i] = [ll.lat, ll.lng];
+          persist();
+          redraw();
+        });
+        marker.on('click', (e)=> L.DomEvent.stopPropagation(e));
+        marker.on('contextmenu', (e)=>{
+          L.DomEvent.stopPropagation(e);
+          L.DomEvent.preventDefault(e.originalEvent);
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = '🗑️ Diesen Punkt entfernen';
+          btn.style.cssText = 'background:#B0392C; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+          btn.addEventListener('click', ()=>{
+            points.splice(i, 1);
+            persist();
+            redraw();
+            map.closePopup();
+          });
+          L.popup().setLatLng(pt).setContent(btn).openOn(map);
+        });
+      });
+    }
+    map.on('click', (e)=>{
+      points.push([e.latlng.lat, e.latlng.lng]);
+      persist();
+      redraw();
+    });
+    redraw();
+
+    resetBtn.addEventListener('click', ()=>{
+      points = originalPoints.map(p=>[p[0], p[1]]);
+      persist();
+      redraw();
+      saveStatus.textContent = '';
+    });
+    saveBtn.addEventListener('click', async ()=>{
+      if(points.length < 2){ saveStatus.style.color = 'var(--danger)'; saveStatus.textContent = 'Mindestens zwei Punkte nötig.'; return; }
+      const tourIdInput = tourIdHiddenId ? document.getElementById(tourIdHiddenId) : null;
+      const tourId = tourIdInput ? tourIdInput.value : '';
+      if(!tourId){ saveStatus.style.color = 'var(--danger)'; saveStatus.textContent = 'Zuerst das Formular einmal speichern.'; return; }
+      saveStatus.style.color = 'var(--ink-soft)';
+      saveStatus.textContent = 'Wird gespeichert…';
+      const gpx = buildGpxXml(points, 'Bearbeiteter Track');
+      const ok = await fbSet(trackPathPrefix + '/' + tourId, { gpx, uploadedAt: new Date().toISOString(), fileName: 'bearbeitet.gpx' }).catch(()=>false);
+      if(ok){
+        saveStatus.style.color = 'var(--ink-soft)';
+        saveStatus.textContent = '✓ Gespeichert — der Download-Button liefert jetzt diese Version.';
+        showToast('Bearbeiteter Track gespeichert.');
+      }else{
+        saveStatus.style.color = 'var(--danger)';
+        saveStatus.textContent = '⚠ Konnte nicht gespeichert werden (Internetverbindung prüfen).';
+      }
+      const statusEl = statusId ? document.getElementById(statusId) : null;
+      if(statusEl) statusEl.textContent = '✓ GPX-Track bereits hochgeladen.';
+    });
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
 function renderPointsDisplayMap(containerId, points){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
@@ -3328,10 +3474,13 @@ function renderRouteStatCards(el, r, onDelete){
 
 // Baut aus einer Koordinatenliste eine GPX-Datei und löst den Download aus —
 // für manuell gezeichnete oder berechnete Tracks (kein Original-Upload nötig).
+function buildGpxXml(coords, name){
+  const points = coords.map(c=> `    <trkpt lat="${c[0]}" lon="${c[1]}"></trkpt>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Firnspur" xmlns="http://www.topografix.com/GPX/1/1">\n  <trk>\n    <name>${esc(name || 'Track')}</name>\n    <trkseg>\n${points}\n    </trkseg>\n  </trk>\n</gpx>`;
+}
 function downloadTrackAsGpx(coords, name){
   if(!coords || !coords.length){ showToast('Kein Track zum Exportieren vorhanden.', true); return; }
-  const points = coords.map(c=> `    <trkpt lat="${c[0]}" lon="${c[1]}"></trkpt>`).join('\n');
-  const gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Firnspur" xmlns="http://www.topografix.com/GPX/1/1">\n  <trk>\n    <name>${esc(name || 'Track')}</name>\n    <trkseg>\n${points}\n    </trkseg>\n  </trk>\n</gpx>`;
+  const gpx = buildGpxXml(coords, name);
   const blob = new Blob([gpx], {type:'application/gpx+xml'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -4552,7 +4701,9 @@ function accessRouteFormHtml(hutId, route){
       <div class="field"><label>Eigenen GPX-Track hochladen</label>
         <input type="file" id="access-route-gpx-input" accept=".gpx,application/gpx+xml"/>
         <p id="access-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
-        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="access-route-gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>` : ''}
+        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="access-route-gpx-edit-toggle-btn" style="margin-top:6px;">✏️ Auf Karte bearbeiten</button>
+        <button type="button" class="btn secondary" id="access-route-gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>
+        <div id="access-route-gpx-edit-map" style="display:none; margin-top:10px;"></div>` : ''}
         <input type="hidden" name="trackSimplified" id="access-route-track-hidden" value='${esc(r.trackSimplified ? JSON.stringify(r.trackSimplified) : "")}'/>
         <input type="hidden" name="routeIdForTrack" id="access-route-id-for-track" value="${esc(r.id||'')}"/>
       </div>
