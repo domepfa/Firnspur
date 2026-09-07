@@ -2920,6 +2920,28 @@ function extractCamptocampTitle(doc){
   }
   return null;
 }
+// camptocamp.org-URLs ohne Sprachsegment (nur /routes/<id>) landen auf der Startsprache der Seite
+// (i. d. R. Französisch) statt auf Deutsch — deshalb gezielt das Format .../routes/<id>/de/<slug>
+// bauen, das camptocamp selbst für seine eigenen Links verwendet (bestätigt z. B. an
+// camptocamp.org/routes/53870/en/matterhorn-hornli-ridge). Ohne deutschen Titel in den Locales
+// (manche Routen sind nur französisch dokumentiert) bleibt die URL ohne Sprachsegment.
+function slugifyCamptocampTitle(title){
+  return (title||'')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Umlaute/Akzente auf Grundbuchstaben reduzieren
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+function buildCamptocampRouteUrl(doc){
+  const id = doc.document_id || doc.id;
+  if(!id) return null;
+  const deLocale = Array.isArray(doc.locales) ? doc.locales.find(l=> l.lang==='de') : null;
+  if(deLocale && deLocale.title){
+    const slug = slugifyCamptocampTitle(deLocale.title);
+    return `https://www.camptocamp.org/routes/${id}/de${slug ? '/' + slug : ''}`;
+  }
+  return `https://www.camptocamp.org/routes/${id}`;
+}
 
 // Baut eine kleine Such-Widget (Eingabefeld + Ergebnisliste) in das Element mit der ID
 // containerId. Ein Klick auf "Link übernehmen" trägt die camptocamp.org-URL in das Feld mit
@@ -2960,7 +2982,7 @@ function renderCamptocampSearchBox(containerId, tourLinkInputId){
       docs.slice(0, 10).forEach(doc=>{
         const id = doc.document_id || doc.id;
         const title = extractCamptocampTitle(doc) || ('Route' + (id ? ' #' + id : ''));
-        const url = id ? ('https://www.camptocamp.org/routes/' + id) : null;
+        const url = buildCamptocampRouteUrl(doc);
         const row = document.createElement('div');
         row.style.cssText = 'border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; margin-bottom:8px;';
         const nameP = document.createElement('p');
