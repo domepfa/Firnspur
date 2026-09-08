@@ -2435,22 +2435,44 @@ function buildSkitourPopupContent(feature){
         select.appendChild(opt);
       });
       attachWrap.appendChild(select);
-      const attachBtn = document.createElement('button');
-      attachBtn.type = 'button';
-      attachBtn.textContent = '➕ Als Track dieser Tour übernehmen';
-      attachBtn.style.cssText = 'width:100%; background:var(--ice-deep, #1F4D63); color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
-      attachBtn.addEventListener('click', async ()=>{
+      const mainBtn = document.createElement('button');
+      mainBtn.type = 'button';
+      mainBtn.style.cssText = 'width:100%; background:var(--ice-deep, #1F4D63); color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer; margin-bottom:6px;';
+      // Beschriftung hängt davon ab, ob die gewählte Tour schon einen Haupttrack hat — bei
+      // Auswahländerung entsprechend nachziehen.
+      function syncMainBtnLabel(){
+        const t = state.tours.find(x=>x.id===select.value);
+        mainBtn.textContent = (t && t.trackSimplified) ? '🔁 Haupttrack ersetzen' : '➕ Als Haupttrack übernehmen';
+      }
+      select.addEventListener('change', syncMainBtnLabel);
+      syncMainBtnLabel();
+      mainBtn.addEventListener('click', async ()=>{
         const targetTour = state.tours.find(t=>t.id===select.value);
         if(!targetTour) return;
-        if(targetTour.trackSimplified && !confirm(`"${targetTour.name}" hat schon einen GPX-Track. Wirklich ersetzen?`)) return;
-        attachBtn.disabled = true;
-        attachBtn.textContent = 'Wird übernommen…';
+        if(targetTour.trackSimplified && !confirm(`"${targetTour.name}" hat schon einen Haupttrack. Wirklich ersetzen?`)) return;
+        mainBtn.disabled = true;
+        mainBtn.textContent = 'Wird übernommen…';
         const ok = await attachSkitourTrackToTour(targetTour.id, coords, name);
-        attachBtn.disabled = false;
-        attachBtn.textContent = '➕ Als Track dieser Tour übernehmen';
+        mainBtn.disabled = false;
+        syncMainBtnLabel();
         showToast(ok ? `Track zu "${targetTour.name}" hinzugefügt.` : 'Konnte nicht übernommen werden (Internetverbindung prüfen).', !ok);
       });
-      attachWrap.appendChild(attachBtn);
+      attachWrap.appendChild(mainBtn);
+      const altBtn = document.createElement('button');
+      altBtn.type = 'button';
+      altBtn.textContent = '➕ Als Alternativroute hinzufügen';
+      altBtn.style.cssText = 'width:100%; background:#fff; color:var(--ice-deep, #1F4D63); border:1px solid var(--ice-deep, #1F4D63); border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+      altBtn.addEventListener('click', async ()=>{
+        const targetTour = state.tours.find(t=>t.id===select.value);
+        if(!targetTour) return;
+        altBtn.disabled = true;
+        altBtn.textContent = 'Wird hinzugefügt…';
+        const ok = await attachSkitourTrackToTour(targetTour.id, coords, name, {asAlternative:true});
+        altBtn.disabled = false;
+        altBtn.textContent = '➕ Als Alternativroute hinzufügen';
+        showToast(ok ? `"${name}" als Alternativroute zu "${targetTour.name}" hinzugefügt.` : 'Konnte nicht hinzugefügt werden (Internetverbindung prüfen).', !ok);
+      });
+      attachWrap.appendChild(altBtn);
       wrap.appendChild(attachWrap);
     }
   }
@@ -2458,10 +2480,13 @@ function buildSkitourPopupContent(feature){
 }
 // Übernimmt die von identifySkitourAt() gelieferten Koordinaten direkt als GPX-Track einer
 // bestehenden Tour — ohne den Umweg über "Herunterladen" und anschliessendes manuelles
-// Hochladen im Formular. Aktualisiert sowohl die vereinfachte Linie (für die Kartenanzeige, wie
-// beim normalen Upload über simplifyTrackForStorage) als auch die als Original abrufbare
-// GPX-Datei (für den bestehenden "GPX herunterladen"-Button auf der Tour selbst).
-async function attachSkitourTrackToTour(tourId, coords, name){
+// Hochladen im Formular. Ohne opts.asAlternative wird der Haupttrack (er)setzt; mit
+// opts.asAlternative:true kommt der Track als zusätzliche, unabhängige Alternativroute dazu,
+// der bestehende Haupttrack bleibt unangetastet. Aktualisiert sowohl die vereinfachte Linie
+// (für die Kartenanzeige, wie beim normalen Upload über simplifyTrackForStorage) als auch die
+// als Original abrufbare GPX-Datei.
+async function attachSkitourTrackToTour(tourId, coords, name, opts){
+  opts = opts || {};
   const tour = state.tours.find(t=>t.id===tourId);
   if(!tour) return false;
   let simplified;
@@ -2469,12 +2494,70 @@ async function attachSkitourTrackToTour(tourId, coords, name){
     simplified = simplifyTrackForStorage(coords.map(c=>({lat:c[0], lon:c[1]})), 200)
       .map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]);
   }catch(e){ simplified = coords; }
-  tour.trackSimplified = simplified;
-  const ok1 = await saveTourCloud(tour).catch(()=>false);
   const gpx = buildGpxXml(coords, name);
-  const ok2 = await fbSet(GPX_TRACKS_PATH + '/' + tourId, { gpx, uploadedAt: new Date().toISOString(), fileName: (name||'track') + '.gpx' }).catch(()=>false);
+  let ok2;
+  if(opts.asAlternative){
+    // Eigener Pfad (GPX_TRACKS_PATH + 'Alt'), NICHT unter dem Haupttrack-Pfad verschachtelt:
+    // fbSet ist ein reines PUT und würde beim (Er)setzen des Haupttracks sonst alles darunter
+    // — inklusive bereits gespeicherter Alternativrouten — mit überschreiben.
+    if(!Array.isArray(tour.altTracks)) tour.altTracks = [];
+    const altId = 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+    tour.altTracks.push({ id: altId, name: name || 'Alternativroute', trackSimplified: simplified });
+    ok2 = await fbSet(GPX_TRACKS_PATH + 'Alt/' + tourId + '/' + altId, { gpx, uploadedAt: new Date().toISOString(), fileName: (name||'alternativroute') + '.gpx' }).catch(()=>false);
+  }else{
+    tour.trackSimplified = simplified;
+    ok2 = await fbSet(GPX_TRACKS_PATH + '/' + tourId, { gpx, uploadedAt: new Date().toISOString(), fileName: (name||'track') + '.gpx' }).catch(()=>false);
+  }
+  const ok1 = await saveTourCloud(tour).catch(()=>false);
   if(state.modal && state.modal.type==='edit-tour' && state.modal.payload && state.modal.payload.id===tourId) render();
   return ok1 && ok2;
+}
+
+// Lädt die als Original gespeicherte GPX-Datei einer einzelnen Alternativroute herunter —
+// analog zu downloadFullGpx(), nur unter dem separaten Alternativrouten-Pfad.
+async function downloadAltGpx(tourId, altId, name){
+  try{
+    const data = await fbGet(GPX_TRACKS_PATH + 'Alt/' + tourId + '/' + altId);
+    if(!data || !data.gpx){ showToast('Keine gespeicherte GPX-Datei für diese Alternativroute gefunden.', true); return; }
+    const blob = new Blob([data.gpx], {type:'application/gpx+xml'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (name || 'alternativroute').replace(/[^a-z0-9äöüÄÖÜ_\- ]/gi,'').trim() + '.gpx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  }catch(err){
+    showToast('GPX-Datei konnte nicht heruntergeladen werden.', true);
+  }
+}
+
+// Entfernt eine einzelne Alternativroute wieder von einer Tour (Haupttrack bleibt unberührt).
+async function removeAltTrack(tourId, altId){
+  const tour = state.tours.find(t=>t.id===tourId);
+  if(!tour || !Array.isArray(tour.altTracks)) return false;
+  tour.altTracks = tour.altTracks.filter(a=>a.id!==altId);
+  const ok1 = await saveTourCloud(tour).catch(()=>false);
+  const ok2 = await fbDelete(GPX_TRACKS_PATH + 'Alt/' + tourId + '/' + altId).catch(()=>false);
+  if(state.modal && state.modal.type==='edit-tour' && state.modal.payload && state.modal.payload.id===tourId) render();
+  return ok1 && ok2;
+}
+
+// HTML-Liste der Alternativrouten einer Tour für die Detailansicht (Download + Entfernen je
+// Route) — geteilt zwischen Firnspur/Skitour und Fixseil/MSL, da beide dasselbe altTracks-Feld
+// und dieselben Shared-Funktionen (downloadAltGpx/removeAltTrack) nutzen.
+function altTracksListHtml(tour){
+  if(!tour.altTracks || !tour.altTracks.length) return '';
+  return `<div style="margin-top:10px;">
+    <p style="font-size:12.5px; font-weight:600; margin:0 0 6px 0;">Alternativrouten (${tour.altTracks.length})</p>
+    ${tour.altTracks.map((a,i)=>`<div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px solid var(--line);">
+      <span style="width:10px; height:10px; border-radius:50%; background:${ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length]}; flex-shrink:0;"></span>
+      <span style="flex:1; font-size:13px;">${esc(a.name || 'Alternativroute')}</span>
+      <button type="button" class="btn secondary" style="padding:4px 8px; font-size:12px;" data-act="download-alt-gpx" data-tour-id="${tour.id}" data-alt-id="${a.id}" data-name="${esc(a.name||'Alternativroute')}">📥</button>
+      <button type="button" class="btn secondary" style="padding:4px 8px; font-size:12px;" data-act="remove-alt-track" data-tour-id="${tour.id}" data-alt-id="${a.id}">🗑️</button>
+    </div>`).join('')}
+  </div>`;
 }
 
 function renderMiniMap(containerId, lat, lon, label){
@@ -3684,7 +3767,7 @@ async function downloadFullGpx(trackPathPrefix, tourId, tourName){
   }
 }
 
-function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoords, offlineId){
+function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoords, offlineId, altTracks){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
   ensureLeafletLoaded().then(()=>{
@@ -3693,7 +3776,8 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     const hasTrack = trackCoords && trackCoords.length;
     const hasManualTrack = manualTrackCoords && manualTrackCoords.length;
     const hasPoints = points && points.length;
-    if(!hasTrack && !hasManualTrack && !hasPoints) return;
+    const altList = (altTracks||[]).filter(a=> a.trackSimplified && a.trackSimplified.length);
+    if(!hasTrack && !hasManualTrack && !hasPoints && !altList.length) return;
     const mapDivId = containerId + '-inner';
     destroyExistingMap(mapDivId);
     el2.innerHTML = '';
@@ -3704,7 +3788,7 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
       ? 'height:100%; border-radius:0; overflow:hidden;'
       : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
     el2.appendChild(mapDiv);
-    const startView = hasTrack ? trackCoords[0] : (hasManualTrack ? manualTrackCoords[0] : [points[0].lat, points[0].lon]);
+    const startView = hasTrack ? trackCoords[0] : (hasManualTrack ? manualTrackCoords[0] : (altList.length ? altList[0].trackSimplified[0] : [points[0].lat, points[0].lon]));
     const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
     if(offlineId){
@@ -3726,6 +3810,12 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
       const line2 = L.polyline(manualTrackCoords, {color:'#1565C0', weight:4, opacity:1}).addTo(map);
       boundsItems.push(line2);
     }
+    altList.forEach((a,i)=>{
+      const color = ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length];
+      L.polyline(a.trackSimplified, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
+      const line = L.polyline(a.trackSimplified, {color, weight:3.5, opacity:1, dashArray:'6,5'}).addTo(map).bindPopup(esc(a.name||'Alternativroute'));
+      boundsItems.push(line);
+    });
     if(hasPoints){
       points.forEach(p=>{
         const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
@@ -3736,7 +3826,7 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
       map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
-      const btn = makeFullscreenButton(function(id){ renderTrackDisplayMap(id, points||[], trackCoords||[], manualTrackCoords||[], offlineId); });
+      const btn = makeFullscreenButton(function(id){ renderTrackDisplayMap(id, points||[], trackCoords||[], manualTrackCoords||[], offlineId, altTracks||[]); });
       el2.appendChild(btn);
     }
   }).catch(err=>{
@@ -4600,6 +4690,10 @@ function wireMonthCycleChips(root, selector){
     });
   });
 }
+
+// Farbpalette für Alternativrouten einer Tour (Haupttrack bleibt Rot #E8384F, manuelle Linie Blau
+// #1565C0 — beide hier bewusst ausgespart, damit Alternativrouten optisch unterscheidbar bleiben).
+const ALT_TRACK_COLORS = ['#8E44AD','#E8B93E','#2F6B44','#FF8C00','#00838F','#C2185B'];
 
 /* ================= Hütten-Zustiege: mehrere Varianten pro Hütte ================= */
 const ACCESS_ROUTE_COLORS = ['#E8B93E','#1565C0','#E8384F','#2E7EB0','#8A2E2E','#3C7A52'];

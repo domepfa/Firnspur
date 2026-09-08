@@ -652,7 +652,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v98-skitour-track-uebernehmen';
+const APP_VERSION = 'v99-alternativrouten';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2785,7 +2785,8 @@ function tourDetailHtml(id){
       ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${t.trackSimplified ? `<span class="hint">🔴 Rot: aufgezeichneter GPX-Track</span><br/>` : ''}
       ${(t.manualTrack && t.manualTrack.length) ? `<span class="hint">🔵 Blau: manuell geplante Linie</span>` : ''}
-      ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
+      ${(t.altTracks && t.altTracks.length) ? `<span class="hint">┄ gestrichelt: Alternativrouten</span><br/>` : ''}
+      ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${t.id}" data-act="quick-edit-toggle" data-id="${t.id}" data-kind="tour">✏️ Punkte/Linie direkt bearbeiten</button>
       <div id="quick-edit-map-${t.id}" style="margin-top:10px; display:none;"></div>
@@ -2854,11 +2855,12 @@ function tourDetailHtml(id){
       </div>`;
     })() : ''}
     ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.topoImages && t.topoImages.length)) ? offlineSectionHtml(t.id) : ''}
-    ${(t.gpxLink || t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? `<div class="detail-section">
+    ${(t.gpxLink || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<div class="detail-section">
       <h4>GPX-Track</h4>
       ${t.gpxLink ? `<p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>` : ''}
       ${t.trackSimplified ? `<button type="button" class="btn secondary" data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}">📥 GPX herunterladen (Originaldatei)</button>` : ''}
       ${(!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? `<button type="button" class="btn secondary" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}">📥 Route als GPX exportieren</button>` : ''}
+      ${altTracksListHtml(t)}
     </div>` : ''}
     ${(() => { const related = findToursSharingPoints(t, state.tours, 300); return related.length ? `<div class="detail-section">
       <h4>Weitere Touren ab hier (${related.length})</h4>
@@ -3407,12 +3409,14 @@ function wireModalHandlers(){
       const pointsJson = btn.getAttribute('data-points');
       const trackJson = btn.getAttribute('data-track');
       const manualTrackJson = btn.getAttribute('data-manual-track');
+      const altTracksJson = btn.getAttribute('data-alt-tracks');
       const offlineId = btn.getAttribute('data-offline-id') || null;
-      let pts = [], track = [], manualTrack = [];
+      let pts = [], track = [], manualTrack = [], altTracks = [];
       try{ pts = JSON.parse(pointsJson || '[]'); }catch(e){ pts = []; }
       try{ track = JSON.parse(trackJson || '[]'); }catch(e){ track = []; }
       try{ manualTrack = JSON.parse(manualTrackJson || '[]'); }catch(e){ manualTrack = []; }
-      renderTrackDisplayMap(target, pts, track, manualTrack, offlineId);
+      try{ altTracks = JSON.parse(altTracksJson || '[]'); }catch(e){ altTracks = []; }
+      renderTrackDisplayMap(target, pts, track, manualTrack, offlineId, altTracks);
     });
   });
 
@@ -3438,6 +3442,17 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="download-gpx"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       downloadFullGpx(GPX_TRACKS_PATH, btn.getAttribute('data-id'), btn.getAttribute('data-name'));
+    });
+  });
+  root.querySelectorAll('[data-act="download-alt-gpx"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      downloadAltGpx(btn.getAttribute('data-tour-id'), btn.getAttribute('data-alt-id'), btn.getAttribute('data-name'));
+    });
+  });
+  root.querySelectorAll('[data-act="remove-alt-track"]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Diese Alternativroute wirklich entfernen?')) return;
+      await removeAltTrack(btn.getAttribute('data-tour-id'), btn.getAttribute('data-alt-id'));
     });
   });
   root.querySelectorAll('[data-act="download-hut-gpx-summer"]').forEach(btn=>{
