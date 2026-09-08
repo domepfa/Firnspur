@@ -4482,14 +4482,13 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
     und die eigenen \`accessRoutes\`/\`descentRoutes\` der Tour werden ignoriert
     (dort trotzdem \`[]\` eintragen, nie raten).
 
-  **Falls tourCategory = "klettergarten" (Einzellängen-Klettergebiet):** dieselben
-  Felder wie bei "msl" oben — \`mandatoryDifficulty\`, \`cruxDifficulty\`,
-  \`protection\`, \`descentType\`, \`exposition\`, \`gefahren\` — MIT AUSNAHME von:
-  - \`pitchCount\`/\`longestPitch\`: immer leerer String \`""\` (Einzellängen-Routen,
-    keine Seillängen-Zählung)
-  - \`sektorId\`: immer leerer String \`""\` (Sektoren bündeln nur MSL-Touren)
-  - \`descent\`: normaler Freitext erlaubt (nicht wie bei MSL immer leer) — ein
-    Klettergarten hat keine strukturierten \`descentRoutes\`
+  **Falls tourCategory = "klettergarten" (Klettergebiet, oft mit mehreren
+  Sektoren und auch Mehrseillängen-Routen drin):** exakt dieselben Felder und
+  Regeln wie bei "msl" oben, inklusive \`pitchCount\`, \`longestPitch\` und
+  \`sektorId\` (Sektoren bündeln MSL- UND Klettergarten-Einträge gleichermassen).
+  Meist wird aber gar keine einzelne Route erfasst, sondern eher Topo-Bilder und
+  Standorte (\`points\`/\`topoImages\`) — \`descent\` bei einem Sektor-verlinkten
+  Eintrag trotzdem leer lassen wie bei MSL.
 
   Franz. Kletterskala: 1, 2a-, 2a, 2a+, 2b-, 2b, 2b+, 2c-, 2c, 2c+, 3a-, 3a, 3a+,
   3b-, 3b, 3b+, 3c-, 3c, 3c+, 4a- ... bis 7a (jeweils mit -/+ Abstufungen)

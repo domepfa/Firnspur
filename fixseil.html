@@ -714,7 +714,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v101-klettergarten';
+const APP_VERSION = 'v102-klettergarten-sektor-seillaengen';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1146,7 +1146,7 @@ async function submitTourForm(form, existing){
   t.ropeType = form.ropeType || '';
   t.ropeLength = form.ropeLength || '';
   t.hutId = form.hutId || '';
-  t.sektorId = (t.tourCategory==='msl') ? (form.sektorId || '') : ''; // Sektoren bündeln nur MSL, nicht Klettergarten-Einträge
+  t.sektorId = (t.tourCategory==='msl' || t.tourCategory==='klettergarten') ? (form.sektorId || '') : ''; // Sektoren bündeln auch Klettergarten — dort gibt's oft mehrere, mit eigenen Zustiegen
   t.tourLink = form.tourLink;
   t.gpxLink = form.gpxLink || '';
   try{ t.trackSimplified = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ t.trackSimplified = null; }
@@ -1162,13 +1162,13 @@ async function submitTourForm(form, existing){
   t.descent = form.descent;
 
   if(t.tourCategory==='msl' || t.tourCategory==='klettergarten'){
-    // Klettergarten teilt sich denselben Sicherheits-Block wie MSL (Absicherung/Exposition/
-    // Gefahren sind bei Fels-Klettern generell relevant) — nur Seillängen-spezifische Felder
-    // (mehrere Seillängen, Sektor-Bündelung) ergeben bei einer Einzellängen-Route keinen Sinn.
+    // Klettergarten teilt sich denselben Sicherheits-Block wie MSL, inklusive Seillängen und
+    // Sektor-Bündelung — auch Klettergärten haben oft Mehrseillängen-Routen und mehrere Sektoren
+    // mit eigenem Zustieg; erfasst wird ohnehin meist Topo/Standorte statt einzelner Routen.
     t.mandatoryDifficulty = form.mandatoryDifficulty || '';
     t.cruxDifficulty = form.cruxDifficulty || '';
-    t.pitchCount = (t.tourCategory==='msl') ? (form.pitchCount || '') : '';
-    t.longestPitch = (t.tourCategory==='msl') ? (form.longestPitch || '') : '';
+    t.pitchCount = form.pitchCount || '';
+    t.longestPitch = form.longestPitch || '';
     t.protection = form.protection || '';
     t.descentType = form.descentType || '';
     t.exposition = form.expositionMsl || [];
@@ -1461,11 +1461,12 @@ async function deleteTourRoute(tourId, kind, routeId){
    Vorschlag in der Tour-Detailansicht, nie automatisch — der Nutzer bestätigt die Zusammenlegung. */
 function findSektorCandidateTours(currentTour, allTours, maxMeters){
   maxMeters = maxMeters || 300;
-  if(currentTour.tourCategory!=='msl' || currentTour.sektorId) return [];
+  const isMslLike = c => c==='msl' || c==='klettergarten';
+  if(!isMslLike(currentTour.tourCategory) || currentTour.sektorId) return [];
   const myName = (currentTour.name||'').trim().toLowerCase();
   const myPoints = currentTour.points || [];
   return allTours.filter(t=>{
-    if(t.id===currentTour.id || t.tourCategory!=='msl' || t.sektorId) return false;
+    if(t.id===currentTour.id || !isMslLike(t.tourCategory) || t.sektorId) return false;
     const sameName = myName && (t.name||'').trim().toLowerCase()===myName;
     const otherPoints = t.points || [];
     const sharesPoint = myPoints.length && otherPoints.length && myPoints.some(mp=>otherPoints.some(op=>haversineMeters(mp.lat,mp.lon,op.lat,op.lon)<=maxMeters));
@@ -2257,7 +2258,7 @@ function tourCardHtml(t){
       <h3 style="color:var(--ice-deep);">${done ? '✓ ' : ''}${esc(t.name)}</h3>
       <div class="badge-row">
         ${(isMsl || isKlettergarten)
-          ? `${t.mandatoryDifficulty ? `<span class="badge climb">${esc(t.mandatoryDifficulty)}</span>` : ''}${isMsl && t.pitchCount ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.pitchCount)} SL</span>` : ''}`
+          ? `${t.mandatoryDifficulty ? `<span class="badge climb">${esc(t.mandatoryDifficulty)}</span>` : ''}${t.pitchCount ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.pitchCount)} SL</span>` : ''}`
           : `${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}`
         }
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
@@ -2757,7 +2758,7 @@ function tourFormHtml(existing){
       </div>
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. Querung unter dem Bergschrund, kurze Eispassage am Grat …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Spaltenrisiko, Steinschlag, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
-      <div id="pitchcount-field" class="field" style="${t.tourCategory==='msl'?'':'display:none;'} background:var(--ice-light); border-radius:var(--radius); padding:12px 14px;">
+      <div id="pitchcount-field" class="field" style="${(t.tourCategory==='msl'||t.tourCategory==='klettergarten')?'':'display:none;'} background:var(--ice-light); border-radius:var(--radius); padding:12px 14px;">
         <label style="font-weight:700; font-size:15px;">Anzahl Seillängen</label>
         <input name="pitchCount" value="${esc(t.pitchCount||'')}" placeholder="z. B. 8" style="font-size:20px; font-weight:700; text-align:center;"/>
       </div>
@@ -2787,13 +2788,13 @@ function tourFormHtml(existing){
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(t.manualTrack || []))}'/>
       </div>
-      <div id="descent-freetext-field" class="field" style="${(t.tourCategory||'hochtour')!=='msl'?'':'display:none;'}"><label>Abstieg</label><textarea name="descent" placeholder="Abstiegsroute, Varianten, Abseilstellen …">${esc(t.descent||'')}</textarea></div>
-      <div id="descent-msl-hint" class="hint" style="margin:-4px 0 9px 0; ${(t.tourCategory||'hochtour')==='msl'?'':'display:none;'}">Abstieg wird unten in der Detailansicht über "+ Abstieg hinzufügen" strukturiert erfasst (mit Karte/GPX).</div>
+      <div id="descent-freetext-field" class="field" style="${(t.tourCategory==='msl'||t.tourCategory==='klettergarten')?'display:none;':''}"><label>Abstieg</label><textarea name="descent" placeholder="Abstiegsroute, Varianten, Abseilstellen …">${esc(t.descent||'')}</textarea></div>
+      <div id="descent-msl-hint" class="hint" style="margin:-4px 0 9px 0; ${(t.tourCategory==='msl'||t.tourCategory==='klettergarten')?'':'display:none;'}">Abstieg wird unten in der Detailansicht über "+ Abstieg hinzufügen" strukturiert erfasst (mit Karte/GPX).</div>
       <div class="field"><label>Zustieg über Hütte</label>
         <select name="hutId"><option value="">— keine —</option>${hutOptions}</select>
         <div class="hint">Fehlt die Hütte? Erst unter „Hütten" anlegen, dann hier verlinken.</div>
       </div>
-      <div id="sektor-field" class="field" style="${t.tourCategory==='msl'?'':'display:none;'}"><label>Sektor (optional)</label>
+      <div id="sektor-field" class="field" style="${(t.tourCategory==='msl'||t.tourCategory==='klettergarten')?'':'display:none;'}"><label>Sektor (optional)</label>
         <select name="sektorId"><option value="">— keiner —</option>${sektorOptions}</select>
         <div class="hint">Ist ein Sektor verlinkt, übernimmt die Tour dessen Zustiege/Abstiege automatisch statt eigener. Fehlt der Sektor? Erst unter „Sektoren" anlegen.</div>
       </div>
@@ -2851,8 +2852,8 @@ function tourDetailHtml(id){
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
       ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
-      ${isMsl && t.pitchCount ? `<div class="detail-stat"><div class="num">${esc(t.pitchCount)}</div><div class="lbl">Seillängen</div></div>` : ''}
-      ${isMsl && t.longestPitch ? `<div class="detail-stat"><div class="num">${esc(t.longestPitch)}</div><div class="lbl">Längste SL</div></div>` : ''}
+      ${t.pitchCount ? `<div class="detail-stat"><div class="num">${esc(t.pitchCount)}</div><div class="lbl">Seillängen</div></div>` : ''}
+      ${t.longestPitch ? `<div class="detail-stat"><div class="num">${esc(t.longestPitch)}</div><div class="lbl">Längste SL</div></div>` : ''}
     </div>
     ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button>` : ''}
 
@@ -2891,7 +2892,7 @@ function tourDetailHtml(id){
       <input type="hidden" id="quick-manual-track-hidden-${t.id}" value='${esc(JSON.stringify(t.manualTrack||[]))}'/>
       <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${t.id}" data-act="quick-save" data-id="${t.id}" data-kind="tour">💾 Änderungen speichern</button>
     </div>
-    ${isMsl ? (() => {
+    ${(isMsl || isKlettergarten) ? (() => {
       const linkedSektor = t.sektorId ? state.sektoren.find(x=>x.id===t.sektorId) : null;
       if(linkedSektor){
         ensureSektorRouteArrays(linkedSektor);
@@ -2962,7 +2963,7 @@ function tourDetailHtml(id){
       <h4>Weitere Touren ab hier (${related.length})</h4>
       <div class="grid" style="margin-top:6px;">${related.map(tourCardHtml).join('')}</div>
     </div>` : ''; })()}
-    ${!isMsl && t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
+    ${!isMsl && !isKlettergarten && t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
 
     <div class="detail-section">
       <h4>Erledigt (${(t.completions||[]).length})</h4>
@@ -3780,10 +3781,10 @@ function wireModalHandlers(){
         document.getElementById('tourcategory-hidden').value = type;
         if(hochtourFields) hochtourFields.style.display = (type==='hochtour') ? '' : 'none';
         if(mslFields) mslFields.style.display = (type==='msl'||type==='klettergarten') ? '' : 'none';
-        if(descentFreetextField) descentFreetextField.style.display = (type==='msl') ? 'none' : '';
-        if(descentMslHint) descentMslHint.style.display = (type==='msl') ? '' : 'none';
-        if(pitchCountField) pitchCountField.style.display = (type==='msl') ? '' : 'none';
-        if(sektorField) sektorField.style.display = (type==='msl') ? '' : 'none';
+        if(descentFreetextField) descentFreetextField.style.display = (type==='msl'||type==='klettergarten') ? 'none' : '';
+        if(descentMslHint) descentMslHint.style.display = (type==='msl'||type==='klettergarten') ? '' : 'none';
+        if(pitchCountField) pitchCountField.style.display = (type==='msl'||type==='klettergarten') ? '' : 'none';
+        if(sektorField) sektorField.style.display = (type==='msl'||type==='klettergarten') ? '' : 'none';
       });
     });
     // Generische Single-Select-Chip-Gruppe (Gletscher, Spaltenrisiko, Absicherung, Abstieg)
