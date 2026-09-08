@@ -714,7 +714,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v103-uebersichtskarte-zorder-farbe';
+const APP_VERSION = 'v104-huetten-karte-vereint';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3061,6 +3061,11 @@ function hutDetailHtml(id){
   const h = state.huts.find(x=>x.id===id);
   if(!h) return `<div class="modal" data-stop="1"><p>Hütte nicht gefunden.</p></div>`;
   const linked = state.tours.filter(t=>t.hutId===h.id);
+  migrateHutAccessRoutes(h);
+  const routes = h.accessRoutes || [];
+  const rangeText = accessRouteDifficultyRangeHtml(routes);
+  const legend = accessRouteLegendHtml(routes);
+  const hasMapData = (h.points && h.points.length) || (h.manualTrack && h.manualTrack.length) || routes.length;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div><h2>🛖 ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(h.region)}</p>` : ''}</div>
@@ -3091,12 +3096,10 @@ function hutDetailHtml(id){
     </div>` : ''}
     ${(h.points && h.points.length || (h.manualTrack && h.manualTrack.length)) ? `<div class="detail-section">
       <h4>Standort${h.points && h.points.length>1?'e':''}${(h.manualTrack && h.manualTrack.length) ? ' & Linie' : ''}</h4>
-      <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Allgemeine Punkte/Linie zur Hütte (z. B. Parkplatz) — für Zustiege siehe unten.</p>
+      <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Allgemeine Punkte/Linie zur Hütte (z. B. Parkplatz).</p>
       ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${(h.manualTrack && h.manualTrack.length) ? `<span class="hint">🔴 Rot: selbst eingezeichnet</span>` : ''}
-      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-hut-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-summer-track='[]' data-winter-track='[]' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
       ${(h.manualTrack && h.manualTrack.length) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(h.manualTrack))}' data-name="${esc(h.name)}">📥 Route als GPX exportieren</button>` : ''}
-      <div id="map-hut-${h.id}" style="margin-top:10px;"></div>
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${h.id}" data-act="quick-edit-toggle" data-id="${h.id}" data-kind="hut">✏️ Punkte/Linie direkt bearbeiten</button>
       <div id="quick-edit-map-${h.id}" style="margin-top:10px; display:none;"></div>
       <div id="quick-edit-list-${h.id}"></div>
@@ -3105,17 +3108,22 @@ function hutDetailHtml(id){
       <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${h.id}" data-act="quick-save" data-id="${h.id}" data-kind="hut">💾 Änderungen speichern</button>
     </div>` : ''}
 
-    ${(() => { migrateHutAccessRoutes(h); const routes = h.accessRoutes || []; const rangeText = accessRouteDifficultyRangeHtml(routes); const legend = accessRouteLegendHtml(routes); return `<div class="detail-section">
+    ${hasMapData ? `<div class="detail-section">
+      <h4>🗺️ Karte</h4>
+      <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Standorte, selbst eingezeichnete Linie und alle Zustiege zusammen auf einer Karte.</p>
+      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
+      <div id="map-hut-${h.id}" style="margin-bottom:10px;"></div>
+    </div>` : ''}
+
+    <div class="detail-section">
       <h4>Zustiege${routes.length ? ` (${routes.length})` : ''}</h4>
       ${routes.length ? `
         ${rangeText ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${rangeText}</p>` : ''}
         ${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}
-        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-target="map-hut-routes-${h.id}">🗺️ Karte anzeigen</button>
-        <div id="map-hut-routes-${h.id}" style="margin-bottom:10px;"></div>
         <div class="grid">${routes.map((r,i)=>accessRouteRowHtml(r,i,h.id)).join('')}</div>
       ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-access-route" data-hut-id="${h.id}">+ Zustieg hinzufügen</button>
-    </div>`; })()}
+    </div>
 
     ${h.contact ? `<div class="detail-section"><h4>Kontakt</h4><p>${esc(h.contact)}</p></div>` : ''}
     ${h.notes ? `<div class="detail-section"><h4>Notizen</h4><p>${esc(h.notes)}</p></div>` : ''}
@@ -3515,18 +3523,6 @@ function wireModalHandlers(){
       try{ manualTrack = JSON.parse(manualTrackJson || '[]'); }catch(e){ manualTrack = []; }
       try{ altTracks = JSON.parse(altTracksJson || '[]'); }catch(e){ altTracks = []; }
       renderTrackDisplayMap(target, pts, track, manualTrack, offlineId, altTracks);
-    });
-  });
-
-  root.querySelectorAll('[data-act="show-hut-map"]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const target = btn.getAttribute('data-target');
-      let pts = [], summerTrack = [], winterTrack = [], manualTrack = [];
-      try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
-      try{ summerTrack = JSON.parse(btn.getAttribute('data-summer-track') || '[]'); }catch(e){ summerTrack = []; }
-      try{ winterTrack = JSON.parse(btn.getAttribute('data-winter-track') || '[]'); }catch(e){ winterTrack = []; }
-      try{ manualTrack = JSON.parse(btn.getAttribute('data-manual-track') || '[]'); }catch(e){ manualTrack = []; }
-      renderHutTrackDisplayMap(target, pts, summerTrack, winterTrack, manualTrack);
     });
   });
 
@@ -4107,10 +4103,11 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="show-access-routes-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const target = btn.getAttribute('data-target');
-      let pts = [], routes = [];
+      let pts = [], routes = [], manualTrack = [];
       try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
       try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
-      renderHutAccessRoutesMap(target, pts, routes);
+      try{ manualTrack = JSON.parse(btn.getAttribute('data-manual-track') || '[]'); }catch(e){ manualTrack = []; }
+      renderHutAccessRoutesMap(target, pts, routes, manualTrack);
     });
   });
 
