@@ -2420,8 +2420,61 @@ function buildSkitourPopupContent(feature){
     btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
     btn.addEventListener('click', ()=> downloadTrackAsGpx(coords, name));
     wrap.appendChild(btn);
+    // Direkt einer bestehenden Tour zuweisen, statt den Umweg über Herunterladen und
+    // anschliessendes manuelles Hochladen im Formular zu gehen — die Koordinaten liegen ja
+    // schon hier vor. Nur sinnvoll, wenn es überhaupt eigene Touren gibt.
+    if(Array.isArray(state.tours) && state.tours.length){
+      const attachWrap = document.createElement('div');
+      attachWrap.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid #eee;';
+      const select = document.createElement('select');
+      select.style.cssText = 'width:100%; margin-bottom:6px; padding:6px 8px; border:1px solid #ccc; border-radius:3px; font-size:12.5px; box-sizing:border-box;';
+      state.tours.forEach(t=>{
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.name || '?';
+        select.appendChild(opt);
+      });
+      attachWrap.appendChild(select);
+      const attachBtn = document.createElement('button');
+      attachBtn.type = 'button';
+      attachBtn.textContent = '➕ Als Track dieser Tour übernehmen';
+      attachBtn.style.cssText = 'width:100%; background:var(--ice-deep, #1F4D63); color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+      attachBtn.addEventListener('click', async ()=>{
+        const targetTour = state.tours.find(t=>t.id===select.value);
+        if(!targetTour) return;
+        if(targetTour.trackSimplified && !confirm(`"${targetTour.name}" hat schon einen GPX-Track. Wirklich ersetzen?`)) return;
+        attachBtn.disabled = true;
+        attachBtn.textContent = 'Wird übernommen…';
+        const ok = await attachSkitourTrackToTour(targetTour.id, coords, name);
+        attachBtn.disabled = false;
+        attachBtn.textContent = '➕ Als Track dieser Tour übernehmen';
+        showToast(ok ? `Track zu "${targetTour.name}" hinzugefügt.` : 'Konnte nicht übernommen werden (Internetverbindung prüfen).', !ok);
+      });
+      attachWrap.appendChild(attachBtn);
+      wrap.appendChild(attachWrap);
+    }
   }
   return wrap;
+}
+// Übernimmt die von identifySkitourAt() gelieferten Koordinaten direkt als GPX-Track einer
+// bestehenden Tour — ohne den Umweg über "Herunterladen" und anschliessendes manuelles
+// Hochladen im Formular. Aktualisiert sowohl die vereinfachte Linie (für die Kartenanzeige, wie
+// beim normalen Upload über simplifyTrackForStorage) als auch die als Original abrufbare
+// GPX-Datei (für den bestehenden "GPX herunterladen"-Button auf der Tour selbst).
+async function attachSkitourTrackToTour(tourId, coords, name){
+  const tour = state.tours.find(t=>t.id===tourId);
+  if(!tour) return false;
+  let simplified;
+  try{
+    simplified = simplifyTrackForStorage(coords.map(c=>({lat:c[0], lon:c[1]})), 200)
+      .map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]);
+  }catch(e){ simplified = coords; }
+  tour.trackSimplified = simplified;
+  const ok1 = await saveTourCloud(tour).catch(()=>false);
+  const gpx = buildGpxXml(coords, name);
+  const ok2 = await fbSet(GPX_TRACKS_PATH + '/' + tourId, { gpx, uploadedAt: new Date().toISOString(), fileName: (name||'track') + '.gpx' }).catch(()=>false);
+  if(state.modal && state.modal.type==='edit-tour' && state.modal.payload && state.modal.payload.id===tourId) render();
+  return ok1 && ok2;
 }
 
 function renderMiniMap(containerId, lat, lon, label){
