@@ -1700,7 +1700,7 @@ function renderStandaloneMap(containerId){
       skitour: { label: '🎿 Skitour', color: '#1F4D63' },
       huette: { label: '🛖 Hütten', color: '#8A5A2E' },
       sektor: { label: '⛺ Sektoren', color: '#4A6B3A' },
-      zustieg: { label: '🚶 Zustiege', color: '#C2472D' }
+      zustieg: { label: '🚶 Zustiege', color: '#1565C0' }
     };
     // Welche Tourenarten überhaupt möglich sind, hängt von der App ab (nicht von
     // Zufällen in den Daten wie z. B. alten Hochtour/MSL-Einträgen ohne tourCategory-Feld
@@ -1850,7 +1850,15 @@ function renderStandaloneMap(containerId){
       });
     }
     const presentCategories = Object.keys(categoryLayers);
-    presentCategories.forEach(key=> categoryLayers[key].addTo(map));
+    // Zustieg-Linien immer zuerst (unterste Ebene) zur Karte hinzufügen: an einem gemeinsamen
+    // Punkt — z. B. eine Hütte am Ende eines Zustiegs — sollen Hütten-/Touren-/Sektor-Marker
+    // klar bevorzugt anklickbar sein, statt mit der Zustiegslinie um denselben Klick zu
+    // konkurrieren. Zustieg besteht ohnehin nie aus Punkten, nur aus Linien (siehe addMapEntity-
+    // Aufrufe oben, points-Parameter immer null) — die Reihenfolge der übrigen Kategorien
+    // untereinander bleibt unverändert (auch für die Filter-Chips unten, dafür bewusst eine
+    // separate Kopie statt presentCategories selbst umzusortieren).
+    const zOrderedCategories = [...presentCategories.filter(k=>k==='zustieg'), ...presentCategories.filter(k=>k!=='zustieg')];
+    zOrderedCategories.forEach(key=> categoryLayers[key].addTo(map));
     if(allBoundsItems.length){
       map.fitBounds(L.featureGroup(allBoundsItems).getBounds(), {padding:[30,30]});
     }
