@@ -356,7 +356,7 @@
 <div class="app-switch-bar">
   <a href="./index.html">🎿 Skitour</a>
   <a href="./fixseil.html" id="switch-hochtour">🏔️ Hochtour</a>
-  <a href="./fixseil.html?view=msl" id="switch-msl">🧗 MSL</a>
+  <a href="./fixseil.html?view=msl" id="switch-msl">🧗 Klettern/MSL</a>
 </div>
 <div id="app"></div>
 <button class="emergency-tab" id="emergency-btn">SOS</button>
@@ -511,6 +511,68 @@ const TOUR_VORLAGE_JSON = `{
       "updatedAt": "2026-09-05T00:00:00.000Z",
       "updatedBy": "Name",
       "topoImages": []
+    },
+    {
+      "id": "t_beispiel_klettergarten001",
+      "name": "Chessiloch",
+      "routeName": "Sektor Mitte",
+      "tourCategory": "klettergarten",
+      "difficulty": "",
+      "climbGrade": "",
+      "glacier": "",
+      "crevasseRisk": "",
+      "mandatoryDifficulty": "5c",
+      "cruxDifficulty": "6a",
+      "pitchCount": "",
+      "longestPitch": "",
+      "protection": "sehr-gut",
+      "descentType": "",
+      "targetAltitude": "650",
+      "elevationGain": "50",
+      "elevationLoss": "",
+      "duration": "0.5-3",
+      "region": "Jura",
+      "subregion": "",
+      "material": [],
+      "quickdrawCount": "12",
+      "exposition": [],
+      "gefahren": [],
+      "ropeType": "Einfachseil",
+      "ropeLength": "60m",
+      "approachTypes": [
+        "auto"
+      ],
+      "stayTypes": [
+        "tagestour"
+      ],
+      "points": [
+        {
+          "label": "Parkplatz Chessiloch",
+          "lat": 47.31,
+          "lon": 7.62,
+          "category": "parkplatz"
+        }
+      ],
+      "manualTrack": [],
+      "hutId": "",
+      "sektorId": "",
+      "tourLink": "",
+      "gpxLink": "",
+      "crux": "",
+      "special": "Über 40 eingerichtete Routen, viel Schatten am Nachmittag.",
+      "approach": "5 Min. ab Parkplatz.",
+      "ascent": "",
+      "descent": "Über den Zustiegsweg zurück zum Wandfuss.",
+      "accessRoutes": [],
+      "descentRoutes": [],
+      "status": "entwurf",
+      "conditions": null,
+      "completions": [],
+      "createdBy": "Name",
+      "createdAt": "2026-09-05T00:00:00.000Z",
+      "updatedAt": "2026-09-05T00:00:00.000Z",
+      "updatedBy": "Name",
+      "topoImages": []
     }
   ],
   "huts": [
@@ -652,7 +714,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v100-agenda-bearbeiten';
+const APP_VERSION = 'v101-klettergarten';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -944,15 +1006,30 @@ async function submitName(nameVal, pinVal){
 
 /* ================= Actions ================= */
 function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:{tourCategory:'hochtour'}}; render(); }); }
-function openAddMsl(){ dlog('Klick auf "+ Neue MSL-Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:{tourCategory:'msl'}}; render(); }); }
-function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); if(t) state.view = t.tourCategory==='msl' ? 'msl' : 'touren'; state.modal = {type:'edit-tour', payload:t}; render(); }); }
+function openAddMsl(){ dlog('Klick auf "+ Neue MSL-Tour"'); ensureName(()=>{ state.tourCategoryFilter = 'msl'; state.modal = {type:'edit-tour', payload:{tourCategory:'msl'}}; render(); }); }
+function openAddKlettergarten(){ dlog('Klick auf "+ Neuer Klettergarten"'); ensureName(()=>{ state.tourCategoryFilter = 'klettergarten'; state.modal = {type:'edit-tour', payload:{tourCategory:'klettergarten'}}; render(); }); }
+function openEditTour(id){
+  ensureName(()=>{
+    const t = state.tours.find(x=>x.id===id);
+    if(t){
+      state.view = (t.tourCategory==='msl'||t.tourCategory==='klettergarten') ? 'msl' : 'touren';
+      if(t.tourCategory==='msl'||t.tourCategory==='klettergarten') state.tourCategoryFilter = t.tourCategory;
+    }
+    state.modal = {type:'edit-tour', payload:t};
+    render();
+  });
+}
 function openTourDetail(id){
   const t = state.tours.find(x=>x.id===id);
   // Tour-Detail/Bearbeiten ist manchmal über einen Cross-Link erreichbar (z. B. "Weitere Touren
   // ab hier" auf einer anderen Tour, oder ein Sektor-/Hütten-Eintrag), ohne dass zuvor der
   // passende Tab (Touren/MSL) angetippt wurde. Damit man beim Schliessen wieder in der richtigen
-  // Übersicht landet statt im zuvor aktiven Tab, wird dieser hier auf die Tour-Kategorie synchronisiert.
-  if(t) state.view = t.tourCategory==='msl' ? 'msl' : 'touren';
+  // Übersicht landet statt im zuvor aktiven Tab, wird dieser hier auf die Tour-Kategorie synchronisiert
+  // (bei MSL/Klettergarten zusätzlich der Sub-Filter, damit man in der passenden Unterliste landet).
+  if(t){
+    state.view = (t.tourCategory==='msl'||t.tourCategory==='klettergarten') ? 'msl' : 'touren';
+    if(t.tourCategory==='msl'||t.tourCategory==='klettergarten') state.tourCategoryFilter = t.tourCategory;
+  }
   state.modal = {type:'tour-detail', payload:id};
   render();
 }
@@ -1069,7 +1146,7 @@ async function submitTourForm(form, existing){
   t.ropeType = form.ropeType || '';
   t.ropeLength = form.ropeLength || '';
   t.hutId = form.hutId || '';
-  t.sektorId = (t.tourCategory==='msl') ? (form.sektorId || '') : '';
+  t.sektorId = (t.tourCategory==='msl') ? (form.sektorId || '') : ''; // Sektoren bündeln nur MSL, nicht Klettergarten-Einträge
   t.tourLink = form.tourLink;
   t.gpxLink = form.gpxLink || '';
   try{ t.trackSimplified = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ t.trackSimplified = null; }
@@ -1084,11 +1161,14 @@ async function submitTourForm(form, existing){
   t.ascent = form.ascent;
   t.descent = form.descent;
 
-  if(t.tourCategory==='msl'){
+  if(t.tourCategory==='msl' || t.tourCategory==='klettergarten'){
+    // Klettergarten teilt sich denselben Sicherheits-Block wie MSL (Absicherung/Exposition/
+    // Gefahren sind bei Fels-Klettern generell relevant) — nur Seillängen-spezifische Felder
+    // (mehrere Seillängen, Sektor-Bündelung) ergeben bei einer Einzellängen-Route keinen Sinn.
     t.mandatoryDifficulty = form.mandatoryDifficulty || '';
     t.cruxDifficulty = form.cruxDifficulty || '';
-    t.pitchCount = form.pitchCount || '';
-    t.longestPitch = form.longestPitch || '';
+    t.pitchCount = (t.tourCategory==='msl') ? (form.pitchCount || '') : '';
+    t.longestPitch = (t.tourCategory==='msl') ? (form.longestPitch || '') : '';
     t.protection = form.protection || '';
     t.descentType = form.descentType || '';
     t.exposition = form.expositionMsl || [];
@@ -1951,7 +2031,7 @@ function shellHtml(){
   <div class="hero ${state.view==='msl' ? 'hero-msl' : ''}">
     <div class="hero-top">
       <div class="brand">
-        <h1>${state.view==='msl' ? 'MSL' : 'Hochtour'}</h1>
+        <h1>${state.view==='msl' ? 'Klettern/MSL' : 'Hochtour'}</h1>
       </div>
       <div class="who">
         <div class="who-row">
@@ -1962,7 +2042,7 @@ function shellHtml(){
       </div>
     </div>
     <div class="tabs"><div class="tabs-inner">
-      <button class="tab ${(state.view==='touren'||state.view==='msl')?'active':''}" data-act="view-tours-context">${state.tourCategoryContext==='msl'?'🧗 MSL':'🏔️ Touren'}</button>
+      <button class="tab ${(state.view==='touren'||state.view==='msl')?'active':''}" data-act="view-tours-context">${state.tourCategoryContext==='msl'?'🧗 Klettern/MSL':'🏔️ Touren'}</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
       <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">🧭 Sektoren</button>
       <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
@@ -2072,7 +2152,8 @@ function emptyTouren(){
 
 /* ================= MSL view ================= */
 function filteredMslTours(){
-  let list = state.tours.filter(t=> t.tourCategory==='msl');
+  const activeCat = state.tourCategoryFilter==='klettergarten' ? 'klettergarten' : 'msl';
+  let list = state.tours.filter(t=> t.tourCategory===activeCat);
   if(state.onlyFavorites) list = list.filter(t=>isFavorite(t.id));
   if(state.activeRegionFilters.size){
     list = list.filter(t=>state.activeRegionFilters.has(t.region));
@@ -2094,13 +2175,21 @@ function filteredMslTours(){
 }
 
 function mslViewHtml(){
+  const activeCat = state.tourCategoryFilter==='klettergarten' ? 'klettergarten' : 'msl';
+  const isKlettergarten = activeCat==='klettergarten';
   const list = filteredMslTours();
-  const usedRegions = Array.from(new Set(state.tours.filter(t=>t.tourCategory==='msl').map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
+  const usedRegions = Array.from(new Set(state.tours.filter(t=>t.tourCategory===activeCat).map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   const activeFilterCount = state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size;
   return `
+    <div class="chips" style="margin-bottom:12px;">
+      <button type="button" class="chip ${!isKlettergarten?'on':''}" style="${!isKlettergarten?'background:var(--ice-deep)':''}" data-act="filter-category" data-cat="msl">🧗 Mehrseillängen</button>
+      <button type="button" class="chip ${isKlettergarten?'on':''}" style="${isKlettergarten?'background:var(--ice-deep)':''}" data-act="filter-category" data-cat="klettergarten">🏕️ Klettergarten</button>
+    </div>
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
-      <button class="btn" data-act="add-msl">+ Neue MSL-Tour</button>
+      ${isKlettergarten
+        ? `<button class="btn" data-act="add-klettergarten">+ Neuer Klettergarten</button>`
+        : `<button class="btn" data-act="add-msl">+ Neue MSL-Tour</button>`}
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar" style="margin-bottom:14px;">
@@ -2140,16 +2229,20 @@ function mslViewHtml(){
 }
 
 function emptyMsl(){
-  const hasAny = state.tours.filter(t=>t.tourCategory==='msl').length>0;
+  const isKlettergarten = state.tourCategoryFilter==='klettergarten';
+  const hasAny = state.tours.filter(t=>t.tourCategory===(isKlettergarten?'klettergarten':'msl')).length>0;
   return `<div class="empty">
-    <h3>${hasAny ? 'Keine Tour passt zur Suche' : 'Noch keine MSL-Tour erfasst'}</h3>
-    <p>${hasAny ? 'Suche anpassen oder eine neue Tour hinzufügen.' : 'Trag die erste Mehrseillängen-Klettertour ein — Schlüsselstelle, Seillängen und Absicherung reichen für den Anfang.'}</p>
-    <button class="btn" data-act="add-msl">+ Neue MSL-Tour</button>
+    <h3>${hasAny ? 'Keine Tour passt zur Suche' : (isKlettergarten ? 'Noch kein Klettergarten erfasst' : 'Noch keine MSL-Tour erfasst')}</h3>
+    <p>${hasAny ? 'Suche anpassen oder eine neue Tour hinzufügen.' : (isKlettergarten ? 'Trag den ersten Klettergarten ein — Schwierigkeit und Absicherung reichen für den Anfang.' : 'Trag die erste Mehrseillängen-Klettertour ein — Schlüsselstelle, Seillängen und Absicherung reichen für den Anfang.')}</p>
+    ${isKlettergarten
+      ? `<button class="btn" data-act="add-klettergarten">+ Neuer Klettergarten</button>`
+      : `<button class="btn" data-act="add-msl">+ Neue MSL-Tour</button>`}
   </div>`;
 }
 
 function tourCardHtml(t){
   const isMsl = t.tourCategory==='msl';
+  const isKlettergarten = t.tourCategory==='klettergarten';
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   const done = (t.completions && t.completions.length) || t.completed;
@@ -2157,14 +2250,14 @@ function tourCardHtml(t){
   return `
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-      <div class="agenda-date-row" style="font-size:12px; margin-bottom:0;">${isMsl ? '🧗 MSL — Mehrseillängen' : '🏔️ Hochtour'}</div>
+      <div class="agenda-date-row" style="font-size:12px; margin-bottom:0;">${isMsl ? '🧗 MSL — Mehrseillängen' : isKlettergarten ? '🏕️ Klettergarten' : '🏔️ Hochtour'}</div>
       ${favoriteToggleButtonHtml(t.id)}
     </div>
     <div class="card-top">
       <h3 style="color:var(--ice-deep);">${done ? '✓ ' : ''}${esc(t.name)}</h3>
       <div class="badge-row">
-        ${isMsl
-          ? `${t.mandatoryDifficulty ? `<span class="badge climb">${esc(t.mandatoryDifficulty)}</span>` : ''}${t.pitchCount ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.pitchCount)} SL</span>` : ''}`
+        ${(isMsl || isKlettergarten)
+          ? `${t.mandatoryDifficulty ? `<span class="badge climb">${esc(t.mandatoryDifficulty)}</span>` : ''}${isMsl && t.pitchCount ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.pitchCount)} SL</span>` : ''}`
           : `${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}`
         }
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
@@ -2395,8 +2488,8 @@ function buildExportData(){
   chips.forEach(c=>{ if(c.classList.contains('on')) selected.add(c.getAttribute('data-export-key')); });
   const data = {};
   const tours = [];
-  if(selected.has('tours-hochtour')) tours.push(...state.tours.filter(t=>(t.tourCategory||'hochtour')!=='msl'));
-  if(selected.has('tours-msl')) tours.push(...state.tours.filter(t=>t.tourCategory==='msl'));
+  if(selected.has('tours-hochtour')) tours.push(...state.tours.filter(t=>(t.tourCategory||'hochtour')==='hochtour'));
+  if(selected.has('tours-msl')) tours.push(...state.tours.filter(t=>t.tourCategory==='msl'||t.tourCategory==='klettergarten'));
   if(tours.length) data.tours = tours;
   if(selected.has('huts')) data.huts = state.huts;
   if(selected.has('sektoren')) data.sektoren = state.sektoren;
@@ -2418,7 +2511,7 @@ function exportModalHtml(payload){
       <label>Was exportieren?</label>
       <div class="chips" id="export-filter-chips">
         <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-hochtour" data-act="toggle-export-filter">🏔️ Hochtour</button>
-        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-msl" data-act="toggle-export-filter">🧗 MSL</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-msl" data-act="toggle-export-filter">🧗 Klettern/MSL</button>
         <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="huts" data-act="toggle-export-filter">🛖 Hütten</button>
         <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="sektoren" data-act="toggle-export-filter">🧭 Sektoren</button>
         <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="agenda" data-act="toggle-export-filter">📅 Agenda</button>
@@ -2501,6 +2594,7 @@ function tourFormHtml(existing){
         <div class="chips">
           <button type="button" class="chip type-chip ${(t.tourCategory||'hochtour')==='hochtour'?'on':''}" style="${(t.tourCategory||'hochtour')==='hochtour'?'background:var(--ice-deep)':''}" data-type="hochtour">🏔️ Hochtour</button>
           <button type="button" class="chip type-chip ${t.tourCategory==='msl'?'on':''}" style="${t.tourCategory==='msl'?'background:var(--ice-deep)':''}" data-type="msl">🧗 MSL</button>
+          <button type="button" class="chip type-chip ${t.tourCategory==='klettergarten'?'on':''}" style="${t.tourCategory==='klettergarten'?'background:var(--ice-deep)':''}" data-type="klettergarten">🏕️ Klettergarten</button>
         </div>
         <input type="hidden" name="tourCategory" id="tourcategory-hidden" value="${esc(t.tourCategory||'hochtour')}"/>
       </div>
@@ -2572,7 +2666,7 @@ function tourFormHtml(existing){
         </div>
       </div>
 
-      <div id="msl-safety-fields" style="${t.tourCategory==='msl'?'':'display:none;'}">
+      <div id="msl-safety-fields" style="${(t.tourCategory==='msl'||t.tourCategory==='klettergarten')?'':'display:none;'}">
         <div class="row2">
           <div class="field"><label>Obligatorische Schwierigkeit</label>
             <select name="mandatoryDifficulty">
@@ -2725,15 +2819,16 @@ function tourDetailHtml(id){
   const t = state.tours.find(x=>x.id===id);
   if(!t) return `<div class="modal" data-stop="1"><p>Tour nicht gefunden.</p></div>`;
   const isMsl = t.tourCategory==='msl';
+  const isKlettergarten = t.tourCategory==='klettergarten';
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   const protectionInfo = t.protection ? PROTECTION_LEVELS.find(p=>p.value===t.protection) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div>
-        <div class="agenda-date-row" style="font-size:12.5px;">${isMsl ? '🧗 MSL — Mehrseillängen-Klettertour' : '🏔️ Hochtour'}</div>
+        <div class="agenda-date-row" style="font-size:12.5px;">${isMsl ? '🧗 MSL — Mehrseillängen-Klettertour' : isKlettergarten ? '🏕️ Klettergarten' : '🏔️ Hochtour'}</div>
         <div class="detail-badge-row">
-          ${isMsl ? `
+          ${(isMsl || isKlettergarten) ? `
             ${t.mandatoryDifficulty ? `<span class="badge climb">obligatorisch ${esc(t.mandatoryDifficulty)}</span>` : ''}
             ${t.cruxDifficulty ? `<span class="badge climb">Schlüssel ${esc(t.cruxDifficulty)}</span>` : ''}
           ` : `
@@ -2761,8 +2856,8 @@ function tourDetailHtml(id){
     </div>
     ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button>` : ''}
 
-    ${!isMsl && (t.glacier==='ja' || t.crevasseRisk!=='nein') ? `<div class="detail-section"><h4>Gletscher &amp; Spalten</h4><p>${t.glacier==='ja'?'Gletscher: Ja':''}${t.glacier==='ja' && t.crevasseRisk && t.crevasseRisk!=='nein' ? ' · ' : ''}${t.crevasseRisk==='moeglich'?'Spaltenrisiko: möglich':t.crevasseRisk==='ausgepraegt'?'Spaltenrisiko: ausgeprägt':''}</p></div>` : ''}
-    ${isMsl && protectionInfo ? `<div class="detail-section"><h4>Absicherung</h4><p>${protectionInfo.label} — ${protectionInfo.desc}</p></div>` : ''}
+    ${!isMsl && !isKlettergarten && (t.glacier==='ja' || t.crevasseRisk!=='nein') ? `<div class="detail-section"><h4>Gletscher &amp; Spalten</h4><p>${t.glacier==='ja'?'Gletscher: Ja':''}${t.glacier==='ja' && t.crevasseRisk && t.crevasseRisk!=='nein' ? ' · ' : ''}${t.crevasseRisk==='moeglich'?'Spaltenrisiko: möglich':t.crevasseRisk==='ausgepraegt'?'Spaltenrisiko: ausgeprägt':''}</p></div>` : ''}
+    ${(isMsl || isKlettergarten) && protectionInfo ? `<div class="detail-section"><h4>Absicherung</h4><p>${protectionInfo.label} — ${protectionInfo.desc}</p></div>` : ''}
     ${t.descentType ? `<div class="detail-section"><h4>Abstiegsart</h4><p>${esc(t.descentType)}</p></div>` : ''}
     ${(t.exposition && t.exposition.length) ? `<div class="detail-section"><h4>Exposition</h4><p>${t.exposition.map(esc).join(', ')}</p></div>` : ''}
     ${(t.gefahren && t.gefahren.length) ? `<div class="detail-section"><h4>Gefahren</h4><p>${t.gefahren.map(esc).join(', ')}</p></div>` : ''}
@@ -3162,6 +3257,7 @@ function wireGlobalHandlers(){
     else if(act==='import-data') el.onclick = openImport;
     else if(act==='add-tour') el.onclick = openAddTour;
     else if(act==='add-msl') el.onclick = openAddMsl;
+    else if(act==='add-klettergarten') el.onclick = openAddKlettergarten;
     else if(act==='add-hut') el.onclick = openAddHut;
     else if(act==='add-sektor') el.onclick = openAddSektor;
     else if(act==='open-standalone-map') el.onclick = openStandaloneMap;
@@ -3658,7 +3754,7 @@ function wireModalHandlers(){
   const tourForm = document.getElementById('tour-form');
   dlog('tour-form im DOM gefunden: ' + !!tourForm);
   if(tourForm){
-    // Tourtyp-Chips (Hochtour / MSL) — blendet passenden Sicherheits-Block ein/aus
+    // Tourtyp-Chips (Hochtour / MSL / Klettergarten) — blendet passenden Sicherheits-Block ein/aus
     const hochtourFields = document.getElementById('hochtour-safety-fields');
     const mslFields = document.getElementById('msl-safety-fields');
     const descentFreetextField = document.getElementById('descent-freetext-field');
@@ -3683,7 +3779,7 @@ function wireModalHandlers(){
         chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
         document.getElementById('tourcategory-hidden').value = type;
         if(hochtourFields) hochtourFields.style.display = (type==='hochtour') ? '' : 'none';
-        if(mslFields) mslFields.style.display = (type==='msl') ? '' : 'none';
+        if(mslFields) mslFields.style.display = (type==='msl'||type==='klettergarten') ? '' : 'none';
         if(descentFreetextField) descentFreetextField.style.display = (type==='msl') ? 'none' : '';
         if(descentMslHint) descentMslHint.style.display = (type==='msl') ? '' : 'none';
         if(pitchCountField) pitchCountField.style.display = (type==='msl') ? '' : 'none';

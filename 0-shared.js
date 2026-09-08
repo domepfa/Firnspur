@@ -323,7 +323,7 @@ function removeAgendaItem(id){
 }
 function agendaTypeLabel(type){
   if(type==='hochtour') return '🏔️ Hochtour';
-  if(type==='msl') return '🧗 Mehrseillängen';
+  if(type==='msl') return '🧗 Klettern/MSL';
   return '🎿 Skitour';
 }
 // Feste Hex-Farben statt CSS-Variablen: --ice/--ice-deep/--signal-deep sind pro App das eigene
@@ -877,7 +877,7 @@ function agendaFormHtml(editId){
         <select name="type">
           ${typeOpt('ski','🎿 Skitour')}
           ${typeOpt('hochtour','🏔️ Hochtour')}
-          ${typeOpt('msl','🧗 Mehrseillängen')}
+          ${typeOpt('msl','🧗 Klettern/MSL')}
         </select>
       </div>
       <div id="agenda-day-plan-container"></div>
@@ -895,11 +895,13 @@ function agendaFormHtml(editId){
   </div>`;
 }
 // Klassifiziert eine Tour app-unabhängig in dieselben drei Kategorien wie das Agenda-"Art"-Feld
-// (ski/hochtour/msl) — Skitouren tragen nie ein tourCategory-Feld, Hochtour/MSL-Touren (aus
-// Fixseil) immer. Grundlage für die Filterung der Tour-Dropdowns nach gewählter Art.
+// (ski/hochtour/msl) — Skitouren tragen nie ein tourCategory-Feld, Hochtour/MSL/Klettergarten-
+// Touren (aus Fixseil) immer. Klettergarten fällt mangels eigener Agenda-Art unter "msl" (dieselbe
+// Bucket wie Mehrseillängen — beides Fels-Klettern). Grundlage für die Filterung der Tour-
+// Dropdowns nach gewählter Art.
 function tourAgendaType(t){
   if(!t || !t.tourCategory) return 'ski';
-  return t.tourCategory==='msl' ? 'msl' : 'hochtour';
+  return (t.tourCategory==='msl' || t.tourCategory==='klettergarten') ? 'msl' : 'hochtour';
 }
 // Baut die <option>-Liste für ein Tour-Dropdown, gefiltert auf eine Art (ski/hochtour/msl) — eigene
 // und andere-App-Touren zusammen, geteilt zwischen Einzeltag- und Mehrtages-Feldern.
@@ -4447,11 +4449,11 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - \`approachTypes\`: Liste (mehrere möglich) aus: "auto", "oev", "seilbahn", "zufuss"
 - \`stayTypes\`: Liste (mehrere möglich) aus: "tagestour", "huette", "biwak", "zelt"
 
-## Felder-Erklärung (Fixseil = Hochtour/MSL) — zusätzlich zu obigem
+## Felder-Erklärung (Fixseil = Hochtour/Klettern-MSL) — zusätzlich zu obigem
 
 - \`region\`/\`subregion\`/\`points\`: identisch zu Firnspur
-- \`tourCategory\`: "hochtour" ODER "msl" — bestimmt, welche Feldgruppe ausgefüllt
-  wird (die jeweils andere bleibt leer):
+- \`tourCategory\`: "hochtour", "msl" ODER "klettergarten" — bestimmt, welche
+  Feldgruppe ausgefüllt wird (die jeweils anderen bleiben leer):
 
   **Falls tourCategory = "hochtour":**
   - \`difficulty\`: SAC-Skala wie oben (inkl. S+)
@@ -4479,6 +4481,15 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
     Tour auf einen Sektor, übernimmt sie dessen Zustiege/Abstiege automatisch
     und die eigenen \`accessRoutes\`/\`descentRoutes\` der Tour werden ignoriert
     (dort trotzdem \`[]\` eintragen, nie raten).
+
+  **Falls tourCategory = "klettergarten" (Einzellängen-Klettergebiet):** dieselben
+  Felder wie bei "msl" oben — \`mandatoryDifficulty\`, \`cruxDifficulty\`,
+  \`protection\`, \`descentType\`, \`exposition\`, \`gefahren\` — MIT AUSNAHME von:
+  - \`pitchCount\`/\`longestPitch\`: immer leerer String \`""\` (Einzellängen-Routen,
+    keine Seillängen-Zählung)
+  - \`sektorId\`: immer leerer String \`""\` (Sektoren bündeln nur MSL-Touren)
+  - \`descent\`: normaler Freitext erlaubt (nicht wie bei MSL immer leer) — ein
+    Klettergarten hat keine strukturierten \`descentRoutes\`
 
   Franz. Kletterskala: 1, 2a-, 2a, 2a+, 2b-, 2b, 2b+, 2c-, 2c, 2c+, 3a-, 3a, 3a+,
   3b-, 3b, 3b+, 3c-, 3c, 3c+, 4a- ... bis 7a (jeweils mit -/+ Abstufungen)
@@ -4625,11 +4636,11 @@ Kurze Einführung für neue Nutzer:innen, mit Tipps und Tricks, die man beim ers
 ## Die zwei Apps
 
 - **🎿 Firnspur** — für Skitouren (Winter)
-- **🧗 Fixseil** — für Hochtouren & Mehrseillängen-Klettertouren (Sommer)
+- **🧗 Fixseil** — für Hochtouren, Mehrseillängen-Klettertouren & Klettergärten (Sommer)
 
-Beide teilen sich **Hütten** und **Agenda** — was du in der einen App an Hütten oder Terminen anlegst, siehst du auch in der anderen. Touren selbst sind pro App getrennt, weil Winter und Sommer inhaltlich zu unterschiedlich sind.
+Beide teilen sich **Hütten** und **Agenda** — was du in der einen App an Hütten oder Terminen anlegst, siehst du auch in der anderen. Touren selbst sind pro App getrennt, weil Winter und Sommer inhaltlich zu unterschiedlich sind. Innerhalb von Fixseil sind "🏔️ Hochtour" und "🧗 Klettern/MSL" ebenfalls getrennte Tabs — Klettergärten findest du als Unterkategorie im "Klettern/MSL"-Tab (Chip oben in der Liste).
 
-**Zwischen den Apps wechseln:** Entweder oben auf "🎿 Skitour" / "🧗 Hochtour/MSL" tippen, oder auf der oberen Leiste **nach links/rechts wischen**.
+**Zwischen den Apps wechseln:** Entweder oben auf "🎿 Skitour" / "🏔️ Hochtour" / "🧗 Klettern/MSL" tippen, oder auf der oberen Leiste **nach links/rechts wischen**.
 
 ## Erstmaliges Einloggen
 
@@ -4680,7 +4691,7 @@ Wie Touren mit Region/Teilgebiet-Auswahl. Da sich der Zustieg je nach Jahreszeit
 
 ## Agenda
 
-Termine appübergreifend sichtbar. Wählst du beim Erstellen eine bestehende Tour aus, stellt sich "Art" (Skitour/Hochtour/Mehrseillängen) automatisch passend ein. Status-Ablauf: Idee → Termin gesucht → Geplant → Bestätigt → Durchgeführt (oder Abgesagt).
+Termine appübergreifend sichtbar. Wählst du beim Erstellen eine bestehende Tour aus, stellt sich "Art" (Skitour/Hochtour/Klettern-MSL) automatisch passend ein. Status-Ablauf: Idee → Termin gesucht → Geplant → Bestätigt → Durchgeführt (oder Abgesagt).
 
 ## Notfallkarte
 
