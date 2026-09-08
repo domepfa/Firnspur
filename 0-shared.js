@@ -721,6 +721,7 @@ function agendaDetailHtml(id){
     <div class="meta-line" style="margin-top:16px;">Vorgeschlagen von ${esc(a.createdBy||'?')} · ${fmtDate(a.createdAt)}</div>
     <div class="detail-actions">
       <button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>
+      <button class="btn secondary" data-act="edit-agenda" data-id="${a.id}">✏️ Bearbeiten</button>
       <button class="btn secondary" data-act="print-tourenzettel" data-id="${a.id}">🖨️ Tourenzettel drucken</button>
     </div>
     <div id="delete-agenda-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
@@ -806,48 +807,159 @@ async function openAgendaDetail(id){
   state.modal = {type:'agenda-detail', payload:id};
   render();
 }
-function agendaFormHtml(){
+// Öffnet einen bestehenden Termin zur Bearbeitung — bei Mehrtages-Terminen wird agendaDayPlanDraft
+// bereits HIER mit einer Kopie der bestehenden Tage vorbelegt (vor dem ersten Rendern), damit
+// syncAgendaDayPlanMode() sie beim Formularaufbau unverändert übernimmt (siehe deren Kommentar zu
+// syncAgendaDaysToRange). Die klassischen Einzeltag-Felder werden separat über
+// applyAgendaEditPrefill() befüllt, weil sie erst nach dem Einfügen ins DOM existieren.
+function openEditAgenda(id){
+  ensureName(async ()=>{
+    const a = state.agenda.find(x=>x.id===id);
+    if(!a) return;
+    if(!state.otherAppTours.length) await loadOtherAppTours();
+    agendaDayPlanDraft = a.days ? JSON.parse(JSON.stringify(a.days)) : null;
+    state.modal = {type:'edit-agenda', payload:id};
+    render();
+  });
+}
+// Befüllt die klassischen Einzeltag-Felder beim ersten Aufbau des Bearbeiten-Formulars mit den
+// Werten des bestehenden Termins — simuliert dieselben Interaktionen (Tour wählen, Chip klicken)
+// wie ein Benutzer, damit dieselbe Wiring-Logik (Routen-Dropdowns befüllen, Sichtbarkeit
+// umschalten) automatisch mitläuft statt dupliziert zu werden. Mehrtägige Termine sind hier ein
+// No-op — die werden bereits über das Vorbelegen von agendaDayPlanDraft in openEditAgenda() vor dem
+// ersten Rendern abgedeckt.
+function applyAgendaEditPrefill(agendaForm, a){
+  if(a.days && a.days.length) return;
+  const tourSelect = agendaForm.querySelector('#agenda-tour-select');
+  if(tourSelect){
+    const desiredVal = a.tourRef ? `${a.tourRef.source}:${a.tourRef.id}` : 'custom';
+    tourSelect.value = desiredVal;
+    if(tourSelect.value !== desiredVal) tourSelect.value = 'custom'; // Referenzierte Tour existiert nicht mehr
+    tourSelect.dispatchEvent(new Event('change'));
+  }
+  const customInput = agendaForm.querySelector('input[name="customName"]');
+  if(customInput && tourSelect && tourSelect.value==='custom') customInput.value = a.tourName || '';
+  const accessSelect = agendaForm.querySelector('#agenda-access-route-select');
+  if(accessSelect && a.accessRouteId) accessSelect.value = a.accessRouteId;
+  const descentSelect = agendaForm.querySelector('#agenda-descent-route-select');
+  if(descentSelect && a.descentRouteId) descentSelect.value = a.descentRouteId;
+  if(a.anreiseType){
+    const anreiseChip = agendaForm.querySelector(`.anreise-chip[data-anreise="${a.anreiseType}"]`);
+    if(anreiseChip) anreiseChip.click();
+    const anreiseOrtInput = agendaForm.querySelector('input[name="anreiseOrt"]');
+    if(anreiseOrtInput) anreiseOrtInput.value = a.anreiseOrt || '';
+  }
+  if(a.endOption){
+    const endChip = agendaForm.querySelector(`.end-option-chip[data-end="${a.endOption}"]`);
+    if(endChip) endChip.click();
+    const endNoteInput = agendaForm.querySelector('#end-note-input');
+    if(endNoteInput) endNoteInput.value = a.endNote || '';
+  }
+}
+// Ohne editId: leeres Formular für einen neuen Termin (bisheriges Verhalten). Mit editId: dasselbe
+// Formular, aber mit den Werten des bestehenden Termins vorbelegt (Titel/Button-Beschriftung
+// passen sich an) — die eigentliche Feld-für-Feld-Vorbelegung der Tour-/Tagesplan-Felder läuft
+// separat über applyAgendaEditPrefill() bzw. das Vorbelegen von agendaDayPlanDraft, weil diese
+// Felder erst nach dem Einfügen ins DOM (in syncAgendaDayPlanMode) aufgebaut werden.
+function agendaFormHtml(editId){
+  const a = editId ? state.agenda.find(x=>x.id===editId) : null;
   const today = todayStr();
+  const typeOpt = (val, label) => `<option value="${val}" ${a && a.type===val ? 'selected' : ''}>${label}</option>`;
   return `<div class="modal" data-stop="1">
-    <div class="modal-head"><h2>Neuer Termin</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div class="modal-head"><h2>${a ? 'Termin bearbeiten' : 'Neuer Termin'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="agenda-form" novalidate>
+      ${a ? `<input type="hidden" name="agendaEditId" value="${esc(a.id)}"/>` : ''}
       <div class="row2">
-        <div class="field"><label>Startdatum *</label><input required type="date" name="startDate" id="agenda-start-date" value="${today}"/></div>
-        <div class="field"><label>Enddatum (optional)</label><input type="date" name="endDate" id="agenda-end-date"/></div>
+        <div class="field"><label>Startdatum *</label><input required type="date" name="startDate" id="agenda-start-date" value="${a ? esc(a.startDate) : today}"/></div>
+        <div class="field"><label>Enddatum (optional)</label><input type="date" name="endDate" id="agenda-end-date" value="${a ? esc(a.endDate||'') : ''}"/></div>
       </div>
       <div class="field"><label>Art</label>
         <select name="type">
-          <option value="ski">🎿 Skitour</option>
-          <option value="hochtour">🏔️ Hochtour</option>
-          <option value="msl">🧗 Mehrseillängen</option>
+          ${typeOpt('ski','🎿 Skitour')}
+          ${typeOpt('hochtour','🏔️ Hochtour')}
+          ${typeOpt('msl','🧗 Mehrseillängen')}
         </select>
       </div>
       <div id="agenda-day-plan-container"></div>
-      <div class="field"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof"/></div>
+      <div class="field"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof" value="${a ? esc(a.meetingPoint||'') : ''}"/></div>
       <div class="row2">
-        <div class="field"><label>Geplante Rückkehrzeit</label><input name="plannedReturnTime" placeholder="z. B. 18:00"/></div>
-        <div class="field"><label>Notfallkontakt</label><input name="emergencyContact" placeholder="Name, Telefonnummer"/></div>
+        <div class="field"><label>Geplante Rückkehrzeit</label><input name="plannedReturnTime" placeholder="z. B. 18:00" value="${a ? esc(a.plannedReturnTime||'') : ''}"/></div>
+        <div class="field"><label>Notfallkontakt</label><input name="emergencyContact" placeholder="Name, Telefonnummer" value="${a ? esc(a.emergencyContact||'') : ''}"/></div>
       </div>
-      <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Ausrüstung, offene Fragen …"></textarea></div>
+      <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Ausrüstung, offene Fragen …">${a ? esc(a.note||'') : ''}</textarea></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
-        <button type="button" id="agenda-save-btn" class="btn">Termin vorschlagen</button>
+        <button type="button" id="agenda-save-btn" class="btn">${a ? '💾 Änderungen speichern' : 'Termin vorschlagen'}</button>
       </div>
     </form>
   </div>`;
 }
+// Klassifiziert eine Tour app-unabhängig in dieselben drei Kategorien wie das Agenda-"Art"-Feld
+// (ski/hochtour/msl) — Skitouren tragen nie ein tourCategory-Feld, Hochtour/MSL-Touren (aus
+// Fixseil) immer. Grundlage für die Filterung der Tour-Dropdowns nach gewählter Art.
+function tourAgendaType(t){
+  if(!t || !t.tourCategory) return 'ski';
+  return t.tourCategory==='msl' ? 'msl' : 'hochtour';
+}
+// Baut die <option>-Liste für ein Tour-Dropdown, gefiltert auf eine Art (ski/hochtour/msl) — eigene
+// und andere-App-Touren zusammen, geteilt zwischen Einzeltag- und Mehrtages-Feldern.
+function agendaTourOptionsHtml(type, selectedValue){
+  const own = state.tours.filter(t=>tourAgendaType(t)===type)
+    .map(t=>`<option value="own:${t.id}" ${selectedValue==='own:'+t.id?'selected':''}>${OWN_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+  const other = state.otherAppTours.filter(t=>tourAgendaType(t)===type)
+    .map(t=>`<option value="other:${t.id}" ${selectedValue==='other:'+t.id?'selected':''}>${OTHER_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+  return own + other;
+}
+function agendaTourChoiceMatchesType(choiceVal, type){
+  if(!choiceVal || choiceVal==='custom') return false;
+  const [src, refId] = choiceVal.split(':');
+  const list = src==='own' ? state.tours : state.otherAppTours;
+  const ref = list.find(t=>t.id===refId);
+  return !!ref && tourAgendaType(ref)===type;
+}
+// Baut nach einer Änderung des "Art"-Felds alle Tour-Dropdowns (Einzeltag ODER jedes Tagesabschnitt-
+// Dropdown bei Mehrtages-Terminen) neu auf, gefiltert auf die neu gewählte Art — eine schon
+// getroffene Auswahl, die zur neuen Art nicht mehr passt, wird auf "Freitext" zurückgesetzt statt
+// einfach zu verschwinden.
+function filterAgendaTourSelectsByType(agendaForm){
+  const typeSelect = agendaForm.querySelector('select[name="type"]');
+  const type = typeSelect ? typeSelect.value : 'ski';
+  const container = agendaForm.querySelector('#agenda-day-plan-container');
+  if(!container) return;
+  const customOpt = current => `<option value="custom" ${current==='custom'?'selected':''}>— Neuer Vorschlag (Freitext) —</option>`;
+  if(container.dataset.mode==='multi'){
+    container.querySelectorAll('.agenda-day-tour-select').forEach(sel=>{
+      const current = sel.value;
+      const stillValid = agendaTourChoiceMatchesType(current, type);
+      sel.innerHTML = customOpt(current==='custom' || !stillValid ? 'custom' : current) + agendaTourOptionsHtml(type, stillValid ? current : '');
+      if(!stillValid) sel.value = 'custom';
+      syncAgendaDaySegmentRouteFields(sel.closest('.agenda-day-segment'));
+    });
+  }else{
+    const sel = agendaForm.querySelector('#agenda-tour-select');
+    if(!sel) return;
+    const current = sel.value;
+    const stillValid = agendaTourChoiceMatchesType(current, type);
+    sel.innerHTML = customOpt(current==='custom' || !stillValid ? 'custom' : current) + agendaTourOptionsHtml(type, stillValid ? current : '');
+    if(!stillValid){
+      sel.value = 'custom';
+      const customField = agendaForm.querySelector('#agenda-custom-field');
+      if(customField) customField.style.display = '';
+      const routeFieldsWrap = agendaForm.querySelector('#agenda-route-fields');
+      if(routeFieldsWrap) routeFieldsWrap.style.display = 'none';
+    }
+  }
+}
 // Die klassischen Felder für einen eintägigen Termin — unverändert gegenüber vorher, nur aus der
 // Formular-Vorlage herausgelöst, damit sie bei einem Mehrtages-Datum (siehe unten) durch den
 // strukturierten Tagesplan ersetzt werden können, ohne das Formular selbst neu zu bauen.
-function agendaSingleDayFieldsHtml(){
-  const ownOptions = state.tours.map(t=>`<option value="own:${t.id}">${OWN_APP_LABEL} — ${esc(t.name)}</option>`).join('');
-  const otherOptions = state.otherAppTours.map(t=>`<option value="other:${t.id}">${OTHER_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+function agendaSingleDayFieldsHtml(currentType){
+  const type = currentType || 'ski';
   return `
     <div class="field"><label>Tour</label>
       <select name="tourChoice" id="agenda-tour-select">
         <option value="custom">— Neuer Vorschlag (Freitext) —</option>
-        ${ownOptions}
-        ${otherOptions}
+        ${agendaTourOptionsHtml(type, '')}
       </select>
     </div>
     <div class="field" id="agenda-custom-field"><label>Geplante Tour</label><input name="customName" placeholder="z. B. Wildspitze über Vent"/></div>
@@ -917,9 +1029,7 @@ function syncAgendaDaysToRange(existingDays, startDate, endDate){
     return prev ? {...prev, date} : blankAgendaDay(date);
   });
 }
-function agendaDaySegmentHtml(seg, dayIdx, segIdx){
-  const ownOptions = state.tours.map(t=>`<option value="own:${t.id}" ${seg.tourChoice==='own:'+t.id?'selected':''}>${OWN_APP_LABEL} — ${esc(t.name)}</option>`).join('');
-  const otherOptions = state.otherAppTours.map(t=>`<option value="other:${t.id}" ${seg.tourChoice==='other:'+t.id?'selected':''}>${OTHER_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+function agendaDaySegmentHtml(seg, dayIdx, segIdx, type){
   const hasRoutes = seg.tourChoice!=='custom';
   return `<div class="agenda-day-segment" data-day="${dayIdx}" data-seg="${segIdx}" style="border:1px solid var(--line); border-radius:var(--radius); padding:10px; margin-bottom:8px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
@@ -928,7 +1038,7 @@ function agendaDaySegmentHtml(seg, dayIdx, segIdx){
     </div>
     <select class="agenda-day-tour-select" data-day="${dayIdx}" data-seg="${segIdx}">
       <option value="custom" ${seg.tourChoice==='custom'?'selected':''}>— Neuer Vorschlag (Freitext) —</option>
-      ${ownOptions}${otherOptions}
+      ${agendaTourOptionsHtml(type||'ski', seg.tourChoice)}
     </select>
     <input type="text" class="agenda-day-custom-name" data-day="${dayIdx}" data-seg="${segIdx}" placeholder="z. B. Wildspitze über Vent" value="${esc(seg.tourChoice==='custom' ? (seg.tourName||'') : '')}" style="margin-top:6px; width:100%; box-sizing:border-box; ${seg.tourChoice==='custom'?'':'display:none;'}"/>
     <div class="agenda-day-route-fields" data-day="${dayIdx}" data-seg="${segIdx}" style="margin-top:6px; ${hasRoutes?'':'display:none;'}">
@@ -972,25 +1082,30 @@ function agendaDayTravelHtml(day, dayIdx, kind){ // kind: 'anreise' (nur erster 
     </div>
   </div>`;
 }
-function agendaDayBlockHtml(day, dayIdx, isFirst, isLast){
+function agendaDayBlockHtml(day, dayIdx, isFirst, isLast, type){
   const dateLabel = day.date ? fmtWeekday(day.date) + ', ' + fmtDateShort(day.date) : '?';
   return `<div class="agenda-day-block" data-day="${dayIdx}" data-date="${esc(day.date||'')}" style="border:1px solid var(--line); border-radius:var(--radius); padding:12px; margin-bottom:12px;">
     <h4 style="margin:0 0 10px 0;">📅 Tag ${dayIdx+1} — ${esc(dateLabel)}</h4>
     ${isFirst ? agendaDayTravelHtml(day, dayIdx, 'anreise') : ''}
     <div class="agenda-day-segments" data-day="${dayIdx}">
-      ${day.segments.map((seg,segIdx)=> agendaDaySegmentHtml(seg, dayIdx, segIdx)).join('')}
+      ${day.segments.map((seg,segIdx)=> agendaDaySegmentHtml(seg, dayIdx, segIdx, type)).join('')}
     </div>
     <button type="button" class="btn secondary agenda-add-segment-btn" data-day="${dayIdx}" style="font-size:12.5px; margin-bottom:10px;">+ Weitere Tour an diesem Tag</button>
     ${!isLast ? agendaDayOvernightHtml(day, dayIdx) : ''}
     ${isLast ? agendaDayTravelHtml(day, dayIdx, 'abreise') : ''}
   </div>`;
 }
-function agendaDayPlanHtml(days){
-  return `<div class="field"><label>Tagesplan</label></div>` + days.map((day,i)=> agendaDayBlockHtml(day, i, i===0, i===days.length-1)).join('');
+function agendaDayPlanHtml(days, type){
+  return `<div class="field"><label>Tagesplan</label></div>` + days.map((day,i)=> agendaDayBlockHtml(day, i, i===0, i===days.length-1, type)).join('');
 }
 // Liest Zustieg/Abstieg-Auswahl für ein Segment neu ein (abhängig von der dort gewählten Tour) —
 // gleiche Logik wie beim eintägigen Formular, nur pro Segment statt einmal fürs ganze Formular.
-function syncAgendaDaySegmentRouteFields(segEl){
+// Optionales seg-Objekt (aus dem Draft): stellt eine dort bereits gespeicherte Zustiegs-/Abstiegs-
+// Auswahl nach dem Neuaufbau der Options-Liste wieder her (z. B. nach Tour hinzufügen/entfernen an
+// einem ANDEREN Tag, oder beim Vorbelegen eines zu bearbeitenden Termins) — ohne seg (direkte
+// Nutzer-Änderung der Tour in diesem Segment) bleibt die Auswahl bewusst leer, weil sie zur neuen
+// Tour nicht mehr passt.
+function syncAgendaDaySegmentRouteFields(segEl, seg){
   const tourSelect = segEl.querySelector('.agenda-day-tour-select');
   const customInput = segEl.querySelector('.agenda-day-custom-name');
   const routeWrap = segEl.querySelector('.agenda-day-route-fields');
@@ -1006,6 +1121,10 @@ function syncAgendaDaySegmentRouteFields(segEl){
   const opt = r => `<option value="${esc(r.id)}">${esc(r.name||'?')}</option>`;
   accessSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + accessRoutes.map(opt).join('');
   descentSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + descentRoutes.map(opt).join('');
+  if(seg){
+    if(seg.accessRouteId) accessSelect.value = seg.accessRouteId;
+    if(seg.descentRouteId) descentSelect.value = seg.descentRouteId;
+  }
 }
 // Liest den kompletten aktuellen DOM-Stand des Tagesplans in ein days-Array zurück — läuft vor
 // jedem Neu-Rendern (Datumsänderung, Tour hinzufügen/entfernen), damit nichts verloren geht.
@@ -1062,6 +1181,8 @@ function syncAgendaDayPlanMode(agendaForm){
   if(!container) return;
   const startDate = agendaForm.querySelector('#agenda-start-date').value;
   const endDate = agendaForm.querySelector('#agenda-end-date').value;
+  const typeSelect = agendaForm.querySelector('select[name="type"]');
+  const currentType = typeSelect ? typeSelect.value : 'ski';
   const isMultiDay = !!(startDate && endDate && endDate > startDate);
   if(container.dataset.mode==='multi'){
     // Vor jedem Neu-Rendern zuerst den aktuellen DOM-Stand sichern (Tour-Auswahl, Übernachtung
@@ -1070,15 +1191,18 @@ function syncAgendaDayPlanMode(agendaForm){
   }
   if(!isMultiDay){
     container.dataset.mode = 'single';
-    container.innerHTML = agendaSingleDayFieldsHtml();
+    container.innerHTML = agendaSingleDayFieldsHtml(currentType);
     agendaDayPlanDraft = null;
     wireAgendaSingleDayFieldHandlers(agendaForm);
     return;
   }
   agendaDayPlanDraft = syncAgendaDaysToRange(agendaDayPlanDraft, startDate, endDate);
   container.dataset.mode = 'multi';
-  container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft);
-  container.querySelectorAll('.agenda-day-segment').forEach(segEl => syncAgendaDaySegmentRouteFields(segEl));
+  container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft, currentType);
+  container.querySelectorAll('.agenda-day-segment').forEach(segEl => {
+    const d = Number(segEl.getAttribute('data-day')), s = Number(segEl.getAttribute('data-seg'));
+    syncAgendaDaySegmentRouteFields(segEl, agendaDayPlanDraft[d] && agendaDayPlanDraft[d].segments[s]);
+  });
 }
 // Verdrahtet die klassischen Einzeltag-Felder — identisch zum bisherigen Verhalten, nur hierher
 // verschoben, weil sie jetzt bei jedem Moduswechsel neu ins DOM eingefügt werden.
@@ -1161,13 +1285,18 @@ function wireAgendaDayPlanContainer(agendaForm){
   const container = agendaForm.querySelector('#agenda-day-plan-container');
   if(!container) return;
   container.addEventListener('click', (e)=>{
+    const typeSelect = agendaForm.querySelector('select[name="type"]');
+    const currentType = typeSelect ? typeSelect.value : 'ski';
     const addSegBtn = e.target.closest('.agenda-add-segment-btn');
     if(addSegBtn){
       const dayIdx = Number(addSegBtn.getAttribute('data-day'));
       agendaDayPlanDraft = collectAgendaDayPlanFromDom(container);
       agendaDayPlanDraft[dayIdx].segments.push(blankAgendaDaySegment());
-      container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft);
-      container.querySelectorAll('.agenda-day-segment').forEach(segEl => syncAgendaDaySegmentRouteFields(segEl));
+      container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft, currentType);
+      container.querySelectorAll('.agenda-day-segment').forEach(segEl => {
+        const d = Number(segEl.getAttribute('data-day')), s = Number(segEl.getAttribute('data-seg'));
+        syncAgendaDaySegmentRouteFields(segEl, agendaDayPlanDraft[d].segments[s]);
+      });
       markModalDirty();
       return;
     }
@@ -1177,8 +1306,11 @@ function wireAgendaDayPlanContainer(agendaForm){
       const segIdx = Number(removeSegBtn.getAttribute('data-seg'));
       agendaDayPlanDraft = collectAgendaDayPlanFromDom(container);
       agendaDayPlanDraft[dayIdx].segments.splice(segIdx, 1);
-      container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft);
-      container.querySelectorAll('.agenda-day-segment').forEach(segEl => syncAgendaDaySegmentRouteFields(segEl));
+      container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft, currentType);
+      container.querySelectorAll('.agenda-day-segment').forEach(segEl => {
+        const d = Number(segEl.getAttribute('data-day')), s = Number(segEl.getAttribute('data-seg'));
+        syncAgendaDaySegmentRouteFields(segEl, agendaDayPlanDraft[d].segments[s]);
+      });
       markModalDirty();
       return;
     }
@@ -1258,8 +1390,11 @@ async function submitAgendaForm(form){
   }
   if(!tourName){ showFormError('agenda-form', isMultiDay ? 'Bitte für mindestens einen Tag eine Tour auswählen oder einen Vorschlag eintragen.' : 'Bitte eine Tour auswählen oder einen Vorschlag eintragen.'); return; }
 
-  const a = {
-    id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
+  // Beim Bearbeiten eines bestehenden Termins bleiben Teilnehmer/Status/Ersteller/Wetter-Snapshot
+  // unangetastet (per Spread übernommen) — nur die im Formular editierbaren Felder werden ersetzt.
+  const editId = form.agendaEditId || '';
+  const existing = editId ? state.agenda.find(x=>x.id===editId) : null;
+  const editableFields = {
     type: form.type||'ski', startDate, endDate: form.endDate||'',
     tourName, tourRef, meetingPoint: form.meetingPoint||'', note: form.note||'',
     days,
@@ -1267,17 +1402,25 @@ async function submitAgendaForm(form){
     anreiseType, anreiseOrt,
     endOption, endNote,
     plannedReturnTime: form.plannedReturnTime||'', emergencyContact: form.emergencyContact||'',
+  };
+  const a = existing ? {...existing, ...editableFields} : {
+    id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
+    ...editableFields,
     participants: [{by: state.myName, joinedAt: new Date().toISOString()}],
     status: 'geplant'
   };
-  state.agenda.unshift(a);
+  if(existing){
+    state.agenda[state.agenda.findIndex(x=>x.id===editId)] = a;
+  }else{
+    state.agenda.unshift(a);
+  }
   closeModal();
   state.modal = {type:'agenda-detail', payload:a.id};
   render();
   const ok = await saveAgendaCloud(a).catch(()=>false);
   a._unsynced = !ok;
-  if(!ok){ markUnsaved(); showToast('Termin lokal gespeichert, aber nicht synchronisiert.', true); }
-  else{ showToast('Termin vorgeschlagen.'); }
+  if(!ok){ markUnsaved(); showToast(existing ? 'Änderungen lokal gespeichert, aber nicht synchronisiert.' : 'Termin lokal gespeichert, aber nicht synchronisiert.', true); }
+  else{ showToast(existing ? 'Änderungen gespeichert.' : 'Termin vorgeschlagen.'); }
   render();
 }
 async function toggleParticipation(id){
@@ -4124,7 +4267,7 @@ function closeTopOverlayLayer(){
    wird stattdessen nur noch nachgefragt: hat sich seit dem Öffnen der Maske etwas geändert,
    fragt closeModal() vor dem Verwerfen einmal nach ("Ungespeicherte Änderungen verwerfen?").
    Speichern und Löschen laufen unverändert direkt durch (skipDirtyCheck-Parameter). */
-const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-sektor','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda'];
+const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-sektor','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda','edit-agenda'];
 let modalIsDirty = false;
 let lastDirtyTrackedModalKey = null;
 function modalDirtyTrackingKey(){
@@ -4144,6 +4287,10 @@ function syncModalDirtyTracking(){
   }
 }
 function markModalDirty(){ modalIsDirty = true; }
+// Gegenstück zu markModalDirty() — gebraucht nach dem programmatischen Vorbefüllen einer
+// Bearbeiten-Maske (applyAgendaEditPrefill simuliert Klicks/Change-Events, die sonst fälschlich
+// "ungespeicherte Änderungen" auslösen würden, obwohl der Nutzer noch gar nichts angefasst hat).
+function resetModalDirty(){ modalIsDirty = false; }
 // true = Schliessen darf weitergehen; false = Nutzer hat abgebrochen (Maske bleibt offen).
 function confirmDiscardIfDirty(){
   if(!modalIsDirty || !state.modal || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return true;

@@ -652,7 +652,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v99-alternativrouten';
+const APP_VERSION = 'v100-agenda-bearbeiten';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2373,6 +2373,7 @@ function renderModal(){
   else if(m.type==='vorlagen') inner = vorlagenModalHtml(TOUR_VORLAGE_JSON);
   else if(m.type==='bedienungsanleitung') inner = bedienungsanleitungModalHtml();
   else if(m.type==='add-agenda') inner = agendaFormHtml();
+  else if(m.type==='edit-agenda') inner = agendaFormHtml(m.payload);
   else if(m.type==='agenda-detail') inner = agendaDetailHtml(m.payload);
   else if(m.type==='emergency') inner = emergencyCardHtml();
   else if(m.type==='add-completion') inner = completionModalHtml(m.payload);
@@ -3531,6 +3532,8 @@ function wireModalHandlers(){
 
   const toggleParticipationBtn = root.querySelector('[data-act="toggle-participation"]');
   if(toggleParticipationBtn) toggleParticipationBtn.onclick = ()=> toggleParticipation(toggleParticipationBtn.getAttribute('data-id'));
+  const editAgendaBtn = root.querySelector('[data-act="edit-agenda"]');
+  if(editAgendaBtn) editAgendaBtn.onclick = ()=> openEditAgenda(editAgendaBtn.getAttribute('data-id'));
   const printTourenzettelBtn = root.querySelector('[data-act="print-tourenzettel"]');
   if(printTourenzettelBtn) printTourenzettelBtn.onclick = ()=> printTourenzettel(printTourenzettelBtn.getAttribute('data-id'));
   root.querySelectorAll('.agenda-status-select').forEach(sel=>{
@@ -3550,6 +3553,13 @@ function wireModalHandlers(){
       const onDateChange = ()=>{ syncAgendaDayPlanMode(agendaForm); markModalDirty(); };
       if(startInput) startInput.addEventListener('change', onDateChange);
       if(endInput) endInput.addEventListener('change', onDateChange);
+      const typeSelect = agendaForm.querySelector('select[name="type"]');
+      if(typeSelect) typeSelect.addEventListener('change', ()=> filterAgendaTourSelectsByType(agendaForm));
+      const editIdField = agendaForm.querySelector('input[name="agendaEditId"]');
+      if(editIdField && editIdField.value){
+        const editedAgenda = state.agenda.find(x=>x.id===editIdField.value);
+        if(editedAgenda){ applyAgendaEditPrefill(agendaForm, editedAgenda); resetModalDirty(); }
+      }
     }
 
     const agendaSaveBtn = document.getElementById('agenda-save-btn');
