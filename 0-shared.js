@@ -3988,67 +3988,6 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
   });
 }
 
-/* ================= Hütten-Karte: Sommer-GPX (gelb) + Winter-GPX (blau) + selbst eingezeichnet (rot) ================= */
-function renderHutTrackDisplayMap(containerId, points, summerTrack, winterTrack, manualTrack){
-  const el = document.getElementById(containerId);
-  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
-    const el2 = document.getElementById(containerId);
-    if(!el2) return;
-    const hasSummer = summerTrack && summerTrack.length;
-    const hasWinter = winterTrack && winterTrack.length;
-    const hasManual = manualTrack && manualTrack.length;
-    const hasPoints = points && points.length;
-    if(!hasSummer && !hasWinter && !hasManual && !hasPoints) return;
-    const mapDivId = containerId + '-inner';
-    destroyExistingMap(mapDivId);
-    el2.innerHTML = '';
-    const isFullscreen = containerId === 'fullscreen-map-container';
-    const mapDiv = document.createElement('div');
-    mapDiv.id = mapDivId;
-    mapDiv.style.cssText = isFullscreen
-      ? 'height:100%; border-radius:0; overflow:hidden;'
-      : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
-    el2.appendChild(mapDiv);
-    const startView = hasSummer ? summerTrack[0] : (hasWinter ? winterTrack[0] : (hasManual ? manualTrack[0] : [points[0].lat, points[0].lon]));
-    const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
-    registerMap(mapDivId, map);
-    addBaseLayerSwitcher(map);
-    const boundsItems = [];
-    if(hasSummer){
-      L.polyline(summerTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
-      const line = L.polyline(summerTrack, {color:'#E8B93E', weight:4, opacity:1}).addTo(map);
-      boundsItems.push(line);
-    }
-    if(hasWinter){
-      L.polyline(winterTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
-      const line = L.polyline(winterTrack, {color:'#1565C0', weight:4, opacity:1}).addTo(map);
-      boundsItems.push(line);
-    }
-    if(hasManual){
-      L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
-      const line = L.polyline(manualTrack, {color:'#E8384F', weight:4, opacity:1}).addTo(map);
-      boundsItems.push(line);
-    }
-    if(hasPoints){
-      points.forEach(p=>{
-        const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
-        boundsItems.push(m);
-      });
-    }
-    if(boundsItems.length){
-      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
-    }
-    if(!isFullscreen){
-      const btn = makeFullscreenButton(function(id){ renderHutTrackDisplayMap(id, points||[], summerTrack||[], winterTrack||[], manualTrack||[]); });
-      el2.appendChild(btn);
-    }
-  }).catch(err=>{
-    const el3 = document.getElementById(containerId);
-    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
-  });
-}
-
 /* ================= Touren mit gemeinsamem Ausgangspunkt verknüpfen ================= */
 function haversineMeters(lat1, lon1, lat2, lon2){
   const R = 6371000;
@@ -4919,7 +4858,11 @@ function accessRouteLegendHtml(routes){
   }).filter(Boolean).join('');
 }
 
-function renderHutAccessRoutesMap(containerId, points, routes){
+// Eine einzige Karte für die ganze Hütte: allgemeine Punkte (Hütte selbst, Parkplatz …), die
+// allgemeine, selbst eingezeichnete Linie (manualTrack, rot) UND alle benannten Zustiege
+// (farbig je Route) zusammen — vorher zwei getrennte Karten (Standorte / Zustiege), die beide nur
+// einen Teil der Daten zeigten und sich bei den Punkten sogar überschnitten.
+function renderHutAccessRoutesMap(containerId, points, routes, manualTrack){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
   ensureLeafletLoaded().then(()=>{
@@ -4930,7 +4873,8 @@ function renderHutAccessRoutesMap(containerId, points, routes){
       color: ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length]
     })).filter(t=>t.coords);
     const hasPoints = points && points.length;
-    if(!tracks.length && !hasPoints){
+    const hasManualTrack = manualTrack && manualTrack.length;
+    if(!tracks.length && !hasPoints && !hasManualTrack){
       if(el2) el2.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Keine Kartendaten vorhanden — noch kein Zustieg hat eine Linie oder einen GPX-Track.</p>';
       return;
     }
@@ -4944,11 +4888,16 @@ function renderHutAccessRoutesMap(containerId, points, routes){
       ? 'height:100%; border-radius:0; overflow:hidden;'
       : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
     el2.appendChild(mapDiv);
-    const startView = tracks.length ? tracks[0].coords[0] : [points[0].lat, points[0].lon];
+    const startView = tracks.length ? tracks[0].coords[0] : (hasManualTrack ? manualTrack[0] : [points[0].lat, points[0].lon]);
     const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
     addBaseLayerSwitcher(map);
     const boundsItems = [];
+    if(hasManualTrack){
+      L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line = L.polyline(manualTrack, {color:'#E8384F', weight:4, opacity:1}).addTo(map);
+      boundsItems.push(line);
+    }
     tracks.forEach(t=>{
       try{
         L.polyline(t.coords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
@@ -4968,7 +4917,7 @@ function renderHutAccessRoutesMap(containerId, points, routes){
       map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
-      const btn = makeFullscreenButton(function(id){ renderHutAccessRoutesMap(id, points||[], routes||[]); });
+      const btn = makeFullscreenButton(function(id){ renderHutAccessRoutesMap(id, points||[], routes||[], manualTrack||[]); });
       el2.appendChild(btn);
     }
   }).catch(err=>{
