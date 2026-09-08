@@ -4858,11 +4858,12 @@ function accessRouteLegendHtml(routes){
   }).filter(Boolean).join('');
 }
 
-// Eine einzige Karte für die ganze Hütte: allgemeine Punkte (Hütte selbst, Parkplatz …), die
-// allgemeine, selbst eingezeichnete Linie (manualTrack, rot) UND alle benannten Zustiege
-// (farbig je Route) zusammen — vorher zwei getrennte Karten (Standorte / Zustiege), die beide nur
-// einen Teil der Daten zeigten und sich bei den Punkten sogar überschnitten.
-function renderHutAccessRoutesMap(containerId, points, routes, manualTrack){
+// Eine einzige Karte für Punkte + allgemeine Linie + alle benannten Routen (Zustiege/Abstiege)
+// zusammen — geteilt zwischen Hütten-, Tour- und Sektor-Zustiegen. onRouteClick(route) ist
+// optional: Aufrufer, die beim Antippen einer Linie ein Popup mit "öffnen"-Knopf zur jeweiligen
+// Route wollen (analog zum Antippen der Route-Karte in der Liste), übergeben hier ihre eigene
+// "Route-Detail öffnen"-Logik — Hütte/Tour/Sektor haben je einen eigenen Modal-Typ dafür.
+function renderHutAccessRoutesMap(containerId, points, routes, manualTrack, onRouteClick){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
   ensureLeafletLoaded().then(()=>{
@@ -4870,7 +4871,8 @@ function renderHutAccessRoutesMap(containerId, points, routes, manualTrack){
     if(!el2) return;
     const tracks = (routes||[]).map((r,i)=>({
       coords: (r.trackSimplified && r.trackSimplified.length) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length ? r.manualTrack : null),
-      color: ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length]
+      color: ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length],
+      route: r
     })).filter(t=>t.coords);
     const hasPoints = points && points.length;
     const hasManualTrack = manualTrack && manualTrack.length;
@@ -4892,6 +4894,24 @@ function renderHutAccessRoutesMap(containerId, points, routes, manualTrack){
     const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
     addBaseLayerSwitcher(map);
+    // Popup mit Name + "öffnen"-Knopf fürs Antippen einer Route-Linie — bewusst als eigener,
+    // kleiner Baustein hier (statt die gleichnamige Variante aus renderStandaloneMap zu teilen),
+    // um die riesige, eng verzahnte Standalone-Karten-Funktion nicht anfassen zu müssen.
+    function openRoutePopup(latlng, route){
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '170px';
+      const title = document.createElement('p');
+      title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+      title.textContent = '🚶 ' + (route.name || 'Zustieg');
+      wrap.appendChild(title);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Öffnen';
+      btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+      btn.addEventListener('click', ()=> onRouteClick(route));
+      wrap.appendChild(btn);
+      L.popup().setLatLng(latlng).setContent(wrap).openOn(map);
+    }
     const boundsItems = [];
     if(hasManualTrack){
       L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
@@ -4900,8 +4920,15 @@ function renderHutAccessRoutesMap(containerId, points, routes, manualTrack){
     }
     tracks.forEach(t=>{
       try{
+        // Breite unsichtbare Klickfläche unter der sichtbaren, dünnen Linie — deutlich leichter
+        // mit dem Finger zu treffen (analog zur Standalone-Übersichtskarte).
+        const hitLine = L.polyline(t.coords, {color:'#000', weight:22, opacity:0}).addTo(map);
         L.polyline(t.coords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
         const line = L.polyline(t.coords, {color:t.color, weight:4, opacity:1}).addTo(map);
+        if(onRouteClick){
+          hitLine.on('click', (e)=>{ L.DomEvent.stopPropagation(e); openRoutePopup(e.latlng, t.route); });
+          line.on('click', (e)=>{ L.DomEvent.stopPropagation(e); openRoutePopup(e.latlng, t.route); });
+        }
         boundsItems.push(line);
       }catch(e){ /* einzelne fehlerhafte Linie überspringen, Rest der Karte trotzdem zeigen */ }
     });
@@ -4917,7 +4944,7 @@ function renderHutAccessRoutesMap(containerId, points, routes, manualTrack){
       map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
-      const btn = makeFullscreenButton(function(id){ renderHutAccessRoutesMap(id, points||[], routes||[], manualTrack||[]); });
+      const btn = makeFullscreenButton(function(id){ renderHutAccessRoutesMap(id, points||[], routes||[], manualTrack||[], onRouteClick); });
       el2.appendChild(btn);
     }
   }).catch(err=>{
