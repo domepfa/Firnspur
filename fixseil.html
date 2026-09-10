@@ -714,7 +714,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v105-routenlinien-klickbar';
+const APP_VERSION = 'v106-suche-farben-kartenausschnitt';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1311,7 +1311,7 @@ function tourRouteGpxPath(kind){ return kind==='descent' ? MSL_DESCENT_ROUTE_GPX
 function tourRouteTitle(kind){ return kind==='descent' ? 'Abstieg' : 'Zustieg'; }
 
 function tourRouteRowHtml(r, index, tourId, kind){
-  const color = ACCESS_ROUTE_COLORS[index % ACCESS_ROUTE_COLORS.length];
+  const color = accessRouteColor(r, index);
   const icon = kind==='descent' ? '🔽' : '🚶';
   return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="open-tour-route" data-tour-id="${tourId}" data-kind="${kind}" data-route-id="${r.id}" tabindex="0" role="button">
     <div class="card-top">
@@ -1737,7 +1737,7 @@ function sektorRouteGpxPath(kind){ return kind==='descent' ? SEKTOR_DESCENT_ROUT
 function sektorRouteTitle(kind){ return kind==='descent' ? 'Abstieg' : 'Zustieg'; }
 
 function sektorRouteRowHtml(r, index, sektorId, kind){
-  const color = ACCESS_ROUTE_COLORS[index % ACCESS_ROUTE_COLORS.length];
+  const color = accessRouteColor(r, index);
   const icon = kind==='descent' ? '🔽' : '🚶';
   return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="open-sektor-route" data-sektor-id="${sektorId}" data-kind="${kind}" data-route-id="${r.id}" tabindex="0" role="button">
     <div class="card-top">

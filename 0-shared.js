@@ -1654,7 +1654,10 @@ function renderStandaloneMap(containerId){
     mapDiv.id = mapDivId;
     mapDiv.style.cssText = 'width:100%; height:100%;';
     el2.appendChild(mapDiv);
-    const map = L.map(mapDivId, {attributionControl:true}).setView([46.8182, 8.2275], 8);
+    const map = L.map(mapDivId, {attributionControl:true});
+    if(lastStandaloneMapView) map.setView(lastStandaloneMapView.center, lastStandaloneMapView.zoom);
+    else map.setView([46.8182, 8.2275], 8);
+    map.on('moveend', ()=>{ lastStandaloneMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
     registerMap(mapDivId, map);
     const { skitourenLayer, wegsperrungenLayer } = addBaseLayerSwitcher(map);
 
@@ -1702,6 +1705,11 @@ function renderStandaloneMap(containerId){
       sektor: { label: '⛺ Sektoren', color: '#4A6B3A' },
       zustieg: { label: '🚶 Zustiege', color: '#1565C0' }
     };
+    // Sommerzustiege gelb, Winterzustiege (und Tour-/Sektor-Routen ohne Saison) blau —
+    // analog zur Farblogik in accessRouteColor() für die einzelnen Zustiegs-Karten.
+    function zustiegLineColor(r){
+      return r.season==='sommer' ? '#E8B93E' : TOUR_CATEGORY_META.zustieg.color;
+    }
     // Welche Tourenarten überhaupt möglich sind, hängt von der App ab (nicht von
     // Zufällen in den Daten wie z. B. alten Hochtour/MSL-Einträgen ohne tourCategory-Feld
     // aus der Zeit vor dieser Unterscheidung) — sonst könnte in der Skitour-App fälschlich
@@ -1772,6 +1780,10 @@ function renderStandaloneMap(containerId){
     }
     const categoryLayers = {}; // key -> L.layerGroup()
     const allBoundsItems = [];
+    // Für die Suchfunktion (Textfeld oben rechts): Name + Koordinate + Öffnen-Funktion je
+    // Tour/Hütte/Sektor — bewusst nicht die einzelnen Zustiege/Abstiege, das würde die
+    // Trefferliste v.a. bei generischen Namen wie "Sommer"/"Winter" nur unübersichtlich machen.
+    const searchIndex = [];
     // Fügt einen Track (Linie) und/oder Punkte einer Kategorie hinzu; Antippen öffnet über
     // popupContentFn() das jeweilige Original-Element direkt. Normales 'click' statt 'contextmenu'
     // (langes Drücken), da auf dieser reinen Übersichtskarte nichts versehentlich gesetzt/verändert
@@ -1812,15 +1824,17 @@ function renderStandaloneMap(containerId){
       const color = (TOUR_CATEGORY_META[catKey] || TOUR_CATEGORY_META.skitour).color;
       const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
       addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id)));
+      if(t.points && t.points.length) searchIndex.push({name: t.name, icon:'🏔️', label:'Tour öffnen', coords:[t.points[0].lat, t.points[0].lon], openFn: ()=> openTourFromMap(t.id)});
     });
     // Hütten (beide Apps) — eigener Standort/Linie, plus deren Zustiege.
     (state.huts || []).forEach(h=>{
       const track = (h.manualTrack && h.manualTrack.length) ? h.manualTrack : null;
       addMapEntity('huette', TOUR_CATEGORY_META.huette.color, track, h.points, ()=> mapPopupContent('🛖', h.name, 'Hütte öffnen', ()=> openHutFromMap(h.id)));
+      if(h.points && h.points.length) searchIndex.push({name: h.name, icon:'🛖', label:'Hütte öffnen', coords:[h.points[0].lat, h.points[0].lon], openFn: ()=> openHutFromMap(h.id)});
       (h.accessRoutes || []).forEach(r=>{
         const rTrack = routeTrack(r);
         if(!rTrack) return;
-        addMapEntity('zustieg', TOUR_CATEGORY_META.zustieg.color, rTrack, null, ()=> mapPopupContent('🚶', r.name, 'Zustieg öffnen', ()=> openHutAccessRouteFromMap(h.id, r.id)));
+        addMapEntity('zustieg', zustiegLineColor(r), rTrack, null, ()=> mapPopupContent('🚶', r.name, 'Zustieg öffnen', ()=> openHutAccessRouteFromMap(h.id, r.id)));
       });
     });
     if(isFixseilApp){
@@ -1831,7 +1845,7 @@ function renderStandaloneMap(containerId){
           (t[field] || []).forEach(r=>{
             const rTrack = routeTrack(r);
             if(!rTrack) return;
-            addMapEntity('zustieg', TOUR_CATEGORY_META.zustieg.color, rTrack, null, ()=> mapPopupContent('🚶', r.name, (kind==='descent'?'Abstieg':'Zustieg') + ' öffnen', ()=> openTourRouteFromMap(t.id, kind, r.id)));
+            addMapEntity('zustieg', zustiegLineColor(r), rTrack, null, ()=> mapPopupContent('🚶', r.name, (kind==='descent'?'Abstieg':'Zustieg') + ' öffnen', ()=> openTourRouteFromMap(t.id, kind, r.id)));
           });
         });
       });
@@ -1839,12 +1853,13 @@ function renderStandaloneMap(containerId){
       (state.sektoren || []).forEach(sek=>{
         const track = (sek.manualTrack && sek.manualTrack.length) ? sek.manualTrack : null;
         addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id)));
+        if(sek.points && sek.points.length) searchIndex.push({name: sek.name, icon:'⛺', label:'Sektor öffnen', coords:[sek.points[0].lat, sek.points[0].lon], openFn: ()=> openSektorFromMap(sek.id)});
         ['accessRoutes','descentRoutes'].forEach(field=>{
           const kind = field==='descentRoutes' ? 'descent' : 'access';
           (sek[field] || []).forEach(r=>{
             const rTrack = routeTrack(r);
             if(!rTrack) return;
-            addMapEntity('zustieg', TOUR_CATEGORY_META.zustieg.color, rTrack, null, ()=> mapPopupContent('🚶', r.name, (kind==='descent'?'Abstieg':'Zustieg') + ' öffnen', ()=> openSektorRouteFromMap(sek.id, kind, r.id)));
+            addMapEntity('zustieg', zustiegLineColor(r), rTrack, null, ()=> mapPopupContent('🚶', r.name, (kind==='descent'?'Abstieg':'Zustieg') + ' öffnen', ()=> openSektorRouteFromMap(sek.id, kind, r.id)));
           });
         });
       });
@@ -1919,6 +1934,70 @@ function renderStandaloneMap(containerId){
         }
       });
       map.addControl(new TourFilterControl());
+    }
+
+    // Suchfeld — findet Touren/Hütten/Sektoren nach Name, springt beim Antippen eines
+    // Treffers direkt an die Stelle und zeigt dort dasselbe Popup wie ein Klick auf den
+    // Marker (mit "öffnen"-Knopf), statt gleich in die Detailansicht zu wechseln.
+    if(searchIndex.length){
+      const SearchControl = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd: function(){
+          const wrap = L.DomUtil.create('div', '');
+          L.DomEvent.disableClickPropagation(wrap);
+          let expanded = false;
+          function renderControl(){
+            wrap.innerHTML = '';
+            if(!expanded){
+              wrap.style.cssText = 'background:#fff; border-radius:50%; width:40px; height:40px; box-shadow:0 2px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px;';
+              wrap.onclick = ()=>{ expanded = true; renderControl(); wrap.querySelector('input').focus(); };
+              wrap.title = 'Suchen';
+              wrap.textContent = '🔍';
+            }else{
+              wrap.style.cssText = 'background:rgba(255,255,255,0.97); padding:8px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.35); width:220px;';
+              wrap.onclick = null;
+              const row = document.createElement('div');
+              row.style.cssText = 'display:flex; gap:4px; align-items:center;';
+              const input = document.createElement('input');
+              input.type = 'text';
+              input.placeholder = 'Tour, Hütte, Sektor …';
+              input.style.cssText = 'flex:1; border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:13px; min-width:0;';
+              const closeBtn = document.createElement('button');
+              closeBtn.type = 'button';
+              closeBtn.textContent = '✕';
+              closeBtn.style.cssText = 'background:none; border:none; font-size:14px; cursor:pointer; padding:2px 4px; color:var(--ink-soft);';
+              closeBtn.addEventListener('click', ()=>{ expanded = false; renderControl(); });
+              row.appendChild(input);
+              row.appendChild(closeBtn);
+              wrap.appendChild(row);
+              const results = document.createElement('div');
+              results.style.cssText = 'margin-top:6px; max-height:220px; overflow-y:auto;';
+              wrap.appendChild(results);
+              function renderResults(){
+                const q = input.value.trim().toLowerCase();
+                results.innerHTML = '';
+                if(!q) return;
+                searchIndex.filter(e=> e.name.toLowerCase().includes(q)).slice(0,8).forEach(entry=>{
+                  const btn = document.createElement('button');
+                  btn.type = 'button';
+                  btn.style.cssText = 'display:block; width:100%; text-align:left; background:none; border:none; border-top:1px solid var(--line); padding:6px 2px; font-size:13px; cursor:pointer; color:var(--ink);';
+                  btn.textContent = entry.icon + ' ' + entry.name;
+                  btn.addEventListener('click', ()=>{
+                    map.setView(entry.coords, 15);
+                    L.popup().setLatLng(entry.coords).setContent(mapPopupContent(entry.icon, entry.name, entry.label, entry.openFn)).openOn(map);
+                    expanded = false; renderControl();
+                  });
+                  results.appendChild(btn);
+                });
+              }
+              input.addEventListener('input', renderResults);
+            }
+          }
+          renderControl();
+          return wrap;
+        }
+      });
+      map.addControl(new SearchControl());
     }
 
     // Als echtes Leaflet-Control eingebunden (statt als loses DOM-Element über der Karte) —
@@ -2778,7 +2857,7 @@ function siblingRouteRefTracks(entity, excludeRouteId){
   ['accessRoutes','descentRoutes'].forEach(field=>{
     const kindLabel = field==='descentRoutes' ? 'Abstieg' : 'Zustieg';
     (entity[field] || []).forEach(r=>{
-      const color = ACCESS_ROUTE_COLORS[colorIdx % ACCESS_ROUTE_COLORS.length];
+      const color = accessRouteColor(r, colorIdx);
       colorIdx++;
       if(r.id === excludeRouteId) return;
       const track = (r.trackSimplified && r.trackSimplified.length) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length ? r.manualTrack : null);
@@ -4180,6 +4259,10 @@ let suppressNextPopstateHandling = false;
 // wieder dorthin zurückkehrt statt einfach zur normalen Übersicht. Wird auch bei einem
 // Tab-Wechsel zurückgesetzt (siehe setView()), da man die Karte dann bewusst verlassen hat.
 let modalOpenedFromStandaloneMap = false;
+// Merkt sich den zuletzt gesehenen Kartenausschnitt der Vollbild-Übersichtskarte, damit sie beim
+// Zurückkehren aus einer Tour/Hütte/Sektor-Detailansicht dort weitermacht, statt jedes Mal auf
+// die Schweiz-Übersicht zurückzuspringen.
+let lastStandaloneMapView = null;
 
 function pushModalHistoryIfNeeded(){
   if(!modalHistoryPushed){
@@ -4801,6 +4884,14 @@ const ALT_TRACK_COLORS = ['#8E44AD','#E8B93E','#2F6B44','#FF8C00','#00838F','#C2
 
 /* ================= Hütten-Zustiege: mehrere Varianten pro Hütte ================= */
 const ACCESS_ROUTE_COLORS = ['#E8B93E','#1565C0','#E8384F','#2E7EB0','#8A2E2E','#3C7A52'];
+// Sommer/Winter-Zustiege bekommen eine feste, wiedererkennbare Farbe statt einer zufälligen
+// Reihenfolge-Farbe — nur Hütten-Zustiege haben ein season-Feld, Tour-/Sektor-Routen (MSL/
+// Klettergarten) fallen deshalb immer auf die Index-Farbe zurück.
+function accessRouteColor(r, index){
+  if(r && r.season==='sommer') return '#E8B93E';
+  if(r && r.season==='winter') return '#1565C0';
+  return ACCESS_ROUTE_COLORS[index % ACCESS_ROUTE_COLORS.length];
+}
 
 function migrateHutAccessRoutes(h){
   if(Array.isArray(h.accessRoutes)) return h;
@@ -4851,7 +4942,7 @@ function accessRouteDifficultyRangeHtml(routes){
 }
 function accessRouteLegendHtml(routes){
   return routes.map((r,i)=>{
-    const color = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
+    const color = accessRouteColor(r, i);
     const hasTrack = (r.trackSimplified && r.trackSimplified.length) || (r.manualTrack && r.manualTrack.length);
     if(!hasTrack) return '';
     return `<span class="hint" style="display:inline-flex; align-items:center; gap:4px; margin-right:10px;"><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color};"></span>${esc(r.name)}</span>`;
@@ -4871,7 +4962,7 @@ function renderHutAccessRoutesMap(containerId, points, routes, manualTrack, onRo
     if(!el2) return;
     const tracks = (routes||[]).map((r,i)=>({
       coords: (r.trackSimplified && r.trackSimplified.length) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length ? r.manualTrack : null),
-      color: ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length],
+      color: accessRouteColor(r, i),
       route: r
     })).filter(t=>t.coords);
     const hasPoints = points && points.length;
@@ -5011,7 +5102,7 @@ function accessRouteFormHtml(hutId, route){
 }
 
 function accessRouteRowHtml(r, index, hutId){
-  const color = ACCESS_ROUTE_COLORS[index % ACCESS_ROUTE_COLORS.length];
+  const color = accessRouteColor(r, index);
   const seasonIcon = r.season==='sommer' ? '🌞' : (r.season==='winter' ? '❄️' : '📍');
   const diffBadges = [];
   if(r.difficulty) diffBadges.push(`<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${r.difficulty}</span>`);
