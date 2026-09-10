@@ -716,7 +716,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v107-klettergebiete';
+const APP_VERSION = 'v108-touren-draganddrop';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1541,6 +1541,27 @@ async function createSektorFromTours(tourIds){
   if(!ok) markUnsaved();
   await Promise.all(tours.map(t=> saveTourCloud(t).catch(()=>{ t._unsynced = true; markUnsaved(); })));
   showToast(ok ? 'Sektor erstellt und Touren verknüpft.' : 'Sektor lokal erstellt, aber nicht synchronisiert.', !ok);
+  render();
+}
+
+// Eine freistehende Tour per Drag&Drop auf eine bereits bestehende Sektor-Sammelkarte ziehen
+// (siehe wireTourDragAssign) — Gegenstück zu createSektorFromTours() für den Fall, dass am
+// selben Ort bereits ein Sektor existiert statt zwei freistehende Touren zusammengelegt werden.
+async function addTourToSektor(tourId, sektorId){
+  const t = state.tours.find(x=>x.id===tourId);
+  const sek = state.sektoren.find(x=>x.id===sektorId);
+  if(!t || !sek) return;
+  if(!confirm('„'+t.name+(t.routeName?' – '+t.routeName:'')+'" zum Sektor „'+sek.name+'" hinzufügen?\n\nEigene Zustiege/Abstiege der Tour werden dabei entfernt — der Sektor hat ja bereits welche.')) return;
+  t.sektorId = sek.id;
+  t.accessRoutes = [];
+  t.descentRoutes = [];
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  render();
+  const ok = await saveTourCloud(t).catch(()=>false);
+  t._unsynced = !ok;
+  if(!ok) markUnsaved();
+  showToast(ok ? 'Tour zum Sektor hinzugefügt.' : 'Tour lokal hinzugefügt, aber nicht synchronisiert.', !ok);
   render();
 }
 
@@ -2536,7 +2557,9 @@ function mslListOrGroupedHtml(list, activeFilterCount){
     const tourCount = bySektor[sekId].length;
     return mslGroupCardHtml({icon:'🧭', name:sek.name, region:sek.region, act:'open-sektor', id:sek.id, lines:[`${tourCount} Tour${tourCount===1?'':'en'}`]});
   }).join('');
-  const looseCards = loose.map(tourCardHtml).join('');
+  // draggable=true: freistehende Touren (noch kein Sektor) lassen sich hier aufeinander- oder auf
+  // eine Sektor-Sammelkarte ziehen, um sie zusammenzuführen — siehe wireTourDragAssign().
+  const looseCards = loose.map(t=>tourCardHtml(t, true)).join('');
   return `<div class="grid">${gebietCards}${sektorCards}${looseCards}</div>`;
 }
 
@@ -2563,7 +2586,7 @@ function emptyMsl(){
   </div>`;
 }
 
-function tourCardHtml(t){
+function tourCardHtml(t, draggable){
   const isMsl = t.tourCategory==='msl';
   const isKlettergarten = t.tourCategory==='klettergarten';
   const d = t.difficulty ? DIFF[t.difficulty] : null;
@@ -2571,7 +2594,7 @@ function tourCardHtml(t){
   const done = (t.completions && t.completions.length) || t.completed;
   const last = latestCompletion(t.completions);
   return `
-  <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
+  <div class="card${draggable?' drag-card':''}" data-act="open-tour" data-id="${t.id}" ${draggable?`data-drag-tour-id="${t.id}"`:''} tabindex="0" role="button">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
       <div class="agenda-date-row" style="font-size:12px; margin-bottom:0;">${isMsl ? '🧗 MSL — Mehrseillängen' : isKlettergarten ? '🏕️ Klettergarten' : '🏔️ Hochtour'}</div>
       ${favoriteToggleButtonHtml(t.id)}
@@ -3689,6 +3712,7 @@ function wireGlobalHandlers(){
     sel.addEventListener('click', e=> e.stopPropagation());
     sel.addEventListener('change', ()=> setAgendaStatus(sel.getAttribute('data-id'), sel.value));
   });
+  wireTourDragAssign(app);
 }
 
 function renderListOnly(){
@@ -3705,30 +3729,30 @@ function renderListOnly(){
 // es sowohl mit Maus als auch am Handy per Finger funktioniert (natives HTML5-Drag&Drop
 // funktioniert auf Touch-Geräten nicht zuverlässig). Ein kurzes Halten (350ms) startet den Drag,
 // damit normales Scrollen/Antippen der Liste nicht versehentlich als Drag interpretiert wird.
-function wireDragAssign(root){
-  if(!root.querySelector('#klettergebiet-assign-drop')) return;
-  // Die Zuordnen-Zone wird bei jedem pointermove/pointerup FRISCH per ID gesucht (statt einmal
-  // referenziert) — landet z. B. durch einen zwischenzeitlichen Sync-bedingten Re-Render eine neue
-  // Modal-Instanz im DOM, bleibt der laufende Drag trotzdem gültig, weil er das aktuelle Element
-  // wiederfindet statt gegen ein bereits entferntes zu prüfen.
-  function currentDropTarget(){ return document.getElementById('klettergebiet-assign-drop'); }
-  root.querySelectorAll('[data-drag-sektor-id]').forEach(item=>{
-    const sektorId = item.getAttribute('data-drag-sektor-id');
-    let longPressTimer = null;
+// Gemeinsame Long-Press-Drag-Mechanik für wireDragAssign und wireTourDragAssign. findDropTarget(x,y)
+// liefert entweder null oder {el, run()} für die aktuelle Zeigerposition. Bewusst dokumentweite
+// pointermove/pointerup/pointercancel-Listener statt elementgebundener Pointer-Capture: Capture wird
+// vom Browser automatisch aufgehoben, sobald das erfasste Element aus dem DOM entfernt wird (z. B.
+// durch einen zwischenzeitlichen, sync-bedingten Re-Render während des Ziehens) — ein dokumentweiter
+// Listener überlebt das dagegen unbeschadet und bricht den Drag nicht versehentlich ab.
+function makeLongPressDrag(item, findDropTarget){
+  item.addEventListener('pointerdown', (e)=>{
+    if(e.button===2) return;
+    const startX = e.clientX, startY = e.clientY;
     let dragging = false;
     let ghost = null;
-    let startX = 0, startY = 0;
-    function isOverDropTarget(x, y){
-      const dropTarget = currentDropTarget();
-      if(!dropTarget) return false;
-      const rect = dropTarget.getBoundingClientRect();
-      return x>=rect.left && x<=rect.right && y>=rect.top && y<=rect.bottom;
+    let highlighted = null;
+    function setHighlight(el){
+      if(highlighted === el) return;
+      if(highlighted) highlighted.classList.remove('drop-target-active');
+      highlighted = el;
+      if(highlighted) highlighted.classList.add('drop-target-active');
     }
     function moveGhost(x, y){
       if(!ghost) return;
       ghost.style.transform = `translate(${x - ghost.offsetWidth/2}px, ${y - 28}px)`;
-      const dropTarget = currentDropTarget();
-      if(dropTarget) dropTarget.classList.toggle('drop-target-active', isOverDropTarget(x, y));
+      const target = findDropTarget(x, y);
+      setHighlight(target ? target.el : null);
     }
     function startDrag(x, y){
       dragging = true;
@@ -3738,34 +3762,76 @@ function wireDragAssign(root){
       document.body.appendChild(ghost);
       moveGhost(x, y);
     }
-    function cleanup(){
-      if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; }
-      if(ghost){ ghost.remove(); ghost = null; }
-      item.style.opacity = '';
-      const dropTarget = currentDropTarget();
-      if(dropTarget) dropTarget.classList.remove('drop-target-active');
-      dragging = false;
-    }
-    item.addEventListener('pointerdown', (e)=>{
-      if(e.button===2) return;
-      startX = e.clientX; startY = e.clientY;
-      try{ item.setPointerCapture(e.pointerId); }catch(err){}
-      longPressTimer = setTimeout(()=>{ startDrag(e.clientX, e.clientY); }, 350);
-    });
-    item.addEventListener('pointermove', (e)=>{
-      if(dragging){ e.preventDefault(); moveGhost(e.clientX, e.clientY); }
-      else if(longPressTimer && (Math.abs(e.clientX-startX)>10 || Math.abs(e.clientY-startY)>10)){
+    let longPressTimer = setTimeout(()=> startDrag(e.clientX, e.clientY), 350);
+    function onMove(e2){
+      if(dragging){ e2.preventDefault(); moveGhost(e2.clientX, e2.clientY); }
+      else if(longPressTimer && (Math.abs(e2.clientX-startX)>10 || Math.abs(e2.clientY-startY)>10)){
         clearTimeout(longPressTimer); longPressTimer = null; // Bewegung vor Ablauf des Long-Press -> normales Scrollen, kein Drag
       }
-    });
-    item.addEventListener('pointerup', (e)=>{
-      if(dragging && isOverDropTarget(e.clientX, e.clientY)){
-        const dropTarget = currentDropTarget();
-        assignSektorToKlettergebiet(sektorId, dropTarget.getAttribute('data-klettergebiet-id'));
+    }
+    function finish(e2, commit){
+      if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; }
+      if(dragging && commit){
+        const target = findDropTarget(e2.clientX, e2.clientY);
+        if(target) target.run();
       }
-      cleanup();
-    });
-    item.addEventListener('pointercancel', cleanup);
+      item.style.opacity = '';
+      if(ghost){ ghost.remove(); ghost = null; }
+      setHighlight(null);
+      dragging = false;
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onCancel);
+    }
+    function onUp(e2){ finish(e2, true); }
+    function onCancel(e2){ finish(e2, false); }
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
+  });
+}
+
+function wireDragAssign(root){
+  if(!root.querySelector('#klettergebiet-assign-drop')) return;
+  root.querySelectorAll('[data-drag-sektor-id]').forEach(item=>{
+    const sektorId = item.getAttribute('data-drag-sektor-id');
+    function findDropTarget(x, y){
+      // Frisch per ID gesucht statt einmal referenziert — bleibt so auch nach einem
+      // zwischenzeitlichen Re-Render gültig.
+      const dropTarget = document.getElementById('klettergebiet-assign-drop');
+      if(!dropTarget) return null;
+      const rect = dropTarget.getBoundingClientRect();
+      const over = x>=rect.left && x<=rect.right && y>=rect.top && y<=rect.bottom;
+      if(!over) return null;
+      return { el: dropTarget, run: ()=> assignSektorToKlettergebiet(sektorId, dropTarget.getAttribute('data-klettergebiet-id')) };
+    }
+    makeLongPressDrag(item, findDropTarget);
+  });
+}
+
+// Freistehende Touren im Klettern/MSL-Tab (siehe mslListOrGroupedHtml, nur beim Browsen ohne
+// aktive Suche/Filter sichtbar) aufeinander- oder auf eine bestehende Sektor-Sammelkarte ziehen,
+// um sie zusammenzuführen. Mehrere mögliche Ziele statt einer festen Zone — deshalb per
+// elementFromPoint statt eines einzelnen referenzierten Ziel-Elements ausgewertet.
+function wireTourDragAssign(root){
+  root.querySelectorAll('[data-drag-tour-id]').forEach(item=>{
+    const tourId = item.getAttribute('data-drag-tour-id');
+    function findDropTarget(x, y){
+      const el = document.elementFromPoint(x, y);
+      if(!el) return null;
+      const tourCard = el.closest('[data-drag-tour-id]');
+      if(tourCard && tourCard.getAttribute('data-drag-tour-id') !== tourId){
+        const otherId = tourCard.getAttribute('data-drag-tour-id');
+        return { el: tourCard, run: ()=> createSektorFromTours([tourId, otherId]) };
+      }
+      const sektorCard = el.closest('[data-act="open-sektor"]');
+      if(sektorCard){
+        const sektorId = sektorCard.getAttribute('data-id');
+        return { el: sektorCard, run: ()=> addTourToSektor(tourId, sektorId) };
+      }
+      return null;
+    }
+    makeLongPressDrag(item, findDropTarget);
   });
 }
 
