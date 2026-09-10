@@ -715,7 +715,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v109-scroll-fix-routen-erhalten';
+const APP_VERSION = 'v110-drag-touch-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3742,9 +3742,18 @@ function makeLongPressDrag(item, findDropTarget){
   item.addEventListener('pointerdown', (e)=>{
     if(e.button===2) return;
     const startX = e.clientX, startY = e.clientY;
+    let lastY = e.clientY;
     let dragging = false;
+    let scrolling = false;
     let ghost = null;
     let highlighted = null;
+    // touch-action muss schon VOR jeder Bewegung auf "none" stehen: der Browser entscheidet am
+    // Touch-Start (nicht erst später), ob er die Geste selbst fürs Scrollen übernimmt — ein erst
+    // nach einer Verzögerung gesetztes touch-action kommt dafür zu spät und wird ignoriert (auf dem
+    // Handy liess sich dadurch zwar der Long-Press auslösen, das Ziehen danach aber nicht mehr
+    // bewegen). Solange der Long-Press noch läuft, bilden wir das Scrollen darum unten selbst per
+    // scrollBy() nach, statt es dem (hier deaktivierten) nativen Scrollen zu überlassen.
+    item.style.touchAction = 'none';
     function setHighlight(el){
       if(highlighted === el) return;
       if(highlighted) highlighted.classList.remove('drop-target-active');
@@ -3759,10 +3768,6 @@ function makeLongPressDrag(item, findDropTarget){
     }
     function startDrag(x, y){
       dragging = true;
-      // touch-action erst JETZT unterbinden (nach der ruhigen Haltephase), nicht dauerhaft auf der
-      // Karte — sonst blockiert das normale Scrollen der Liste, sobald man eine Karte antippt (der
-      // Finger muss ja erst kurz stillhalten, bevor daraus ein Drag statt eines Scrolls wird).
-      document.body.style.touchAction = 'none';
       item.style.opacity = '0.35';
       ghost = item.cloneNode(true);
       ghost.style.cssText = `position:fixed; left:0; top:0; z-index:500; pointer-events:none; width:${item.offsetWidth}px; opacity:0.9; box-shadow:0 4px 16px rgba(0,0,0,0.3);`;
@@ -3771,10 +3776,16 @@ function makeLongPressDrag(item, findDropTarget){
     }
     let longPressTimer = setTimeout(()=> startDrag(e.clientX, e.clientY), 350);
     function onMove(e2){
-      if(dragging){ e2.preventDefault(); moveGhost(e2.clientX, e2.clientY); }
-      else if(longPressTimer && (Math.abs(e2.clientX-startX)>10 || Math.abs(e2.clientY-startY)>10)){
-        clearTimeout(longPressTimer); longPressTimer = null; // Bewegung vor Ablauf des Long-Press -> normales Scrollen, kein Drag
+      if(dragging){ e2.preventDefault(); moveGhost(e2.clientX, e2.clientY); return; }
+      if(longPressTimer && (Math.abs(e2.clientX-startX)>10 || Math.abs(e2.clientY-startY)>10)){
+        clearTimeout(longPressTimer); longPressTimer = null;
+        scrolling = true; // Bewegung vor Ablauf des Long-Press -> Nutzer wollte scrollen, kein Drag
       }
+      if(scrolling){
+        e2.preventDefault();
+        window.scrollBy(0, lastY - e2.clientY);
+      }
+      lastY = e2.clientY;
     }
     function finish(e2, commit){
       if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; }
@@ -3782,7 +3793,7 @@ function makeLongPressDrag(item, findDropTarget){
         const target = findDropTarget(e2.clientX, e2.clientY);
         if(target) target.run();
       }
-      document.body.style.touchAction = '';
+      item.style.touchAction = '';
       item.style.opacity = '';
       if(ghost){ ghost.remove(); ghost = null; }
       setHighlight(null);
