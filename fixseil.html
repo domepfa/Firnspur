@@ -187,6 +187,10 @@
     transition:transform .12s ease, box-shadow .12s ease, border-left-color .12s ease;
   }
   .card:hover{transform:translateY(-2px); box-shadow:var(--shadow-lg); cursor:pointer; border-left-color:var(--ice);}
+  /* Verhindert, dass ein Long-Press auf einer ziehbaren Karte das native Text-Auswählen/den
+     iOS-Callout ("Kopieren"-Menü etc.) auslöst — das sähe wie ein "Hervorheben" statt eines Drags
+     aus und würde die eigene Zieh-Erkennung unten (makeLongPressDrag) kapern. */
+  .drag-card, .drag-card *{-webkit-touch-callout:none; -webkit-user-select:none; user-select:none;}
   .drop-target-active{outline:3px dashed var(--ice-deep); outline-offset:4px; background:var(--ice-light);}
   .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
   .agenda-date-row{
@@ -715,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v110-drag-touch-fix';
+const APP_VERSION = 'v111-drag-callout-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
