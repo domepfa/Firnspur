@@ -714,7 +714,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v104-huetten-karte-vereint';
+const APP_VERSION = 'v105-routenlinien-klickbar';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1699,7 +1699,7 @@ function sektorDetailHtml(id){
       <h4>Zustiege${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
       ${accessRoutes.length ? `
         ${accessRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${accessRange}</p>` : ''}
-        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-target="map-sektor-access-${sek.id}">🗺️ Karte anzeigen</button>
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-sektor-id="${sek.id}" data-kind="access" data-target="map-sektor-access-${sek.id}">🗺️ Karte anzeigen</button>
         <div id="map-sektor-access-${sek.id}" style="margin-bottom:10px;"></div>
         <div class="grid">${accessRoutes.map((r,i)=>sektorRouteRowHtml(r,i,sek.id,'access')).join('')}</div>
       ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
@@ -1709,7 +1709,7 @@ function sektorDetailHtml(id){
       <h4>Abstiege${descentRoutes.length ? ` (${descentRoutes.length})` : ''}</h4>
       ${descentRoutes.length ? `
         ${descentRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${descentRange}</p>` : ''}
-        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-target="map-sektor-descent-${sek.id}">🗺️ Karte anzeigen</button>
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-sektor-id="${sek.id}" data-kind="descent" data-target="map-sektor-descent-${sek.id}">🗺️ Karte anzeigen</button>
         <div id="map-sektor-descent-${sek.id}" style="margin-bottom:10px;"></div>
         <div class="grid">${descentRoutes.map((r,i)=>sektorRouteRowHtml(r,i,sek.id,'descent')).join('')}</div>
       ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
@@ -2934,7 +2934,7 @@ function tourDetailHtml(id){
         <h4>Zustiege${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
         ${accessRoutes.length ? `
           ${accessRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${accessRange}</p>` : ''}
-          <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-target="map-tour-access-${t.id}">🗺️ Karte anzeigen</button>
+          <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-tour-id="${t.id}" data-kind="access" data-target="map-tour-access-${t.id}">🗺️ Karte anzeigen</button>
           <div id="map-tour-access-${t.id}" style="margin-bottom:10px;"></div>
           <div class="grid">${accessRoutes.map((r,i)=>tourRouteRowHtml(r,i,t.id,'access')).join('')}</div>
         ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
@@ -2944,7 +2944,7 @@ function tourDetailHtml(id){
         <h4>Abstiege${descentRoutes.length ? ` (${descentRoutes.length})` : ''}</h4>
         ${descentRoutes.length ? `
           ${descentRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${descentRange}</p>` : ''}
-          <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-target="map-tour-descent-${t.id}">🗺️ Karte anzeigen</button>
+          <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-tour-id="${t.id}" data-kind="descent" data-target="map-tour-descent-${t.id}">🗺️ Karte anzeigen</button>
           <div id="map-tour-descent-${t.id}" style="margin-bottom:10px;"></div>
           <div class="grid">${descentRoutes.map((r,i)=>tourRouteRowHtml(r,i,t.id,'descent')).join('')}</div>
         ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
@@ -3111,7 +3111,7 @@ function hutDetailHtml(id){
     ${hasMapData ? `<div class="detail-section">
       <h4>🗺️ Karte</h4>
       <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Standorte, selbst eingezeichnete Linie und alle Zustiege zusammen auf einer Karte.</p>
-      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
+      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-hut-id="${h.id}" data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
       <div id="map-hut-${h.id}" style="margin-bottom:10px;"></div>
     </div>` : ''}
 
@@ -4103,21 +4103,30 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="show-access-routes-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const target = btn.getAttribute('data-target');
+      const hutId = btn.getAttribute('data-hut-id');
       let pts = [], routes = [], manualTrack = [];
       try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
       try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
       try{ manualTrack = JSON.parse(btn.getAttribute('data-manual-track') || '[]'); }catch(e){ manualTrack = []; }
-      renderHutAccessRoutesMap(target, pts, routes, manualTrack);
+      renderHutAccessRoutesMap(target, pts, routes, manualTrack, (route)=>{
+        state.modal = {type:'access-route-detail', payload:{hutId, route}};
+        render();
+      });
     });
   });
 
   root.querySelectorAll('[data-act="show-tour-routes-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const target = btn.getAttribute('data-target');
+      const tourId = btn.getAttribute('data-tour-id');
+      const kind = btn.getAttribute('data-kind');
       let pts = [], routes = [];
       try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
       try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
-      renderHutAccessRoutesMap(target, pts, routes);
+      renderHutAccessRoutesMap(target, pts, routes, [], (route)=>{
+        state.modal = {type:'tour-route-detail', payload:{tourId, kind, route}};
+        render();
+      });
     });
   });
 
@@ -4355,10 +4364,15 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="show-sektor-routes-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const target = btn.getAttribute('data-target');
+      const sektorId = btn.getAttribute('data-sektor-id');
+      const kind = btn.getAttribute('data-kind');
       let pts = [], routes = [];
       try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
       try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
-      renderHutAccessRoutesMap(target, pts, routes);
+      renderHutAccessRoutesMap(target, pts, routes, [], (route)=>{
+        state.modal = {type:'sektor-route-detail', payload:{sektorId, kind, route}};
+        render();
+      });
     });
   });
   root.querySelectorAll('[data-act="show-sektor-route-map"]').forEach(btn=>{

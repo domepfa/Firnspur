@@ -519,7 +519,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v101-huetten-karte-vereint';
+const APP_VERSION = 'v105-routenlinien-klickbar';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1851,7 +1851,7 @@ function hutDetailHtml(id){
     ${hasMapData ? `<div class="detail-section">
       <h4>🗺️ Karte</h4>
       <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Standorte, selbst eingezeichnete Linie und alle Zustiege zusammen auf einer Karte.</p>
-      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
+      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-hut-id="${h.id}" data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
       <div id="map-hut-${h.id}" style="margin-bottom:10px;"></div>
     </div>` : ''}
 
@@ -2695,10 +2695,15 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="show-access-routes-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const target = btn.getAttribute('data-target');
-      let pts = [], routes = [];
+      const hutId = btn.getAttribute('data-hut-id');
+      let pts = [], routes = [], manualTrack = [];
       try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
       try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
-      renderHutAccessRoutesMap(target, pts, routes);
+      try{ manualTrack = JSON.parse(btn.getAttribute('data-manual-track') || '[]'); }catch(e){ manualTrack = []; }
+      renderHutAccessRoutesMap(target, pts, routes, manualTrack, (route)=>{
+        state.modal = {type:'access-route-detail', payload:{hutId, route}};
+        render();
+      });
     });
   });
 
