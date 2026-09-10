@@ -187,6 +187,8 @@
     transition:transform .12s ease, box-shadow .12s ease, border-left-color .12s ease;
   }
   .card:hover{transform:translateY(-2px); box-shadow:var(--shadow-lg); cursor:pointer; border-left-color:var(--ice);}
+  .drag-card{touch-action:none;}
+  .drop-target-active{outline:3px dashed var(--ice-deep); outline-offset:4px; background:var(--ice-light);}
   .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
   .agenda-date-row{
     font-family:'Oswald'; text-transform:uppercase; letter-spacing:0.03em;
@@ -714,7 +716,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v106-suche-farben-kartenausschnitt';
+const APP_VERSION = 'v107-klettergebiete';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -738,6 +740,7 @@ const ACCESS_ROUTE_GPX_PATH = 'hutAccessRouteGpxTracks'; // appübergreifend get
 const MSL_ACCESS_ROUTE_GPX_PATH = 'mslAccessRouteGpxTracks'; // Zustiege bei MSL-Touren
 const MSL_DESCENT_ROUTE_GPX_PATH = 'mslDescentRouteGpxTracks'; // Abstiege bei MSL-Touren
 const SEKTOREN_PATH = 'fixseil/sektoren';
+const KLETTERGEBIETE_PATH = 'fixseil/klettergebiete'; // fasst mehrere Sektoren an einem Berg/Gebiet zusammen
 const SEKTOR_ACCESS_ROUTE_GPX_PATH = 'sektorAccessRouteGpxTracks'; // Zustiege bei Sektoren
 const SEKTOR_DESCENT_ROUTE_GPX_PATH = 'sektorDescentRouteGpxTracks'; // Abstiege bei Sektoren
 const OTHER_TOURS_PATH = 'tours';
@@ -786,6 +789,8 @@ let state = {
   tours: [],
   huts: [],
   sektoren: [],
+  klettergebiete: [],
+  presetKlettergebietId: '', // vorausgewählt, wenn ein Sektor direkt aus einem Klettergebiet heraus neu angelegt wird
   agenda: [],
   otherAppTours: [],
   myName: null,
@@ -835,7 +840,7 @@ function latestCompletion(arr){
 function cacheLocalSnapshot(){
   try{
     localStorage.setItem('fixseil-cache', JSON.stringify({
-      tours: state.tours, huts: state.huts, sektoren: state.sektoren, agenda: state.agenda, cachedAt: new Date().toISOString()
+      tours: state.tours, huts: state.huts, sektoren: state.sektoren, klettergebiete: state.klettergebiete, agenda: state.agenda, cachedAt: new Date().toISOString()
     }));
   }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
 }
@@ -848,7 +853,7 @@ function loadLocalSnapshot(){
 
 async function loadAll(){
   state.loading = true; render();
-  const [toursObj, hutsObjResult, agendaObj, sektorenObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH), fbGet(SEKTOREN_PATH) ]);
+  const [toursObj, hutsObjResult, agendaObj, sektorenObj, klettergebieteObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH), fbGet(SEKTOREN_PATH), fbGet(KLETTERGEBIETE_PATH) ]);
   let hutsObj = hutsObjResult;
   const cached = loadLocalSnapshot();
 
@@ -870,13 +875,14 @@ async function loadAll(){
     }catch(e){ dlog('Hütten-Migration fehlgeschlagen (versuche es beim nächsten Laden erneut): ' + (e&&e.message?e.message:e), 'err'); }
   }
 
-  if(!toursObj && !hutsObj && !agendaObj && !sektorenObj){
+  if(!toursObj && !hutsObj && !agendaObj && !sektorenObj && !klettergebieteObj){
     // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
     state.loading = false;
     if(cached){
       state.tours = cached.tours || [];
       state.huts = cached.huts || [];
       state.sektoren = cached.sektoren || [];
+      state.klettergebiete = cached.klettergebiete || [];
       state.agenda = cached.agenda || [];
       state.offlineMode = true;
       state.offlineCachedAt = cached.cachedAt;
@@ -891,10 +897,12 @@ async function loadAll(){
   const tours = (toursObj ? Object.values(toursObj) : []).filter(t=>t && t.id);
   const huts = (hutsObj ? Object.values(hutsObj) : []).filter(h=>h && h.id);
   const sektoren = (sektorenObj ? Object.values(sektorenObj) : []).filter(s=>s && s.id);
+  const klettergebiete = (klettergebieteObj ? Object.values(klettergebieteObj) : []).filter(g=>g && g.id);
   const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id).map(migrateAgendaStatus);
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
   sektoren.sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
+  klettergebiete.sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
 
   // Lokale, noch nicht synchronisierte Einträge nicht verlieren — sowohl aus dem
   // aktuellen Speicher als auch aus dem lokalen Cache (wichtig nach einem
@@ -911,6 +919,10 @@ async function loadAll(){
     ...state.sektoren.filter(x=>x._unsynced),
     ...((cached && cached.sektoren) ? cached.sektoren.filter(x=>x._unsynced) : [])
   ]).filter(x=>!sektoren.find(y=>y.id===x.id));
+  const unsyncedKlettergebiete = dedupeById([
+    ...state.klettergebiete.filter(x=>x._unsynced),
+    ...((cached && cached.klettergebiete) ? cached.klettergebiete.filter(x=>x._unsynced) : [])
+  ]).filter(x=>!klettergebiete.find(y=>y.id===x.id));
   const unsyncedAgenda = dedupeById([
     ...state.agenda.filter(x=>x._unsynced),
     ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
@@ -919,6 +931,7 @@ async function loadAll(){
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
   state.sektoren = [...unsyncedSektoren, ...sektoren];
+  state.klettergebiete = [...unsyncedKlettergebiete, ...klettergebiete];
   state.agenda = [...unsyncedAgenda, ...agenda];
   state.loading = false;
   state.offlineMode = false;
@@ -941,6 +954,11 @@ async function loadAll(){
     s._unsynced = !ok;
     if(ok) render();
   });
+  unsyncedKlettergebiete.forEach(async g=>{
+    const ok = await saveKlettergebietCloud(g).catch(()=>false);
+    g._unsynced = !ok;
+    if(ok) render();
+  });
   unsyncedAgenda.forEach(async a=>{
     const ok = await saveAgendaCloud(a).catch(()=>false);
     a._unsynced = !ok;
@@ -961,6 +979,31 @@ function removeSektor(id){
       saveTourCloud(t).catch(()=>{});
     }
   });
+}
+async function saveKlettergebietCloud(geb){ return await fbSet(KLETTERGEBIETE_PATH+'/'+geb.id, geb); }
+function removeKlettergebiet(id){
+  state.klettergebiete = state.klettergebiete.filter(x=>x.id!==id);
+  fbDelete(KLETTERGEBIETE_PATH+'/'+id).catch(()=>{});
+  // Verlinkung bei betroffenen Sektoren lösen, damit sie nicht auf ein gelöschtes Klettergebiet zeigen.
+  state.sektoren.forEach(s=>{
+    if(s.klettergebietId===id){
+      s.klettergebietId = '';
+      saveSektorCloud(s).catch(()=>{});
+    }
+  });
+}
+async function assignSektorToKlettergebiet(sekId, gebId){
+  const sek = state.sektoren.find(s=>s.id===sekId);
+  if(!sek) return;
+  sek.klettergebietId = gebId || '';
+  sek.updatedAt = new Date().toISOString();
+  sek.updatedBy = state.myName;
+  render();
+  const ok = await saveSektorCloud(sek).catch(()=>false);
+  sek._unsynced = !ok;
+  if(!ok) markUnsaved();
+  showToast(ok ? 'Sektor zugeordnet.' : 'Sektor lokal zugeordnet, aber nicht synchronisiert.', !ok);
+  render();
 }
 
 async function loadOtherAppTours(){
@@ -1036,9 +1079,13 @@ function openTourDetail(id){
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
-function openAddSektor(){ ensureName(()=>{ state.modal = {type:'edit-sektor', payload:null}; render(); }); }
+function openAddSektor(){ ensureName(()=>{ state.presetKlettergebietId = ''; state.modal = {type:'edit-sektor', payload:null}; render(); }); }
 function openEditSektor(id){ ensureName(()=>{ const s = state.sektoren.find(x=>x.id===id); state.modal = {type:'edit-sektor', payload:s}; render(); }); }
 function openSektorDetail(id){ state.modal = {type:'sektor-detail', payload:id}; render(); }
+function openAddSektorInKlettergebiet(gebId){ ensureName(()=>{ state.presetKlettergebietId = gebId; state.modal = {type:'edit-sektor', payload:null}; render(); }); }
+function openAddKlettergebiet(){ ensureName(()=>{ state.modal = {type:'edit-klettergebiet', payload:null}; render(); }); }
+function openEditKlettergebiet(id){ ensureName(()=>{ const g = state.klettergebiete.find(x=>x.id===id); state.modal = {type:'edit-klettergebiet', payload:g}; render(); }); }
+function openKlettergebietDetail(id){ state.modal = {type:'klettergebiet-detail', payload:id}; render(); }
 function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(!skipDirtyCheck && !confirmDiscardIfDirty()){
     // Nutzer will weiter bearbeiten — nichts schliessen, und explizit NICHT render() aufrufen:
@@ -1507,6 +1554,7 @@ async function submitSektorForm(form, existing){
   s.region = form.region || '';
   s.subregion = form.subregion || '';
   s.description = form.description || '';
+  s.klettergebietId = form.klettergebietId || '';
   try{ s.points = form.points ? JSON.parse(form.points) : []; }catch(e){ s.points = []; }
   try{ s.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ s.manualTrack = []; }
   ensureSektorRouteArrays(s);
@@ -1515,6 +1563,7 @@ async function submitSektorForm(form, existing){
 
   const idx = state.sektoren.findIndex(x=>x.id===s.id);
   if(idx>=0) state.sektoren[idx] = s; else state.sektoren.unshift(s);
+  state.presetKlettergebietId = '';
   closeModal(false, true, true);
   state.modal = {type:'sektor-detail', payload:s.id};
   render();
@@ -1533,10 +1582,22 @@ async function submitSektorForm(form, existing){
 function sektorFormHtml(existing){
   const s = existing || {};
   const isKnownRegion = REGIONS.includes(s.region);
+  // presetKlettergebietId nur beim NEUANLEGEN berücksichtigen — beim Bearbeiten eines
+  // bestehenden Sektors zählt ausschliesslich dessen eigenes Feld, damit ein stehen gebliebener
+  // Preset-Wert (z. B. nach Abbrechen eines "+ Neuer Sektor in diesem Gebiet"-Vorgangs) nicht
+  // versehentlich in ein später bearbeitetes, unabhängiges Sektor-Formular durchschlägt.
+  const presetGebId = existing ? (s.klettergebietId || '') : (state.presetKlettergebietId || '');
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${existing?'Sektor bearbeiten':'Neuer Sektor'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="sektor-form" novalidate>
       <div class="field"><label>Name *</label><input required name="name" value="${esc(s.name||'')}" placeholder="z. B. Chatzenfluh Nordwand"/></div>
+      ${state.klettergebiete.length ? `<div class="field"><label>Klettergebiet (optional)</label>
+        <select name="klettergebietId">
+          <option value="">— keins —</option>
+          ${state.klettergebiete.map(g=>`<option value="${g.id}" ${presetGebId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}
+        </select>
+        <div class="hint">Fasst mehrere Sektoren desselben Bergs/Klettergebiets zusammen und hält die Touren-Übersicht übersichtlich.</div>
+      </div>` : ''}
       <div class="field"><label>Region</label>
         <div class="chips" id="region-chips">
           ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${s.region===r?'on':''}" style="${s.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
@@ -1578,6 +1639,215 @@ function sektorFormHtml(existing){
         </div>
       </div>` : ''}
     </form>
+  </div>`;
+}
+
+/* ================= Klettergebiet: Formular & Detail =================
+   Ein Klettergebiet bündelt mehrere Sektoren an einem Berg/Gebiet (z. B. "Sewen" mit den
+   Sektoren A/B/C) — hält die Touren-Übersicht übersichtlich, auch wenn ein Gebiet viele
+   MSL-Routen/Klettergärten hat. */
+async function submitKlettergebietForm(form, existing){
+  const g = (existing && existing.id) ? {...existing} : {id: uid('geb'), createdBy: state.myName, createdAt: new Date().toISOString()};
+  g.name = form.name.trim();
+  g.region = form.region || '';
+  g.subregion = form.subregion || '';
+  g.description = form.description || '';
+  try{ g.points = form.points ? JSON.parse(form.points) : []; }catch(e){ g.points = []; }
+  try{ g.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ g.manualTrack = []; }
+  g.updatedAt = new Date().toISOString();
+  g.updatedBy = state.myName;
+
+  const idx = state.klettergebiete.findIndex(x=>x.id===g.id);
+  if(idx>=0) state.klettergebiete[idx] = g; else state.klettergebiete.unshift(g);
+  closeModal(false, true, true);
+  state.modal = {type:'klettergebiet-detail', payload:g.id};
+  render();
+
+  const ok = await saveKlettergebietCloud(g).catch(()=>false);
+  g._unsynced = !ok;
+  if(!ok){
+    markUnsaved();
+    showToast('Klettergebiet ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+  }else{
+    showToast('Klettergebiet gespeichert und synchronisiert.');
+  }
+  render();
+}
+
+function klettergebietFormHtml(existing){
+  const g = existing || {};
+  const isKnownRegion = REGIONS.includes(g.region);
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${existing?'Klettergebiet bearbeiten':'Neues Klettergebiet'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <form id="klettergebiet-form" novalidate>
+      <div class="field"><label>Name *</label><input required name="name" value="${esc(g.name||'')}" placeholder="z. B. Sewen"/></div>
+      <div class="field"><label>Region</label>
+        <div class="chips" id="region-chips">
+          ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${g.region===r?'on':''}" style="${g.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
+          <button type="button" class="chip region-chip ${g.region && !isKnownRegion?'on':''}" style="${g.region && !isKnownRegion?'background:var(--ice-deep)':''}" data-region="__other__">Anderes</button>
+        </div>
+        <input type="text" id="region-other-input" value="${!isKnownRegion?esc(g.region||''):''}" placeholder="eigene Region eintragen" style="margin-top:8px; ${g.region && !isKnownRegion?'':'display:none;'}"/>
+        <input type="hidden" name="region" id="region-hidden-input" value="${esc(g.region||'')}"/>
+      </div>
+      <div class="field" id="subregion-field" style="${(isKnownRegion && REGION_SUBAREAS[g.region])?'':'display:none;'}">
+        <label>Teilgebiet / Pass (optional)</label>
+        <div class="chips" id="subregion-chips">${renderSubregionChipsHtml(g.region, g.subregion)}</div>
+        <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(g.subregion||'')}"/>
+      </div>
+      <div class="field"><label>Beschreibung / Material</label><textarea name="description" placeholder="Charakter des Gebiets, grobe Zustiegs-Übersicht, übliches Material …">${esc(g.description||'')}</textarea></div>
+      <div class="field"><label>Zustieg / Lage — Punkte &amp; Linie auf der Karte</label>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
+        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <div id="points-map" style="margin-top:10px; display:none;"></div>
+        <div id="points-list"></div>
+        <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(g.points || []))}'/>
+        <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(g.manualTrack || []))}'/>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" id="klettergebiet-save-btn" class="btn">${existing?'Speichern':'Klettergebiet anlegen'}</button>
+      </div>
+      <button type="button" id="klettergebiet-fab-save-btn" class="fab-save">✓ Speichern</button>
+      ${existing ? `
+      <div id="delete-klettergebiet-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
+        <button type="button" id="delete-klettergebiet-trigger" data-id="${g.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Klettergebiet löschen</button>
+        <div id="delete-klettergebiet-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
+          Wirklich unwiderruflich löschen? Verlinkte Sektoren bleiben erhalten, verlieren aber die Gebiets-Zuordnung.
+          <button type="button" id="delete-klettergebiet-yes" data-id="${g.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
+          <button type="button" id="delete-klettergebiet-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+        </div>
+      </div>` : ''}
+    </form>
+  </div>`;
+}
+
+// Zentrale Klettergebiet-Übersichtskarte: fasst die Punkte/Tracks des Gebiets selbst UND aller
+// zugeordneten Sektoren (samt deren verlinkten Touren) auf einer Karte zusammen.
+function renderKlettergebietOverviewMap(containerId, gebId){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const geb = state.klettergebiete.find(x=>x.id===gebId);
+    if(!geb){ el2.innerHTML = ''; return; }
+    const sektoren = state.sektoren.filter(s=>s.klettergebietId===geb.id);
+    const tours = state.tours.filter(t=> sektoren.some(s=>s.id===t.sektorId));
+    const tourEntries = tours.map((t,i)=>({ tour:t, color: ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length] }));
+    const hasOwnPoints = geb.points && geb.points.length;
+    const hasSektorPoints = sektoren.some(s=> s.points && s.points.length);
+    const hasAny = hasOwnPoints || hasSektorPoints || tourEntries.some(e=> (e.tour.points && e.tour.points.length) || (e.tour.trackSimplified && e.tour.trackSimplified.length) || (e.tour.manualTrack && e.tour.manualTrack.length));
+    if(!hasAny){
+      el2.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Noch keine Kartendaten — weder beim Klettergebiet noch bei den Sektoren/Touren.</p>';
+      return;
+    }
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:280px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const firstSektorPoint = sektoren.map(s=> s.points && s.points.length ? s.points[0] : null).find(Boolean);
+    const startPoint = hasOwnPoints ? geb.points[0] : firstSektorPoint;
+    const map = L.map(mapDivId).setView(startPoint ? [startPoint.lat, startPoint.lon] : [46.8182, 8.2275], startPoint ? 13 : 8);
+    registerMap(mapDivId, map);
+    addBaseLayerSwitcher(map);
+    const boundsItems = [];
+    if(hasOwnPoints){
+      geb.points.forEach(p=>{
+        try{
+          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(geb.name)}</strong><br/>${esc(p.label||'Punkt')}`);
+          boundsItems.push(m);
+        }catch(e){ /* einzelner fehlerhafter Punkt überspringen */ }
+      });
+    }
+    sektoren.forEach(sek=>{
+      (sek.points||[]).forEach(p=>{
+        try{
+          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(sek.name)}</strong><br/>${esc(p.label||'Punkt')}`);
+          boundsItems.push(m);
+        }catch(e){ /* einzelner fehlerhafter Punkt überspringen */ }
+      });
+    });
+    tourEntries.forEach(({tour:t, color})=>{
+      const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
+      if(track){
+        try{
+          L.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
+          const line = L.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
+          boundsItems.push(line);
+        }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
+      }
+      (t.points||[]).forEach(p=>{
+        try{
+          const m = L.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
+            .bindPopup(`<strong>${esc(t.name)}</strong>${t.routeName ? ' – '+esc(t.routeName) : ''}<br/>${esc(p.label||'Punkt')}`);
+          boundsItems.push(m);
+        }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
+      });
+    });
+    if(boundsItems.length){
+      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+    }
+    if(!isFullscreen){
+      const btn = makeFullscreenButton(function(id){ renderKlettergebietOverviewMap(id, gebId); });
+      el2.appendChild(btn);
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+function klettergebietDetailHtml(id){
+  const geb = state.klettergebiete.find(x=>x.id===id);
+  if(!geb) return `<div class="modal" data-stop="1"><p>Klettergebiet nicht gefunden.</p></div>`;
+  const sektoren = state.sektoren.filter(s=>s.klettergebietId===geb.id).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+  const unlinkedSektoren = state.sektoren.filter(s=>!s.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+  const tourCount = state.tours.filter(t=> sektoren.some(s=>s.id===t.sektorId)).length;
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head">
+      <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
+      <button class="x-btn" data-act="close-modal">×</button>
+    </div>
+    ${geb.description ? `<div class="detail-section"><h4>Beschreibung / Material</h4><p>${esc(geb.description)}</p></div>` : ''}
+    ${(() => {
+      const hasOwnPoints = geb.points && geb.points.length;
+      const hasSektorData = sektoren.some(s=> (s.points && s.points.length) || (s.manualTrack && s.manualTrack.length));
+      if(!hasOwnPoints && !hasSektorData) return '';
+      return `<div class="detail-section">
+        <h4>🗺️ Übersichtskarte</h4>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Alle Sektoren dieses Klettergebiets (und deren Touren) zusammengeführt.</p>
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-klettergebiet-overview-map" data-klettergebiet-id="${geb.id}" data-target="map-klettergebiet-overview-${geb.id}">🗺️ Karte anzeigen</button>
+        <div id="map-klettergebiet-overview-${geb.id}"></div>
+      </div>`;
+    })()}
+    <div class="detail-section">
+      <h4>Sektoren (${sektoren.length}) <span style="font-weight:400; font-size:12.5px; color:var(--ink-soft);">— ${tourCount} Tour${tourCount===1?'':'en'} insgesamt</span></h4>
+      <div id="klettergebiet-assign-drop" class="drop-target" data-klettergebiet-id="${geb.id}" style="margin-top:6px; border-radius:var(--radius);">
+        ${sektoren.length ? `<div class="grid">${sektoren.map(sektorCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Sektor diesem Klettergebiet zugeordnet. Ziehe unten einen bestehenden Sektor hierher (gedrückt halten &amp; verschieben) oder leg einen neuen an.</p>`}
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
+        <button type="button" class="btn secondary" data-act="add-sektor-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Neuer Sektor in diesem Gebiet</button>
+        ${unlinkedSektoren.length ? `<select id="link-existing-sektor-select" data-klettergebiet-id="${geb.id}">
+          <option value="">bestehenden Sektor zuordnen…</option>
+          ${unlinkedSektoren.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+        </select>` : ''}
+      </div>
+      ${unlinkedSektoren.length ? `<div class="detail-section" style="margin-top:14px; border:2px dashed var(--line); border-radius:var(--radius); padding:12px;">
+        <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Noch nicht zugeordnete Sektoren — hierher ziehen (gedrückt halten &amp; verschieben) auf die Liste oben zum Zuordnen:</p>
+        <div class="grid">${unlinkedSektoren.map(s=>sektorDragCardHtml(s)).join('')}</div>
+      </div>` : ''}
+    </div>
+    ${geb._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
+    <div class="form-actions">
+      <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+      <button type="button" class="btn" data-act="edit-klettergebiet" data-id="${geb.id}">✏️ Bearbeiten</button>
+    </div>
   </div>`;
 }
 
@@ -1670,11 +1940,13 @@ function sektorDetailHtml(id){
   const descentRoutes = sek.descentRoutes || [];
   const accessRange = accessRouteDifficultyRangeHtml(accessRoutes);
   const descentRange = accessRouteDifficultyRangeHtml(descentRoutes);
+  const geb = sek.klettergebietId ? state.klettergebiete.find(g=>g.id===sek.klettergebietId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h2>${sek.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
+    ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : ''}
     ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
     ${(() => {
       const hasSektorPoints = sek.points && sek.points.length;
@@ -2225,8 +2497,58 @@ function mslViewHtml(){
       </div>
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
     </div>
-    ${list.length ? `<div class="grid">${list.map(tourCardHtml).join('')}</div>` : emptyMsl()}
+    ${list.length ? mslListOrGroupedHtml(list, activeFilterCount) : emptyMsl()}
   `;
+}
+
+// Ohne aktive Suche/Filter fasst die Übersicht Touren desselben Sektors bzw. Klettergebiets zu
+// je einer Karte zusammen, statt jede einzeln aufzulisten — sonst wird die Liste bei mehreren
+// MSL-Routen am selben Berg schnell unübersichtlich. Sobald gesucht/gefiltert wird, zeigt die
+// Liste wieder alle passenden Touren einzeln, damit eine gesuchte Tour direkt auftaucht.
+function mslListOrGroupedHtml(list, activeFilterCount){
+  const isBrowsing = !state.search.trim() && !activeFilterCount && !state.onlyFavorites;
+  if(!isBrowsing) return `<div class="grid">${list.map(tourCardHtml).join('')}</div>`;
+
+  const bySektor = {};
+  const loose = [];
+  list.forEach(t=>{
+    if(t.sektorId){ (bySektor[t.sektorId] = bySektor[t.sektorId] || []).push(t); }
+    else loose.push(t);
+  });
+  const byKlettergebiet = {};
+  const standaloneSektorIds = [];
+  Object.keys(bySektor).forEach(sekId=>{
+    const sek = state.sektoren.find(s=>s.id===sekId);
+    const gebId = sek && sek.klettergebietId;
+    if(gebId) (byKlettergebiet[gebId] = byKlettergebiet[gebId] || []).push(sekId);
+    else standaloneSektorIds.push(sekId);
+  });
+  const gebietCards = Object.keys(byKlettergebiet).map(gebId=>{
+    const geb = state.klettergebiete.find(g=>g.id===gebId);
+    if(!geb) return '';
+    const sekIds = byKlettergebiet[gebId];
+    const tourCount = sekIds.reduce((sum,sid)=> sum + bySektor[sid].length, 0);
+    return mslGroupCardHtml({icon:'⛰️', name:geb.name, region:geb.region, act:'open-klettergebiet', id:geb.id, lines:[`🧭 ${sekIds.length} Sektor${sekIds.length===1?'':'en'}`, `${tourCount} Tour${tourCount===1?'':'en'}`]});
+  }).join('');
+  const sektorCards = standaloneSektorIds.map(sekId=>{
+    const sek = state.sektoren.find(s=>s.id===sekId);
+    if(!sek) return '';
+    const tourCount = bySektor[sekId].length;
+    return mslGroupCardHtml({icon:'🧭', name:sek.name, region:sek.region, act:'open-sektor', id:sek.id, lines:[`${tourCount} Tour${tourCount===1?'':'en'}`]});
+  }).join('');
+  const looseCards = loose.map(tourCardHtml).join('');
+  return `<div class="grid">${gebietCards}${sektorCards}${looseCards}</div>`;
+}
+
+function mslGroupCardHtml({icon, name, region, act, id, lines}){
+  return `
+  <div class="card" data-act="${act}" data-id="${id}" tabindex="0" role="button">
+    <div class="card-top">
+      <h3 style="color:var(--ice-deep);">${icon} ${esc(name)}</h3>
+    </div>
+    ${region ? `<p class="excerpt">${esc(region)}</p>` : ''}
+    ${lines.map(l=>`<span class="hut-link-chip">${l}</span>`).join('')}
+  </div>`;
 }
 
 function emptyMsl(){
@@ -2401,24 +2723,57 @@ function filteredSektoren(){
   return list.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
 }
 
+function filteredKlettergebiete(){
+  let list = state.klettergebiete;
+  if(state.search.trim()){
+    const q = state.search.trim().toLowerCase();
+    list = list.filter(g=> (g.name||'').toLowerCase().includes(q) || (g.region||'').toLowerCase().includes(q));
+  }
+  return list.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
+}
+
 function sektorenViewHtml(){
-  const list = filteredSektoren();
+  const gebieteList = filteredKlettergebiete();
+  const standaloneList = filteredSektoren().filter(s=>!s.klettergebietId);
+  const hasAny = gebieteList.length || standaloneList.length;
   return `
     <div class="toolbar">
-      <input class="search-input" type="text" placeholder="Sektor oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
-      <button class="btn" data-act="add-sektor">+ Neuer Sektor</button>
+      <input class="search-input" type="text" placeholder="Klettergebiet, Sektor oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
+      <button class="btn" data-act="add-klettergebiet">+ Neues Klettergebiet</button>
+      <button class="btn secondary" data-act="add-sektor">+ Neuer Sektor</button>
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
-    ${list.length ? `<div class="grid">${list.map(sektorCardHtml).join('')}</div>` : emptySektoren()}
+    ${!hasAny ? emptySektoren() : `
+      ${gebieteList.length ? `<h4 style="margin:4px 0 8px;">⛰️ Klettergebiete</h4><div class="grid">${gebieteList.map(klettergebietCardHtml).join('')}</div>` : ''}
+      ${standaloneList.length ? `<h4 style="margin:${gebieteList.length?'18px':'4px'} 0 8px;">🧭 Sektoren ohne Klettergebiet</h4><div class="grid">${standaloneList.map(sektorCardHtml).join('')}</div>` : ''}
+    `}
   `;
 }
 
 function emptySektoren(){
-  const hasAny = state.sektoren.length>0;
+  const hasAny = state.sektoren.length>0 || state.klettergebiete.length>0;
   return `<div class="empty">
-    <h3>${hasAny ? 'Kein Sektor passt zu diesem Filter' : 'Noch kein Sektor erfasst'}</h3>
-    <p>${hasAny ? 'Suche anpassen oder einen neuen Sektor hinzufügen.' : 'Ein Sektor bündelt mehrere MSL-Touren mit gemeinsamem Ausgangspunkt und geteilten Zustiegen/Abstiegen.'}</p>
+    <h3>${hasAny ? 'Nichts passt zu diesem Filter' : 'Noch kein Sektor erfasst'}</h3>
+    <p>${hasAny ? 'Suche anpassen oder Neues hinzufügen.' : 'Ein Sektor bündelt mehrere MSL-Touren mit gemeinsamem Ausgangspunkt und geteilten Zustiegen/Abstiegen. Mehrere Sektoren an einem Berg lassen sich zusätzlich in einem Klettergebiet zusammenfassen.'}</p>
     <button class="btn" data-act="add-sektor">+ Neuer Sektor</button>
+  </div>`;
+}
+
+function klettergebietCardHtml(geb){
+  const sektoren = state.sektoren.filter(s=>s.klettergebietId===geb.id);
+  const tourCount = state.tours.filter(t=> sektoren.some(s=>s.id===t.sektorId)).length;
+  return `
+  <div class="card" data-act="open-klettergebiet" data-id="${geb.id}" tabindex="0" role="button">
+    <div class="card-top">
+      <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
+    </div>
+    ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
+    <span class="hut-link-chip">🧭 ${sektoren.length} Sektor${sektoren.length===1?'':'en'}</span>
+    <span class="hut-link-chip">${tourCount} Tour${tourCount===1?'':'en'}</span>
+    ${geb._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
+    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
+      <span>von ${esc(geb.createdBy||'?')} · ${fmtDate(geb.createdAt)}</span>
+    </div>
   </div>`;
 }
 
@@ -2443,6 +2798,16 @@ function sektorCardHtml(sek){
   </div>`;
 }
 
+// Kleinere, ziehbare Variante der Sektor-Karte für die "noch nicht zugeordnet"-Liste auf der
+// Klettergebiet-Detailseite (siehe wireDragAssign, aufgerufen aus wireModalHandlers).
+function sektorDragCardHtml(sek){
+  return `
+  <div class="card drag-card" data-act="open-sektor" data-id="${sek.id}" data-drag-sektor-id="${sek.id}" style="cursor:grab; padding:10px 14px;">
+    <h3 style="color:var(--ice-deep); font-size:14px; margin:0;">🧭 ${esc(sek.name)}</h3>
+    ${sek.region ? `<p class="excerpt" style="margin:2px 0 0 0;">${esc(sek.region)}</p>` : ''}
+  </div>`;
+}
+
 /* ================= Modal rendering ================= */
 function renderModal(){
   pushModalHistoryIfNeeded();
@@ -2460,6 +2825,8 @@ function renderModal(){
   else if(m.type==='hut-detail') inner = hutDetailHtml(m.payload);
   else if(m.type==='edit-sektor') inner = sektorFormHtml(m.payload);
   else if(m.type==='sektor-detail') inner = sektorDetailHtml(m.payload);
+  else if(m.type==='edit-klettergebiet') inner = klettergebietFormHtml(m.payload);
+  else if(m.type==='klettergebiet-detail') inner = klettergebietDetailHtml(m.payload);
   else if(m.type==='edit-sektor-route') inner = sektorRouteFormHtml(m.payload.sektorId, m.payload.kind, m.payload.route);
   else if(m.type==='sektor-route-detail') inner = sektorRouteDetailHtml(m.payload.sektorId, m.payload.route, m.payload.kind);
   else if(m.type==='export') inner = exportModalHtml(m.payload);
@@ -3269,6 +3636,8 @@ function wireGlobalHandlers(){
     else if(act==='add-klettergarten') el.onclick = openAddKlettergarten;
     else if(act==='add-hut') el.onclick = openAddHut;
     else if(act==='add-sektor') el.onclick = openAddSektor;
+    else if(act==='add-klettergebiet') el.onclick = openAddKlettergebiet;
+    else if(act==='add-sektor-to-klettergebiet') el.onclick = ()=>openAddSektorInKlettergebiet(el.getAttribute('data-klettergebiet-id'));
     else if(act==='open-standalone-map') el.onclick = openStandaloneMap;
     else if(act==='open-topo-from-card') el.onclick = (e)=>{
       e.stopPropagation();
@@ -3282,6 +3651,7 @@ function wireGlobalHandlers(){
     else if(act==='open-tour') { el.onclick = ()=>openTourDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openTourDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-hut') { el.onclick = ()=>openHutDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openHutDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-sektor') { el.onclick = ()=>openSektorDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openSektorDetail(el.getAttribute('data-id'));}; }
+    else if(act==='open-klettergebiet') { el.onclick = ()=>openKlettergebietDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openKlettergebietDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-agenda') { el.onclick = ()=>openAgendaDetail(el.getAttribute('data-id')); }
     else if(act==='filter-diff') el.onclick = ()=>toggleDiffFilter(el.getAttribute('data-code'));
     else if(act==='filter-region') el.onclick = ()=>toggleRegionFilter(el.getAttribute('data-region'));
@@ -3328,6 +3698,75 @@ function renderListOnly(){
   wireGlobalHandlers();
   const input = main.querySelector('.search-input');
   if(input){ input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
+}
+
+// Ziehbare Sektor-Karten (siehe sektorDragCardHtml) auf die Zuordnen-Zone der Klettergebiet-
+// Detailseite fallen lassen, um sie diesem Klettergebiet zuzuordnen — per Pointer Events, damit
+// es sowohl mit Maus als auch am Handy per Finger funktioniert (natives HTML5-Drag&Drop
+// funktioniert auf Touch-Geräten nicht zuverlässig). Ein kurzes Halten (350ms) startet den Drag,
+// damit normales Scrollen/Antippen der Liste nicht versehentlich als Drag interpretiert wird.
+function wireDragAssign(root){
+  if(!root.querySelector('#klettergebiet-assign-drop')) return;
+  // Die Zuordnen-Zone wird bei jedem pointermove/pointerup FRISCH per ID gesucht (statt einmal
+  // referenziert) — landet z. B. durch einen zwischenzeitlichen Sync-bedingten Re-Render eine neue
+  // Modal-Instanz im DOM, bleibt der laufende Drag trotzdem gültig, weil er das aktuelle Element
+  // wiederfindet statt gegen ein bereits entferntes zu prüfen.
+  function currentDropTarget(){ return document.getElementById('klettergebiet-assign-drop'); }
+  root.querySelectorAll('[data-drag-sektor-id]').forEach(item=>{
+    const sektorId = item.getAttribute('data-drag-sektor-id');
+    let longPressTimer = null;
+    let dragging = false;
+    let ghost = null;
+    let startX = 0, startY = 0;
+    function isOverDropTarget(x, y){
+      const dropTarget = currentDropTarget();
+      if(!dropTarget) return false;
+      const rect = dropTarget.getBoundingClientRect();
+      return x>=rect.left && x<=rect.right && y>=rect.top && y<=rect.bottom;
+    }
+    function moveGhost(x, y){
+      if(!ghost) return;
+      ghost.style.transform = `translate(${x - ghost.offsetWidth/2}px, ${y - 28}px)`;
+      const dropTarget = currentDropTarget();
+      if(dropTarget) dropTarget.classList.toggle('drop-target-active', isOverDropTarget(x, y));
+    }
+    function startDrag(x, y){
+      dragging = true;
+      item.style.opacity = '0.35';
+      ghost = item.cloneNode(true);
+      ghost.style.cssText = `position:fixed; left:0; top:0; z-index:500; pointer-events:none; width:${item.offsetWidth}px; opacity:0.9; box-shadow:0 4px 16px rgba(0,0,0,0.3);`;
+      document.body.appendChild(ghost);
+      moveGhost(x, y);
+    }
+    function cleanup(){
+      if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; }
+      if(ghost){ ghost.remove(); ghost = null; }
+      item.style.opacity = '';
+      const dropTarget = currentDropTarget();
+      if(dropTarget) dropTarget.classList.remove('drop-target-active');
+      dragging = false;
+    }
+    item.addEventListener('pointerdown', (e)=>{
+      if(e.button===2) return;
+      startX = e.clientX; startY = e.clientY;
+      try{ item.setPointerCapture(e.pointerId); }catch(err){}
+      longPressTimer = setTimeout(()=>{ startDrag(e.clientX, e.clientY); }, 350);
+    });
+    item.addEventListener('pointermove', (e)=>{
+      if(dragging){ e.preventDefault(); moveGhost(e.clientX, e.clientY); }
+      else if(longPressTimer && (Math.abs(e.clientX-startX)>10 || Math.abs(e.clientY-startY)>10)){
+        clearTimeout(longPressTimer); longPressTimer = null; // Bewegung vor Ablauf des Long-Press -> normales Scrollen, kein Drag
+      }
+    });
+    item.addEventListener('pointerup', (e)=>{
+      if(dragging && isOverDropTarget(e.clientX, e.clientY)){
+        const dropTarget = currentDropTarget();
+        assignSektorToKlettergebiet(sektorId, dropTarget.getAttribute('data-klettergebiet-id'));
+      }
+      cleanup();
+    });
+    item.addEventListener('pointercancel', cleanup);
+  });
 }
 
 function wireModalHandlers(){
@@ -4262,6 +4701,7 @@ function wireModalHandlers(){
   wireDeleteConfirm('tour', removeTour, 'Tour');
   wireDeleteConfirm('hut', removeHut, 'Hütte');
   wireDeleteConfirm('sektor', removeSektor, 'Sektor');
+  wireDeleteConfirm('klettergebiet', removeKlettergebiet, 'Klettergebiet');
   wireDeleteConfirm('agenda', removeAgendaItem, 'Termin');
 
   root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
@@ -4271,10 +4711,25 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-sektor"]').forEach(el=> el.onclick = ()=>openEditSektor(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-sektor"]').forEach(el=> el.onclick = ()=>openSektorDetail(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="edit-klettergebiet"]').forEach(el=> el.onclick = ()=>openEditKlettergebiet(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="open-klettergebiet"]').forEach(el=> el.onclick = ()=>openKlettergebietDetail(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="add-sektor-to-klettergebiet"]').forEach(el=> el.onclick = ()=>openAddSektorInKlettergebiet(el.getAttribute('data-klettergebiet-id')));
   root.querySelectorAll('[data-act="create-sektor-from-tours"]').forEach(el=> el.onclick = ()=>{
     let ids=[]; try{ ids = JSON.parse(el.getAttribute('data-tour-ids')||'[]'); }catch(e){ ids=[]; }
     createSektorFromTours(ids);
   });
+  root.querySelectorAll('[data-act="show-klettergebiet-overview-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      renderKlettergebietOverviewMap(btn.getAttribute('data-target'), btn.getAttribute('data-klettergebiet-id'));
+    });
+  });
+  const linkExistingSektorSelect = root.querySelector('#link-existing-sektor-select');
+  if(linkExistingSektorSelect) linkExistingSektorSelect.addEventListener('change', ()=>{
+    const sekId = linkExistingSektorSelect.value;
+    if(!sekId) return;
+    assignSektorToKlettergebiet(sekId, linkExistingSektorSelect.getAttribute('data-klettergebiet-id'));
+  });
+  wireDragAssign(root);
 
   root.querySelectorAll('[data-act="add-access-route"]').forEach(el=> el.onclick = ()=>{
     state.modal = {type:'edit-access-route', payload:{hutId: el.getAttribute('data-hut-id'), route:null}};
@@ -4538,6 +4993,83 @@ function wireModalHandlers(){
         if(wasOn){ sektorSubregionHidden.value = ''; return; }
         btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
         sektorSubregionHidden.value = btn.getAttribute('data-subregion');
+      });
+    }
+  }
+
+  const klettergebietForm = document.getElementById('klettergebiet-form');
+  if(klettergebietForm){
+    const klettergebietSaveBtn = document.getElementById('klettergebiet-save-btn');
+    if(klettergebietSaveBtn){
+      klettergebietSaveBtn.addEventListener('click', (e)=>{
+        e.preventDefault();
+        try{
+          const fd = new FormData(klettergebietForm);
+          const data = Object.fromEntries(fd.entries());
+          if(!data.name || !data.name.trim()){
+            showFormError('klettergebiet-form', 'Bitte einen Namen für das Klettergebiet eingeben (ganz oben im Formular).');
+            return;
+          }
+          submitKlettergebietForm(data, state.modal.payload);
+        }catch(err){
+          showFormError('klettergebiet-form', 'Unerwarteter Fehler: ' + (err.message || err));
+        }
+      });
+    }
+    const klettergebietFabSaveBtn = document.getElementById('klettergebiet-fab-save-btn');
+    if(klettergebietFabSaveBtn) klettergebietFabSaveBtn.addEventListener('click', ()=>{ if(klettergebietSaveBtn) klettergebietSaveBtn.click(); });
+
+    // Region-Chips (identisch zum Sektor-/Touren-/Hütten-Formular)
+    const gebRegionHidden = document.getElementById('region-hidden-input');
+    const gebRegionOtherInput = document.getElementById('region-other-input');
+    const gebSubregionField = document.getElementById('subregion-field');
+    const gebSubregionChipsWrap = document.getElementById('subregion-chips');
+    const gebSubregionHidden = document.getElementById('subregion-hidden');
+    klettergebietForm.querySelectorAll('.region-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        const wasOn = chip.classList.contains('on');
+        klettergebietForm.querySelectorAll('.region-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){
+          gebRegionOtherInput.style.display = 'none';
+          gebRegionOtherInput.value = '';
+          gebRegionHidden.value = '';
+          if(gebSubregionField){ gebSubregionField.style.display = 'none'; gebSubregionHidden.value = ''; }
+          return;
+        }
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        const region = chip.getAttribute('data-region');
+        if(region==='__other__'){
+          gebRegionOtherInput.style.display = '';
+          gebRegionOtherInput.focus();
+          gebRegionHidden.value = gebRegionOtherInput.value;
+          if(gebSubregionField){ gebSubregionField.style.display = 'none'; gebSubregionHidden.value = ''; }
+        }else{
+          gebRegionOtherInput.style.display = 'none';
+          gebRegionHidden.value = region;
+          if(gebSubregionField && gebSubregionChipsWrap){
+            const subs = REGION_SUBAREAS[region] || [];
+            if(subs.length){
+              gebSubregionChipsWrap.innerHTML = renderSubregionChipsHtml(region, '');
+              gebSubregionHidden.value = '';
+              gebSubregionField.style.display = '';
+            }else{
+              gebSubregionField.style.display = 'none';
+              gebSubregionHidden.value = '';
+            }
+          }
+        }
+      });
+    });
+    if(gebRegionOtherInput) gebRegionOtherInput.addEventListener('input', ()=>{ gebRegionHidden.value = gebRegionOtherInput.value; });
+    if(gebSubregionChipsWrap){
+      gebSubregionChipsWrap.addEventListener('click', (e)=>{
+        const btn = e.target.closest('.subregion-chip');
+        if(!btn) return;
+        const wasOn = btn.classList.contains('on');
+        gebSubregionChipsWrap.querySelectorAll('.subregion-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){ gebSubregionHidden.value = ''; return; }
+        btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
+        gebSubregionHidden.value = btn.getAttribute('data-subregion');
       });
     }
   }
