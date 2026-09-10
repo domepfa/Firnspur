@@ -187,7 +187,6 @@
     transition:transform .12s ease, box-shadow .12s ease, border-left-color .12s ease;
   }
   .card:hover{transform:translateY(-2px); box-shadow:var(--shadow-lg); cursor:pointer; border-left-color:var(--ice);}
-  .drag-card{touch-action:none;}
   .drop-target-active{outline:3px dashed var(--ice-deep); outline-offset:4px; background:var(--ice-light);}
   .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
   .agenda-date-row{
@@ -716,7 +715,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v108-touren-draganddrop';
+const APP_VERSION = 'v109-scroll-fix-routen-erhalten';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1525,7 +1524,7 @@ async function createSektorFromTours(tourIds){
   if(tours.length<2) return;
   const base = tours[0];
   const names = tours.map(t=>'„'+t.name+(t.routeName?' – '+t.routeName:'')+'"').join(', ');
-  if(!confirm('Sektor „'+base.name+'" aus '+tours.length+' Touren erstellen?\n\n'+names+'\n\nDie Touren werden mit dem neuen Sektor verknüpft; bereits erfasste eigene Zustiege/Abstiege der ersten Tour werden in den Sektor übernommen.')) return;
+  if(!confirm('Sektor „'+base.name+'" aus '+tours.length+' Touren erstellen?\n\n'+names+'\n\nDie Touren werden mit dem neuen Sektor verknüpft und zeigen ab jetzt dessen Zustiege/Abstiege; bereits erfasste eigene Zustiege/Abstiege der ersten Tour werden in den Sektor übernommen. Eigene Zustiege/Abstiege bleiben bei allen Touren im Hintergrund erhalten und sind sofort wieder da, falls du eine Tour später wieder aus dem Sektor löst.')) return;
   const sek = {
     id: uid('sek'), name: base.name, region: base.region||'', subregion: base.subregion||'',
     description: '', points: base.points||[], manualTrack: [],
@@ -1533,7 +1532,12 @@ async function createSektorFromTours(tourIds){
     createdBy: state.myName, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), updatedBy: state.myName
   };
   state.sektoren.unshift(sek);
-  tours.forEach(t=>{ t.sektorId = sek.id; t.accessRoutes = []; t.descentRoutes = []; t.updatedAt = new Date().toISOString(); t.updatedBy = state.myName; });
+  // Eigene Zustiege/Abstiege der Touren bewusst NICHT löschen (nur die erste Tour steuert sie als
+  // Startpunkt in den neuen Sektor bei) — solange t.sektorId gesetzt ist, zeigt tourDetailHtml
+  // ohnehin ausschliesslich die Sektor-Routen an (siehe dort), die eigenen bleiben nur im
+  // Hintergrund erhalten. So geht bei einer versehentlichen Zuordnung (z. B. verlorener Drag)
+  // nichts verloren — einfach wieder aus dem Sektor lösen, und die eigenen Routen sind zurück.
+  tours.forEach(t=>{ t.sektorId = sek.id; t.updatedAt = new Date().toISOString(); t.updatedBy = state.myName; });
   closeModal(false, true, true);
   state.modal = {type:'sektor-detail', payload:sek.id};
   render();
@@ -1551,10 +1555,9 @@ async function addTourToSektor(tourId, sektorId){
   const t = state.tours.find(x=>x.id===tourId);
   const sek = state.sektoren.find(x=>x.id===sektorId);
   if(!t || !sek) return;
-  if(!confirm('„'+t.name+(t.routeName?' – '+t.routeName:'')+'" zum Sektor „'+sek.name+'" hinzufügen?\n\nEigene Zustiege/Abstiege der Tour werden dabei entfernt — der Sektor hat ja bereits welche.')) return;
+  if(!confirm('„'+t.name+(t.routeName?' – '+t.routeName:'')+'" zum Sektor „'+sek.name+'" hinzufügen?\n\nDie Tour zeigt ab jetzt die Zustiege/Abstiege des Sektors. Eigene Zustiege/Abstiege bleiben im Hintergrund erhalten und sind sofort wieder da, falls du die Tour später wieder aus dem Sektor löst.')) return;
+  // Eigene Zustiege/Abstiege bewusst NICHT löschen — siehe Kommentar in createSektorFromTours().
   t.sektorId = sek.id;
-  t.accessRoutes = [];
-  t.descentRoutes = [];
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
   render();
@@ -3756,6 +3759,10 @@ function makeLongPressDrag(item, findDropTarget){
     }
     function startDrag(x, y){
       dragging = true;
+      // touch-action erst JETZT unterbinden (nach der ruhigen Haltephase), nicht dauerhaft auf der
+      // Karte — sonst blockiert das normale Scrollen der Liste, sobald man eine Karte antippt (der
+      // Finger muss ja erst kurz stillhalten, bevor daraus ein Drag statt eines Scrolls wird).
+      document.body.style.touchAction = 'none';
       item.style.opacity = '0.35';
       ghost = item.cloneNode(true);
       ghost.style.cssText = `position:fixed; left:0; top:0; z-index:500; pointer-events:none; width:${item.offsetWidth}px; opacity:0.9; box-shadow:0 4px 16px rgba(0,0,0,0.3);`;
@@ -3775,6 +3782,7 @@ function makeLongPressDrag(item, findDropTarget){
         const target = findDropTarget(e2.clientX, e2.clientY);
         if(target) target.run();
       }
+      document.body.style.touchAction = '';
       item.style.opacity = '';
       if(ghost){ ghost.remove(); ghost = null; }
       setHighlight(null);
