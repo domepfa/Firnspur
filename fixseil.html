@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v114-longpress-vibration-fix';
+const APP_VERSION = 'v115-gipfelkarte-infos';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2636,17 +2636,46 @@ function tourenListOrGroupedHtml(list, activeFilterCount){
   return `<div class="grid">${gipfelCards}${loose.map(tourCardHtml).join('')}</div>`;
 }
 
+// Spannweite einer numerischen Tour-Eigenschaft über mehrere Routen zum selben Gipfel hinweg
+// (z. B. "800–1200" statt eines einzelnen, für die Sammelkarte nicht aussagekräftigen Werts).
+function gipfelStatRangeLabel(tours, field){
+  const values = tours.map(t=>parseInt(t[field], 10)).filter(n=>!isNaN(n));
+  if(!values.length) return '';
+  const min = Math.min(...values), max = Math.max(...values);
+  return min===max ? String(min) : `${min}–${max}`;
+}
+
 function gipfelCardHtml(g, tours){
   const ueberschreitungCount = tours.filter(t=>Array.isArray(t.summitIds) && t.summitIds.length>1).length;
   const routenCount = tours.length - ueberschreitungCount;
+  const diffs = Array.from(new Set(tours.map(t=>t.difficulty).filter(d=>d && DIFF[d])))
+    .sort((a,b)=>DIFF_ORDER.indexOf(a)-DIFF_ORDER.indexOf(b));
+  const diffLabel = diffs.length ? (diffs.length===1 ? diffs[0] : `${diffs[0]}–${diffs[diffs.length-1]}`) : '';
+  const climbGrades = Array.from(new Set(tours.map(t=>t.climbGrade).filter(Boolean)))
+    .sort((a,b)=>CLIMB_ORDER.indexOf(a)-CLIMB_ORDER.indexOf(b));
+  const climbLabel = climbGrades.length ? (climbGrades.length===1 ? climbGrades[0] : `${climbGrades[0]}–${climbGrades[climbGrades.length-1]}`) : '';
+  const gainLabel = gipfelStatRangeLabel(tours, 'elevationGain');
+  const durationLabel = gipfelStatRangeLabel(tours, 'duration');
+  const huts = Array.from(new Set(tours.map(t=>t.hutId).filter(Boolean))).map(id=>state.huts.find(h=>h.id===id)).filter(Boolean);
   return `
   <div class="card" data-act="open-gipfel" data-id="${g.id}" tabindex="0" role="button">
     <div class="card-top">
-      <h3 style="color:var(--ice-deep);">🏔️ ${esc(g.name)}${g.altitude ? ` <span style="font-weight:400; font-size:13px; color:var(--ink-soft);">${esc(g.altitude)} m</span>` : ''}</h3>
+      <h3 style="color:var(--ice-deep);">🏔️ ${esc(g.name)}</h3>
+      <div class="badge-row">
+        ${diffLabel ? `<span class="badge" style="background:${DIFF[diffs[diffs.length-1]].color}">${diffLabel}</span>` : ''}
+        ${climbLabel ? `<span class="badge climb">🧗 ${esc(climbLabel)}</span>` : ''}
+        ${g.altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(g.altitude)} m</span>` : ''}
+      </div>
+    </div>
+    <div class="stat-row">
+      ${gainLabel ? `<span>↑ <span class="mono">${gainLabel}</span> Hm</span>` : ''}
+      ${durationLabel ? `<span>⏱ <span class="mono">${durationLabel} h</span></span>` : ''}
     </div>
     ${g.region ? `<p class="excerpt">${esc(g.region)}${g.subregion ? ' – ' + esc(g.subregion) : ''}</p>` : ''}
+    ${huts.map(h=>`<span class="hut-link-chip">🛖 ${esc(h.name)}</span>`).join('')}
     ${routenCount ? `<span class="hut-link-chip">${routenCount} Route${routenCount===1?'':'n'}</span>` : ''}
     ${ueberschreitungCount ? `<span class="hut-link-chip">${ueberschreitungCount} Überschreitung${ueberschreitungCount===1?'':'en'}</span>` : ''}
+    ${g._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
   </div>`;
 }
 
