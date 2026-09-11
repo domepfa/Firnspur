@@ -187,10 +187,11 @@
     transition:transform .12s ease, box-shadow .12s ease, border-left-color .12s ease;
   }
   .card:hover{transform:translateY(-2px); box-shadow:var(--shadow-lg); cursor:pointer; border-left-color:var(--ice);}
-  /* Verhindert, dass ein Long-Press auf einer Karte mit Long-Press-Menü (siehe wireTourAssignMenu)
-     das native Text-Auswählen/den iOS-Callout ("Kopieren"-Menü etc.) auslöst, statt das Menü zu
-     öffnen. */
-  .drag-card, .drag-card *{-webkit-touch-callout:none; -webkit-user-select:none; user-select:none;}
+  /* Verhindert auf JEDER Karte, dass ein Long-Press das native Text-Auswählen/den iOS-Callout
+     ("Kopieren"-Menü etc.) auslöst — das äussert sich sonst nur als Vibration ohne sichtbare
+     Wirkung, ohne dass die Karte reagiert. Bei Karten mit eigenem Long-Press-Menü (siehe
+     wireTourAssignMenu) verhindert es ausserdem, dass die native Auswahl mit dem Menü kollidiert. */
+  .card, .card *{-webkit-touch-callout:none; -webkit-user-select:none; user-select:none;}
   .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
   .agenda-date-row{
     font-family:'Oswald'; text-transform:uppercase; letter-spacing:0.03em;
@@ -718,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v113-gipfel-entitaet-ueberschreitung';
+const APP_VERSION = 'v114-longpress-vibration-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
