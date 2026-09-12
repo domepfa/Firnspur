@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v119-punkt-setzen-auf-karte';
+const APP_VERSION = 'v120-filter-close-fix-klettergebiete-map';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1175,6 +1175,8 @@ function openEditSektor(id){ ensureName(()=>{ const s = state.sektoren.find(x=>x
 function openSektorDetail(id){ state.modal = {type:'sektor-detail', payload:id}; render(); }
 function openAddSektorInKlettergebiet(gebId){ ensureName(()=>{ state.presetKlettergebietId = gebId; state.modal = {type:'edit-sektor', payload:null}; render(); }); }
 function openAddKlettergebiet(){ ensureName(()=>{ state.modal = {type:'edit-klettergebiet', payload:null}; render(); }); }
+// Von der Übersichtskarte aus per "Punkt setzen" — siehe pointPlacementPopupContent in 0-shared.js.
+function openAddKlettergebietWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-klettergebiet', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditKlettergebiet(id){ ensureName(()=>{ const g = state.klettergebiete.find(x=>x.id===id); state.modal = {type:'edit-klettergebiet', payload:g}; render(); }); }
 function openKlettergebietDetail(id){ state.modal = {type:'klettergebiet-detail', payload:id}; render(); }
 function openAddGipfel(){ ensureName(()=>{ state.modal = {type:'edit-gipfel', payload:null}; render(); }); }
@@ -1353,7 +1355,7 @@ async function submitTourForm(form, existing){
 }
 
 async function submitHutForm(form, existing){
-  const h = existing ? {...existing} : {id: (form.hutIdForTrack || uid('h')), createdBy: state.myName, createdAt: new Date().toISOString(), status:'entwurf'};
+  const h = (existing && existing.id) ? {...existing} : {id: (form.hutIdForTrack || uid('h')), createdBy: state.myName, createdAt: new Date().toISOString(), status:'entwurf'};
   h.name = form.name.trim();
   h.region = form.region;
   h.subregion = form.subregion || '';
@@ -1730,14 +1732,15 @@ async function submitSektorForm(form, existing){
 
 function sektorFormHtml(existing){
   const s = existing || {};
+  const isEditing = !!(existing && existing.id);
   const isKnownRegion = REGIONS.includes(s.region);
   // presetKlettergebietId nur beim NEUANLEGEN berücksichtigen — beim Bearbeiten eines
   // bestehenden Sektors zählt ausschliesslich dessen eigenes Feld, damit ein stehen gebliebener
   // Preset-Wert (z. B. nach Abbrechen eines "+ Neuer Sektor in diesem Gebiet"-Vorgangs) nicht
   // versehentlich in ein später bearbeitetes, unabhängiges Sektor-Formular durchschlägt.
-  const presetGebId = existing ? (s.klettergebietId || '') : (state.presetKlettergebietId || '');
+  const presetGebId = isEditing ? (s.klettergebietId || '') : (state.presetKlettergebietId || '');
   return `<div class="modal" data-stop="1">
-    <div class="modal-head"><h2>${existing?'Sektor bearbeiten':'Neuer Sektor'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div class="modal-head"><h2>${isEditing?'Sektor bearbeiten':'Neuer Sektor'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="sektor-form" novalidate>
       <div class="field"><label>Name *</label><input required name="name" value="${esc(s.name||'')}" placeholder="z. B. Chatzenfluh Nordwand"/></div>
       ${state.klettergebiete.length ? `<div class="field"><label>Klettergebiet (optional)</label>
@@ -1771,14 +1774,14 @@ function sektorFormHtml(existing){
       </div>
       <div class="field" style="background:var(--ice-light); border-radius:var(--radius); padding:12px;">
         <label style="margin-bottom:4px;">Zustiege &amp; Abstiege</label>
-        <p style="font-size:13px; color:var(--ink-soft); margin:0;">${existing ? 'Werden in der Detailansicht des Sektors verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege/Abstiege hinzufügen.'}</p>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0;">${isEditing ? 'Werden in der Detailansicht des Sektors verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege/Abstiege hinzufügen.'}</p>
       </div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
-        <button type="button" id="sektor-save-btn" class="btn">${existing?'Speichern':'Sektor anlegen'}</button>
+        <button type="button" id="sektor-save-btn" class="btn">${isEditing?'Speichern':'Sektor anlegen'}</button>
       </div>
       <button type="button" id="sektor-fab-save-btn" class="fab-save">✓ Speichern</button>
-      ${existing ? `
+      ${isEditing ? `
       <div id="delete-sektor-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-sektor-trigger" data-id="${s.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Sektor löschen</button>
         <div id="delete-sektor-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
@@ -1825,9 +1828,10 @@ async function submitKlettergebietForm(form, existing){
 
 function klettergebietFormHtml(existing){
   const g = existing || {};
+  const isEditing = !!(existing && existing.id);
   const isKnownRegion = REGIONS.includes(g.region);
   return `<div class="modal" data-stop="1">
-    <div class="modal-head"><h2>${existing?'Klettergebiet bearbeiten':'Neues Klettergebiet'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div class="modal-head"><h2>${isEditing?'Klettergebiet bearbeiten':'Neues Klettergebiet'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="klettergebiet-form" novalidate>
       <div class="field"><label>Name *</label><input required name="name" value="${esc(g.name||'')}" placeholder="z. B. Sewen"/></div>
       <div class="field"><label>Region</label>
@@ -1854,10 +1858,10 @@ function klettergebietFormHtml(existing){
       </div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
-        <button type="button" id="klettergebiet-save-btn" class="btn">${existing?'Speichern':'Klettergebiet anlegen'}</button>
+        <button type="button" id="klettergebiet-save-btn" class="btn">${isEditing?'Speichern':'Klettergebiet anlegen'}</button>
       </div>
       <button type="button" id="klettergebiet-fab-save-btn" class="fab-save">✓ Speichern</button>
-      ${existing ? `
+      ${isEditing ? `
       <div id="delete-klettergebiet-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-klettergebiet-trigger" data-id="${g.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Klettergebiet löschen</button>
         <div id="delete-klettergebiet-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
@@ -1900,9 +1904,10 @@ async function submitGipfelForm(form, existing){
 // geografischen Daten stecken bereits bei den verlinkten Touren selbst.
 function gipfelFormHtml(existing){
   const g = existing || {};
+  const isEditing = !!(existing && existing.id);
   const isKnownRegion = REGIONS.includes(g.region);
   return `<div class="modal" data-stop="1">
-    <div class="modal-head"><h2>${existing?'Gipfel bearbeiten':'Neuer Gipfel'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div class="modal-head"><h2>${isEditing?'Gipfel bearbeiten':'Neuer Gipfel'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="gipfel-form" novalidate>
       <div class="field"><label>Name *</label><input required name="name" value="${esc(g.name||'')}" placeholder="z. B. Lenzspitze"/></div>
       <div class="field"><label>Höhe (m ü. M.)</label><input name="altitude" value="${esc(g.altitude||'')}" placeholder="z. B. 4294"/></div>
@@ -1921,10 +1926,10 @@ function gipfelFormHtml(existing){
       </div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
-        <button type="button" id="gipfel-save-btn" class="btn">${existing?'Speichern':'Gipfel anlegen'}</button>
+        <button type="button" id="gipfel-save-btn" class="btn">${isEditing?'Speichern':'Gipfel anlegen'}</button>
       </div>
       <button type="button" id="gipfel-fab-save-btn" class="fab-save">✓ Speichern</button>
-      ${existing ? `
+      ${isEditing ? `
       <div id="delete-gipfel-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-gipfel-trigger" data-id="${g.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Gipfel löschen</button>
         <div id="delete-gipfel-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
@@ -3701,9 +3706,10 @@ function tourDetailHtml(id){
 
 function hutFormHtml(existing){
   const h = existing || {};
+  const isEditing = !!(existing && existing.id);
   const isKnownRegion = REGIONS.includes(h.region);
   return `<div class="modal" data-stop="1">
-    <div class="modal-head"><h2>${existing?'Hütte bearbeiten':'Neue Hütte'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div class="modal-head"><h2>${isEditing?'Hütte bearbeiten':'Neue Hütte'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="hut-form" novalidate>
       <div class="field"><label>Name der Hütte *</label><input required name="name" value="${esc(h.name||'')}" placeholder="z. B. Domhütte"/></div>
       <div class="field"><label>Region</label>
@@ -3752,7 +3758,7 @@ function hutFormHtml(existing){
 
       <div class="field" style="background:var(--ice-light); border-radius:var(--radius); padding:12px;">
         <label style="margin-bottom:4px;">Zustiege (Sommer/Winter, beliebig viele)</label>
-        <p style="font-size:13px; color:var(--ink-soft); margin:0;">${existing ? 'Zustiege werden in der Detailansicht der Hütte verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege hinzufügen.'}</p>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0;">${isEditing ? 'Zustiege werden in der Detailansicht der Hütte verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege hinzufügen.'}</p>
       </div>
 
       <div class="field" style="margin-top:16px;"><label>Link zur Hütte</label><input type="url" name="hutLink" value="${esc(h.hutLink||'')}"/></div>
@@ -3760,10 +3766,10 @@ function hutFormHtml(existing){
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
-        <button type="button" id="hut-save-btn" class="btn">${existing?'Speichern':'Hütte anlegen'}</button>
+        <button type="button" id="hut-save-btn" class="btn">${isEditing?'Speichern':'Hütte anlegen'}</button>
       </div>
       <button type="button" id="hut-fab-save-btn" class="fab-save">✓ Speichern</button>
-      ${existing ? `
+      ${isEditing ? `
       <div id="delete-hut-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-hut-trigger" data-id="${h.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Hütte löschen</button>
         <div id="delete-hut-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">

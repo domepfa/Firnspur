@@ -523,7 +523,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v119-punkt-setzen-auf-karte';
+const APP_VERSION = 'v120-filter-close-fix-klettergebiete-map';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -833,7 +833,7 @@ function mergeImportedData(json){
 }
 
 async function submitTourForm(form, existing){
-  const t = existing ? {...existing} : {id: (form.tourIdForTrack || uid('t')), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null, status:'entwurf'};
+  const t = (existing && existing.id) ? {...existing} : {id: (form.tourIdForTrack || uid('t')), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null, status:'entwurf'};
   t.name = form.name.trim();
   t.routeName = form.routeName || '';
   t.difficulty = form.difficulty;
@@ -883,7 +883,7 @@ async function submitTourForm(form, existing){
 }
 
 async function submitHutForm(form, existing){
-  const h = existing ? {...existing} : {id: (form.hutIdForTrack || uid('h')), createdBy: state.myName, createdAt: new Date().toISOString(), status:'entwurf'};
+  const h = (existing && existing.id) ? {...existing} : {id: (form.hutIdForTrack || uid('h')), createdBy: state.myName, createdAt: new Date().toISOString(), status:'entwurf'};
   h.name = form.name.trim();
   h.region = form.region;
   h.subregion = form.subregion || '';
@@ -1492,6 +1492,7 @@ function completeFormHtml(kind, id){
 
 function tourFormHtml(existing){
   const t = existing || {};
+  const isEditing = !!(existing && existing.id);
   const hutOptions = state.huts.map(h=>`<option value="${h.id}" ${t.hutId===h.id?'selected':''}>${esc(h.name)}</option>`).join('');
   const isKnownRegion = REGIONS.includes(t.region);
   const MATERIAL = MATERIAL_SKI;
@@ -1499,7 +1500,7 @@ function tourFormHtml(existing){
   const selectedExposition = Array.isArray(t.exposition) ? t.exposition : [];
   const selectedGefahren = Array.isArray(t.gefahren) ? t.gefahren : [];
   return `<div class="modal" data-stop="1">
-    <div class="modal-head"><h2>${existing?'Tour bearbeiten':'Neue Skitour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div class="modal-head"><h2>${isEditing?'Tour bearbeiten':'Neue Skitour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="tour-form" novalidate>
       <div class="row2">
         <div class="field"><label>Gipfel / Bergmassiv *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Titlis"/></div>
@@ -1616,10 +1617,10 @@ function tourFormHtml(existing){
       </div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
-        <button type="button" id="tour-save-btn" class="btn">${existing?'Speichern':'Tour anlegen'}</button>
+        <button type="button" id="tour-save-btn" class="btn">${isEditing?'Speichern':'Tour anlegen'}</button>
       </div>
       <button type="button" id="tour-fab-save-btn" class="fab-save">✓ Speichern</button>
-      ${existing ? `
+      ${isEditing ? `
       <div id="delete-tour-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-tour-trigger" data-id="${t.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Tour löschen</button>
         <div id="delete-tour-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
@@ -1729,9 +1730,10 @@ function tourDetailHtml(id){
 
 function hutFormHtml(existing){
   const h = existing || {};
+  const isEditing = !!(existing && existing.id);
   const isKnownRegion = REGIONS.includes(h.region);
   return `<div class="modal" data-stop="1">
-    <div class="modal-head"><h2>${existing?'Hütte bearbeiten':'Neue Hütte'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div class="modal-head"><h2>${isEditing?'Hütte bearbeiten':'Neue Hütte'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="hut-form" novalidate>
       <div class="field"><label>Name der Hütte *</label><input required name="name" value="${esc(h.name||'')}" placeholder="z. B. Engstlenalp-Hütte"/></div>
       <div class="field"><label>Region</label>
@@ -1780,7 +1782,7 @@ function hutFormHtml(existing){
 
       <div class="field" style="background:var(--ice-light); border-radius:var(--radius); padding:12px;">
         <label style="margin-bottom:4px;">Zustiege (Sommer/Winter, beliebig viele)</label>
-        <p style="font-size:13px; color:var(--ink-soft); margin:0;">${existing ? 'Zustiege werden in der Detailansicht der Hütte verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege hinzufügen.'}</p>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0;">${isEditing ? 'Zustiege werden in der Detailansicht der Hütte verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege hinzufügen.'}</p>
       </div>
 
       <div class="field" style="margin-top:16px;"><label>Link zur Hütte</label><input type="url" name="hutLink" value="${esc(h.hutLink||'')}"/></div>
@@ -1788,10 +1790,10 @@ function hutFormHtml(existing){
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
-        <button type="button" id="hut-save-btn" class="btn">${existing?'Speichern':'Hütte anlegen'}</button>
+        <button type="button" id="hut-save-btn" class="btn">${isEditing?'Speichern':'Hütte anlegen'}</button>
       </div>
       <button type="button" id="hut-fab-save-btn" class="fab-save">✓ Speichern</button>
-      ${existing ? `
+      ${isEditing ? `
       <div id="delete-hut-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-hut-trigger" data-id="${h.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Hütte löschen</button>
         <div id="delete-hut-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
