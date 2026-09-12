@@ -1711,6 +1711,7 @@ function renderStandaloneMap(containerId){
       skitour: { label: '🎿 Skitour', color: '#1F4D63' },
       huette: { label: '🛖 Hütten', color: '#8A5A2E' },
       sektor: { label: '⛺ Sektoren', color: '#4A6B3A' },
+      klettergebiet: { label: '⛰️ Klettergebiete', color: '#C77B2E' },
       zustieg: { label: '🚶 Zustiege', color: '#1565C0' }
     };
     // Sommerzustiege gelb, Winterzustiege (und Tour-/Sektor-Routen ohne Saison) blau —
@@ -1777,6 +1778,19 @@ function renderStandaloneMap(containerId){
         openEditSektor(sektorId);
       }
     }
+    function openKlettergebietFromMap(gebId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openKlettergebietDetail === 'function') openKlettergebietDetail(gebId);
+    }
+    function openKlettergebietEditFromMap(gebId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openEditKlettergebiet === 'function'){
+        state._openPointsMapOnNextRender = true;
+        openEditKlettergebiet(gebId);
+      }
+    }
     // Hängt einen frisch auf der Übersichtskarte getippten Punkt an eine bestehende Tour/Hütte/
     // einen Sektor an (siehe pointPlacementPopupContent) — speichert sofort und zeichnet die
     // Karte an Ort und Stelle neu (der Kartenausschnitt bleibt dabei erhalten, siehe
@@ -1817,6 +1831,18 @@ function renderStandaloneMap(containerId){
       showToast(ok ? 'Punkt zu "' + sek.name + '" hinzugefügt.' : 'Punkt lokal hinzugefügt, aber nicht synchronisiert.', !ok);
       renderStandaloneMap(containerId);
     }
+    async function appendPointToKlettergebietFromMap(gebId, lat, lon){
+      const geb = (state.klettergebiete||[]).find(x=>x.id===gebId);
+      if(!geb) return;
+      if(!Array.isArray(geb.points)) geb.points = [];
+      geb.points.push({label:'', lat, lon});
+      geb.updatedAt = new Date().toISOString();
+      geb.updatedBy = state.myName;
+      const ok = (typeof saveKlettergebietCloud === 'function') ? await saveKlettergebietCloud(geb).catch(()=>false) : false;
+      geb._unsynced = !ok;
+      showToast(ok ? 'Punkt zu "' + geb.name + '" hinzugefügt.' : 'Punkt lokal hinzugefügt, aber nicht synchronisiert.', !ok);
+      renderStandaloneMap(containerId);
+    }
     // Öffnet das Neu-Anlegen-Formular mit dem getippten Punkt schon eingetragen — schliesst dazu
     // erst die Vollbildkarte (wie die anderen *FromMap-Funktionen), damit sich Formular und Karte
     // nicht überlagern.
@@ -1832,6 +1858,10 @@ function renderStandaloneMap(containerId){
       closeTopOverlayLayer();
       if(typeof openAddSektorWithPoint === 'function') openAddSektorWithPoint(lat, lon);
     }
+    function openAddKlettergebietFromMapWithPoint(lat, lon){
+      closeTopOverlayLayer();
+      if(typeof openAddKlettergebietWithPoint === 'function') openAddKlettergebietWithPoint(lat, lon);
+    }
     // Popup, das nach einem Tap auf eine leere Stelle im "Punkt setzen"-Modus erscheint: entweder
     // den Punkt einer bestehenden Tour/Hütte/einem Sektor hinzufügen, oder gleich neu anlegen.
     function pointPlacementPopupContent(lat, lon){
@@ -1843,7 +1873,7 @@ function renderStandaloneMap(containerId){
       wrap.appendChild(title);
       const input = document.createElement('input');
       input.type = 'text';
-      input.placeholder = 'Bestehende Tour/Hütte' + (isFixseilApp ? '/Sektor' : '') + ' suchen …';
+      input.placeholder = 'Bestehende Tour/Hütte' + (isFixseilApp ? '/Sektor/Klettergebiet' : '') + ' suchen …';
       input.style.cssText = 'width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:13px; margin-bottom:4px;';
       wrap.appendChild(input);
       const results = document.createElement('div');
@@ -1880,7 +1910,10 @@ function renderStandaloneMap(containerId){
       }
       addNewBtn('+ Neue Tour', ()=> openAddTourFromMapWithPoint(lat, lon));
       addNewBtn('+ Neue Hütte', ()=> openAddHutFromMapWithPoint(lat, lon));
-      if(isFixseilApp) addNewBtn('+ Neuer Sektor', ()=> openAddSektorFromMapWithPoint(lat, lon));
+      if(isFixseilApp){
+        addNewBtn('+ Neuer Sektor', ()=> openAddSektorFromMapWithPoint(lat, lon));
+        addNewBtn('+ Neues Klettergebiet', ()=> openAddKlettergebietFromMapWithPoint(lat, lon));
+      }
       return wrap;
     }
     function openTourRouteFromMap(tourId, kind, routeId){
@@ -2020,6 +2053,13 @@ function renderStandaloneMap(containerId){
           });
         });
       });
+      // Klettergebiete: eigener Zustieg/Lage-Punkt bzw. -Linie, unabhängig von deren Sektoren
+      // (die ja bereits oben eigenständig auf der Karte erscheinen).
+      (state.klettergebiete || []).forEach(geb=>{
+        const track = (geb.manualTrack && geb.manualTrack.length) ? geb.manualTrack : null;
+        addMapEntity('klettergebiet', TOUR_CATEGORY_META.klettergebiet.color, track, geb.points, ()=> mapPopupContent('⛰️', geb.name, 'Klettergebiet öffnen', ()=> openKlettergebietFromMap(geb.id), ()=> openKlettergebietEditFromMap(geb.id)));
+        if(geb.points && geb.points.length) searchIndex.push({name: geb.name, icon:'⛰️', label:'Klettergebiet öffnen', coords:[geb.points[0].lat, geb.points[0].lon], openFn: ()=> openKlettergebietFromMap(geb.id), editFn: ()=> openKlettergebietEditFromMap(geb.id), appendPointFn: (lat,lon)=> appendPointToKlettergebietFromMap(geb.id, lat, lon)});
+      });
     }
     const presentCategories = Object.keys(categoryLayers);
     // Zustieg-Linien immer zuerst (unterste Ebene) zur Karte hinzufügen: an einem gemeinsamen
@@ -2082,7 +2122,11 @@ function renderStandaloneMap(containerId){
               closeBtn.type = 'button';
               closeBtn.textContent = '✕';
               closeBtn.style.cssText = 'background:none; border:none; font-size:14px; cursor:pointer; padding:2px 4px; color:var(--ink-soft);';
-              closeBtn.addEventListener('click', ()=>{ expanded = false; renderControl(); });
+              // stopPropagation ist zwingend: der Klick bubbelt sonst bis zu wrap hoch, dessen
+              // onclick renderControl() (durchs Zuklappen unten) gerade eben neu auf "wieder
+              // aufklappen" gesetzt hat — ohne Stop öffnet sich das Fenster sofort wieder (siehe
+              // dieselbe Ursache/denselben Fix beim Suchen-Button oben).
+              closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); expanded = false; renderControl(); });
               wrap.appendChild(closeBtn);
             }
           }
