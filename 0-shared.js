@@ -1724,10 +1724,28 @@ function renderStandaloneMap(containerId){
       closeTopOverlayLayer();
       if(typeof openTourDetail === 'function') openTourDetail(tourId);
     }
+    // Springt direkt ins Bearbeiten-Formular mit bereits geöffneter Punkte-Karte (siehe
+    // state._openPointsMapOnNextRender, ausgewertet in wireModalHandlers).
+    function openTourEditFromMap(tourId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openEditTour === 'function'){
+        state._openPointsMapOnNextRender = true;
+        openEditTour(tourId);
+      }
+    }
     function openHutFromMap(hutId){
       modalOpenedFromStandaloneMap = true;
       closeTopOverlayLayer();
       if(typeof openHutDetail === 'function') openHutDetail(hutId);
+    }
+    function openHutEditFromMap(hutId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openEditHut === 'function'){
+        state._openPointsMapOnNextRender = true;
+        openEditHut(hutId);
+      }
     }
     function openHutAccessRouteFromMap(hutId, routeId){
       modalOpenedFromStandaloneMap = true;
@@ -1742,6 +1760,14 @@ function renderStandaloneMap(containerId){
       modalOpenedFromStandaloneMap = true;
       closeTopOverlayLayer();
       if(typeof openSektorDetail === 'function') openSektorDetail(sektorId);
+    }
+    function openSektorEditFromMap(sektorId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openEditSektor === 'function'){
+        state._openPointsMapOnNextRender = true;
+        openEditSektor(sektorId);
+      }
     }
     function openTourRouteFromMap(tourId, kind, routeId){
       modalOpenedFromStandaloneMap = true;
@@ -1763,13 +1789,30 @@ function renderStandaloneMap(containerId){
       state.modal = {type:'sektor-route-detail', payload:{sektorId, kind, route}};
       render();
     }
-    function mapPopupContent(icon, title, buttonLabel, onOpen){
+    // onEdit ist optional (nur bei Touren/Hütten/Sektoren gesetzt, nicht bei Zustiegen/Abstiegen) —
+    // springt direkt ins Bearbeiten-Formular mit bereits geöffneter Punkte-Karte, ohne den Umweg
+    // über die Detailansicht. Bewusst ein eigener, kleiner Stift-Knopf statt eines Textknopfs, damit
+    // ein Antippen des Popups weiterhin zwei bewusste Taps braucht (Marker, dann Knopf) und nichts
+    // aus Versehen beim blossen Verschieben/Zoomen der Karte verändert werden kann.
+    function mapPopupContent(icon, title, buttonLabel, onOpen, onEdit){
       const wrap = document.createElement('div');
       wrap.style.minWidth = '170px';
+      const titleRow = document.createElement('div');
+      titleRow.style.cssText = 'display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin:0 0 8px 0;';
       const titleEl = document.createElement('p');
-      titleEl.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+      titleEl.style.cssText = 'margin:0; font-weight:700;';
       titleEl.textContent = icon + ' ' + title;
-      wrap.appendChild(titleEl);
+      titleRow.appendChild(titleEl);
+      if(onEdit){
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.title = 'Bearbeiten';
+        editBtn.textContent = '✏️';
+        editBtn.style.cssText = 'flex:none; background:none; border:none; padding:0 0 0 4px; font-size:14px; line-height:1; cursor:pointer;';
+        editBtn.addEventListener('click', onEdit);
+        titleRow.appendChild(editBtn);
+      }
+      wrap.appendChild(titleRow);
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = buttonLabel;
@@ -1823,14 +1866,14 @@ function renderStandaloneMap(containerId){
       const catKey = tourCategoryKey(t);
       const color = (TOUR_CATEGORY_META[catKey] || TOUR_CATEGORY_META.skitour).color;
       const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
-      addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id)));
-      if(t.points && t.points.length) searchIndex.push({name: t.name, icon:'🏔️', label:'Tour öffnen', coords:[t.points[0].lat, t.points[0].lon], openFn: ()=> openTourFromMap(t.id)});
+      addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id), ()=> openTourEditFromMap(t.id)));
+      if(t.points && t.points.length) searchIndex.push({name: t.name, icon:'🏔️', label:'Tour öffnen', coords:[t.points[0].lat, t.points[0].lon], openFn: ()=> openTourFromMap(t.id), editFn: ()=> openTourEditFromMap(t.id)});
     });
     // Hütten (beide Apps) — eigener Standort/Linie, plus deren Zustiege.
     (state.huts || []).forEach(h=>{
       const track = (h.manualTrack && h.manualTrack.length) ? h.manualTrack : null;
-      addMapEntity('huette', TOUR_CATEGORY_META.huette.color, track, h.points, ()=> mapPopupContent('🛖', h.name, 'Hütte öffnen', ()=> openHutFromMap(h.id)));
-      if(h.points && h.points.length) searchIndex.push({name: h.name, icon:'🛖', label:'Hütte öffnen', coords:[h.points[0].lat, h.points[0].lon], openFn: ()=> openHutFromMap(h.id)});
+      addMapEntity('huette', TOUR_CATEGORY_META.huette.color, track, h.points, ()=> mapPopupContent('🛖', h.name, 'Hütte öffnen', ()=> openHutFromMap(h.id), ()=> openHutEditFromMap(h.id)));
+      if(h.points && h.points.length) searchIndex.push({name: h.name, icon:'🛖', label:'Hütte öffnen', coords:[h.points[0].lat, h.points[0].lon], openFn: ()=> openHutFromMap(h.id), editFn: ()=> openHutEditFromMap(h.id)});
       (h.accessRoutes || []).forEach(r=>{
         const rTrack = routeTrack(r);
         if(!rTrack) return;
@@ -1852,8 +1895,8 @@ function renderStandaloneMap(containerId){
       // Sektoren: Ausgangspunkt(e) plus deren Zustiege/Abstiege.
       (state.sektoren || []).forEach(sek=>{
         const track = (sek.manualTrack && sek.manualTrack.length) ? sek.manualTrack : null;
-        addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id)));
-        if(sek.points && sek.points.length) searchIndex.push({name: sek.name, icon:'⛺', label:'Sektor öffnen', coords:[sek.points[0].lat, sek.points[0].lon], openFn: ()=> openSektorFromMap(sek.id)});
+        addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id), ()=> openSektorEditFromMap(sek.id)));
+        if(sek.points && sek.points.length) searchIndex.push({name: sek.name, icon:'⛺', label:'Sektor öffnen', coords:[sek.points[0].lat, sek.points[0].lon], openFn: ()=> openSektorFromMap(sek.id), editFn: ()=> openSektorEditFromMap(sek.id)});
         ['accessRoutes','descentRoutes'].forEach(field=>{
           const kind = field==='descentRoutes' ? 'descent' : 'access';
           (sek[field] || []).forEach(r=>{
@@ -2009,7 +2052,7 @@ function renderStandaloneMap(containerId){
                 results.innerHTML = '';
                 localMatches.slice(0,8).forEach(entry=>{
                   results.appendChild(resultButtonHtml(entry.icon, entry.name, ()=>{
-                    jumpTo(entry.coords, mapPopupContent(entry.icon, entry.name, entry.label, entry.openFn));
+                    jumpTo(entry.coords, mapPopupContent(entry.icon, entry.name, entry.label, entry.openFn, entry.editFn));
                   }));
                 });
                 (onlineMatches||[]).slice(0,8).forEach(entry=>{

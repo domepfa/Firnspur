@@ -523,7 +523,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v117-orts-und-bergsuche';
+const APP_VERSION = 'v118-bearbeiten-im-popup';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2188,6 +2188,12 @@ function wireModalHandlers(){
     } : null;
     renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', refTracks, undefined, pmAutofillFields);
   });
+  // Direkter Sprung von der Übersichtskarte ins Bearbeiten (siehe openTourEditFromMap &Co. in
+  // 0-shared.js) öffnet die Punkte-Karte gleich mit, statt den Knopf oben extra antippen zu müssen.
+  if(state._openPointsMapOnNextRender && pointsMapToggleBtn){
+    state._openPointsMapOnNextRender = false;
+    pointsMapToggleBtn.click();
+  }
 
   const camptocampToggleBtn = root.querySelector('#camptocamp-search-toggle-btn');
   if(camptocampToggleBtn) camptocampToggleBtn.addEventListener('click', ()=>{
