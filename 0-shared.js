@@ -1678,6 +1678,14 @@ function renderStandaloneMap(containerId){
         setPlannerPoint(which, e.latlng.lat, e.latlng.lng, which==='start' ? 'Punkt auf der Karte' : 'Zielpunkt auf der Karte');
         return;
       }
+      // "Punkt setzen"-Modus (siehe addPointBtn weiter unten) — ebenfalls zweistufig: erst den
+      // Knopf scharf schalten, dann diesen einen Tap verwenden, danach automatisch wieder aus.
+      if(typeof addPointPicking !== 'undefined' && addPointPicking){
+        addPointPicking = false;
+        if(typeof renderAddPointBtn === 'function') renderAddPointBtn();
+        L.popup().setLatLng(e.latlng).setContent(pointPlacementPopupContent(e.latlng.lat, e.latlng.lng)).openOn(map);
+        return;
+      }
       if(skitourenLayer && map.hasLayer(skitourenLayer)){
         const feature = await identifySkitourAt(map, e.latlng);
         if(feature){
@@ -1768,6 +1776,112 @@ function renderStandaloneMap(containerId){
         state._openPointsMapOnNextRender = true;
         openEditSektor(sektorId);
       }
+    }
+    // Hängt einen frisch auf der Übersichtskarte getippten Punkt an eine bestehende Tour/Hütte/
+    // einen Sektor an (siehe pointPlacementPopupContent) — speichert sofort und zeichnet die
+    // Karte an Ort und Stelle neu (der Kartenausschnitt bleibt dabei erhalten, siehe
+    // lastStandaloneMapView), damit der neue Marker ohne Kartenwechsel sichtbar wird.
+    async function appendPointToTourFromMap(tourId, lat, lon){
+      const t = (state.tours||[]).find(x=>x.id===tourId);
+      if(!t) return;
+      if(!Array.isArray(t.points)) t.points = [];
+      t.points.push({label:'', lat, lon});
+      t.updatedAt = new Date().toISOString();
+      t.updatedBy = state.myName;
+      const ok = (typeof saveTourCloud === 'function') ? await saveTourCloud(t).catch(()=>false) : false;
+      t._unsynced = !ok;
+      showToast(ok ? 'Punkt zu "' + t.name + '" hinzugefügt.' : 'Punkt lokal hinzugefügt, aber nicht synchronisiert.', !ok);
+      renderStandaloneMap(containerId);
+    }
+    async function appendPointToHutFromMap(hutId, lat, lon){
+      const h = (state.huts||[]).find(x=>x.id===hutId);
+      if(!h) return;
+      if(!Array.isArray(h.points)) h.points = [];
+      h.points.push({label:'', lat, lon});
+      h.updatedAt = new Date().toISOString();
+      h.updatedBy = state.myName;
+      const ok = (typeof saveHutCloud === 'function') ? await saveHutCloud(h).catch(()=>false) : false;
+      h._unsynced = !ok;
+      showToast(ok ? 'Punkt zu "' + h.name + '" hinzugefügt.' : 'Punkt lokal hinzugefügt, aber nicht synchronisiert.', !ok);
+      renderStandaloneMap(containerId);
+    }
+    async function appendPointToSektorFromMap(sektorId, lat, lon){
+      const sek = (state.sektoren||[]).find(x=>x.id===sektorId);
+      if(!sek) return;
+      if(!Array.isArray(sek.points)) sek.points = [];
+      sek.points.push({label:'', lat, lon});
+      sek.updatedAt = new Date().toISOString();
+      sek.updatedBy = state.myName;
+      const ok = (typeof saveSektorCloud === 'function') ? await saveSektorCloud(sek).catch(()=>false) : false;
+      sek._unsynced = !ok;
+      showToast(ok ? 'Punkt zu "' + sek.name + '" hinzugefügt.' : 'Punkt lokal hinzugefügt, aber nicht synchronisiert.', !ok);
+      renderStandaloneMap(containerId);
+    }
+    // Öffnet das Neu-Anlegen-Formular mit dem getippten Punkt schon eingetragen — schliesst dazu
+    // erst die Vollbildkarte (wie die anderen *FromMap-Funktionen), damit sich Formular und Karte
+    // nicht überlagern.
+    function openAddTourFromMapWithPoint(lat, lon){
+      closeTopOverlayLayer();
+      if(typeof openAddTourWithPoint === 'function') openAddTourWithPoint(lat, lon);
+    }
+    function openAddHutFromMapWithPoint(lat, lon){
+      closeTopOverlayLayer();
+      if(typeof openAddHutWithPoint === 'function') openAddHutWithPoint(lat, lon);
+    }
+    function openAddSektorFromMapWithPoint(lat, lon){
+      closeTopOverlayLayer();
+      if(typeof openAddSektorWithPoint === 'function') openAddSektorWithPoint(lat, lon);
+    }
+    // Popup, das nach einem Tap auf eine leere Stelle im "Punkt setzen"-Modus erscheint: entweder
+    // den Punkt einer bestehenden Tour/Hütte/einem Sektor hinzufügen, oder gleich neu anlegen.
+    function pointPlacementPopupContent(lat, lon){
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '220px';
+      const title = document.createElement('p');
+      title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+      title.textContent = '📍 Neuer Punkt';
+      wrap.appendChild(title);
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'Bestehende Tour/Hütte' + (isFixseilApp ? '/Sektor' : '') + ' suchen …';
+      input.style.cssText = 'width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:13px; margin-bottom:4px;';
+      wrap.appendChild(input);
+      const results = document.createElement('div');
+      results.style.cssText = 'max-height:150px; overflow-y:auto;';
+      wrap.appendChild(results);
+      function renderResults(){
+        const q = input.value.trim().toLowerCase();
+        results.innerHTML = '';
+        if(!q) return;
+        searchIndex.filter(e=> e.appendPointFn && e.name.toLowerCase().includes(q)).slice(0,6).forEach(entry=>{
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.style.cssText = 'display:block; width:100%; text-align:left; background:none; border:none; border-top:1px solid var(--line); padding:6px 2px; font-size:13px; cursor:pointer; color:var(--ink);';
+          btn.textContent = entry.icon + ' ' + entry.name;
+          btn.addEventListener('click', ()=>{ map.closePopup(); entry.appendPointFn(lat, lon); });
+          results.appendChild(btn);
+        });
+      }
+      input.addEventListener('input', renderResults);
+      const divider = document.createElement('p');
+      divider.style.cssText = 'margin:8px 0 6px 0; padding-top:8px; border-top:1px solid var(--line); font-size:11.5px; color:var(--ink-faint);';
+      divider.textContent = 'Oder neu anlegen mit diesem Punkt:';
+      wrap.appendChild(divider);
+      const newBtnsWrap = document.createElement('div');
+      newBtnsWrap.style.cssText = 'display:flex; flex-direction:column; gap:6px;';
+      wrap.appendChild(newBtnsWrap);
+      function addNewBtn(label, onClick){
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = label;
+        b.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:7px 10px; font-size:12.5px; cursor:pointer;';
+        b.addEventListener('click', ()=>{ map.closePopup(); onClick(); });
+        newBtnsWrap.appendChild(b);
+      }
+      addNewBtn('+ Neue Tour', ()=> openAddTourFromMapWithPoint(lat, lon));
+      addNewBtn('+ Neue Hütte', ()=> openAddHutFromMapWithPoint(lat, lon));
+      if(isFixseilApp) addNewBtn('+ Neuer Sektor', ()=> openAddSektorFromMapWithPoint(lat, lon));
+      return wrap;
     }
     function openTourRouteFromMap(tourId, kind, routeId){
       modalOpenedFromStandaloneMap = true;
@@ -1867,13 +1981,13 @@ function renderStandaloneMap(containerId){
       const color = (TOUR_CATEGORY_META[catKey] || TOUR_CATEGORY_META.skitour).color;
       const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
       addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id), ()=> openTourEditFromMap(t.id)));
-      if(t.points && t.points.length) searchIndex.push({name: t.name, icon:'🏔️', label:'Tour öffnen', coords:[t.points[0].lat, t.points[0].lon], openFn: ()=> openTourFromMap(t.id), editFn: ()=> openTourEditFromMap(t.id)});
+      if(t.points && t.points.length) searchIndex.push({name: t.name, icon:'🏔️', label:'Tour öffnen', coords:[t.points[0].lat, t.points[0].lon], openFn: ()=> openTourFromMap(t.id), editFn: ()=> openTourEditFromMap(t.id), appendPointFn: (lat,lon)=> appendPointToTourFromMap(t.id, lat, lon)});
     });
     // Hütten (beide Apps) — eigener Standort/Linie, plus deren Zustiege.
     (state.huts || []).forEach(h=>{
       const track = (h.manualTrack && h.manualTrack.length) ? h.manualTrack : null;
       addMapEntity('huette', TOUR_CATEGORY_META.huette.color, track, h.points, ()=> mapPopupContent('🛖', h.name, 'Hütte öffnen', ()=> openHutFromMap(h.id), ()=> openHutEditFromMap(h.id)));
-      if(h.points && h.points.length) searchIndex.push({name: h.name, icon:'🛖', label:'Hütte öffnen', coords:[h.points[0].lat, h.points[0].lon], openFn: ()=> openHutFromMap(h.id), editFn: ()=> openHutEditFromMap(h.id)});
+      if(h.points && h.points.length) searchIndex.push({name: h.name, icon:'🛖', label:'Hütte öffnen', coords:[h.points[0].lat, h.points[0].lon], openFn: ()=> openHutFromMap(h.id), editFn: ()=> openHutEditFromMap(h.id), appendPointFn: (lat,lon)=> appendPointToHutFromMap(h.id, lat, lon)});
       (h.accessRoutes || []).forEach(r=>{
         const rTrack = routeTrack(r);
         if(!rTrack) return;
@@ -1896,7 +2010,7 @@ function renderStandaloneMap(containerId){
       (state.sektoren || []).forEach(sek=>{
         const track = (sek.manualTrack && sek.manualTrack.length) ? sek.manualTrack : null;
         addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id), ()=> openSektorEditFromMap(sek.id)));
-        if(sek.points && sek.points.length) searchIndex.push({name: sek.name, icon:'⛺', label:'Sektor öffnen', coords:[sek.points[0].lat, sek.points[0].lon], openFn: ()=> openSektorFromMap(sek.id), editFn: ()=> openSektorEditFromMap(sek.id)});
+        if(sek.points && sek.points.length) searchIndex.push({name: sek.name, icon:'⛺', label:'Sektor öffnen', coords:[sek.points[0].lat, sek.points[0].lon], openFn: ()=> openSektorFromMap(sek.id), editFn: ()=> openSektorEditFromMap(sek.id), appendPointFn: (lat,lon)=> appendPointToSektorFromMap(sek.id, lat, lon)});
         ['accessRoutes','descentRoutes'].forEach(field=>{
           const kind = field==='descentRoutes' ? 'descent' : 'access';
           (sek[field] || []).forEach(r=>{
@@ -2135,6 +2249,34 @@ function renderStandaloneMap(containerId){
       }
     });
     map.addControl(new GpsControl());
+
+    /* ================= Neuen Punkt direkt auf der Übersichtskarte setzen, ohne die Karte zu
+       wechseln. Bewusst zweistufig wie die Wanderungsplanung unten: erst diesen Knopf antippen
+       ("scharf schalten"), dann einen Tap auf die Karte — blosses Verschieben/Zoomen der Karte
+       verändert dadurch nie aus Versehen etwas. */
+    let addPointPicking = false;
+    const addPointBtn = document.createElement('div');
+    addPointBtn.id = 'add-point-toggle';
+    addPointBtn.style.cssText = 'position:absolute; left:50%; bottom:76px; transform:translateX(-50%); z-index:1000; background:#fff; border-radius:50%; box-shadow:0 3px 12px rgba(0,0,0,0.4); width:52px; height:52px; display:flex; align-items:center; justify-content:center; font-size:22px; cursor:pointer;';
+    L.DomEvent.disableClickPropagation(addPointBtn);
+    L.DomEvent.disableScrollPropagation(addPointBtn);
+    el2.appendChild(addPointBtn);
+    function renderAddPointBtn(){
+      addPointBtn.textContent = addPointPicking ? '✕' : '➕';
+      addPointBtn.title = addPointPicking ? 'Abbrechen' : 'Neuen Punkt setzen';
+      addPointBtn.style.background = addPointPicking ? 'var(--ice-deep)' : '#fff';
+      addPointBtn.style.color = addPointPicking ? '#fff' : '#2B2019';
+    }
+    addPointBtn.addEventListener('click', ()=>{
+      addPointPicking = !addPointPicking;
+      if(addPointPicking){
+        plannerPicking = null; // beide Modi gleichzeitig scharf wäre ein mehrdeutiger Zustand
+        renderPlannerPanel();
+        showToast('Tippe auf die Karte, um den Punkt zu setzen.');
+      }
+      renderAddPointBtn();
+    });
+    renderAddPointBtn();
 
     /* ================= Spontane Wanderung planen (Start/Ziel, Route berechnen, optional als
        Tour-Entwurf speichern) — eine ausklappbare Kachel am unteren Kartenrand, unabhängig von
@@ -2429,13 +2571,14 @@ function renderStandaloneMap(containerId){
       const startGpsBtn = plannerPanel.querySelector('[data-act="planner-start-gps"]');
       if(startGpsBtn) startGpsBtn.onclick = ()=>{ plannerStartMode = 'gps'; plannerPicking = null; useMyLocationAsStart(); };
       const startMapBtn = plannerPanel.querySelector('[data-act="planner-start-map"]');
-      if(startMapBtn) startMapBtn.onclick = ()=>{ plannerStartMode = 'map'; plannerPicking = 'start'; renderPlannerPanel(); showToast('Tippe auf die Karte, um den Startpunkt zu setzen.'); };
+      if(startMapBtn) startMapBtn.onclick = ()=>{ plannerStartMode = 'map'; plannerPicking = 'start'; addPointPicking = false; renderAddPointBtn(); renderPlannerPanel(); showToast('Tippe auf die Karte, um den Startpunkt zu setzen.'); };
       const endMapBtn = plannerPanel.querySelector('[data-act="planner-end-map"]');
-      if(endMapBtn) endMapBtn.onclick = ()=>{ plannerEndMode = 'map'; plannerPicking = 'end'; renderPlannerPanel(); showToast('Tippe auf die Karte, um den Zielpunkt zu setzen.'); };
+      if(endMapBtn) endMapBtn.onclick = ()=>{ plannerEndMode = 'map'; plannerPicking = 'end'; addPointPicking = false; renderAddPointBtn(); renderPlannerPanel(); showToast('Tippe auf die Karte, um den Zielpunkt zu setzen.'); };
       const addWaypointBtn = plannerPanel.querySelector('[data-act="planner-add-waypoint"]');
       if(addWaypointBtn) addWaypointBtn.onclick = ()=>{
         // Erneutes Antippen beendet den (sonst dauerhaften) Auswahlmodus wieder.
         plannerPicking = (plannerPicking==='waypoint') ? null : 'waypoint';
+        addPointPicking = false; renderAddPointBtn();
         renderPlannerPanel();
         if(plannerPicking==='waypoint') showToast('Tippe auf die Karte, um Zwischenpunkte zu setzen.');
       };

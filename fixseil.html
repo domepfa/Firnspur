@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v118-bearbeiten-im-popup';
+const APP_VERSION = 'v119-punkt-setzen-auf-karte';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1136,6 +1136,8 @@ async function submitName(nameVal, pinVal){
 
 /* ================= Actions ================= */
 function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:{tourCategory:'hochtour'}}; render(); }); }
+// Von der Übersichtskarte aus per "Punkt setzen" — siehe pointPlacementPopupContent in 0-shared.js.
+function openAddTourWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-tour', payload:{tourCategory:'hochtour', points:[{label:'', lat, lon}]}}; render(); }); }
 function openAddMsl(){ dlog('Klick auf "+ Neue MSL-Tour"'); ensureName(()=>{ state.tourCategoryFilter = 'msl'; state.modal = {type:'edit-tour', payload:{tourCategory:'msl'}}; render(); }); }
 function openAddKlettergarten(){ dlog('Klick auf "+ Neuer Klettergarten"'); ensureName(()=>{ state.tourCategoryFilter = 'klettergarten'; state.modal = {type:'edit-tour', payload:{tourCategory:'klettergarten'}}; render(); }); }
 function openEditTour(id){
@@ -1164,9 +1166,11 @@ function openTourDetail(id){
   render();
 }
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
+function openAddHutWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
 function openAddSektor(){ ensureName(()=>{ state.presetKlettergebietId = ''; state.modal = {type:'edit-sektor', payload:null}; render(); }); }
+function openAddSektorWithPoint(lat, lon){ ensureName(()=>{ state.presetKlettergebietId = ''; state.modal = {type:'edit-sektor', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditSektor(id){ ensureName(()=>{ const s = state.sektoren.find(x=>x.id===id); state.modal = {type:'edit-sektor', payload:s}; render(); }); }
 function openSektorDetail(id){ state.modal = {type:'sektor-detail', payload:id}; render(); }
 function openAddSektorInKlettergebiet(gebId){ ensureName(()=>{ state.presetKlettergebietId = gebId; state.modal = {type:'edit-sektor', payload:null}; render(); }); }

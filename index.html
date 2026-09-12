@@ -523,7 +523,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v118-bearbeiten-im-popup';
+const APP_VERSION = 'v119-punkt-setzen-auf-karte';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -742,9 +742,12 @@ async function submitName(nameVal, pinVal){
 
 /* ================= Actions ================= */
 function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:null}; render(); }); }
+// Von der Übersichtskarte aus per "Punkt setzen" — siehe pointPlacementPopupContent in 0-shared.js.
+function openAddTourWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-tour', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); state.modal = {type:'edit-tour', payload:t}; render(); }); }
 function openTourDetail(id){ state.modal = {type:'tour-detail', payload:id}; render(); }
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
+function openAddHutWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
 function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
 function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
