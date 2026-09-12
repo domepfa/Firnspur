@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v125-quick-edit-gpx-unified';
+const APP_VERSION = 'v126-tour-detail-one-map';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3606,7 +3606,6 @@ function tourDetailHtml(id){
       ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${t.id}" data-act="quick-edit-toggle" data-id="${t.id}" data-kind="tour">✏️ Punkte/Linie direkt bearbeiten</button>
-      <div id="quick-edit-map-${t.id}" style="margin-top:10px; display:none;"></div>
       <div id="quick-edit-list-${t.id}"></div>
       <input type="hidden" id="quick-points-hidden-${t.id}" value='${esc(JSON.stringify(t.points||[]))}'/>
       <input type="hidden" id="quick-manual-track-hidden-${t.id}" value='${esc(JSON.stringify(t.manualTrack||[]))}'/>
@@ -4351,7 +4350,12 @@ function wireModalHandlers(){
     btn.addEventListener('click', ()=>{
       const id = btn.getAttribute('data-id');
       const kind = btn.getAttribute('data-kind');
-      const mapDiv = document.getElementById(`quick-edit-map-${id}`);
+      // Bei Touren denselben Kartenbereich wiederverwenden, den auch "🗺️ Karte anzeigen" nutzt
+      // (map-tour-<id>) — sonst würde eine zweite, redundante Karte für dieselbe Tour aufgehen.
+      // Bei Hütten bleibt es beim eigenen Bereich, da "Karte anzeigen" dort etwas anderes zeigt
+      // (alle Zustiege zusammen, nicht nur die eigenen Punkte/Linie der Hütte).
+      const mapContainerId = kind==='tour' ? `map-tour-${id}` : `quick-edit-map-${id}`;
+      const mapDiv = document.getElementById(mapContainerId);
       const saveBtn = document.getElementById(`quick-save-btn-${id}`);
       if(mapDiv) mapDiv.style.display = '';
       if(saveBtn) saveBtn.style.display = '';
@@ -4367,7 +4371,7 @@ function wireModalHandlers(){
       }
       const qeRefTracks = refTracks.concat(siblingRouteRefTracks(item, null));
       const qeGpxConfig = (kind==='tour') ? { hiddenId: `quick-track-simplified-hidden-${id}`, id, trackPathPrefix: GPX_TRACKS_PATH, statusId: null } : null;
-      renderPointsEditorMap(`quick-edit-map-${id}`, `quick-points-hidden-${id}`, `quick-edit-list-${id}`, `quick-manual-track-hidden-${id}`, qeRefTracks, undefined, undefined, qeGpxConfig);
+      renderPointsEditorMap(mapContainerId, `quick-points-hidden-${id}`, `quick-edit-list-${id}`, `quick-manual-track-hidden-${id}`, qeRefTracks, undefined, undefined, qeGpxConfig);
     });
   });
 
