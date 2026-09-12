@@ -3533,11 +3533,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
             });
           }
         }
-        if(usingGpxTrack){
-          // Nur beim (max. 200 Punkte grossen, siehe simplifyTrackForStorage) eigenen GPX-Track:
-          // jeder Punkt einzeln verschiebbar/entfernbar, wie zuvor in der separaten GPX-Karte
-          // (renderGpxTrackEditorMap, jetzt entfernt) — bei einer berechneten Route mit u. U.
-          // hunderten Geometrie-Punkten wäre das unbrauchbar, daher hier bewusst nicht generell.
+        if(usingGpxTrack && mode==='line'){
+          // Nur beim (max. 200 Punkte grossen, siehe simplifyTrackForStorage) eigenen GPX-Track UND
+          // nur im Linie-Modus: jeder Punkt einzeln verschiebbar/entfernbar, wie zuvor in der
+          // separaten GPX-Karte (renderGpxTrackEditorMap, jetzt entfernt). Ausserhalb des Linie-
+          // Modus (Punkt/Route) bewusst nur als reine, nicht ziehbare Linie gezeigt — sonst könnte
+          // ein simples Verschieben/Zoomen der Karte versehentlich einen Punkt mitziehen. Bei einer
+          // berechneten Route mit u. U. hunderten Geometrie-Punkten wäre das ausserdem unbrauchbar.
           manualTrack.forEach((pt, i)=>{
             const vertexIcon = L.divIcon({
               className: 'gpx-edit-vertex-icon',
@@ -3667,6 +3669,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       lineActionsRow.style.display = mode==='line' ? 'flex' : 'none';
       routeActionsRow.style.display = mode==='route' ? 'block' : 'none';
       pointHint.style.display = mode==='point' ? '' : 'none';
+      // Zeigt/versteckt die ziehbaren Punkte des eigenen GPX-Tracks je nach Modus (siehe redrawLine).
+      if(typeof redrawLine === 'function') redrawLine();
     }
     setMode('point');
     updateRoutePanelState();
