@@ -3168,13 +3168,17 @@ function ownPointRefPoints(entity, label, color){
   if(!entity || !entity.points || !entity.points.length) return [];
   return entity.points.map(p=> ({lat:p.lat, lon:p.lon, label: label + (p.label ? ' – ' + p.label : ''), color: color||'#4A3524'}));
 }
-function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields){
+function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig){
   // autofillFields (optional): {ascent, descent, duration} — Formularfelder (DOM-Elemente), die nach
   // "Route berechnen" automatisch mit den berechneten Werten befüllt werden.
-  // refTracks: Array von {coords, color, label} — beliebig viele statische Referenzlinien (z. B. hochgeladene GPX-Tracks
-  // oder Zustiege/Abstiege desselben Elements), nur zur Orientierung, hier nicht bearbeitbar.
+  // refTracks: Array von {coords, color, label} — beliebig viele statische Referenzlinien (z. B. Zustiege/
+  // Abstiege desselben Elements oder GPX-Tracks anderer Einträge), nur zur Orientierung, hier nicht bearbeitbar.
   // refPoints: Array von {lat, lon, label, color} — analog, einzelne Referenz-Standorte (z. B. der Standort
   // der übergeordneten Hütte/Tour/Sektor beim Bearbeiten eines einzelnen Zustiegs).
+  // gpxConfig (optional): {hiddenId, idHiddenId, trackPathPrefix, statusId} — macht den EIGENEN hochgeladenen
+  // GPX-Track dieses Elements direkt in dieser Karte bearbeitbar (ziehen/entfernen einzelner Punkte, siehe
+  // redrawLine unten), statt ihn nur als feste Referenzlinie zu zeigen und für Korrekturen eine zweite,
+  // separate Karte zu benötigen ("zu viele Karten" — vorher gab es dafür renderGpxTrackEditorMap).
   refTracks = Array.isArray(refTracks) ? refTracks.filter(rt=>rt && rt.coords && rt.coords.length) : [];
   refPoints = Array.isArray(refPoints) ? refPoints.filter(rp=>rp && typeof rp.lat==='number' && typeof rp.lon==='number') : [];
   const el = document.getElementById(containerId);
@@ -3184,6 +3188,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const hiddenInput = document.getElementById(hiddenInputId);
     const listEl = document.getElementById(listContainerId);
     const manualTrackHidden = manualTrackHiddenId ? document.getElementById(manualTrackHiddenId) : null;
+    const gpxHiddenInput = (gpxConfig && gpxConfig.hiddenId) ? document.getElementById(gpxConfig.hiddenId) : null;
+    let gpxTrackFromHidden = null;
+    if(gpxHiddenInput && gpxHiddenInput.value){
+      try{ const parsed = JSON.parse(gpxHiddenInput.value); if(Array.isArray(parsed) && parsed.length) gpxTrackFromHidden = parsed; }catch(e){}
+    }
     if(!el2 || !hiddenInput) return;
     const mapDivId = containerId + '-inner';
     destroyExistingMap(mapDivId);
@@ -3235,6 +3244,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     pointHint.textContent = 'Lange drücken, um einen Punkt zu setzen. Normal antippen zeigt Infos zur Skitouren-Ebene (falls eingeschaltet).';
     wrapDiv.appendChild(pointHint);
 
+    if(gpxTrackFromHidden){
+      const gpxHint = document.createElement('p');
+      gpxHint.className = 'hint';
+      gpxHint.style.marginBottom = '4px';
+      gpxHint.textContent = '🔴 Rot: dein hochgeladener GPX-Track — im Linie-Modus einen Punkt ziehen zum Verschieben, lange drücken/Rechtsklick zum Entfernen, Karte antippen fügt einen Punkt am Ende hinzu.';
+      wrapDiv.appendChild(gpxHint);
+    }
     refTracks.forEach(rt=>{
       const refHint = document.createElement('p');
       refHint.className = 'hint';
@@ -3273,6 +3289,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     lineActionsRow.appendChild(undoBtn);
     lineActionsRow.appendChild(clearLineBtn);
     lineActionsRow.appendChild(finishBtn);
+    // Nur sichtbar, solange die Linie tatsächlich (noch) der eigene hochgeladene GPX-Track ist —
+    // schreibt die bearbeitete Linie zusätzlich als neue Originaldatei zurück, damit auch der
+    // "GPX herunterladen"-Button in der Detailansicht danach die korrigierte Version liefert.
+    const replaceGpxOriginalBtn = document.createElement('button');
+    replaceGpxOriginalBtn.type = 'button'; replaceGpxOriginalBtn.className = 'btn secondary'; replaceGpxOriginalBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; display:none;';
+    replaceGpxOriginalBtn.textContent = '💾 Original-GPX-Datei ersetzen';
+    lineActionsRow.appendChild(replaceGpxOriginalBtn);
     wrapDiv.appendChild(lineActionsRow);
 
     // Route-Modus als eigene, grün getönte Karte (passend zur grünen Routen-Farbe auf der Karte) —
@@ -3320,8 +3343,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
 
     let points = [];
     try{ points = JSON.parse(hiddenInput.value || '[]'); }catch(e){ points = []; }
-    let manualTrack = [];
-    if(manualTrackHidden){
+    // Ist ein eigener GPX-Track hochgeladen, wird DIESER zur bearbeitbaren Linie (statt einer separaten,
+    // nicht bearbeitbaren Referenzlinie plus einer zweiten Karte nur zum Korrigieren) — usingGpxTrack
+    // steuert, wohin persistTrack() schreibt und ob der "Original ersetzen"-Knopf sichtbar ist.
+    let usingGpxTrack = !!gpxTrackFromHidden;
+    let manualTrack = gpxTrackFromHidden ? gpxTrackFromHidden.map(p=>[p[0], p[1]]) : [];
+    if(!usingGpxTrack && manualTrackHidden){
       try{ manualTrack = JSON.parse(manualTrackHidden.value || '[]'); }catch(e){ manualTrack = []; }
     }
     let mode = 'point';
@@ -3369,7 +3396,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // lastRouteStats oben), damit die Historie einen Wechsel in/aus der Vollbildansicht überlebt.
     let undoStack = (manualTrackHidden && manualTrackHidden._undoStack) || [];
     function pushUndo(){
-      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats}));
+      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats, usingGpxTrack}));
       if(undoStack.length > 25) undoStack.shift();
       if(manualTrackHidden) manualTrackHidden._undoStack = undoStack;
       updateUndoBtn();
@@ -3387,10 +3414,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       points = snap.points;
       manualTrack = snap.manualTrack;
       routeWaypoints = snap.routeWaypoints;
+      usingGpxTrack = !!snap.usingGpxTrack;
       insertAfterWaypointIndex = null;
       setLastRouteStats(snap.lastRouteStats);
       hiddenInput.value = JSON.stringify(points);
-      if(manualTrackHidden) manualTrackHidden.value = JSON.stringify(manualTrack);
+      persistTrack();
+      updateGpxReplaceBtn();
       markModalDirty();
       renderList();
       redraw();
@@ -3411,7 +3440,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
     function persistTrack(){
       markModalDirty();
-      if(manualTrackHidden) manualTrackHidden.value = JSON.stringify(manualTrack);
+      const target = usingGpxTrack ? gpxHiddenInput : manualTrackHidden;
+      if(target) target.value = JSON.stringify(manualTrack);
+    }
+    // Blendet den "Original ersetzen"-Knopf ein/aus, je nachdem ob die Linie aktuell (noch) der
+    // eigene GPX-Track ist — nicht mehr der Fall, sobald z. B. eine neu berechnete Route sie ersetzt.
+    function updateGpxReplaceBtn(){
+      replaceGpxOriginalBtn.style.display = (usingGpxTrack && gpxConfig && manualTrack.length >= 2) ? 'inline-block' : 'none';
     }
     function renderList(){
       if(!listEl) return;
@@ -3488,7 +3523,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         // schmalen 4px-Linie mit dem Finger genau zu treffen ist auf dem Handy sehr schwierig.
         const hitLine = L.polyline(manualTrack, {color:'#000', weight:26, opacity:0}).addTo(lineLayer);
         L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(lineLayer);
-        L.polyline(manualTrack, {color:'#1565C0', weight:4, opacity:1}).addTo(lineLayer);
+        L.polyline(manualTrack, {color: usingGpxTrack ? '#E8384F' : '#1565C0', weight:4, opacity:1}).addTo(lineLayer);
         if(lastRouteStats){
           const statsText = formatRouteStats(lastRouteStats);
           if(statsText){
@@ -3498,7 +3533,52 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
             });
           }
         }
+        if(usingGpxTrack){
+          // Nur beim (max. 200 Punkte grossen, siehe simplifyTrackForStorage) eigenen GPX-Track:
+          // jeder Punkt einzeln verschiebbar/entfernbar, wie zuvor in der separaten GPX-Karte
+          // (renderGpxTrackEditorMap, jetzt entfernt) — bei einer berechneten Route mit u. U.
+          // hunderten Geometrie-Punkten wäre das unbrauchbar, daher hier bewusst nicht generell.
+          manualTrack.forEach((pt, i)=>{
+            const vertexIcon = L.divIcon({
+              className: 'gpx-edit-vertex-icon',
+              html: '<div style="width:12px; height:12px; border-radius:50%; background:#E8384F; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>',
+              iconSize: [12,12], iconAnchor: [6,6]
+            });
+            const marker = L.marker(pt, {icon: vertexIcon, draggable: true}).addTo(lineLayer);
+            marker.on('dragstart', ()=> pushUndo());
+            marker.on('dragend', ()=>{
+              const ll = marker.getLatLng();
+              manualTrack[i] = [ll.lat, ll.lng];
+              setLastRouteStats(null);
+              routeStatsEl.style.display = 'none';
+              routeStatsEl.innerHTML = '';
+              redrawLine();
+              persistTrack();
+            });
+            marker.on('click', (e)=> L.DomEvent.stopPropagation(e));
+            marker.on('contextmenu', (e)=>{
+              L.DomEvent.stopPropagation(e);
+              L.DomEvent.preventDefault(e.originalEvent);
+              const btn = document.createElement('button');
+              btn.type = 'button';
+              btn.textContent = '🗑️ Diesen Punkt entfernen';
+              btn.style.cssText = 'background:#B0392C; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+              btn.addEventListener('click', ()=>{
+                pushUndo();
+                manualTrack.splice(i, 1);
+                setLastRouteStats(null);
+                routeStatsEl.style.display = 'none';
+                routeStatsEl.innerHTML = '';
+                redrawLine();
+                persistTrack();
+                map.closePopup();
+              });
+              L.popup().setLatLng(pt).setContent(btn).openOn(map);
+            });
+          });
+        }
       }
+      updateGpxReplaceBtn();
     }
     redrawLine();
     // Kennzahlen-Kärtchen (inkl. Löschen-Knopf) gleich wiederherstellen, falls für die aktuelle
@@ -3612,6 +3692,24 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       persistTrack();
     });
     finishBtn.addEventListener('click', ()=> setMode('point'));
+    replaceGpxOriginalBtn.addEventListener('click', async ()=>{
+      if(!gpxConfig || manualTrack.length < 2) return;
+      const idInput = gpxConfig.idHiddenId ? document.getElementById(gpxConfig.idHiddenId) : null;
+      const trackId = idInput ? idInput.value : '';
+      const statusEl = gpxConfig.statusId ? document.getElementById(gpxConfig.statusId) : null;
+      if(!trackId){
+        if(statusEl){ statusEl.style.color = 'var(--danger)'; statusEl.textContent = 'Zuerst das Formular einmal speichern.'; }
+        return;
+      }
+      if(statusEl){ statusEl.style.color = 'var(--ink-soft)'; statusEl.textContent = 'Wird gespeichert…'; }
+      const gpx = buildGpxXml(manualTrack, 'Bearbeiteter Track');
+      const ok = await fbSet(gpxConfig.trackPathPrefix + '/' + trackId, { gpx, uploadedAt: new Date().toISOString(), fileName: 'bearbeitet.gpx' }).catch(()=>false);
+      if(statusEl){
+        statusEl.style.color = ok ? 'var(--ink-soft)' : 'var(--danger)';
+        statusEl.textContent = ok ? '✓ GPX-Track bereits hochgeladen.' : '⚠ Konnte nicht gespeichert werden (Internetverbindung prüfen).';
+      }
+      showToast(ok ? 'Original-GPX-Datei ersetzt — der Download-Button liefert jetzt diese Version.' : 'Konnte nicht gespeichert werden (Internetverbindung prüfen).', !ok);
+    });
 
     routeUndoBtn.addEventListener('click', ()=>{
       pushUndo();
@@ -3659,6 +3757,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         // bearbeiten" sie später wieder laden kann, um gezielt umzuleiten statt neu zu zeichnen.
         calculated.waypoints = routeWaypoints.map(wp=> [wp[0], wp[1]]);
         pushUndo();
+        // Eine neu berechnete Route ersetzt "die Linie" komplett — war das bisher der eigene
+        // GPX-Track, wird dessen Feld hier explizit geleert, statt eine veraltete Kopie stehen zu
+        // lassen (persistTrack() schreibt ab jetzt wieder in manualTrackHidden statt gpxHiddenInput).
+        if(usingGpxTrack && gpxHiddenInput) gpxHiddenInput.value = '';
+        usingGpxTrack = false;
         manualTrack = calculated.coords;
         setLastRouteStats(calculated);
         redrawLine();
@@ -3752,157 +3855,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     renderList();
     if(!isFullscreen){
       const btn = makeFullscreenButton(
-        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, refTracks, refPoints, autofillFields); },
-        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields); }
+        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig); },
+        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig); }
       );
       wrapDiv.appendChild(btn);
     }
-  }).catch(err=>{
-    const el3 = document.getElementById(containerId);
-    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
-  });
-}
-
-/* ================= Editierbarer GPX-Track =================
-   Ein hochgeladener GPX-Track (z. B. von einer Uhr aufgezeichnet) war bisher nur eine feste
-   Referenzlinie — nützlich zur Orientierung, aber nicht anpassbar, selbst wenn die Aufzeichnung
-   an einer Stelle einen schlechteren Weg zeigt als eigentlich möglich gewesen wäre. Anders als
-   beim Zuschneiden von Topo-Bildern gibt es hier kein CORS-Problem: der vereinfachte Track ist
-   nur eine Koordinatenliste, die schon im Formular liegt, kein extern zu ladendes Bild. Punkte
-   lassen sich hier direkt verschieben (ziehen), am Ende anhängen (Karte antippen) oder gezielt
-   entfernen (langes Drücken/Rechtsklick auf einen Punkt). "Änderungen speichern" schreibt die
-   bearbeitete Linie zusätzlich als neue Originaldatei zurück, sodass auch der bestehende
-   "GPX herunterladen"-Button danach die korrigierte Version liefert. */
-function renderGpxTrackEditorMap(containerId, hiddenInputId, tourIdHiddenId, trackPathPrefix, statusId){
-  const el = document.getElementById(containerId);
-  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
-    const el2 = document.getElementById(containerId);
-    const hiddenInput = document.getElementById(hiddenInputId);
-    if(!el2 || !hiddenInput) return;
-    const mapDivId = containerId + '-inner';
-    destroyExistingMap(mapDivId);
-    el2.innerHTML = '';
-
-    const wrapDiv = document.createElement('div');
-    const hint = document.createElement('p');
-    hint.className = 'hint';
-    hint.style.marginBottom = '6px';
-    hint.textContent = 'Punkt ziehen zum Verschieben, langes Drücken/Rechtsklick zum Entfernen, Karte antippen fügt einen Punkt am Ende hinzu.';
-    wrapDiv.appendChild(hint);
-
-    const mapDiv = document.createElement('div');
-    mapDiv.id = mapDivId;
-    mapDiv.style.cssText = 'height:280px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
-    wrapDiv.appendChild(mapDiv);
-
-    const btnRow = document.createElement('div');
-    btnRow.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;';
-    const resetBtn = document.createElement('button');
-    resetBtn.type = 'button'; resetBtn.className = 'btn secondary'; resetBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
-    resetBtn.textContent = '↺ Auf Originalzustand zurücksetzen';
-    const saveBtn = document.createElement('button');
-    saveBtn.type = 'button'; saveBtn.className = 'btn'; saveBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
-    saveBtn.textContent = '💾 Änderungen speichern & Original ersetzen';
-    btnRow.appendChild(resetBtn);
-    btnRow.appendChild(saveBtn);
-    wrapDiv.appendChild(btnRow);
-    const saveStatus = document.createElement('p');
-    saveStatus.style.cssText = 'font-size:12.5px; color:var(--ink-soft); margin:6px 0 0 0;';
-    wrapDiv.appendChild(saveStatus);
-
-    el2.appendChild(wrapDiv);
-
-    let points = [];
-    try{ points = JSON.parse(hiddenInput.value || '[]'); }catch(e){ points = []; }
-    const originalPoints = points.map(p=>[p[0], p[1]]);
-
-    const center = points.length ? points[Math.floor(points.length/2)] : [46.8182, 8.2275];
-    const map = L.map(mapDivId).setView(center, points.length ? 13 : 8);
-    registerMap(mapDivId, map);
-    addBaseLayerSwitcher(map);
-    if(points.length > 1){ try{ map.fitBounds(L.polyline(points).getBounds(), {padding:[20,20]}); }catch(e){} }
-
-    const lineLayer = L.layerGroup().addTo(map);
-    const markerLayer = L.layerGroup().addTo(map);
-
-    function persist(){
-      hiddenInput.value = JSON.stringify(points.map(p=>[Math.round(p[0]*1e6)/1e6, Math.round(p[1]*1e6)/1e6]));
-      markModalDirty();
-    }
-    function redraw(){
-      lineLayer.clearLayers();
-      markerLayer.clearLayers();
-      if(points.length > 1){
-        L.polyline(points, {color:'#ffffff', weight:6, opacity:0.6}).addTo(lineLayer);
-        L.polyline(points, {color:'#E8384F', weight:3, opacity:0.9}).addTo(lineLayer);
-      }
-      points.forEach((pt, i)=>{
-        // L.marker statt L.circleMarker: nur L.marker unterstützt draggable nativ (CircleMarker
-        // ist eine reine SVG-Form ohne DOM-Icon, an dem Leaflets Drag-Handler ansetzen könnte).
-        const vertexIcon = L.divIcon({
-          className: 'gpx-edit-vertex-icon',
-          html: '<div style="width:14px; height:14px; border-radius:50%; background:#E8384F; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>',
-          iconSize: [14,14], iconAnchor: [7,7]
-        });
-        const marker = L.marker(pt, {icon: vertexIcon, draggable: true}).addTo(markerLayer);
-        marker.on('dragend', ()=>{
-          const ll = marker.getLatLng();
-          points[i] = [ll.lat, ll.lng];
-          persist();
-          redraw();
-        });
-        marker.on('click', (e)=> L.DomEvent.stopPropagation(e));
-        marker.on('contextmenu', (e)=>{
-          L.DomEvent.stopPropagation(e);
-          L.DomEvent.preventDefault(e.originalEvent);
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.textContent = '🗑️ Diesen Punkt entfernen';
-          btn.style.cssText = 'background:#B0392C; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
-          btn.addEventListener('click', ()=>{
-            points.splice(i, 1);
-            persist();
-            redraw();
-            map.closePopup();
-          });
-          L.popup().setLatLng(pt).setContent(btn).openOn(map);
-        });
-      });
-    }
-    map.on('click', (e)=>{
-      points.push([e.latlng.lat, e.latlng.lng]);
-      persist();
-      redraw();
-    });
-    redraw();
-
-    resetBtn.addEventListener('click', ()=>{
-      points = originalPoints.map(p=>[p[0], p[1]]);
-      persist();
-      redraw();
-      saveStatus.textContent = '';
-    });
-    saveBtn.addEventListener('click', async ()=>{
-      if(points.length < 2){ saveStatus.style.color = 'var(--danger)'; saveStatus.textContent = 'Mindestens zwei Punkte nötig.'; return; }
-      const tourIdInput = tourIdHiddenId ? document.getElementById(tourIdHiddenId) : null;
-      const tourId = tourIdInput ? tourIdInput.value : '';
-      if(!tourId){ saveStatus.style.color = 'var(--danger)'; saveStatus.textContent = 'Zuerst das Formular einmal speichern.'; return; }
-      saveStatus.style.color = 'var(--ink-soft)';
-      saveStatus.textContent = 'Wird gespeichert…';
-      const gpx = buildGpxXml(points, 'Bearbeiteter Track');
-      const ok = await fbSet(trackPathPrefix + '/' + tourId, { gpx, uploadedAt: new Date().toISOString(), fileName: 'bearbeitet.gpx' }).catch(()=>false);
-      if(ok){
-        saveStatus.style.color = 'var(--ink-soft)';
-        saveStatus.textContent = '✓ Gespeichert — der Download-Button liefert jetzt diese Version.';
-        showToast('Bearbeiteter Track gespeichert.');
-      }else{
-        saveStatus.style.color = 'var(--danger)';
-        saveStatus.textContent = '⚠ Konnte nicht gespeichert werden (Internetverbindung prüfen).';
-      }
-      const statusEl = statusId ? document.getElementById(statusId) : null;
-      if(statusEl) statusEl.textContent = '✓ GPX-Track bereits hochgeladen.';
-    });
   }).catch(err=>{
     const el3 = document.getElementById(containerId);
     if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
@@ -4002,7 +3959,10 @@ function parseGpxTrackPoints(gpxText){
   return rtepts.map(pt=>({lat: parseFloat(pt.getAttribute('lat')), lon: parseFloat(pt.getAttribute('lon'))})).filter(p=>!isNaN(p.lat) && !isNaN(p.lon));
 }
 
-function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simplifiedHiddenId, statusId){
+function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simplifiedHiddenId, statusId, onSimplifiedReady){
+  // onSimplifiedReady (optional): wird aufgerufen, sobald die vereinfachte Linie im Formular steht
+  // (nicht erst nach dem — u. U. langsamen — Hochladen der Originaldatei) — damit eine bereits
+  // offene Punkte-Karte den frisch hochgeladenen Track sofort als bearbeitbare Linie zeigen kann.
   const file = fileInputEl.files && fileInputEl.files[0];
   if(!file) return;
   const statusEl = document.getElementById(statusId);
@@ -4020,6 +3980,7 @@ function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simpl
       const simplifiedInput = document.getElementById(simplifiedHiddenId);
       if(simplifiedInput) simplifiedInput.value = JSON.stringify(simplified.map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]));
       markModalDirty();
+      if(typeof onSimplifiedReady === 'function') onSimplifiedReady();
 
       const tourIdInput = document.getElementById(tourIdHiddenId);
       let trackId = tourIdInput.value;
@@ -5502,10 +5463,9 @@ function accessRouteFormHtml(hutId, route){
       <div class="field"><label>Link zu einer GPX-Datei</label><input type="url" name="gpxLink" value="${esc(r.gpxLink||'')}"/></div>
       <div class="field"><label>Eigenen GPX-Track hochladen</label>
         <input type="file" id="access-route-gpx-input" accept=".gpx,application/gpx+xml"/>
+        <div class="hint">Wird automatisch für die Kartenanzeige vereinfacht und direkt in der Karte unten bearbeitbar. Die Originaldatei bleibt separat gespeichert und ist jederzeit als Volldownload abrufbar.</div>
         <p id="access-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
-        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="access-route-gpx-edit-toggle-btn" style="margin-top:6px;">✏️ Auf Karte bearbeiten</button>
-        <button type="button" class="btn secondary" id="access-route-gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>
-        <div id="access-route-gpx-edit-map" style="display:none; margin-top:10px;"></div>` : ''}
+        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="access-route-gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>` : ''}
         <input type="hidden" name="trackSimplified" id="access-route-track-hidden" value='${esc(r.trackSimplified ? JSON.stringify(r.trackSimplified) : "")}'/>
         <input type="hidden" name="routeIdForTrack" id="access-route-id-for-track" value="${esc(r.id||'')}"/>
       </div>

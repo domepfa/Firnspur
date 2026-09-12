@@ -523,7 +523,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v122-map-view-restore-fix';
+const APP_VERSION = 'v123-gpx-editor-unified';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1574,11 +1574,9 @@ function tourFormHtml(existing){
       <div class="field"><label>Link zu einer GPX-Datei (optional)</label><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></div>
       <div class="field"><label>Eigenen GPX-Track hochladen</label>
         <input type="file" id="gpx-file-input" accept=".gpx,application/gpx+xml"/>
-        <div class="hint">Wird automatisch für die Kartenanzeige vereinfacht. Die Originaldatei bleibt separat gespeichert und ist jederzeit als Volldownload abrufbar.</div>
+        <div class="hint">Wird automatisch für die Kartenanzeige vereinfacht und direkt in der Karte unten ("Punkte &amp; Linie") bearbeitbar. Die Originaldatei bleibt separat gespeichert und ist jederzeit als Volldownload abrufbar.</div>
         <p id="gpx-upload-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${t.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
-        ${t.trackSimplified ? `<button type="button" class="btn secondary" id="gpx-edit-toggle-btn" style="margin-top:6px;">✏️ Auf Karte bearbeiten</button>
-        <button type="button" class="btn secondary" id="gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>
-        <div id="gpx-edit-map" style="display:none; margin-top:10px;"></div>` : ''}
+        ${t.trackSimplified ? `<button type="button" class="btn secondary" id="gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>` : ''}
         <input type="hidden" name="trackSimplified" id="track-simplified-hidden" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
         <input type="hidden" name="tourIdForTrack" id="tour-id-for-track" value="${esc(t.id||'')}"/>
       </div>
@@ -2167,10 +2165,11 @@ function wireModalHandlers(){
     const mapDiv = document.getElementById('points-map');
     if(mapDiv) mapDiv.style.display = '';
     const refTracks = [];
+    // Der eigene GPX-Track der Tour (falls vorhanden) wird nicht mehr als starre Referenzlinie
+    // gezeigt, sondern direkt in dieser Karte bearbeitbar (siehe gpxConfig unten) — ersetzt die
+    // vorherige separate "GPX auf Karte bearbeiten"-Karte.
     const tourTrackHidden = document.getElementById('track-simplified-hidden');
-    if(tourTrackHidden && tourTrackHidden.value){
-      try{ const t = JSON.parse(tourTrackHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8384F', label:'🔴 Rot: hochgeladener GPX-Track'}); }catch(e){}
-    }
+    const pmGpxConfig = tourTrackHidden ? { hiddenId: 'track-simplified-hidden', idHiddenId: 'tour-id-for-track', trackPathPrefix: GPX_TRACKS_PATH, statusId: 'gpx-upload-status' } : null;
     const hutSummerHidden = document.getElementById('track-simplified-summer-hidden');
     if(hutSummerHidden && hutSummerHidden.value){
       try{ const t = JSON.parse(hutSummerHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8B93E', label:'🟡 Gelb: Sommer-Zustieg (GPX)'}); }catch(e){}
@@ -2183,7 +2182,7 @@ function wireModalHandlers(){
     // dasselbe zu sehen ist und nichts beim Wechsel zwischen den Ansichten übersehen wird.
     let editEntity = state.modal && state.modal.payload;
     if(state.modal && state.modal.type==='edit-hut' && editEntity) migrateHutAccessRoutes(editEntity);
-    refTracks = refTracks.concat(siblingRouteRefTracks(editEntity, null));
+    const pmRefTracks = refTracks.concat(siblingRouteRefTracks(editEntity, null));
     // Bei "Route berechnen" Aufstieg/Abfahrt/Zeitbedarf gleich ins Tourformular übernehmen.
     const tourFormForAutofill = document.getElementById('tour-form');
     const pmAutofillFields = tourFormForAutofill ? {
@@ -2191,7 +2190,7 @@ function wireModalHandlers(){
       descent: tourFormForAutofill.querySelector('[name="elevationLoss"]'),
       duration: tourFormForAutofill.querySelector('[name="duration"]')
     } : null;
-    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', refTracks, undefined, pmAutofillFields);
+    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', pmRefTracks, undefined, pmAutofillFields, pmGpxConfig);
   });
   // Direkter Sprung von der Übersichtskarte ins Bearbeiten (siehe openTourEditFromMap &Co. in
   // 0-shared.js) öffnet die Punkte-Karte gleich mit, statt den Knopf oben extra antippen zu müssen.
@@ -2209,21 +2208,21 @@ function wireModalHandlers(){
     if(opening) renderCamptocampSearchBox('camptocamp-search-box', 'tour-link-input');
   });
 
+  // War die Punkte-Karte schon offen, gleich neu zeichnen, damit ein frisch hochgeladener oder
+  // entfernter Track sofort dort erscheint/verschwindet, statt erst nach erneutem Antippen von
+  // "Karte öffnen".
+  function refreshPointsMapIfOpen(){
+    const pointsMapDiv = document.getElementById('points-map');
+    if(pointsMapDiv && pointsMapDiv.style.display !== 'none' && pointsMapToggleBtn) pointsMapToggleBtn.click();
+  }
   const gpxFileInput = root.querySelector('#gpx-file-input');
   if(gpxFileInput) gpxFileInput.addEventListener('change', ()=>{
-    handleGpxFileUpload(gpxFileInput, GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status');
+    handleGpxFileUpload(gpxFileInput, GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status', refreshPointsMapIfOpen);
   });
   const gpxRemoveBtn = root.querySelector('#gpx-remove-btn');
-  if(gpxRemoveBtn) gpxRemoveBtn.addEventListener('click', ()=>{
-    removeGpxTrack(GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status', 'gpx-remove-btn');
-  });
-  const gpxEditToggleBtn = root.querySelector('#gpx-edit-toggle-btn');
-  if(gpxEditToggleBtn) gpxEditToggleBtn.addEventListener('click', ()=>{
-    const mapDiv = document.getElementById('gpx-edit-map');
-    if(!mapDiv) return;
-    const opening = mapDiv.style.display === 'none';
-    mapDiv.style.display = opening ? '' : 'none';
-    if(opening) renderGpxTrackEditorMap('gpx-edit-map', 'track-simplified-hidden', 'tour-id-for-track', GPX_TRACKS_PATH, 'gpx-upload-status');
+  if(gpxRemoveBtn) gpxRemoveBtn.addEventListener('click', async ()=>{
+    await removeGpxTrack(GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status', 'gpx-remove-btn');
+    refreshPointsMapIfOpen();
   });
   const gpxFileInputHutSummer = root.querySelector('#gpx-file-input-summer');
   if(gpxFileInputHutSummer) gpxFileInputHutSummer.addEventListener('change', ()=>{
@@ -2644,32 +2643,24 @@ function wireModalHandlers(){
       });
     });
 
+    const routeMapToggleBtn = document.getElementById('access-route-map-toggle-btn');
+    function refreshAccessRouteMapIfOpen(){
+      const mapDiv = document.getElementById('access-route-map');
+      if(mapDiv && mapDiv.style.display !== 'none' && routeMapToggleBtn) routeMapToggleBtn.click();
+    }
     const gpxInput = document.getElementById('access-route-gpx-input');
     if(gpxInput) gpxInput.addEventListener('change', ()=>{
-      handleGpxFileUpload(gpxInput, ACCESS_ROUTE_GPX_PATH, 'access-route-id-for-track', 'access-route-track-hidden', 'access-route-gpx-status');
+      handleGpxFileUpload(gpxInput, ACCESS_ROUTE_GPX_PATH, 'access-route-id-for-track', 'access-route-track-hidden', 'access-route-gpx-status', refreshAccessRouteMapIfOpen);
     });
     const gpxRemoveBtn = document.getElementById('access-route-gpx-remove-btn');
-    if(gpxRemoveBtn) gpxRemoveBtn.addEventListener('click', ()=>{
-      removeGpxTrack(ACCESS_ROUTE_GPX_PATH, 'access-route-id-for-track', 'access-route-track-hidden', 'access-route-gpx-status', 'access-route-gpx-remove-btn');
-    });
-    const gpxEditToggleBtn = document.getElementById('access-route-gpx-edit-toggle-btn');
-    if(gpxEditToggleBtn) gpxEditToggleBtn.addEventListener('click', ()=>{
-      const mapDiv = document.getElementById('access-route-gpx-edit-map');
-      if(!mapDiv) return;
-      const opening = mapDiv.style.display === 'none';
-      mapDiv.style.display = opening ? '' : 'none';
-      if(opening) renderGpxTrackEditorMap('access-route-gpx-edit-map', 'access-route-track-hidden', 'access-route-id-for-track', ACCESS_ROUTE_GPX_PATH, 'access-route-gpx-status');
+    if(gpxRemoveBtn) gpxRemoveBtn.addEventListener('click', async ()=>{
+      await removeGpxTrack(ACCESS_ROUTE_GPX_PATH, 'access-route-id-for-track', 'access-route-track-hidden', 'access-route-gpx-status', 'access-route-gpx-remove-btn');
+      refreshAccessRouteMapIfOpen();
     });
 
-    const routeMapToggleBtn = document.getElementById('access-route-map-toggle-btn');
     if(routeMapToggleBtn) routeMapToggleBtn.addEventListener('click', ()=>{
       const mapDiv = document.getElementById('access-route-map');
       if(mapDiv) mapDiv.style.display = '';
-      const trackHidden = document.getElementById('access-route-track-hidden');
-      const refTracks = [];
-      if(trackHidden && trackHidden.value){
-        try{ const t = JSON.parse(trackHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8384F', label:'🔴 Rot: hochgeladener GPX-Track'}); }catch(e){}
-      }
       if(!document.getElementById('access-route-points-dummy')){
         const dummy = document.createElement('input');
         dummy.type = 'hidden'; dummy.id = 'access-route-points-dummy'; dummy.value = '[]';
@@ -2681,10 +2672,11 @@ function wireModalHandlers(){
       const routeIdField = accessRouteForm.querySelector('[name="routeId"]');
       const hut = hutIdField ? state.huts.find(h=>h.id===hutIdField.value) : null;
       if(hut) migrateHutAccessRoutes(hut);
-      const arRefTracks = refTracks.concat(siblingRouteRefTracks(hut, routeIdField ? routeIdField.value : null));
+      const arRefTracks = siblingRouteRefTracks(hut, routeIdField ? routeIdField.value : null);
       const arRefPoints = ownPointRefPoints(hut, hut ? hut.name : 'Hütte', '#8A5A2E');
       const arAutofillFields = { ascent: accessRouteForm.querySelector('[name="elevation"]'), duration: accessRouteForm.querySelector('[name="duration"]') };
-      renderPointsEditorMap('access-route-map', 'access-route-points-dummy', 'access-route-points-dummy-list', 'access-route-manual-track-hidden', arRefTracks, arRefPoints, arAutofillFields);
+      const arGpxConfig = { hiddenId: 'access-route-track-hidden', idHiddenId: 'access-route-id-for-track', trackPathPrefix: ACCESS_ROUTE_GPX_PATH, statusId: 'access-route-gpx-status' };
+      renderPointsEditorMap('access-route-map', 'access-route-points-dummy', 'access-route-points-dummy-list', 'access-route-manual-track-hidden', arRefTracks, arRefPoints, arAutofillFields, arGpxConfig);
     });
 
     const routeSaveBtn = document.getElementById('access-route-save-btn');
