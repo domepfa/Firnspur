@@ -3204,6 +3204,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     modeRow.appendChild(routeModeBtn);
     wrapDiv.appendChild(modeRow);
 
+    // Mehrstufiges Rückgängig für alle drei Modi (Punkt/Linie/Route) — immer sichtbar, nicht an
+    // einen Modus gebunden, damit z. B. ein versehentlich gelöschter Punkt oder eine ganze
+    // gelöschte Route wiederhergestellt werden kann, auch über mehrere Schritte hinweg.
+    const undoAllBtn = document.createElement('button');
+    undoAllBtn.type = 'button';
+    undoAllBtn.className = 'btn secondary';
+    undoAllBtn.style.cssText = 'width:100%; margin-bottom:8px; font-size:12.5px; padding:7px 12px;';
+    undoAllBtn.textContent = '↩️ Rückgängig';
+    wrapDiv.appendChild(undoAllBtn);
+
     const pointHint = document.createElement('p');
     pointHint.className = 'hint';
     pointHint.style.marginBottom = '4px';
@@ -3321,6 +3331,10 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     let lineLayer = L.layerGroup().addTo(map);
     let routeLayer = L.layerGroup().addTo(map);
     let routeWaypoints = [];
+    // Gesetzt durch "➕ Zwischenpunkt danach setzen" (Klick auf einen Wegpunkt) — der nächste
+    // Kartenklick fügt den neuen Punkt dort ein, statt ihn ans Ende der Liste anzuhängen. So lässt
+    // sich eine bestehende Route gezielt umleiten, ohne sie komplett neu zeichnen zu müssen.
+    let insertAfterWaypointIndex = null;
     // Kennzahlen der zuletzt berechneten Route — auf den Strich tippen zeigt sie erneut an
     // (klein/vergänglich unter der Karte reicht sonst nicht: kaum lesbar und beim Verlassen weg).
     // Wird zurückgesetzt, sobald die Linie manuell verändert wird (dann stimmen die Zahlen nicht mehr).
@@ -3334,6 +3348,46 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       lastRouteStats = v;
       if(manualTrackHidden) manualTrackHidden._routeStats = v;
     }
+
+    // Mehrstufiges Rückgängig: vor jeder zerstörenden Aktion (Punkt/Linie/Wegpunkt entfernen,
+    // Route neu berechnen/löschen) wird ein Snapshot abgelegt. An manualTrackHidden gehängt (wie
+    // lastRouteStats oben), damit die Historie einen Wechsel in/aus der Vollbildansicht überlebt.
+    let undoStack = (manualTrackHidden && manualTrackHidden._undoStack) || [];
+    function pushUndo(){
+      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats}));
+      if(undoStack.length > 25) undoStack.shift();
+      if(manualTrackHidden) manualTrackHidden._undoStack = undoStack;
+      updateUndoBtn();
+    }
+    function updateUndoBtn(){
+      const n = undoStack.length;
+      undoAllBtn.disabled = n === 0;
+      undoAllBtn.style.opacity = n === 0 ? '0.4' : '1';
+      undoAllBtn.style.cursor = n === 0 ? 'default' : 'pointer';
+      undoAllBtn.textContent = '↩️ Rückgängig' + (n > 0 ? ' (' + n + ')' : '');
+    }
+    function performUndo(){
+      if(!undoStack.length) return;
+      const snap = JSON.parse(undoStack.pop());
+      points = snap.points;
+      manualTrack = snap.manualTrack;
+      routeWaypoints = snap.routeWaypoints;
+      insertAfterWaypointIndex = null;
+      setLastRouteStats(snap.lastRouteStats);
+      hiddenInput.value = JSON.stringify(points);
+      if(manualTrackHidden) manualTrackHidden.value = JSON.stringify(manualTrack);
+      markModalDirty();
+      renderList();
+      redraw();
+      redrawLine();
+      redrawRoute();
+      if(lastRouteStats) renderRouteStatCards(routeStatsEl, lastRouteStats, clearCalculatedRoute, editCalculatedRoute);
+      else { routeStatsEl.style.display = 'none'; routeStatsEl.innerHTML = ''; }
+      updateUndoBtn();
+      showToast('Rückgängig gemacht.');
+    }
+    undoAllBtn.addEventListener('click', performUndo);
+    updateUndoBtn();
 
     function persist(){
       hiddenInput.value = JSON.stringify(points);
@@ -3392,6 +3446,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       delBtn.textContent = 'Entfernen';
       delBtn.style.cssText = 'background:#fff; color:#B0392C; border:1px solid #B0392C; border-radius:3px; padding:6px 10px; font-size:12.5px; cursor:pointer;';
       delBtn.addEventListener('click', ()=>{
+        pushUndo();
         points = points.filter(p=>p!==point);
         persist();
         redraw();
@@ -3434,18 +3489,64 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // Kennzahlen-Kärtchen (inkl. Löschen-Knopf) gleich wiederherstellen, falls für die aktuelle
     // Linie schon welche vorliegen (z. B. nach Rückkehr aus der Vollbildansicht) — sonst wäre die
     // Route zwar noch sichtbar, aber ohne erneut antippbaren Popup und ohne Löschen-Möglichkeit.
-    if(lastRouteStats) renderRouteStatCards(routeStatsEl, lastRouteStats, clearCalculatedRoute);
+    if(lastRouteStats) renderRouteStatCards(routeStatsEl, lastRouteStats, clearCalculatedRoute, editCalculatedRoute);
 
     function redrawRoute(){
       routeLayer.clearLayers();
       routeWaypoints.forEach((wp, i)=>{
-        L.circleMarker(wp, {radius:11, color:'#fff', weight:2, fillColor:'#2F6B44', fillOpacity:1}).addTo(routeLayer)
+        const marker = L.circleMarker(wp, {radius:11, color:'#fff', weight:2, fillColor:'#2F6B44', fillOpacity:1}).addTo(routeLayer)
           .bindTooltip(String(i+1), {permanent:true, direction:'center', className:'route-waypoint-label'});
+        // Auf einen Wegpunkt tippen erlaubt gezieltes Einfügen/Entfernen an dieser Stelle — vorher
+        // liess sich nur der jeweils letzte Wegpunkt entfernen bzw. nur am Ende neu anhängen.
+        marker.on('click', (e)=>{
+          L.DomEvent.stopPropagation(e);
+          const wrap = document.createElement('div');
+          wrap.style.minWidth = '200px';
+          const insertBtn = document.createElement('button');
+          insertBtn.type = 'button';
+          insertBtn.textContent = '➕ Zwischenpunkt danach setzen';
+          insertBtn.style.cssText = 'width:100%; margin-bottom:6px; background:#2F6B44; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+          insertBtn.addEventListener('click', ()=>{
+            insertAfterWaypointIndex = i;
+            routeStatus.style.color = 'var(--ink-soft)';
+            routeStatus.textContent = 'Nächster Kartentipp fügt einen Punkt nach Wegpunkt ' + (i+1) + ' ein.';
+            map.closePopup();
+          });
+          const delWpBtn = document.createElement('button');
+          delWpBtn.type = 'button';
+          delWpBtn.textContent = '🗑️ Diesen Wegpunkt entfernen';
+          delWpBtn.style.cssText = 'width:100%; background:#fff; color:#B0392C; border:1px solid #B0392C; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+          delWpBtn.addEventListener('click', ()=>{
+            pushUndo();
+            routeWaypoints.splice(i, 1);
+            if(insertAfterWaypointIndex === i) insertAfterWaypointIndex = null;
+            redrawRoute();
+            map.closePopup();
+          });
+          wrap.appendChild(insertBtn);
+          wrap.appendChild(delWpBtn);
+          L.popup().setLatLng(wp).setContent(wrap).openOn(map);
+        });
       });
       if(routeWaypoints.length > 1){
         L.polyline(routeWaypoints, {color:'#2F6B44', weight:2, opacity:0.6, dashArray:'6,6'}).addTo(routeLayer);
       }
       updateRoutePanelState();
+    }
+    // Lädt die Wegpunkte einer bereits berechneten Route wieder in den Route-Modus, damit sie
+    // gezielt verändert (Zwischenpunkt einfügen/entfernen, siehe redrawRoute oben) und neu
+    // berechnet werden kann — vorher liess sich eine bestehende Route nur komplett löschen und
+    // von Null neu zeichnen ("Diese Route löschen").
+    function editCalculatedRoute(){
+      if(!lastRouteStats || !Array.isArray(lastRouteStats.waypoints) || lastRouteStats.waypoints.length < 2){
+        showToast('Für diese (ältere) Route sind keine Wegpunkte zum Bearbeiten gespeichert — bitte neu zeichnen.', true);
+        return;
+      }
+      routeWaypoints = lastRouteStats.waypoints.map(wp=> [wp[0], wp[1]]);
+      insertAfterWaypointIndex = null;
+      setMode('route');
+      redrawRoute();
+      showToast('Wegpunkte geladen — Wegpunkt antippen zum Einfügen/Entfernen, dann neu berechnen.');
     }
     // Zähler + Zustand des "Route berechnen"-Knopfs: erst ab zwei Wegpunkten farbig/aktiv,
     // sonst gedämpft und deaktiviert — macht auf einen Blick klar, wann es losgehen kann.
@@ -3478,6 +3579,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     lineModeBtn.addEventListener('click', ()=> setMode('line'));
     routeModeBtn.addEventListener('click', ()=> setMode('route'));
     undoBtn.addEventListener('click', ()=>{
+      pushUndo();
       manualTrack.pop();
       setLastRouteStats(null);
       routeStatsEl.style.display = 'none';
@@ -3486,6 +3588,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       persistTrack();
     });
     clearLineBtn.addEventListener('click', ()=>{
+      pushUndo();
       manualTrack.length = 0;
       setLastRouteStats(null);
       routeStatsEl.style.display = 'none';
@@ -3496,17 +3599,21 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     finishBtn.addEventListener('click', ()=> setMode('point'));
 
     routeUndoBtn.addEventListener('click', ()=>{
+      pushUndo();
       routeWaypoints.pop();
       redrawRoute();
     });
     clearRouteBtn.addEventListener('click', ()=>{
+      pushUndo();
       routeWaypoints.length = 0;
+      insertAfterWaypointIndex = null;
       redrawRoute();
       routeStatus.textContent = '';
     });
     // Löscht die zuletzt berechnete Route wieder — direkt neben den Kennzahlen erreichbar,
     // statt dass man erst wissen muss, dass eine Route technisch auch nur eine "Linie" ist.
     function clearCalculatedRoute(){
+      pushUndo();
       manualTrack = [];
       setLastRouteStats(null);
       redrawLine();
@@ -3533,15 +3640,20 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       calcRouteBtn.disabled = true;
       try{
         const calculated = await fetchCalculatedRoute(routeWaypoints);
+        // Die Wegpunkte selbst mit ablegen (nicht nur die berechnete Linie) — damit "Route
+        // bearbeiten" sie später wieder laden kann, um gezielt umzuleiten statt neu zu zeichnen.
+        calculated.waypoints = routeWaypoints.map(wp=> [wp[0], wp[1]]);
+        pushUndo();
         manualTrack = calculated.coords;
         setLastRouteStats(calculated);
         redrawLine();
         persistTrack();
         routeWaypoints = [];
+        insertAfterWaypointIndex = null;
         redrawRoute();
         routeStatus.textContent = '';
         setMode('point');
-        renderRouteStatCards(routeStatsEl, calculated, clearCalculatedRoute);
+        renderRouteStatCards(routeStatsEl, calculated, clearCalculatedRoute, editCalculatedRoute);
         const filledLabels = [];
         if(autofillFields){
           if(autofillFields.ascent && typeof calculated.ascentM==='number'){
@@ -3569,6 +3681,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
 
     map.on('click', async (e)=>{
       if(mode==='line'){
+        pushUndo();
         manualTrack.push([e.latlng.lat, e.latlng.lng]);
         setLastRouteStats(null);
         routeStatsEl.style.display = 'none';
@@ -3576,7 +3689,17 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         redrawLine();
         persistTrack();
       }else if(mode==='route'){
-        routeWaypoints.push([e.latlng.lat, e.latlng.lng]);
+        pushUndo();
+        if(insertAfterWaypointIndex !== null){
+          // Wurde über "➕ Zwischenpunkt danach setzen" (siehe redrawRoute) angefordert: fügt den
+          // neuen Wegpunkt gezielt an dieser Stelle ein, statt ihn ans Ende der Liste anzuhängen —
+          // so lässt sich eine bestehende Route gezielt umleiten.
+          routeWaypoints.splice(insertAfterWaypointIndex + 1, 0, [e.latlng.lat, e.latlng.lng]);
+          insertAfterWaypointIndex = null;
+          routeStatus.textContent = '';
+        }else{
+          routeWaypoints.push([e.latlng.lat, e.latlng.lng]);
+        }
         redrawRoute();
       }else if(skitourenLayer && map.hasLayer(skitourenLayer)){
         // Punkt-Modus + Skitouren-Ebene eingeschaltet: ein normaler Klick zeigt Infos zur
@@ -3600,6 +3723,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       btn.textContent = '📍 Punkt hier setzen';
       btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
       btn.addEventListener('click', ()=>{
+        pushUndo();
         points.push({ label:'', lat: e.latlng.lat, lon: e.latlng.lng, _justAdded:true });
         redraw();
         persist();
@@ -4095,7 +4219,7 @@ function formatRouteStats(r){
 // einzelnen schwer lesbaren Textzeile — je eins für Distanz, Höhenmeter und Zeit — plus einen
 // Löschen-Knopf direkt daneben (vorher liess sich die berechnete Route nur finden, indem man
 // erst in den Linie-Modus wechselte — nicht offensichtlich, da sie ja über "Route" entstand).
-function renderRouteStatCards(el, r, onDelete){
+function renderRouteStatCards(el, r, onDelete, onEdit){
   const cards = [];
   if(typeof r.distanceM==='number'){
     cards.push({icon:'📏', value: r.distanceM >= 1000 ? (r.distanceM/1000).toFixed(1).replace('.', ',') + ' km' : Math.round(r.distanceM) + ' m', label:'Distanz'});
@@ -4115,8 +4239,11 @@ function renderRouteStatCards(el, r, onDelete){
       <div style="font-size:10.5px; color:var(--ink-soft);">${esc(c.label)}</div>
     </div>`
   ).join('')
+    + (onEdit ? '<button type="button" data-act="edit-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid #2F6B44; color:#2F6B44; border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">✏️ Route bearbeiten</button>' : '')
     + '<button type="button" data-act="delete-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid var(--danger); color:var(--danger); border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">🗑️ Diese Route löschen</button>'
     + '<p style="width:100%; margin:6px 0 0 0; font-size:11.5px; color:var(--ink-faint);">Auf den Routenstrich tippen zeigt dies erneut an. Grobe Schätzung, ohne Pausen.</p>';
+  const editBtn = el.querySelector('[data-act="edit-calculated-route"]');
+  if(editBtn && onEdit) editBtn.addEventListener('click', onEdit);
   const deleteBtn = el.querySelector('[data-act="delete-calculated-route"]');
   if(deleteBtn && onDelete) deleteBtn.addEventListener('click', onDelete);
 }
