@@ -1948,13 +1948,16 @@ function renderStandaloneMap(containerId){
           let expanded = false;
           function renderControl(){
             wrap.innerHTML = '';
+            // margin-top schiebt den Button unter den schwebenden "✕ Schliessen"-Button der
+            // Vollbildkarte (position:fixed, oben rechts, z-index:100000) — sonst liegt der
+            // Suchen-Button optisch exakt darunter und ist unauffindbar.
             if(!expanded){
-              wrap.style.cssText = 'background:#fff; border-radius:50%; width:40px; height:40px; box-shadow:0 2px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px;';
+              wrap.style.cssText = 'margin-top:64px; background:#fff; border-radius:50%; width:40px; height:40px; box-shadow:0 2px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px;';
               wrap.onclick = ()=>{ expanded = true; renderControl(); wrap.querySelector('input').focus(); };
               wrap.title = 'Suchen';
               wrap.textContent = '🔍';
             }else{
-              wrap.style.cssText = 'background:rgba(255,255,255,0.97); padding:8px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.35); width:220px;';
+              wrap.style.cssText = 'margin-top:64px; background:rgba(255,255,255,0.97); padding:8px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.35); width:220px;';
               wrap.onclick = null;
               const row = document.createElement('div');
               row.style.cssText = 'display:flex; gap:4px; align-items:center;';

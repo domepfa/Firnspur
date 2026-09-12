@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v115-gipfelkarte-infos';
+const APP_VERSION = 'v116-gipfelhoehe-kartensuche-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -951,6 +951,7 @@ async function loadAll(){
   // Einmalig pro Ladevorgang statt bei jedem render(): alte Hochtouren ohne Gipfel-Verknüpfung
   // automatisch nachziehen (kein Seiteneffekt in der Filter-/Anzeigelogik).
   state.tours.filter(t=>t.tourCategory==='hochtour').forEach(ensureTourSummitLinks);
+  backfillGipfelAltitudes();
   render();
 
   // Wiedergefundene, noch nicht synchronisierte Einträge jetzt automatisch
@@ -1050,8 +1051,27 @@ function linkTourToDefaultGipfel(t){
   if(Array.isArray(t.summitIds) && t.summitIds.length) return false;
   const g = findOrCreateGipfelByName(t.name);
   if(!g) return false;
+  backfillGipfelAltitudeFrom(g, t);
   t.summitIds = [g.id];
   return true;
+}
+// Übernimmt die Zielhöhe einer Tour in den Gipfel, falls dieser noch keine eigene Höhe trägt —
+// ein neu angelegter Gipfel startet sonst ohne Höhenangabe, obwohl die verlinkte Tour sie längst hat.
+function backfillGipfelAltitudeFrom(g, t){
+  if(g.altitude || !t.targetAltitude) return;
+  g.altitude = t.targetAltitude;
+  g.updatedAt = new Date().toISOString();
+  g.updatedBy = state.myName;
+  saveGipfelCloud(g).catch(()=>{ g._unsynced = true; });
+}
+// Rückwirkende Reparatur für bereits angelegte Gipfel ohne Höhe (z. B. migriert, bevor dieser
+// Rückfall existierte) — holt die Höhe bei Bedarf von irgendeiner aktuell verlinkten Tour nach.
+function backfillGipfelAltitudes(){
+  state.gipfel.forEach(g=>{
+    if(g.altitude) return;
+    const t = state.tours.find(t=>Array.isArray(t.summitIds) && t.summitIds.includes(g.id) && t.targetAltitude);
+    if(t) backfillGipfelAltitudeFrom(g, t);
+  });
 }
 // Einmalige Migration beim Laden: alte Hochtouren ohne summitIds automatisch verknüpfen UND
 // die Tour selbst gleich speichern (im Gegensatz zu linkTourToDefaultGipfel, das der
