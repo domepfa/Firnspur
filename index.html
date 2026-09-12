@@ -523,7 +523,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v124-gpx-points-edit-mode-guard';
+const APP_VERSION = 'v125-quick-edit-gpx-unified';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1690,6 +1690,7 @@ function tourDetailHtml(id){
       <div id="quick-edit-list-${t.id}"></div>
       <input type="hidden" id="quick-points-hidden-${t.id}" value='${esc(JSON.stringify(t.points||[]))}'/>
       <input type="hidden" id="quick-manual-track-hidden-${t.id}" value='${esc(JSON.stringify(t.manualTrack||[]))}'/>
+      <input type="hidden" id="quick-track-simplified-hidden-${t.id}" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
       <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${t.id}" data-act="quick-save" data-id="${t.id}" data-kind="tour">💾 Änderungen speichern</button>
     </div>
     ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.topoImages && t.topoImages.length)) ? offlineSectionHtml(t.id) : ''}
@@ -2305,16 +2306,16 @@ function wireModalHandlers(){
       const list = kind==='tour' ? state.tours : state.huts;
       const item = list.find(x=>x.id===id);
       const refTracks = [];
-      if(item && kind==='tour' && item.trackSimplified && item.trackSimplified.length){
-        refTracks.push({coords:item.trackSimplified, color:'#E8384F', label:'🔴 Rot: hochgeladener GPX-Track'});
-      }
+      // Bei Touren wird der eigene GPX-Track jetzt direkt editierbar (gpxConfig unten) statt nur als
+      // Referenz gezeigt — sonst dieselbe Redundanz wie zuvor im vollen Bearbeiten-Formular.
       if(item && kind==='hut'){
         if(item.trackSimplifiedSummer && item.trackSimplifiedSummer.length) refTracks.push({coords:item.trackSimplifiedSummer, color:'#E8B93E', label:'🟡 Gelb: Sommer-Zustieg (GPX)'});
         if(item.trackSimplifiedWinter && item.trackSimplifiedWinter.length) refTracks.push({coords:item.trackSimplifiedWinter, color:'#1565C0', label:'🔵 Blau: Winter-Zustieg (GPX)'});
         migrateHutAccessRoutes(item);
       }
       const qeRefTracks = refTracks.concat(siblingRouteRefTracks(item, null));
-      renderPointsEditorMap(`quick-edit-map-${id}`, `quick-points-hidden-${id}`, `quick-edit-list-${id}`, `quick-manual-track-hidden-${id}`, qeRefTracks);
+      const qeGpxConfig = (kind==='tour') ? { hiddenId: `quick-track-simplified-hidden-${id}`, id, trackPathPrefix: GPX_TRACKS_PATH, statusId: null } : null;
+      renderPointsEditorMap(`quick-edit-map-${id}`, `quick-points-hidden-${id}`, `quick-edit-list-${id}`, `quick-manual-track-hidden-${id}`, qeRefTracks, undefined, undefined, qeGpxConfig);
     });
   });
 
@@ -2322,7 +2323,7 @@ function wireModalHandlers(){
     btn.addEventListener('click', ()=>{
       const id = btn.getAttribute('data-id');
       const kind = btn.getAttribute('data-kind');
-      quickSaveMapEdits(kind, id, `quick-points-hidden-${id}`, `quick-manual-track-hidden-${id}`);
+      quickSaveMapEdits(kind, id, `quick-points-hidden-${id}`, `quick-manual-track-hidden-${id}`, kind==='tour' ? `quick-track-simplified-hidden-${id}` : null);
     });
   });
 

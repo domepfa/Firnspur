@@ -3698,8 +3698,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     finishBtn.addEventListener('click', ()=> setMode('point'));
     replaceGpxOriginalBtn.addEventListener('click', async ()=>{
       if(!gpxConfig || manualTrack.length < 2) return;
+      // gpxConfig.id: fixes Kürzel für Fälle, in denen die ID schon als JS-Variable bekannt ist
+      // (z. B. Schnell-Bearbeiten in der Detailansicht) und kein eigenes verstecktes Feld dafür
+      // angelegt werden muss — sonst wie gehabt über idHiddenId aus dem Formular gelesen.
       const idInput = gpxConfig.idHiddenId ? document.getElementById(gpxConfig.idHiddenId) : null;
-      const trackId = idInput ? idInput.value : '';
+      const trackId = gpxConfig.id || (idInput ? idInput.value : '');
       const statusEl = gpxConfig.statusId ? document.getElementById(gpxConfig.statusId) : null;
       if(!trackId){
         if(statusEl){ statusEl.style.color = 'var(--danger)'; statusEl.textContent = 'Zuerst das Formular einmal speichern.'; }
@@ -4477,7 +4480,7 @@ function findToursSharingPoints(currentTour, allTours, maxMeters){
 }
 
 /* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */
-async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId){
+async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, trackSimplifiedHiddenId){
   let points = [], manualTrack = [];
   try{ const pEl = document.getElementById(pointsHiddenId); points = pEl && pEl.value ? JSON.parse(pEl.value) : []; }catch(e){ points = []; }
   try{ const mEl = document.getElementById(manualTrackHiddenId); manualTrack = mEl && mEl.value ? JSON.parse(mEl.value) : []; }catch(e){ manualTrack = []; }
@@ -4486,6 +4489,14 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId){
   if(!item) return;
   item.points = points;
   item.manualTrack = manualTrack;
+  // Nur bei Touren: der eigene GPX-Track ist im Schnell-Bearbeiten-Modus (wie im vollen
+  // Bearbeiten-Formular) direkt editierbar — dessen Feld hier mit zurückschreiben.
+  if(trackSimplifiedHiddenId){
+    const tEl = document.getElementById(trackSimplifiedHiddenId);
+    if(tEl){
+      try{ item.trackSimplified = tEl.value ? JSON.parse(tEl.value) : null; }catch(e){}
+    }
+  }
   item.updatedAt = new Date().toISOString();
   item.updatedBy = state.myName;
   const saveFn = kind==='tour' ? saveTourCloud : saveHutCloud;
