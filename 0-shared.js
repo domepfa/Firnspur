@@ -1624,6 +1624,15 @@ function openFullscreenMap(renderFn, onCloseCallback){
 function closeFullscreenMap(){
   const overlay = document.getElementById('fullscreen-map-overlay');
   if(!overlay) return;
+  // Sicherheitsnetz für die Übersichtskarte: den zuletzt gezeigten Ausschnitt direkt vom lebenden
+  // Leaflet-Objekt abfragen, statt sich allein auf das 'moveend'-Event zu verlassen — ein Wisch mit
+  // Schwung (Trägheits-Animation) feuert moveend erst nach dessen Ende; wird die Karte (z. B. durch
+  // Antippen eines Tour-Markers direkt danach) schon vorher geschlossen, blieb lastStandaloneMapView
+  // sonst auf dem alten Stand, und beim nächsten Öffnen zoomte die Karte scheinbar grundlos zurück.
+  const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
+  if(m && m._isStandaloneMap){
+    try{ lastStandaloneMapView = {center: m.getCenter(), zoom: m.getZoom()}; }catch(e){}
+  }
   overlay.style.display = 'none';
   const container = document.getElementById('fullscreen-map-container');
   if(container) container.innerHTML = '';
@@ -1655,6 +1664,12 @@ function renderStandaloneMap(containerId){
     mapDiv.style.cssText = 'width:100%; height:100%;';
     el2.appendChild(mapDiv);
     const map = L.map(mapDivId, {attributionControl:true});
+    // Markiert diese Karte als DIE Übersichtskarte (im Unterschied zu den vielen anderen, kleineren
+    // Vollbild-Karten, die denselben Container über makeFullscreenButton/openFullscreenMap nutzen) —
+    // ausgewertet in closeFullscreenMap(), damit der zuletzt gezeigte Ausschnitt auch dann sicher
+    // festgehalten wird, wenn kein abschliessendes 'moveend' mehr ankommt (z. B. weil eine Schwung-
+    // Animation nach dem Verschieben/Zoomen noch läuft und die Karte währenddessen geschlossen wird).
+    map._isStandaloneMap = true;
     if(lastStandaloneMapView) map.setView(lastStandaloneMapView.center, lastStandaloneMapView.zoom);
     else map.setView([46.8182, 8.2275], 8);
     map.on('moveend', ()=>{ lastStandaloneMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
