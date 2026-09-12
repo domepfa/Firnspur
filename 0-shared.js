@@ -1899,7 +1899,7 @@ function renderStandaloneMap(containerId){
               wrap.style.cssText = 'background:#fff; border-radius:50%; width:40px; height:40px; box-shadow:0 2px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px;';
               wrap.onclick = ()=>{ expanded = true; renderControl(); };
               wrap.title = 'Tourenarten filtern';
-              wrap.textContent = '🔎';
+              wrap.textContent = '🎚️'; // bewusst kein Lupen-Symbol — zu leicht mit dem Suchen-Button (🔍) verwechselbar
             }else{
               wrap.style.cssText = 'background:rgba(255,255,255,0.95); padding:6px; border-radius:8px; gap:6px; display:flex; flex-wrap:wrap; align-items:center; max-width:220px;';
               wrap.onclick = null;
@@ -1936,16 +1936,21 @@ function renderStandaloneMap(containerId){
       map.addControl(new TourFilterControl());
     }
 
-    // Suchfeld — findet Touren/Hütten/Sektoren nach Name, springt beim Antippen eines
-    // Treffers direkt an die Stelle und zeigt dort dasselbe Popup wie ein Klick auf den
-    // Marker (mit "öffnen"-Knopf), statt gleich in die Detailansicht zu wechseln.
-    if(searchIndex.length){
+    // Suchfeld — kombiniert zwei Quellen: die eigenen Touren/Hütten/Sektoren (searchIndex,
+    // funktioniert offline) UND eine Orts-/Berg-/Adresssuche über die offizielle swisstopo-
+    // Suche (api3.geo.admin.ch, braucht Internet). Eigene Treffer erscheinen sofort beim Tippen,
+    // Online-Treffer verzögert (debounced) darunter. Schlägt die Online-Suche fehl (z. B. offline),
+    // bleiben die eigenen Treffer trotzdem nutzbar — nur ein Hinweistext macht das kenntlich.
+    {
       const SearchControl = L.Control.extend({
         options: { position: 'topright' },
         onAdd: function(){
           const wrap = L.DomUtil.create('div', '');
           L.DomEvent.disableClickPropagation(wrap);
+          L.DomEvent.disableScrollPropagation(wrap);
           let expanded = false;
+          let searchSeq = 0;
+          let debounceTimer = null;
           function renderControl(){
             wrap.innerHTML = '';
             // margin-top schiebt den Button unter den schwebenden "✕ Schliessen"-Button der
@@ -1957,43 +1962,86 @@ function renderStandaloneMap(containerId){
               wrap.title = 'Suchen';
               wrap.textContent = '🔍';
             }else{
-              wrap.style.cssText = 'margin-top:64px; background:rgba(255,255,255,0.97); padding:8px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.35); width:220px;';
+              wrap.style.cssText = 'margin-top:64px; background:rgba(255,255,255,0.97); padding:8px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.35); width:240px;';
               wrap.onclick = null;
               const row = document.createElement('div');
               row.style.cssText = 'display:flex; gap:4px; align-items:center;';
               const input = document.createElement('input');
               input.type = 'text';
-              input.placeholder = 'Tour, Hütte, Sektor …';
+              input.placeholder = 'Berg, Hütte, Ort, Adresse …';
               input.style.cssText = 'flex:1; border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:13px; min-width:0;';
               const closeBtn = document.createElement('button');
               closeBtn.type = 'button';
               closeBtn.textContent = '✕';
               closeBtn.style.cssText = 'background:none; border:none; font-size:14px; cursor:pointer; padding:2px 4px; color:var(--ink-soft);';
-              closeBtn.addEventListener('click', ()=>{ expanded = false; renderControl(); });
+              // stopPropagation ist hier zwingend: der Klick bubbelt sonst bis zu wrap hoch, dessen
+              // onclick renderControl() (aufgerufen unten) gerade eben neu auf "wieder aufklappen"
+              // gesetzt hat — ohne Stop würde derselbe Klick das Suchfeld sofort wieder öffnen.
+              closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); if(debounceTimer) clearTimeout(debounceTimer); expanded = false; renderControl(); });
               row.appendChild(input);
               row.appendChild(closeBtn);
               wrap.appendChild(row);
+              const status = document.createElement('div');
+              status.style.cssText = 'margin-top:4px; font-size:11.5px; color:var(--ink-faint); min-height:14px;';
+              wrap.appendChild(status);
               const results = document.createElement('div');
-              results.style.cssText = 'margin-top:6px; max-height:220px; overflow-y:auto;';
+              results.id = 'map-search-results';
+              results.style.cssText = 'margin-top:2px; max-height:220px; overflow-y:auto;';
               wrap.appendChild(results);
-              function renderResults(){
-                const q = input.value.trim().toLowerCase();
-                results.innerHTML = '';
-                if(!q) return;
-                searchIndex.filter(e=> e.name.toLowerCase().includes(q)).slice(0,8).forEach(entry=>{
-                  const btn = document.createElement('button');
-                  btn.type = 'button';
-                  btn.style.cssText = 'display:block; width:100%; text-align:left; background:none; border:none; border-top:1px solid var(--line); padding:6px 2px; font-size:13px; cursor:pointer; color:var(--ink);';
-                  btn.textContent = entry.icon + ' ' + entry.name;
-                  btn.addEventListener('click', ()=>{
-                    map.setView(entry.coords, 15);
-                    L.popup().setLatLng(entry.coords).setContent(mapPopupContent(entry.icon, entry.name, entry.label, entry.openFn)).openOn(map);
-                    expanded = false; renderControl();
-                  });
-                  results.appendChild(btn);
-                });
+
+              function resultButtonHtml(icon, label, onClick){
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.style.cssText = 'display:block; width:100%; text-align:left; background:none; border:none; border-top:1px solid var(--line); padding:6px 2px; font-size:13px; cursor:pointer; color:var(--ink);';
+                btn.textContent = icon + ' ' + label;
+                // stopPropagation: sonst bubbelt der Klick bis zu wrap hoch, dessen onclick
+                // jumpTo() (löst gleich renderControl() im Kollaps-Zustand aus) gerade eben neu
+                // auf "wieder aufklappen" gesetzt hat — das Suchfeld würde sich sofort wieder öffnen.
+                btn.addEventListener('click', (e)=>{ e.stopPropagation(); onClick(); });
+                return btn;
               }
-              input.addEventListener('input', renderResults);
+              function jumpTo(coords, popupContent){
+                map.setView(coords, 15);
+                L.popup().setLatLng(coords).setContent(popupContent).openOn(map);
+                expanded = false; renderControl();
+              }
+              function renderResults(localMatches, onlineMatches, statusText){
+                results.innerHTML = '';
+                localMatches.slice(0,8).forEach(entry=>{
+                  results.appendChild(resultButtonHtml(entry.icon, entry.name, ()=>{
+                    jumpTo(entry.coords, mapPopupContent(entry.icon, entry.name, entry.label, entry.openFn));
+                  }));
+                });
+                (onlineMatches||[]).slice(0,8).forEach(entry=>{
+                  results.appendChild(resultButtonHtml('📍', entry.name, ()=>{
+                    jumpTo(entry.coords, `<strong>📍 ${esc(entry.name)}</strong>`);
+                  }));
+                });
+                status.textContent = statusText || '';
+              }
+              input.addEventListener('input', ()=>{
+                const q = input.value.trim();
+                const seq = ++searchSeq;
+                const localMatches = q ? searchIndex.filter(e=> e.name.toLowerCase().includes(q.toLowerCase())) : [];
+                if(debounceTimer) clearTimeout(debounceTimer);
+                if(!q){ renderResults([], [], ''); return; }
+                renderResults(localMatches, [], 'Suche online …');
+                debounceTimer = setTimeout(async ()=>{
+                  try{
+                    const res = await fetch('https://api3.geo.admin.ch/rest/services/api/SearchServer?type=locations&limit=8&sr=4326&searchText=' + encodeURIComponent(q));
+                    if(seq !== searchSeq) return; // Eingabe hat sich inzwischen geändert — Antwort ist veraltet
+                    const data = await res.json();
+                    const online = (data.results || [])
+                      .map(r=> r.attrs || {})
+                      .filter(a=> a.lat!=null && a.lon!=null)
+                      .map(a=> ({ name: (a.label || q).replace(/<[^>]+>/g, ''), coords: [a.lat, a.lon] }));
+                    renderResults(localMatches, online, online.length ? '' : (localMatches.length ? '' : 'Keine Treffer.'));
+                  }catch(e){
+                    if(seq !== searchSeq) return;
+                    renderResults(localMatches, [], 'Offline — nur eigene Einträge durchsucht.');
+                  }
+                }, 350);
+              });
             }
           }
           renderControl();
