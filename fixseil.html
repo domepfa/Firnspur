@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v126-tour-detail-one-map';
+const APP_VERSION = 'v127-sektor-kletterrouten';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1699,7 +1699,10 @@ function tourAssignMenuHtml(tourId){
    Zustiege/Abstiege (analog zum Hütten-Zustiegssystem bzw. den MSL-Touren-Zustiegen oben) —
    verlinkte Touren zeigen automatisch diese statt eigener (siehe tourDetailHtml). */
 async function submitSektorForm(form, existing){
-  const s = (existing && existing.id) ? {...existing} : {id: uid('sek'), createdBy: state.myName, createdAt: new Date().toISOString()};
+  // sektorIdForTopo: dieselbe ID, unter der ein bereits vor dem Speichern hochgeladenes Topo-Bild
+  // abgelegt wurde (siehe handleTopoImageUpload) — sonst würde ein neuer Sektor eine andere ID
+  // bekommen als sein Bild-Ordner und das Bild wäre verwaist (gleiches Muster wie bei Touren).
+  const s = (existing && existing.id) ? {...existing} : {id: (form.sektorIdForTopo || uid('sek')), createdBy: state.myName, createdAt: new Date().toISOString()};
   s.name = form.name.trim();
   s.region = form.region || '';
   s.subregion = form.subregion || '';
@@ -1707,6 +1710,8 @@ async function submitSektorForm(form, existing){
   s.klettergebietId = form.klettergebietId || '';
   try{ s.points = form.points ? JSON.parse(form.points) : []; }catch(e){ s.points = []; }
   try{ s.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ s.manualTrack = []; }
+  try{ s.topoImages = form.topoImages ? JSON.parse(form.topoImages) : []; }catch(e){ s.topoImages = []; }
+  try{ s.kletterrouten = form.kletterrouten ? JSON.parse(form.kletterrouten) : []; }catch(e){ s.kletterrouten = []; }
   ensureSektorRouteArrays(s);
   s.updatedAt = new Date().toISOString();
   s.updatedBy = state.myName;
@@ -1763,6 +1768,19 @@ function sektorFormHtml(existing){
         <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(s.subregion||'')}"/>
       </div>
       <div class="field"><label>Beschreibung</label><textarea name="description" placeholder="Charakter des Sektors, Übersicht …">${esc(s.description||'')}</textarea></div>
+      <div class="field"><label>Topo-Bild (für die Kletterrouten unten)</label>
+        <input type="file" id="sektor-topo-image-input" accept="image/*" multiple/>
+        <div class="hint">Wird automatisch verkleinert. Bis zu ${TOPO_IMAGE_MAX_COUNT} Bilder.</div>
+        <p id="sektor-topo-image-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${(s.topoImages && s.topoImages.length) ? `✓ ${s.topoImages.length}/${TOPO_IMAGE_MAX_COUNT} Bilder hochgeladen.` : 'Noch keine Bilder hochgeladen.'}</p>
+        <input type="hidden" name="topoImages" id="sektor-topo-images-hidden" value='${esc(s.topoImages ? JSON.stringify(s.topoImages) : "[]")}'/>
+        <div id="sektor-topo-images-hidden-thumbs">${topoImageThumbsHtml(s.topoImages, 'sektor-topo-images-hidden')}</div>
+        <input type="hidden" name="sektorIdForTopo" id="sektor-id-for-topo" value="${esc(s.id||'')}"/>
+      </div>
+      <div class="field"><label>Kletterrouten (Nr. / Name / Grad)</label>
+        <div class="hint">Für Sektoren mit mehreren benannten Routen an derselben Wand — unabhängig von einzelnen MSL-/Klettergarten-Touren.</div>
+        <div id="kletterrouten-editor" style="margin-top:8px;"></div>
+        <input type="hidden" name="kletterrouten" id="kletterrouten-hidden" value='${esc(s.kletterrouten ? JSON.stringify(s.kletterrouten) : "[]")}'/>
+      </div>
       <div class="field"><label>Gemeinsamer Ausgangspunkt — Punkte &amp; Linie auf der Karte</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
         <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
@@ -2162,6 +2180,11 @@ function sektorDetailHtml(id){
     </div>
     ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : ''}
     ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
+    ${((sek.topoImages && sek.topoImages.length) || (sek.kletterrouten && sek.kletterrouten.length)) ? `<div class="detail-section">
+      <h4>🧗 Kletterrouten${sek.kletterrouten && sek.kletterrouten.length ? ` (${sek.kletterrouten.length})` : ''}</h4>
+      ${(sek.topoImages && sek.topoImages.length) ? topoImagesGalleryHtml(sek.topoImages) : ''}
+      ${kletterroutenTableHtml(sek.kletterrouten)}
+    </div>` : ''}
     ${(() => {
       const hasSektorPoints = sek.points && sek.points.length;
       const hasTourData = linked.some(t=> (t.points && t.points.length) || (t.trackSimplified && t.trackSimplified.length) || (t.manualTrack && t.manualTrack.length));
@@ -2216,6 +2239,7 @@ function sektorDetailHtml(id){
 function ensureSektorRouteArrays(sek){
   if(!Array.isArray(sek.accessRoutes)) sek.accessRoutes = [];
   if(!Array.isArray(sek.descentRoutes)) sek.descentRoutes = [];
+  if(!Array.isArray(sek.kletterrouten)) sek.kletterrouten = [];
   return sek;
 }
 function sektorRouteFieldName(kind){ return kind==='descent' ? 'descentRoutes' : 'accessRoutes'; }
@@ -5305,6 +5329,12 @@ function wireModalHandlers(){
     }
     const sektorFabSaveBtn = document.getElementById('sektor-fab-save-btn');
     if(sektorFabSaveBtn) sektorFabSaveBtn.addEventListener('click', ()=>{ if(sektorSaveBtn) sektorSaveBtn.click(); });
+
+    const sektorTopoImageInput = document.getElementById('sektor-topo-image-input');
+    if(sektorTopoImageInput) sektorTopoImageInput.addEventListener('change', ()=>{
+      handleTopoImageUpload(sektorTopoImageInput, 'sektor-id-for-topo', 'sektor-topo-images-hidden', 'sektor-topo-image-status');
+    });
+    renderKletterroutenEditor('kletterrouten-editor', 'kletterrouten-hidden');
 
     // Region-Chips (identisch zum Touren-/Hütten-Formular)
     const sektorRegionHidden = document.getElementById('region-hidden-input');

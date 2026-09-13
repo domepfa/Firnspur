@@ -5869,6 +5869,215 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   pushOverlayLayer(closeLightbox);
 }
 
+/* ================= Kletterrouten-Liste (mehrere benannte Routen an einer Wand) =================
+   Anders als eine einzelne MSL-/Klettergarten-Tour (= eine Route mit einer Schwierigkeit) kann ein
+   Sektor mehrere benannte Kletterrouten haben, die sich ein gemeinsames Topo-Bild teilen (z. B. ein
+   ganzer Klettergarten-Sektor mit 16 Routen an einer Wand). Die Liste lässt sich Zeile für Zeile von
+   Hand pflegen ODER als Text einfügen — z. B. das Ergebnis, wenn man einer Chat-KI (Claude/ChatGPT/
+   Gemini), die man ohnehin schon abonniert hat, ein Foto der Führerbuch-Seite gibt und um eine Liste
+   "Nr. | Name | Grad" bittet. parseKletterroutenText() zerlegt das automatisch. */
+function kletterrouteGradeTier(grad){
+  const m = String(grad||'').match(/(\d+)/);
+  if(!m) return 'mid';
+  const num = parseInt(m[1], 10);
+  if(num <= 4) return 'easy';
+  if(num === 5) return 'mid';
+  return 'hard';
+}
+const KLETTERROUTE_GRADE_COLORS = { easy: '#3C7A52', mid: '#A87A1F', hard: '#B0392C' };
+
+// Erkennt mit |, ; , Komma oder Tab getrennte Zeilen (auch als Markdown-Tabelle mit
+// führendem/abschliessendem |) sowie reine Leerzeichen-Trennung — dann gilt: erstes Token = Nr.
+// (falls rein numerisch), letztes gradartig aussehende Token = Grad, alles dazwischen = Name.
+// Kopfzeilen ("Nr. | Name | Grad") werden erkannt und übersprungen. Zeilen ohne erkennbare Nummer
+// bekommen automatisch die nächste freie ab startNr.
+function parseKletterroutenText(text, startNr){
+  const GRADE_RE = /^\d{1,2}[a-c]?[+-]?$/i;
+  const lines = String(text||'').split('\n').map(l=>l.trim()).filter(Boolean);
+  const out = [];
+  let autoNr = startNr || 1;
+  lines.forEach(line=>{
+    let parts;
+    if(/[|;,\t]/.test(line)){
+      parts = line.split(/[|;,\t]/).map(p=>p.trim()).filter(p=>p!=='');
+    }else{
+      parts = line.split(/\s+/).filter(Boolean);
+    }
+    if(parts.length < 2) return;
+    // Kopfzeile erkennen und überspringen (z. B. "Nr. | Name | Grad" oder "Nr Route Grad Beg.").
+    const looksLikeHeader = parts.every(p => !/\d/.test(p)) && /nr\.?$|name|route|grad/i.test(line);
+    if(looksLikeHeader) return;
+    let nr = null;
+    if(/^\d+\.?$/.test(parts[0])){
+      nr = parseInt(parts[0], 10);
+      parts = parts.slice(1);
+    }
+    if(!parts.length) return;
+    let grad = '';
+    if(GRADE_RE.test(parts[parts.length-1])){
+      grad = parts[parts.length-1];
+      parts = parts.slice(0, -1);
+    }
+    const name = parts.join(' ').trim();
+    if(!name) return;
+    out.push({ id: uid('kr'), nr: nr!==null ? nr : autoNr, name, grad });
+    autoNr = (nr!==null ? nr : autoNr) + 1;
+  });
+  return out;
+}
+
+// Reine Anzeige (Sektor-Detailansicht) — nicht editierbar.
+function kletterroutenTableHtml(routes){
+  if(!routes || !routes.length) return '';
+  const sorted = routes.slice().sort((a,b)=> (a.nr||0) - (b.nr||0));
+  return `<table style="width:100%; border-collapse:collapse; font-size:14px; margin-top:8px;">
+    <thead><tr>
+      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Nr.</th>
+      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Route</th>
+      <th style="text-align:center; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 0 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
+    </tr></thead>
+    <tbody>${sorted.map(r=>`
+      <tr style="border-bottom:1px solid var(--line);">
+        <td class="mono" style="padding:7px 8px 7px 0; color:var(--ink-faint); font-weight:600;">${esc(r.nr!=null ? String(r.nr) : '')}</td>
+        <td style="padding:7px 8px 7px 0; font-weight:600;">${esc(r.name||'')}</td>
+        <td style="padding:7px 0; text-align:center;">${r.grad ? `<span style="display:inline-block; min-width:32px; padding:2px 6px; border-radius:10px; font-weight:700; font-size:12.5px; color:#fff; background:${KLETTERROUTE_GRADE_COLORS[kletterrouteGradeTier(r.grad)]};">${esc(r.grad)}</span>` : ''}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+// Editierbare Liste fürs Bearbeiten-Formular: Zeilen mit direkt editierbaren Feldern, ein
+// "Liste einfügen"-Textfeld (nutzt parseKletterroutenText) und "+ Route hinzufügen" für einzelne
+// neue Zeilen. Schreibt bei jeder Änderung sofort ins hiddenInputId-Feld zurück.
+function renderKletterroutenEditor(containerId, hiddenInputId){
+  const el = document.getElementById(containerId);
+  const hiddenInput = document.getElementById(hiddenInputId);
+  if(!el || !hiddenInput) return;
+  let routes = [];
+  try{ routes = hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ routes = []; }
+
+  function persist(){
+    hiddenInput.value = JSON.stringify(routes);
+    markModalDirty();
+  }
+
+  function makeFieldInput(value, placeholder, align, onCommit){
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = value;
+    if(placeholder) input.placeholder = placeholder;
+    input.style.cssText = `width:100%; border:1px solid transparent; background:transparent; font-family:inherit; font-size:13.5px; padding:4px 3px; border-radius:2px; ${align ? 'text-align:'+align+';' : ''}`;
+    input.addEventListener('focus', ()=>{ input.style.borderColor = 'var(--line)'; input.style.background = '#fff'; });
+    input.addEventListener('blur', ()=>{ input.style.borderColor = 'transparent'; input.style.background = 'transparent'; onCommit(input.value.trim()); });
+    return input;
+  }
+
+  function redraw(){
+    el.innerHTML = '';
+    const wrap = document.createElement('div');
+
+    const pasteHint = document.createElement('p');
+    pasteHint.className = 'hint';
+    pasteHint.style.marginBottom = '4px';
+    pasteHint.textContent = 'Tipp: Foto der Führerbuch-Seite einer Chat-KI (z. B. Claude, ChatGPT, Gemini) geben und um eine Liste "Nr. | Name | Grad" bitten — das Ergebnis hier einfügen.';
+    wrap.appendChild(pasteHint);
+
+    const pasteArea = document.createElement('textarea');
+    pasteArea.rows = 3;
+    pasteArea.placeholder = '1 | Frog | 5c\n2 | Snake | 5b\n3 | Kreuzotter | 4b …';
+    pasteArea.style.cssText = 'width:100%; font-family:inherit; font-size:13px; padding:8px; border:1px solid var(--line); border-radius:var(--radius); resize:vertical; box-sizing:border-box;';
+    wrap.appendChild(pasteArea);
+
+    const pasteBtn = document.createElement('button');
+    pasteBtn.type = 'button'; pasteBtn.className = 'btn secondary';
+    pasteBtn.style.cssText = 'margin-top:6px; font-size:12.5px; padding:6px 12px;';
+    pasteBtn.textContent = '+ Liste übernehmen';
+    pasteBtn.addEventListener('click', ()=>{
+      const nextNr = routes.reduce((max,r)=> Math.max(max, r.nr||0), 0) + 1;
+      const parsed = parseKletterroutenText(pasteArea.value, nextNr);
+      if(!parsed.length){ showToast('Keine Routen erkannt — Format prüfen.', true); return; }
+      routes = routes.concat(parsed);
+      persist();
+      pasteArea.value = '';
+      redraw();
+      showToast(parsed.length + ' Route(n) übernommen.');
+    });
+    wrap.appendChild(pasteBtn);
+
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%; border-collapse:collapse; font-size:13.5px; margin-top:14px;';
+    const thead = document.createElement('thead');
+    thead.innerHTML = `<tr>
+      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:38px;">Nr.</th>
+      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line);">Route</th>
+      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
+      <th style="border-bottom:1px solid var(--line); width:26px;"></th>
+    </tr>`;
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    routes.forEach((r)=>{
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid var(--line)';
+
+      const nrTd = document.createElement('td');
+      nrTd.style.padding = '4px 4px 4px 0';
+      nrTd.appendChild(makeFieldInput(r.nr!=null ? String(r.nr) : '', 'Nr.', 'left', (v)=>{ r.nr = v ? parseInt(v,10) : null; persist(); }));
+      tr.appendChild(nrTd);
+
+      const nameTd = document.createElement('td');
+      nameTd.style.padding = '4px';
+      const nameInput = makeFieldInput(r.name || '', 'Name', null, (v)=>{ r.name = v; persist(); });
+      nameInput.style.fontWeight = '600';
+      nameTd.appendChild(nameInput);
+      tr.appendChild(nameTd);
+
+      const gradeTd = document.createElement('td');
+      gradeTd.style.padding = '4px';
+      gradeTd.appendChild(makeFieldInput(r.grad || '', '5c', 'center', (v)=>{ r.grad = v; persist(); }));
+      tr.appendChild(gradeTd);
+
+      const delTd = document.createElement('td');
+      delTd.style.padding = '4px 0';
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button'; delBtn.textContent = '🗑️';
+      delBtn.title = 'Route entfernen';
+      delBtn.style.cssText = 'background:none; border:none; color:var(--danger); cursor:pointer; font-size:14px; padding:0;';
+      delBtn.addEventListener('click', ()=>{
+        routes = routes.filter(x=>x!==r);
+        persist();
+        redraw();
+      });
+      delTd.appendChild(delBtn);
+      tr.appendChild(delTd);
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    if(routes.length) wrap.appendChild(table);
+    else{
+      const empty = document.createElement('p');
+      empty.style.cssText = 'font-size:12.5px; color:var(--ink-faint); margin:10px 0 0 0;';
+      empty.textContent = 'Noch keine Routen erfasst.';
+      wrap.appendChild(empty);
+    }
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button'; addBtn.className = 'btn secondary';
+    addBtn.style.cssText = 'margin-top:10px; font-size:12.5px; padding:6px 12px;';
+    addBtn.textContent = '+ Route hinzufügen';
+    addBtn.addEventListener('click', ()=>{
+      const nextNr = routes.reduce((max,r)=> Math.max(max, r.nr||0), 0) + 1;
+      routes.push({id: uid('kr'), nr: nextNr, name: '', grad: ''});
+      persist();
+      redraw();
+    });
+    wrap.appendChild(addBtn);
+
+    el.appendChild(wrap);
+  }
+  redraw();
+}
+
 /* ================= Zuschneiden von Topo-Bildern vor dem Hochladen =================
    Bewusst VOR dem Hochladen, auf der lokal ausgewählten Datei: ein Zuschnitt am bereits
    hochgeladenen Bild müsste es per <canvas> aus der Firebase-Storage-URL neu einlesen — das
