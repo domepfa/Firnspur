@@ -1,0 +1,12 @@
+{
+  "name": "firnspur-functions",
+  "description": "Cloud Functions für Firnspur — aktuell nur der Foto-Scan für Kletterrouten (Claude-Vision-API). Läuft nur, nachdem sie per firebase deploy ausgerollt wurde — siehe README.md in diesem Ordner.",
+  "private": true,
+  "main": "index.js",
+  "engines": { "node": "20" },
+  "dependencies": {
+    "firebase-functions": "^6.0.0",
+    "@anthropic-ai/sdk": "^0.32.0",
+    "zod": "^3.23.0"
+  }
+}

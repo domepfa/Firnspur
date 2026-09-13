@@ -523,7 +523,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v129-sektor-topo-routen-split';
+const APP_VERSION = 'v130-share-target-und-foto-scan';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -645,6 +645,7 @@ async function loadAll(){
       showToast('Konnte nicht mit der Datenbank verbinden. Prüfe deine Internetverbindung.', true);
     }
     render();
+    checkSharedContent().then(shared=>{ if(shared) openShareImportModal(shared); });
     return;
   }
 
@@ -676,6 +677,7 @@ async function loadAll(){
   state.loading = false;
   state.offlineMode = false;
   render();
+  checkSharedContent().then(shared=>{ if(shared) openShareImportModal(shared); });
 
   // Wiedergefundene, noch nicht synchronisierte Einträge jetzt automatisch
   // erneut versuchen hochzuladen, da offenbar wieder eine Verbindung besteht.
@@ -1386,6 +1388,7 @@ function renderModal(){
   else if(m.type==='edit-agenda') inner = agendaFormHtml(m.payload);
   else if(m.type==='agenda-detail') inner = agendaDetailHtml(m.payload);
   else if(m.type==='emergency') inner = emergencyCardHtml();
+  else if(m.type==='share-import') inner = shareImportModalHtml(m.payload);
   root.innerHTML = `<div class="overlay" data-act="overlay-close">${inner}</div>`;
   wireModalHandlers();
 }
@@ -2083,6 +2086,7 @@ function wireModalHandlers(){
   const root = document.getElementById('modal-root');
   dlog('Modal gerendert: ' + (state.modal ? state.modal.type : 'keins'));
   syncModalDirtyTracking();
+  wireShareImportModal();
   // Erkennt Änderungen an Text-/Auswahlfeldern sowie Chip-Klicks, um beim Verlassen einer
   // Bearbeiten-Maske gezielt nachfragen zu können, ob ungespeicherte Änderungen verworfen
   // werden sollen. Nur einmal verdrahtet (modal-root bleibt über Renders hinweg bestehen).
