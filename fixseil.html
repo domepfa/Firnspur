@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v128-sektor-card-topo-preview';
+const APP_VERSION = 'v129-sektor-topo-routen-split';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1203,6 +1203,8 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     state.modal = {type:'tour-detail', payload: state.modal.payload.tourId};
   }else if(state.modal && (state.modal.type==='sektor-route-detail' || state.modal.type==='edit-sektor-route') && state.modal.payload && state.modal.payload.sektorId){
     state.modal = {type:'sektor-detail', payload: state.modal.payload.sektorId};
+  }else if(state.modal && state.modal.type==='edit-sektor-topo-routen' && state.modal.payload){
+    state.modal = {type:'sektor-detail', payload: state.modal.payload};
   }else{
     state.modal = null;
   }
@@ -1710,8 +1712,10 @@ async function submitSektorForm(form, existing){
   s.klettergebietId = form.klettergebietId || '';
   try{ s.points = form.points ? JSON.parse(form.points) : []; }catch(e){ s.points = []; }
   try{ s.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ s.manualTrack = []; }
-  try{ s.topoImages = form.topoImages ? JSON.parse(form.topoImages) : []; }catch(e){ s.topoImages = []; }
-  try{ s.kletterrouten = form.kletterrouten ? JSON.parse(form.kletterrouten) : []; }catch(e){ s.kletterrouten = []; }
+  // topoImages/kletterrouten: werden nicht mehr über dieses Formular bearbeitet (siehe
+  // sektorTopoRoutenFormHtml) — bestehende Werte unverändert übernehmen statt zu löschen.
+  if(!Array.isArray(s.topoImages)) s.topoImages = (existing && existing.topoImages) || [];
+  if(!Array.isArray(s.kletterrouten)) s.kletterrouten = (existing && existing.kletterrouten) || [];
   ensureSektorRouteArrays(s);
   s.updatedAt = new Date().toISOString();
   s.updatedBy = state.myName;
@@ -1768,19 +1772,13 @@ function sektorFormHtml(existing){
         <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(s.subregion||'')}"/>
       </div>
       <div class="field"><label>Beschreibung</label><textarea name="description" placeholder="Charakter des Sektors, Übersicht …">${esc(s.description||'')}</textarea></div>
-      <div class="field"><label>Topo-Bild (für die Kletterrouten unten)</label>
-        <input type="file" id="sektor-topo-image-input" accept="image/*" multiple/>
-        <div class="hint">Wird automatisch verkleinert. Bis zu ${TOPO_IMAGE_MAX_COUNT} Bilder.</div>
-        <p id="sektor-topo-image-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${(s.topoImages && s.topoImages.length) ? `✓ ${s.topoImages.length}/${TOPO_IMAGE_MAX_COUNT} Bilder hochgeladen.` : 'Noch keine Bilder hochgeladen.'}</p>
-        <input type="hidden" name="topoImages" id="sektor-topo-images-hidden" value='${esc(s.topoImages ? JSON.stringify(s.topoImages) : "[]")}'/>
-        <div id="sektor-topo-images-hidden-thumbs">${topoImageThumbsHtml(s.topoImages, 'sektor-topo-images-hidden')}</div>
-        <input type="hidden" name="sektorIdForTopo" id="sektor-id-for-topo" value="${esc(s.id||'')}"/>
-      </div>
-      <div class="field"><label>Kletterrouten (Nr. / Name / Grad)</label>
-        <div class="hint">Für Sektoren mit mehreren benannten Routen an derselben Wand — unabhängig von einzelnen MSL-/Klettergarten-Touren.</div>
-        <div id="kletterrouten-editor" style="margin-top:8px;"></div>
-        <input type="hidden" name="kletterrouten" id="kletterrouten-hidden" value='${esc(s.kletterrouten ? JSON.stringify(s.kletterrouten) : "[]")}'/>
-      </div>
+      ${isEditing ? `<div class="field" style="background:var(--ice-light); border-radius:var(--radius); padding:12px;">
+        <label style="margin-bottom:4px;">Topo-Bild &amp; Kletterrouten</label>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0;">Wird in der Detailansicht des Sektors verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).</p>
+      </div>` : `<div class="field" style="background:var(--ice-light); border-radius:var(--radius); padding:12px;">
+        <label style="margin-bottom:4px;">Topo-Bild &amp; Kletterrouten</label>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0;">Nach dem Anlegen kannst du in der Detailansicht ein Topo-Bild und die Routenliste (Nr./Name/Grad) hinzufügen.</p>
+      </div>`}
       <div class="field"><label>Gemeinsamer Ausgangspunkt — Punkte &amp; Linie auf der Karte</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
         <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
@@ -1809,6 +1807,65 @@ function sektorFormHtml(existing){
       </div>` : ''}
     </form>
   </div>`;
+}
+
+// Eigener, fokussierter Bereich für Topo-Bild + Kletterrouten-Liste — bewusst getrennt vom
+// allgemeinen Sektor-Formular (dort war es zwischen Name/Region/Karte "vergraben" und wurde
+// nicht gefunden). Analog zu Zustiegen/Abstiegen: über die Sektor-Detailseite erreichbar,
+// eigenes Speichern, ändert sonst nichts am Sektor.
+function openEditSektorTopoRouten(id){ state.modal = {type:'edit-sektor-topo-routen', payload:id}; render(); }
+
+function sektorTopoRoutenFormHtml(sektorId){
+  const sek = state.sektoren.find(x=>x.id===sektorId);
+  if(!sek) return `<div class="modal" data-stop="1"><p>Sektor nicht gefunden.</p></div>`;
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>🧗 Topo &amp; Routen — ${esc(sek.name)}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <form id="sektor-topo-routen-form" novalidate>
+      <input type="hidden" name="sektorId" value="${esc(sektorId)}"/>
+      <input type="hidden" id="sektor-id-for-topo" value="${esc(sektorId)}"/>
+      <div class="field"><label>Topo-Bild</label>
+        <input type="file" id="sektor-topo-image-input" accept="image/*" multiple/>
+        <div class="hint">Wird automatisch verkleinert. Bis zu ${TOPO_IMAGE_MAX_COUNT} Bilder.</div>
+        <p id="sektor-topo-image-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${(sek.topoImages && sek.topoImages.length) ? `✓ ${sek.topoImages.length}/${TOPO_IMAGE_MAX_COUNT} Bilder hochgeladen.` : 'Noch keine Bilder hochgeladen.'}</p>
+        <input type="hidden" name="topoImages" id="sektor-topo-images-hidden" value='${esc(sek.topoImages ? JSON.stringify(sek.topoImages) : "[]")}'/>
+        <div id="sektor-topo-images-hidden-thumbs">${topoImageThumbsHtml(sek.topoImages, 'sektor-topo-images-hidden')}</div>
+      </div>
+      <div class="field"><label>Kletterrouten (Nr. / Name / Grad)</label>
+        <div class="hint">Für Sektoren mit mehreren benannten Routen an derselben Wand — unabhängig von einzelnen MSL-/Klettergarten-Touren.</div>
+        <div id="kletterrouten-editor" style="margin-top:8px;"></div>
+        <input type="hidden" name="kletterrouten" id="kletterrouten-hidden" value='${esc(sek.kletterrouten ? JSON.stringify(sek.kletterrouten) : "[]")}'/>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" id="sektor-topo-routen-save-btn" class="btn">✓ Speichern</button>
+      </div>
+      <button type="button" id="sektor-topo-routen-fab-save-btn" class="fab-save">✓ Speichern</button>
+    </form>
+  </div>`;
+}
+
+async function submitSektorTopoRoutenForm(form){
+  const sek = state.sektoren.find(x=>x.id===form.sektorId);
+  if(!sek) return;
+  try{ sek.topoImages = form.topoImages ? JSON.parse(form.topoImages) : []; }catch(e){ sek.topoImages = []; }
+  try{ sek.kletterrouten = form.kletterrouten ? JSON.parse(form.kletterrouten) : []; }catch(e){ sek.kletterrouten = []; }
+  ensureSektorRouteArrays(sek);
+  sek.updatedAt = new Date().toISOString();
+  sek.updatedBy = state.myName;
+
+  closeModal(false, true, true);
+  state.modal = {type:'sektor-detail', payload:sek.id};
+  render();
+
+  const ok = await saveSektorCloud(sek).catch(()=>false);
+  sek._unsynced = !ok;
+  if(!ok){
+    markUnsaved();
+    showToast('Änderungen sind lokal gespeichert, konnten aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+  }else{
+    showToast('Topo & Routen gespeichert und synchronisiert.');
+  }
+  render();
 }
 
 /* ================= Klettergebiet: Formular & Detail =================
@@ -2180,11 +2237,14 @@ function sektorDetailHtml(id){
     </div>
     ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : ''}
     ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
-    ${((sek.topoImages && sek.topoImages.length) || (sek.kletterrouten && sek.kletterrouten.length)) ? `<div class="detail-section">
+    <div class="detail-section">
       <h4>🧗 Kletterrouten${sek.kletterrouten && sek.kletterrouten.length ? ` (${sek.kletterrouten.length})` : ''}</h4>
-      ${(sek.topoImages && sek.topoImages.length) ? topoImagesGalleryHtml(sek.topoImages) : ''}
-      ${kletterroutenTableHtml(sek.kletterrouten)}
-    </div>` : ''}
+      ${((sek.topoImages && sek.topoImages.length) || (sek.kletterrouten && sek.kletterrouten.length)) ? `
+        ${(sek.topoImages && sek.topoImages.length) ? topoImagesGalleryHtml(sek.topoImages) : ''}
+        ${kletterroutenTableHtml(sek.kletterrouten)}
+      ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Topo-Bild/keine Routenliste erfasst.</p>`}
+      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="edit-sektor-topo-routen" data-id="${sek.id}">🧗 Topo-Bild &amp; Routenliste bearbeiten</button>
+    </div>
     ${(() => {
       const hasSektorPoints = sek.points && sek.points.length;
       const hasTourData = linked.some(t=> (t.points && t.points.length) || (t.trackSimplified && t.trackSimplified.length) || (t.manualTrack && t.manualTrack.length));
@@ -3193,6 +3253,7 @@ function renderModal(){
   else if(m.type==='hut-detail') inner = hutDetailHtml(m.payload);
   else if(m.type==='edit-sektor') inner = sektorFormHtml(m.payload);
   else if(m.type==='sektor-detail') inner = sektorDetailHtml(m.payload);
+  else if(m.type==='edit-sektor-topo-routen') inner = sektorTopoRoutenFormHtml(m.payload);
   else if(m.type==='edit-klettergebiet') inner = klettergebietFormHtml(m.payload);
   else if(m.type==='klettergebiet-detail') inner = klettergebietDetailHtml(m.payload);
   else if(m.type==='tour-assign-menu') inner = tourAssignMenuHtml(m.payload.tourId);
@@ -5105,6 +5166,7 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="open-hut"]').forEach(el=> el.onclick = ()=>openHutDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-sektor"]').forEach(el=> el.onclick = ()=>openEditSektor(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="edit-sektor-topo-routen"]').forEach(el=> el.onclick = ()=>openEditSektorTopoRouten(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-sektor"]').forEach(el=> el.onclick = ()=>openSektorDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-klettergebiet"]').forEach(el=> el.onclick = ()=>openEditKlettergebiet(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-klettergebiet"]').forEach(el=> el.onclick = ()=>openKlettergebietDetail(el.getAttribute('data-id')));
@@ -5340,12 +5402,6 @@ function wireModalHandlers(){
     const sektorFabSaveBtn = document.getElementById('sektor-fab-save-btn');
     if(sektorFabSaveBtn) sektorFabSaveBtn.addEventListener('click', ()=>{ if(sektorSaveBtn) sektorSaveBtn.click(); });
 
-    const sektorTopoImageInput = document.getElementById('sektor-topo-image-input');
-    if(sektorTopoImageInput) sektorTopoImageInput.addEventListener('change', ()=>{
-      handleTopoImageUpload(sektorTopoImageInput, 'sektor-id-for-topo', 'sektor-topo-images-hidden', 'sektor-topo-image-status');
-    });
-    renderKletterroutenEditor('kletterrouten-editor', 'kletterrouten-hidden');
-
     // Region-Chips (identisch zum Touren-/Hütten-Formular)
     const sektorRegionHidden = document.getElementById('region-hidden-input');
     const sektorRegionOtherInput = document.getElementById('region-other-input');
@@ -5399,6 +5455,27 @@ function wireModalHandlers(){
         sektorSubregionHidden.value = btn.getAttribute('data-subregion');
       });
     }
+  }
+
+  const sektorTopoRoutenForm = document.getElementById('sektor-topo-routen-form');
+  if(sektorTopoRoutenForm){
+    const sektorTopoImageInput = document.getElementById('sektor-topo-image-input');
+    if(sektorTopoImageInput) sektorTopoImageInput.addEventListener('change', ()=>{
+      handleTopoImageUpload(sektorTopoImageInput, 'sektor-id-for-topo', 'sektor-topo-images-hidden', 'sektor-topo-image-status');
+    });
+    renderKletterroutenEditor('kletterrouten-editor', 'kletterrouten-hidden');
+
+    const sektorTopoRoutenSaveBtn = document.getElementById('sektor-topo-routen-save-btn');
+    if(sektorTopoRoutenSaveBtn){
+      sektorTopoRoutenSaveBtn.addEventListener('click', (e)=>{
+        e.preventDefault();
+        const fd = new FormData(sektorTopoRoutenForm);
+        const data = Object.fromEntries(fd.entries());
+        submitSektorTopoRoutenForm(data);
+      });
+    }
+    const sektorTopoRoutenFabSaveBtn = document.getElementById('sektor-topo-routen-fab-save-btn');
+    if(sektorTopoRoutenFabSaveBtn) sektorTopoRoutenFabSaveBtn.addEventListener('click', ()=>{ if(sektorTopoRoutenSaveBtn) sektorTopoRoutenSaveBtn.click(); });
   }
 
   const klettergebietForm = document.getElementById('klettergebiet-form');
