@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v127-sektor-kletterrouten';
+const APP_VERSION = 'v128-sektor-card-topo-preview';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3138,18 +3138,28 @@ function sektorCardHtml(sek){
   const linkedCount = state.tours.filter(t=>t.sektorId===sek.id).length;
   const accessRoutes = sek.accessRoutes || [];
   const descentRoutes = sek.descentRoutes || [];
+  const kletterrouten = sek.kletterrouten || [];
+  const gradeRange = kletterroutenGradeRangeText(kletterrouten);
+  // Topo-Vorschaubild + Routenzahl/Grad-Spanne: damit man beim Durchblättern mehrerer Sektoren
+  // eines Klettergebiets (z. B. Sektor A–G) auf einen Blick erkennt, was einen erwartet, statt
+  // jeden einzeln öffnen zu müssen — wie ein Inhaltsverzeichnis der Führerbuch-Seite.
+  const topoThumb = (sek.topoImages && sek.topoImages.length) ? sek.topoImages[0] : null;
   return `
-  <div class="card" data-act="open-sektor" data-id="${sek.id}" tabindex="0" role="button">
-    <div class="card-top">
-      <h3 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h3>
-    </div>
-    ${sek.region ? `<p class="excerpt">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}
-    <span class="hut-link-chip">${linkedCount} Tour${linkedCount===1?'':'en'}</span>
-    ${accessRoutes.length ? `<span class="hut-link-chip">🚶 ${accessRoutes.length} Zustieg${accessRoutes.length===1?'':'e'}</span>` : ''}
-    ${descentRoutes.length ? `<span class="hut-link-chip">🔽 ${descentRoutes.length} Abstieg${descentRoutes.length===1?'':'e'}</span>` : ''}
-    ${sek._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
-    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
-      <span>von ${esc(sek.createdBy||'?')} · ${fmtDate(sek.createdAt)}</span>
+  <div class="card" data-act="open-sektor" data-id="${sek.id}" tabindex="0" role="button" style="${topoThumb ? 'display:flex; gap:12px; align-items:flex-start;' : ''}">
+    ${topoThumb ? `<img src="${esc(topoThumb.url)}" style="width:60px; height:60px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); flex-shrink:0; transform:rotate(${topoThumb.rotation||0}deg);"/>` : ''}
+    <div style="flex:1; min-width:0;">
+      <div class="card-top">
+        <h3 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h3>
+      </div>
+      ${sek.region ? `<p class="excerpt">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}
+      ${kletterrouten.length ? `<span class="hut-link-chip">🧗 ${kletterrouten.length} Route${kletterrouten.length===1?'':'n'}${gradeRange ? ' · ' + esc(gradeRange) : ''}</span>` : ''}
+      <span class="hut-link-chip">${linkedCount} Tour${linkedCount===1?'':'en'}</span>
+      ${accessRoutes.length ? `<span class="hut-link-chip">🚶 ${accessRoutes.length} Zustieg${accessRoutes.length===1?'':'e'}</span>` : ''}
+      ${descentRoutes.length ? `<span class="hut-link-chip">🔽 ${descentRoutes.length} Abstieg${descentRoutes.length===1?'':'e'}</span>` : ''}
+      ${sek._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
+      <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
+        <span>von ${esc(sek.createdBy||'?')} · ${fmtDate(sek.createdAt)}</span>
+      </div>
     </div>
   </div>`;
 }
