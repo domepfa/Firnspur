@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wird geteilt …</title>
+<style>
+  body{background:#EAF1F4; color:#16333F; font-family:'Source Sans 3', system-ui, sans-serif; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; text-align:center; padding:20px;}
+</style>
+</head>
+<body>
+  <!--
+    Normalfall: der Service Worker (sw.js) fängt den POST auf diese Seite bereits ab
+    und leitet direkt auf index.html?shared=1 weiter, bevor diese Seite überhaupt
+    geladen wird. Diese Datei ist nur ein Sicherheitsnetz für den seltenen Fall, dass
+    der Service Worker (z. B. direkt nach der Installation) noch nicht aktiv ist.
+  -->
+  <p>Wird verarbeitet – bitte kurz warten …</p>
+  <script>
+    setTimeout(function(){ location.replace('./index.html'); }, 300);
+  </script>
+</body>
+</html>

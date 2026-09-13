@@ -34,6 +34,11 @@ function renderDebugPanel(){
 /* ================= Firebase ================= */
 const FIREBASE_URL = 'https://firnspur-default-rtdb.europe-west1.firebasedatabase.app';
 const STORAGE_BUCKET = 'firnspur.firebasestorage.app'; // Cloud Storage, appübergreifend geteilt
+// Foto-Scan für Kletterrouten: URL der Cloud Function, siehe functions/README.md.
+// Leer = noch nicht deployt — der "Foto scannen"-Knopf zeigt dann nur eine Fehlermeldung,
+// der Rest der App bleibt davon komplett unberührt. Bewusst "var" (statt "const"), damit
+// Tests sie über window.SCAN_KLETTERROUTEN_URL überschreiben können.
+var SCAN_KLETTERROUTEN_URL = '';
 async function fbGet(path){
   try{
     await ensureValidAuthToken();
@@ -5965,6 +5970,62 @@ function kletterroutenTableHtml(routes){
   </table>`;
 }
 
+function blobToBase64(blob){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = ()=> reject(new Error('Datei konnte nicht gelesen werden.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Schickt das gerade ausgewählte Foto (aus dem Topo-Bild-Datei-Feld) an die Cloud Function
+// scanKletterrouten (siehe functions/index.js) und trägt die erkannten Routen automatisch in
+// die Kletterrouten-Liste ein — bestehende Zeilen bleiben erhalten, erkannte kommen dazu.
+async function scanTopoImageForRoutes(fileInputEl, hiddenInputId, containerId, statusElId){
+  const statusEl = document.getElementById(statusElId);
+  if(!SCAN_KLETTERROUTEN_URL){
+    showToast('Foto-Scan ist noch nicht eingerichtet — siehe functions/README.md.', true);
+    return;
+  }
+  const file = fileInputEl && fileInputEl.files && fileInputEl.files[0];
+  if(!file){
+    showToast('Bitte zuerst oben ein Foto auswählen.', true);
+    return;
+  }
+  if(statusEl) statusEl.textContent = 'Erkenne Routen …';
+  try{
+    const imageBase64 = await blobToBase64(file);
+    const res = await fetch(SCAN_KLETTERROUTEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64, mediaType: file.type || 'image/jpeg' }),
+    });
+    if(!res.ok){
+      const errBody = await res.json().catch(()=>({}));
+      throw new Error(errBody.error || ('Serverfehler ' + res.status));
+    }
+    const data = await res.json();
+    const hiddenInput = document.getElementById(hiddenInputId);
+    let existing = [];
+    try{ existing = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ existing = []; }
+    const nextNr = existing.reduce((max,r)=> Math.max(max, r.nr||0), 0) + 1;
+    const added = (data.routes||[]).map((r,i)=>({
+      id: uid('kr'),
+      nr: (r.nr!=null) ? r.nr : (nextNr+i),
+      name: r.name || ('Route ' + (nextNr+i)),
+      grad: r.grad || '',
+    }));
+    if(hiddenInput) hiddenInput.value = JSON.stringify(existing.concat(added));
+    renderKletterroutenEditor(containerId, hiddenInputId);
+    if(statusEl) statusEl.textContent = added.length ? `✓ ${added.length} Route(n) erkannt — bitte kurz prüfen.` : 'Keine Routen erkannt.';
+    showToast(added.length ? (added.length + ' Route(n) erkannt und übernommen.') : 'Keine Routen erkannt — Foto evtl. unscharf oder falscher Ausschnitt.', !added.length);
+  }catch(e){
+    if(statusEl) statusEl.textContent = '';
+    showToast('Foto-Scan fehlgeschlagen: ' + (e.message || e), true);
+  }
+}
+
 // Editierbare Liste fürs Bearbeiten-Formular: Zeilen mit direkt editierbaren Feldern, ein
 // "Liste einfügen"-Textfeld (nutzt parseKletterroutenText) und "+ Route hinzufügen" für einzelne
 // neue Zeilen. Schreibt bei jeder Änderung sofort ins hiddenInputId-Feld zurück.
@@ -6510,5 +6571,144 @@ async function refreshOfflineSectionUI(offlineId){
       <button type="button" class="btn secondary" id="download-offline-btn-${offlineId}" data-act="download-offline" data-offline-id="${offlineId}">🔽 Für unterwegs herunterladen</button>
     `;
   }
+}
+
+/* ================= Web-Share-Target: Fotos/Links aus anderen Apps direkt hier landen =====
+   Android/Chrome schickt geteilte Inhalte per POST an share-target-*.html (siehe manifest*.json).
+   sw.js fängt diesen POST ab, legt Text/Datei kurz im Cache ab und leitet auf ?shared=1 um.
+   checkSharedContent() holt die Daten hier wieder ab — einmalig, danach wird der Cache geleert. */
+const SHARE_TARGET_CACHE = 'share-target-v1';
+
+async function checkSharedContent(){
+  if(!('caches' in window)) return null;
+  if(!location.search.includes('shared=1')) return null;
+  history.replaceState(null, '', location.pathname);
+  try{
+    const cache = await caches.open(SHARE_TARGET_CACHE);
+    const dataRes = await cache.match('/__shared-data');
+    if(!dataRes) return null;
+    const data = await dataRes.json();
+    let fileBlob = null;
+    if(data.fileCount > 0){
+      const fileRes = await cache.match('/__shared-file-0');
+      if(fileRes) fileBlob = await fileRes.blob();
+    }
+    await cache.delete('/__shared-data');
+    for(let i=0; i<data.fileCount; i++) await cache.delete('/__shared-file-' + i);
+    if(!fileBlob && !data.text && !data.url) return null;
+    return { text: data.text || '', url: data.url || '', title: data.title || '', fileBlob };
+  }catch(e){
+    dlog('Geteilter Inhalt konnte nicht gelesen werden: ' + (e.message || e), 'err');
+    return null;
+  }
+}
+
+function openShareImportModal(shared){
+  state.modal = { type: 'share-import', payload: shared };
+  render();
+}
+
+function shareImportModalHtml(shared){
+  const hasImage = !!shared.fileBlob;
+  const linkText = shared.url || shared.text || '';
+  const hasSektoren = typeof state.sektoren !== 'undefined';
+  let body = '';
+  if(hasImage){
+    const objUrl = URL.createObjectURL(shared.fileBlob);
+    if(hasSektoren && state.sektoren.length){
+      body = `
+        <img src="${objUrl}" style="width:100%; max-height:260px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); margin-bottom:14px;"/>
+        <div class="field"><label>Als Topo-Bild verwenden für Sektor …</label>
+          <select id="share-import-sektor-select">
+            ${state.sektoren.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+          </select>
+        </div>
+        <button type="button" class="btn" id="share-import-image-btn" style="width:100%; margin-top:6px;">🧗 Als Topo-Bild übernehmen</button>
+      `;
+    }else{
+      body = `
+        <img src="${objUrl}" style="width:100%; max-height:260px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); margin-bottom:14px;"/>
+        <p style="font-size:13px; color:var(--ink-soft);">Geteilte Fotos werden in dieser App aktuell nicht weiterverarbeitet — dieses Feature gibt es bisher nur bei Kletter-Sektoren (Hochtour/MSL-App).</p>
+      `;
+    }
+  }else if(linkText){
+    body = `
+      <div class="field"><label>Geteilter Link/Text</label>
+        <p class="mono" style="font-size:12.5px; word-break:break-all; background:var(--ice-light); border-radius:var(--radius); padding:8px;">${esc(linkText)}</p>
+      </div>
+      ${state.tours.length ? `
+        <div class="field"><label>Als GPX-Link speichern für Tour …</label>
+          <select id="share-import-tour-select">
+            ${state.tours.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')}
+          </select>
+        </div>
+        <button type="button" class="btn" id="share-import-link-btn" style="width:100%; margin-top:6px;">🔗 Als GPX-Link übernehmen</button>
+      ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour vorhanden, der der Link zugeordnet werden könnte.</p>`}
+    `;
+  }else{
+    body = `<p style="font-size:13px; color:var(--ink-soft);">Kein verwertbarer Inhalt empfangen.</p>`;
+  }
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>📥 Geteilter Inhalt</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    ${body}
+    <div class="form-actions"><button type="button" class="btn secondary" data-act="close-modal">Schliessen</button></div>
+  </div>`;
+}
+
+function wireShareImportModal(){
+  const imgBtn = document.getElementById('share-import-image-btn');
+  if(imgBtn) imgBtn.addEventListener('click', ()=>{
+    const sel = document.getElementById('share-import-sektor-select');
+    const sektorId = sel ? sel.value : '';
+    const shared = state.modal && state.modal.payload;
+    if(!sektorId || !shared || !shared.fileBlob) return;
+    applySharedImageToSektor(sektorId, shared.fileBlob);
+  });
+  const linkBtn = document.getElementById('share-import-link-btn');
+  if(linkBtn) linkBtn.addEventListener('click', ()=>{
+    const sel = document.getElementById('share-import-tour-select');
+    const tourId = sel ? sel.value : '';
+    const shared = state.modal && state.modal.payload;
+    const link = shared ? (shared.url || shared.text || '') : '';
+    if(!tourId || !link) return;
+    submitShareImportGpxLink(tourId, link);
+  });
+}
+
+// Öffnet den bestehenden Topo-&-Routen-Bereich eines Sektors und speist das geteilte Foto
+// direkt in den vorhandenen Upload-Ablauf ein (Zuschneiden/Komprimieren/Hochladen) — per
+// DataTransfer wird die Bild-Datei so ins Datei-Feld gelegt, als hätte man sie ausgewählt.
+function applySharedImageToSektor(sektorId, blob){
+  openEditSektorTopoRouten(sektorId);
+  const input = document.getElementById('sektor-topo-image-input');
+  if(!input){ showToast('Sektor-Bearbeitung konnte nicht geöffnet werden.', true); return; }
+  try{
+    const dt = new DataTransfer();
+    dt.items.add(new File([blob], 'geteiltes-foto.jpg', { type: blob.type || 'image/jpeg' }));
+    input.files = dt.files;
+    handleTopoImageUpload(input, 'sektor-id-for-topo', 'sektor-topo-images-hidden', 'sektor-topo-image-status');
+  }catch(e){
+    showToast('Geteiltes Foto konnte nicht übernommen werden: ' + (e.message || e), true);
+  }
+}
+
+async function submitShareImportGpxLink(tourId, link){
+  const t = state.tours.find(x=>x.id===tourId);
+  if(!t){ showToast('Tour nicht gefunden.', true); return; }
+  t.gpxLink = link;
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  closeModal(false, true, true);
+  state.modal = { type:'tour-detail', payload:t.id };
+  render();
+  const ok = await saveTourCloud(t).catch(()=>false);
+  t._unsynced = !ok;
+  if(!ok){
+    markUnsaved();
+    showToast('GPX-Link ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+  }else{
+    showToast('GPX-Link gespeichert und synchronisiert.');
+  }
+  render();
 }
 

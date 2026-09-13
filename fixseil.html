@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v129-sektor-topo-routen-split';
+const APP_VERSION = 'v130-share-target-und-foto-scan';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -897,6 +897,7 @@ async function loadAll(){
       showToast('Konnte nicht mit der Datenbank verbinden. Prüfe deine Internetverbindung.', true);
     }
     render();
+    checkSharedContent().then(shared=>{ if(shared) openShareImportModal(shared); });
     return;
   }
 
@@ -953,6 +954,7 @@ async function loadAll(){
   state.tours.filter(t=>t.tourCategory==='hochtour').forEach(ensureTourSummitLinks);
   backfillGipfelAltitudes();
   render();
+  checkSharedContent().then(shared=>{ if(shared) openShareImportModal(shared); });
 
   // Wiedergefundene, noch nicht synchronisierte Einträge jetzt automatisch
   // erneut versuchen hochzuladen, da offenbar wieder eine Verbindung besteht.
@@ -1832,6 +1834,7 @@ function sektorTopoRoutenFormHtml(sektorId){
       </div>
       <div class="field"><label>Kletterrouten (Nr. / Name / Grad)</label>
         <div class="hint">Für Sektoren mit mehreren benannten Routen an derselben Wand — unabhängig von einzelnen MSL-/Klettergarten-Touren.</div>
+        <button type="button" class="btn secondary" id="sektor-scan-topo-btn" style="margin-bottom:10px;">📷 Foto scannen (oben ausgewähltes Bild)</button>
         <div id="kletterrouten-editor" style="margin-top:8px;"></div>
         <input type="hidden" name="kletterrouten" id="kletterrouten-hidden" value='${esc(sek.kletterrouten ? JSON.stringify(sek.kletterrouten) : "[]")}'/>
       </div>
@@ -3270,6 +3273,7 @@ function renderModal(){
   else if(m.type==='agenda-detail') inner = agendaDetailHtml(m.payload);
   else if(m.type==='emergency') inner = emergencyCardHtml();
   else if(m.type==='add-completion') inner = completionModalHtml(m.payload);
+  else if(m.type==='share-import') inner = shareImportModalHtml(m.payload);
   root.innerHTML = `<div class="overlay" data-act="overlay-close">${inner}</div>`;
   wireModalHandlers();
 }
@@ -4198,6 +4202,7 @@ function wireModalHandlers(){
   const root = document.getElementById('modal-root');
   dlog('Modal gerendert: ' + (state.modal ? state.modal.type : 'keins'));
   syncModalDirtyTracking();
+  wireShareImportModal();
   // Erkennt Änderungen an Text-/Auswahlfeldern sowie Chip-Klicks, um beim Verlassen einer
   // Bearbeiten-Maske gezielt nachfragen zu können, ob ungespeicherte Änderungen verworfen
   // werden sollen. Nur einmal verdrahtet (modal-root bleibt über Renders hinweg bestehen).
@@ -5464,6 +5469,11 @@ function wireModalHandlers(){
       handleTopoImageUpload(sektorTopoImageInput, 'sektor-id-for-topo', 'sektor-topo-images-hidden', 'sektor-topo-image-status');
     });
     renderKletterroutenEditor('kletterrouten-editor', 'kletterrouten-hidden');
+
+    const sektorScanTopoBtn = document.getElementById('sektor-scan-topo-btn');
+    if(sektorScanTopoBtn) sektorScanTopoBtn.addEventListener('click', ()=>{
+      scanTopoImageForRoutes(sektorTopoImageInput, 'kletterrouten-hidden', 'kletterrouten-editor', 'sektor-topo-image-status');
+    });
 
     const sektorTopoRoutenSaveBtn = document.getElementById('sektor-topo-routen-save-btn');
     if(sektorTopoRoutenSaveBtn){
