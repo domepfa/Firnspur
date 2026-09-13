@@ -5886,6 +5886,25 @@ function kletterrouteGradeTier(grad){
 }
 const KLETTERROUTE_GRADE_COLORS = { easy: '#3C7A52', mid: '#A87A1F', hard: '#B0392C' };
 
+// Sortierwert für französische Kletter-Grade (3a < 3a+ < 3b < … < 4a < …) — nur zum Vergleichen/
+// Sortieren gedacht, kein exaktes Schwierigkeitsmass. Liefert null bei unbekanntem Format.
+function kletterrouteGradeSortValue(grad){
+  const m = String(grad||'').match(/^(\d+)\s*([a-c])?\s*(\+)?/i);
+  if(!m) return null;
+  const num = parseInt(m[1], 10);
+  const letterVal = { a:0, b:1, c:2 }[(m[2]||'a').toLowerCase()] || 0;
+  return num*10 + letterVal*3 + (m[3] ? 1 : 0);
+}
+// Kurze Grad-Spanne für Sektor-Kärtchen (z. B. "3a–7a") — damit man beim Durchblättern mehrerer
+// Sektoren eines Klettergebiets auf einen Blick sieht, was einen erwartet.
+function kletterroutenGradeRangeText(routes){
+  const values = (routes||[]).map(r=>({grad:r.grad, v:kletterrouteGradeSortValue(r.grad)})).filter(x=>x.v!==null);
+  if(!values.length) return '';
+  values.sort((a,b)=>a.v-b.v);
+  const min = values[0].grad, max = values[values.length-1].grad;
+  return min===max ? min : `${min}–${max}`;
+}
+
 // Erkennt mit |, ; , Komma oder Tab getrennte Zeilen (auch als Markdown-Tabelle mit
 // führendem/abschliessendem |) sowie reine Leerzeichen-Trennung — dann gilt: erstes Token = Nr.
 // (falls rein numerisch), letztes gradartig aussehende Token = Grad, alles dazwischen = Name.
