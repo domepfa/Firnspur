@@ -38,7 +38,7 @@ const STORAGE_BUCKET = 'firnspur.firebasestorage.app'; // Cloud Storage, appübe
 // Leer = noch nicht deployt — der "Foto scannen"-Knopf zeigt dann nur eine Fehlermeldung,
 // der Rest der App bleibt davon komplett unberührt. Bewusst "var" (statt "const"), damit
 // Tests sie über window.SCAN_KLETTERROUTEN_URL überschreiben können.
-var SCAN_KLETTERROUTEN_URL = '';
+var SCAN_KLETTERROUTEN_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanKletterrouten';
 async function fbGet(path){
   try{
     await ensureValidAuthToken();
