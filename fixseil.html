@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v131-foto-scan-live';
+const APP_VERSION = 'v132-klettergebiet-mehrfach-scan';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1207,6 +1207,8 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     state.modal = {type:'sektor-detail', payload: state.modal.payload.sektorId};
   }else if(state.modal && state.modal.type==='edit-sektor-topo-routen' && state.modal.payload){
     state.modal = {type:'sektor-detail', payload: state.modal.payload};
+  }else if(state.modal && state.modal.type==='klettergebiet-scan-review' && state.modal.payload){
+    state.modal = {type:'klettergebiet-detail', payload: state.modal.payload.gebId};
   }else{
     state.modal = null;
   }
@@ -2129,7 +2131,10 @@ function klettergebietDetailHtml(id){
       ${sektoren.length ? `<div class="grid" style="margin-top:6px;">${sektoren.map(sektorCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Sektor diesem Klettergebiet zugeordnet.</p>`}
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
         <button type="button" class="btn secondary" data-act="add-sektor-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Neuer Sektor in diesem Gebiet</button>
+        <button type="button" class="btn secondary" id="klettergebiet-scan-btn" data-klettergebiet-id="${geb.id}">📷 Foto scannen (mehrere Sektoren)</button>
+        <input type="file" id="klettergebiet-scan-input" accept="image/*" style="display:none;"/>
       </div>
+      <p id="klettergebiet-scan-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;"></p>
       ${unlinkedSektoren.length ? `<div class="detail-section" style="margin-top:14px; border:2px dashed var(--line); border-radius:var(--radius); padding:12px;">
         <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Noch nicht zugeordnete Sektoren:</p>
         <div class="grid">${unlinkedSektoren.map(s=>unlinkedSektorAssignCardHtml(s, geb.id)).join('')}</div>
@@ -3274,6 +3279,7 @@ function renderModal(){
   else if(m.type==='emergency') inner = emergencyCardHtml();
   else if(m.type==='add-completion') inner = completionModalHtml(m.payload);
   else if(m.type==='share-import') inner = shareImportModalHtml(m.payload);
+  else if(m.type==='klettergebiet-scan-review') inner = klettergebietScanReviewHtml(m.payload);
   root.innerHTML = `<div class="overlay" data-act="overlay-close">${inner}</div>`;
   wireModalHandlers();
 }
@@ -4203,6 +4209,16 @@ function wireModalHandlers(){
   dlog('Modal gerendert: ' + (state.modal ? state.modal.type : 'keins'));
   syncModalDirtyTracking();
   wireShareImportModal();
+  wireKlettergebietScanReviewModal();
+
+  const klettergebietScanBtn = document.getElementById('klettergebiet-scan-btn');
+  const klettergebietScanInput = document.getElementById('klettergebiet-scan-input');
+  if(klettergebietScanBtn && klettergebietScanInput){
+    klettergebietScanBtn.addEventListener('click', ()=> klettergebietScanInput.click());
+    klettergebietScanInput.addEventListener('change', ()=>{
+      scanKlettergebietPhoto(klettergebietScanBtn.getAttribute('data-klettergebiet-id'), klettergebietScanInput, 'klettergebiet-scan-status');
+    });
+  }
   // Erkennt Änderungen an Text-/Auswahlfeldern sowie Chip-Klicks, um beim Verlassen einer
   // Bearbeiten-Maske gezielt nachfragen zu können, ob ungespeicherte Änderungen verworfen
   // werden sollen. Nur einmal verdrahtet (modal-root bleibt über Renders hinweg bestehen).
