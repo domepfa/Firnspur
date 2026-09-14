@@ -39,6 +39,9 @@ const STORAGE_BUCKET = 'firnspur.firebasestorage.app'; // Cloud Storage, appübe
 // der Rest der App bleibt davon komplett unberührt. Bewusst "var" (statt "const"), damit
 // Tests sie über window.SCAN_KLETTERROUTEN_URL überschreiben können.
 var SCAN_KLETTERROUTEN_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanKletterrouten';
+// Wie SCAN_KLETTERROUTEN_URL, aber für ein Foto mit MEHREREN Sektoren gleichzeitig (z. B.
+// eine ganze Führerbuch-Seite mit Sektor A–G) — siehe functions/README.md.
+var SCAN_KLETTERGEBIET_URL = '';
 async function fbGet(path){
   try{
     await ensureValidAuthToken();
@@ -6024,6 +6027,126 @@ async function scanTopoImageForRoutes(fileInputEl, hiddenInputId, containerId, s
     if(statusEl) statusEl.textContent = '';
     showToast('Foto-Scan fehlgeschlagen: ' + (e.message || e), true);
   }
+}
+
+// Wie scanTopoImageForRoutes, aber für ein Foto mit MEHREREN Sektoren gleichzeitig (z. B. eine
+// ganze Führerbuch-Seite eines Klettergebiets). Öffnet zum Schluss ein Prüf-Fenster statt die
+// Routen direkt zu übernehmen, da hier gleich mehrere neue Sektoren entstehen.
+async function scanKlettergebietPhoto(gebId, fileInputEl, statusElId){
+  const statusEl = document.getElementById(statusElId);
+  if(!SCAN_KLETTERGEBIET_URL){
+    showToast('Mehrfach-Sektor-Scan ist noch nicht eingerichtet — siehe functions/README.md.', true);
+    return;
+  }
+  const file = fileInputEl && fileInputEl.files && fileInputEl.files[0];
+  if(!file){
+    showToast('Bitte zuerst ein Foto auswählen.', true);
+    return;
+  }
+  if(statusEl) statusEl.textContent = 'Erkenne Sektoren …';
+  try{
+    const imageBase64 = await blobToBase64(file);
+    const res = await fetch(SCAN_KLETTERGEBIET_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64, mediaType: file.type || 'image/jpeg' }),
+    });
+    if(!res.ok){
+      const errBody = await res.json().catch(()=>({}));
+      throw new Error(errBody.error || ('Serverfehler ' + res.status));
+    }
+    const data = await res.json();
+    const sectors = (data.sectors || []).filter(s=>s && s.name);
+    if(statusEl) statusEl.textContent = '';
+    if(!sectors.length){
+      showToast('Keine Sektoren erkannt — Foto evtl. unscharf oder falscher Ausschnitt.', true);
+      return;
+    }
+    openKlettergebietScanReview(gebId, sectors, file);
+  }catch(e){
+    if(statusEl) statusEl.textContent = '';
+    showToast('Foto-Scan fehlgeschlagen: ' + (e.message || e), true);
+  }
+}
+
+function openKlettergebietScanReview(gebId, sectors, fileBlob){
+  state.modal = { type:'klettergebiet-scan-review', payload:{ gebId, sectors, fileBlob } };
+  render();
+}
+
+function klettergebietScanReviewHtml(payload){
+  const { sectors } = payload;
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>📷 Erkannte Sektoren</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <p style="font-size:13px; color:var(--ink-soft);">${sectors.length} Sektor${sectors.length===1?'':'en'} erkannt — Namen und Routen vor dem Übernehmen kurz prüfen, jeder wird als eigener, neuer Sektor angelegt.</p>
+    <div id="klettergebiet-scan-sectors">
+      ${sectors.map((sec,i)=>`
+        <div class="field" style="border:1px solid var(--line); border-radius:var(--radius); padding:12px; margin-bottom:14px;">
+          <label>Sektor-Name</label>
+          <input type="text" class="scan-sector-name" data-index="${i}" value="${esc(sec.name||'')}"/>
+          <div id="scan-sector-editor-${i}" style="margin-top:8px;"></div>
+          <input type="hidden" id="scan-sector-hidden-${i}" value='${esc(JSON.stringify(sec.routes||[]))}'/>
+        </div>
+      `).join('')}
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+      <button type="button" id="klettergebiet-scan-apply-btn" class="btn">✓ Als neue Sektoren übernehmen</button>
+    </div>
+  </div>`;
+}
+
+function wireKlettergebietScanReviewModal(){
+  const applyBtn = document.getElementById('klettergebiet-scan-apply-btn');
+  if(!applyBtn) return;
+  const payload = state.modal && state.modal.payload;
+  if(!payload) return;
+  payload.sectors.forEach((sec,i)=> renderKletterroutenEditor('scan-sector-editor-'+i, 'scan-sector-hidden-'+i));
+  applyBtn.addEventListener('click', ()=> submitKlettergebietScanReview());
+}
+
+async function submitKlettergebietScanReview(){
+  const payload = state.modal && state.modal.payload;
+  if(!payload) return;
+  const nameInputs = document.querySelectorAll('.scan-sector-name');
+  const created = [];
+  nameInputs.forEach((input, i)=>{
+    const name = input.value.trim();
+    if(!name) return;
+    let routes = [];
+    try{ routes = JSON.parse(document.getElementById('scan-sector-hidden-'+i).value || '[]'); }catch(e){ routes = []; }
+    const sek = { id: uid('sek'), name, klettergebietId: payload.gebId, kletterrouten: routes, topoImages: [], createdBy: state.myName, createdAt: new Date().toISOString() };
+    ensureSektorRouteArrays(sek);
+    created.push(sek);
+  });
+  if(!created.length){ showToast('Bitte mindestens einen Sektor-Namen eintragen.', true); return; }
+
+  if(payload.fileBlob){
+    for(const sek of created){
+      try{
+        const blob = await compressImageFile(payload.fileBlob, 1200, 0.78);
+        const imgId = uid('img');
+        const storagePath = `${TOPO_IMAGES_PATH}/${sek.id}/${imgId}.jpg`;
+        const url = await uploadTopoImageBlob(blob, storagePath);
+        sek.topoImages = [{ id: imgId, url, storagePath }];
+      }catch(e){ /* Topo-Bild kann später manuell ergänzt werden — kein Abbruch */ }
+    }
+  }
+
+  state.sektoren.unshift(...created);
+  closeModal(false, true, true);
+  state.modal = { type:'klettergebiet-detail', payload: payload.gebId };
+  render();
+
+  const results = await Promise.all(created.map(sek=> saveSektorCloud(sek).catch(()=>false)));
+  created.forEach((sek,i)=>{ sek._unsynced = !results[i]; });
+  if(results.every(r=>r)){
+    showToast(created.length + ' Sektor' + (created.length===1?'':'en') + ' angelegt und synchronisiert.');
+  }else{
+    markUnsaved();
+    showToast('Einige Sektoren sind lokal gespeichert, konnten aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+  }
+  render();
 }
 
 // Editierbare Liste fürs Bearbeiten-Formular: Zeilen mit direkt editierbaren Feldern, ein

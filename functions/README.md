@@ -1,9 +1,13 @@
 # Foto-Scan für Kletterrouten — Einrichtung
 
-Diese Cloud Function ist **fertig geschrieben, aber noch nicht ausgerollt**. Solange sie
-nicht deployt ist, zeigt der "📷 Foto scannen"-Knopf in der App eine Fehlermeldung statt
-zu funktionieren — das ist erwartet und harmlos, nichts anderes in der App ist davon
-betroffen.
+Zwei Cloud Functions in dieser Datei:
+- `scanKletterrouten` — ein Sektor, eine Routenliste (bereits deployt und live).
+- `scanKlettergebiet` — ein Foto mit MEHREREN Sektoren gleichzeitig (z. B. eine ganze
+  Führerbuch-Seite mit Sektor A–G), erkennt jeden Sektor samt eigener Routenliste.
+  **Noch nicht ausgerollt.** Solange sie nicht deployt ist, zeigt der
+  "📷 Foto scannen (mehrere Sektoren)"-Knopf auf der Klettergebiet-Seite eine
+  Fehlermeldung statt zu funktionieren — das ist erwartet und harmlos, nichts anderes in
+  der App ist davon betroffen.
 
 ## Was du brauchst
 
@@ -31,22 +35,24 @@ cd functions && npm install && cd ..
 firebase deploy --only functions
 ```
 
-Nach erfolgreichem Deploy zeigt die Konsole die URL der Funktion, z. B.:
+`firebase deploy --only functions` deployt automatisch BEIDE Functions aus `functions/index.js`.
+Nach erfolgreichem Deploy zeigt die Konsole die URLs, z. B.:
 
 ```
-https://europe-west1-firnspur.cloudfunctions.net/scanKletterrouten
+Function URL (scanKletterrouten(europe-west1)): https://europe-west1-firnspur.cloudfunctions.net/scanKletterrouten
+Function URL (scanKlettergebiet(europe-west1)): https://europe-west1-firnspur.cloudfunctions.net/scanKlettergebiet
 ```
 
-## Letzter Schritt: URL in die App eintragen
+## Letzter Schritt: URL(s) in die App eintragen
 
-Diese URL in `0-shared.js` eintragen — suche nach `SCAN_KLETTERROUTEN_URL` (ganz am
-Anfang der Datei) und trage sie dort ein, z. B.:
+In `0-shared.js` (ganz am Anfang der Datei) eintragen, z. B.:
 
 ```js
-const SCAN_KLETTERROUTEN_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanKletterrouten';
+var SCAN_KLETTERROUTEN_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanKletterrouten';
+var SCAN_KLETTERGEBIET_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanKlettergebiet';
 ```
 
-Danach committen/pushen wie gewohnt — der "📷 Foto scannen"-Knopf funktioniert dann.
+Danach committen/pushen wie gewohnt — die jeweiligen "📷 Foto scannen"-Knöpfe funktionieren dann.
 
 ## Kosten-Kontrolle
 
