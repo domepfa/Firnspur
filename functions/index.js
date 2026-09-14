@@ -1,20 +1,33 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const Anthropic = require('@anthropic-ai/sdk');
-const { zodOutputFormat } = require('@anthropic-ai/sdk/helpers/zod');
-const { z } = require('zod');
 
 // Wird per `firebase functions:secrets:set ANTHROPIC_API_KEY` gesetzt (siehe README.md) —
 // steht damit nur serverseitig zur Verfügung, nie im App-Code oder im Browser.
 const ANTHROPIC_API_KEY = defineSecret('ANTHROPIC_API_KEY');
 
-const KletterroutenSchema = z.object({
-  routes: z.array(z.object({
-    nr: z.number().nullable(),
-    name: z.string(),
-    grad: z.string(),
-  })),
-});
+// Rohes JSON-Schema statt Zod-Helper (client.messages.parse) — braucht keine zusätzliche
+// Abhängigkeit und funktioniert unabhängig von der installierten SDK-Version.
+const KLETTERROUTEN_SCHEMA = {
+  type: 'object',
+  properties: {
+    routes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          nr: { type: ['number', 'null'] },
+          name: { type: 'string' },
+          grad: { type: 'string' },
+        },
+        required: ['nr', 'name', 'grad'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['routes'],
+  additionalProperties: false,
+};
 
 const PROMPT = `Lies die Kletterrouten von diesem Foto einer Führerbuch-Topo-Seite ab.
 - Nr: die Nummer aus dem Topo-Bild. Falls keine erkennbar, fortlaufend weiternummerieren.
@@ -38,7 +51,7 @@ exports.scanKletterrouten = onRequest(
     }
     try {
       const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY.value() });
-      const response = await client.messages.parse({
+      const response = await client.messages.create({
         model: 'claude-haiku-4-5',
         max_tokens: 4096,
         messages: [{
@@ -48,13 +61,15 @@ exports.scanKletterrouten = onRequest(
             { type: 'text', text: PROMPT },
           ],
         }],
-        output_config: { format: zodOutputFormat(KletterroutenSchema) },
+        output_config: { format: { type: 'json_schema', schema: KLETTERROUTEN_SCHEMA } },
       });
-      if (!response.parsed_output) {
+      const textBlock = response.content.find((b) => b.type === 'text');
+      if (!textBlock) {
         res.status(502).json({ error: 'Antwort konnte nicht ausgewertet werden — bitte erneut versuchen.' });
         return;
       }
-      res.json(response.parsed_output);
+      const parsed = JSON.parse(textBlock.text);
+      res.json(parsed);
     } catch (err) {
       console.error('scanKletterrouten Fehler:', err);
       res.status(500).json({ error: (err && err.message) || 'Unbekannter Fehler bei der Bilderkennung.' });
