@@ -523,7 +523,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v133-zustieg-foto-scan';
+const APP_VERSION = 'v134-gipfelziel-uebersichtskarte';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1634,6 +1634,79 @@ function tourFormHtml(existing){
   </div>`;
 }
 
+// "Gipfelziel" gibt es in der Skitour-App nicht als eigene Entität wie bei Hochtour/MSL —
+// das Feld "Gipfel / Bergmassiv" (t.name) übernimmt diese Rolle direkt. Touren mit demselben
+// Namen (trim/ohne Grossschreibung) werden als Routen zum selben Gipfel behandelt.
+function gipfelzielKey(name){ return (name||'').trim().toLowerCase(); }
+
+function gipfelzielLegendHtml(gipfelName){
+  const key = gipfelzielKey(gipfelName);
+  const tours = state.tours.filter(t=> gipfelzielKey(t.name)===key);
+  return tours.map((t,i)=>{
+    const color = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
+    return `<span class="hint" style="display:inline-flex; align-items:center; gap:4px; margin-right:10px;"><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color};"></span>${esc(t.name)}${t.routeName ? ' – '+esc(t.routeName) : ''}</span>`;
+  }).join('');
+}
+
+// Führt die Punkte/Tracks ALLER Touren mit demselben Gipfelziel auf einer Karte zusammen,
+// jede Route in eigener Farbe — analog zur Sektor-/Klettergebiet-Übersichtskarte in der
+// Hochtour/MSL-App, hier aber anhand des gemeinsamen Gipfel-/Bergmassiv-Namens gruppiert.
+function renderGipfelzielOverviewMap(containerId, gipfelName){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const key = gipfelzielKey(gipfelName);
+    const tours = state.tours.filter(t=> gipfelzielKey(t.name)===key);
+    const tourEntries = tours.map((t,i)=>({ tour:t, color: ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length] }));
+    const hasAny = tourEntries.some(e=> (e.tour.points && e.tour.points.length) || (e.tour.trackSimplified && e.tour.trackSimplified.length) || (e.tour.manualTrack && e.tour.manualTrack.length));
+    if(!hasAny){
+      el2.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Noch keine Kartendaten bei diesen Touren.</p>';
+      return;
+    }
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:280px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const firstPoint = tourEntries.map(e=> e.tour.points && e.tour.points.length ? e.tour.points[0] : null).find(Boolean);
+    const map = L.map(mapDivId).setView(firstPoint ? [firstPoint.lat, firstPoint.lon] : [46.8182, 8.2275], firstPoint ? 13 : 8);
+    registerMap(mapDivId, map);
+    addBaseLayerSwitcher(map);
+    const boundsItems = [];
+    tourEntries.forEach(({tour:t, color})=>{
+      const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
+      if(track){
+        try{
+          L.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
+          const line = L.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
+          boundsItems.push(line);
+        }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
+      }
+      (t.points||[]).forEach(p=>{
+        try{
+          const m = L.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
+            .bindPopup(`<strong>${esc(t.name)}</strong>${t.routeName ? ' – '+esc(t.routeName) : ''}<br/>${esc(p.label||'Punkt')}`);
+          boundsItems.push(m);
+        }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
+      });
+    });
+    if(boundsItems.length){
+      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+    }
+    if(!isFullscreen){
+      const btn = makeFullscreenButton(function(id){ renderGipfelzielOverviewMap(id, gipfelName); });
+      el2.appendChild(btn);
+    }
+  });
+}
+
 function tourDetailHtml(id){
   const t = state.tours.find(x=>x.id===id);
   if(!t) return `<div class="modal" data-stop="1"><p>Tour nicht gefunden.</p></div>`;
@@ -1707,6 +1780,18 @@ function tourDetailHtml(id){
       <h4>Weitere Touren ab hier (${related.length})</h4>
       <div class="grid" style="margin-top:6px;">${related.map(tourCardHtml).join('')}</div>
     </div>` : ''; })()}
+    ${(() => {
+      const sameGipfel = state.tours.filter(x=> x.id!==t.id && gipfelzielKey(x.name)===gipfelzielKey(t.name));
+      if(!sameGipfel.length) return '';
+      return `<div class="detail-section">
+        <h4>🗺️ Weitere Routen auf ${esc(t.name)} (${sameGipfel.length})</h4>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Alle Routen mit diesem Gipfelziel automatisch zusammengeführt — keine erneute Eingabe nötig.</p>
+        <div style="margin-bottom:8px;">${gipfelzielLegendHtml(t.name)}</div>
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gipfelziel-overview-map" data-gipfelziel="${esc(t.name)}" data-target="map-gipfelziel-overview-${t.id}">🗺️ Karte anzeigen</button>
+        <div id="map-gipfelziel-overview-${t.id}"></div>
+        <div class="grid" style="margin-top:10px;">${sameGipfel.map(tourCardHtml).join('')}</div>
+      </div>`;
+    })()}
     ${t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
 
     <div class="detail-section">
@@ -2251,6 +2336,12 @@ function wireModalHandlers(){
       try{ manualTrack = JSON.parse(manualTrackJson || '[]'); }catch(e){ manualTrack = []; }
       try{ altTracks = JSON.parse(altTracksJson || '[]'); }catch(e){ altTracks = []; }
       renderTrackDisplayMap(target, pts, track, manualTrack, offlineId, altTracks);
+    });
+  });
+
+  root.querySelectorAll('[data-act="show-gipfelziel-overview-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      renderGipfelzielOverviewMap(btn.getAttribute('data-target'), btn.getAttribute('data-gipfelziel'));
     });
   });
 
