@@ -42,6 +42,9 @@ var SCAN_KLETTERROUTEN_URL = 'https://europe-west1-firnspur.cloudfunctions.net/s
 // Wie SCAN_KLETTERROUTEN_URL, aber für ein Foto mit MEHREREN Sektoren gleichzeitig (z. B.
 // eine ganze Führerbuch-Seite mit Sektor A–G) — siehe functions/README.md.
 var SCAN_KLETTERGEBIET_URL = '';
+// Foto-Scan für einen einzelnen Zustieg/Abstieg (Hütte, Tour oder Sektor — gleiche
+// Feldstruktur überall) — siehe functions/README.md.
+var SCAN_ZUSTIEG_URL = '';
 async function fbGet(path){
   try{
     await ensureValidAuthToken();
@@ -5459,6 +5462,7 @@ function accessRouteFormHtml(hutId, route){
       <input type="hidden" name="hutId" value="${esc(hutId)}"/>
       <input type="hidden" name="routeId" value="${esc(r.id||'')}"/>
       <div class="field"><label>Name des Zustiegs *</label><input required name="name" value="${esc(r.name||'')}" placeholder="z. B. Ab Randa"/></div>
+      ${scanZustiegButtonHtml('access-route')}
       <div class="field"><label>Jahreszeit</label>
         <div class="chips">
           <button type="button" class="chip season-chip ${r.season==='sommer'?'on':''}" style="${r.season==='sommer'?'background:var(--ice-deep)':''}" data-value="sommer">🌞 Sommer</button>
@@ -6147,6 +6151,74 @@ async function submitKlettergebietScanReview(){
     showToast('Einige Sektoren sind lokal gespeichert, konnten aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
   }
   render();
+}
+
+// Foto-Scan für einen einzelnen Zustieg/Abstieg — füllt direkt die gleichnamigen Formularfelder
+// (name/elevation/elevationUp/duration/difficultyT/description), egal ob Hütten-Zustieg
+// (accessRouteFormHtml), Tour-Route oder Sektor-Route: alle drei nutzen dieselben Feldnamen.
+async function scanZustiegIntoForm(fileInputEl, formEl, statusElId){
+  const statusEl = document.getElementById(statusElId);
+  if(!SCAN_ZUSTIEG_URL){
+    showToast('Foto-Scan ist noch nicht eingerichtet — siehe functions/README.md.', true);
+    return;
+  }
+  const file = fileInputEl && fileInputEl.files && fileInputEl.files[0];
+  if(!file){
+    showToast('Bitte zuerst ein Foto auswählen.', true);
+    return;
+  }
+  if(statusEl) statusEl.textContent = 'Erkenne Angaben …';
+  try{
+    const imageBase64 = await blobToBase64(file);
+    const res = await fetch(SCAN_ZUSTIEG_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64, mediaType: file.type || 'image/jpeg' }),
+    });
+    if(!res.ok){
+      const errBody = await res.json().catch(()=>({}));
+      throw new Error(errBody.error || ('Serverfehler ' + res.status));
+    }
+    const data = await res.json();
+    const setIfPresent = (name, val)=>{
+      if(!val) return;
+      const el = formEl.querySelector('[name="'+name+'"]');
+      if(el) el.value = val;
+    };
+    setIfPresent('name', data.name);
+    setIfPresent('elevation', data.elevation);
+    setIfPresent('elevationUp', data.elevationUp);
+    setIfPresent('duration', data.duration);
+    setIfPresent('description', data.description);
+    if(data.difficultyT){
+      const sel = formEl.querySelector('[name="difficultyT"]');
+      if(sel) sel.value = data.difficultyT;
+    }
+    if(statusEl) statusEl.textContent = '✓ Angaben übernommen — bitte kurz prüfen.';
+    showToast('Angaben erkannt und übernommen — bitte kurz prüfen.');
+    markModalDirty();
+  }catch(e){
+    if(statusEl) statusEl.textContent = '';
+    showToast('Foto-Scan fehlgeschlagen: ' + (e.message || e), true);
+  }
+}
+
+// Wiederverwendbarer Foto-Scan-Block fürs Zustieg/Abstieg-Formular (Hütte/Tour/Sektor) —
+// idPrefix macht die Element-IDs pro Formular eindeutig.
+function scanZustiegButtonHtml(idPrefix){
+  return `<div class="field">
+    <button type="button" class="btn secondary" id="${idPrefix}-scan-btn">📷 Foto scannen</button>
+    <input type="file" id="${idPrefix}-scan-input" accept="image/*" style="display:none;"/>
+    <p id="${idPrefix}-scan-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;"></p>
+    <div class="hint">Liest Name/Höhenmeter/Zeit/Beschreibung aus einem Foto der Führerbuch-Seite und trägt sie unten ein — bitte danach kurz prüfen.</div>
+  </div>`;
+}
+function wireScanZustiegButton(idPrefix, formEl){
+  const btn = document.getElementById(idPrefix+'-scan-btn');
+  const input = document.getElementById(idPrefix+'-scan-input');
+  if(!btn || !input || !formEl) return;
+  btn.addEventListener('click', ()=> input.click());
+  input.addEventListener('change', ()=> scanZustiegIntoForm(input, formEl, idPrefix+'-scan-status'));
 }
 
 // Editierbare Liste fürs Bearbeiten-Formular: Zeilen mit direkt editierbaren Feldern, ein
