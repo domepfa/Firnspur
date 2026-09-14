@@ -71,6 +71,29 @@ const KLETTERGEBIET_SCHEMA = {
   additionalProperties: false,
 };
 
+const ZUSTIEG_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    elevation: { type: 'string' },
+    elevationUp: { type: 'string' },
+    duration: { type: 'string' },
+    difficultyT: { type: 'string', enum: ['', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6'] },
+    description: { type: 'string' },
+  },
+  required: ['name', 'elevation', 'elevationUp', 'duration', 'difficultyT', 'description'],
+  additionalProperties: false,
+};
+
+const PROMPT_ZUSTIEG = `Lies die Angaben zu EINEM Zustieg/Abstieg von diesem Foto einer Führerbuch-Seite ab (Wanderzugang zu einer Hütte/einem Sektor/einer Tour).
+- name: kurzer Titel des Zustiegs/Abstiegs, wie im Führer benannt (z. B. "Ab Parkplatz XY"). Falls kein eigener Name vorhanden, kurz zusammenfassen (z. B. "Zustieg von Norden").
+- elevation: Höhenmeter als reine Zahl (ohne "Hm" oder "m"), leer lassen falls nicht angegeben.
+- elevationUp: NUR bei einem Abstieg mit Gegenanstieg relevant — Höhenmeter des Gegenanstiegs als reine Zahl, sonst leer lassen.
+- duration: Zeitbedarf exakt wie angegeben (z. B. "1h30", "2 Std."), leer lassen falls nicht angegeben.
+- difficultyT: NUR falls die SAC-Wanderskala T1–T6 explizit angegeben ist, sonst leerer String — nichts schätzen oder erfinden.
+- description: eine kurze Zusammenfassung (1–3 Sätze) der Wegbeschreibung auf Deutsch, NUR basierend auf tatsächlich lesbarem Text im Foto.
+Erfinde nichts. Ist ein Wert nicht lesbar oder nicht angegeben, lass das jeweilige Feld leer ("").`;
+
 async function callClaudeVision(apiKey, imageBase64, mediaType, prompt, schema){
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create({
@@ -90,54 +113,41 @@ async function callClaudeVision(apiKey, imageBase64, mediaType, prompt, schema){
   return JSON.parse(textBlock.text);
 }
 
-// HTTPS Cloud Functions (2. Generation) — nehmen ein Foto (Base64) entgegen, lassen Claude
-// (Haiku 4.5, günstigstes Modell mit Bildverständnis) die Kletterrouten erkennen und geben
-// sie strukturiert zurück. cors:true erlaubt den Aufruf direkt aus fixseil.html.
-exports.scanKletterrouten = onRequest(
-  { secrets: [ANTHROPIC_API_KEY], cors: true, region: 'europe-west1', memory: '256MiB', timeoutSeconds: 60 },
-  async (req, res) => {
-    if (req.method !== 'POST') { res.status(405).json({ error: 'Nur POST erlaubt.' }); return; }
-    const { imageBase64, mediaType } = req.body || {};
-    if (!imageBase64 || typeof imageBase64 !== 'string') {
-      res.status(400).json({ error: 'imageBase64 fehlt im Request-Body.' });
-      return;
-    }
-    try {
-      const parsed = await callClaudeVision(ANTHROPIC_API_KEY.value(), imageBase64, mediaType, PROMPT_SINGLE_SEKTOR, KLETTERROUTEN_SCHEMA);
-      if (!parsed) {
-        res.status(502).json({ error: 'Antwort konnte nicht ausgewertet werden — bitte erneut versuchen.' });
+// Gemeinsame Handler-Fabrik für alle Foto-Scan-Functions — nehmen ein Foto (Base64)
+// entgegen, lassen Claude (Haiku 4.5, günstigstes Modell mit Bildverständnis) die jeweiligen
+// Angaben erkennen und geben sie strukturiert zurück. cors:true erlaubt den Aufruf direkt
+// aus fixseil.html/index.html.
+function makeScanHandler(name, prompt, schema){
+  return onRequest(
+    { secrets: [ANTHROPIC_API_KEY], cors: true, region: 'europe-west1', memory: '256MiB', timeoutSeconds: 60 },
+    async (req, res) => {
+      if (req.method !== 'POST') { res.status(405).json({ error: 'Nur POST erlaubt.' }); return; }
+      const { imageBase64, mediaType } = req.body || {};
+      if (!imageBase64 || typeof imageBase64 !== 'string') {
+        res.status(400).json({ error: 'imageBase64 fehlt im Request-Body.' });
         return;
       }
-      res.json(parsed);
-    } catch (err) {
-      console.error('scanKletterrouten Fehler:', err);
-      res.status(500).json({ error: (err && err.message) || 'Unbekannter Fehler bei der Bilderkennung.' });
+      try {
+        const parsed = await callClaudeVision(ANTHROPIC_API_KEY.value(), imageBase64, mediaType, prompt, schema);
+        if (!parsed) {
+          res.status(502).json({ error: 'Antwort konnte nicht ausgewertet werden — bitte erneut versuchen.' });
+          return;
+        }
+        res.json(parsed);
+      } catch (err) {
+        console.error(name + ' Fehler:', err);
+        res.status(500).json({ error: (err && err.message) || 'Unbekannter Fehler bei der Bilderkennung.' });
+      }
     }
-  }
-);
+  );
+}
 
-// Wie scanKletterrouten, aber für ein Foto, das MEHRERE Sektoren eines Klettergebiets auf
-// einmal zeigt (z. B. eine ganze Führerbuch-Doppelseite mit Sektor A–G) — erkennt jeden
-// Sektor samt eigener Routenliste separat.
-exports.scanKlettergebiet = onRequest(
-  { secrets: [ANTHROPIC_API_KEY], cors: true, region: 'europe-west1', memory: '256MiB', timeoutSeconds: 60 },
-  async (req, res) => {
-    if (req.method !== 'POST') { res.status(405).json({ error: 'Nur POST erlaubt.' }); return; }
-    const { imageBase64, mediaType } = req.body || {};
-    if (!imageBase64 || typeof imageBase64 !== 'string') {
-      res.status(400).json({ error: 'imageBase64 fehlt im Request-Body.' });
-      return;
-    }
-    try {
-      const parsed = await callClaudeVision(ANTHROPIC_API_KEY.value(), imageBase64, mediaType, PROMPT_MULTI_SEKTOR, KLETTERGEBIET_SCHEMA);
-      if (!parsed) {
-        res.status(502).json({ error: 'Antwort konnte nicht ausgewertet werden — bitte erneut versuchen.' });
-        return;
-      }
-      res.json(parsed);
-    } catch (err) {
-      console.error('scanKlettergebiet Fehler:', err);
-      res.status(500).json({ error: (err && err.message) || 'Unbekannter Fehler bei der Bilderkennung.' });
-    }
-  }
-);
+// Ein Sektor, eine Routenliste.
+exports.scanKletterrouten = makeScanHandler('scanKletterrouten', PROMPT_SINGLE_SEKTOR, KLETTERROUTEN_SCHEMA);
+
+// Ein Foto mit MEHREREN Sektoren eines Klettergebiets auf einmal (z. B. eine ganze
+// Führerbuch-Doppelseite mit Sektor A–G) — erkennt jeden Sektor samt eigener Routenliste.
+exports.scanKlettergebiet = makeScanHandler('scanKlettergebiet', PROMPT_MULTI_SEKTOR, KLETTERGEBIET_SCHEMA);
+
+// Ein einzelner Zustieg/Abstieg (Hütte, Tour oder Sektor — gleiche Feldstruktur überall).
+exports.scanZustieg = makeScanHandler('scanZustieg', PROMPT_ZUSTIEG, ZUSTIEG_SCHEMA);

@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v132-klettergebiet-mehrfach-scan';
+const APP_VERSION = 'v133-zustieg-foto-scan';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1520,6 +1520,7 @@ function tourRouteFormHtml(tourId, kind, route){
       <input type="hidden" name="kind" value="${esc(kind)}"/>
       <input type="hidden" name="routeId" value="${esc(r.id||'')}"/>
       <div class="field"><label>Name *</label><input required name="name" value="${esc(r.name||'')}" placeholder="${kind==='descent' ? 'z. B. Fussabstieg über Normalweg' : 'z. B. ab Parkplatz XY'}"/></div>
+      ${scanZustiegButtonHtml('tour-route')}
       <div class="row2">
         <div class="field"><label>Höhenmeter ${kind==='descent'?'abwärts (↓)':'(Hm)'}</label><input name="elevation" value="${esc(r.elevation||'')}"/></div>
         <div class="field"><label>Zeitbedarf</label><input name="duration" value="${esc(r.duration||'')}"/></div>
@@ -2369,6 +2370,7 @@ function sektorRouteFormHtml(sektorId, kind, route){
       <input type="hidden" name="kind" value="${esc(kind)}"/>
       <input type="hidden" name="routeId" value="${esc(r.id||'')}"/>
       <div class="field"><label>Name *</label><input required name="name" value="${esc(r.name||'')}" placeholder="${kind==='descent' ? 'z. B. Fussabstieg über Normalweg' : 'z. B. ab Parkplatz XY'}"/></div>
+      ${scanZustiegButtonHtml('sektor-route')}
       <div class="row2">
         <div class="field"><label>Höhenmeter ${kind==='descent'?'abwärts (↓)':'(Hm)'}</label><input name="elevation" value="${esc(r.elevation||'')}"/></div>
         <div class="field"><label>Zeitbedarf</label><input name="duration" value="${esc(r.duration||'')}"/></div>
@@ -4882,6 +4884,7 @@ function wireModalHandlers(){
 
   const accessRouteForm = document.getElementById('access-route-form');
   if(accessRouteForm){
+    wireScanZustiegButton('access-route', accessRouteForm);
     const seasonHidden = document.getElementById('access-route-season-hidden');
     accessRouteForm.querySelectorAll('.season-chip').forEach(chip=>{
       chip.addEventListener('click', ()=>{
@@ -4951,6 +4954,7 @@ function wireModalHandlers(){
 
   const tourRouteForm = document.getElementById('tour-route-form');
   if(tourRouteForm){
+    wireScanZustiegButton('tour-route', tourRouteForm);
     const routeMapToggleBtn = document.getElementById('tour-route-map-toggle-btn');
     function refreshTourRouteMapIfOpen(){
       const mapDiv = document.getElementById('tour-route-map');
@@ -5337,6 +5341,7 @@ function wireModalHandlers(){
 
   const sektorRouteForm = document.getElementById('sektor-route-form');
   if(sektorRouteForm){
+    wireScanZustiegButton('sektor-route', sektorRouteForm);
     const sektorRouteMapToggleBtn = document.getElementById('sektor-route-map-toggle-btn');
     function refreshSektorRouteMapIfOpen(){
       const mapDiv = document.getElementById('sektor-route-map');

@@ -523,7 +523,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v132-klettergebiet-mehrfach-scan';
+const APP_VERSION = 'v133-zustieg-foto-scan';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2641,6 +2641,7 @@ function wireModalHandlers(){
 
   const accessRouteForm = document.getElementById('access-route-form');
   if(accessRouteForm){
+    wireScanZustiegButton('access-route', accessRouteForm);
     const seasonHidden = document.getElementById('access-route-season-hidden');
     accessRouteForm.querySelectorAll('.season-chip').forEach(chip=>{
       chip.addEventListener('click', ()=>{
