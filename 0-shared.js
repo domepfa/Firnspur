@@ -163,6 +163,64 @@ function esc(s){
   if(s===undefined||s===null) return '';
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+// Kartenstreifen über Touren-/Gebiets-Listen: bewusst KEIN Leaflet, keine Kacheln — die
+// Positionen der Punkte ergeben sich per einfacher linearer Min/Max-Normalisierung aus lat/lon
+// (behält die relative Nord/Ost-Lage der Punkte zueinander, keine echte Projektion), und der
+// Gelände-Hintergrund ist rein dekorativ (immer dieselben weichen Grat/Tal-Flächen, unabhängig
+// von echten Höhendaten). Dadurch entsteht beim Öffnen einer Liste kein zusätzlicher
+// Netzwerk-Traffic — es werden nur die ohnehin schon geladenen .points der jeweiligen
+// Tour/Klettergebiete verwendet.
+function mapStripPositions(points){
+  const valid = points.filter(p=> p && typeof p.lat==='number' && typeof p.lon==='number');
+  if(!valid.length) return [];
+  const lats = valid.map(p=>p.lat), lons = valid.map(p=>p.lon);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+  const latSpan = maxLat - minLat, lonSpan = maxLon - minLon;
+  // 14%-86%-Spanne statt 0%-100%, damit Label/Popup von Rand-Pins nicht abgeschnitten werden.
+  return valid.map(p=>({
+    ...p,
+    xPct: lonSpan ? 14 + (p.lon - minLon) / lonSpan * 72 : 50,
+    yPct: latSpan ? 14 + (maxLat - p.lat) / latSpan * 72 : 50
+  }));
+}
+function mapStripTerrainSvg(){
+  return `<svg style="position:absolute; inset:0; pointer-events:none;" viewBox="0 0 358 120" preserveAspectRatio="none">
+    <defs><filter id="map-strip-soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="7"/></filter></defs>
+    <path filter="url(#map-strip-soft)" d="M-20,85 C40,50 90,75 130,42 C165,15 205,40 240,28 C280,12 330,40 380,32 L380,140 L-20,140 Z" style="fill:var(--line); opacity:0.55;"/>
+    <path filter="url(#map-strip-soft)" d="M-20,105 C60,85 110,102 170,78 C220,58 260,85 320,68 L380,75 L380,140 L-20,140 Z" style="fill:var(--line); opacity:0.4;"/>
+  </svg>`;
+}
+// opts: {label, kind:'tour'|'klettergebiet', points:[{id,lat,lon,label}], emptyText, openPinId}
+function mapStripHtml(opts){
+  const { label, kind, points, emptyText, openPinId } = opts;
+  const positioned = mapStripPositions(points || []);
+  const openAct = kind==='klettergebiet' ? 'open-klettergebiet' : 'open-tour';
+  const linkLabel = kind==='klettergebiet' ? 'Zum Gebiet' : 'Zur Tour';
+  return `
+    <div class="map-strip">
+      <div class="map-strip-head">
+        <span class="map-strip-label">🗺️ ${esc(label)}</span>
+        <button type="button" class="map-strip-hint" data-act="open-standalone-map">🔍 Echte Karte</button>
+      </div>
+      <div class="map-strip-canvas">
+        ${mapStripTerrainSvg()}
+        <div class="map-strip-compass"><div class="n"></div>N</div>
+        ${positioned.length ? positioned.map(p=>`
+          <div class="map-strip-pin ${openPinId===p.id ? 'open' : ''}" style="left:${p.xPct}%; top:${p.yPct}%;">
+            <button type="button" class="map-strip-dot" data-act="map-strip-toggle" data-id="${esc(p.id)}" title="${esc(p.label)}" aria-label="${esc(p.label)}"></button>
+            ${openPinId===p.id ? `
+              <div class="map-strip-popup">
+                <strong>${esc(p.label)}</strong>
+                <button type="button" data-act="${openAct}" data-id="${esc(p.id)}">${linkLabel} →</button>
+              </div>
+            ` : `<div class="map-strip-nlabel">${esc(p.label)}</div>`}
+          </div>
+        `).join('') : `<div class="map-strip-empty">${esc(emptyText || '')}</div>`}
+      </div>
+    </div>
+  `;
+}
 function fmtDate(iso){
   if(!iso) return '';
   const d = new Date(iso);
