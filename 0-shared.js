@@ -1810,8 +1810,23 @@ function renderStandaloneMap(containerId){
       huette: { label: '🛖 Hütten', color: '#8A5A2E' },
       sektor: { label: '⛺ Sektoren', color: '#4A6B3A' },
       klettergebiet: { label: '⛰️ Klettergebiete', color: '#C77B2E' },
+      gipfel: { label: '🗻 Gipfel', color: '#7A3E9E' },
       zustieg: { label: '🚶 Zustiege', color: '#1565C0' }
     };
+    // Wegpunkte: einfache, appübergreifend geteilte Kartenmarkierungen ohne eigene Detailseite
+    // (im Unterschied zu Tour/Hütte/Sektor/Klettergebiet/Gipfel) — je Art eine eigene Kategorie
+    // in TOUR_CATEGORY_META, damit sie einzeln ein-/ausblendbar sind (z. B. Gefahrenstellen
+    // sichtbar lassen, Toiletten ausblenden).
+    const WEGPUNKT_KINDS = {
+      biwak: { icon:'🏕️', label:'Biwak', color:'#5B4A2E', catKey:'wegpunktBiwak' },
+      toilette: { icon:'🚻', label:'Toilette', color:'#2E6B8A', catKey:'wegpunktToilette' },
+      gefahr: { icon:'⚠️', label:'Gefahrenstelle', color:'#C0392B', catKey:'wegpunktGefahr' },
+      sonstiges: { icon:'📍', label:'Sonstiger Punkt', color:'#6B5B4C', catKey:'wegpunktSonstiges' }
+    };
+    Object.keys(WEGPUNKT_KINDS).forEach(k=>{
+      const meta = WEGPUNKT_KINDS[k];
+      TOUR_CATEGORY_META[meta.catKey] = { label: meta.icon + ' ' + meta.label, color: meta.color };
+    });
     // Sommerzustiege gelb, Winterzustiege (und Tour-/Sektor-Routen ohne Saison) blau —
     // analog zur Farblogik in accessRouteColor() für die einzelnen Zustiegs-Karten.
     function zustiegLineColor(r){
@@ -1889,6 +1904,19 @@ function renderStandaloneMap(containerId){
         openEditKlettergebiet(gebId);
       }
     }
+    function openGipfelFromMap(gipfelId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openGipfelDetail === 'function') openGipfelDetail(gipfelId);
+    }
+    function openGipfelEditFromMap(gipfelId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openEditGipfel === 'function'){
+        state._openPointsMapOnNextRender = true;
+        openEditGipfel(gipfelId);
+      }
+    }
     // Hängt einen frisch auf der Übersichtskarte getippten Punkt an eine bestehende Tour/Hütte/
     // einen Sektor an (siehe pointPlacementPopupContent) — speichert sofort und zeichnet die
     // Karte an Ort und Stelle neu (der Kartenausschnitt bleibt dabei erhalten, siehe
@@ -1941,6 +1969,18 @@ function renderStandaloneMap(containerId){
       showToast(ok ? 'Punkt zu "' + geb.name + '" hinzugefügt.' : 'Punkt lokal hinzugefügt, aber nicht synchronisiert.', !ok);
       renderStandaloneMap(containerId);
     }
+    async function appendPointToGipfelFromMap(gipfelId, lat, lon){
+      const g = (state.gipfel||[]).find(x=>x.id===gipfelId);
+      if(!g) return;
+      if(!Array.isArray(g.points)) g.points = [];
+      g.points.push({label:'', lat, lon});
+      g.updatedAt = new Date().toISOString();
+      g.updatedBy = state.myName;
+      const ok = (typeof saveGipfelCloud === 'function') ? await saveGipfelCloud(g).catch(()=>false) : false;
+      g._unsynced = !ok;
+      showToast(ok ? 'Punkt zu "' + g.name + '" hinzugefügt.' : 'Punkt lokal hinzugefügt, aber nicht synchronisiert.', !ok);
+      renderStandaloneMap(containerId);
+    }
     // Öffnet das Neu-Anlegen-Formular mit dem getippten Punkt schon eingetragen — schliesst dazu
     // erst die Vollbildkarte (wie die anderen *FromMap-Funktionen), damit sich Formular und Karte
     // nicht überlagern.
@@ -1960,6 +2000,46 @@ function renderStandaloneMap(containerId){
       closeTopOverlayLayer();
       if(typeof openAddKlettergebietWithPoint === 'function') openAddKlettergebietWithPoint(lat, lon);
     }
+    function openAddGipfelFromMapWithPoint(lat, lon){
+      closeTopOverlayLayer();
+      if(typeof openAddGipfelWithPoint === 'function') openAddGipfelWithPoint(lat, lon);
+    }
+    // Legt sofort einen Wegpunkt (Biwak/Toilette/Gefahrenstelle/Sonstiges) an diesem Punkt an —
+    // bewusst ohne eigenes Formular (kein Name/Region etc. nötig), Umbenennen/Löschen geht über
+    // das Popup des Markers selbst (siehe wegpunktPopupContent).
+    async function createWegpunktFromMap(kind, lat, lon){
+      const meta = WEGPUNKT_KINDS[kind] || WEGPUNKT_KINDS.sonstiges;
+      const w = {id: uid('wp'), kind, label: meta.label, lat, lon, createdBy: state.myName, createdAt: new Date().toISOString()};
+      state.wegpunkte = [...(state.wegpunkte||[]), w];
+      const ok = (typeof saveWegpunktCloud === 'function') ? await saveWegpunktCloud(w).catch(()=>false) : false;
+      w._unsynced = !ok;
+      showToast(ok ? meta.icon + ' ' + meta.label + ' hinzugefügt.' : meta.icon + ' ' + meta.label + ' lokal hinzugefügt, aber nicht synchronisiert.', !ok);
+      renderStandaloneMap(containerId);
+    }
+    // Popup eines Wegpunkt-Markers: nur Bezeichnung + Löschen — kein "Öffnen"-Knopf, da es keine
+    // eigene Detailseite gibt (siehe createWegpunktFromMap oben).
+    function wegpunktPopupContent(w){
+      const meta = WEGPUNKT_KINDS[w.kind] || WEGPUNKT_KINDS.sonstiges;
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '170px';
+      const titleEl = document.createElement('p');
+      titleEl.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+      titleEl.textContent = meta.icon + ' ' + (w.label || meta.label);
+      wrap.appendChild(titleEl);
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.textContent = '🗑️ Löschen';
+      delBtn.style.cssText = 'width:100%; background:none; color:#B23B3B; border:1px solid currentColor; border-radius:3px; padding:7px 10px; font-size:12.5px; cursor:pointer;';
+      delBtn.addEventListener('click', ()=>{
+        if(!confirm((w.label||meta.label) + ' wirklich löschen?')) return;
+        map.closePopup();
+        state.wegpunkte = (state.wegpunkte||[]).filter(x=>x.id!==w.id);
+        fbDelete('wegpunkte/'+w.id).catch(()=>{});
+        renderStandaloneMap(containerId);
+      });
+      wrap.appendChild(delBtn);
+      return wrap;
+    }
     // Popup, das nach einem Tap auf eine leere Stelle im "Punkt setzen"-Modus erscheint: entweder
     // den Punkt einer bestehenden Tour/Hütte/einem Sektor hinzufügen, oder gleich neu anlegen.
     function pointPlacementPopupContent(lat, lon){
@@ -1971,7 +2051,7 @@ function renderStandaloneMap(containerId){
       wrap.appendChild(title);
       const input = document.createElement('input');
       input.type = 'text';
-      input.placeholder = 'Bestehende Tour/Hütte' + (isFixseilApp ? '/Sektor/Klettergebiet' : '') + ' suchen …';
+      input.placeholder = 'Bestehende Tour/Hütte' + (isFixseilApp ? '/Sektor/Klettergebiet/Gipfel' : '') + ' suchen …';
       input.style.cssText = 'width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:13px; margin-bottom:4px;';
       wrap.appendChild(input);
       const results = document.createElement('div');
@@ -2011,7 +2091,12 @@ function renderStandaloneMap(containerId){
       if(isFixseilApp){
         addNewBtn('+ Neuer Sektor', ()=> openAddSektorFromMapWithPoint(lat, lon));
         addNewBtn('+ Neues Klettergebiet', ()=> openAddKlettergebietFromMapWithPoint(lat, lon));
+        addNewBtn('+ Neuer Gipfel', ()=> openAddGipfelFromMapWithPoint(lat, lon));
       }
+      Object.keys(WEGPUNKT_KINDS).forEach(kind=>{
+        const meta = WEGPUNKT_KINDS[kind];
+        addNewBtn('+ ' + meta.icon + ' ' + meta.label, ()=> createWegpunktFromMap(kind, lat, lon));
+      });
       return wrap;
     }
     function openTourRouteFromMap(tourId, kind, routeId){
@@ -2158,7 +2243,20 @@ function renderStandaloneMap(containerId){
         addMapEntity('klettergebiet', TOUR_CATEGORY_META.klettergebiet.color, track, geb.points, ()=> mapPopupContent('⛰️', geb.name, 'Klettergebiet öffnen', ()=> openKlettergebietFromMap(geb.id), ()=> openKlettergebietEditFromMap(geb.id)));
         if(geb.points && geb.points.length) searchIndex.push({name: geb.name, icon:'⛰️', label:'Klettergebiet öffnen', coords:[geb.points[0].lat, geb.points[0].lon], openFn: ()=> openKlettergebietFromMap(geb.id), editFn: ()=> openKlettergebietEditFromMap(geb.id), appendPointFn: (lat,lon)=> appendPointToKlettergebietFromMap(geb.id, lat, lon)});
       });
+      // Gipfel: eigener Standort, unabhängig von den verlinkten Touren (die weiterhin separat
+      // erscheinen) — ein Gipfel kann so auch VOR der ersten verlinkten Tour schon auf der Karte
+      // stehen und direkt angewählt werden.
+      (state.gipfel || []).forEach(g=>{
+        addMapEntity('gipfel', TOUR_CATEGORY_META.gipfel.color, null, g.points, ()=> mapPopupContent('🗻', g.name, 'Gipfel öffnen', ()=> openGipfelFromMap(g.id), ()=> openGipfelEditFromMap(g.id)));
+        if(g.points && g.points.length) searchIndex.push({name: g.name, icon:'🗻', label:'Gipfel öffnen', coords:[g.points[0].lat, g.points[0].lon], openFn: ()=> openGipfelFromMap(g.id), editFn: ()=> openGipfelEditFromMap(g.id), appendPointFn: (lat,lon)=> appendPointToGipfelFromMap(g.id, lat, lon)});
+      });
     }
+    // Wegpunkte (Biwak/Toilette/Gefahrenstelle/Sonstiges) — appübergreifend, deshalb ausserhalb
+    // des isFixseilApp-Blocks, keine searchIndex-Einträge (keine eigene Detailseite zum Anspringen).
+    (state.wegpunkte || []).forEach(w=>{
+      const meta = WEGPUNKT_KINDS[w.kind] || WEGPUNKT_KINDS.sonstiges;
+      addMapEntity(meta.catKey, meta.color, null, [{lat:w.lat, lon:w.lon}], ()=> wegpunktPopupContent(w));
+    });
     const presentCategories = Object.keys(categoryLayers);
     // Zustieg-Linien immer zuerst (unterste Ebene) zur Karte hinzufügen: an einem gemeinsamen
     // Punkt — z. B. eine Hütte am Ende eines Zustiegs — sollen Hütten-/Touren-/Sektor-Marker
