@@ -736,7 +736,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v145-gipfel-wegpunkte';
+const APP_VERSION = 'v144-kartenbearbeitung-fixes';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -813,7 +813,6 @@ let state = {
   klettergebiete: [],
   presetKlettergebietId: '', // vorausgewählt, wenn ein Sektor direkt aus einem Klettergebiet heraus neu angelegt wird
   gipfel: [],
-  wegpunkte: [], // Biwak/Toilette/Gefahr/Sonstiges — appübergreifend geteilt, wie die Hütten
   agenda: [],
   otherAppTours: [],
   myName: null,
@@ -871,7 +870,7 @@ function latestCompletion(arr){
 function cacheLocalSnapshot(){
   try{
     localStorage.setItem('fixseil-cache', JSON.stringify({
-      tours: state.tours, huts: state.huts, sektoren: state.sektoren, klettergebiete: state.klettergebiete, gipfel: state.gipfel, wegpunkte: state.wegpunkte, agenda: state.agenda, cachedAt: new Date().toISOString()
+      tours: state.tours, huts: state.huts, sektoren: state.sektoren, klettergebiete: state.klettergebiete, gipfel: state.gipfel, agenda: state.agenda, cachedAt: new Date().toISOString()
     }));
   }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
 }
@@ -884,7 +883,7 @@ function loadLocalSnapshot(){
 
 async function loadAll(){
   state.loading = true; render();
-  const [toursObj, hutsObjResult, agendaObj, sektorenObj, klettergebieteObj, gipfelObj, wegpunkteObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH), fbGet(SEKTOREN_PATH), fbGet(KLETTERGEBIETE_PATH), fbGet(GIPFEL_PATH), fbGet('wegpunkte') ]);
+  const [toursObj, hutsObjResult, agendaObj, sektorenObj, klettergebieteObj, gipfelObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH), fbGet(SEKTOREN_PATH), fbGet(KLETTERGEBIETE_PATH), fbGet(GIPFEL_PATH) ]);
   let hutsObj = hutsObjResult;
   const cached = loadLocalSnapshot();
 
@@ -906,7 +905,7 @@ async function loadAll(){
     }catch(e){ dlog('Hütten-Migration fehlgeschlagen (versuche es beim nächsten Laden erneut): ' + (e&&e.message?e.message:e), 'err'); }
   }
 
-  if(!toursObj && !hutsObj && !agendaObj && !sektorenObj && !klettergebieteObj && !gipfelObj && !wegpunkteObj){
+  if(!toursObj && !hutsObj && !agendaObj && !sektorenObj && !klettergebieteObj && !gipfelObj){
     // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
     state.loading = false;
     if(cached){
@@ -915,7 +914,6 @@ async function loadAll(){
       state.sektoren = cached.sektoren || [];
       state.klettergebiete = cached.klettergebiete || [];
       state.gipfel = cached.gipfel || [];
-      state.wegpunkte = cached.wegpunkte || [];
       state.agenda = cached.agenda || [];
       state.offlineMode = true;
       state.offlineCachedAt = cached.cachedAt;
@@ -933,7 +931,6 @@ async function loadAll(){
   const sektoren = (sektorenObj ? Object.values(sektorenObj) : []).filter(s=>s && s.id);
   const klettergebiete = (klettergebieteObj ? Object.values(klettergebieteObj) : []).filter(g=>g && g.id);
   const gipfel = (gipfelObj ? Object.values(gipfelObj) : []).filter(g=>g && g.id);
-  const wegpunkte = (wegpunkteObj ? Object.values(wegpunkteObj) : []).filter(w=>w && w.id);
   const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id).map(migrateAgendaStatus);
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
@@ -964,10 +961,6 @@ async function loadAll(){
     ...state.gipfel.filter(x=>x._unsynced),
     ...((cached && cached.gipfel) ? cached.gipfel.filter(x=>x._unsynced) : [])
   ]).filter(x=>!gipfel.find(y=>y.id===x.id));
-  const unsyncedWegpunkte = dedupeById([
-    ...state.wegpunkte.filter(x=>x._unsynced),
-    ...((cached && cached.wegpunkte) ? cached.wegpunkte.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!wegpunkte.find(y=>y.id===x.id));
   const unsyncedAgenda = dedupeById([
     ...state.agenda.filter(x=>x._unsynced),
     ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
@@ -978,7 +971,6 @@ async function loadAll(){
   state.sektoren = [...unsyncedSektoren, ...sektoren];
   state.klettergebiete = [...unsyncedKlettergebiete, ...klettergebiete];
   state.gipfel = [...unsyncedGipfel, ...gipfel];
-  state.wegpunkte = [...unsyncedWegpunkte, ...wegpunkte];
   state.agenda = [...unsyncedAgenda, ...agenda];
   state.loading = false;
   state.offlineMode = false;
@@ -1016,11 +1008,6 @@ async function loadAll(){
     g._unsynced = !ok;
     if(ok) render();
   });
-  unsyncedWegpunkte.forEach(async w=>{
-    const ok = await saveWegpunktCloud(w).catch(()=>false);
-    w._unsynced = !ok;
-    if(ok) render();
-  });
   unsyncedAgenda.forEach(async a=>{
     const ok = await saveAgendaCloud(a).catch(()=>false);
     a._unsynced = !ok;
@@ -1055,7 +1042,6 @@ function removeKlettergebiet(id){
   });
 }
 async function saveGipfelCloud(g){ return await fbSet(GIPFEL_PATH+'/'+g.id, g); }
-async function saveWegpunktCloud(w){ return await fbSet('wegpunkte/'+w.id, w); }
 function removeGipfel(id){
   state.gipfel = state.gipfel.filter(x=>x.id!==id);
   fbDelete(GIPFEL_PATH+'/'+id).catch(()=>{});
@@ -1235,8 +1221,6 @@ function openAddKlettergebietWithPoint(lat, lon){ ensureName(()=>{ state.modal =
 function openEditKlettergebiet(id){ ensureName(()=>{ const g = state.klettergebiete.find(x=>x.id===id); navigateToModal({type:'edit-klettergebiet', payload:g}); }); }
 function openKlettergebietDetail(id){ navigateToModal({type:'klettergebiet-detail', payload:id}); }
 function openAddGipfel(){ ensureName(()=>{ state.modal = {type:'edit-gipfel', payload:null}; render(); }); }
-// Von der Übersichtskarte aus per "Punkt setzen" — siehe pointPlacementPopupContent in 0-shared.js.
-function openAddGipfelWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-gipfel', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditGipfel(id){ ensureName(()=>{ const g = state.gipfel.find(x=>x.id===id); navigateToModal({type:'edit-gipfel', payload:g}); }); }
 function openGipfelDetail(id){ navigateToModal({type:'gipfel-detail', payload:id}); }
 function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
@@ -2025,8 +2009,6 @@ async function submitGipfelForm(form, existing){
   g.altitude = form.altitude || '';
   g.region = form.region || '';
   g.subregion = form.subregion || '';
-  try{ g.points = form.points ? JSON.parse(form.points) : []; }catch(e){ g.points = []; }
-  try{ g.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ g.manualTrack = []; }
   g.updatedAt = new Date().toISOString();
   g.updatedBy = state.myName;
 
@@ -2047,6 +2029,8 @@ async function submitGipfelForm(form, existing){
   render();
 }
 
+// Bewusst schlank gehalten (kein Karten-/Punkte-Feld wie bei Sektor/Klettergebiet) — die
+// geografischen Daten stecken bereits bei den verlinkten Touren selbst.
 function gipfelFormHtml(existing){
   const g = existing || {};
   const isEditing = !!(existing && existing.id);
@@ -2068,14 +2052,6 @@ function gipfelFormHtml(existing){
         <label>Teilgebiet / Pass (optional)</label>
         <div class="chips" id="subregion-chips">${renderSubregionChipsHtml(g.region, g.subregion)}</div>
         <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(g.subregion||'')}"/>
-      </div>
-      <div class="field"><label>Standort auf der Karte</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
-        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern.</div>
-        <div id="points-map" style="margin-top:10px; display:none;"></div>
-        <div id="points-list"></div>
-        <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(g.points || []))}'/>
-        <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(g.manualTrack || []))}'/>
       </div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
