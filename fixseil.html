@@ -736,7 +736,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v143-kartenstreifen';
+const APP_VERSION = 'v144-kartenbearbeitung-fixes';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1174,8 +1174,7 @@ function openEditTour(id){
       state.view = (t.tourCategory==='msl'||t.tourCategory==='klettergarten') ? 'msl' : 'touren';
       if(t.tourCategory==='msl'||t.tourCategory==='klettergarten') state.tourCategoryFilter = t.tourCategory;
     }
-    state.modal = {type:'edit-tour', payload:t};
-    render();
+    navigateToModal({type:'edit-tour', payload:t});
   });
 }
 // Öffnet eine der "frei verlinkbaren" Detailansichten (Tour/Hütte/Sektor/Klettergebiet/Gipfel) —
@@ -1209,20 +1208,20 @@ function openTourDetail(id){
 }
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
 function openAddHutWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
-function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
+function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); navigateToModal({type:'edit-hut', payload:h}); }); }
 function openHutDetail(id){ navigateToModal({type:'hut-detail', payload:id}); }
 function openAddSektor(){ ensureName(()=>{ state.presetKlettergebietId = ''; state.modal = {type:'edit-sektor', payload:null}; render(); }); }
 function openAddSektorWithPoint(lat, lon){ ensureName(()=>{ state.presetKlettergebietId = ''; state.modal = {type:'edit-sektor', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
-function openEditSektor(id){ ensureName(()=>{ const s = state.sektoren.find(x=>x.id===id); state.modal = {type:'edit-sektor', payload:s}; render(); }); }
+function openEditSektor(id){ ensureName(()=>{ const s = state.sektoren.find(x=>x.id===id); navigateToModal({type:'edit-sektor', payload:s}); }); }
 function openSektorDetail(id){ navigateToModal({type:'sektor-detail', payload:id}); }
-function openAddSektorInKlettergebiet(gebId){ ensureName(()=>{ state.presetKlettergebietId = gebId; state.modal = {type:'edit-sektor', payload:null}; render(); }); }
+function openAddSektorInKlettergebiet(gebId){ ensureName(()=>{ state.presetKlettergebietId = gebId; navigateToModal({type:'edit-sektor', payload:null}); }); }
 function openAddKlettergebiet(){ ensureName(()=>{ state.modal = {type:'edit-klettergebiet', payload:null}; render(); }); }
 // Von der Übersichtskarte aus per "Punkt setzen" — siehe pointPlacementPopupContent in 0-shared.js.
 function openAddKlettergebietWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-klettergebiet', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
-function openEditKlettergebiet(id){ ensureName(()=>{ const g = state.klettergebiete.find(x=>x.id===id); state.modal = {type:'edit-klettergebiet', payload:g}; render(); }); }
+function openEditKlettergebiet(id){ ensureName(()=>{ const g = state.klettergebiete.find(x=>x.id===id); navigateToModal({type:'edit-klettergebiet', payload:g}); }); }
 function openKlettergebietDetail(id){ navigateToModal({type:'klettergebiet-detail', payload:id}); }
 function openAddGipfel(){ ensureName(()=>{ state.modal = {type:'edit-gipfel', payload:null}; render(); }); }
-function openEditGipfel(id){ ensureName(()=>{ const g = state.gipfel.find(x=>x.id===id); state.modal = {type:'edit-gipfel', payload:g}; render(); }); }
+function openEditGipfel(id){ ensureName(()=>{ const g = state.gipfel.find(x=>x.id===id); navigateToModal({type:'edit-gipfel', payload:g}); }); }
 function openGipfelDetail(id){ navigateToModal({type:'gipfel-detail', payload:id}); }
 function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(!skipDirtyCheck && !confirmDiscardIfDirty()){
