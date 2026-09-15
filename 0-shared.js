@@ -185,10 +185,21 @@ function mapStripPositions(points){
   }));
 }
 function mapStripTerrainSvg(){
+  // Weiche Grat/Tal-Flächen (Hillshade-Andeutung) plus ein paar dünne, den Graten folgende
+  // Konturlinien (Isolinien-Andeutung) für etwas mehr "Kartengefühl" — beides bewusst generisch,
+  // nicht aus echten Höhendaten abgeleitet (siehe Kommentar bei mapStripPositions oben).
   return `<svg style="position:absolute; inset:0; pointer-events:none;" viewBox="0 0 358 120" preserveAspectRatio="none">
-    <defs><filter id="map-strip-soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="7"/></filter></defs>
-    <path filter="url(#map-strip-soft)" d="M-20,85 C40,50 90,75 130,42 C165,15 205,40 240,28 C280,12 330,40 380,32 L380,140 L-20,140 Z" style="fill:var(--line); opacity:0.55;"/>
-    <path filter="url(#map-strip-soft)" d="M-20,105 C60,85 110,102 170,78 C220,58 260,85 320,68 L380,75 L380,140 L-20,140 Z" style="fill:var(--line); opacity:0.4;"/>
+    <defs><filter id="map-strip-soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"/></filter></defs>
+    <path filter="url(#map-strip-soft)" d="M-20,80 C40,45 90,72 130,38 C165,10 205,36 240,24 C280,8 330,36 380,28 L380,140 L-20,140 Z" style="fill:var(--line); opacity:0.6;"/>
+    <path filter="url(#map-strip-soft)" d="M-20,100 C60,80 110,98 170,74 C220,54 260,80 320,64 L380,72 L380,140 L-20,140 Z" style="fill:var(--line); opacity:0.42;"/>
+    <path filter="url(#map-strip-soft)" d="M-20,115 C80,102 150,112 220,98 C270,88 320,100 380,94 L380,140 L-20,140 Z" style="fill:var(--line); opacity:0.3;"/>
+    <g style="stroke:var(--ink-faint); stroke-width:1; fill:none; opacity:0.5;">
+      <path d="M-10,78 C40,48 90,70 128,40 C160,15 200,38 236,26"/>
+      <path d="M-10,88 C45,60 95,82 132,52 C165,28 205,50 242,38"/>
+      <path d="M180,50 C220,36 260,54 300,42 C330,33 355,42 375,36"/>
+      <path d="M190,62 C230,48 268,64 308,52 C336,43 358,50 378,46"/>
+      <path d="M40,100 C90,86 140,96 190,84 C230,74 270,86 310,78"/>
+    </g>
   </svg>`;
 }
 // opts: {label, kind:'tour'|'klettergebiet', points:[{id,lat,lon,label}], emptyText, openPinId}
