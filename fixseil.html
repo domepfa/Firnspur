@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v140-klettergebiet-kapitel';
+const APP_VERSION = 'v141-sektor-umwandeln';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2321,12 +2321,17 @@ function sektorDetailHtml(id){
   const accessRange = accessRouteDifficultyRangeHtml(accessRoutes);
   const descentRange = accessRouteDifficultyRangeHtml(descentRoutes);
   const geb = sek.klettergebietId ? state.klettergebiete.find(g=>g.id===sek.klettergebietId) : null;
+  const hasKlettergartenTour = linked.some(t=>t.tourCategory==='klettergarten');
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h2>${sek.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : ''}
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin:10px 0;">
+      ${!sek.klettergebietId ? `<button type="button" class="btn secondary" data-act="convert-sektor-to-klettergebiet" data-id="${sek.id}">⛰️ In neues Klettergebiet umwandeln</button>` : ''}
+      ${!hasKlettergartenTour ? `<button type="button" class="btn secondary" data-act="convert-sektor-to-klettergarten" data-id="${sek.id}">🏕️ Als Klettergarten erfassen</button>` : `<span class="hut-link-chip">🏕️ bereits als Klettergarten erfasst</span>`}
+    </div>
     ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
     <div class="detail-section">
       <h4>🧗 Kletterrouten${sek.kletterrouten && sek.kletterrouten.length ? ` (${sek.kletterrouten.length})` : ''}</h4>
@@ -2385,6 +2390,72 @@ function sektorDetailHtml(id){
       <button type="button" class="btn" data-act="edit-sektor" data-id="${sek.id}">✏️ Bearbeiten</button>
     </div>
   </div>`;
+}
+
+// Für Sektoren, die schon vor der Klettergebiet-Struktur (bzw. vor der Kapitel-Aufteilung
+// Touren/Klettergärten) "nach Gefühl" angelegt wurden: wandelt einen bisher freistehenden
+// Sektor in ein neues, gleichnamiges Klettergebiet um, ohne dass dabei etwas verloren geht — der
+// Sektor selbst bleibt mit allen Touren/Topos/Routen unverändert bestehen, wird aber automatisch
+// diesem neuen Gebiet zugeordnet (genau wie beim manuellen Zuordnen über "Sektor bearbeiten").
+async function convertSektorToKlettergebiet(sektorId){
+  const sek = state.sektoren.find(x=>x.id===sektorId);
+  if(!sek || sek.klettergebietId) return;
+  const geb = {
+    id: uid('geb'), name: sek.name, region: sek.region||'', subregion: sek.subregion||'',
+    description: sek.description||'', points: sek.points||[], manualTrack: sek.manualTrack||[],
+    createdBy: state.myName, createdAt: new Date().toISOString()
+  };
+  sek.klettergebietId = geb.id;
+  sek.updatedAt = new Date().toISOString();
+  sek.updatedBy = state.myName;
+  state.klettergebiete.unshift(geb);
+  closeModal(false, true, true);
+  state.modal = {type:'klettergebiet-detail', payload: geb.id};
+  render();
+
+  const gebOk = await saveKlettergebietCloud(geb).catch(()=>false);
+  geb._unsynced = !gebOk;
+  const sekOk = await saveSektorCloud(sek).catch(()=>false);
+  sek._unsynced = !sekOk;
+  if(gebOk && sekOk){
+    showToast('Klettergebiet "' + geb.name + '" angelegt, Sektor zugeordnet.');
+  }else{
+    markUnsaved();
+    showToast('Lokal gespeichert, aber nicht vollständig synchronisiert. Prüfe deine Internetverbindung.', true);
+  }
+  render();
+}
+
+// Für Sektoren, die eigentlich nur EINEN Klettergarten darstellen (ein Topo-Bild + eine
+// Routenliste, kein eigener Zustieg/Abstieg-Umfang): legt eine begleitende Klettergarten-Tour an,
+// die auf denselben Sektor verweist — damit dieser Sektor ab jetzt überall dort auftaucht, wo
+// Klettergärten gelistet werden (Touren-Übersicht, Klettergebiet-Kapitel "Klettergärten",
+// Agenda, Export), statt nur in der Sektor-Verwaltung sichtbar zu sein. Der Sektor selbst bleibt
+// unverändert die Quelle für Topo-Bild/Routenliste/Zustiege.
+async function convertSektorToKlettergarten(sektorId){
+  const sek = state.sektoren.find(x=>x.id===sektorId);
+  if(!sek) return;
+  if(state.tours.some(t=>t.sektorId===sek.id && t.tourCategory==='klettergarten')) return;
+  const t = {
+    id: uid('tour'), name: sek.name, tourCategory: 'klettergarten', sektorId: sek.id,
+    region: sek.region||'', subregion: sek.subregion||'',
+    climbGrade: kletterroutenGradeRangeText(sek.kletterrouten||[]),
+    createdBy: state.myName, createdAt: new Date().toISOString()
+  };
+  state.tours.unshift(t);
+  closeModal(false, true, true);
+  state.modal = {type:'sektor-detail', payload: sek.id};
+  render();
+
+  const ok = await saveTourCloud(t).catch(()=>false);
+  t._unsynced = !ok;
+  if(ok){
+    showToast('Klettergarten "' + t.name + '" erfasst.');
+  }else{
+    markUnsaved();
+    showToast('Lokal gespeichert, aber nicht synchronisiert. Prüfe deine Internetverbindung.', true);
+  }
+  render();
 }
 
 function ensureSektorRouteArrays(sek){
@@ -5350,6 +5421,8 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="edit-sektor"]').forEach(el=> el.onclick = ()=>openEditSektor(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-sektor-topo-routen"]').forEach(el=> el.onclick = ()=>openEditSektorTopoRouten(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-sektor"]').forEach(el=> el.onclick = ()=>openSektorDetail(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="convert-sektor-to-klettergebiet"]').forEach(el=> el.onclick = ()=>convertSektorToKlettergebiet(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="convert-sektor-to-klettergarten"]').forEach(el=> el.onclick = ()=>convertSektorToKlettergarten(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-klettergebiet"]').forEach(el=> el.onclick = ()=>openEditKlettergebiet(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-klettergebiet"]').forEach(el=> el.onclick = ()=>openKlettergebietDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="klettergebiet-chapter"]').forEach(el=> el.onclick = ()=>{ state.klettergebietChapter = el.getAttribute('data-chapter'); render(); });
