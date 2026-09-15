@@ -6066,22 +6066,32 @@ async function scanKlettergebietPhoto(gebId, fileInputEl, statusElId){
       showToast('Keine Sektoren erkannt — Foto evtl. unscharf oder falscher Ausschnitt.', true);
       return;
     }
-    openKlettergebietScanReview(gebId, sectors, file);
+    openKlettergebietScanReview(gebId, sectors, file, data.gebietName || '');
   }catch(e){
     if(statusEl) statusEl.textContent = '';
     showToast('Foto-Scan fehlgeschlagen: ' + (e.message || e), true);
   }
 }
 
-function openKlettergebietScanReview(gebId, sectors, fileBlob){
-  state.modal = { type:'klettergebiet-scan-review', payload:{ gebId, sectors, fileBlob } };
+// gebId===null bedeutet "neues Klettergebiet": submitKlettergebietScanReview legt dann zuerst
+// ein neues Klettergebiet an (Name aus dem editierbaren Feld, vorbefüllt mit gebietName aus dem
+// Scan) und hängt die erkannten Sektoren dort ein — sonst werden sie an ein bestehendes Gebiet
+// (gebId) angehängt, wie beim Scan von der Klettergebiet-Detailseite aus.
+function openKlettergebietScanReview(gebId, sectors, fileBlob, gebietName){
+  state.modal = { type:'klettergebiet-scan-review', payload:{ gebId, sectors, fileBlob, gebietName: gebietName || '' } };
   render();
 }
 
 function klettergebietScanReviewHtml(payload){
-  const { sectors } = payload;
+  const { sectors, gebId, gebietName } = payload;
+  const isNewGebiet = !gebId;
   return `<div class="modal" data-stop="1">
-    <div class="modal-head"><h2>📷 Erkannte Sektoren</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div class="modal-head"><h2>📷 ${isNewGebiet ? 'Neues Klettergebiet aus Foto' : 'Erkannte Sektoren'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    ${isNewGebiet ? `<div class="field" style="margin-bottom:14px;">
+      <label>Klettergebiet-Name *</label>
+      <input type="text" id="klettergebiet-scan-gebiet-name" value="${esc(gebietName||'')}" placeholder="z. B. Sewen"/>
+      ${!gebietName ? `<p style="font-size:12.5px; color:var(--ink-soft); margin:4px 0 0 0;">Kein Titel auf dem Foto erkannt — bitte Namen eintragen.</p>` : ''}
+    </div>` : ''}
     <p style="font-size:13px; color:var(--ink-soft);">${sectors.length} Sektor${sectors.length===1?'':'en'} erkannt — Namen und Routen vor dem Übernehmen kurz prüfen, jeder wird als eigener, neuer Sektor angelegt.</p>
     <div id="klettergebiet-scan-sectors">
       ${sectors.map((sec,i)=>`
@@ -6095,7 +6105,7 @@ function klettergebietScanReviewHtml(payload){
     </div>
     <div class="form-actions">
       <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
-      <button type="button" id="klettergebiet-scan-apply-btn" class="btn">✓ Als neue Sektoren übernehmen</button>
+      <button type="button" id="klettergebiet-scan-apply-btn" class="btn">✓ ${isNewGebiet ? 'Gebiet mit Sektoren anlegen' : 'Als neue Sektoren übernehmen'}</button>
     </div>
   </div>`;
 }
@@ -6112,6 +6122,18 @@ function wireKlettergebietScanReviewModal(){
 async function submitKlettergebietScanReview(){
   const payload = state.modal && state.modal.payload;
   if(!payload) return;
+  const isNewGebiet = !payload.gebId;
+
+  let gebId = payload.gebId;
+  let newGeb = null;
+  if(isNewGebiet){
+    const nameInput = document.getElementById('klettergebiet-scan-gebiet-name');
+    const gebietName = nameInput ? nameInput.value.trim() : '';
+    if(!gebietName){ showToast('Bitte einen Namen für das Klettergebiet eintragen.', true); return; }
+    newGeb = { id: uid('geb'), name: gebietName, region: '', subregion: '', description: '', points: [], manualTrack: [], createdBy: state.myName, createdAt: new Date().toISOString() };
+    gebId = newGeb.id;
+  }
+
   const nameInputs = document.querySelectorAll('.scan-sector-name');
   const created = [];
   nameInputs.forEach((input, i)=>{
@@ -6119,7 +6141,7 @@ async function submitKlettergebietScanReview(){
     if(!name) return;
     let routes = [];
     try{ routes = JSON.parse(document.getElementById('scan-sector-hidden-'+i).value || '[]'); }catch(e){ routes = []; }
-    const sek = { id: uid('sek'), name, klettergebietId: payload.gebId, kletterrouten: routes, topoImages: [], createdBy: state.myName, createdAt: new Date().toISOString() };
+    const sek = { id: uid('sek'), name, klettergebietId: gebId, kletterrouten: routes, topoImages: [], createdBy: state.myName, createdAt: new Date().toISOString() };
     ensureSektorRouteArrays(sek);
     created.push(sek);
   });
@@ -6137,18 +6159,21 @@ async function submitKlettergebietScanReview(){
     }
   }
 
+  if(newGeb) state.klettergebiete.unshift(newGeb);
   state.sektoren.unshift(...created);
   closeModal(false, true, true);
-  state.modal = { type:'klettergebiet-detail', payload: payload.gebId };
+  state.modal = { type:'klettergebiet-detail', payload: gebId };
   render();
 
+  const gebResult = newGeb ? await saveKlettergebietCloud(newGeb).catch(()=>false) : true;
+  if(newGeb) newGeb._unsynced = !gebResult;
   const results = await Promise.all(created.map(sek=> saveSektorCloud(sek).catch(()=>false)));
   created.forEach((sek,i)=>{ sek._unsynced = !results[i]; });
-  if(results.every(r=>r)){
-    showToast(created.length + ' Sektor' + (created.length===1?'':'en') + ' angelegt und synchronisiert.');
+  if(gebResult && results.every(r=>r)){
+    showToast((newGeb ? 'Klettergebiet mit ' : '') + created.length + ' Sektor' + (created.length===1?'':'en') + ' angelegt und synchronisiert.');
   }else{
     markUnsaved();
-    showToast('Einige Sektoren sind lokal gespeichert, konnten aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    showToast('Einiges ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
   }
   render();
 }
