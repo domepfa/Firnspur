@@ -334,7 +334,7 @@ function removeAgendaItem(id){
 }
 function agendaTypeLabel(type){
   if(type==='hochtour') return '🏔️ Hochtour';
-  if(type==='msl') return '🧗 Klettern/MSL';
+  if(type==='msl') return '🧗 Klettern';
   return '🎿 Skitour';
 }
 // Feste Hex-Farben statt CSS-Variablen: --ice/--ice-deep/--signal-deep sind pro App das eigene
@@ -888,7 +888,7 @@ function agendaFormHtml(editId){
         <select name="type">
           ${typeOpt('ski','🎿 Skitour')}
           ${typeOpt('hochtour','🏔️ Hochtour')}
-          ${typeOpt('msl','🧗 Klettern/MSL')}
+          ${typeOpt('msl','🧗 Klettern')}
         </select>
       </div>
       <div id="agenda-day-plan-container"></div>
@@ -4922,13 +4922,14 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
     und die eigenen \`accessRoutes\`/\`descentRoutes\` der Tour werden ignoriert
     (dort trotzdem \`[]\` eintragen, nie raten).
 
-  **Falls tourCategory = "klettergarten" (Klettergebiet, oft mit mehreren
-  Sektoren und auch Mehrseillängen-Routen drin):** exakt dieselben Felder und
-  Regeln wie bei "msl" oben, inklusive \`pitchCount\`, \`longestPitch\` und
-  \`sektorId\` (Sektoren bündeln MSL- UND Klettergarten-Einträge gleichermassen).
-  Meist wird aber gar keine einzelne Route erfasst, sondern eher Topo-Bilder und
-  Standorte (\`points\`/\`topoImages\`) — \`descent\` bei einem Sektor-verlinkten
-  Eintrag trotzdem leer lassen wie bei MSL.
+  **Falls tourCategory = "klettergarten" (ein einzelner Klettergarten/eine
+  Kletterhalle — NICHT zu verwechseln mit einem Klettergebiet, siehe unten):**
+  exakt dieselben Felder und Regeln wie bei "msl" oben, inklusive
+  \`pitchCount\`, \`longestPitch\` und \`sektorId\` (Sektoren bündeln MSL- UND
+  Klettergarten-Einträge gleichermassen). Meist wird aber gar keine einzelne
+  Route erfasst, sondern eher Topo-Bilder und Standorte (\`points\`/
+  \`topoImages\`) — \`descent\` bei einem Sektor-verlinkten Eintrag trotzdem leer
+  lassen wie bei MSL.
 
   Franz. Kletterskala: 1, 2a-, 2a, 2a+, 2b-, 2b, 2b+, 2c-, 2c, 2c+, 3a-, 3a, 3a+,
   3b-, 3b, 3b+, 3c-, 3c, 3c+, 4a- ... bis 7a (jeweils mit -/+ Abstufungen)
@@ -5058,6 +5059,13 @@ anlegen und die \`id\` dieses Sektors bei der Tour in \`sektorId\` eintragen (si
 oben). Die Tour braucht dann keine eigenen \`accessRoutes\`/\`descentRoutes\`
 mehr (dort \`[]\` eintragen) — sie übernimmt automatisch die des Sektors.
 
+**Wichtig — Klettergebiete lassen sich per Import NICHT anlegen.** Ein
+Klettergebiet (z. B. "Furka") bündelt mehrere Sektoren an einem Berg — es ist
+eine eigene Entität in der App, aber (noch) kein eigenes JSON-Feld. Importierte
+Sektoren landen darum immer erst unter "Sektoren ohne Gebiet"; das Zuordnen zu
+einem (ggf. neuen) Klettergebiet macht die Person danach direkt in der App
+("Sektor bearbeiten" oder der Knopf "In neues Klettergebiet umwandeln").
+
 ## Auftrag an ChatGPT/Gemini
 
 Erstelle nach diesem Muster einen oder mehrere Touren-/Hütten-Einträge (bei
@@ -5077,9 +5085,18 @@ Kurze Einführung für neue Nutzer:innen, mit Tipps und Tricks, die man beim ers
 - **🎿 Firnspur** — für Skitouren (Winter)
 - **🧗 Fixseil** — für Hochtouren, Mehrseillängen-Klettertouren & Klettergärten (Sommer)
 
-Beide teilen sich **Hütten** und **Agenda** — was du in der einen App an Hütten oder Terminen anlegst, siehst du auch in der anderen. Touren selbst sind pro App getrennt, weil Winter und Sommer inhaltlich zu unterschiedlich sind. Innerhalb von Fixseil sind "🏔️ Hochtour" und "🧗 Klettern/MSL" ebenfalls getrennte Tabs — Klettergärten findest du als Unterkategorie im "Klettern/MSL"-Tab (Chip oben in der Liste).
+Beide teilen sich **Hütten** und **Agenda** — was du in der einen App an Hütten oder Terminen anlegst, siehst du auch in der anderen. Touren selbst sind pro App getrennt, weil Winter und Sommer inhaltlich zu unterschiedlich sind. Innerhalb von Fixseil sind "🏔️ Hochtour" und "🧗 Klettern" ebenfalls getrennte Tabs.
 
-**Zwischen den Apps wechseln:** Entweder oben auf "🎿 Skitour" / "🏔️ Hochtour" / "🧗 Klettern/MSL" tippen, oder auf der oberen Leiste **nach links/rechts wischen**.
+**Zwischen den Apps wechseln:** Entweder oben auf "🎿 Skitour" / "🏔️ Hochtour" / "🧗 Klettern" tippen, oder auf der oberen Leiste **nach links/rechts wischen**.
+
+### Der "🧗 Klettern"-Bereich: Klettergebiete als Einstieg
+
+Wechselst du zu "🧗 Klettern", landest du direkt auf den **⛰️ Klettergebieten** (z. B. "Furka") statt auf einer flachen Touren-Liste. Ein Gebiet antippen öffnet drei Kapitel-Reiter:
+- **🧗 Touren** — die MSL-Touren dieses Gebiets, darunter auch die Verwaltung der Sektoren (Topo-Bild, Kletterrouten-Liste, Zustiege/Abstiege)
+- **🏕️ Klettergärten** — einzelne Kletterhallen/-wände in diesem Gebiet
+- **🛖 Hütten** — automatisch ermittelt anhand der Touren dieses Gebiets
+
+Die flache Liste aller Touren bleibt daneben als Reiter **"🧗 Alle Touren"** erreichbar. Ein Sektor, der eigentlich ein ganzes Gebiet oder ein einzelner Klettergarten ist: in dessen Detailansicht "⛰️ In neues Klettergebiet umwandeln" bzw. "🏕️ Als Klettergarten erfassen" antippen — beides verändert die vorhandenen Daten nicht, sondern ordnet nur neu ein.
 
 ## Erstmaliges Einloggen
 
