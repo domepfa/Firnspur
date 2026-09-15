@@ -210,6 +210,23 @@
     font-size:12.5px; background:#FBF3D9; border-left:3px solid var(--signal-deep);
     padding:6px 9px; color:#5B4A00; border-radius:2px;
   }
+
+  /* ===== Karten-Streifen (schematisch, kein Leaflet/keine Kacheln — siehe map-strip.mjs-Note) ===== */
+  .map-strip{margin-bottom:16px;}
+  .map-strip-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;}
+  .map-strip-label{font-size:11.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.03em; font-weight:700;}
+  .map-strip-hint{font-size:11px; color:var(--ink-faint); background:none; border:none; padding:0; cursor:pointer;}
+  .map-strip-canvas{position:relative; height:120px; border-radius:var(--radius); overflow:hidden; background:var(--paper); border:1px solid var(--line);}
+  .map-strip-compass{position:absolute; top:7px; left:7px; font-size:9px; color:var(--ink-faint); font-weight:700; display:flex; flex-direction:column; align-items:center; gap:1px; z-index:1;}
+  .map-strip-compass .n{width:0; height:0; border-left:3px solid transparent; border-right:3px solid transparent; border-bottom:5px solid var(--ink-faint);}
+  .map-strip-pin{position:absolute; transform:translate(-50%,-50%); z-index:2;}
+  .map-strip-dot{width:12px; height:12px; border-radius:50%; background:var(--ice-deep); border:2px solid var(--paper); box-shadow:0 0 0 1px var(--line); padding:0; cursor:pointer;}
+  .map-strip-pin.open .map-strip-dot{background:var(--signal-deep);}
+  .map-strip-nlabel{position:absolute; top:14px; left:50%; transform:translateX(-50%); font-size:10px; font-weight:700; color:var(--ink); white-space:nowrap; background:rgba(255,255,255,0.82); padding:1px 5px; border-radius:8px; pointer-events:none;}
+  .map-strip-popup{position:absolute; top:20px; left:50%; transform:translateX(-50%); background:var(--paper); border-radius:var(--radius); box-shadow:var(--shadow-lg); padding:8px 10px; display:flex; flex-direction:column; gap:5px; width:132px; z-index:3;}
+  .map-strip-popup strong{font-size:12.5px; color:var(--ice-deep);}
+  .map-strip-popup button{font-size:11px; color:var(--ice-deep); font-weight:700; background:none; border:none; padding:0; text-align:left; cursor:pointer;}
+  .map-strip-empty{display:flex; align-items:center; justify-content:center; height:100%; font-size:12.5px; color:var(--ink-faint); text-align:center; padding:0 16px;}
   .meta-line{font-size:11.5px; color:var(--ink-faint); margin-top:auto;}
 
   .empty{
@@ -523,7 +540,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v142-anleitungen-aktualisiert';
+const APP_VERSION = 'v143-kartenstreifen';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1241,6 +1258,7 @@ function tourenViewHtml(){
       </div>
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
     </div>
+    ${mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.filter(t=>t.points&&t.points.length).map(t=>({id:t.id, lat:t.points[0].lat, lon:t.points[0].lon, label:t.name})), emptyText:'Noch keine Tour mit Kartenpunkt erfasst.', openPinId: state._mapStripOpenPinId})}
     ${list.length ? `<div class="grid">${list.map(tourCardHtml).join('')}</div>` : emptyTouren()}
   `;
 }
@@ -2142,6 +2160,7 @@ function wireGlobalHandlers(){
     else if(act==='add-tour') el.onclick = openAddTour;
     else if(act==='add-hut') el.onclick = openAddHut;
     else if(act==='open-standalone-map') el.onclick = openStandaloneMap;
+    else if(act==='map-strip-toggle') el.onclick = ()=>{ const id = el.getAttribute('data-id'); state._mapStripOpenPinId = (state._mapStripOpenPinId===id ? null : id); render(); };
     else if(act==='add-agenda') el.onclick = openAddAgenda;
     else if(act==='open-tour') { el.onclick = ()=>openTourDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openTourDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-hut') { el.onclick = ()=>openHutDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openHutDetail(el.getAttribute('data-id'));}; }
