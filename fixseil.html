@@ -361,7 +361,7 @@
 <div class="app-switch-bar">
   <a href="./index.html">🎿 Skitour</a>
   <a href="./fixseil.html" id="switch-hochtour">🏔️ Hochtour</a>
-  <a href="./fixseil.html?view=msl" id="switch-msl">🧗 Klettern/MSL</a>
+  <a href="./fixseil.html?view=msl" id="switch-msl">🧗 Klettern</a>
 </div>
 <div id="app"></div>
 <button class="emergency-tab" id="emergency-btn">SOS</button>
@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v137-navigation-rueckfall-fix';
+const APP_VERSION = 'v138-klettern-gebiete-einstieg';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -833,10 +833,12 @@ let state = {
   // beim Schliessen einer andersartigen, später unabhängig geöffneten Ansicht verwendet wird.
   modalBackStack: []
 };
-// Direkter Einstieg per Link aus der oberen Umschalt-Leiste ("🧗 MSL" führt hierher mit
-// ?view=msl), damit man nicht immer erst über "Hochtour" navigieren muss.
+// Direkter Einstieg per Link aus der oberen Umschalt-Leiste ("🧗 Klettern" führt hierher mit
+// ?view=msl), damit man nicht immer erst über "Hochtour" navigieren muss. Landet auf den
+// Klettergebieten (state.view='sektoren') statt der flachen Touren-Liste, da ein Klettergebiet
+// der primäre Einstiegspunkt in den Klettern-Bereich ist — siehe sektorenViewHtml().
 try{
-  if(new URLSearchParams(location.search).get('view')==='msl'){ state.view = 'msl'; state.tourCategoryContext = 'msl'; }
+  if(new URLSearchParams(location.search).get('view')==='msl'){ state.view = 'sektoren'; state.tourCategoryContext = 'msl'; }
 }catch(e){}
 
 
@@ -2642,10 +2644,10 @@ function shellHtml(){
     ⚠ Änderungen konnten nicht mit der Cloud synchronisiert werden (Internetverbindung prüfen) — exportiere zur Sicherheit eine Datei.
     <button data-act="export-data">Jetzt exportieren</button>
   </div>` : ''}
-  <div class="hero ${state.view==='msl' ? 'hero-msl' : ''}">
+  <div class="hero ${state.tourCategoryContext==='msl' ? 'hero-msl' : ''}">
     <div class="hero-top">
       <div class="brand">
-        <h1>${state.view==='msl' ? 'Klettern/MSL' : 'Hochtour'}</h1>
+        <h1>${state.tourCategoryContext==='msl' ? 'Klettern' : 'Hochtour'}</h1>
       </div>
       <div class="who">
         <div class="who-row">
@@ -2656,10 +2658,17 @@ function shellHtml(){
       </div>
     </div>
     <div class="tabs"><div class="tabs-inner">
-      <button class="tab ${(state.view==='touren'||state.view==='msl')?'active':''}" data-act="view-tours-context">${state.tourCategoryContext==='msl'?'🧗 Klettern/MSL':'🏔️ Touren'}</button>
-      <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
-      <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">🧭 Sektoren</button>
-      <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
+      ${state.tourCategoryContext==='msl' ? `
+        <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">⛰️ Gebiete</button>
+        <button class="tab ${(state.view==='touren'||state.view==='msl')?'active':''}" data-act="view-tours-context">🧗 Alle Touren</button>
+        <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
+        <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
+      ` : `
+        <button class="tab ${(state.view==='touren'||state.view==='msl')?'active':''}" data-act="view-tours-context">🏔️ Touren</button>
+        <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
+        <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">🧭 Sektoren</button>
+        <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
+      `}
     </div></div>
   </div>
   <main>
@@ -3362,7 +3371,7 @@ function exportModalHtml(payload){
       <label>Was exportieren?</label>
       <div class="chips" id="export-filter-chips">
         <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-hochtour" data-act="toggle-export-filter">🏔️ Hochtour</button>
-        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-msl" data-act="toggle-export-filter">🧗 Klettern/MSL</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-msl" data-act="toggle-export-filter">🧗 Klettern</button>
         <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="huts" data-act="toggle-export-filter">🛖 Hütten</button>
         <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="sektoren" data-act="toggle-export-filter">🧭 Sektoren</button>
         <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="agenda" data-act="toggle-export-filter">📅 Agenda</button>
@@ -5768,7 +5777,7 @@ function toggleEmergencyCard(){
 const switchHochtourLink = document.getElementById('switch-hochtour');
 if(switchHochtourLink) switchHochtourLink.addEventListener('click', (e)=>{ e.preventDefault(); setView('touren'); history.replaceState(null, '', './fixseil.html'); });
 const switchMslLink = document.getElementById('switch-msl');
-if(switchMslLink) switchMslLink.addEventListener('click', (e)=>{ e.preventDefault(); setView('msl'); history.replaceState(null, '', './fixseil.html?view=msl'); });
+if(switchMslLink) switchMslLink.addEventListener('click', (e)=>{ e.preventDefault(); state.tourCategoryContext = 'msl'; setView('sektoren'); history.replaceState(null, '', './fixseil.html?view=msl'); });
 
 const emergencyTab = document.getElementById('emergency-btn');
 emergencyTab.addEventListener('click', toggleEmergencyCard);
