@@ -6033,58 +6033,71 @@ async function scanTopoImageForRoutes(fileInputEl, hiddenInputId, containerId, s
   }
 }
 
-// Wie scanTopoImageForRoutes, aber für ein Foto mit MEHREREN Sektoren gleichzeitig (z. B. eine
-// ganze Führerbuch-Seite eines Klettergebiets). Öffnet zum Schluss ein Prüf-Fenster statt die
-// Routen direkt zu übernehmen, da hier gleich mehrere neue Sektoren entstehen.
+// Wie scanTopoImageForRoutes, aber für ein oder mehrere Fotos mit MEHREREN Sektoren gleichzeitig
+// (z. B. eine ganze Führerbuch-Seite eines Klettergebiets, oder mehrere Seiten auf einmal, falls
+// das Gebiet sich über mehrere Seiten erstreckt). Jedes Foto wird einzeln an die Cloud Function
+// geschickt; alle erkannten Sektoren landen zusammengeführt in EINEM Prüf-Fenster, statt die
+// Routen direkt zu übernehmen, da hier gleich mehrere neue Sektoren entstehen. Jeder Sektor trägt
+// eine Referenz auf sein Quellfoto (_sourceFile), damit beim Übernehmen das richtige Topo-Bild
+// hochgeladen wird statt (bei mehreren Fotos) versehentlich immer dasselbe.
 async function scanKlettergebietPhoto(gebId, fileInputEl, statusElId){
   const statusEl = document.getElementById(statusElId);
   if(!SCAN_KLETTERGEBIET_URL){
     showToast('Mehrfach-Sektor-Scan ist noch nicht eingerichtet — siehe functions/README.md.', true);
     return;
   }
-  const file = fileInputEl && fileInputEl.files && fileInputEl.files[0];
-  if(!file){
+  const files = fileInputEl && fileInputEl.files ? Array.from(fileInputEl.files) : [];
+  if(!files.length){
     showToast('Bitte zuerst ein Foto auswählen.', true);
     return;
   }
-  if(statusEl) statusEl.textContent = 'Erkenne Sektoren …';
-  try{
-    const imageBase64 = await blobToBase64(file);
-    const res = await fetch(SCAN_KLETTERGEBIET_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageBase64, mediaType: file.type || 'image/jpeg' }),
-    });
-    if(!res.ok){
-      const errBody = await res.json().catch(()=>({}));
-      throw new Error(errBody.error || ('Serverfehler ' + res.status));
+  if(statusEl) statusEl.textContent = files.length>1 ? `Erkenne Sektoren auf ${files.length} Fotos …` : 'Erkenne Sektoren …';
+  const allSectors = [];
+  let gebietName = '';
+  let failedCount = 0;
+  for(const file of files){
+    try{
+      const imageBase64 = await blobToBase64(file);
+      const res = await fetch(SCAN_KLETTERGEBIET_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64, mediaType: file.type || 'image/jpeg' }),
+      });
+      if(!res.ok){
+        const errBody = await res.json().catch(()=>({}));
+        throw new Error(errBody.error || ('Serverfehler ' + res.status));
+      }
+      const data = await res.json();
+      (data.sectors || []).filter(s=>s && s.name).forEach(s=> allSectors.push({ ...s, _sourceFile: file }));
+      if(!gebietName && data.gebietName) gebietName = data.gebietName;
+    }catch(e){
+      failedCount++;
     }
-    const data = await res.json();
-    const sectors = (data.sectors || []).filter(s=>s && s.name);
-    if(statusEl) statusEl.textContent = '';
-    if(!sectors.length){
-      showToast('Keine Sektoren erkannt — Foto evtl. unscharf oder falscher Ausschnitt.', true);
-      return;
-    }
-    openKlettergebietScanReview(gebId, sectors, file, data.gebietName || '');
-  }catch(e){
-    if(statusEl) statusEl.textContent = '';
-    showToast('Foto-Scan fehlgeschlagen: ' + (e.message || e), true);
   }
+  if(statusEl) statusEl.textContent = '';
+  if(!allSectors.length){
+    showToast('Keine Sektoren erkannt — Foto(s) evtl. unscharf oder falscher Ausschnitt.', true);
+    return;
+  }
+  if(failedCount){
+    showToast(failedCount + ' von ' + files.length + ' Foto(s) konnten nicht ausgewertet werden — die übrigen wurden trotzdem erkannt.', true);
+  }
+  openKlettergebietScanReview(gebId, allSectors, gebietName);
 }
 
 // gebId===null bedeutet "neues Klettergebiet": submitKlettergebietScanReview legt dann zuerst
 // ein neues Klettergebiet an (Name aus dem editierbaren Feld, vorbefüllt mit gebietName aus dem
 // Scan) und hängt die erkannten Sektoren dort ein — sonst werden sie an ein bestehendes Gebiet
 // (gebId) angehängt, wie beim Scan von der Klettergebiet-Detailseite aus.
-function openKlettergebietScanReview(gebId, sectors, fileBlob, gebietName){
-  state.modal = { type:'klettergebiet-scan-review', payload:{ gebId, sectors, fileBlob, gebietName: gebietName || '' } };
+function openKlettergebietScanReview(gebId, sectors, gebietName){
+  state.modal = { type:'klettergebiet-scan-review', payload:{ gebId, sectors, gebietName: gebietName || '' } };
   render();
 }
 
 function klettergebietScanReviewHtml(payload){
   const { sectors, gebId, gebietName } = payload;
   const isNewGebiet = !gebId;
+  const photoCount = new Set(sectors.map(s=>s._sourceFile)).size;
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>📷 ${isNewGebiet ? 'Neues Klettergebiet aus Foto' : 'Erkannte Sektoren'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     ${isNewGebiet ? `<div class="field" style="margin-bottom:14px;">
@@ -6092,7 +6105,7 @@ function klettergebietScanReviewHtml(payload){
       <input type="text" id="klettergebiet-scan-gebiet-name" value="${esc(gebietName||'')}" placeholder="z. B. Sewen"/>
       ${!gebietName ? `<p style="font-size:12.5px; color:var(--ink-soft); margin:4px 0 0 0;">Kein Titel auf dem Foto erkannt — bitte Namen eintragen.</p>` : ''}
     </div>` : ''}
-    <p style="font-size:13px; color:var(--ink-soft);">${sectors.length} Sektor${sectors.length===1?'':'en'} erkannt — Namen und Routen vor dem Übernehmen kurz prüfen, jeder wird als eigener, neuer Sektor angelegt.</p>
+    <p style="font-size:13px; color:var(--ink-soft);">${sectors.length} Sektor${sectors.length===1?'':'en'} erkannt${photoCount>1 ? ' aus ' + photoCount + ' Fotos' : ''} — Namen und Routen vor dem Übernehmen kurz prüfen, jeder wird als eigener, neuer Sektor angelegt.</p>
     <div id="klettergebiet-scan-sectors">
       ${sectors.map((sec,i)=>`
         <div class="field" style="border:1px solid var(--line); border-radius:var(--radius); padding:12px; margin-bottom:14px;">
@@ -6143,20 +6156,22 @@ async function submitKlettergebietScanReview(){
     try{ routes = JSON.parse(document.getElementById('scan-sector-hidden-'+i).value || '[]'); }catch(e){ routes = []; }
     const sek = { id: uid('sek'), name, klettergebietId: gebId, kletterrouten: routes, topoImages: [], createdBy: state.myName, createdAt: new Date().toISOString() };
     ensureSektorRouteArrays(sek);
+    const sourceSector = payload.sectors[i];
+    if(sourceSector && sourceSector._sourceFile) sek._sourceFile = sourceSector._sourceFile;
     created.push(sek);
   });
   if(!created.length){ showToast('Bitte mindestens einen Sektor-Namen eintragen.', true); return; }
 
-  if(payload.fileBlob){
-    for(const sek of created){
-      try{
-        const blob = await compressImageFile(payload.fileBlob, 1200, 0.78);
-        const imgId = uid('img');
-        const storagePath = `${TOPO_IMAGES_PATH}/${sek.id}/${imgId}.jpg`;
-        const url = await uploadTopoImageBlob(blob, storagePath);
-        sek.topoImages = [{ id: imgId, url, storagePath }];
-      }catch(e){ /* Topo-Bild kann später manuell ergänzt werden — kein Abbruch */ }
-    }
+  for(const sek of created){
+    if(!sek._sourceFile) continue;
+    try{
+      const blob = await compressImageFile(sek._sourceFile, 1200, 0.78);
+      const imgId = uid('img');
+      const storagePath = `${TOPO_IMAGES_PATH}/${sek.id}/${imgId}.jpg`;
+      const url = await uploadTopoImageBlob(blob, storagePath);
+      sek.topoImages = [{ id: imgId, url, storagePath }];
+    }catch(e){ /* Topo-Bild kann später manuell ergänzt werden — kein Abbruch */ }
+    delete sek._sourceFile;
   }
 
   if(newGeb) state.klettergebiete.unshift(newGeb);
