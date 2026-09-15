@@ -279,6 +279,7 @@ const APPROACH_TYPE_LABELS = { auto:'🚗 Auto', oev:'🚌 ÖV', seilbahn:'🚡 
 const STAY_TYPE_LABELS = { tagestour:'☀️ Tagestour', huette:'🛖 Hütte', biwak:'⛺ Biwak', zelt:'🏕️ Zelt' };
 const MAP_POINT_CATEGORIES = {
   '': {icon:'📍', label:'Punkt', color:'#4A3524'},
+  'gipfel': {icon:'🗻', label:'Gipfel', color:'#7A3E9E'},
   'gefahr': {icon:'⚠️', label:'Gefahrenstelle', color:'#B0392C'},
   'rueckzug': {icon:'↩️', label:'Rückzugspunkt', color:'#8B2E22'},
   'wasser': {icon:'💧', label:'Wasserstelle', color:'#2E6E8E'},
@@ -4965,11 +4966,12 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - \`label\`: kurze Bezeichnung, was der Punkt ist
 - \`lat\`/\`lon\`: WGS84-Koordinaten (Dezimalgrad, mit Punkt statt Komma)
 - \`category\`: optional — bestimmt Symbol/Farbe des Punkts auf der Karte. Gültige
-  Werte: \`""\` (Standard-Pin), \`"gefahr"\` (Gefahrenstelle), \`"rueckzug"\`
-  (Rückzugspunkt), \`"wasser"\` (Wasserstelle), \`"rast"\` (Rastplatz), \`"biwak"\`
-  (Biwak/Übernachtung), \`"parkplatz"\`, \`"toilette"\`, \`"haltestelle"\` (ÖV),
-  \`"abzweigung"\` (Abzweigung/Orientierung). Bei Unsicherheit einfach weglassen
-  oder \`""\` — nie eine Kategorie raten, die nicht klar aus der Quelle hervorgeht.
+  Werte: \`""\` (Standard-Pin), \`"gipfel"\` (Gipfel), \`"gefahr"\` (Gefahrenstelle),
+  \`"rueckzug"\` (Rückzugspunkt), \`"wasser"\` (Wasserstelle), \`"rast"\` (Rastplatz),
+  \`"biwak"\` (Biwak/Übernachtung), \`"parkplatz"\`, \`"toilette"\`, \`"haltestelle"\`
+  (ÖV), \`"abzweigung"\` (Abzweigung/Orientierung). Bei Unsicherheit einfach
+  weglassen oder \`""\` — nie eine Kategorie raten, die nicht klar aus der Quelle
+  hervorgeht.
 - Mehrere Punkte pro Eintrag möglich
 - **Koordinaten nur bei eindeutigen GPS-Daten eintragen.** Steht in der Quelle keine
   klare, konkrete Koordinate (z. B. ein GPS-Wert, ein exakter Kartenpunkt) — auch
@@ -5264,7 +5266,7 @@ Jede neue Tour startet als **📝 Entwurf** — das kennzeichnet: "Angaben evtl.
 
 Beim Bearbeiten einer Tour: **"🗺️ Karte öffnen"**
 
-- **📍 Punkt setzen**: antippen → auf die Karte tippen → Kategorie wählen (Parkplatz, Wasserstelle, Gefahrenstelle, Rastplatz, Biwak, Toilette, Haltestelle, Abzweigung, Rückzugspunkt) → Bezeichnung eintragen → Speichern. Jede Kategorie hat ein eigenes farbiges Symbol auf der Karte.
+- **📍 Punkt setzen**: antippen → auf die Karte tippen → Kategorie wählen (Gipfel, Parkplatz, Wasserstelle, Gefahrenstelle, Rastplatz, Biwak, Toilette, Haltestelle, Abzweigung, Rückzugspunkt) → Bezeichnung eintragen → Speichern. Jede Kategorie hat ein eigenes farbiges Symbol auf der Karte.
 - **✏️ Linie zeichnen**: antippen → jeder weitere Kartenklick fügt einen Wegpunkt zur blauen Linie hinzu. "↺ Letzten Punkt entfernen" bei Fehltipp, "✓ Linie fertig" zum Abschliessen.
 - **⛶ Vollbild**: für genaueres Zoomen/Suchen — auf jeder Karte verfügbar
 - **Tipp:** Direkt aus der Tour-**Detailansicht** lassen sich Punkte/Linie auch bearbeiten, ohne den Umweg über "Tour bearbeiten" zu gehen — Knopf "✏️ Punkte/Linie direkt bearbeiten"
