@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v138-klettern-gebiete-einstieg';
+const APP_VERSION = 'v139-gebiets-chips-grad-hoehe';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2143,11 +2143,17 @@ function klettergebietDetailHtml(id){
   const sektoren = state.sektoren.filter(s=>s.klettergebietId===geb.id).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   const unlinkedSektoren = state.sektoren.filter(s=>!s.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   const tourCount = state.tours.filter(t=> sektoren.some(s=>s.id===t.sektorId)).length;
+  const gradeRange = klettergebietClimbGradeRangeText(geb);
+  const altitude = klettergebietAltitudeText(geb);
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
+    ${(gradeRange || altitude) ? `<div class="chips" style="margin-bottom:14px;">
+      ${gradeRange ? `<span class="hut-link-chip">🧗 ${esc(gradeRange)}</span>` : ''}
+      ${altitude ? `<span class="hut-link-chip">${esc(altitude)}</span>` : ''}
+    </div>` : ''}
     ${geb.description ? `<div class="detail-section"><h4>Beschreibung / Material</h4><p>${esc(geb.description)}</p></div>` : ''}
     ${(() => {
       const hasOwnPoints = geb.points && geb.points.length;
@@ -3233,15 +3239,46 @@ function emptySektoren(){
   </div>`;
 }
 
+// Alle Touren dieses Klettergebiets — über dessen Sektoren verlinkt (kein eigenes Feld auf der
+// Tour nötig, dieselbe Kette wie beim Zählen der Touren pro Gebiet).
+function klettergebietTouren(geb){
+  const sektorIds = new Set(state.sektoren.filter(s=>s.klettergebietId===geb.id).map(s=>s.id));
+  return state.tours.filter(t=> sektorIds.has(t.sektorId));
+}
+// Kurze Kletter-Grad-Spanne übers ganze Gebiet (z. B. "4a–6b"), analog zu
+// kletterroutenGradeRangeText() für einen einzelnen Sektor, hier aber aus dem climbGrade-Feld
+// der verlinkten Touren statt aus einer Sektor-Routenliste.
+function klettergebietClimbGradeRangeText(geb){
+  const values = klettergebietTouren(geb)
+    .map(t=>({grad:t.climbGrade, v:kletterrouteGradeSortValue(t.climbGrade)}))
+    .filter(x=>x.v!==null);
+  if(!values.length) return '';
+  values.sort((a,b)=>a.v-b.v);
+  const min = values[0].grad, max = values[values.length-1].grad;
+  return min===max ? min : `${min}–${max}`;
+}
+// Durchschnittliche Zielhöhe übers Gebiet, grob auf 50 m gerundet (kein exaktes Mass, nur zur
+// Einordnung auf einen Blick, analog zur Grad-Spanne).
+function klettergebietAltitudeText(geb){
+  const nums = klettergebietTouren(geb).map(t=>parseInt(t.targetAltitude,10)).filter(n=>!isNaN(n));
+  if(!nums.length) return '';
+  const avg = Math.round(nums.reduce((a,b)=>a+b,0)/nums.length/50)*50;
+  return '~' + avg + ' m';
+}
+
 function klettergebietCardHtml(geb){
   const sektoren = state.sektoren.filter(s=>s.klettergebietId===geb.id);
   const tourCount = state.tours.filter(t=> sektoren.some(s=>s.id===t.sektorId)).length;
+  const gradeRange = klettergebietClimbGradeRangeText(geb);
+  const altitude = klettergebietAltitudeText(geb);
   return `
   <div class="card" data-act="open-klettergebiet" data-id="${geb.id}" tabindex="0" role="button">
     <div class="card-top">
       <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
     </div>
     ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
+    ${gradeRange ? `<span class="hut-link-chip">🧗 ${esc(gradeRange)}</span>` : ''}
+    ${altitude ? `<span class="hut-link-chip">${esc(altitude)}</span>` : ''}
     <span class="hut-link-chip">🧭 ${sektoren.length} Sektor${sektoren.length===1?'':'en'}</span>
     <span class="hut-link-chip">${tourCount} Tour${tourCount===1?'':'en'}</span>
     ${geb._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
