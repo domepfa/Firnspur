@@ -1712,6 +1712,9 @@ function closeFullscreenMap(){
   const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
   if(m && m._isStandaloneMap){
     try{ lastStandaloneMapView = {center: m.getCenter(), zoom: m.getZoom()}; }catch(e){}
+  }else if(m && m._isPointsEditorMap){
+    // Gleiches Sicherheitsnetz wie oben, für die Punkte-Karte der Bearbeiten-Formulare.
+    try{ lastPointsEditorMapView = {center: m.getCenter(), zoom: m.getZoom()}; }catch(e){}
   }
   overlay.style.display = 'none';
   const container = document.getElementById('fullscreen-map-container');
@@ -3283,6 +3286,56 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     if(isFullscreen){
       wrapDiv.style.cssText = 'height:100%; display:flex; flex-direction:column; box-sizing:border-box; padding:56px 12px 12px 12px;';
     }
+
+    // Orts-/Bergsuche, um die Karte schnell an eine bestimmte Stelle zu bringen (z. B. ein Dorf
+    // oder ein Gipfel weit weg vom aktuellen Ausschnitt) — setzt nur den Kartenausschnitt, einen
+    // Punkt legt man wie gewohnt bewusst per langem Drücken selbst (siehe pointHint unten).
+    const searchRow = document.createElement('div');
+    searchRow.style.cssText = 'display:flex; gap:4px; margin-bottom:8px;';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Ort, Berg oder Dorf suchen …';
+    searchInput.style.cssText = 'flex:1; min-width:0; border:1px solid var(--line); border-radius:4px; padding:7px 9px; font-size:13px;';
+    const searchBtn = document.createElement('button');
+    searchBtn.type = 'button';
+    searchBtn.className = 'btn secondary';
+    searchBtn.style.cssText = 'flex:none; font-size:12.5px; padding:7px 10px;';
+    searchBtn.textContent = '🔍';
+    searchRow.appendChild(searchInput);
+    searchRow.appendChild(searchBtn);
+    wrapDiv.appendChild(searchRow);
+    const searchResults = document.createElement('div');
+    searchResults.style.cssText = 'margin:-4px 0 8px 0; display:flex; flex-direction:column; gap:2px; font-size:12.5px; color:var(--ink-soft);';
+    wrapDiv.appendChild(searchResults);
+    let placeSearchBusy = false;
+    async function runPlaceSearch(){
+      const q = searchInput.value.trim();
+      if(!q || placeSearchBusy) return;
+      placeSearchBusy = true;
+      searchResults.textContent = 'Suche …';
+      try{
+        const hits = await geocodePlaces(q, 5);
+        searchResults.innerHTML = '';
+        if(!hits.length){
+          searchResults.textContent = 'Kein Ort gefunden.';
+        }else{
+          hits.forEach(hit=>{
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.style.cssText = 'text-align:left; background:var(--ice-light); border:none; border-radius:4px; padding:6px 9px; font-size:12.5px; color:var(--ink); cursor:pointer;';
+            btn.textContent = '📍 ' + hit.label;
+            btn.addEventListener('click', ()=>{ map.setView([hit.lat, hit.lon], 15); searchResults.innerHTML = ''; searchInput.value = ''; });
+            searchResults.appendChild(btn);
+          });
+        }
+      }catch(e){
+        searchResults.textContent = 'Suche fehlgeschlagen (offline?).';
+      }
+      placeSearchBusy = false;
+    }
+    searchBtn.addEventListener('click', runPlaceSearch);
+    searchInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); runPlaceSearch(); } });
+
     // Segmentierter Umschalter statt einzelner loser Chips — grössere Tippflächen, und die
     // Farbe jedes Modus entspricht genau der Farbe, die er auf der Karte zeichnet (Blau =
     // Linie, Grün = Route), damit auf einen Blick klar ist, was gerade aktiv ist.
@@ -3435,9 +3488,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
 
     const firstRefTrack = refTracks.length ? refTracks[0].coords : null;
     const firstRefPoint = refPoints.length ? [refPoints[0].lat, refPoints[0].lon] : null;
-    const center = points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : (firstRefPoint || [46.8182, 8.2275])));
-    const zoom = (points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8;
+    // Beim Wechsel Mini-Karte <-> Vollbild (siehe makeFullscreenButton-Aufruf unten) denselben
+    // Ausschnitt behalten statt auf den ersten Punkt zurückzuspringen — lastPointsEditorMapView
+    // wird nur bei einer wirklich NEUEN Bearbeiten-Sitzung zurückgesetzt (siehe
+    // syncModalDirtyTracking), nicht bei diesem Mini/Vollbild-Wechsel selbst.
+    const center = lastPointsEditorMapView ? lastPointsEditorMapView.center
+      : (points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : (firstRefPoint || [46.8182, 8.2275]))));
+    const zoom = lastPointsEditorMapView ? lastPointsEditorMapView.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
     const map = L.map(mapDivId).setView(center, zoom);
+    map._isPointsEditorMap = true;
+    map.on('moveend', ()=>{ lastPointsEditorMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
     registerMap(mapDivId, map);
     const { skitourenLayer } = addBaseLayerSwitcher(map);
 
@@ -4742,6 +4802,14 @@ let modalOpenedFromStandaloneMap = false;
 // Zurückkehren aus einer Tour/Hütte/Sektor-Detailansicht dort weitermacht, statt jedes Mal auf
 // die Schweiz-Übersicht zurückzuspringen.
 let lastStandaloneMapView = null;
+// Analog zu lastStandaloneMapView, aber für die Punkte-Karte in den Bearbeiten-Formularen
+// (renderPointsEditorMap): merkt sich den zuletzt gezeigten Ausschnitt, damit der Wechsel
+// Mini-Karte <-> Vollbild denselben Ausschnitt behält statt jedes Mal auf den ersten Punkt
+// zurückzuspringen. Wird bei jedem NEUEN Bearbeiten-Vorgang zurückgesetzt (siehe
+// syncModalDirtyTracking) — nicht bei einem blossen Re-Render derselben Sitzung (z. B. nach
+// Umschalten Hochtour/MSL) —, damit der Ausschnitt einer anderen Tour/Hütte nicht fälschlich
+// als Startansicht einer neu geöffneten Maske übernommen wird.
+let lastPointsEditorMapView = null;
 
 function pushModalHistoryIfNeeded(){
   if(!modalHistoryPushed){
@@ -4778,7 +4846,7 @@ function closeTopOverlayLayer(){
    wird stattdessen nur noch nachgefragt: hat sich seit dem Öffnen der Maske etwas geändert,
    fragt closeModal() vor dem Verwerfen einmal nach ("Ungespeicherte Änderungen verwerfen?").
    Speichern und Löschen laufen unverändert direkt durch (skipDirtyCheck-Parameter). */
-const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-sektor','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda','edit-agenda'];
+const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-sektor','edit-klettergebiet','edit-gipfel','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda','edit-agenda'];
 let modalIsDirty = false;
 let lastDirtyTrackedModalKey = null;
 function modalDirtyTrackingKey(){
@@ -4795,6 +4863,7 @@ function syncModalDirtyTracking(){
   if(key !== lastDirtyTrackedModalKey){
     modalIsDirty = false;
     lastDirtyTrackedModalKey = key;
+    lastPointsEditorMapView = null;
   }
 }
 function markModalDirty(){ modalIsDirty = true; }

@@ -540,7 +540,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v143-kartenstreifen';
+const APP_VERSION = 'v144-kartenbearbeitung-fixes';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -767,7 +767,7 @@ async function submitName(nameVal, pinVal){
 function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:null}; render(); }); }
 // Von der Übersichtskarte aus per "Punkt setzen" — siehe pointPlacementPopupContent in 0-shared.js.
 function openAddTourWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-tour', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
-function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); state.modal = {type:'edit-tour', payload:t}; render(); }); }
+function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); navigateToModal({type:'edit-tour', payload:t}); }); }
 // Öffnet eine der "frei verlinkbaren" Detailansichten (Tour/Hütte) — diese sind von überall aus
 // erreichbar, auch per Cross-Link aus einer ANDEREN bereits offenen Detailansicht heraus (z. B.
 // eine Tour direkt aus der Hütten-Detailansicht öffnen). War bereits eine Ansicht offen, merkt
@@ -787,7 +787,7 @@ function navigateToModal(newModal){
 function openTourDetail(id){ navigateToModal({type:'tour-detail', payload:id}); }
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
 function openAddHutWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
-function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
+function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); navigateToModal({type:'edit-hut', payload:h}); }); }
 function openHutDetail(id){ navigateToModal({type:'hut-detail', payload:id}); }
 function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(!skipDirtyCheck && !confirmDiscardIfDirty()){
