@@ -1,21 +1,20 @@
 # Foto-Scan für Kletterrouten — Einrichtung
 
-Drei Cloud Functions in dieser Datei:
-- `scanKletterrouten` — ein Sektor, eine Routenliste (bereits deployt und live).
+Drei Cloud Functions in dieser Datei, **alle drei deployt und live**:
+- `scanKletterrouten` — ein Sektor, eine Routenliste.
 - `scanKlettergebiet` — ein Foto mit MEHREREN Sektoren gleichzeitig (z. B. eine ganze
   Führerbuch-Seite mit Sektor A–G), erkennt jeden Sektor samt eigener Routenliste sowie,
   falls auf dem Foto als Überschrift erkennbar, den Namen des übergeordneten Klettergebiets.
   Nutzbar sowohl von der Detailseite eines bestehenden Klettergebiets aus (Sektoren werden
   dort angehängt) als auch direkt von der Klettergebiete-Übersicht aus ("📷 Gebiet per Foto
   scannen") — dabei wird das Klettergebiet inkl. Name UND alle Sektoren in einem Schritt neu
-  angelegt, ganz ohne vorheriges manuelles Anlegen eines leeren Gebiets. **Noch nicht ausgerollt.**
+  angelegt, ganz ohne vorheriges manuelles Anlegen eines leeren Gebiets.
 - `scanZustieg` — ein einzelner Zustieg/Abstieg (Hütte, Tour oder Sektor — gleiche
-  Feldstruktur überall: Name/Höhenmeter/Zeit/Wanderskala/Beschreibung). **Noch nicht
-  ausgerollt.**
+  Feldstruktur überall: Name/Höhenmeter/Zeit/Wanderskala/Beschreibung).
 
-Solange eine Function nicht deployt ist, zeigt ihr "📷 Foto scannen"-Knopf in der App eine
-Fehlermeldung statt zu funktionieren — das ist erwartet und harmlos, nichts anderes in der
-App ist davon betroffen.
+Falls künftig eine neue Function dazukommt, zeigt ihr "📷 Foto scannen"-Knopf in der App
+bis zum nächsten Deploy eine Fehlermeldung statt zu funktionieren — das ist erwartet und
+harmlos, nichts anderes in der App ist davon betroffen.
 
 ## Was du brauchst
 

@@ -41,10 +41,10 @@ const STORAGE_BUCKET = 'firnspur.firebasestorage.app'; // Cloud Storage, appübe
 var SCAN_KLETTERROUTEN_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanKletterrouten';
 // Wie SCAN_KLETTERROUTEN_URL, aber für ein Foto mit MEHREREN Sektoren gleichzeitig (z. B.
 // eine ganze Führerbuch-Seite mit Sektor A–G) — siehe functions/README.md.
-var SCAN_KLETTERGEBIET_URL = '';
+var SCAN_KLETTERGEBIET_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanKlettergebiet';
 // Foto-Scan für einen einzelnen Zustieg/Abstieg (Hütte, Tour oder Sektor — gleiche
 // Feldstruktur überall) — siehe functions/README.md.
-var SCAN_ZUSTIEG_URL = '';
+var SCAN_ZUSTIEG_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanZustieg';
 async function fbGet(path){
   try{
     await ensureValidAuthToken();
