@@ -37,11 +37,12 @@ const ROUTE_RULES = `- Nr: die Nummer aus dem Topo-Bild. Falls keine erkennbar, 
 
 const PROMPT_SINGLE_SEKTOR = `Lies die Kletterrouten von diesem Foto einer Führerbuch-Topo-Seite ab.\n${ROUTE_RULES}\n- Zeigt das Foto mehrere Sektoren, lies nur den am deutlichsten im Vordergrund/Bildausschnitt stehenden Sektor ein.`;
 
-const PROMPT_MULTI_SEKTOR = `Dieses Foto zeigt eine Führerbuch-Seite mit MEHREREN Kletter-Sektoren (Teilbereichen) desselben Gebiets, jeweils mit eigenem Namen (z. B. "Sektor A – Edelweiss") und eigener Routenliste. Erkenne JEDEN einzelnen Sektor auf dem Foto separat.\nFür jeden Sektor:\n- name: der Sektor-Name exakt wie abgedruckt (z. B. "A – Edelweiss"). Falls kein Name lesbar: "Sektor <laufende Nummer>".\n- routes: die zugehörige Routenliste, nach diesen Regeln:\n${ROUTE_RULES}\nGib NUR Sektoren zurück, die auf dem Foto tatsächlich zu erkennen sind — nichts erfinden. Ein Sektor ohne lesbare Routen bekommt eine leere routes-Liste.`;
+const PROMPT_MULTI_SEKTOR = `Dieses Foto zeigt eine Führerbuch-Seite mit MEHREREN Kletter-Sektoren (Teilbereichen) desselben Gebiets, jeweils mit eigenem Namen (z. B. "Sektor A – Edelweiss") und eigener Routenliste. Erkenne JEDEN einzelnen Sektor auf dem Foto separat.\n- gebietName: der übergeordnete Name des gesamten Klettergebiets, falls auf dem Foto als Überschrift/Kapiteltitel über allen Sektoren erkennbar (z. B. "Sewen"). Falls nicht eindeutig erkennbar: leerer String "" — nichts erfinden oder aus Sektor-Namen ableiten.\nFür jeden Sektor:\n- name: der Sektor-Name exakt wie abgedruckt (z. B. "A – Edelweiss"). Falls kein Name lesbar: "Sektor <laufende Nummer>".\n- routes: die zugehörige Routenliste, nach diesen Regeln:\n${ROUTE_RULES}\nGib NUR Sektoren zurück, die auf dem Foto tatsächlich zu erkennen sind — nichts erfinden. Ein Sektor ohne lesbare Routen bekommt eine leere routes-Liste.`;
 
 const KLETTERGEBIET_SCHEMA = {
   type: 'object',
   properties: {
+    gebietName: { type: 'string' },
     sectors: {
       type: 'array',
       items: {
@@ -67,7 +68,7 @@ const KLETTERGEBIET_SCHEMA = {
       },
     },
   },
-  required: ['sectors'],
+  required: ['gebietName', 'sectors'],
   additionalProperties: false,
 };
 

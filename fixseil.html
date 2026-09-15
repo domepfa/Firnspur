@@ -719,7 +719,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v134-gipfelziel-uebersichtskarte';
+const APP_VERSION = 'v135-klettergebiet-scan-neu';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1207,8 +1207,10 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     state.modal = {type:'sektor-detail', payload: state.modal.payload.sektorId};
   }else if(state.modal && state.modal.type==='edit-sektor-topo-routen' && state.modal.payload){
     state.modal = {type:'sektor-detail', payload: state.modal.payload};
-  }else if(state.modal && state.modal.type==='klettergebiet-scan-review' && state.modal.payload){
+  }else if(state.modal && state.modal.type==='klettergebiet-scan-review' && state.modal.payload && state.modal.payload.gebId){
     state.modal = {type:'klettergebiet-detail', payload: state.modal.payload.gebId};
+  }else if(state.modal && state.modal.type==='klettergebiet-scan-review'){
+    state.modal = null;
   }else{
     state.modal = null;
   }
@@ -3167,8 +3169,11 @@ function sektorenViewHtml(){
       <input class="search-input" type="text" placeholder="Klettergebiet, Sektor oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn" data-act="add-klettergebiet">+ Neues Klettergebiet</button>
       <button class="btn secondary" data-act="add-sektor">+ Neuer Sektor</button>
+      <button class="btn secondary" id="klettergebiet-new-scan-btn">📷 Gebiet per Foto scannen</button>
+      <input type="file" id="klettergebiet-new-scan-input" accept="image/*" style="display:none;"/>
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
+    <p id="klettergebiet-new-scan-status" style="font-size:12.5px; color:var(--ink-soft); margin:-6px 0 10px 0;"></p>
     ${!hasAny ? emptySektoren() : `
       ${gebieteList.length ? `<h4 style="margin:4px 0 8px;">⛰️ Klettergebiete</h4><div class="grid">${gebieteList.map(klettergebietCardHtml).join('')}</div>` : ''}
       ${standaloneList.length ? `<h4 style="margin:${gebieteList.length?'18px':'4px'} 0 8px;">🧭 Sektoren ohne Klettergebiet</h4><div class="grid">${standaloneList.map(sektorCardHtml).join('')}</div>` : ''}
@@ -4152,6 +4157,19 @@ function wireGlobalHandlers(){
     sel.addEventListener('change', ()=> setAgendaStatus(sel.getAttribute('data-id'), sel.value));
   });
   wireTourAssignMenu(app);
+
+  // Ganzes neues Klettergebiet (Name + mehrere Sektoren) aus einem einzigen Foto anlegen,
+  // ohne vorher manuell ein leeres Gebiet erstellen zu müssen — Einstieg direkt aus der
+  // Klettergebiete-Übersicht (sektorenViewHtml), analog zum Scan-Knopf auf der Detailseite
+  // eines bereits bestehenden Gebiets (dort wird gebId statt null mitgegeben).
+  const klettergebietNewScanBtn = app.querySelector('#klettergebiet-new-scan-btn');
+  const klettergebietNewScanInput = app.querySelector('#klettergebiet-new-scan-input');
+  if(klettergebietNewScanBtn && klettergebietNewScanInput){
+    klettergebietNewScanBtn.addEventListener('click', ()=> ensureName(()=> klettergebietNewScanInput.click()));
+    klettergebietNewScanInput.addEventListener('change', ()=>{
+      scanKlettergebietPhoto(null, klettergebietNewScanInput, 'klettergebiet-new-scan-status');
+    });
+  }
 }
 
 function renderListOnly(){

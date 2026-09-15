@@ -3,8 +3,12 @@
 Drei Cloud Functions in dieser Datei:
 - `scanKletterrouten` — ein Sektor, eine Routenliste (bereits deployt und live).
 - `scanKlettergebiet` — ein Foto mit MEHREREN Sektoren gleichzeitig (z. B. eine ganze
-  Führerbuch-Seite mit Sektor A–G), erkennt jeden Sektor samt eigener Routenliste.
-  **Noch nicht ausgerollt.**
+  Führerbuch-Seite mit Sektor A–G), erkennt jeden Sektor samt eigener Routenliste sowie,
+  falls auf dem Foto als Überschrift erkennbar, den Namen des übergeordneten Klettergebiets.
+  Nutzbar sowohl von der Detailseite eines bestehenden Klettergebiets aus (Sektoren werden
+  dort angehängt) als auch direkt von der Klettergebiete-Übersicht aus ("📷 Gebiet per Foto
+  scannen") — dabei wird das Klettergebiet inkl. Name UND alle Sektoren in einem Schritt neu
+  angelegt, ganz ohne vorheriges manuelles Anlegen eines leeren Gebiets. **Noch nicht ausgerollt.**
 - `scanZustieg` — ein einzelner Zustieg/Abstieg (Hütte, Tour oder Sektor — gleiche
   Feldstruktur überall: Name/Höhenmeter/Zeit/Wanderskala/Beschreibung). **Noch nicht
   ausgerollt.**
