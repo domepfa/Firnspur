@@ -540,7 +540,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v145-gipfel-wegpunkte';
+const APP_VERSION = 'v146-gipfel-punktkategorie';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -588,7 +588,6 @@ let state = {
   loading: true,
   tours: [],
   huts: [],
-  wegpunkte: [], // Biwak/Toilette/Gefahr/Sonstiges — appübergreifend geteilt, wie die Hütten
   agenda: [],
   otherAppTours: [], // Touren der jeweils anderen App, für die Termin-Auswahl
   myName: null,
@@ -628,7 +627,7 @@ let state = {
 function cacheLocalSnapshot(){
   try{
     localStorage.setItem('firnspur-cache', JSON.stringify({
-      tours: state.tours, huts: state.huts, wegpunkte: state.wegpunkte, agenda: state.agenda, cachedAt: new Date().toISOString()
+      tours: state.tours, huts: state.huts, agenda: state.agenda, cachedAt: new Date().toISOString()
     }));
   }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
 }
@@ -650,16 +649,15 @@ function migrateCompletions(item){
 
 async function loadAll(){
   state.loading = true; render();
-  const [toursObj, hutsObj, wegpunkteObj, agendaObj] = await Promise.all([ fbGet('tours'), fbGet('huts'), fbGet('wegpunkte'), fbGet(AGENDA_PATH) ]);
+  const [toursObj, hutsObj, agendaObj] = await Promise.all([ fbGet('tours'), fbGet('huts'), fbGet(AGENDA_PATH) ]);
   const cached = loadLocalSnapshot();
 
-  if(!toursObj && !hutsObj && !wegpunkteObj && !agendaObj){
+  if(!toursObj && !hutsObj && !agendaObj){
     // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
     state.loading = false;
     if(cached){
       state.tours = (cached.tours || []).map(migrateCompletions);
       state.huts = (cached.huts || []).map(migrateCompletions);
-      state.wegpunkte = cached.wegpunkte || [];
       state.agenda = cached.agenda || [];
       state.offlineMode = true;
       state.offlineCachedAt = cached.cachedAt;
@@ -674,7 +672,6 @@ async function loadAll(){
 
   const tours = (toursObj ? Object.values(toursObj) : []).filter(t=>t && t.id).map(migrateCompletions);
   const huts = (hutsObj ? Object.values(hutsObj) : []).filter(h=>h && h.id).map(migrateCompletions);
-  const wegpunkte = (wegpunkteObj ? Object.values(wegpunkteObj) : []).filter(w=>w && w.id);
   const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id).map(migrateAgendaStatus);
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
@@ -690,10 +687,6 @@ async function loadAll(){
     ...state.huts.filter(x=>x._unsynced),
     ...((cached && cached.huts) ? cached.huts.filter(x=>x._unsynced) : [])
   ]).filter(x=>!huts.find(y=>y.id===x.id));
-  const unsyncedWegpunkte = dedupeById([
-    ...state.wegpunkte.filter(x=>x._unsynced),
-    ...((cached && cached.wegpunkte) ? cached.wegpunkte.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!wegpunkte.find(y=>y.id===x.id));
   const unsyncedAgenda = dedupeById([
     ...state.agenda.filter(x=>x._unsynced),
     ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
@@ -701,7 +694,6 @@ async function loadAll(){
 
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
-  state.wegpunkte = [...unsyncedWegpunkte, ...wegpunkte];
   state.agenda = [...unsyncedAgenda, ...agenda];
   state.loading = false;
   state.offlineMode = false;
@@ -720,11 +712,6 @@ async function loadAll(){
     h._unsynced = !ok;
     if(ok) render();
   });
-  unsyncedWegpunkte.forEach(async w=>{
-    const ok = await saveWegpunktCloud(w).catch(()=>false);
-    w._unsynced = !ok;
-    if(ok) render();
-  });
   unsyncedAgenda.forEach(async a=>{
     const ok = await saveAgendaCloud(a).catch(()=>false);
     a._unsynced = !ok;
@@ -734,7 +721,6 @@ async function loadAll(){
 
 async function saveTourCloud(tour){ return await fbSet('tours/'+tour.id, tour); }
 async function saveHutCloud(hut){ return await fbSet('huts/'+hut.id, hut); }
-async function saveWegpunktCloud(w){ return await fbSet('wegpunkte/'+w.id, w); }
 
 async function loadOtherAppTours(){
   const obj = await fbGet(OTHER_TOURS_PATH);
