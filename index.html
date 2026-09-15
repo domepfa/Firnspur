@@ -523,7 +523,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v136-mehrfachfoto-kamera-scan';
+const APP_VERSION = 'v137-navigation-rueckfall-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -595,7 +595,11 @@ let state = {
   hasUnsavedChanges: false,
   offlineMode: false,
   offlineCachedAt: null,
-  modal: null // {type:'add-tour'|'edit-tour'|'add-hut'|'edit-hut'|'tour-detail'|'hut-detail'|'name'|'add-agenda', payload}
+  modal: null, // {type:'add-tour'|'edit-tour'|'add-hut'|'edit-hut'|'tour-detail'|'hut-detail'|'name'|'add-agenda', payload}
+  // Merkt sich beim "Hineinklicken" von einer Detailansicht in eine verlinkte andere (z. B. eine
+  // Tour aus der Hütten-Detailansicht heraus öffnen) die zuvor offene Modal-Ansicht, damit man beim
+  // Schliessen genau eine Ebene zurückfällt statt ganz auf die Übersicht — siehe closeModal().
+  modalBackStack: []
 };
 
 
@@ -747,11 +751,27 @@ function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.
 // Von der Übersichtskarte aus per "Punkt setzen" — siehe pointPlacementPopupContent in 0-shared.js.
 function openAddTourWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-tour', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); state.modal = {type:'edit-tour', payload:t}; render(); }); }
-function openTourDetail(id){ state.modal = {type:'tour-detail', payload:id}; render(); }
+// Öffnet eine der "frei verlinkbaren" Detailansichten (Tour/Hütte) — diese sind von überall aus
+// erreichbar, auch per Cross-Link aus einer ANDEREN bereits offenen Detailansicht heraus (z. B.
+// eine Tour direkt aus der Hütten-Detailansicht öffnen). War bereits eine Ansicht offen, merkt
+// sich modalBackStack diese, damit closeModal() beim Schliessen genau eine Ebene zurückfällt statt
+// direkt ganz auf die Übersicht. Jeder Eintrag ist mit dem Typ der neu geöffneten Ansicht markiert,
+// damit er nie versehentlich beim Schliessen einer später unabhängig geöffneten Ansicht desselben
+// Typs verwendet wird (siehe closeModal()).
+function navigateToModal(newModal){
+  if(state.modal){
+    state.modalBackStack.push({ forType: newModal.type, modal: state.modal });
+  }else{
+    state.modalBackStack = [];
+  }
+  state.modal = newModal;
+  render();
+}
+function openTourDetail(id){ navigateToModal({type:'tour-detail', payload:id}); }
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
 function openAddHutWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); state.modal = {type:'edit-hut', payload:h}; render(); }); }
-function openHutDetail(id){ state.modal = {type:'hut-detail', payload:id}; render(); }
+function openHutDetail(id){ navigateToModal({type:'hut-detail', payload:id}); }
 function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(!skipDirtyCheck && !confirmDiscardIfDirty()){
     // Nutzer will weiter bearbeiten — nichts schliessen, und explizit NICHT render() aufrufen:
@@ -770,7 +790,15 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(state.modal && (state.modal.type==='access-route-detail' || state.modal.type==='edit-access-route') && state.modal.payload && state.modal.payload.hutId){
     state.modal = {type:'hut-detail', payload: state.modal.payload.hutId};
   }else{
-    state.modal = null;
+    // Wurde die aktuelle Ansicht per Cross-Link aus einer anderen Detailansicht heraus geöffnet
+    // (siehe navigateToModal), fällt man hier genau eine Ebene zurück statt ganz auf die Übersicht.
+    const top = state.modalBackStack.length ? state.modalBackStack[state.modalBackStack.length-1] : null;
+    if(top && state.modal && top.forType === state.modal.type){
+      state.modalBackStack.pop();
+      state.modal = top.modal;
+    }else{
+      state.modal = null;
+    }
   }
   render();
   // keepHistoryLayer: der Aufrufer öffnet direkt im Anschluss ein neues Modal (z. B. nach dem
