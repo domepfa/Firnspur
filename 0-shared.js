@@ -2051,10 +2051,16 @@ function renderStandaloneMap(containerId){
         const thumb = document.createElement('div');
         thumb.title = 'Topo ansehen';
         thumb.style.cssText = 'flex:none; width:44px; height:44px; border-radius:4px; overflow:hidden; border:1px solid #DED0B8; cursor:pointer; position:relative;';
-        const img = document.createElement('img');
-        img.src = topoImages[0].url;
-        img.style.cssText = 'width:100%; height:100%; object-fit:cover; display:block;' + (topoImages[0].rotation ? ' transform:rotate('+topoImages[0].rotation+'deg);' : '');
-        thumb.appendChild(img);
+        if(topoImages[0].cropRect){
+          const cropDiv = document.createElement('div');
+          cropDiv.style.cssText = 'width:100%; height:100%; background-image:url(\'' + topoImages[0].url + '\'); background-repeat:no-repeat; ' + topoCropBackgroundCss(topoImages[0].cropRect) + (topoImages[0].rotation ? ' transform:rotate('+topoImages[0].rotation+'deg);' : '');
+          thumb.appendChild(cropDiv);
+        }else{
+          const img = document.createElement('img');
+          img.src = topoImages[0].url;
+          img.style.cssText = 'width:100%; height:100%; object-fit:cover; display:block;' + (topoImages[0].rotation ? ' transform:rotate('+topoImages[0].rotation+'deg);' : '');
+          thumb.appendChild(img);
+        }
         const badge = document.createElement('div');
         badge.textContent = '🔍';
         badge.style.cssText = 'position:absolute; bottom:1px; right:1px; background:rgba(43,32,25,0.75); color:#fff; font-size:9px; padding:1px 3px; border-radius:2px; line-height:1;';
@@ -5791,6 +5797,33 @@ async function deleteTopoImageFile(storagePath){
   }catch(e){ return false; }
 }
 
+// Ausschnitt (cropRect: {x,y,w,h,naturalW,naturalH}, alle Brüche 0..1 relativ zum
+// UNROTIERTEN Originalbild) als CSS background-size/-position umrechnen — funktioniert
+// unabhängig von der tatsächlichen Bildgrösse dank der nativen Prozent-Semantik von
+// background-size/-position (der Browser bezieht sich dabei immer auf die echten Bild-Pixel,
+// nicht auf das Element). Das Originalbild bleibt dabei in Storage unverändert; ein entfernter
+// cropRect zeigt sofort wieder das ganze Bild.
+function topoCropBackgroundCss(cropRect){
+  if(!cropRect) return '';
+  const w = Math.min(1, Math.max(0.05, cropRect.w));
+  const h = Math.min(1, Math.max(0.05, cropRect.h));
+  const x = Math.min(1 - w, Math.max(0, cropRect.x));
+  const y = Math.min(1 - h, Math.max(0, cropRect.y));
+  const sizeX = 100 / w, sizeY = 100 / h;
+  const posX = w >= 0.9999 ? 0 : (x / (1 - w) * 100);
+  const posY = h >= 0.9999 ? 0 : (y / (1 - h) * 100);
+  return `background-size:${sizeX.toFixed(2)}% ${sizeY.toFixed(2)}%; background-position:${posX.toFixed(2)}% ${posY.toFixed(2)}%;`;
+}
+// Seitenverhältnis des Ausschnitts in echten Pixeln (aus den beim Zuschneiden gemerkten
+// Originalmassen) — damit der Ausschnitt in der grossen Galerie sein eigenes Format behält,
+// statt in ein festes Quadrat gepresst zu werden.
+function topoCropAspectCss(cropRect){
+  if(!cropRect || !cropRect.naturalW || !cropRect.naturalH) return '';
+  const w = Math.round(cropRect.w * cropRect.naturalW) || 1;
+  const h = Math.round(cropRect.h * cropRect.naturalH) || 1;
+  return `aspect-ratio:${w}/${h};`;
+}
+
 // images wird explizit übergeben (statt aus dem hiddenListId-Feld gelesen): beim allerersten
 // Rendern eines Formulars existiert das zugehörige Hidden-Input im DOM noch gar nicht — das
 // Formular-HTML wird ja gerade erst als String gebaut. Ein DOM-Read an dieser Stelle liefe daher
@@ -5800,8 +5833,11 @@ function topoImageThumbsHtml(images, hiddenListId){
   const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url, rotation:img.rotation||0}))));
   return `<div class="chips" style="margin-top:8px;">${images.map((img,i)=>
     `<span class="chip" style="background:var(--ice-light); border-color:transparent; padding:3px 8px 3px 3px; display:inline-flex; align-items:center; gap:6px;">
-      <img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:32px; height:32px; object-fit:cover; border-radius:2px; cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>
-      Bild ${i+1}
+      ${img.cropRect
+        ? `<div data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:32px; height:32px; border-radius:2px; cursor:pointer; background-image:url('${esc(img.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(img.cropRect)} transform:rotate(${img.rotation||0}deg);"></div>`
+        : `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:32px; height:32px; object-fit:cover; border-radius:2px; cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>`}
+      Bild ${i+1}${img.cropRect ? ' · ✂️' : ''}
+      <button type="button" data-act="crop-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="Ausschnitt festlegen — nur dieser Teil wird in Listen/Details gezeigt, das Originalbild bleibt erhalten" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">✂️</button>
       <button type="button" data-act="rotate-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="90° drehen — z. B. wenn quer statt hoch hochgeladen" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">🔄</button>
       <button type="button" data-act="remove-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">×</button>
     </span>`
@@ -5834,6 +5870,208 @@ function rotateTopoImageLocal(hiddenListId, imageId){
   markModalDirty();
   const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
   if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
+}
+
+// Setzt/löscht den Ausschnitt (cropRect) eines Topo-Bilds — reine Anzeige-Metadaten wie bei
+// rotation, das Original bleibt in Storage unverändert; cropRect:null zeigt sofort wieder das
+// ganze Bild ("Zurücksetzen").
+function setTopoImageCropLocal(hiddenListId, imageId, cropRect){
+  const hiddenInput = document.getElementById(hiddenListId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  const img = images.find(im=>im.id===imageId);
+  if(!img) return;
+  img.cropRect = cropRect || null;
+  if(hiddenInput) hiddenInput.value = JSON.stringify(images);
+  markModalDirty();
+  const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
+  if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
+}
+
+// Rechnet ein auf dem angezeigten (ggf. rotierten) Bild gezogenes Auswahlrechteck
+// (dx,dy,dw,dh — Brüche 0..1 relativ zur Anzeige) zurück in Brüche relativ zum UNROTIERTEN
+// Originalbild — nötig, weil cropRect immer im Original-Koordinatensystem gespeichert wird
+// (unabhängig von der aktuellen rotation), damit ein späteres Drehen den Ausschnitt nicht
+// verschiebt. rotation ist immer ein Vielfaches von 90°, daher bildet sich ein Rechteck exakt
+// auf ein Rechteck ab (keine Interpolation nötig).
+function topoCropDisplayRectToOriginal(dx, dy, dw, dh, rotation){
+  const rot = ((rotation||0) % 360 + 360) % 360;
+  if(rot === 90) return { x: dy, y: 1 - dx - dw, w: dh, h: dw };
+  if(rot === 180) return { x: 1 - dx - dw, y: 1 - dy - dh, w: dw, h: dh };
+  if(rot === 270) return { x: 1 - dy - dh, y: dx, w: dh, h: dw };
+  return { x: dx, y: dy, w: dw, h: dh };
+}
+
+// Vollbild-Editor: Ausschnitt für ein Topo-Bild markieren (ziehen = neues Rechteck). Zeigt das
+// Bild in seiner aktuellen Drehung an (wie überall sonst) — die Auswahl wird beim Übernehmen ins
+// unrotierte Original-Koordinatensystem zurückgerechnet (siehe topoCropDisplayRectToOriginal),
+// damit ein späteres 🔄 Drehen den einmal gewählten Ausschnitt nicht verschiebt.
+function openTopoCropEditor(hiddenListId, imageId){
+  const hiddenInput = document.getElementById(hiddenListId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  const imgData = images.find(im=>im.id===imageId);
+  if(!imgData) return;
+  const rotation = ((imgData.rotation||0) % 360 + 360) % 360;
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:210; display:flex; flex-direction:column; touch-action:none;';
+
+  const topBar = document.createElement('div');
+  topBar.style.cssText = 'padding:14px 16px; display:flex; align-items:center; justify-content:space-between; color:#fff; font-weight:600; font-size:14px; letter-spacing:0.02em;';
+  topBar.innerHTML = `<span>✂️ AUSSCHNITT WÄHLEN</span>`;
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button'; closeBtn.textContent = '×';
+  closeBtn.style.cssText = 'background:rgba(255,255,255,0.15); border:none; color:#fff; width:30px; height:30px; border-radius:50%; font-size:16px; cursor:pointer;';
+  closeBtn.onclick = ()=> overlay.remove();
+  topBar.appendChild(closeBtn);
+  overlay.appendChild(topBar);
+
+  const stageOuter = document.createElement('div');
+  stageOuter.style.cssText = 'flex:1; position:relative; display:flex; align-items:center; justify-content:center; overflow:hidden;';
+  overlay.appendChild(stageOuter);
+
+  const hint = document.createElement('p');
+  hint.textContent = 'Ecke/Rand ziehen zum Anpassen · Original bleibt immer erhalten';
+  hint.style.cssText = 'margin:0; padding:10px 16px 4px; text-align:center; font-size:12px; color:rgba(255,255,255,0.75);';
+  overlay.appendChild(hint);
+
+  const bottomBar = document.createElement('div');
+  bottomBar.style.cssText = 'padding:10px 16px 18px; display:flex; gap:10px;';
+  const resetBtn = document.createElement('button');
+  resetBtn.type = 'button'; resetBtn.textContent = 'Zurücksetzen';
+  resetBtn.style.cssText = 'flex:1; padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.3); background:transparent; color:#fff; font-size:14px; font-weight:600; cursor:pointer;';
+  const applyBtn = document.createElement('button');
+  applyBtn.type = 'button'; applyBtn.textContent = '✓ Übernehmen';
+  applyBtn.style.cssText = 'flex:1; padding:12px; border-radius:8px; border:none; background:var(--signal); color:var(--ice-deep); font-size:14px; font-weight:600; cursor:pointer;';
+  bottomBar.appendChild(resetBtn); bottomBar.appendChild(applyBtn);
+  overlay.appendChild(bottomBar);
+
+  const raw = new Image();
+  raw.onload = ()=>{
+    const naturalW = raw.naturalWidth, naturalH = raw.naturalHeight;
+    const swapped = rotation === 90 || rotation === 270;
+    const availW = Math.min(window.innerWidth * 0.94, 640);
+    const availH = stageOuter.clientHeight || (window.innerHeight * 0.55);
+    const dispNatW = swapped ? naturalH : naturalW, dispNatH = swapped ? naturalW : naturalH;
+    const scale = Math.min(availW / dispNatW, availH / dispNatH);
+    const stageW = dispNatW * scale, stageH = dispNatH * scale;
+
+    const stage = document.createElement('div');
+    stage.dataset.cropStage = '1';
+    stage.style.cssText = `position:relative; width:${stageW}px; height:${stageH}px; overflow:hidden; background:#F7F3EA;`;
+    const innerImg = document.createElement('img');
+    innerImg.src = imgData.url;
+    innerImg.style.cssText = `position:absolute; top:50%; left:50%; width:${naturalW*scale}px; height:${naturalH*scale}px; transform:translate(-50%,-50%) rotate(${rotation}deg); max-width:none; max-height:none;`;
+    stage.appendChild(innerImg);
+    stageOuter.appendChild(stage);
+
+    // Vorbelegung: bestehender Ausschnitt (zurückgerechnet ins Anzeige-Koordinatensystem) oder
+    // das ganze Bild.
+    function originalToDisplayRect(o){
+      if(rotation === 90) return { x: 1 - o.y - o.h, y: o.x, w: o.h, h: o.w };
+      if(rotation === 180) return { x: 1 - o.x - o.w, y: 1 - o.y - o.h, w: o.w, h: o.h };
+      if(rotation === 270) return { x: o.y, y: 1 - o.x - o.w, w: o.h, h: o.w };
+      return { x: o.x, y: o.y, w: o.w, h: o.h };
+    }
+    let sel = imgData.cropRect ? originalToDisplayRect(imgData.cropRect) : { x:0, y:0, w:1, h:1 };
+
+    const selEl = document.createElement('div');
+    selEl.style.cssText = 'position:absolute; border:2.5px solid var(--signal); box-shadow:0 0 0 4000px rgba(0,0,0,0.55);';
+    stage.appendChild(selEl);
+    ['tl','tr','bl','br'].forEach(pos=>{
+      const handle = document.createElement('div');
+      handle.dataset.handle = pos;
+      handle.style.cssText = `position:absolute; width:22px; height:22px; border-radius:50%; background:var(--signal); border:2px solid #fff; touch-action:none;`;
+      selEl.appendChild(handle);
+    });
+
+    function paintSel(){
+      selEl.style.left = (sel.x*stageW) + 'px';
+      selEl.style.top = (sel.y*stageH) + 'px';
+      selEl.style.width = (sel.w*stageW) + 'px';
+      selEl.style.height = (sel.h*stageH) + 'px';
+      selEl.querySelectorAll('div').forEach(h=>{
+        const pos = h.dataset.handle;
+        h.style.top = (pos[0]==='t' ? -11 : sel.h*stageH-11) + 'px';
+        h.style.left = (pos[1]==='l' ? -11 : sel.w*stageW-11) + 'px';
+      });
+    }
+    paintSel();
+
+    const MIN_FRAC = 0.06;
+    function clampSel(){
+      sel.w = Math.max(MIN_FRAC, Math.min(1, sel.w));
+      sel.h = Math.max(MIN_FRAC, Math.min(1, sel.h));
+      sel.x = Math.max(0, Math.min(1 - sel.w, sel.x));
+      sel.y = Math.max(0, Math.min(1 - sel.h, sel.y));
+    }
+
+    function pointerXY(e){
+      const t = e.touches && e.touches.length ? e.touches[0] : e;
+      const rect = stage.getBoundingClientRect();
+      return { x: (t.clientX - rect.left) / stageW, y: (t.clientY - rect.top) / stageH };
+    }
+
+    // Ecke ziehen = bestehende Auswahl in dieser Ecke resizen; irgendwo sonst ziehen = neue
+    // Auswahl von Grund auf aufziehen.
+    let dragMode = null, dragAnchor = null;
+    function onDown(e){
+      e.preventDefault();
+      const handle = e.target.closest && e.target.closest('[data-handle]');
+      if(handle){
+        dragMode = 'resize';
+        dragAnchor = handle.dataset.handle;
+      }else{
+        dragMode = 'draw';
+        const p = pointerXY(e);
+        dragAnchor = { x: p.x, y: p.y };
+        sel = { x:p.x, y:p.y, w:0.001, h:0.001 };
+      }
+      const onMove = (ev)=>{
+        ev.preventDefault();
+        const p = pointerXY(ev);
+        if(dragMode==='draw'){
+          const x0 = dragAnchor.x, y0 = dragAnchor.y;
+          sel = { x: Math.min(x0,p.x), y: Math.min(y0,p.y), w: Math.abs(p.x-x0), h: Math.abs(p.y-y0) };
+        }else{
+          const fixedX = dragAnchor.includes('l') ? sel.x+sel.w : sel.x;
+          const fixedY = dragAnchor.includes('t') ? sel.y+sel.h : sel.y;
+          sel = { x: Math.min(fixedX,p.x), y: Math.min(fixedY,p.y), w: Math.abs(p.x-fixedX), h: Math.abs(p.y-fixedY) };
+        }
+        clampSel();
+        paintSel();
+      };
+      const onUp = ()=>{
+        clampSel(); paintSel();
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('touchmove', onMove);
+        window.removeEventListener('touchend', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchmove', onMove, { passive:false });
+      window.addEventListener('touchend', onUp);
+    }
+    stage.addEventListener('mousedown', onDown);
+    stage.addEventListener('touchstart', onDown, { passive:false });
+
+    resetBtn.onclick = ()=>{
+      setTopoImageCropLocal(hiddenListId, imageId, null);
+      overlay.remove();
+    };
+    applyBtn.onclick = ()=>{
+      clampSel();
+      const orig = topoCropDisplayRectToOriginal(sel.x, sel.y, sel.w, sel.h, rotation);
+      setTopoImageCropLocal(hiddenListId, imageId, { x:orig.x, y:orig.y, w:orig.w, h:orig.h, naturalW, naturalH });
+      overlay.remove();
+    };
+  };
+  raw.onerror = ()=>{ overlay.remove(); showToast('Bild konnte nicht geladen werden.', true); };
+  raw.src = imgData.url;
+
+  document.body.appendChild(overlay);
 }
 
 function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, statusId){
@@ -5887,9 +6125,13 @@ function topoImagesGalleryHtml(images){
   // Kein width/height, sondern max-width/max-height: zeigt das ganze Foto in seinem eigenen
   // Seitenverhältnis (typischerweise ein hochformatiges Führerbuch-Foto) statt es auf ein Quadrat
   // zuzuschneiden — dieselbe schon geladene Bilddatei wird nur grösser dargestellt, das kostet
-  // keinen zusätzlichen Datentraffic.
+  // keinen zusätzlichen Datentraffic. Ist ein Ausschnitt (cropRect) gesetzt, wird stattdessen nur
+  // dieser Teil gezeigt (per background-position/-size), im eigenen Seitenverhältnis des
+  // Ausschnitts — ebenfalls dieselbe Datei, kein Zusatz-Traffic.
   return `<div class="chips topo-gallery" style="margin-top:6px;">${images.map((img,i)=>
-    `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="max-width:170px; max-height:230px; object-fit:contain; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>`
+    img.cropRect
+      ? `<div data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:170px; ${topoCropAspectCss(img.cropRect)} border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; background-image:url('${esc(img.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(img.cropRect)}"></div>`
+      : `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="max-width:170px; max-height:230px; object-fit:contain; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>`
   ).join('')}</div>`;
 }
 
