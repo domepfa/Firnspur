@@ -4918,9 +4918,12 @@ window.addEventListener('popstate', ()=>{
     return;
   }
   if(typeof state !== 'undefined' && state.modal){
-    modalHistoryPushed = false;
+    // modalHistoryPushed wird NICHT hier zurückgesetzt: closeModal() selbst entscheidet danach,
+    // ob wirklich alles geschlossen wurde (dann ist der History-Eintrag aufgebraucht) oder nur auf
+    // eine übergeordnete Cross-Link-Ebene zurückgefallen wurde (deren eigener, bei navigateToModal()
+    // gepushter Eintrag genau diesen Zurück-Schritt bereits repräsentiert — kein Reset nötig).
     if(typeof closeModal === 'function'){ closeModal(true); }
-    else{ state.modal = null; if(typeof render === 'function') render(); }
+    else{ state.modal = null; modalHistoryPushed = false; if(typeof render === 'function') render(); }
   }else{
     modalHistoryPushed = false;
   }
