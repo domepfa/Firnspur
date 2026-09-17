@@ -736,7 +736,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v146-gipfel-punktkategorie';
+const APP_VERSION = 'v147-sektor-knopf-entfernt';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1210,7 +1210,6 @@ function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:
 function openAddHutWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); navigateToModal({type:'edit-hut', payload:h}); }); }
 function openHutDetail(id){ navigateToModal({type:'hut-detail', payload:id}); }
-function openAddSektor(){ ensureName(()=>{ state.presetKlettergebietId = ''; state.modal = {type:'edit-sektor', payload:null}; render(); }); }
 function openAddSektorWithPoint(lat, lon){ ensureName(()=>{ state.presetKlettergebietId = ''; state.modal = {type:'edit-sektor', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditSektor(id){ ensureName(()=>{ const s = state.sektoren.find(x=>x.id===id); navigateToModal({type:'edit-sektor', payload:s}); }); }
 function openSektorDetail(id){ navigateToModal({type:'sektor-detail', payload:id}); }
@@ -3343,7 +3342,6 @@ function sektorenViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Klettergebiet, Sektor oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn" data-act="add-klettergebiet">+ Neues Klettergebiet</button>
-      <button class="btn secondary" data-act="add-sektor">+ Neuer Sektor</button>
       <button class="btn secondary" id="klettergebiet-new-scan-btn">📷 Gebiet per Foto(s) scannen</button>
       <input type="file" id="klettergebiet-new-scan-input" accept="image/*" multiple style="display:none;"/>
       <button class="btn secondary" id="klettergebiet-new-scan-camera-btn">📸 Direkt fotografieren</button>
@@ -3362,9 +3360,9 @@ function sektorenViewHtml(){
 function emptySektoren(){
   const hasAny = state.sektoren.length>0 || state.klettergebiete.length>0;
   return `<div class="empty">
-    <h3>${hasAny ? 'Nichts passt zu diesem Filter' : 'Noch kein Sektor erfasst'}</h3>
-    <p>${hasAny ? 'Suche anpassen oder Neues hinzufügen.' : 'Ein Sektor bündelt mehrere MSL-Touren mit gemeinsamem Ausgangspunkt und geteilten Zustiegen/Abstiegen. Mehrere Sektoren an einem Berg lassen sich zusätzlich in einem Klettergebiet zusammenfassen.'}</p>
-    <button class="btn" data-act="add-sektor">+ Neuer Sektor</button>
+    <h3>${hasAny ? 'Nichts passt zu diesem Filter' : 'Noch kein Klettergebiet erfasst'}</h3>
+    <p>${hasAny ? 'Suche anpassen oder Neues hinzufügen.' : 'Ein Klettergebiet bündelt mehrere Sektoren an einem Berg. Ein Sektor wiederum fasst mehrere MSL-Touren mit gemeinsamem Ausgangspunkt und geteilten Zustiegen/Abstiegen zusammen — Sektoren legst du direkt innerhalb eines Klettergebiets an.'}</p>
+    ${!hasAny ? `<button class="btn" data-act="add-klettergebiet">+ Neues Klettergebiet</button>` : ''}
   </div>`;
 }
 
@@ -4310,7 +4308,6 @@ function wireGlobalHandlers(){
     else if(act==='add-msl') el.onclick = openAddMsl;
     else if(act==='add-klettergarten') el.onclick = openAddKlettergarten;
     else if(act==='add-hut') el.onclick = openAddHut;
-    else if(act==='add-sektor') el.onclick = openAddSektor;
     else if(act==='add-klettergebiet') el.onclick = openAddKlettergebiet;
     else if(act==='add-sektor-to-klettergebiet') el.onclick = ()=>openAddSektorInKlettergebiet(el.getAttribute('data-klettergebiet-id'));
     else if(act==='open-standalone-map') el.onclick = openStandaloneMap;
