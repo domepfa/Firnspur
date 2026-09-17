@@ -736,7 +736,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v147-sektor-knopf-entfernt';
+const APP_VERSION = 'v148-topo-vorschau-swipe';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2336,10 +2336,16 @@ function sektorDetailHtml(id){
   const accessRange = accessRouteDifficultyRangeHtml(accessRoutes);
   const descentRange = accessRouteDifficultyRangeHtml(descentRoutes);
   const geb = sek.klettergebietId ? state.klettergebiete.find(g=>g.id===sek.klettergebietId) : null;
+  const gebSektoren = geb ? state.sektoren.filter(s=>s.klettergebietId===geb.id).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de')) : [];
+  const gebIdx = gebSektoren.findIndex(s=>s.id===sek.id);
   const hasKlettergartenTour = linked.some(t=>t.tourCategory==='klettergarten');
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
-      <div><h2 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h2>${sek.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}</div>
+      <div>
+        <h2 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h2>
+        ${sek.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}
+        ${gebSektoren.length>1 ? `<p style="color:var(--ink-faint); font-size:11px; margin:4px 0 0 0;">↔ ${esc(geb.name)} · Sektor ${gebIdx+1}/${gebSektoren.length} — wischen zum Wechseln</p>` : ''}
+      </div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : ''}
@@ -3863,6 +3869,9 @@ function tourDetailHtml(id){
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   const protectionInfo = t.protection ? PROTECTION_LEVELS.find(p=>p.value===t.protection) : null;
+  const sektorTouren = t.sektorId ? state.tours.filter(x=>x.sektorId===t.sektorId) : [];
+  const sektorTourIdx = sektorTouren.findIndex(x=>x.id===t.id);
+  const sektorForPager = t.sektorId ? state.sektoren.find(s=>s.id===t.sektorId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div>
@@ -3886,7 +3895,9 @@ function tourDetailHtml(id){
     </div>
     ${t.routeName ? `<h2 style="margin:0 0 6px 0; color:var(--ink-soft);">${esc(t.routeName)}</h2>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
+    ${(sektorForPager && sektorTouren.length>1) ? `<p style="color:var(--ink-faint); font-size:11px; margin:0 0 6px 0;">↔ ${esc(sektorForPager.name)} · Tour ${sektorTourIdx+1}/${sektorTouren.length} — wischen zum Wechseln</p>` : ''}
     <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-tour-status" data-id="${t.id}">${tourStatusLabel(t)} — antippen zum Ändern</button>
+    ${(t.topoImages && t.topoImages.length) ? `<div class="detail-section" style="margin-bottom:14px;"><h4>Topo</h4>${topoImagesGalleryHtml(t.topoImages)}</div>` : ''}
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
@@ -3905,7 +3916,6 @@ function tourDetailHtml(id){
     ${(t.ropeType || t.ropeLength) ? `<div class="detail-section"><h4>Seil</h4><p>${[t.ropeType, t.ropeLength].filter(Boolean).map(esc).join(' · ')}</p></div>` : ''}
     ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
     ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
-    ${(t.topoImages && t.topoImages.length) ? `<div class="detail-section"><h4>Topo</h4>${topoImagesGalleryHtml(t.topoImages)}</div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
@@ -4442,12 +4452,59 @@ function wireTourAssignMenu(root){
   });
 }
 
+// Wischen auf der Sektor- bzw. Tour-Detailansicht blättert zum nächsten/vorherigen Geschwister
+// (Sektor: andere Sektoren desselben Klettergebiets, in derselben Reihenfolge wie in dessen Liste;
+// Tour: andere Touren desselben Sektors) — bewusst ein direkter Tausch von state.modal.payload statt
+// über navigateToModal, da es sich um eine seitliche Bewegung handelt, kein Hineinklicken (kein neuer
+// Rückfall-Eintrag). Ohne Klettergebiet/Sektor bzw. bei nur einem Geschwister passiert nichts.
+function wireDetailSwipeNavigation(){
+  const root = document.getElementById('modal-root');
+  const modalEl = root.querySelector('.modal');
+  if(!modalEl || !state.modal) return;
+  const type = state.modal.type;
+  let siblings = null, currentId = null;
+  if(type === 'sektor-detail'){
+    const sek = state.sektoren.find(x=>x.id===state.modal.payload);
+    if(!sek || !sek.klettergebietId) return;
+    siblings = state.sektoren.filter(s=>s.klettergebietId===sek.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+    currentId = sek.id;
+  }else if(type === 'tour-detail'){
+    const t = state.tours.find(x=>x.id===state.modal.payload);
+    if(!t || !t.sektorId) return;
+    siblings = state.tours.filter(x=>x.sektorId===t.sektorId);
+    currentId = t.id;
+  }else{
+    return;
+  }
+  if(siblings.length < 2) return;
+  const idx = siblings.findIndex(x=>x.id===currentId);
+  if(idx===-1) return;
+  let startX = null, startY = null;
+  modalEl.addEventListener('touchstart', (e)=>{
+    if(e.target.closest('.leaflet-container')){ startX = null; return; }
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, {passive:true});
+  modalEl.addEventListener('touchend', (e)=>{
+    if(startX===null) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - startX;
+    const dy = touch.clientY - startY;
+    startX = null; startY = null;
+    if(Math.abs(dx) <= 50 || Math.abs(dx) <= Math.abs(dy)) return;
+    const nextIdx = idx + (dx < 0 ? 1 : -1);
+    if(nextIdx < 0 || nextIdx >= siblings.length) return;
+    state.modal = {type, payload: siblings[nextIdx].id};
+    render();
+  });
+}
 function wireModalHandlers(){
   const root = document.getElementById('modal-root');
   dlog('Modal gerendert: ' + (state.modal ? state.modal.type : 'keins'));
   syncModalDirtyTracking();
   wireShareImportModal();
   wireKlettergebietScanReviewModal();
+  wireDetailSwipeNavigation();
 
   const klettergebietScanBtn = document.getElementById('klettergebiet-scan-btn');
   const klettergebietScanInput = document.getElementById('klettergebiet-scan-input');

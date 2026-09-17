@@ -2040,11 +2040,32 @@ function renderStandaloneMap(containerId){
     // über die Detailansicht. Bewusst ein eigener, kleiner Stift-Knopf statt eines Textknopfs, damit
     // ein Antippen des Popups weiterhin zwei bewusste Taps braucht (Marker, dann Knopf) und nichts
     // aus Versehen beim blossen Verschieben/Zoomen der Karte verändert werden kann.
-    function mapPopupContent(icon, title, buttonLabel, onOpen, onEdit){
+    // topoImages (optional): zeigt eine kleine Topo-Vorschau links neben dem Titel — antippen
+    // öffnet den bestehenden Vollbild-Topo-Viewer direkt, ohne erst die Detailansicht zu öffnen.
+    function mapPopupContent(icon, title, buttonLabel, onOpen, onEdit, topoImages){
       const wrap = document.createElement('div');
       wrap.style.minWidth = '170px';
+      const headRow = document.createElement('div');
+      headRow.style.cssText = 'display:flex; align-items:flex-start; gap:8px; margin:0 0 8px 0;';
+      if(topoImages && topoImages.length){
+        const thumb = document.createElement('div');
+        thumb.title = 'Topo ansehen';
+        thumb.style.cssText = 'flex:none; width:44px; height:44px; border-radius:4px; overflow:hidden; border:1px solid #DED0B8; cursor:pointer; position:relative;';
+        const img = document.createElement('img');
+        img.src = topoImages[0].url;
+        img.style.cssText = 'width:100%; height:100%; object-fit:cover; display:block;' + (topoImages[0].rotation ? ' transform:rotate('+topoImages[0].rotation+'deg);' : '');
+        thumb.appendChild(img);
+        const badge = document.createElement('div');
+        badge.textContent = '🔍';
+        badge.style.cssText = 'position:absolute; bottom:1px; right:1px; background:rgba(43,32,25,0.75); color:#fff; font-size:9px; padding:1px 3px; border-radius:2px; line-height:1;';
+        thumb.appendChild(badge);
+        thumb.addEventListener('click', (e)=>{ e.stopPropagation(); showTopoImageLightbox(topoImages, 0, null); });
+        headRow.appendChild(thumb);
+      }
+      const titleCol = document.createElement('div');
+      titleCol.style.cssText = 'flex:1; min-width:0;';
       const titleRow = document.createElement('div');
-      titleRow.style.cssText = 'display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin:0 0 8px 0;';
+      titleRow.style.cssText = 'display:flex; align-items:flex-start; justify-content:space-between; gap:6px;';
       const titleEl = document.createElement('p');
       titleEl.style.cssText = 'margin:0; font-weight:700;';
       titleEl.textContent = icon + ' ' + title;
@@ -2058,7 +2079,9 @@ function renderStandaloneMap(containerId){
         editBtn.addEventListener('click', onEdit);
         titleRow.appendChild(editBtn);
       }
-      wrap.appendChild(titleRow);
+      titleCol.appendChild(titleRow);
+      headRow.appendChild(titleCol);
+      wrap.appendChild(headRow);
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = buttonLabel;
@@ -2112,8 +2135,8 @@ function renderStandaloneMap(containerId){
       const catKey = tourCategoryKey(t);
       const color = (TOUR_CATEGORY_META[catKey] || TOUR_CATEGORY_META.skitour).color;
       const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
-      addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id), ()=> openTourEditFromMap(t.id)));
-      if(t.points && t.points.length) searchIndex.push({name: t.name, icon:'🏔️', label:'Tour öffnen', coords:[t.points[0].lat, t.points[0].lon], openFn: ()=> openTourFromMap(t.id), editFn: ()=> openTourEditFromMap(t.id), appendPointFn: (lat,lon)=> appendPointToTourFromMap(t.id, lat, lon)});
+      addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id), ()=> openTourEditFromMap(t.id), t.topoImages));
+      if(t.points && t.points.length) searchIndex.push({name: t.name, icon:'🏔️', label:'Tour öffnen', coords:[t.points[0].lat, t.points[0].lon], openFn: ()=> openTourFromMap(t.id), editFn: ()=> openTourEditFromMap(t.id), appendPointFn: (lat,lon)=> appendPointToTourFromMap(t.id, lat, lon), topoImages: t.topoImages});
     });
     // Hütten (beide Apps) — eigener Standort/Linie, plus deren Zustiege.
     (state.huts || []).forEach(h=>{
@@ -2141,8 +2164,8 @@ function renderStandaloneMap(containerId){
       // Sektoren: Ausgangspunkt(e) plus deren Zustiege/Abstiege.
       (state.sektoren || []).forEach(sek=>{
         const track = (sek.manualTrack && sek.manualTrack.length) ? sek.manualTrack : null;
-        addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id), ()=> openSektorEditFromMap(sek.id)));
-        if(sek.points && sek.points.length) searchIndex.push({name: sek.name, icon:'⛺', label:'Sektor öffnen', coords:[sek.points[0].lat, sek.points[0].lon], openFn: ()=> openSektorFromMap(sek.id), editFn: ()=> openSektorEditFromMap(sek.id), appendPointFn: (lat,lon)=> appendPointToSektorFromMap(sek.id, lat, lon)});
+        addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id), ()=> openSektorEditFromMap(sek.id), sek.topoImages));
+        if(sek.points && sek.points.length) searchIndex.push({name: sek.name, icon:'⛺', label:'Sektor öffnen', coords:[sek.points[0].lat, sek.points[0].lon], openFn: ()=> openSektorFromMap(sek.id), editFn: ()=> openSektorEditFromMap(sek.id), appendPointFn: (lat,lon)=> appendPointToSektorFromMap(sek.id, lat, lon), topoImages: sek.topoImages});
         ['accessRoutes','descentRoutes'].forEach(field=>{
           const kind = field==='descentRoutes' ? 'descent' : 'access';
           (sek[field] || []).forEach(r=>{
@@ -2309,7 +2332,7 @@ function renderStandaloneMap(containerId){
                 results.innerHTML = '';
                 localMatches.slice(0,8).forEach(entry=>{
                   results.appendChild(resultButtonHtml(entry.icon, entry.name, ()=>{
-                    jumpTo(entry.coords, mapPopupContent(entry.icon, entry.name, entry.label, entry.openFn, entry.editFn));
+                    jumpTo(entry.coords, mapPopupContent(entry.icon, entry.name, entry.label, entry.openFn, entry.editFn, entry.topoImages));
                   }));
                 });
                 (onlineMatches||[]).slice(0,8).forEach(entry=>{
