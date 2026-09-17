@@ -5884,8 +5884,12 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
 function topoImagesGalleryHtml(images){
   if(!images || !images.length) return '';
   const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url, rotation:img.rotation||0}))));
+  // Kein width/height, sondern max-width/max-height: zeigt das ganze Foto in seinem eigenen
+  // Seitenverhältnis (typischerweise ein hochformatiges Führerbuch-Foto) statt es auf ein Quadrat
+  // zuzuschneiden — dieselbe schon geladene Bilddatei wird nur grösser dargestellt, das kostet
+  // keinen zusätzlichen Datentraffic.
   return `<div class="chips topo-gallery" style="margin-top:6px;">${images.map((img,i)=>
-    `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:70px; height:70px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>`
+    `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="max-width:170px; max-height:230px; object-fit:contain; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>`
   ).join('')}</div>`;
 }
 

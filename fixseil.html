@@ -736,7 +736,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v148-topo-vorschau-swipe';
+const APP_VERSION = 'v149-topo-groesser-chip-weg';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2349,10 +2349,10 @@ function sektorDetailHtml(id){
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : ''}
-    <div style="display:flex; gap:8px; flex-wrap:wrap; margin:10px 0;">
+    ${(!sek.klettergebietId || !hasKlettergartenTour) ? `<div style="display:flex; gap:8px; flex-wrap:wrap; margin:10px 0;">
       ${!sek.klettergebietId ? `<button type="button" class="btn secondary" data-act="convert-sektor-to-klettergebiet" data-id="${sek.id}">⛰️ In neues Klettergebiet umwandeln</button>` : ''}
-      ${!hasKlettergartenTour ? `<button type="button" class="btn secondary" data-act="convert-sektor-to-klettergarten" data-id="${sek.id}">🏕️ Als Klettergarten erfassen</button>` : `<span class="hut-link-chip">🏕️ bereits als Klettergarten erfasst</span>`}
-    </div>
+      ${!hasKlettergartenTour ? `<button type="button" class="btn secondary" data-act="convert-sektor-to-klettergarten" data-id="${sek.id}">🏕️ Als Klettergarten erfassen</button>` : ''}
+    </div>` : ''}
     ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
     <div class="detail-section">
       <h4>🧗 Kletterrouten${sek.kletterrouten && sek.kletterrouten.length ? ` (${sek.kletterrouten.length})` : ''}</h4>
