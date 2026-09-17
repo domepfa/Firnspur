@@ -976,13 +976,11 @@ function agendaFormHtml(editId){
   </div>`;
 }
 // Klassifiziert eine Tour app-unabhängig in dieselben drei Kategorien wie das Agenda-"Art"-Feld
-// (ski/hochtour/msl) — Skitouren tragen nie ein tourCategory-Feld, Hochtour/MSL/Klettergarten-
-// Touren (aus Fixseil) immer. Klettergarten fällt mangels eigener Agenda-Art unter "msl" (dieselbe
-// Bucket wie Mehrseillängen — beides Fels-Klettern). Grundlage für die Filterung der Tour-
-// Dropdowns nach gewählter Art.
+// (ski/hochtour/msl) — Skitouren tragen nie ein tourCategory-Feld, Hochtour/MSL-Touren (aus
+// Fixseil) immer. Grundlage für die Filterung der Tour-Dropdowns nach gewählter Art.
 function tourAgendaType(t){
   if(!t || !t.tourCategory) return 'ski';
-  return (t.tourCategory==='msl' || t.tourCategory==='klettergarten') ? 'msl' : 'hochtour';
+  return t.tourCategory==='msl' ? 'msl' : 'hochtour';
 }
 // Baut die <option>-Liste für ein Tour-Dropdown, gefiltert auf eine Art (ski/hochtour/msl) — eigene
 // und andere-App-Touren zusammen, geteilt zwischen Einzeltag- und Mehrtages-Feldern.
@@ -5064,8 +5062,8 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 ## Felder-Erklärung (Fixseil = Hochtour/Klettern-MSL) — zusätzlich zu obigem
 
 - \`region\`/\`subregion\`/\`points\`: identisch zu Firnspur
-- \`tourCategory\`: "hochtour", "msl" ODER "klettergarten" — bestimmt, welche
-  Feldgruppe ausgefüllt wird (die jeweils anderen bleiben leer):
+- \`tourCategory\`: "hochtour" ODER "msl" — bestimmt, welche Feldgruppe
+  ausgefüllt wird (die jeweils andere bleibt leer):
 
   **Falls tourCategory = "hochtour":**
   - \`difficulty\`: SAC-Skala wie oben (inkl. S+)
@@ -5093,15 +5091,6 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
     Tour auf einen Sektor, übernimmt sie dessen Zustiege/Abstiege automatisch
     und die eigenen \`accessRoutes\`/\`descentRoutes\` der Tour werden ignoriert
     (dort trotzdem \`[]\` eintragen, nie raten).
-
-  **Falls tourCategory = "klettergarten" (ein einzelner Klettergarten/eine
-  Kletterhalle — NICHT zu verwechseln mit einem Klettergebiet, siehe unten):**
-  exakt dieselben Felder und Regeln wie bei "msl" oben, inklusive
-  \`pitchCount\`, \`longestPitch\` und \`sektorId\` (Sektoren bündeln MSL- UND
-  Klettergarten-Einträge gleichermassen). Meist wird aber gar keine einzelne
-  Route erfasst, sondern eher Topo-Bilder und Standorte (\`points\`/
-  \`topoImages\`) — \`descent\` bei einem Sektor-verlinkten Eintrag trotzdem leer
-  lassen wie bei MSL.
 
   Franz. Kletterskala: 1, 2a-, 2a, 2a+, 2b-, 2b, 2b+, 2c-, 2c, 2c+, 3a-, 3a, 3a+,
   3b-, 3b, 3b+, 3c-, 3c, 3c+, 4a- ... bis 7a (jeweils mit -/+ Abstufungen)
@@ -5263,12 +5252,11 @@ Beide teilen sich **Hütten** und **Agenda** — was du in der einen App an Hüt
 
 ### Der "🧗 Klettern"-Bereich: Klettergebiete als Einstieg
 
-Wechselst du zu "🧗 Klettern", landest du direkt auf den **⛰️ Klettergebieten** (z. B. "Furka") statt auf einer flachen Touren-Liste. Ein Gebiet antippen öffnet drei Kapitel-Reiter:
-- **🧗 Touren** — die MSL-Touren dieses Gebiets, darunter auch die Verwaltung der Sektoren (Topo-Bild, Kletterrouten-Liste, Zustiege/Abstiege)
-- **🏕️ Klettergärten** — einzelne Kletterhallen/-wände in diesem Gebiet
-- **🛖 Hütten** — automatisch ermittelt anhand der Touren dieses Gebiets
+Wechselst du zu "🧗 Klettern", landest du direkt auf den **⛰️ Klettergebieten** (z. B. "Furka") statt auf einer flachen Touren-Liste. Ein Gebiet antippen öffnet zwei Kapitel-Reiter — **🧗 Touren** (die MSL-Touren dieses Gebiets) und **🛖 Hütten** (automatisch ermittelt anhand der Touren) — sowie darunter immer die Liste **Sektoren**: jede Wand/jeder Fels dieses Gebiets, mit Topo-Bild, Kletterrouten-Liste und Zustiegen/Abstiegen.
 
-Die flache Liste aller Touren bleibt daneben als Reiter **"🧗 Alle Touren"** erreichbar. Ein Sektor, der eigentlich ein ganzes Gebiet oder ein einzelner Klettergarten ist: in dessen Detailansicht "⛰️ In neues Klettergebiet umwandeln" bzw. "🏕️ Als Klettergarten erfassen" antippen — beides verändert die vorhandenen Daten nicht, sondern ordnet nur neu ein.
+"Klettergarten" und "MSL" sind dabei keine getrennten Ebenen, sondern nur Etiketten für den Inhalt eines Sektors: hat ein Sektor eine eigene Kletterrouten-Liste (Nr./Name/Grad), gilt er als Klettergarten; hat er verlinkte MSL-Touren, gilt er als MSL-Wand — ein Sektor kann problemlos beides gleichzeitig sein.
+
+Die flache Liste aller Touren bleibt daneben als Reiter **"🧗 Alle Touren"** erreichbar. Ein Sektor, der eigentlich ein ganzes Gebiet ist: in dessen Detailansicht "⛰️ In neues Klettergebiet umwandeln" antippen — verändert die vorhandenen Daten nicht, sondern ordnet nur neu ein.
 
 ## Erstmaliges Einloggen
 
@@ -5484,8 +5472,8 @@ const ALT_TRACK_COLORS = ['#8E44AD','#E8B93E','#2F6B44','#FF8C00','#00838F','#C2
 /* ================= Hütten-Zustiege: mehrere Varianten pro Hütte ================= */
 const ACCESS_ROUTE_COLORS = ['#E8B93E','#1565C0','#E8384F','#2E7EB0','#8A2E2E','#3C7A52'];
 // Sommer/Winter-Zustiege bekommen eine feste, wiedererkennbare Farbe statt einer zufälligen
-// Reihenfolge-Farbe — nur Hütten-Zustiege haben ein season-Feld, Tour-/Sektor-Routen (MSL/
-// Klettergarten) fallen deshalb immer auf die Index-Farbe zurück.
+// Reihenfolge-Farbe — nur Hütten-Zustiege haben ein season-Feld, Tour-/Sektor-Routen (MSL)
+// fallen deshalb immer auf die Index-Farbe zurück.
 function accessRouteColor(r, index){
   if(r && r.season==='sommer') return '#E8B93E';
   if(r && r.season==='winter') return '#1565C0';
@@ -6311,9 +6299,10 @@ function showTopoImageLightbox(images, startIndex, offlineId){
 }
 
 /* ================= Kletterrouten-Liste (mehrere benannte Routen an einer Wand) =================
-   Anders als eine einzelne MSL-/Klettergarten-Tour (= eine Route mit einer Schwierigkeit) kann ein
-   Sektor mehrere benannte Kletterrouten haben, die sich ein gemeinsames Topo-Bild teilen (z. B. ein
-   ganzer Klettergarten-Sektor mit 16 Routen an einer Wand). Die Liste lässt sich Zeile für Zeile von
+   Anders als eine einzelne MSL-Tour (= eine Route mit einer Schwierigkeit) kann ein Sektor mehrere
+   benannte Kletterrouten haben, die sich ein gemeinsames Topo-Bild teilen (z. B. ein ganzer
+   Klettergarten-Sektor mit 16 Routen an einer Wand — "Klettergarten" ist dabei nur das Etikett für
+   einen Sektor mit einer solchen Liste, keine eigene Tour). Die Liste lässt sich Zeile für Zeile von
    Hand pflegen ODER als Text einfügen — z. B. das Ergebnis, wenn man einer Chat-KI (Claude/ChatGPT/
    Gemini), die man ohnehin schon abonniert hat, ein Foto der Führerbuch-Seite gibt und um eine Liste
    "Nr. | Name | Grad" bittet. parseKletterroutenText() zerlegt das automatisch. */
