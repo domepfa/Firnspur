@@ -736,7 +736,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v151-topo-ausschnitt';
+const APP_VERSION = 'v152-klettergebiet-topo';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1927,13 +1927,14 @@ async function submitSektorTopoRoutenForm(form){
    Sektoren A/B/C) — hält die Touren-Übersicht übersichtlich, auch wenn ein Gebiet viele
    MSL-Routen/Klettergärten hat. */
 async function submitKlettergebietForm(form, existing){
-  const g = (existing && existing.id) ? {...existing} : {id: uid('geb'), createdBy: state.myName, createdAt: new Date().toISOString()};
+  const g = (existing && existing.id) ? {...existing} : {id: (form.klettergebietIdForTopo || uid('geb')), createdBy: state.myName, createdAt: new Date().toISOString()};
   g.name = form.name.trim();
   g.region = form.region || '';
   g.subregion = form.subregion || '';
   g.description = form.description || '';
   try{ g.points = form.points ? JSON.parse(form.points) : []; }catch(e){ g.points = []; }
   try{ g.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ g.manualTrack = []; }
+  try{ g.topoImages = form.topoImages ? JSON.parse(form.topoImages) : []; }catch(e){ g.topoImages = []; }
   g.updatedAt = new Date().toISOString();
   g.updatedBy = state.myName;
 
@@ -1974,6 +1975,14 @@ function klettergebietFormHtml(existing){
         <label>Teilgebiet / Pass (optional)</label>
         <div class="chips" id="subregion-chips">${renderSubregionChipsHtml(g.region, g.subregion)}</div>
         <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(g.subregion||'')}"/>
+      </div>
+      <div class="field"><label>Topo / Übersichtsbild</label>
+        <div class="hint">Z. B. eine Übersichtskarte des ganzen Gebiets aus dem Führerbuch. Wird automatisch verkleinert. Bis zu ${TOPO_IMAGE_MAX_COUNT} Bilder.</div>
+        <input type="hidden" name="klettergebietIdForTopo" id="klettergebiet-id-for-topo" value="${esc(g.id||'')}"/>
+        <input type="file" id="klettergebiet-topo-image-input" accept="image/*" multiple/>
+        <p id="klettergebiet-topo-image-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${(g.topoImages && g.topoImages.length) ? `✓ ${g.topoImages.length}/${TOPO_IMAGE_MAX_COUNT} Bilder hochgeladen.` : 'Noch keine Bilder hochgeladen.'}</p>
+        <input type="hidden" name="topoImages" id="klettergebiet-topo-images-hidden" value='${esc(g.topoImages ? JSON.stringify(g.topoImages) : "[]")}'/>
+        <div id="klettergebiet-topo-images-hidden-thumbs">${topoImageThumbsHtml(g.topoImages, 'klettergebiet-topo-images-hidden')}</div>
       </div>
       <div class="field"><label>Beschreibung / Material</label><textarea name="description" placeholder="Charakter des Gebiets, grobe Zustiegs-Übersicht, übliches Material …">${esc(g.description||'')}</textarea></div>
       <div class="field"><label>Zustieg / Lage — Punkte &amp; Linie auf der Karte</label>
@@ -2223,6 +2232,7 @@ function klettergebietDetailHtml(id){
       ${gradeRange ? `<span class="hut-link-chip">🧗 ${esc(gradeRange)}</span>` : ''}
       ${altitude ? `<span class="hut-link-chip">${esc(altitude)}</span>` : ''}
     </div>` : ''}
+    ${(geb.topoImages && geb.topoImages.length) ? `<div class="detail-section"><h4>Topo / Übersicht</h4>${topoImagesGalleryHtml(geb.topoImages)}</div>` : ''}
     ${geb.description ? `<div class="detail-section"><h4>Beschreibung / Material</h4><p>${esc(geb.description)}</p></div>` : ''}
     ${(() => {
       const hasOwnPoints = geb.points && geb.points.length;
@@ -5843,6 +5853,11 @@ function wireModalHandlers(){
     }
     const klettergebietFabSaveBtn = document.getElementById('klettergebiet-fab-save-btn');
     if(klettergebietFabSaveBtn) klettergebietFabSaveBtn.addEventListener('click', ()=>{ if(klettergebietSaveBtn) klettergebietSaveBtn.click(); });
+
+    const klettergebietTopoImageInput = document.getElementById('klettergebiet-topo-image-input');
+    if(klettergebietTopoImageInput) klettergebietTopoImageInput.addEventListener('change', ()=>{
+      handleTopoImageUpload(klettergebietTopoImageInput, 'klettergebiet-id-for-topo', 'klettergebiet-topo-images-hidden', 'klettergebiet-topo-image-status');
+    });
 
     // Region-Chips (identisch zum Sektor-/Touren-/Hütten-Formular)
     const gebRegionHidden = document.getElementById('region-hidden-input');

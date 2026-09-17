@@ -2185,8 +2185,8 @@ function renderStandaloneMap(containerId){
       // (die ja bereits oben eigenständig auf der Karte erscheinen).
       (state.klettergebiete || []).forEach(geb=>{
         const track = (geb.manualTrack && geb.manualTrack.length) ? geb.manualTrack : null;
-        addMapEntity('klettergebiet', TOUR_CATEGORY_META.klettergebiet.color, track, geb.points, ()=> mapPopupContent('⛰️', geb.name, 'Klettergebiet öffnen', ()=> openKlettergebietFromMap(geb.id), ()=> openKlettergebietEditFromMap(geb.id)));
-        if(geb.points && geb.points.length) searchIndex.push({name: geb.name, icon:'⛰️', label:'Klettergebiet öffnen', coords:[geb.points[0].lat, geb.points[0].lon], openFn: ()=> openKlettergebietFromMap(geb.id), editFn: ()=> openKlettergebietEditFromMap(geb.id), appendPointFn: (lat,lon)=> appendPointToKlettergebietFromMap(geb.id, lat, lon)});
+        addMapEntity('klettergebiet', TOUR_CATEGORY_META.klettergebiet.color, track, geb.points, ()=> mapPopupContent('⛰️', geb.name, 'Klettergebiet öffnen', ()=> openKlettergebietFromMap(geb.id), ()=> openKlettergebietEditFromMap(geb.id), geb.topoImages));
+        if(geb.points && geb.points.length) searchIndex.push({name: geb.name, icon:'⛰️', label:'Klettergebiet öffnen', coords:[geb.points[0].lat, geb.points[0].lon], openFn: ()=> openKlettergebietFromMap(geb.id), editFn: ()=> openKlettergebietEditFromMap(geb.id), appendPointFn: (lat,lon)=> appendPointToKlettergebietFromMap(geb.id, lat, lon), topoImages: geb.topoImages});
       });
     }
     const presentCategories = Object.keys(categoryLayers);
