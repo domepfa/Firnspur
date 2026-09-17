@@ -540,7 +540,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v152-klettergebiet-topo';
+const APP_VERSION = 'v153-zurueckwisch-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -778,6 +778,13 @@ function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id==
 function navigateToModal(newModal){
   if(state.modal){
     state.modalBackStack.push({ forType: newModal.type, modal: state.modal });
+    // Jede zusätzliche Cross-Link-Ebene bekommt ihren EIGENEN Browser-History-Eintrag, statt sich
+    // (wie früher) auf den einen, für die ganze Sitzung geteilten Eintrag zu verlassen — sonst
+    // fehlte beim Zurückschliessen mehrerer Ebenen irgendwann ein Eintrag, und ein weiteres
+    // Zurückwischen "leckte" in die davorliegende Seite durch (z. B. in die andere App). Sicher,
+    // weil dies eine direkte Nutzeraktion ist (kein synchrones back()+pushState() wie bei der
+    // Historie-Warnung weiter unten in closeModal() — dort geht es um einen anderen Fall).
+    try{ history.pushState({fsLayer:'modal'}, '', location.href); }catch(e){}
   }else{
     state.modalBackStack = [];
   }
@@ -817,6 +824,13 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
       state.modal = null;
     }
   }
+  // Per Zurückwischen/Zurück-Taste (popstate) wurde bereits genau EIN Browser-History-Eintrag
+  // konsumiert — landen wir dadurch bei einer übergeordneten Ansicht (state.modal noch gesetzt,
+  // z. B. eine Cross-Link-Ebene aus navigateToModal()), hat deren EIGENER History-Eintrag genau
+  // diesen Schritt repräsentiert; modalHistoryPushed bleibt also true, kein erneutes Pushen nötig.
+  // Erst wenn wirklich alles geschlossen ist (state.modal===null), ist auch der zugehörige
+  // History-Eintrag "aufgebraucht".
+  if(fromPopstate && !state.modal) modalHistoryPushed = false;
   render();
   // keepHistoryLayer: der Aufrufer öffnet direkt im Anschluss ein neues Modal (z. B. nach dem
   // Speichern zur Detailansicht) — dann ist die Modal-"Ebene" aus Sicht der Browser-Historie nie
