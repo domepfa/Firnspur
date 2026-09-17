@@ -736,7 +736,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v150-gebietskarte-tour-punkte';
+const APP_VERSION = 'v151-topo-ausschnitt';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3435,7 +3435,9 @@ function sektorCardHtml(sek){
   const topoThumb = (sek.topoImages && sek.topoImages.length) ? sek.topoImages[0] : null;
   return `
   <div class="card" data-act="open-sektor" data-id="${sek.id}" tabindex="0" role="button" style="${topoThumb ? 'display:flex; gap:12px; align-items:flex-start;' : ''}">
-    ${topoThumb ? `<img src="${esc(topoThumb.url)}" style="width:60px; height:60px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); flex-shrink:0; transform:rotate(${topoThumb.rotation||0}deg);"/>` : ''}
+    ${topoThumb ? (topoThumb.cropRect
+      ? `<div style="width:60px; height:60px; border-radius:var(--radius); border:1px solid var(--line); flex-shrink:0; background-image:url('${esc(topoThumb.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(topoThumb.cropRect)} transform:rotate(${topoThumb.rotation||0}deg);"></div>`
+      : `<img src="${esc(topoThumb.url)}" style="width:60px; height:60px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); flex-shrink:0; transform:rotate(${topoThumb.rotation||0}deg);"/>`) : ''}
     <div style="flex:1; min-width:0;">
       <div class="card-top">
         <h3 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h3>
@@ -4640,6 +4642,12 @@ function wireModalHandlers(){
     if(rotateBtn){
       e.preventDefault();
       rotateTopoImageLocal(rotateBtn.getAttribute('data-hidden-id'), rotateBtn.getAttribute('data-image-id'));
+      return;
+    }
+    const cropBtn = e.target.closest('[data-act="crop-topo-image-local"]');
+    if(cropBtn){
+      e.preventDefault();
+      openTopoCropEditor(cropBtn.getAttribute('data-hidden-id'), cropBtn.getAttribute('data-image-id'));
       return;
     }
     const viewImg = e.target.closest('[data-act="view-topo-image"]');
