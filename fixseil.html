@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v164-klettergebiet-gipfel-verknuepfung';
+const APP_VERSION = 'v165-papierkorb';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -832,6 +832,11 @@ let state = {
   presetKlettergebietId: '', // vorausgewählt, wenn ein Sektor direkt aus einem Klettergebiet heraus neu angelegt wird
   presetSektorId: '', // vorausgewählt, wenn eine MSL-Tour direkt aus einem Sektor heraus neu angelegt wird
   gipfel: [],
+  trashedTours: [],
+  trashedHuts: [],
+  trashedSektoren: [],
+  trashedKlettergebiete: [],
+  trashedGipfel: [],
   agenda: [],
   otherAppTours: [],
   myName: null,
@@ -888,7 +893,9 @@ function latestCompletion(arr){
 function cacheLocalSnapshot(){
   try{
     localStorage.setItem('fixseil-cache', JSON.stringify({
-      tours: state.tours, huts: state.huts, sektoren: state.sektoren, klettergebiete: state.klettergebiete, gipfel: state.gipfel, agenda: state.agenda, cachedAt: new Date().toISOString()
+      tours: state.tours, huts: state.huts, sektoren: state.sektoren, klettergebiete: state.klettergebiete, gipfel: state.gipfel, agenda: state.agenda,
+      trashedTours: state.trashedTours, trashedHuts: state.trashedHuts, trashedSektoren: state.trashedSektoren, trashedKlettergebiete: state.trashedKlettergebiete, trashedGipfel: state.trashedGipfel,
+      cachedAt: new Date().toISOString()
     }));
   }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
 }
@@ -932,6 +939,11 @@ async function loadAll(){
       state.sektoren = cached.sektoren || [];
       state.klettergebiete = cached.klettergebiete || [];
       state.gipfel = cached.gipfel || [];
+      state.trashedTours = cached.trashedTours || [];
+      state.trashedHuts = cached.trashedHuts || [];
+      state.trashedSektoren = cached.trashedSektoren || [];
+      state.trashedKlettergebiete = cached.trashedKlettergebiete || [];
+      state.trashedGipfel = cached.trashedGipfel || [];
       state.agenda = cached.agenda || [];
       state.offlineMode = true;
       state.offlineCachedAt = cached.cachedAt;
@@ -944,17 +956,21 @@ async function loadAll(){
     return;
   }
 
-  const tours = (toursObj ? Object.values(toursObj) : []).filter(t=>t && t.id);
-  const huts = (hutsObj ? Object.values(hutsObj) : []).filter(h=>h && h.id);
-  const sektoren = (sektorenObj ? Object.values(sektorenObj) : []).filter(s=>s && s.id);
-  const klettergebiete = (klettergebieteObj ? Object.values(klettergebieteObj) : []).filter(g=>g && g.id);
-  const gipfel = (gipfelObj ? Object.values(gipfelObj) : []).filter(g=>g && g.id);
+  const toursSplit = splitTrash(toursObj), hutsSplit = splitTrash(hutsObj), sektorenSplit = splitTrash(sektorenObj),
+    klettergebieteSplit = splitTrash(klettergebieteObj), gipfelSplit = splitTrash(gipfelObj);
+  const tours = toursSplit.active, trashedTours = toursSplit.trashed;
+  const huts = hutsSplit.active, trashedHuts = hutsSplit.trashed;
+  const sektoren = sektorenSplit.active, trashedSektoren = sektorenSplit.trashed;
+  const klettergebiete = klettergebieteSplit.active, trashedKlettergebiete = klettergebieteSplit.trashed;
+  const gipfel = gipfelSplit.active, trashedGipfel = gipfelSplit.trashed;
   const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id).map(migrateAgendaStatus);
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
   sektoren.sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
   klettergebiete.sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
   gipfel.sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
+  [trashedTours, trashedHuts, trashedSektoren, trashedKlettergebiete, trashedGipfel].forEach(list=>
+    list.sort((a,b)=> (b.deletedAt||'').localeCompare(a.deletedAt||'')));
 
   // Lokale, noch nicht synchronisierte Einträge nicht verlieren — sowohl aus dem
   // aktuellen Speicher als auch aus dem lokalen Cache (wichtig nach einem
@@ -989,9 +1005,21 @@ async function loadAll(){
   state.sektoren = [...unsyncedSektoren, ...sektoren];
   state.klettergebiete = [...unsyncedKlettergebiete, ...klettergebiete];
   state.gipfel = [...unsyncedGipfel, ...gipfel];
+  state.trashedTours = trashedTours;
+  state.trashedHuts = trashedHuts;
+  state.trashedSektoren = trashedSektoren;
+  state.trashedKlettergebiete = trashedKlettergebiete;
+  state.trashedGipfel = trashedGipfel;
   state.agenda = [...unsyncedAgenda, ...agenda];
   state.loading = false;
   state.offlineMode = false;
+  // Einmal pro Ladevorgang: Papierkorb-Einträge, deren Aufbewahrungsfrist abgelaufen ist, endgültig
+  // entfernen (siehe TRASH_RETENTION_DAYS in 0-shared.js).
+  purgeExpiredTrash(state.trashedTours, TOURS_PATH);
+  purgeExpiredTrash(state.trashedHuts, HUTS_PATH);
+  purgeExpiredTrash(state.trashedSektoren, SEKTOREN_PATH);
+  purgeExpiredTrash(state.trashedKlettergebiete, KLETTERGEBIETE_PATH);
+  purgeExpiredTrash(state.trashedGipfel, GIPFEL_PATH);
   // Einmalig pro Ladevorgang statt bei jedem render(): alte Hochtouren ohne Gipfel-Verknüpfung
   // automatisch nachziehen (kein Seiteneffekt in der Filter-/Anzeigelogik).
   state.tours.filter(t=>t.tourCategory==='hochtour').forEach(ensureTourSummitLinks);
@@ -1038,8 +1066,7 @@ async function saveTourCloud(tour){ return await fbSet(TOURS_PATH+'/'+tour.id, t
 async function saveHutCloud(hut){ return await fbSet(HUTS_PATH+'/'+hut.id, hut); }
 async function saveSektorCloud(sek){ return await fbSet(SEKTOREN_PATH+'/'+sek.id, sek); }
 function removeSektor(id){
-  state.sektoren = state.sektoren.filter(x=>x.id!==id);
-  fbDelete(SEKTOREN_PATH+'/'+id).catch(()=>{});
+  moveToTrash(id, state.sektoren, state.trashedSektoren, saveSektorCloud);
   // Verlinkung bei betroffenen MSL-Touren lösen, damit sie nicht auf einen gelöschten Sektor zeigen.
   state.tours.forEach(t=>{
     if(t.sektorId===id){
@@ -1050,8 +1077,7 @@ function removeSektor(id){
 }
 async function saveKlettergebietCloud(geb){ return await fbSet(KLETTERGEBIETE_PATH+'/'+geb.id, geb); }
 function removeKlettergebiet(id){
-  state.klettergebiete = state.klettergebiete.filter(x=>x.id!==id);
-  fbDelete(KLETTERGEBIETE_PATH+'/'+id).catch(()=>{});
+  moveToTrash(id, state.klettergebiete, state.trashedKlettergebiete, saveKlettergebietCloud);
   // Verlinkung bei betroffenen Sektoren lösen, damit sie nicht auf ein gelöschtes Klettergebiet zeigen.
   state.sektoren.forEach(s=>{
     if(s.klettergebietId===id){
@@ -1101,8 +1127,7 @@ async function migrateKlettergartenTours(){
 }
 async function saveGipfelCloud(g){ return await fbSet(GIPFEL_PATH+'/'+g.id, g); }
 function removeGipfel(id){
-  state.gipfel = state.gipfel.filter(x=>x.id!==id);
-  fbDelete(GIPFEL_PATH+'/'+id).catch(()=>{});
+  moveToTrash(id, state.gipfel, state.trashedGipfel, saveGipfelCloud);
   // Verlinkung bei betroffenen Touren lösen, damit sie nicht auf einen gelöschten Gipfel zeigen.
   state.tours.forEach(t=>{
     if(Array.isArray(t.summitIds) && t.summitIds.includes(id)){
@@ -1192,12 +1217,43 @@ async function loadOtherAppTours(){
 }
 
 function removeTour(id){
-  state.tours = state.tours.filter(x=>x.id!==id);
-  fbDelete(TOURS_PATH+'/'+id).catch(()=>{});
+  moveToTrash(id, state.tours, state.trashedTours, saveTourCloud);
 }
 function removeHut(id){
-  state.huts = state.huts.filter(x=>x.id!==id);
-  fbDelete(HUTS_PATH+'/'+id).catch(()=>{});
+  moveToTrash(id, state.huts, state.trashedHuts, saveHutCloud);
+}
+
+/* ================= Papierkorb ================= */
+function papierkorbGroups(){
+  return [
+    { kind:'tour', icon:'🏔️', label:'Touren', trashedList: state.trashedTours },
+    { kind:'hut', icon:'🛖', label:'Hütten', trashedList: state.trashedHuts },
+    { kind:'sektor', icon:'🧭', label:'Sektoren', trashedList: state.trashedSektoren },
+    { kind:'klettergebiet', icon:'⛰️', label:'Klettergebiete', trashedList: state.trashedKlettergebiete },
+    { kind:'gipfel', icon:'🏔️', label:'Gipfel', trashedList: state.trashedGipfel },
+  ];
+}
+function papierkorbTrashCount(){ return trashCountTotal(papierkorbGroups()); }
+function papierkorbPageHtml(){ return papierkorbViewHtml(papierkorbGroups()); }
+const PAPIERKORB_ENTITY_MAP = {
+  tour: { active: ()=>state.tours, trashed: ()=>state.trashedTours, save: saveTourCloud, path: TOURS_PATH },
+  hut: { active: ()=>state.huts, trashed: ()=>state.trashedHuts, save: saveHutCloud, path: HUTS_PATH },
+  sektor: { active: ()=>state.sektoren, trashed: ()=>state.trashedSektoren, save: saveSektorCloud, path: SEKTOREN_PATH },
+  klettergebiet: { active: ()=>state.klettergebiete, trashed: ()=>state.trashedKlettergebiete, save: saveKlettergebietCloud, path: KLETTERGEBIETE_PATH },
+  gipfel: { active: ()=>state.gipfel, trashed: ()=>state.trashedGipfel, save: saveGipfelCloud, path: GIPFEL_PATH },
+};
+function restoreTrashItem(kind, id){
+  const m = PAPIERKORB_ENTITY_MAP[kind];
+  if(!m) return;
+  restoreFromTrash(id, m.active(), m.trashed(), m.save);
+  render();
+}
+function purgeTrashItem(kind, id){
+  const m = PAPIERKORB_ENTITY_MAP[kind];
+  if(!m) return;
+  if(!confirm('Diesen Eintrag endgültig und unwiderruflich löschen?')) return;
+  purgeFromTrash(id, m.trashed(), m.path);
+  render();
 }
 
 /* ================= Name handling ================= */
@@ -1926,7 +1982,7 @@ function sektorFormHtml(existing){
       <div id="delete-sektor-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-sektor-trigger" data-id="${s.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Sektor löschen</button>
         <div id="delete-sektor-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
-          Wirklich unwiderruflich löschen? Verlinkte Touren verlieren die Sektor-Zuordnung.
+          In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)? Verlinkte Touren verlieren die Sektor-Zuordnung.
           <button type="button" id="delete-sektor-yes" data-id="${s.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
           <button type="button" id="delete-sektor-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
         </div>
@@ -2125,7 +2181,7 @@ function klettergebietFormHtml(existing){
       <div id="delete-klettergebiet-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-klettergebiet-trigger" data-id="${g.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Klettergebiet löschen</button>
         <div id="delete-klettergebiet-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
-          Wirklich unwiderruflich löschen? Verlinkte Sektoren bleiben erhalten, verlieren aber die Gebiets-Zuordnung.
+          In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)? Verlinkte Sektoren bleiben erhalten, verlieren aber die Gebiets-Zuordnung.
           <button type="button" id="delete-klettergebiet-yes" data-id="${g.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
           <button type="button" id="delete-klettergebiet-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
         </div>
@@ -2193,7 +2249,7 @@ function gipfelFormHtml(existing){
       <div id="delete-gipfel-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-gipfel-trigger" data-id="${g.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Gipfel löschen</button>
         <div id="delete-gipfel-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
-          Wirklich unwiderruflich löschen? Verlinkte Touren bleiben erhalten, verlieren aber die Gipfel-Zuordnung.
+          In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)? Verlinkte Touren bleiben erhalten, verlieren aber die Gipfel-Zuordnung.
           <button type="button" id="delete-gipfel-yes" data-id="${g.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
           <button type="button" id="delete-gipfel-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
         </div>
@@ -2884,6 +2940,7 @@ function shellHtml(){
           ${state.myName ? `<span>Angemeldet als <strong>${esc(state.myName)}</strong></span><button data-act="change-name">ändern</button>` : `<button data-act="change-name">Namen setzen</button>`}
           <button data-act="export-data">Exportieren</button>
           <button data-act="import-data">Importieren</button>
+          <button data-act="view-papierkorb">🗑️ Papierkorb${papierkorbTrashCount() ? ` (${papierkorbTrashCount()})` : ''}</button>
         </div>
       </div>
     </div>
@@ -2902,7 +2959,7 @@ function shellHtml(){
     </div></div>
   </div>
   <main>
-    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='sektoren' ? sektorenViewHtml() : state.view==='agenda' ? agendaViewHtml() : abgeschlossenViewHtml())}
+    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='sektoren' ? sektorenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml())}
   </main>
   <div id="modal-root"></div>
   `;
@@ -3983,7 +4040,7 @@ function tourFormHtml(existing){
       <div id="delete-tour-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-tour-trigger" data-id="${t.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Tour löschen</button>
         <div id="delete-tour-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
-          Wirklich unwiderruflich löschen?
+          In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)?
           <button type="button" id="delete-tour-yes" data-id="${t.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
           <button type="button" id="delete-tour-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
         </div>
@@ -4228,7 +4285,7 @@ function hutFormHtml(existing){
       <div id="delete-hut-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-hut-trigger" data-id="${h.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Hütte löschen</button>
         <div id="delete-hut-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
-          Wirklich unwiderruflich löschen?
+          In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)?
           <button type="button" id="delete-hut-yes" data-id="${h.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
           <button type="button" id="delete-hut-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
         </div>
@@ -4441,6 +4498,9 @@ function wireGlobalHandlers(){
     else if(act==='view-huetten') el.onclick = ()=>setView('huetten');
     else if(act==='view-sektoren') el.onclick = ()=>setView('sektoren');
     else if(act==='view-abgeschlossen') el.onclick = ()=>setView('abgeschlossen');
+    else if(act==='view-papierkorb') el.onclick = ()=>setView('papierkorb');
+    else if(act==='restore-trash-item') el.onclick = ()=>restoreTrashItem(el.getAttribute('data-kind'), el.getAttribute('data-id'));
+    else if(act==='purge-trash-item') el.onclick = ()=>purgeTrashItem(el.getAttribute('data-kind'), el.getAttribute('data-id'));
     else if(act==='change-name') el.onclick = ()=>{ state.modal = {type:'name'}; render(); };
     else if(act==='export-data') el.onclick = openExport;
     else if(act==='import-data') el.onclick = openImport;
@@ -4556,7 +4616,7 @@ function wireGlobalHandlers(){
 function renderListOnly(){
   const main = document.querySelector('main');
   if(!main) return;
-  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='sektoren' ? sektorenViewHtml() : state.view==='agenda' ? agendaViewHtml() : abgeschlossenViewHtml());
+  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='sektoren' ? sektorenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml());
   wireGlobalHandlers();
   const input = main.querySelector('.search-input');
   if(input){ input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
@@ -5615,7 +5675,7 @@ function wireModalHandlers(){
   }
 
   // Dezente Löschen-Funktion mit zweistufiger Bestätigung (Tour & Hütte)
-  function wireDeleteConfirm(prefix, removeFn, onDeletedGoTo){
+  function wireDeleteConfirm(prefix, removeFn, message){
     const trigger = document.getElementById(`delete-${prefix}-trigger`);
     const confirmBox = document.getElementById(`delete-${prefix}-confirm`);
     const yesBtn = document.getElementById(`delete-${prefix}-yes`);
@@ -5632,15 +5692,17 @@ function wireModalHandlers(){
     if(yesBtn) yesBtn.addEventListener('click', ()=>{
       removeFn(yesBtn.getAttribute('data-id'));
       closeModal(false, true);
-      showToast(onDeletedGoTo + ' gelöscht.');
+      showToast(message);
     });
   }
-  wireDeleteConfirm('tour', removeTour, 'Tour');
-  wireDeleteConfirm('hut', removeHut, 'Hütte');
-  wireDeleteConfirm('sektor', removeSektor, 'Sektor');
-  wireDeleteConfirm('klettergebiet', removeKlettergebiet, 'Klettergebiet');
-  wireDeleteConfirm('gipfel', removeGipfel, 'Gipfel');
-  wireDeleteConfirm('agenda', removeAgendaItem, 'Termin');
+  // Alles ausser Termine landet nur im Papierkorb (siehe removeXyz() -> moveToTrash), Termine
+  // werden weiterhin sofort und endgültig entfernt (rein persönliche Planung, kein geteilter Inhalt).
+  wireDeleteConfirm('tour', removeTour, `Tour in den Papierkorb verschoben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar).`);
+  wireDeleteConfirm('hut', removeHut, `Hütte in den Papierkorb verschoben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar).`);
+  wireDeleteConfirm('sektor', removeSektor, `Sektor in den Papierkorb verschoben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar).`);
+  wireDeleteConfirm('klettergebiet', removeKlettergebiet, `Klettergebiet in den Papierkorb verschoben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar).`);
+  wireDeleteConfirm('gipfel', removeGipfel, `Gipfel in den Papierkorb verschoben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar).`);
+  wireDeleteConfirm('agenda', removeAgendaItem, 'Termin gelöscht.');
 
   root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="export-tour"]').forEach(el=> el.onclick = ()=>openTourExport(el.getAttribute('data-id')));

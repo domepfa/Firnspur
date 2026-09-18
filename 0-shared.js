@@ -159,6 +159,88 @@ function dedupeById(arr){
   arr.forEach(x=>{ if(x && x.id) map.set(x.id, x); });
   return Array.from(map.values());
 }
+
+/* ================= Papierkorb (Soft-Delete) ================= */
+// Gelöschte Touren/Hütten/Sektoren/Klettergebiete/Gipfel werden nicht sofort und endgültig aus
+// Firebase entfernt, sondern nur markiert (deletedAt/deletedBy) und aus der aktiven state.xyz-
+// Liste in eine separate state.trashedXyz-Liste verschoben. Die App lebt von den über die Zeit
+// gesammelten Touren aller Nutzer:innen — ein Fehlklick soll niemanden endgültig etwas kosten.
+// Nach TRASH_RETENTION_DAYS werden Einträge beim nächsten App-Start automatisch endgültig entfernt
+// (siehe purgeExpiredTrash, aufgerufen aus loadAll() in index.html/fixseil.html).
+const TRASH_RETENTION_DAYS = 30;
+
+// Teilt eine frisch aus Firebase geladene Sammlung (das Objekt aus fbGet(), noch nicht
+// Object.values()'t) in {active, trashed} -- an jeder Ladestelle statt eines rohen
+// Object.values(...).filter(x=>x&&x.id) verwenden.
+function splitTrash(rawObj){
+  const all = (rawObj ? Object.values(rawObj) : []).filter(x=>x && x.id);
+  return { active: all.filter(x=>!x.deletedAt), trashed: all.filter(x=>x.deletedAt) };
+}
+// Verschiebt ein Objekt von der aktiven Liste in die Papierkorb-Liste (beide Arrays werden
+// in-place mutiert, wie es die bestehenden removeXyz()-Funktionen erwarten) und speichert es mit
+// deletedAt/deletedBy zurück in Firebase -- der Eintrag bleibt dort vollständig erhalten, nur die
+// App zeigt ihn nicht mehr in normalen Listen. Gibt das verschobene Objekt zurück (oder null),
+// damit Aufrufer z. B. weiterhin darauf verweisende Einträge entlinken können.
+function moveToTrash(id, activeList, trashedList, saveFn){
+  const idx = activeList.findIndex(x=>x.id===id);
+  if(idx<0) return null;
+  const item = activeList[idx];
+  activeList.splice(idx, 1);
+  item.deletedAt = new Date().toISOString();
+  item.deletedBy = state.myName;
+  trashedList.unshift(item);
+  saveFn(item).catch(()=>{ item._unsynced = true; });
+  return item;
+}
+function restoreFromTrash(id, activeList, trashedList, saveFn){
+  const idx = trashedList.findIndex(x=>x.id===id);
+  if(idx<0) return null;
+  const item = trashedList[idx];
+  trashedList.splice(idx, 1);
+  delete item.deletedAt;
+  delete item.deletedBy;
+  activeList.unshift(item);
+  saveFn(item).catch(()=>{ item._unsynced = true; });
+  return item;
+}
+// Endgültig löschen -- auf Wunsch aus dem Papierkorb heraus, oder automatisch nach Ablauf der
+// Aufbewahrungsfrist (siehe purgeExpiredTrash).
+function purgeFromTrash(id, trashedList, path){
+  const idx = trashedList.findIndex(x=>x.id===id);
+  if(idx<0) return;
+  trashedList.splice(idx, 1);
+  fbDelete(path+'/'+id).catch(()=>{});
+}
+function isTrashExpired(item){
+  if(!item || !item.deletedAt) return false;
+  return (Date.now() - new Date(item.deletedAt).getTime()) > TRASH_RETENTION_DAYS*24*60*60*1000;
+}
+function purgeExpiredTrash(trashedList, path){
+  trashedList.filter(isTrashExpired).forEach(item=> purgeFromTrash(item.id, trashedList, path));
+}
+function trashCountTotal(groups){ return groups.reduce((n,g)=> n + g.trashedList.length, 0); }
+// groups: [{kind, icon, label, trashedList}] -- ein Eintrag pro Entitätstyp der jeweiligen App.
+function papierkorbViewHtml(groups){
+  const total = trashCountTotal(groups);
+  return `
+    <div class="hero-top" style="margin-bottom:14px;"><h1 style="font-size:20px;">🗑️ Papierkorb</h1></div>
+    <p style="font-size:13px; color:var(--ink-soft); margin:0 0 16px 0;">Gelöschte Einträge bleiben ${TRASH_RETENTION_DAYS} Tage lang hier und lassen sich wiederherstellen — danach werden sie automatisch endgültig entfernt.</p>
+    ${!total ? `<div class="empty"><h3>Papierkorb ist leer</h3><p>Gelöschte Einträge erscheinen hier.</p></div>` : groups.filter(g=>g.trashedList.length).map(g=>`
+      <h4 style="margin:18px 0 8px;">${g.icon} ${esc(g.label)} (${g.trashedList.length})</h4>
+      <div class="grid">${g.trashedList.map(item=>trashItemCardHtml(item, g.kind)).join('')}</div>
+    `).join('')}
+  `;
+}
+function trashItemCardHtml(item, kind){
+  return `<div class="card">
+    <div class="card-top"><h3 style="color:var(--ink-soft);">${esc(item.name||'(ohne Namen)')}</h3></div>
+    <p class="excerpt">Gelöscht von ${esc(item.deletedBy||'?')} · ${fmtDate(item.deletedAt)}</p>
+    <div class="form-actions" style="margin-top:10px;">
+      <button type="button" class="btn secondary" data-act="restore-trash-item" data-kind="${esc(kind)}" data-id="${esc(item.id)}">↺ Wiederherstellen</button>
+      <button type="button" class="btn danger" data-act="purge-trash-item" data-kind="${esc(kind)}" data-id="${esc(item.id)}">Endgültig löschen</button>
+    </div>
+  </div>`;
+}
 function esc(s){
   if(s===undefined||s===null) return '';
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

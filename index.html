@@ -558,7 +558,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v164-klettergebiet-gipfel-verknuepfung';
+const APP_VERSION = 'v165-papierkorb';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -606,6 +606,8 @@ let state = {
   loading: true,
   tours: [],
   huts: [],
+  trashedTours: [],
+  trashedHuts: [],
   agenda: [],
   otherAppTours: [], // Touren der jeweils anderen App, für die Termin-Auswahl
   myName: null,
@@ -645,7 +647,8 @@ let state = {
 function cacheLocalSnapshot(){
   try{
     localStorage.setItem('firnspur-cache', JSON.stringify({
-      tours: state.tours, huts: state.huts, agenda: state.agenda, cachedAt: new Date().toISOString()
+      tours: state.tours, huts: state.huts, trashedTours: state.trashedTours, trashedHuts: state.trashedHuts,
+      agenda: state.agenda, cachedAt: new Date().toISOString()
     }));
   }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
 }
@@ -676,6 +679,8 @@ async function loadAll(){
     if(cached){
       state.tours = (cached.tours || []).map(migrateCompletions);
       state.huts = (cached.huts || []).map(migrateCompletions);
+      state.trashedTours = cached.trashedTours || [];
+      state.trashedHuts = cached.trashedHuts || [];
       state.agenda = cached.agenda || [];
       state.offlineMode = true;
       state.offlineCachedAt = cached.cachedAt;
@@ -688,11 +693,16 @@ async function loadAll(){
     return;
   }
 
-  const tours = (toursObj ? Object.values(toursObj) : []).filter(t=>t && t.id).map(migrateCompletions);
-  const huts = (hutsObj ? Object.values(hutsObj) : []).filter(h=>h && h.id).map(migrateCompletions);
+  const toursSplit = splitTrash(toursObj), hutsSplit = splitTrash(hutsObj);
+  const tours = toursSplit.active.map(migrateCompletions);
+  const trashedTours = toursSplit.trashed.map(migrateCompletions);
+  const huts = hutsSplit.active.map(migrateCompletions);
+  const trashedHuts = hutsSplit.trashed.map(migrateCompletions);
   const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id).map(migrateAgendaStatus);
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
+  trashedTours.sort((a,b)=> (b.deletedAt||'').localeCompare(a.deletedAt||''));
+  trashedHuts.sort((a,b)=> (b.deletedAt||'').localeCompare(a.deletedAt||''));
 
   // Lokale, noch nicht synchronisierte Einträge nicht verlieren — sowohl aus dem
   // aktuellen Speicher als auch aus dem lokalen Cache (wichtig nach einem
@@ -712,9 +722,15 @@ async function loadAll(){
 
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
+  state.trashedTours = trashedTours;
+  state.trashedHuts = trashedHuts;
   state.agenda = [...unsyncedAgenda, ...agenda];
   state.loading = false;
   state.offlineMode = false;
+  // Einmal pro Ladevorgang: Papierkorb-Einträge, deren Aufbewahrungsfrist abgelaufen ist, endgültig
+  // entfernen (siehe TRASH_RETENTION_DAYS in 0-shared.js).
+  purgeExpiredTrash(state.trashedTours, 'tours');
+  purgeExpiredTrash(state.trashedHuts, 'huts');
   render();
   checkSharedContent().then(shared=>{ if(shared) openShareImportModal(shared); });
 
@@ -747,12 +763,37 @@ async function loadOtherAppTours(){
 }
 
 function removeTour(id){
-  state.tours = state.tours.filter(x=>x.id!==id);
-  fbDelete('tours/'+id).catch(()=>{});
+  moveToTrash(id, state.tours, state.trashedTours, saveTourCloud);
 }
 function removeHut(id){
-  state.huts = state.huts.filter(x=>x.id!==id);
-  fbDelete('huts/'+id).catch(()=>{});
+  moveToTrash(id, state.huts, state.trashedHuts, saveHutCloud);
+}
+
+/* ================= Papierkorb ================= */
+function papierkorbGroups(){
+  return [
+    { kind:'tour', icon:'🎿', label:'Touren', trashedList: state.trashedTours },
+    { kind:'hut', icon:'🛖', label:'Hütten', trashedList: state.trashedHuts },
+  ];
+}
+function papierkorbTrashCount(){ return trashCountTotal(papierkorbGroups()); }
+function papierkorbPageHtml(){ return papierkorbViewHtml(papierkorbGroups()); }
+const PAPIERKORB_ENTITY_MAP = {
+  tour: { active: ()=>state.tours, trashed: ()=>state.trashedTours, save: saveTourCloud, path: 'tours' },
+  hut: { active: ()=>state.huts, trashed: ()=>state.trashedHuts, save: saveHutCloud, path: 'huts' },
+};
+function restoreTrashItem(kind, id){
+  const m = PAPIERKORB_ENTITY_MAP[kind];
+  if(!m) return;
+  restoreFromTrash(id, m.active(), m.trashed(), m.save);
+  render();
+}
+function purgeTrashItem(kind, id){
+  const m = PAPIERKORB_ENTITY_MAP[kind];
+  if(!m) return;
+  if(!confirm('Diesen Eintrag endgültig und unwiderruflich löschen?')) return;
+  purgeFromTrash(id, m.trashed(), m.path);
+  render();
 }
 
 /* ================= Name handling ================= */
@@ -1192,6 +1233,7 @@ function shellHtml(){
           ${state.myName ? `<span>Angemeldet als <strong>${esc(state.myName)}</strong></span><button data-act="change-name">ändern</button>` : `<button data-act="change-name">Namen setzen</button>`}
           <button data-act="export-data">Exportieren</button>
           <button data-act="import-data">Importieren</button>
+          <button data-act="view-papierkorb">🗑️ Papierkorb${papierkorbTrashCount() ? ` (${papierkorbTrashCount()})` : ''}</button>
         </div>
       </div>
     </div>
@@ -1202,7 +1244,7 @@ function shellHtml(){
     </div></div>
   </div>
   <main>
-    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : abgeschlossenViewHtml())}
+    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml())}
   </main>
   <div id="modal-root"></div>
   `;
@@ -1703,7 +1745,7 @@ function tourFormHtml(existing){
       <div id="delete-tour-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-tour-trigger" data-id="${t.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Tour löschen</button>
         <div id="delete-tour-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
-          Wirklich unwiderruflich löschen?
+          In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)?
           <button type="button" id="delete-tour-yes" data-id="${t.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
           <button type="button" id="delete-tour-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
         </div>
@@ -1961,7 +2003,7 @@ function hutFormHtml(existing){
       <div id="delete-hut-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
         <button type="button" id="delete-hut-trigger" data-id="${h.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Hütte löschen</button>
         <div id="delete-hut-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
-          Wirklich unwiderruflich löschen?
+          In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)?
           <button type="button" id="delete-hut-yes" data-id="${h.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
           <button type="button" id="delete-hut-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
         </div>
@@ -2186,6 +2228,9 @@ function wireGlobalHandlers(){
     if(act==='view-touren') el.onclick = ()=>setView('touren');
     else if(act==='view-huetten') el.onclick = ()=>setView('huetten');
     else if(act==='view-abgeschlossen') el.onclick = ()=>setView('abgeschlossen');
+    else if(act==='view-papierkorb') el.onclick = ()=>setView('papierkorb');
+    else if(act==='restore-trash-item') el.onclick = ()=>restoreTrashItem(el.getAttribute('data-kind'), el.getAttribute('data-id'));
+    else if(act==='purge-trash-item') el.onclick = ()=>purgeTrashItem(el.getAttribute('data-kind'), el.getAttribute('data-id'));
     else if(act==='change-name') el.onclick = ()=>{ state.modal = {type:'name'}; render(); };
     else if(act==='export-data') el.onclick = openExport;
     else if(act==='import-data') el.onclick = openImport;
@@ -2265,7 +2310,7 @@ function wireGlobalHandlers(){
 function renderListOnly(){
   const main = document.querySelector('main');
   if(!main) return;
-  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : abgeschlossenViewHtml());
+  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml());
   wireGlobalHandlers();
   const input = main.querySelector('.search-input');
   if(input){ input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
@@ -3018,7 +3063,7 @@ function wireModalHandlers(){
   }
 
   // Dezente Löschen-Funktion mit zweistufiger Bestätigung (Tour & Hütte)
-  function wireDeleteConfirm(prefix, removeFn, onDeletedGoTo){
+  function wireDeleteConfirm(prefix, removeFn, message){
     const trigger = document.getElementById(`delete-${prefix}-trigger`);
     const confirmBox = document.getElementById(`delete-${prefix}-confirm`);
     const yesBtn = document.getElementById(`delete-${prefix}-yes`);
@@ -3035,12 +3080,14 @@ function wireModalHandlers(){
     if(yesBtn) yesBtn.addEventListener('click', ()=>{
       removeFn(yesBtn.getAttribute('data-id'));
       closeModal(false, true);
-      showToast(onDeletedGoTo + ' gelöscht.');
+      showToast(message);
     });
   }
-  wireDeleteConfirm('tour', removeTour, 'Tour');
-  wireDeleteConfirm('hut', removeHut, 'Hütte');
-  wireDeleteConfirm('agenda', removeAgendaItem, 'Termin');
+  // Tour/Hütte landen nur im Papierkorb (siehe removeTour/removeHut -> moveToTrash), Termine
+  // werden weiterhin sofort und endgültig entfernt (rein persönliche Planung, kein geteilter Inhalt).
+  wireDeleteConfirm('tour', removeTour, `Tour in den Papierkorb verschoben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar).`);
+  wireDeleteConfirm('hut', removeHut, `Hütte in den Papierkorb verschoben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar).`);
+  wireDeleteConfirm('agenda', removeAgendaItem, 'Termin gelöscht.');
 
   root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="export-tour"]').forEach(el=> el.onclick = ()=>openTourExport(el.getAttribute('data-id')));
