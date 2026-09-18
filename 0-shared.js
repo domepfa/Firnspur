@@ -163,6 +163,16 @@ function esc(s){
   if(s===undefined||s===null) return '';
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+// Liefert die repräsentative Koordinate einer Tour für den Kartenstreifen: bevorzugt einen manuell
+// gesetzten Kartenpunkt, fällt sonst auf den Startpunkt eines GPS-/GPX-Tracks zurück -- so
+// erscheinen auch Touren, die nur per Live-GPS-Aufzeichnung oder GPX-Upload einen Streckenverlauf
+// haben (trackSimplified/manualTrack), aber (noch) keinen eigenen Punkt gesetzt bekamen.
+function tourMapPoint(t){
+  if(t.points && t.points.length) return {lat: t.points[0].lat, lon: t.points[0].lon};
+  if(t.trackSimplified && t.trackSimplified.length) return {lat: t.trackSimplified[0][0], lon: t.trackSimplified[0][1]};
+  if(t.manualTrack && t.manualTrack.length) return {lat: t.manualTrack[0][0], lon: t.manualTrack[0][1]};
+  return null;
+}
 // Kartenstreifen über Touren-/Gebiets-Listen: bewusst KEIN Leaflet, keine Kacheln, sondern eine
 // einmal offline vereinfachte/projizierte CH-Silhouette (Kantonsgrenzen, 20 Seen, Relief-Hillshade
 // aus DHM200 — siehe 0-geo-ch.js) fest in die App eingebettet. Punkte werden über dieselbe

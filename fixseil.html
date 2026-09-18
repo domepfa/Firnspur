@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v160-kartenstreifen-popup-einklappen';
+const APP_VERSION = 'v161-kartenstreifen-gps-track-touren';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2977,7 +2977,7 @@ function tourenViewHtml(){
       </div>
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
     </div>
-    ${mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.filter(t=>t.points&&t.points.length).map(t=>({id:t.id, lat:t.points[0].lat, lon:t.points[0].lon, label:t.name})), emptyText:'Noch keine Tour mit Kartenpunkt erfasst.', openPinId: state._mapStripOpenPinId})}
+    ${mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.map(t=>{ const p = tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId})}
     ${list.length ? tourenListOrGroupedHtml(list, activeFilterCount) : emptyTouren()}
   `;
 }
