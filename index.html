@@ -540,7 +540,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v157-msl-gruppen-grad-chips';
+const APP_VERSION = 'v158-suche-enter-blur';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2196,7 +2196,12 @@ function wireGlobalHandlers(){
     else if(act==='reset-hut-filters') el.onclick = ()=>resetHutFilters();
     else if(act==='sort-by') el.onchange = (e)=>{ const kind=el.getAttribute('data-kind'); if(kind==='tour') state.tourSortBy=e.target.value; else state.hutSortBy=e.target.value; renderListOnly(); };
     else if(act==='sort-dir') el.onclick = ()=>{ const kind=el.getAttribute('data-kind'); if(kind==='tour') state.tourSortDir = state.tourSortDir==='asc'?'desc':'asc'; else state.hutSortDir = state.hutSortDir==='asc'?'desc':'asc'; renderListOnly(); };
-    else if(act==='search') el.oninput = (e)=>{ state.search = e.target.value; renderListOnly(); };
+    else if(act==='search'){
+      el.oninput = (e)=>{ state.search = e.target.value; renderListOnly(); };
+      // Enter bestätigt die Suche (steckt eh schon live über oninput) und schliesst vor allem
+      // die Bildschirmtastatur — ohne blur() bleibt sie sonst offen, obwohl nichts mehr zu tun ist.
+      el.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); el.blur(); } };
+    }
   });
   const tourFilterToggleBtn = app.querySelector('#tour-filter-toggle-btn');
   if(tourFilterToggleBtn){
