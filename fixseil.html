@@ -736,7 +736,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v156-gebiet-sektor-hochtour';
+const APP_VERSION = 'v157-msl-gruppen-grad-chips';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3182,13 +3182,23 @@ function mslListOrGroupedHtml(list, activeFilterCount){
     if(!geb) return '';
     const sekIds = byKlettergebiet[gebId];
     const tourCount = sekIds.reduce((sum,sid)=> sum + bySektor[sid].length, 0);
-    return mslGroupCardHtml({icon:'⛰️', name:geb.name, region:geb.region, act:'open-klettergebiet', id:geb.id, lines:[`🧭 ${sekIds.length} Sektor${sekIds.length===1?'':'en'}`, `${tourCount} Tour${tourCount===1?'':'en'}`]});
+    const gradeRange = klettergebietClimbGradeRangeText(geb);
+    const altitude = klettergebietAltitudeText(geb);
+    return mslGroupCardHtml({icon:'⛰️', name:geb.name, region:geb.region, act:'open-klettergebiet', id:geb.id, lines:[
+      ...(gradeRange ? [`🧗 ${esc(gradeRange)}`] : []),
+      ...(altitude ? [esc(altitude)] : []),
+      `🧭 ${sekIds.length} Sektor${sekIds.length===1?'':'en'}`, `${tourCount} Tour${tourCount===1?'':'en'}`
+    ]});
   }).join('');
   const sektorCards = standaloneSektorIds.map(sekId=>{
     const sek = state.sektoren.find(s=>s.id===sekId);
     if(!sek) return '';
     const tourCount = bySektor[sekId].length;
-    return mslGroupCardHtml({icon:'🧭', name:sek.name, region:sek.region, act:'open-sektor', id:sek.id, lines:[`${tourCount} Tour${tourCount===1?'':'en'}`]});
+    const gradeRange = sektorClimbGradeRangeText(sek);
+    return mslGroupCardHtml({icon:'🧭', name:sek.name, region:sek.region, act:'open-sektor', id:sek.id, lines:[
+      ...(gradeRange ? [`🧗 ${esc(gradeRange)}`] : []),
+      `${tourCount} Tour${tourCount===1?'':'en'}`
+    ]});
   }).join('');
   // draggable=true: Long-Press auf einer freistehenden Tour (noch kein Sektor) öffnet ein Menü zum
   // Zusammenführen mit einer anderen Tour bzw. Hinzufügen zu einem Sektor — siehe wireTourAssignMenu().
@@ -3422,28 +3432,40 @@ function klettergebietTouren(geb){
   const sektorIds = new Set(state.sektoren.filter(s=>s.klettergebietId===geb.id).map(s=>s.id));
   return state.tours.filter(t=> sektorIds.has(t.sektorId));
 }
-// Kurze Kletter-Grad-Spanne übers ganze Gebiet (z. B. "4a–6b"), analog zu
-// kletterroutenGradeRangeText() für einen einzelnen Sektor — hier aber über ALLE Sektoren
-// dieses Gebiets zusammen: sowohl deren Kletterrouten-Listen (Klettergarten-Anteil) als auch
-// obligatorisch/Schlüssel der verlinkten MSL-Touren (MSL-Anteil), da ein Sektor beides haben kann.
-function klettergebietClimbGradeRangeText(geb){
+// Grad-Werte eines einzelnen Sektors: sowohl dessen Kletterrouten-Liste (Klettergarten-Anteil)
+// als auch obligatorisch/Schlüssel der verlinkten MSL-Touren (MSL-Anteil) — ein Sektor kann
+// beides haben. Baustein für sektorClimbGradeRangeText() und klettergebietClimbGradeRangeText().
+function sektorClimbGradeValues(sek){
   const values = [];
-  state.sektoren.filter(s=>s.klettergebietId===geb.id).forEach(sek=>{
-    (sek.kletterrouten||[]).forEach(r=>{
-      const v = kletterrouteGradeSortValue(r.grad);
-      if(v!==null) values.push({grad:r.grad, v});
-    });
+  (sek.kletterrouten||[]).forEach(r=>{
+    const v = kletterrouteGradeSortValue(r.grad);
+    if(v!==null) values.push({grad:r.grad, v});
   });
-  klettergebietTouren(geb).forEach(t=>{
+  state.tours.filter(t=>t.sektorId===sek.id).forEach(t=>{
     [t.mandatoryDifficulty, t.cruxDifficulty].forEach(g=>{
       const v = kletterrouteGradeSortValue(g);
       if(v!==null) values.push({grad:g, v});
     });
   });
+  return values;
+}
+function gradeValuesRangeText(values){
   if(!values.length) return '';
-  values.sort((a,b)=>a.v-b.v);
+  values = values.slice().sort((a,b)=>a.v-b.v);
   const min = values[0].grad, max = values[values.length-1].grad;
   return min===max ? min : `${min}–${max}`;
+}
+// Kurze Kletter-Grad-Spanne für einen einzelnen Sektor (z. B. "4a–6b") — für Sektor-Karten
+// ausserhalb eines Klettergebiets (siehe mslListOrGroupedHtml).
+function sektorClimbGradeRangeText(sek){ return gradeValuesRangeText(sektorClimbGradeValues(sek)); }
+// Kurze Kletter-Grad-Spanne übers ganze Gebiet (z. B. "4a–6b") — über ALLE Sektoren dieses
+// Gebiets zusammen.
+function klettergebietClimbGradeRangeText(geb){
+  const values = [];
+  state.sektoren.filter(s=>s.klettergebietId===geb.id).forEach(sek=>{
+    values.push(...sektorClimbGradeValues(sek));
+  });
+  return gradeValuesRangeText(values);
 }
 // Durchschnittliche Zielhöhe übers Gebiet, grob auf 50 m gerundet (kein exaktes Mass, nur zur
 // Einordnung auf einen Blick, analog zur Grad-Spanne).
