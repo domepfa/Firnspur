@@ -5072,6 +5072,10 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - \`crevasseRisk\`: "nein", "moeglich", "ausgepraegt"
   - \`descentType\`: "Fussabstieg", "Abseilen", oder "Kombination"
   - \`descent\`: Freitext-Beschreibung der Abfahrt/des Abstiegs
+  - \`sektorId\`: Normalerweise leerer String \`""\`. Optional setzbar — z. B. wenn
+    derselbe Sektor auch eine MSL-Route auf denselben Gipfel trägt (siehe unten).
+    Anders als bei MSL werden Zustieg/Abstieg dadurch NICHT vom Sektor übernommen,
+    \`descent\` bleibt Freitext wie gewohnt.
 
   **Falls tourCategory = "msl" (Mehrseillängen-Klettertour):**
   - \`mandatoryDifficulty\`: obligatorische Schwierigkeit, franz. Skala
@@ -5195,7 +5199,10 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 ## Felder-Erklärung (Sektoren — nur Fixseil, optionales Feld \`"sektoren"\`)
 
 Ein Sektor bündelt mehrere MSL-Touren mit gemeinsamem Ausgangspunkt und
-geteilten Zustiegen/Abstiegen (analog zu Hütten-Zustiegen). Nur relevant für
+geteilten Zustiegen/Abstiegen (analog zu Hütten-Zustiegen). Ein Sektor kann
+daneben auch Hochtouren verlinkt haben, die z. B. auf denselben Gipfel führen —
+bei denen bleiben \`descent\`/eigene Zustiege aber Freitext, nichts wird vom
+Sektor übernommen (siehe \`sektorId\` bei Hochtour weiter oben). Nur relevant für
 Fixseil (Hochtour/MSL) — Firnspur kennt keine Sektoren. Nur eintragen, wenn
 aus der Quelle klar hervorgeht, dass mehrere Touren denselben Zustieg/
 Ausgangspunkt teilen; sonst \`"sektoren": []\` lassen und \`sektorId\` bei den
@@ -5252,9 +5259,9 @@ Beide teilen sich **Hütten** und **Agenda** — was du in der einen App an Hüt
 
 ### Der "🧗 Klettern"-Bereich: Klettergebiete als Einstieg
 
-Wechselst du zu "🧗 Klettern", landest du direkt auf den **⛰️ Klettergebieten** (z. B. "Furka") statt auf einer flachen Touren-Liste. Ein Gebiet antippen öffnet zwei Kapitel-Reiter — **🧗 Touren** (die MSL-Touren dieses Gebiets) und **🛖 Hütten** (automatisch ermittelt anhand der Touren) — sowie darunter immer die Liste **Sektoren**: jede Wand/jeder Fels dieses Gebiets, mit Topo-Bild, Kletterrouten-Liste und Zustiegen/Abstiegen.
+Wechselst du zu "🧗 Klettern", landest du direkt auf den **⛰️ Klettergebieten** (z. B. "Furka") statt auf einer flachen Touren-Liste. Ein Gebiet antippen zeigt genau einen Pfad zu seinen Touren: **Klettergebiet → Sektor → Tour**. Keine zusätzliche, flache Touren-Liste daneben — jede Tour steht genau einmal, im Sektor-Kärtchen. Darunter, unabhängig von den Sektoren, die Liste **🛖 Hütten** (automatisch ermittelt anhand der Touren, die in einem Sektor dieses Gebiets stecken).
 
-"Klettergarten" und "MSL" sind dabei keine getrennten Ebenen, sondern nur Etiketten für den Inhalt eines Sektors: hat ein Sektor eine eigene Kletterrouten-Liste (Nr./Name/Grad), gilt er als Klettergarten; hat er verlinkte MSL-Touren, gilt er als MSL-Wand — ein Sektor kann problemlos beides gleichzeitig sein.
+Ein Sektor ist jede Wand/jeder Fels dieses Gebiets, mit Topo-Bild, Kletterrouten-Liste und Zustiegen/Abstiegen. "Klettergarten" und "MSL" sind dabei keine getrennten Ebenen, sondern nur Etiketten für den Inhalt eines Sektors: hat ein Sektor eine eigene Kletterrouten-Liste (Nr./Name/Grad), gilt er als Klettergarten; hat er verlinkte MSL-Touren, gilt er als MSL-Wand — ein Sektor kann problemlos beides gleichzeitig sein. Ein Sektor kann ausserdem Hochtouren verlinkt haben, die z. B. auf denselben Gipfel führen wie eine MSL-Route desselben Sektors (Feld "Sektor" im Touren-Formular, für Hochtour wie MSL) — unabhängig vom bestehenden Gipfel-Bezug der Hochtour (Höhe/Normalweg bleiben dort erfasst).
 
 Die flache Liste aller Touren bleibt daneben als Reiter **"🧗 Alle Touren"** erreichbar. Ein Sektor, der eigentlich ein ganzes Gebiet ist: in dessen Detailansicht "⛰️ In neues Klettergebiet umwandeln" antippen — verändert die vorhandenen Daten nicht, sondern ordnet nur neu ein.
 
