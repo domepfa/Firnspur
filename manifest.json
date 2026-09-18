@@ -6,8 +6,8 @@
   "background_color": "#1F4D63",
   "theme_color": "#1F4D63",
   "icons": [
-    { "src": "./IMG-20260816-WA0023.jpg", "sizes": "512x512", "type": "image/jpeg" },
-    { "src": "./IMG-20260816-WA0023.jpg", "sizes": "512x512", "type": "image/jpeg", "purpose": "maskable" }
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "share_target": {
     "action": "./share-target-index.html",

@@ -1,10 +1,10 @@
-const CACHE_NAME = 'bergtouren-shell-v127';
+const CACHE_NAME = 'bergtouren-shell-v128';
 const SHELL_ASSETS = [
   './', './index.html', './fixseil.html', './0-shared.js', './0-geo-ch.js',
   './manifest.json', './manifest-fixseil.json',
   './share-target-index.html', './share-target-fixseil.html',
   './20260114_145500.jpg', './IMG_20260811_073051812_HDR.jpg',
-  './IMG-20260816-WA0023.jpg', './msl-hero.jpg',
+  './icon-512.png', './msl-hero.jpg',
   './geo-ch-hillshade-firnspur.png', './geo-ch-hillshade-fixseil.png',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
