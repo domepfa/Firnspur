@@ -275,6 +275,14 @@ function mapStripZoomToPoint(kind, canvasEl, xPct, yPct){
 function mapStripResetView(kind){
   mapStripSetView(kind, {zoom: MAP_STRIP_ZOOM_MIN, panX:0, panY:0});
 }
+// Schliesst ein offenes Pin- oder Sammel-Pin-Popup (z.B. weil woanders auf die Karte getippt
+// wurde) -- gibt zurück, ob überhaupt etwas offen war, damit Aufrufer nur bei Änderung neu rendern.
+function mapStripCloseOpenPopups(){
+  let changed = false;
+  if(state._mapStripOpenPinId){ state._mapStripOpenPinId = null; changed = true; }
+  if(state._mapStripOpenClusterId){ state._mapStripOpenClusterId = null; changed = true; }
+  return changed;
+}
 // opts: {label, kind:'tour'|'klettergebiet', points:[{id,lat,lon,label}], emptyText, openPinId}
 function mapStripHtml(opts){
   const { label, kind, points, emptyText, openPinId } = opts;
@@ -357,7 +365,12 @@ function wireMapStripCanvases(){
       const now = Date.now();
       const isDoubleTap = (now - lastTapTime < 350) && Math.hypot(clientX-lastTapX, clientY-lastTapY) < 30;
       lastTapTime = isDoubleTap ? 0 : now; lastTapX = clientX; lastTapY = clientY;
-      if(!isDoubleTap) return;
+      if(!isDoubleTap){
+        // Einfacher Tipp auf die Karte (nicht auf einen Pin) -- ein offenes Popup soll dabei
+        // wieder einklappen, genau wie ein zweiter Klick auf denselben Pin.
+        if(mapStripCloseOpenPopups()) render();
+        return;
+      }
       const rect = canvasEl.getBoundingClientRect();
       if(view.zoom > MAP_STRIP_ZOOM_MIN + 0.01){ mapStripResetView(kind); }
       else{ mapStripZoomToPoint(kind, canvasEl, (clientX-rect.left)/rect.width*100, (clientY-rect.top)/rect.height*100); }
@@ -444,6 +457,13 @@ function wireMapStripCanvases(){
       if(view.zoom > MAP_STRIP_ZOOM_MIN + 0.01){ mapStripResetView(kind); }
       else{ mapStripZoomToPoint(kind, canvasEl, (e.clientX-rect.left)/rect.width*100, (e.clientY-rect.top)/rect.height*100); }
       render();
+    });
+    // Einfacher Klick auf die Karte (nicht auf einen Pin, keine Verschieben-Geste) -- Desktop-
+    // Pendant zum Einfach-Tipp oben: schliesst ein offenes Popup wieder.
+    canvasEl.addEventListener('click', (e)=>{
+      if(e.target.closest && e.target.closest('.map-strip-pin')) return;
+      if(gestureMoved) return;
+      if(mapStripCloseOpenPopups()) render();
     });
   });
 }
