@@ -1,6 +1,6 @@
 const CACHE_NAME = 'fixseil-shell-v1';
 const SHELL_ASSETS = [
-  './fixseil.html', './manifest-fixseil.json', './IMG-20260816-WA0023.jpg'
+  './fixseil.html', './manifest-fixseil.json', './icon-512.png'
 ];
 
 self.addEventListener('install', (e) => {
