@@ -217,22 +217,39 @@
   }
   .meta-line{font-size:11.5px; color:var(--ink-faint); margin-top:auto;}
 
-  /* ===== Karten-Streifen (schematisch, kein Leaflet/keine Kacheln — siehe map-strip.mjs-Note) ===== */
+  /* ===== Karten-Streifen (echte CH-Silhouette/Seen/Relief, fest eingebettet — siehe 0-geo-ch.js,
+     kein Leaflet/keine Kacheln, kein Netzwerk beim Öffnen einer Liste) ===== */
   .map-strip{margin-bottom:16px;}
   .map-strip-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;}
   .map-strip-label{font-size:11.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.03em; font-weight:700;}
+  .map-strip-head-actions{display:flex; gap:10px; align-items:baseline;}
   .map-strip-hint{font-size:11px; color:var(--ink-faint); background:none; border:none; padding:0; cursor:pointer;}
-  .map-strip-canvas{position:relative; height:120px; border-radius:var(--radius); overflow:hidden; background:var(--paper); border:1px solid var(--line);}
+  /* Seitenverhältnis der echten CH-Silhouette (siehe GEO_CH_VIEWBOX) statt fixer Höhe, sonst
+     stimmt die Skalierung von Kantonen/Seen/Pins nicht mehr zusammen. touch-action:none, damit
+     die eigene Pinch/Pan-Geste (wireMapStripCanvases) nicht mit dem nativen Seiten-Scroll kollidiert. */
+  .map-strip-canvas{position:relative; aspect-ratio:260/173.9; border-radius:var(--radius); overflow:hidden; background:var(--paper); border:1px solid var(--line); touch-action:none; user-select:none;}
+  .map-strip-zoomwrap{position:absolute; inset:0; will-change:transform;}
+  .map-strip-bg{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
+  .map-strip-cantons path{fill:var(--line); opacity:0.55; stroke:var(--ink-faint); stroke-width:0.35; stroke-opacity:0.7;}
+  .map-strip-lakes path{fill:#5B84A0; opacity:0.8;}
   .map-strip-compass{position:absolute; top:7px; left:7px; font-size:9px; color:var(--ink-faint); font-weight:700; display:flex; flex-direction:column; align-items:center; gap:1px; z-index:1;}
   .map-strip-compass .n{width:0; height:0; border-left:3px solid transparent; border-right:3px solid transparent; border-bottom:5px solid var(--ink-faint);}
-  .map-strip-pin{position:absolute; transform:translate(-50%,-50%); z-index:2;}
+  /* transform (translate -50%/-50% + Gegen-Skalierung 1/Zoom) kommt inline pro Pin aus
+     mapStripHtml() -- Pins/Popups bleiben dadurch beim Reinzoomen lesbar konstant gross,
+     nur ihr Abstand zueinander wächst (genau das trennt geclusterte Punkte wieder). */
+  .map-strip-pin{position:absolute; z-index:2;}
   .map-strip-dot{width:12px; height:12px; border-radius:50%; background:var(--ice-deep); border:2px solid var(--paper); box-shadow:0 0 0 1px var(--line); padding:0; cursor:pointer;}
   .map-strip-pin.open .map-strip-dot{background:var(--signal-deep);}
+  .map-strip-cluster-dot{width:26px; height:26px; border-radius:50%; background:var(--signal-deep); border:2px solid var(--paper); box-shadow:0 0 0 1px var(--line); padding:0; cursor:pointer; color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center;}
+  .map-strip-cluster.open .map-strip-cluster-dot{box-shadow:0 0 0 2px var(--paper), 0 0 0 4px var(--ice-deep);}
   .map-strip-nlabel{position:absolute; top:14px; left:50%; transform:translateX(-50%); font-size:10px; font-weight:700; color:var(--ink); white-space:nowrap; background:rgba(255,255,255,0.82); padding:1px 5px; border-radius:8px; pointer-events:none;}
   .map-strip-popup{position:absolute; top:20px; left:50%; transform:translateX(-50%); background:var(--paper); border-radius:var(--radius); box-shadow:var(--shadow-lg); padding:8px 10px; display:flex; flex-direction:column; gap:5px; width:132px; z-index:3;}
   .map-strip-popup strong{font-size:12.5px; color:var(--ice-deep);}
   .map-strip-popup button{font-size:11px; color:var(--ice-deep); font-weight:700; background:none; border:none; padding:0; text-align:left; cursor:pointer;}
-  .map-strip-empty{display:flex; align-items:center; justify-content:center; height:100%; font-size:12.5px; color:var(--ink-faint); text-align:center; padding:0 16px;}
+  .map-strip-popup-list{width:170px;}
+  .map-strip-popup-list button{padding:3px 0; border-bottom:1px solid var(--line);}
+  .map-strip-popup-list button:last-child{border-bottom:none;}
+  .map-strip-empty{position:relative; z-index:1; display:flex; align-items:center; justify-content:center; height:100%; font-size:12.5px; color:var(--ink-faint); text-align:center; padding:0 16px; pointer-events:none;}
 
   .empty{
     text-align:center; padding:60px 20px; color:var(--ink-soft);
@@ -386,6 +403,7 @@
 <button class="debug-toggle" id="debug-toggle-btn" onclick="toggleDebugPanel()">Diagnose v1</button>
 <div id="debug-panel-root"></div>
 
+<script src="./0-geo-ch.js"></script>
 <script src="./0-shared.js"></script>
 <script>
 /* ================= Debug log (in-app, browser-independent) ================= */
@@ -736,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v158-suche-enter-blur';
+const APP_VERSION = 'v159-kartenstreifen-echte-geodaten';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -4406,6 +4424,17 @@ function wireGlobalHandlers(){
     else if(act==='add-sektor-to-klettergebiet') el.onclick = ()=>openAddSektorInKlettergebiet(el.getAttribute('data-klettergebiet-id'));
     else if(act==='open-standalone-map') el.onclick = openStandaloneMap;
     else if(act==='map-strip-toggle') el.onclick = ()=>{ const id = el.getAttribute('data-id'); state._mapStripOpenPinId = (state._mapStripOpenPinId===id ? null : id); render(); };
+    else if(act==='map-strip-cluster') el.onclick = ()=>{
+      const clusterKind = el.getAttribute('data-kind'), id = el.getAttribute('data-id');
+      if(mapStripGetView(clusterKind).zoom >= MAP_STRIP_ZOOM_MAX - 0.01){
+        state._mapStripOpenClusterId = (state._mapStripOpenClusterId===id ? null : id);
+      }else{
+        mapStripZoomToPoint(clusterKind, el.closest('.map-strip-canvas'), parseFloat(el.getAttribute('data-cx')), parseFloat(el.getAttribute('data-cy')));
+        state._mapStripOpenClusterId = null;
+      }
+      render();
+    };
+    else if(act==='map-strip-reset') el.onclick = ()=>{ mapStripResetView(el.getAttribute('data-kind')); state._mapStripOpenClusterId = null; render(); };
     else if(act==='open-topo-from-card') el.onclick = (e)=>{
       e.stopPropagation();
       let images = [];
@@ -4486,6 +4515,7 @@ function wireGlobalHandlers(){
       scanKlettergebietPhoto(null, klettergebietNewScanCameraInput, 'klettergebiet-new-scan-status');
     });
   }
+  wireMapStripCanvases();
 }
 
 function renderListOnly(){
