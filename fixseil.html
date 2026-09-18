@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v159-kartenstreifen-echte-geodaten';
+const APP_VERSION = 'v160-kartenstreifen-popup-einklappen';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -4423,14 +4423,22 @@ function wireGlobalHandlers(){
     else if(act==='add-klettergebiet') el.onclick = openAddKlettergebiet;
     else if(act==='add-sektor-to-klettergebiet') el.onclick = ()=>openAddSektorInKlettergebiet(el.getAttribute('data-klettergebiet-id'));
     else if(act==='open-standalone-map') el.onclick = openStandaloneMap;
-    else if(act==='map-strip-toggle') el.onclick = ()=>{ const id = el.getAttribute('data-id'); state._mapStripOpenPinId = (state._mapStripOpenPinId===id ? null : id); render(); };
+    else if(act==='map-strip-toggle') el.onclick = ()=>{
+      const id = el.getAttribute('data-id');
+      const wasOpen = state._mapStripOpenPinId===id;
+      mapStripCloseOpenPopups();
+      state._mapStripOpenPinId = wasOpen ? null : id;
+      render();
+    };
     else if(act==='map-strip-cluster') el.onclick = ()=>{
       const clusterKind = el.getAttribute('data-kind'), id = el.getAttribute('data-id');
       if(mapStripGetView(clusterKind).zoom >= MAP_STRIP_ZOOM_MAX - 0.01){
-        state._mapStripOpenClusterId = (state._mapStripOpenClusterId===id ? null : id);
+        const wasOpen = state._mapStripOpenClusterId===id;
+        mapStripCloseOpenPopups();
+        state._mapStripOpenClusterId = wasOpen ? null : id;
       }else{
         mapStripZoomToPoint(clusterKind, el.closest('.map-strip-canvas'), parseFloat(el.getAttribute('data-cx')), parseFloat(el.getAttribute('data-cy')));
-        state._mapStripOpenClusterId = null;
+        mapStripCloseOpenPopups();
       }
       render();
     };
