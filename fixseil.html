@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v166-icon-png-fuer-teilenziel';
+const APP_VERSION = 'v167-sektor-touren-zuoberst';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2528,6 +2528,12 @@ function sektorDetailHtml(id){
     </div>` : ''}
     ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
     <div class="detail-section">
+      <h4>Touren (${linked.length})</h4>
+      ${linked.length ? `<div class="grid" style="margin-top:6px;">${linked.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour mit diesem Sektor verlinkt.</p>`}
+      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-msl-in-sektor" data-sektor-id="${sek.id}">+ Neue MSL-Tour</button>
+      <p style="font-size:11.5px; color:var(--ink-faint); margin:6px 4px 0 4px;">Sektor ist schon fest eingetragen — keine Auswahl nötig. Eine Hochtour lässt sich beim Anlegen/Bearbeiten ebenfalls einem Sektor zuordnen (Feld "Sektor").</p>
+    </div>
+    <div class="detail-section">
       <h4>🏕️ Klettergarten${sek.kletterrouten && sek.kletterrouten.length ? ` (${sek.kletterrouten.length})` : ''}</h4>
       ${((sek.topoImages && sek.topoImages.length) || (sek.kletterrouten && sek.kletterrouten.length)) ? `
         ${(sek.topoImages && sek.topoImages.length) ? topoImagesGalleryHtml(sek.topoImages) : ''}
@@ -2578,12 +2584,6 @@ function sektorDetailHtml(id){
         <div class="grid">${descentRoutes.map((r,i)=>sektorRouteRowHtml(r,i,sek.id,'descent')).join('')}</div>
       ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="descent">+ Abstieg hinzufügen</button>
-    </div>
-    <div class="detail-section">
-      <h4>Touren (${linked.length})</h4>
-      ${linked.length ? `<div class="grid" style="margin-top:6px;">${linked.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour mit diesem Sektor verlinkt.</p>`}
-      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-msl-in-sektor" data-sektor-id="${sek.id}">+ Neue MSL-Tour</button>
-      <p style="font-size:11.5px; color:var(--ink-faint); margin:6px 4px 0 4px;">Sektor ist schon fest eingetragen — keine Auswahl nötig. Eine Hochtour lässt sich beim Anlegen/Bearbeiten ebenfalls einem Sektor zuordnen (Feld "Sektor").</p>
     </div>
     ${sek._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
     <div class="form-actions">
