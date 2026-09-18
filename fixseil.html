@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v162-gebiet-chips-als-badges';
+const APP_VERSION = 'v163-gebiet-badges-oben-rechts';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3231,9 +3231,9 @@ function mslGroupCardHtml({icon, name, region, act, id, badges, lines}){
   <div class="card" data-act="${act}" data-id="${id}" tabindex="0" role="button">
     <div class="card-top">
       <h3 style="color:var(--ice-deep);">${icon} ${esc(name)}</h3>
+      ${badges && badges.length ? `<div class="badge-row">${badges.join('')}</div>` : ''}
     </div>
     ${region ? `<p class="excerpt">${esc(region)}</p>` : ''}
-    ${badges && badges.length ? `<div class="badge-row">${badges.join('')}</div>` : ''}
     ${lines.map(l=>`<span class="hut-link-chip">${l}</span>`).join('')}
   </div>`;
 }
@@ -3506,12 +3506,12 @@ function klettergebietCardHtml(geb){
   <div class="card" data-act="open-klettergebiet" data-id="${geb.id}" tabindex="0" role="button">
     <div class="card-top">
       <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
+      ${(gradeRange || altitude) ? `<div class="badge-row">
+        ${gradeRange ? `<span class="badge climb">🧗 ${esc(gradeRange)}</span>` : ''}
+        ${altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(altitude)}</span>` : ''}
+      </div>` : ''}
     </div>
     ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
-    ${(gradeRange || altitude) ? `<div class="badge-row">
-      ${gradeRange ? `<span class="badge climb">🧗 ${esc(gradeRange)}</span>` : ''}
-      ${altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(altitude)}</span>` : ''}
-    </div>` : ''}
     <span class="hut-link-chip">🧭 ${sektoren.length} Sektor${sektoren.length===1?'':'en'}</span>
     <span class="hut-link-chip">${tourCount} Tour${tourCount===1?'':'en'}</span>
     ${geb._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
