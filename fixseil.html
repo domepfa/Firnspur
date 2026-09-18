@@ -736,7 +736,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v154-sektor-hierarchie';
+const APP_VERSION = 'v155-klettergarten-infos-sektor';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -812,6 +812,7 @@ let state = {
   sektoren: [],
   klettergebiete: [],
   presetKlettergebietId: '', // vorausgewählt, wenn ein Sektor direkt aus einem Klettergebiet heraus neu angelegt wird
+  presetSektorId: '', // vorausgewählt, wenn eine MSL-Tour direkt aus einem Sektor heraus neu angelegt wird
   gipfel: [],
   agenda: [],
   otherAppTours: [],
@@ -1204,7 +1205,8 @@ async function submitName(nameVal, pinVal){
 function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:{tourCategory:'hochtour'}}; render(); }); }
 // Von der Übersichtskarte aus per "Punkt setzen" — siehe pointPlacementPopupContent in 0-shared.js.
 function openAddTourWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-tour', payload:{tourCategory:'hochtour', points:[{label:'', lat, lon}]}}; render(); }); }
-function openAddMsl(){ dlog('Klick auf "+ Neue MSL-Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:{tourCategory:'msl'}}; render(); }); }
+function openAddMsl(){ dlog('Klick auf "+ Neue MSL-Tour"'); ensureName(()=>{ state.presetSektorId = ''; state.modal = {type:'edit-tour', payload:{tourCategory:'msl'}}; render(); }); }
+function openAddMslInSektor(sektorId){ ensureName(()=>{ state.presetSektorId = sektorId; navigateToModal({type:'edit-tour', payload:{tourCategory:'msl'}}); }); }
 function openEditTour(id){
   ensureName(()=>{
     const t = state.tours.find(x=>x.id===id);
@@ -1439,6 +1441,7 @@ async function submitTourForm(form, existing){
 
   const idx = state.tours.findIndex(x=>x.id===t.id);
   if(idx>=0) state.tours[idx] = t; else state.tours.unshift(t);
+  state.presetSektorId = '';
   closeModal(false, true, true);
   state.modal = {type:'tour-detail', payload:t.id};
   render();
@@ -1916,6 +1919,9 @@ function openEditSektorTopoRouten(id){ state.modal = {type:'edit-sektor-topo-rou
 function sektorTopoRoutenFormHtml(sektorId){
   const sek = state.sektoren.find(x=>x.id===sektorId);
   if(!sek) return `<div class="modal" data-stop="1"><p>Sektor nicht gefunden.</p></div>`;
+  const selectedMaterial = Array.isArray(sek.material) ? sek.material : [];
+  const ROPE_TYPES = ['Gletscherseil','Einfachseil','Halbseilstrang','Zwillingsseil'];
+  const ROPE_LENGTHS = ['30m','40m','50m','60m','70m'];
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>🧗 Topo &amp; Routen — ${esc(sek.name)}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="sektor-topo-routen-form" novalidate>
@@ -1934,6 +1940,38 @@ function sektorTopoRoutenFormHtml(sektorId){
         <div id="kletterrouten-editor" style="margin-top:8px;"></div>
         <input type="hidden" name="kletterrouten" id="kletterrouten-hidden" value='${esc(sek.kletterrouten ? JSON.stringify(sek.kletterrouten) : "[]")}'/>
       </div>
+      <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">Klettergarten-Infos</h3>
+      <div class="field"><label>Absicherung</label>
+        <div class="chips" style="flex-direction:column; align-items:flex-start; gap:8px;">
+          ${PROTECTION_LEVELS.map(p=>`<button type="button" class="chip sektor-protection-chip ${sek.protection===p.value?'on':''}" style="${sek.protection===p.value?'background:var(--ice-deep)':''}; text-align:left;" data-value="${p.value}">${p.label} <span style="font-weight:400; opacity:0.8;">— ${p.desc}</span></button>`).join('')}
+        </div>
+        <input type="hidden" name="protection" id="sektor-protection-hidden" value="${esc(sek.protection||'')}"/>
+      </div>
+      <div class="field"><label>Abstieg</label>
+        <div class="chips">
+          ${DESCENT_TYPES.map(d=>`<button type="button" class="chip sektor-descent-chip ${sek.descentType===d?'on':''}" style="${sek.descentType===d?'background:var(--ice-deep)':''}" data-value="${d}">${d}</button>`).join('')}
+        </div>
+        <input type="hidden" name="descentType" id="sektor-descent-hidden" value="${esc(sek.descentType||'')}"/>
+      </div>
+      <div class="field"><label>Material</label>
+        <div class="chips">
+          ${MATERIAL_FIXSEIL.map(m=>`<button type="button" class="chip sektor-material-chip ${selectedMaterial.includes(m)?'on':''}" style="${selectedMaterial.includes(m)?'background:var(--ice-deep)':''}" data-value="${m}">${m}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Anzahl Expressschlingen</label><input name="quickdrawCount" value="${esc(sek.quickdrawCount||'')}" placeholder="z. B. 10"/></div>
+      <div class="field"><label>Seiltyp</label>
+        <div class="chips">
+          ${ROPE_TYPES.map(r=>`<button type="button" class="chip sektor-rope-type-chip ${sek.ropeType===r?'on':''}" style="${sek.ropeType===r?'background:var(--ice-deep)':''}" data-rope-type="${r}">${r}</button>`).join('')}
+        </div>
+        <input type="hidden" name="ropeType" id="sektor-rope-type-hidden" value="${esc(sek.ropeType||'')}"/>
+      </div>
+      <div class="field"><label>Seillänge</label>
+        <div class="chips">
+          ${ROPE_LENGTHS.map(r=>`<button type="button" class="chip sektor-rope-length-chip ${sek.ropeLength===r?'on':''}" style="${sek.ropeLength===r?'background:var(--ice-deep)':''}" data-rope-length="${r}">${r}</button>`).join('')}
+        </div>
+        <input type="hidden" name="ropeLength" id="sektor-rope-length-hidden" value="${esc(sek.ropeLength||'')}"/>
+      </div>
+      <div class="field"><label>Hinweise</label><textarea name="klettergartenNotes" placeholder="z. B. Süd-Exposition, morgens im Schatten, Zustieg 10 Min …">${esc(sek.klettergartenNotes||'')}</textarea></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="sektor-topo-routen-save-btn" class="btn">✓ Speichern</button>
@@ -1948,6 +1986,13 @@ async function submitSektorTopoRoutenForm(form){
   if(!sek) return;
   try{ sek.topoImages = form.topoImages ? JSON.parse(form.topoImages) : []; }catch(e){ sek.topoImages = []; }
   try{ sek.kletterrouten = form.kletterrouten ? JSON.parse(form.kletterrouten) : []; }catch(e){ sek.kletterrouten = []; }
+  sek.protection = form.protection || '';
+  sek.descentType = form.descentType || '';
+  sek.material = Array.isArray(form.material) ? form.material : [];
+  sek.quickdrawCount = form.quickdrawCount || '';
+  sek.ropeType = form.ropeType || '';
+  sek.ropeLength = form.ropeLength || '';
+  sek.klettergartenNotes = form.klettergartenNotes || '';
   ensureSektorRouteArrays(sek);
   sek.updatedAt = new Date().toISOString();
   sek.updatedBy = state.myName;
@@ -2380,6 +2425,7 @@ function sektorDetailHtml(id){
   if(!sek) return `<div class="modal" data-stop="1"><p>Sektor nicht gefunden.</p></div>`;
   ensureSektorRouteArrays(sek);
   const linked = state.tours.filter(t=>t.sektorId===sek.id);
+  const sekProtectionInfo = sek.protection ? PROTECTION_LEVELS.find(p=>p.value===sek.protection) : null;
   const accessRoutes = sek.accessRoutes || [];
   const descentRoutes = sek.descentRoutes || [];
   const accessRange = accessRouteDifficultyRangeHtml(accessRoutes);
@@ -2402,12 +2448,17 @@ function sektorDetailHtml(id){
     </div>` : ''}
     ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
     <div class="detail-section">
-      <h4>🧗 Kletterrouten${sek.kletterrouten && sek.kletterrouten.length ? ` (${sek.kletterrouten.length})` : ''}</h4>
+      <h4>🏕️ Klettergarten${sek.kletterrouten && sek.kletterrouten.length ? ` (${sek.kletterrouten.length})` : ''}</h4>
       ${((sek.topoImages && sek.topoImages.length) || (sek.kletterrouten && sek.kletterrouten.length)) ? `
         ${(sek.topoImages && sek.topoImages.length) ? topoImagesGalleryHtml(sek.topoImages) : ''}
         ${kletterroutenTableHtml(sek.kletterrouten)}
       ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Topo-Bild/keine Routenliste erfasst.</p>`}
-      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="edit-sektor-topo-routen" data-id="${sek.id}">🧗 Topo-Bild &amp; Routenliste bearbeiten</button>
+      ${sekProtectionInfo ? `<p style="font-size:13px; margin:10px 0 0 0;"><strong>Absicherung:</strong> ${sekProtectionInfo.label} — ${sekProtectionInfo.desc}</p>` : ''}
+      ${sek.descentType ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Abstieg:</strong> ${esc(sek.descentType)}</p>` : ''}
+      ${(sek.material && sek.material.length) || sek.quickdrawCount ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Material:</strong> ${[...(sek.material||[]), sek.quickdrawCount ? `${sek.quickdrawCount}× Expressschlingen` : ''].filter(Boolean).map(esc).join(', ')}</p>` : ''}
+      ${(sek.ropeType || sek.ropeLength) ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Seil:</strong> ${[sek.ropeType, sek.ropeLength].filter(Boolean).map(esc).join(' · ')}</p>` : ''}
+      ${sek.klettergartenNotes ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Hinweise:</strong> ${esc(sek.klettergartenNotes)}</p>` : ''}
+      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="edit-sektor-topo-routen" data-id="${sek.id}">🏕️ Klettergarten-Infos bearbeiten</button>
     </div>
     ${(() => {
       const hasSektorPoints = sek.points && sek.points.length;
@@ -2449,8 +2500,10 @@ function sektorDetailHtml(id){
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="descent">+ Abstieg hinzufügen</button>
     </div>
     <div class="detail-section">
-      <h4>Touren in diesem Sektor (${linked.length})</h4>
-      ${linked.length ? `<div class="grid" style="margin-top:6px;">${linked.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour mit diesem Sektor verlinkt.</p>`}
+      <h4>🧗 MSL-Touren (${linked.length})</h4>
+      ${linked.length ? `<div class="grid" style="margin-top:6px;">${linked.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine MSL-Tour mit diesem Sektor verlinkt.</p>`}
+      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-msl-in-sektor" data-sektor-id="${sek.id}">+ Neue MSL-Tour</button>
+      <p style="font-size:11.5px; color:var(--ink-faint); margin:6px 4px 0 4px;">Sektor ist schon fest eingetragen — keine Auswahl nötig.</p>
     </div>
     ${sek._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
     <div class="form-actions">
@@ -3637,7 +3690,9 @@ function summitChipsHtml(summitIds){
 function tourFormHtml(existing){
   const t = existing || {};
   const hutOptions = state.huts.map(h=>`<option value="${h.id}" ${t.hutId===h.id?'selected':''}>${esc(h.name)}</option>`).join('');
-  const sektorOptions = state.sektoren.map(sek=>`<option value="${sek.id}" ${t.sektorId===sek.id?'selected':''}>${esc(sek.name)}</option>`).join('');
+  const isEditingTour = !!(existing && existing.id);
+  const presetSektorId = isEditingTour ? (t.sektorId || '') : (t.sektorId || state.presetSektorId || '');
+  const sektorOptions = state.sektoren.map(sek=>`<option value="${sek.id}" ${presetSektorId===sek.id?'selected':''}>${esc(sek.name)}</option>`).join('');
   const isKnownRegion = REGIONS.includes(t.region);
   const selectedMaterial = Array.isArray(t.material) ? t.material : [];
   const ROPE_TYPES = ['Gletscherseil','Einfachseil','Halbseilstrang','Zwillingsseil'];
@@ -5520,6 +5575,7 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="edit-gipfel"]').forEach(el=> el.onclick = ()=>openEditGipfel(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-gipfel"]').forEach(el=> el.onclick = ()=>openGipfelDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="add-sektor-to-klettergebiet"]').forEach(el=> el.onclick = ()=>openAddSektorInKlettergebiet(el.getAttribute('data-klettergebiet-id')));
+  root.querySelectorAll('[data-act="add-msl-in-sektor"]').forEach(el=> el.onclick = ()=>openAddMslInSektor(el.getAttribute('data-sektor-id')));
   root.querySelectorAll('[data-act="create-sektor-from-tours"]').forEach(el=> el.onclick = ()=>{
     let ids=[]; try{ ids = JSON.parse(el.getAttribute('data-tour-ids')||'[]'); }catch(e){ ids=[]; }
     createSektorFromTours(ids);
@@ -5818,12 +5874,59 @@ function wireModalHandlers(){
       scanTopoImageForRoutes(sektorTopoImageInput, 'kletterrouten-hidden', 'kletterrouten-editor', 'sektor-topo-image-status');
     });
 
+    // Absicherung/Abstieg (Einfachauswahl) + Material (Mehrfachauswahl) + Seiltyp/-länge —
+    // dieselben Chip-Interaktionsmuster wie im Touren-Formular (siehe wireSingleSelectChips
+    // dort), hier lokal dupliziert, da eigenes Formular mit eigenen Element-IDs.
+    function wireSektorSingleSelectChips(className, hiddenId){
+      const hidden = document.getElementById(hiddenId);
+      const buttons = sektorTopoRoutenForm.querySelectorAll('.'+className);
+      buttons.forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const wasOn = btn.classList.contains('on');
+          buttons.forEach(b=>{ b.classList.remove('on'); b.style.background=''; });
+          if(wasOn){
+            if(hidden) hidden.value = '';
+          }else{
+            btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
+            if(hidden) hidden.value = btn.getAttribute('data-value');
+          }
+        });
+      });
+    }
+    wireSektorSingleSelectChips('sektor-protection-chip', 'sektor-protection-hidden');
+    wireSektorSingleSelectChips('sektor-descent-chip', 'sektor-descent-hidden');
+    sektorTopoRoutenForm.querySelectorAll('.sektor-material-chip').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const isOn = btn.classList.toggle('on');
+        btn.style.background = isOn ? 'var(--ice-deep)' : '';
+      });
+    });
+    function wireSektorRopeChips(selector, hiddenId, dataAttr){
+      const hidden = document.getElementById(hiddenId);
+      const chips = sektorTopoRoutenForm.querySelectorAll(selector);
+      chips.forEach(chip=>{
+        chip.addEventListener('click', ()=>{
+          const wasOn = chip.classList.contains('on');
+          chips.forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+          if(wasOn){
+            if(hidden) hidden.value = '';
+          }else{
+            chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+            if(hidden) hidden.value = chip.getAttribute(dataAttr);
+          }
+        });
+      });
+    }
+    wireSektorRopeChips('.sektor-rope-type-chip', 'sektor-rope-type-hidden', 'data-rope-type');
+    wireSektorRopeChips('.sektor-rope-length-chip', 'sektor-rope-length-hidden', 'data-rope-length');
+
     const sektorTopoRoutenSaveBtn = document.getElementById('sektor-topo-routen-save-btn');
     if(sektorTopoRoutenSaveBtn){
       sektorTopoRoutenSaveBtn.addEventListener('click', (e)=>{
         e.preventDefault();
         const fd = new FormData(sektorTopoRoutenForm);
         const data = Object.fromEntries(fd.entries());
+        data.material = Array.from(sektorTopoRoutenForm.querySelectorAll('.sektor-material-chip.on')).map(b=>b.getAttribute('data-value'));
         submitSektorTopoRoutenForm(data);
       });
     }
