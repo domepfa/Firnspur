@@ -142,6 +142,68 @@
       "updatedAt": "2026-09-05T00:00:00.000Z",
       "updatedBy": "Name",
       "topoImages": []
+    },
+    {
+      "id": "t_beispiel_msl002",
+      "name": "Chessiloch",
+      "routeName": "Sektor Mitte",
+      "tourCategory": "msl",
+      "difficulty": "",
+      "climbGrade": "",
+      "glacier": "",
+      "crevasseRisk": "",
+      "mandatoryDifficulty": "5c",
+      "cruxDifficulty": "6a",
+      "pitchCount": "3",
+      "longestPitch": "",
+      "protection": "sehr-gut",
+      "descentType": "",
+      "targetAltitude": "650",
+      "elevationGain": "50",
+      "elevationLoss": "",
+      "duration": "0.5-3",
+      "region": "Jura",
+      "subregion": "",
+      "material": [],
+      "quickdrawCount": "12",
+      "exposition": [],
+      "gefahren": [],
+      "ropeType": "Einfachseil",
+      "ropeLength": "60m",
+      "approachTypes": [
+        "auto"
+      ],
+      "stayTypes": [
+        "tagestour"
+      ],
+      "points": [
+        {
+          "label": "Parkplatz Chessiloch",
+          "lat": 47.31,
+          "lon": 7.62,
+          "category": "parkplatz"
+        }
+      ],
+      "manualTrack": [],
+      "hutId": "",
+      "sektorId": "",
+      "tourLink": "",
+      "gpxLink": "",
+      "crux": "",
+      "special": "Über 40 eingerichtete Routen, viel Schatten am Nachmittag.",
+      "approach": "5 Min. ab Parkplatz.",
+      "ascent": "",
+      "descent": "Über den Zustiegsweg zurück zum Wandfuss.",
+      "accessRoutes": [],
+      "descentRoutes": [],
+      "status": "entwurf",
+      "conditions": null,
+      "completions": [],
+      "createdBy": "Name",
+      "createdAt": "2026-09-05T00:00:00.000Z",
+      "updatedAt": "2026-09-05T00:00:00.000Z",
+      "updatedBy": "Name",
+      "topoImages": []
     }
   ],
   "huts": [

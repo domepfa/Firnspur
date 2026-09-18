@@ -45,11 +45,12 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - `label`: kurze Bezeichnung, was der Punkt ist
 - `lat`/`lon`: WGS84-Koordinaten (Dezimalgrad, mit Punkt statt Komma)
 - `category`: optional — bestimmt Symbol/Farbe des Punkts auf der Karte. Gültige
-  Werte: `""` (Standard-Pin), `"gefahr"` (Gefahrenstelle), `"rueckzug"`
-  (Rückzugspunkt), `"wasser"` (Wasserstelle), `"rast"` (Rastplatz), `"biwak"`
-  (Biwak/Übernachtung), `"parkplatz"`, `"toilette"`, `"haltestelle"` (ÖV),
-  `"abzweigung"` (Abzweigung/Orientierung). Bei Unsicherheit einfach weglassen
-  oder `""` — nie eine Kategorie raten, die nicht klar aus der Quelle hervorgeht.
+  Werte: `""` (Standard-Pin), `"gipfel"` (Gipfel), `"gefahr"` (Gefahrenstelle),
+  `"rueckzug"` (Rückzugspunkt), `"wasser"` (Wasserstelle), `"rast"` (Rastplatz),
+  `"biwak"` (Biwak/Übernachtung), `"parkplatz"`, `"toilette"`, `"haltestelle"`
+  (ÖV), `"abzweigung"` (Abzweigung/Orientierung). Bei Unsicherheit einfach
+  weglassen oder `""` — nie eine Kategorie raten, die nicht klar aus der Quelle
+  hervorgeht.
 - Mehrere Punkte pro Eintrag möglich
 - **Koordinaten nur bei eindeutigen GPS-Daten eintragen.** Steht in der Quelle keine
   klare, konkrete Koordinate (z. B. ein GPS-Wert, ein exakter Kartenpunkt) — auch
@@ -107,11 +108,11 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - `approachTypes`: Liste (mehrere möglich) aus: "auto", "oev", "seilbahn", "zufuss"
 - `stayTypes`: Liste (mehrere möglich) aus: "tagestour", "huette", "biwak", "zelt"
 
-## Felder-Erklärung (Fixseil = Hochtour/MSL) — zusätzlich zu obigem
+## Felder-Erklärung (Fixseil = Hochtour/Klettern-MSL) — zusätzlich zu obigem
 
 - `region`/`subregion`/`points`: identisch zu Firnspur
-- `tourCategory`: "hochtour" ODER "msl" — bestimmt, welche Feldgruppe ausgefüllt
-  wird (die jeweils andere bleibt leer):
+- `tourCategory`: "hochtour" ODER "msl" — bestimmt, welche Feldgruppe
+  ausgefüllt wird (die jeweils andere bleibt leer):
 
   **Falls tourCategory = "hochtour":**
   - `difficulty`: SAC-Skala wie oben (inkl. S+)
@@ -120,6 +121,10 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - `crevasseRisk`: "nein", "moeglich", "ausgepraegt"
   - `descentType`: "Fussabstieg", "Abseilen", oder "Kombination"
   - `descent`: Freitext-Beschreibung der Abfahrt/des Abstiegs
+  - `sektorId`: Normalerweise leerer String `""`. Optional setzbar — z. B. wenn
+    derselbe Sektor auch eine MSL-Route auf denselben Gipfel trägt (siehe unten).
+    Anders als bei MSL werden Zustieg/Abstieg dadurch NICHT vom Sektor übernommen,
+    `descent` bleibt Freitext wie gewohnt.
 
   **Falls tourCategory = "msl" (Mehrseillängen-Klettertour):**
   - `mandatoryDifficulty`: obligatorische Schwierigkeit, franz. Skala
@@ -243,7 +248,10 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 ## Felder-Erklärung (Sektoren — nur Fixseil, optionales Feld `"sektoren"`)
 
 Ein Sektor bündelt mehrere MSL-Touren mit gemeinsamem Ausgangspunkt und
-geteilten Zustiegen/Abstiegen (analog zu Hütten-Zustiegen). Nur relevant für
+geteilten Zustiegen/Abstiegen (analog zu Hütten-Zustiegen). Ein Sektor kann
+daneben auch Hochtouren verlinkt haben, die z. B. auf denselben Gipfel führen —
+bei denen bleiben `descent`/eigene Zustiege aber Freitext, nichts wird vom
+Sektor übernommen (siehe `sektorId` bei Hochtour weiter oben). Nur relevant für
 Fixseil (Hochtour/MSL) — Firnspur kennt keine Sektoren. Nur eintragen, wenn
 aus der Quelle klar hervorgeht, dass mehrere Touren denselben Zustieg/
 Ausgangspunkt teilen; sonst `"sektoren": []` lassen und `sektorId` bei den
@@ -267,6 +275,13 @@ Um eine MSL-Tour mit einem Sektor zu verknüpfen: Sektor unter `"sektoren"`
 anlegen und die `id` dieses Sektors bei der Tour in `sektorId` eintragen (siehe
 oben). Die Tour braucht dann keine eigenen `accessRoutes`/`descentRoutes`
 mehr (dort `[]` eintragen) — sie übernimmt automatisch die des Sektors.
+
+**Wichtig — Klettergebiete lassen sich per Import NICHT anlegen.** Ein
+Klettergebiet (z. B. "Furka") bündelt mehrere Sektoren an einem Berg — es ist
+eine eigene Entität in der App, aber (noch) kein eigenes JSON-Feld. Importierte
+Sektoren landen darum immer erst unter "Sektoren ohne Gebiet"; das Zuordnen zu
+einem (ggf. neuen) Klettergebiet macht die Person danach direkt in der App
+("Sektor bearbeiten" oder der Knopf "In neues Klettergebiet umwandeln").
 
 ## Auftrag an ChatGPT/Gemini
 
