@@ -163,74 +163,289 @@ function esc(s){
   if(s===undefined||s===null) return '';
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-// Kartenstreifen über Touren-/Gebiets-Listen: bewusst KEIN Leaflet, keine Kacheln — die
-// Positionen der Punkte ergeben sich per einfacher linearer Min/Max-Normalisierung aus lat/lon
-// (behält die relative Nord/Ost-Lage der Punkte zueinander, keine echte Projektion), und der
-// Gelände-Hintergrund ist rein dekorativ (immer dieselben weichen Grat/Tal-Flächen, unabhängig
-// von echten Höhendaten). Dadurch entsteht beim Öffnen einer Liste kein zusätzlicher
-// Netzwerk-Traffic — es werden nur die ohnehin schon geladenen .points der jeweiligen
-// Tour/Klettergebiete verwendet.
+// Kartenstreifen über Touren-/Gebiets-Listen: bewusst KEIN Leaflet, keine Kacheln, sondern eine
+// einmal offline vereinfachte/projizierte CH-Silhouette (Kantonsgrenzen, 20 Seen, Relief-Hillshade
+// aus DHM200 — siehe 0-geo-ch.js) fest in die App eingebettet. Punkte werden über dieselbe
+// Projektion wie die Silhouette platziert (echte, konstante Lage zueinander statt Min/Max-
+// Streckung auf die jeweils aktuelle Liste), dadurch bleiben nahe Gebiete/Touren bei kleinem
+// Massstab zu einem Sammel-Pin zusammengefasst und lassen sich per Pinch/Doppeltipp wieder
+// auftrennen. Dadurch entsteht beim Öffnen einer Liste weiterhin kein zusätzlicher Netzwerk-
+// Traffic — Kartendaten sind Teil des App-Shells (Service-Worker-Precache), es werden nur die
+// ohnehin schon geladenen .points der jeweiligen Tour/Klettergebiete verwendet.
+const MAP_STRIP_ZOOM_MIN = 1;
+const MAP_STRIP_ZOOM_MAX = 12;
+const MAP_STRIP_ZOOM_STEP = 2.4;
+// Abstand (in % der Kartenstreifen-Fläche) unter dem zwei Punkte bei Zoom 1x zu einem Sammel-Pin
+// zusammengefasst werden — schrumpft mit dem Zoom, damit Reinzoomen nahe Punkte wieder trennt.
+// 5.0% entspricht bei Zoom 1x (ganze Schweiz) ca. 19 km (in dieser Grössenordnung überlappen sich
+// die Pins sowieso schon rein optisch), bei ZOOM_MAX 1x/12 davon ca. 1.6 km -- reicht, um auch nah
+// beieinander liegende, aber klar unterschiedliche Gebiete/Touren (Beispiel aus dem Vorschlag:
+// zwei ca. 2 km entfernte Gipfel) beim Reinzoomen wieder zu trennen.
+const MAP_STRIP_CLUSTER_BASE_PCT = 5.0;
+
 function mapStripPositions(points){
   const valid = points.filter(p=> p && typeof p.lat==='number' && typeof p.lon==='number');
   if(!valid.length) return [];
-  const lats = valid.map(p=>p.lat), lons = valid.map(p=>p.lon);
-  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-  const minLon = Math.min(...lons), maxLon = Math.max(...lons);
-  const latSpan = maxLat - minLat, lonSpan = maxLon - minLon;
-  // 14%-86%-Spanne statt 0%-100%, damit Label/Popup von Rand-Pins nicht abgeschnitten werden.
-  return valid.map(p=>({
-    ...p,
-    xPct: lonSpan ? 14 + (p.lon - minLon) / lonSpan * 72 : 50,
-    yPct: latSpan ? 14 + (maxLat - p.lat) / latSpan * 72 : 50
-  }));
+  return valid.map(p=>{
+    const proj = projectLatLon(p.lat, p.lon);
+    return {
+      ...p,
+      xPct: Math.max(1, Math.min(99, proj.x / GEO_CH_VIEWBOX.w * 100)),
+      yPct: Math.max(1, Math.min(99, proj.y / GEO_CH_VIEWBOX.h * 100))
+    };
+  });
 }
-function mapStripTerrainSvg(){
-  // Weiche Grat/Tal-Flächen (Hillshade-Andeutung) plus ein paar dünne, den Graten folgende
-  // Konturlinien (Isolinien-Andeutung) für etwas mehr "Kartengefühl" — beides bewusst generisch,
-  // nicht aus echten Höhendaten abgeleitet (siehe Kommentar bei mapStripPositions oben).
-  return `<svg style="position:absolute; inset:0; pointer-events:none;" viewBox="0 0 358 120" preserveAspectRatio="none">
-    <defs><filter id="map-strip-soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"/></filter></defs>
-    <path filter="url(#map-strip-soft)" d="M-20,80 C40,45 90,72 130,38 C165,10 205,36 240,24 C280,8 330,36 380,28 L380,140 L-20,140 Z" style="fill:var(--line); opacity:0.6;"/>
-    <path filter="url(#map-strip-soft)" d="M-20,100 C60,80 110,98 170,74 C220,54 260,80 320,64 L380,72 L380,140 L-20,140 Z" style="fill:var(--line); opacity:0.42;"/>
-    <path filter="url(#map-strip-soft)" d="M-20,115 C80,102 150,112 220,98 C270,88 320,100 380,94 L380,140 L-20,140 Z" style="fill:var(--line); opacity:0.3;"/>
-    <g style="stroke:var(--ink-faint); stroke-width:1; fill:none; opacity:0.5;">
-      <path d="M-10,78 C40,48 90,70 128,40 C160,15 200,38 236,26"/>
-      <path d="M-10,88 C45,60 95,82 132,52 C165,28 205,50 242,38"/>
-      <path d="M180,50 C220,36 260,54 300,42 C330,33 355,42 375,36"/>
-      <path d="M190,62 C230,48 268,64 308,52 C336,43 358,50 378,46"/>
-      <path d="M40,100 C90,86 140,96 190,84 C230,74 270,86 310,78"/>
-    </g>
+// Fasst Punkte zusammen, die beim aktuellen Zoom näher als der Schwellwert liegen. Greedy statt
+// optimal (erster nicht zugeordneter Punkt "zieht" alle in Reichweite mit) — für die paar Dutzend
+// Punkte einer Liste reicht das, ein Sammel-Pin trägt seine Mitglieder für Popup/Rein-Zoomen mit.
+function mapStripClusterPoints(positioned, zoom){
+  const threshold = MAP_STRIP_CLUSTER_BASE_PCT / Math.max(MAP_STRIP_ZOOM_MIN, zoom);
+  const remaining = positioned.slice();
+  const out = [];
+  while(remaining.length){
+    const seed = remaining.shift();
+    const group = [seed];
+    for(let i=remaining.length-1; i>=0; i--){
+      const d = Math.hypot(remaining[i].xPct-seed.xPct, remaining[i].yPct-seed.yPct);
+      if(d <= threshold){ group.push(remaining[i]); remaining.splice(i,1); }
+    }
+    if(group.length>1){
+      out.push({
+        isCluster: true,
+        id: 'cluster-'+group.map(p=>p.id).join('-'),
+        xPct: group.reduce((s,p)=>s+p.xPct,0)/group.length,
+        yPct: group.reduce((s,p)=>s+p.yPct,0)/group.length,
+        points: group
+      });
+    }else{
+      out.push(group[0]);
+    }
+  }
+  return out;
+}
+// Hintergrund-SVG (Relief + Seen + Kantonsgrenzen) ist unabhängig von der jeweiligen Liste immer
+// gleich — einmal pro Farb-Thema (Firnspur/Fixseil, siehe GEO_CH_HILLSHADE) bauen und cachen statt
+// bei jedem render() die ~30 KB Pfad-Strings neu zusammenzusetzen.
+let _mapStripBgSvgCache = {};
+function mapStripBackgroundSvg(){
+  const isFixseilApp = typeof SEKTOREN_PATH !== 'undefined';
+  const key = isFixseilApp ? 'fixseil' : 'firnspur';
+  if(_mapStripBgSvgCache[key]) return _mapStripBgSvgCache[key];
+  const vb = GEO_CH_VIEWBOX, hs = GEO_CH_HILLSHADE;
+  const cantonPaths = Object.values(GEO_CH_CANTON_PATHS).map(d=>`<path d="${d}"/>`).join('');
+  const lakePaths = Object.values(GEO_CH_LAKE_PATHS).map(d=>`<path d="${d}"/>`).join('');
+  const svg = `<svg class="map-strip-bg" viewBox="0 0 ${vb.w} ${vb.h}" preserveAspectRatio="xMidYMid meet">
+    <image href="${isFixseilApp ? hs.srcFixseil : hs.srcFirnspur}" x="${hs.x}" y="${hs.y}" width="${hs.w}" height="${hs.h}" preserveAspectRatio="none" opacity="0.9"></image>
+    <g class="map-strip-lakes">${lakePaths}</g>
+    <g class="map-strip-cantons">${cantonPaths}</g>
   </svg>`;
+  _mapStripBgSvgCache[key] = svg;
+  return svg;
+}
+function mapStripGetView(kind){
+  return (state._mapStripView && state._mapStripView[kind]) || {zoom: MAP_STRIP_ZOOM_MIN, panX:0, panY:0};
+}
+function mapStripSetView(kind, view){
+  if(!state._mapStripView) state._mapStripView = {};
+  state._mapStripView[kind] = view;
+}
+// transform-origin ist bewusst 0/0 (siehe Inline-Style unten) -- Panning/Zoomen bleibt dadurch
+// eine einfache translate-vor-Skalierung-Rechnung ohne Offset-Korrektur um die Mitte.
+function mapStripClampView(view, containerW, containerH){
+  view.zoom = Math.max(MAP_STRIP_ZOOM_MIN, Math.min(MAP_STRIP_ZOOM_MAX, view.zoom));
+  const minPanX = containerW - containerW*view.zoom, minPanY = containerH - containerH*view.zoom;
+  view.panX = Math.max(minPanX, Math.min(0, view.panX));
+  view.panY = Math.max(minPanY, Math.min(0, view.panY));
+  return view;
+}
+function mapStripApplyLiveTransform(wrap, view){
+  wrap.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
+}
+function mapStripZoomToPoint(kind, canvasEl, xPct, yPct){
+  const view = mapStripGetView(kind);
+  const rect = canvasEl.getBoundingClientRect();
+  // Zoom VOR der Pan-Berechnung clampen -- sonst wird panX/panY passend zum unbegrenzten Zoom
+  // zentriert und danach nur noch der Zoom selbst gekappt, wodurch das Zentrieren nicht mehr zum
+  // tatsächlichen (gekappten) Zoom passt und der Punkt aus dem sichtbaren Bereich wandern kann.
+  const nextZoom = Math.max(MAP_STRIP_ZOOM_MIN, Math.min(MAP_STRIP_ZOOM_MAX, view.zoom * MAP_STRIP_ZOOM_STEP));
+  const px = xPct/100*rect.width, py = yPct/100*rect.height;
+  const newView = mapStripClampView({ zoom: nextZoom, panX: rect.width/2 - px*nextZoom, panY: rect.height/2 - py*nextZoom }, rect.width, rect.height);
+  mapStripSetView(kind, newView);
+}
+function mapStripResetView(kind){
+  mapStripSetView(kind, {zoom: MAP_STRIP_ZOOM_MIN, panX:0, panY:0});
 }
 // opts: {label, kind:'tour'|'klettergebiet', points:[{id,lat,lon,label}], emptyText, openPinId}
 function mapStripHtml(opts){
   const { label, kind, points, emptyText, openPinId } = opts;
   const positioned = mapStripPositions(points || []);
+  const view = mapStripGetView(kind);
+  const clusters = mapStripClusterPoints(positioned, view.zoom);
   const openAct = kind==='klettergebiet' ? 'open-klettergebiet' : 'open-tour';
   const linkLabel = kind==='klettergebiet' ? 'Zum Gebiet' : 'Zur Tour';
+  const openClusterId = state._mapStripOpenClusterId;
+  const pinScale = 1 / view.zoom;
   return `
     <div class="map-strip">
       <div class="map-strip-head">
         <span class="map-strip-label">🗺️ ${esc(label)}</span>
-        <button type="button" class="map-strip-hint" data-act="open-standalone-map">🔍 Echte Karte</button>
+        <span class="map-strip-head-actions">
+          ${view.zoom > MAP_STRIP_ZOOM_MIN + 0.01 ? `<button type="button" class="map-strip-hint" data-act="map-strip-reset" data-kind="${kind}">↺ Ganze Schweiz</button>` : ''}
+          <button type="button" class="map-strip-hint" data-act="open-standalone-map">🔍 Echte Karte</button>
+        </span>
       </div>
-      <div class="map-strip-canvas">
-        ${mapStripTerrainSvg()}
+      <div class="map-strip-canvas" data-kind="${kind}">
+        <div class="map-strip-zoomwrap" style="transform: translate(${view.panX}px, ${view.panY}px) scale(${view.zoom}); transform-origin: 0 0;">
+          ${mapStripBackgroundSvg()}
+          ${clusters.map(c=>{
+            if(c.isCluster){
+              const open = openClusterId===c.id;
+              return `
+                <div class="map-strip-pin map-strip-cluster ${open ? 'open' : ''}" style="left:${c.xPct}%; top:${c.yPct}%; transform:translate(-50%,-50%) scale(${pinScale});">
+                  <button type="button" class="map-strip-dot map-strip-cluster-dot" data-act="map-strip-cluster" data-kind="${kind}" data-id="${esc(c.id)}" data-cx="${c.xPct}" data-cy="${c.yPct}" title="${c.points.length} Ziele hier">${c.points.length}</button>
+                  ${open ? `
+                    <div class="map-strip-popup map-strip-popup-list">
+                      ${c.points.map(p=>`<button type="button" data-act="${openAct}" data-id="${esc(p.id)}">${esc(p.label)}</button>`).join('')}
+                    </div>
+                  ` : ''}
+                </div>`;
+            }
+            const p = c;
+            return `
+              <div class="map-strip-pin ${openPinId===p.id ? 'open' : ''}" style="left:${p.xPct}%; top:${p.yPct}%; transform:translate(-50%,-50%) scale(${pinScale});">
+                <button type="button" class="map-strip-dot" data-act="map-strip-toggle" data-id="${esc(p.id)}" title="${esc(p.label)}" aria-label="${esc(p.label)}"></button>
+                ${openPinId===p.id ? `
+                  <div class="map-strip-popup">
+                    <strong>${esc(p.label)}</strong>
+                    <button type="button" data-act="${openAct}" data-id="${esc(p.id)}">${linkLabel} →</button>
+                  </div>
+                ` : `<div class="map-strip-nlabel">${esc(p.label)}</div>`}
+              </div>`;
+          }).join('')}
+        </div>
         <div class="map-strip-compass"><div class="n"></div>N</div>
-        ${positioned.length ? positioned.map(p=>`
-          <div class="map-strip-pin ${openPinId===p.id ? 'open' : ''}" style="left:${p.xPct}%; top:${p.yPct}%;">
-            <button type="button" class="map-strip-dot" data-act="map-strip-toggle" data-id="${esc(p.id)}" title="${esc(p.label)}" aria-label="${esc(p.label)}"></button>
-            ${openPinId===p.id ? `
-              <div class="map-strip-popup">
-                <strong>${esc(p.label)}</strong>
-                <button type="button" data-act="${openAct}" data-id="${esc(p.id)}">${linkLabel} →</button>
-              </div>
-            ` : `<div class="map-strip-nlabel">${esc(p.label)}</div>`}
-          </div>
-        `).join('') : `<div class="map-strip-empty">${esc(emptyText || '')}</div>`}
+        ${!positioned.length ? `<div class="map-strip-empty">${esc(emptyText || '')}</div>` : ''}
       </div>
     </div>
   `;
+}
+// Nach jedem render()/renderListOnly() aufrufen (siehe wireGlobalHandlers in index.html/fixseil.html):
+// verdrahtet Pinch-Zoom, Verschieben (Finger + Maus zum Testen) und Doppeltipp/-klick live direkt
+// auf dem DOM-Knoten, OHNE während der Geste render() aufzurufen (das würde die Geste durch das
+// Neuaufbauen des ganzen Kartenstreifens abreissen) — erst am Gesten-Ende wird der Zustand in
+// state._mapStripView committet und einmalig neu gerendert, damit die Cluster-Bildung zum neuen
+// Zoom passt.
+function wireMapStripCanvases(){
+  document.querySelectorAll('.map-strip-canvas').forEach(canvasEl=>{
+    const kind = canvasEl.getAttribute('data-kind');
+    const wrap = canvasEl.querySelector('.map-strip-zoomwrap');
+    if(!wrap || !kind) return;
+    let view = mapStripGetView(kind);
+    let pinchStartDist = null, pinchStartZoom = 1, pinchWorldX = 0, pinchWorldY = 0;
+    let panStartX = null, panStartY = null, panOriginX = 0, panOriginY = 0;
+    let gestureMoved = false;
+    let lastTapTime = 0, lastTapX = 0, lastTapY = 0;
+
+    function touchDist(t){ return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
+    function commit(){
+      const rect = canvasEl.getBoundingClientRect();
+      mapStripClampView(view, rect.width, rect.height);
+      mapStripSetView(kind, view);
+      render();
+    }
+    function maybeDoubleTap(clientX, clientY){
+      const now = Date.now();
+      const isDoubleTap = (now - lastTapTime < 350) && Math.hypot(clientX-lastTapX, clientY-lastTapY) < 30;
+      lastTapTime = isDoubleTap ? 0 : now; lastTapX = clientX; lastTapY = clientY;
+      if(!isDoubleTap) return;
+      const rect = canvasEl.getBoundingClientRect();
+      if(view.zoom > MAP_STRIP_ZOOM_MIN + 0.01){ mapStripResetView(kind); }
+      else{ mapStripZoomToPoint(kind, canvasEl, (clientX-rect.left)/rect.width*100, (clientY-rect.top)/rect.height*100); }
+      render();
+    }
+
+    canvasEl.addEventListener('touchstart', (e)=>{
+      gestureMoved = false;
+      if(e.touches.length===2){
+        panStartX = null;
+        pinchStartDist = touchDist(e.touches);
+        pinchStartZoom = view.zoom;
+        const rect = canvasEl.getBoundingClientRect();
+        const midX = (e.touches[0].clientX+e.touches[1].clientX)/2 - rect.left;
+        const midY = (e.touches[0].clientY+e.touches[1].clientY)/2 - rect.top;
+        pinchWorldX = (midX - view.panX)/view.zoom;
+        pinchWorldY = (midY - view.panY)/view.zoom;
+      }else if(e.touches.length===1){
+        pinchStartDist = null;
+        panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY;
+        panOriginX = view.panX; panOriginY = view.panY;
+      }
+    }, {passive:true});
+
+    canvasEl.addEventListener('touchmove', (e)=>{
+      if(e.touches.length===2 && pinchStartDist){
+        e.preventDefault(); gestureMoved = true;
+        const rect = canvasEl.getBoundingClientRect();
+        const newDist = touchDist(e.touches);
+        const newZoom = Math.max(MAP_STRIP_ZOOM_MIN, Math.min(MAP_STRIP_ZOOM_MAX, pinchStartZoom * (newDist/pinchStartDist)));
+        const midX = (e.touches[0].clientX+e.touches[1].clientX)/2 - rect.left;
+        const midY = (e.touches[0].clientY+e.touches[1].clientY)/2 - rect.top;
+        view = mapStripClampView({ zoom: newZoom, panX: midX - pinchWorldX*newZoom, panY: midY - pinchWorldY*newZoom }, rect.width, rect.height);
+        mapStripApplyLiveTransform(wrap, view);
+      }else if(e.touches.length===1 && panStartX!==null){
+        e.preventDefault(); gestureMoved = true;
+        const rect = canvasEl.getBoundingClientRect();
+        view.panX = panOriginX + (e.touches[0].clientX-panStartX);
+        view.panY = panOriginY + (e.touches[0].clientY-panStartY);
+        mapStripClampView(view, rect.width, rect.height);
+        mapStripApplyLiveTransform(wrap, view);
+      }
+    }, {passive:false});
+
+    canvasEl.addEventListener('touchend', (e)=>{
+      if(e.touches.length>0) return;
+      const wasPinch = !!pinchStartDist, wasPan = panStartX!==null;
+      pinchStartDist = null; panStartX = null; panStartY = null;
+      if(!wasPinch && !wasPan) return;
+      if(gestureMoved){ commit(); return; }
+      // Tap ohne Bewegung und nicht auf einem Pin (der hat sein eigenes data-act) -> Doppeltipp prüfen.
+      const touch = e.changedTouches[0];
+      if(touch && !(touch.target && touch.target.closest && touch.target.closest('.map-strip-pin'))){
+        maybeDoubleTap(touch.clientX, touch.clientY);
+      }
+    });
+
+    // Maus-Verschieben + Doppelklick zum Testen am Desktop (Pinch geht nur mit Touch).
+    canvasEl.addEventListener('mousedown', (e)=>{
+      if(e.button!==0 || (e.target.closest && e.target.closest('.map-strip-pin'))) return;
+      gestureMoved = false;
+      const startX = e.clientX, startY = e.clientY;
+      panOriginX = view.panX; panOriginY = view.panY;
+      const onMove = (ev)=>{
+        gestureMoved = true;
+        const rect = canvasEl.getBoundingClientRect();
+        view.panX = panOriginX + (ev.clientX-startX);
+        view.panY = panOriginY + (ev.clientY-startY);
+        mapStripClampView(view, rect.width, rect.height);
+        mapStripApplyLiveTransform(wrap, view);
+      };
+      const onUp = ()=>{
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if(gestureMoved) commit();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    canvasEl.addEventListener('dblclick', (e)=>{
+      if(e.target.closest && e.target.closest('.map-strip-pin')) return;
+      e.preventDefault();
+      const rect = canvasEl.getBoundingClientRect();
+      if(view.zoom > MAP_STRIP_ZOOM_MIN + 0.01){ mapStripResetView(kind); }
+      else{ mapStripZoomToPoint(kind, canvasEl, (e.clientX-rect.left)/rect.width*100, (e.clientY-rect.top)/rect.height*100); }
+      render();
+    });
+  });
 }
 function fmtDate(iso){
   if(!iso) return '';
