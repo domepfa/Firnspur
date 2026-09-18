@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v161-kartenstreifen-gps-track-touren';
+const APP_VERSION = 'v162-gebiet-chips-als-badges';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3202,21 +3202,23 @@ function mslListOrGroupedHtml(list, activeFilterCount){
     const tourCount = sekIds.reduce((sum,sid)=> sum + bySektor[sid].length, 0);
     const gradeRange = klettergebietClimbGradeRangeText(geb);
     const altitude = klettergebietAltitudeText(geb);
-    return mslGroupCardHtml({icon:'⛰️', name:geb.name, region:geb.region, act:'open-klettergebiet', id:geb.id, lines:[
-      ...(gradeRange ? [`🧗 ${esc(gradeRange)}`] : []),
-      ...(altitude ? [esc(altitude)] : []),
-      `🧭 ${sekIds.length} Sektor${sekIds.length===1?'':'en'}`, `${tourCount} Tour${tourCount===1?'':'en'}`
-    ]});
+    return mslGroupCardHtml({icon:'⛰️', name:geb.name, region:geb.region, act:'open-klettergebiet', id:geb.id,
+      badges: [
+        ...(gradeRange ? [`<span class="badge climb">🧗 ${esc(gradeRange)}</span>`] : []),
+        ...(altitude ? [`<span class="badge" style="background:var(--ice-deep)">${esc(altitude)}</span>`] : [])
+      ],
+      lines:[`🧭 ${sekIds.length} Sektor${sekIds.length===1?'':'en'}`, `${tourCount} Tour${tourCount===1?'':'en'}`]
+    });
   }).join('');
   const sektorCards = standaloneSektorIds.map(sekId=>{
     const sek = state.sektoren.find(s=>s.id===sekId);
     if(!sek) return '';
     const tourCount = bySektor[sekId].length;
     const gradeRange = sektorClimbGradeRangeText(sek);
-    return mslGroupCardHtml({icon:'🧭', name:sek.name, region:sek.region, act:'open-sektor', id:sek.id, lines:[
-      ...(gradeRange ? [`🧗 ${esc(gradeRange)}`] : []),
-      `${tourCount} Tour${tourCount===1?'':'en'}`
-    ]});
+    return mslGroupCardHtml({icon:'🧭', name:sek.name, region:sek.region, act:'open-sektor', id:sek.id,
+      badges: gradeRange ? [`<span class="badge climb">🧗 ${esc(gradeRange)}</span>`] : [],
+      lines:[`${tourCount} Tour${tourCount===1?'':'en'}`]
+    });
   }).join('');
   // draggable=true: Long-Press auf einer freistehenden Tour (noch kein Sektor) öffnet ein Menü zum
   // Zusammenführen mit einer anderen Tour bzw. Hinzufügen zu einem Sektor — siehe wireTourAssignMenu().
@@ -3224,13 +3226,14 @@ function mslListOrGroupedHtml(list, activeFilterCount){
   return `<div class="grid">${gebietCards}${sektorCards}${looseCards}</div>`;
 }
 
-function mslGroupCardHtml({icon, name, region, act, id, lines}){
+function mslGroupCardHtml({icon, name, region, act, id, badges, lines}){
   return `
   <div class="card" data-act="${act}" data-id="${id}" tabindex="0" role="button">
     <div class="card-top">
       <h3 style="color:var(--ice-deep);">${icon} ${esc(name)}</h3>
     </div>
     ${region ? `<p class="excerpt">${esc(region)}</p>` : ''}
+    ${badges && badges.length ? `<div class="badge-row">${badges.join('')}</div>` : ''}
     ${lines.map(l=>`<span class="hut-link-chip">${l}</span>`).join('')}
   </div>`;
 }
@@ -3505,8 +3508,10 @@ function klettergebietCardHtml(geb){
       <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
     </div>
     ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
-    ${gradeRange ? `<span class="hut-link-chip">🧗 ${esc(gradeRange)}</span>` : ''}
-    ${altitude ? `<span class="hut-link-chip">${esc(altitude)}</span>` : ''}
+    ${(gradeRange || altitude) ? `<div class="badge-row">
+      ${gradeRange ? `<span class="badge climb">🧗 ${esc(gradeRange)}</span>` : ''}
+      ${altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(altitude)}</span>` : ''}
+    </div>` : ''}
     <span class="hut-link-chip">🧭 ${sektoren.length} Sektor${sektoren.length===1?'':'en'}</span>
     <span class="hut-link-chip">${tourCount} Tour${tourCount===1?'':'en'}</span>
     ${geb._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
