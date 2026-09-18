@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v167-sektor-touren-zuoberst';
+const APP_VERSION = 'v168-klettergebiet-auto-sektor';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2098,6 +2098,7 @@ async function submitSektorTopoRoutenForm(form){
    Sektoren A/B/C) — hält die Touren-Übersicht übersichtlich, auch wenn ein Gebiet viele
    MSL-Routen/Klettergärten hat. */
 async function submitKlettergebietForm(form, existing){
+  const isNew = !(existing && existing.id);
   const g = (existing && existing.id) ? {...existing} : {id: (form.klettergebietIdForTopo || uid('geb')), createdBy: state.myName, createdAt: new Date().toISOString()};
   g.name = form.name.trim();
   const gipfelName = (form.gipfelName || '').trim();
@@ -2113,17 +2114,36 @@ async function submitKlettergebietForm(form, existing){
 
   const idx = state.klettergebiete.findIndex(x=>x.id===g.id);
   if(idx>=0) state.klettergebiete[idx] = g; else state.klettergebiete.unshift(g);
+
+  // Neues Klettergebiet bekommt sofort einen gleichnamigen Sektor mit -- die meisten Gebiete haben
+  // ohnehin nur einen (ein einzelner Klettergarten oder eine einzelne MSL-Route), der manuelle
+  // Zwischenschritt "+ Neuer Sektor in diesem Gebiet" wäre da nur unnötige Klickarbeit. Braucht das
+  // Gebiet später doch mehr als einen Sektor, bleibt der Knopf dafür ganz normal verfügbar.
+  let autoSektor = null;
+  if(isNew){
+    autoSektor = {
+      id: uid('sek'), name: g.name, region: g.region, subregion: g.subregion,
+      klettergebietId: g.id, createdBy: state.myName, createdAt: new Date().toISOString()
+    };
+    state.sektoren.unshift(autoSektor);
+  }
+
   closeModal(false, true, true);
-  state.modal = {type:'klettergebiet-detail', payload:g.id};
+  state.modal = autoSektor ? {type:'sektor-detail', payload:autoSektor.id} : {type:'klettergebiet-detail', payload:g.id};
   render();
 
   const ok = await saveKlettergebietCloud(g).catch(()=>false);
   g._unsynced = !ok;
-  if(!ok){
+  let sektorOk = true;
+  if(autoSektor){
+    sektorOk = await saveSektorCloud(autoSektor).catch(()=>false);
+    autoSektor._unsynced = !sektorOk;
+  }
+  if(!ok || !sektorOk){
     markUnsaved();
     showToast('Klettergebiet ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
   }else{
-    showToast('Klettergebiet gespeichert und synchronisiert.');
+    showToast(autoSektor ? 'Klettergebiet mit erstem Sektor angelegt.' : 'Klettergebiet gespeichert und synchronisiert.');
   }
   render();
 }
