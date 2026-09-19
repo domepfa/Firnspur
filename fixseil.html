@@ -227,7 +227,7 @@
   /* Seitenverhältnis der echten CH-Silhouette (siehe GEO_CH_VIEWBOX) statt fixer Höhe, sonst
      stimmt die Skalierung von Kantonen/Seen/Pins nicht mehr zusammen. touch-action:none, damit
      die eigene Pinch/Pan-Geste (wireMapStripCanvases) nicht mit dem nativen Seiten-Scroll kollidiert. */
-  .map-strip-canvas{position:relative; aspect-ratio:260/173.9; border-radius:var(--radius); overflow:hidden; background:var(--paper); border:1px solid var(--line); touch-action:none; user-select:none;}
+  .map-strip-canvas{position:relative; aspect-ratio:260/173.9; border-radius:var(--radius); overflow:hidden; background:var(--ice-light); border:1px solid var(--line); touch-action:none; user-select:none;}
   .map-strip-zoomwrap{position:absolute; inset:0; will-change:transform;}
   .map-strip-bg{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
   .map-strip-cantons path{fill:none; stroke:var(--ink-faint); stroke-width:0.35; stroke-opacity:0.55;}
@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v169-mapstrip-theme-clusterlabel';
+const APP_VERSION = 'v170-mapstrip-canvas-bg';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
