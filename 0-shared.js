@@ -2426,6 +2426,13 @@ function renderStandaloneMap(containerId){
     }
     const categoryLayers = {}; // key -> L.layerGroup()
     const allBoundsItems = [];
+    const pointMarkers = []; // alle Punkt-Marker (nicht Linien) -- fuer die zoomabhaengige Groesse unten
+    // Feste Pixelgroesse wirkt beim Rauszoomen unuebersichtlich: nahe Punkte ruecken naeher
+    // zusammen und die (bei fixer Groesse gleich grossen) Kreise ueberlappen sich zu wirkenden
+    // "Klumpen". Bei kleinem Massstab deshalb kleiner zeichnen, bei grossem wie bisher.
+    function radiusForZoom(zoom){
+      return Math.max(5, Math.min(11, 5 + (zoom - 7)));
+    }
     // Für die Suchfunktion (Textfeld oben rechts): Name + Koordinate + Öffnen-Funktion je
     // Tour/Hütte/Sektor — bewusst nicht die einzelnen Zustiege/Abstiege, das würde die
     // Trefferliste v.a. bei generischen Namen wie "Sommer"/"Winter" nur unübersichtlich machen.
@@ -2453,12 +2460,13 @@ function renderStandaloneMap(containerId){
       }
       (points||[]).forEach(p=>{
         try{
-          const m = L.circleMarker([p.lat, p.lon], {radius:11, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
+          const m = L.circleMarker([p.lat, p.lon], {radius:radiusForZoom(map.getZoom()), color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
           m.on('click', (e)=>{
             L.DomEvent.stopPropagation(e);
             L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
           });
           allBoundsItems.push(m);
+          pointMarkers.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
       });
     }
@@ -2530,6 +2538,10 @@ function renderStandaloneMap(containerId){
     if(allBoundsItems.length){
       map.fitBounds(L.featureGroup(allBoundsItems).getBounds(), {padding:[30,30]});
     }
+    map.on('zoomend', ()=>{
+      const r = radiusForZoom(map.getZoom());
+      pointMarkers.forEach(m=> m.setRadius(r));
+    });
     // Umschalt-Chips — auch bei nur einer Tourenart (z. B. in der Skitour-App), damit sich die
     // eigenen Touren bei Bedarf auch ganz ausblenden lassen. Als echtes Leaflet-Control, damit
     // es zuverlässig über der Karte liegt.
