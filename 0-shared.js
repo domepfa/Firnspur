@@ -4989,6 +4989,189 @@ function findToursSharingPoints(currentTour, allTours, maxMeters){
   });
 }
 
+/* ================= MeteoSchweiz Mehrtagesprognose (Open Data) =================
+   Nutzt die seit 2025 offiziellen, kostenlosen MeteoSchweiz-Lokalprognosedaten
+   (dieselben Zahlen wie MeteoSchweiz-App/Website) statt eines globalen Wetterdiensts --
+   das 1-2km-Modell von MeteoSchweiz löst Alpentäler/Grate deutlich besser auf als
+   generische internationale Dienste. Ablauf: 1) Punktliste (Postleitzahlen/Gipfel/
+   Hütten, ~6000 Punkte, einmalig geladen) durchsuchen, 2) nächstgelegenen Punkt zur
+   Tour-/Gipfel-/Hütten-Koordinate suchen, 3) stündliche Temperatur/Niederschlag für
+   diesen Punkt laden und selbst zu Tageswerten zusammenfassen -- für Postleitzahl-/
+   Berg-Punkte gibt es (im Gegensatz zu echten Messstationen) laut MeteoSchweiz nur
+   stündliche, keine fertigen Tageswerte.
+   Hinweis: Das exakte Dateiformat liess sich in der Entwicklungsumgebung nicht live
+   gegen die echten MeteoSchweiz-Server verifizieren (Netzwerkzugriff dort blockiert) --
+   basiert auf offiziellen Ankündigungen/Beispielcode von MeteoSchweiz. Bei Abweichungen
+   bitte Fehlermeldung im UI melden.
+*/
+const METEO_STAC_BASE = 'https://data.geo.admin.ch/api/stac/v1';
+const METEO_COLLECTION = 'ch.meteoschweiz.ogd-local-forecasting';
+const METEO_FORECAST_DAYS = 9;
+let _meteoPointListPromise = null;
+const _meteoParamCsvCache = {}; // paramShortname -> {ts, rows}
+const METEO_PARAM_CACHE_MS = 55 * 60 * 1000; // knapp unter der stündlichen Aktualisierung
+
+function meteoParseSemicolonCsv(text){
+  const lines = text.split(/\r?\n/).filter(l=>l.length);
+  if(!lines.length) return [];
+  const header = lines[0].split(';').map(h=>h.trim());
+  return lines.slice(1).map(line=>{
+    const cells = line.split(';');
+    const row = {};
+    header.forEach((h,i)=>{ row[h] = cells[i]!==undefined ? cells[i].trim() : ''; });
+    return row;
+  });
+}
+
+async function meteoLoadPointList(){
+  if(_meteoPointListPromise) return _meteoPointListPromise;
+  _meteoPointListPromise = (async ()=>{
+    const res = await fetch(`https://data.geo.admin.ch/${METEO_COLLECTION}/ogd-local-forecasting_meta_point.csv`);
+    if(!res.ok) throw new Error('Punktliste nicht erreichbar');
+    const rows = meteoParseSemicolonCsv(await res.text());
+    return rows.map(r=>({
+      pointId: r.point_id,
+      pointTypeId: r.point_type_id,
+      name: r.point_name,
+      heightMasl: parseFloat(r.point_height_masl),
+      lat: parseFloat(r.point_coordinates_wgs84_lat),
+      lon: parseFloat(r.point_coordinates_wgs84_lon)
+    })).filter(p=> isFinite(p.lat) && isFinite(p.lon));
+  })();
+  return _meteoPointListPromise.catch(err=>{ _meteoPointListPromise = null; throw err; });
+}
+
+function meteoFindNearestPoint(points, lat, lon){
+  let best = null, bestDist = Infinity;
+  points.forEach(p=>{
+    const d = haversineMeters(lat, lon, p.lat, p.lon);
+    if(d < bestDist){ bestDist = d; best = p; }
+  });
+  return best ? { point: best, distanceKm: bestDist/1000 } : null;
+}
+
+// Fragt die STAC-Schnittstelle nach den aktuellsten Prognose-Items und liest daraus die
+// Download-URL für die angeforderte Parameter-Datei (eine CSV pro Parameter mit allen
+// ~6000 Punkten drin -- wir filtern unten selbst auf unseren einen Punkt).
+async function meteoFetchLatestAssetUrl(paramShortname){
+  const res = await fetch(`${METEO_STAC_BASE}/collections/${METEO_COLLECTION}/items?limit=10`);
+  if(!res.ok) throw new Error('STAC-Abfrage fehlgeschlagen');
+  const data = await res.json();
+  const items = (data.features || []).slice().sort((a,b)=> (b.properties && b.properties.datetime || '').localeCompare(a.properties && a.properties.datetime || ''));
+  for(const item of items){
+    const assets = item.assets || {};
+    const key = Object.keys(assets).find(k=> k.endsWith('.' + paramShortname + '.csv'));
+    if(key) return assets[key].href;
+  }
+  throw new Error('Kein aktuelles Prognose-Item für ' + paramShortname + ' gefunden');
+}
+
+async function meteoLoadHourlyParam(paramShortname){
+  const cached = _meteoParamCsvCache[paramShortname];
+  if(cached && (Date.now() - cached.ts) < METEO_PARAM_CACHE_MS) return cached.rows;
+  const url = await meteoFetchLatestAssetUrl(paramShortname);
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('Prognosedaten nicht erreichbar');
+  const rows = meteoParseSemicolonCsv(await res.text());
+  _meteoParamCsvCache[paramShortname] = { ts: Date.now(), rows };
+  return rows;
+}
+
+// Baut aus stündlichen Werten (Temperatur/Niederschlag) Tageswerte (Min/Max/Summe) --
+// die Zuordnung zu Kalendertagen erfolgt anhand des UTC-Zeitstempels (kleine Ungenauigkeit
+// von 1-2h an Tagesgrenzen durch die Zeitzonenverschiebung wird bewusst in Kauf genommen).
+function meteoAggregateDaily(tempRows, precipRows, pointId, pointTypeId){
+  const byDate = {};
+  function dateKeyOf(row){ return (row.reference_timestamp || row.date || row.time || '').replace(/[^0-9]/g,'').slice(0,8); }
+  tempRows.forEach(r=>{
+    if(r.point_id !== pointId || r.point_type_id !== pointTypeId) return;
+    const v = parseFloat(r.tre200h0);
+    if(!isFinite(v)) return;
+    const key = dateKeyOf(r);
+    if(!key) return;
+    if(!byDate[key]) byDate[key] = { date: key, tempMin: v, tempMax: v, precipMm: 0 };
+    else{ byDate[key].tempMin = Math.min(byDate[key].tempMin, v); byDate[key].tempMax = Math.max(byDate[key].tempMax, v); }
+  });
+  precipRows.forEach(r=>{
+    if(r.point_id !== pointId || r.point_type_id !== pointTypeId) return;
+    const v = parseFloat(r.rre150h0);
+    if(!isFinite(v)) return;
+    const key = dateKeyOf(r);
+    if(!key || !byDate[key]) return;
+    byDate[key].precipMm += v;
+  });
+  return Object.values(byDate).sort((a,b)=> a.date.localeCompare(b.date)).slice(0, METEO_FORECAST_DAYS);
+}
+
+async function meteoForecastForPoint(lat, lon){
+  const points = await meteoLoadPointList();
+  const nearest = meteoFindNearestPoint(points, lat, lon);
+  if(!nearest) throw new Error('Kein Prognosepunkt gefunden');
+  const [tempRows, precipRows] = await Promise.all([
+    meteoLoadHourlyParam('tre200h0'),
+    meteoLoadHourlyParam('rre150h0')
+  ]);
+  const days = meteoAggregateDaily(tempRows, precipRows, nearest.point.pointId, nearest.point.pointTypeId);
+  return { point: nearest.point, distanceKm: nearest.distanceKm, days };
+}
+
+function meteoCacheKey(lat, lon){
+  return lat.toFixed(3) + ',' + lon.toFixed(3);
+}
+
+function ensureMeteoForecast(lat, lon){
+  if(!state._meteoForecastCache) state._meteoForecastCache = {};
+  const key = meteoCacheKey(lat, lon);
+  const entry = state._meteoForecastCache[key];
+  if(entry && (entry.status === 'loading' || entry.status === 'ok')) return;
+  state._meteoForecastCache[key] = { status: 'loading' };
+  meteoForecastForPoint(lat, lon).then(result=>{
+    state._meteoForecastCache[key] = Object.assign({ status: 'ok' }, result);
+    render();
+  }).catch(err=>{
+    state._meteoForecastCache[key] = { status: 'error', message: (err && err.message) || String(err) };
+    render();
+  });
+}
+
+const METEO_WEEKDAYS = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+function meteoFormatDayLabel(dateKey){
+  const y = +dateKey.slice(0,4), m = +dateKey.slice(4,6)-1, d = +dateKey.slice(6,8);
+  const dt = new Date(y, m, d);
+  return { weekday: METEO_WEEKDAYS[dt.getDay()], day: d, month: m+1 };
+}
+
+function meteoForecastWidgetHtml(lat, lon){
+  if(!isFinite(lat) || !isFinite(lon)) return '';
+  const key = meteoCacheKey(lat, lon);
+  const entry = (state._meteoForecastCache || {})[key];
+  if(!entry || entry.status === 'loading'){
+    if(!entry) ensureMeteoForecast(lat, lon);
+    return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Lädt…</p></div>`;
+  }
+  if(entry.status === 'error'){
+    return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Prognose momentan nicht verfügbar (${esc(entry.message||'')}).</p></div>`;
+  }
+  if(!entry.days || !entry.days.length){
+    return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Keine Prognosedaten für diesen Punkt gefunden.</p></div>`;
+  }
+  return `<div class="detail-section">
+    <h4>🌤️ Wetterprognose <span style="font-weight:400; font-size:11.5px; color:var(--ink-faint);">— ${esc(entry.point.name)} (${entry.distanceKm.toFixed(1)} km entfernt)</span></h4>
+    <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:4px;">
+      ${entry.days.map(d=>{
+        const lbl = meteoFormatDayLabel(d.date);
+        return `<div style="flex:none; min-width:64px; text-align:center; background:var(--ice-light); border-radius:var(--radius); padding:8px 6px;">
+          <div style="font-size:11px; font-weight:700; color:var(--ink-soft);">${lbl.weekday} ${lbl.day}.${lbl.month}.</div>
+          <div style="font-size:14px; font-weight:700; margin-top:4px;">${Math.round(d.tempMax)}°</div>
+          <div style="font-size:12px; color:var(--ink-soft);">${Math.round(d.tempMin)}°</div>
+          <div style="font-size:11px; color:var(--ice-deep); margin-top:4px;">${d.precipMm>=0.1 ? '💧'+d.precipMm.toFixed(1)+'mm' : '–'}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <p style="font-size:10.5px; color:var(--ink-faint); margin:6px 0 0;">Quelle: MeteoSchweiz (Open Data) · stündliche Werte zu Tageswerten zusammengefasst</p>
+  </div>`;
+}
+
 /* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */
 async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, trackSimplifiedHiddenId){
   let points = [], manualTrack = [];
