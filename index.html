@@ -558,7 +558,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v171-standalone-map-marker-radius';
+const APP_VERSION = 'v172-meteoschweiz-mehrtagesprognose';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1849,6 +1849,7 @@ function tourDetailHtml(id){
     ${t.routeName ? `<h2 style="margin:0 0 6px 0; color:var(--ink-soft);">${esc(t.routeName)}</h2>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-tour-status" data-id="${t.id}">${tourStatusLabel(t)} — antippen zum Ändern</button>
+    ${(t.points && t.points.length) ? meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon) : ''}
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abfahrt</div></div>` : ''}
