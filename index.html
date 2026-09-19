@@ -224,7 +224,7 @@
   .map-strip-canvas{position:relative; aspect-ratio:260/173.9; border-radius:var(--radius); overflow:hidden; background:var(--paper); border:1px solid var(--line); touch-action:none; user-select:none;}
   .map-strip-zoomwrap{position:absolute; inset:0; will-change:transform;}
   .map-strip-bg{position:absolute; inset:0; width:100%; height:100%; pointer-events:none;}
-  .map-strip-cantons path{fill:var(--line); opacity:0.55; stroke:var(--ink-faint); stroke-width:0.35; stroke-opacity:0.7;}
+  .map-strip-cantons path{fill:none; stroke:var(--ink-faint); stroke-width:0.35; stroke-opacity:0.55;}
   .map-strip-lakes path{fill:#5B84A0; opacity:0.8;}
   .map-strip-compass{position:absolute; top:7px; left:7px; font-size:9px; color:var(--ink-faint); font-weight:700; display:flex; flex-direction:column; align-items:center; gap:1px; z-index:1;}
   .map-strip-compass .n{width:0; height:0; border-left:3px solid transparent; border-right:3px solid transparent; border-bottom:5px solid var(--ink-faint);}
@@ -558,7 +558,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v168-klettergebiet-auto-sektor';
+const APP_VERSION = 'v169-mapstrip-theme-clusterlabel';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht

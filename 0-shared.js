@@ -400,14 +400,17 @@ function mapStripHtml(opts){
           ${clusters.map(c=>{
             if(c.isCluster){
               const open = openClusterId===c.id;
+              // Statt einer nichtssagenden Zahl im Kreis: Name des ersten Punkts + Anzahl weiterer
+              // -- gibt wenigstens etwas Orientierung, welche Gegend der Sammel-Pin überhaupt meint.
+              const clusterLabel = c.points[0].label + (c.points.length>1 ? ` +${c.points.length-1}` : '');
               return `
                 <div class="map-strip-pin map-strip-cluster ${open ? 'open' : ''}" style="left:${c.xPct}%; top:${c.yPct}%; transform:translate(-50%,-50%) scale(${pinScale});">
-                  <button type="button" class="map-strip-dot map-strip-cluster-dot" data-act="map-strip-cluster" data-kind="${kind}" data-id="${esc(c.id)}" data-cx="${c.xPct}" data-cy="${c.yPct}" title="${c.points.length} Ziele hier">${c.points.length}</button>
+                  <button type="button" class="map-strip-dot map-strip-cluster-dot" data-act="map-strip-cluster" data-kind="${kind}" data-id="${esc(c.id)}" data-cx="${c.xPct}" data-cy="${c.yPct}" title="${c.points.length} Ziele hier"></button>
                   ${open ? `
                     <div class="map-strip-popup map-strip-popup-list">
                       ${c.points.map(p=>`<button type="button" data-act="${openAct}" data-id="${esc(p.id)}">${esc(p.label)}</button>`).join('')}
                     </div>
-                  ` : ''}
+                  ` : `<div class="map-strip-nlabel">${esc(clusterLabel)}</div>`}
                 </div>`;
             }
             const p = c;
