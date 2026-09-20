@@ -5015,24 +5015,39 @@ function meteoParseSemicolonCsv(text){
   const lines = text.split(/\r?\n/).filter(l=>l.length);
   if(!lines.length) return [];
   const header = lines[0].split(';').map(h=>h.trim());
-  return lines.slice(1).map(line=>{
+  const rows = lines.slice(1).map(line=>{
     const cells = line.split(';');
     const row = {};
     header.forEach((h,i)=>{ row[h] = cells[i]!==undefined ? cells[i].trim() : ''; });
     return row;
   });
+  rows._header = header; // fuer Diagnose bei unerwartetem Format (siehe meteoForecastWidgetHtml)
+  return rows;
 }
+
+// MeteoSchweiz hat die Spaltennamen dieser Open-Data-Schnittstelle im Zuge der offiziellen
+// Einführung 2025 umbenannt (ältere Beispieldaten nutzten z.B. "LocationID"/"Date" statt
+// "point_id"/"reference_timestamp") -- da sich das exakte, aktuell gültige Format von hier aus
+// nicht live verifizieren liess, probieren wir beim Lesen mehrere bekannte Varianten durch.
+function meteoPick(row, candidates){
+  for(const c of candidates){ if(row[c] !== undefined && row[c] !== '') return row[c]; }
+  return undefined;
+}
+const METEO_COL_POINT_ID = ['point_id', 'LocationID', 'location_id'];
+const METEO_COL_POINT_TYPE = ['point_type_id', 'LocationType', 'location_type'];
+const METEO_COL_TIMESTAMP = ['reference_timestamp', 'Date', 'date', 'valid_date', 'time'];
 
 async function meteoLoadPointList(){
   if(_meteoPointListPromise) return _meteoPointListPromise;
   _meteoPointListPromise = (async ()=>{
     const res = await fetch(`https://data.geo.admin.ch/${METEO_COLLECTION}/ogd-local-forecasting_meta_point.csv`);
-    if(!res.ok) throw new Error('Punktliste nicht erreichbar');
+    if(!res.ok) throw new Error('Punktliste nicht erreichbar (HTTP ' + res.status + ')');
     const rows = meteoParseSemicolonCsv(await res.text());
+    if(!rows.length) throw new Error('Punktliste leer (Spalten: ' + (rows._header||[]).join(',') + ')');
     return rows.map(r=>({
-      pointId: r.point_id,
-      pointTypeId: r.point_type_id,
-      name: r.point_name,
+      pointId: meteoPick(r, METEO_COL_POINT_ID),
+      pointTypeId: meteoPick(r, METEO_COL_POINT_TYPE),
+      name: r.point_name || r.LocationName || meteoPick(r, METEO_COL_POINT_ID),
       heightMasl: parseFloat(r.point_height_masl),
       lat: parseFloat(r.point_coordinates_wgs84_lat),
       lon: parseFloat(r.point_coordinates_wgs84_lon)
@@ -5082,25 +5097,28 @@ async function meteoLoadHourlyParam(paramShortname){
 // von 1-2h an Tagesgrenzen durch die Zeitzonenverschiebung wird bewusst in Kauf genommen).
 function meteoAggregateDaily(tempRows, precipRows, pointId, pointTypeId){
   const byDate = {};
-  function dateKeyOf(row){ return (row.reference_timestamp || row.date || row.time || '').replace(/[^0-9]/g,'').slice(0,8); }
+  function dateKeyOf(row){ return (meteoPick(row, METEO_COL_TIMESTAMP) || '').replace(/[^0-9]/g,'').slice(0,8); }
+  let tempMatches = 0;
   tempRows.forEach(r=>{
-    if(r.point_id !== pointId || r.point_type_id !== pointTypeId) return;
+    if(meteoPick(r, METEO_COL_POINT_ID) !== pointId || meteoPick(r, METEO_COL_POINT_TYPE) !== pointTypeId) return;
     const v = parseFloat(r.tre200h0);
     if(!isFinite(v)) return;
     const key = dateKeyOf(r);
     if(!key) return;
+    tempMatches++;
     if(!byDate[key]) byDate[key] = { date: key, tempMin: v, tempMax: v, precipMm: 0 };
     else{ byDate[key].tempMin = Math.min(byDate[key].tempMin, v); byDate[key].tempMax = Math.max(byDate[key].tempMax, v); }
   });
   precipRows.forEach(r=>{
-    if(r.point_id !== pointId || r.point_type_id !== pointTypeId) return;
+    if(meteoPick(r, METEO_COL_POINT_ID) !== pointId || meteoPick(r, METEO_COL_POINT_TYPE) !== pointTypeId) return;
     const v = parseFloat(r.rre150h0);
     if(!isFinite(v)) return;
     const key = dateKeyOf(r);
     if(!key || !byDate[key]) return;
     byDate[key].precipMm += v;
   });
-  return Object.values(byDate).sort((a,b)=> a.date.localeCompare(b.date)).slice(0, METEO_FORECAST_DAYS);
+  const days = Object.values(byDate).sort((a,b)=> a.date.localeCompare(b.date)).slice(0, METEO_FORECAST_DAYS);
+  return { days, tempMatches, tempRowCount: tempRows.length, tempHeader: tempRows._header };
 }
 
 async function meteoForecastForPoint(lat, lon){
@@ -5111,8 +5129,13 @@ async function meteoForecastForPoint(lat, lon){
     meteoLoadHourlyParam('tre200h0'),
     meteoLoadHourlyParam('rre150h0')
   ]);
-  const days = meteoAggregateDaily(tempRows, precipRows, nearest.point.pointId, nearest.point.pointTypeId);
-  return { point: nearest.point, distanceKm: nearest.distanceKm, days };
+  const agg = meteoAggregateDaily(tempRows, precipRows, nearest.point.pointId, nearest.point.pointTypeId);
+  return {
+    point: nearest.point,
+    distanceKm: nearest.distanceKm,
+    days: agg.days,
+    debug: { tempMatches: agg.tempMatches, tempRowCount: agg.tempRowCount, tempHeader: agg.tempHeader, pointId: nearest.point.pointId, pointTypeId: nearest.point.pointTypeId }
+  };
 }
 
 function meteoCacheKey(lat, lon){
@@ -5153,7 +5176,12 @@ function meteoForecastWidgetHtml(lat, lon){
     return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Prognose momentan nicht verfügbar (${esc(entry.message||'')}).</p></div>`;
   }
   if(!entry.days || !entry.days.length){
-    return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Keine Prognosedaten für diesen Punkt gefunden.</p></div>`;
+    // Diagnose-Infos statt nur "keine Daten" -- das genaue Dateiformat liess sich beim Bauen
+    // nicht live verifizieren; diese Angaben helfen, eine falsche Spaltenannahme zu erkennen.
+    const dbg = entry.debug;
+    return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Keine Prognosedaten für diesen Punkt gefunden.</p>
+      ${dbg ? `<details style="margin-top:6px; font-size:11px; color:var(--ink-faint);"><summary>Diagnose</summary>Punkt: ${esc(dbg.pointId)} / Typ ${esc(dbg.pointTypeId)}<br/>Zeilen in Prognosedatei: ${dbg.tempRowCount}, davon passend: ${dbg.tempMatches}<br/>Spalten: ${esc((dbg.tempHeader||[]).join(', '))}</details>` : ''}
+    </div>`;
   }
   return `<div class="detail-section">
     <h4>🌤️ Wetterprognose <span style="font-weight:400; font-size:11.5px; color:var(--ink-faint);">— ${esc(entry.point.name)} (${entry.distanceKm.toFixed(1)} km entfernt)</span></h4>
