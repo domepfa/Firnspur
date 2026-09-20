@@ -6577,7 +6577,7 @@ function openTopoCropEditor(hiddenListId, imageId){
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button'; closeBtn.textContent = '×';
   closeBtn.style.cssText = 'background:rgba(255,255,255,0.15); border:none; color:#fff; width:30px; height:30px; border-radius:50%; font-size:16px; cursor:pointer;';
-  closeBtn.onclick = ()=> overlay.remove();
+  closeBtn.onclick = ()=> closeTopOverlayLayer();
   topBar.appendChild(closeBtn);
   overlay.appendChild(topBar);
 
@@ -6713,19 +6713,23 @@ function openTopoCropEditor(hiddenListId, imageId){
 
     resetBtn.onclick = ()=>{
       setTopoImageCropLocal(hiddenListId, imageId, null);
-      overlay.remove();
+      closeTopOverlayLayer();
     };
     applyBtn.onclick = ()=>{
       clampSel();
       const orig = topoCropDisplayRectToOriginal(sel.x, sel.y, sel.w, sel.h, rotation);
       setTopoImageCropLocal(hiddenListId, imageId, { x:orig.x, y:orig.y, w:orig.w, h:orig.h, naturalW, naturalH });
-      overlay.remove();
+      closeTopOverlayLayer();
     };
   };
-  raw.onerror = ()=>{ overlay.remove(); showToast('Bild konnte nicht geladen werden.', true); };
+  raw.onerror = ()=>{ closeTopOverlayLayer(); showToast('Bild konnte nicht geladen werden.', true); };
   raw.src = imgData.url;
 
   document.body.appendChild(overlay);
+  // Ohne eigenen History-Eintrag verlässt die Hardware-/Browser-Zurück-Taste hier komplett die
+  // App statt nur den Editor zu schliessen (kein popstate-Ziel registriert). pushOverlayLayer
+  // reiht den Editor stattdessen in den bestehenden Overlay-Stack ein (siehe openImageCropDialog).
+  pushOverlayLayer(()=> overlay.remove());
 }
 
 function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, statusId){
