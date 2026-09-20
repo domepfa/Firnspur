@@ -5022,6 +5022,13 @@ let _meteoPointListPromise = null;
 const _meteoParamCsvCache = {}; // paramShortname -> {ts, rows}
 const METEO_PARAM_CACHE_MS = 55 * 60 * 1000; // knapp unter der stündlichen Aktualisierung
 
+// MeteoSchweiz liefert diese CSVs laut eigener Doku in Latin1/ISO-8859-1 aus, nicht UTF-8 --
+// ohne explizite Dekodierung werden Umlaute in Ortsnamen (z.B. "Bächlistock") zu "?" verstümmelt.
+async function meteoFetchLatin1Text(res){
+  const buf = await res.arrayBuffer();
+  return new TextDecoder('iso-8859-1').decode(buf);
+}
+
 function meteoParseSemicolonCsv(text){
   const lines = text.split(/\r?\n/).filter(l=>l.length);
   if(!lines.length) return [];
@@ -5053,7 +5060,7 @@ async function meteoLoadPointList(){
   _meteoPointListPromise = (async ()=>{
     const res = await fetch(`https://data.geo.admin.ch/${METEO_COLLECTION}/ogd-local-forecasting_meta_point.csv`);
     if(!res.ok) throw new Error('Punktliste nicht erreichbar (HTTP ' + res.status + ')');
-    const rows = meteoParseSemicolonCsv(await res.text());
+    const rows = meteoParseSemicolonCsv(await meteoFetchLatin1Text(res));
     if(!rows.length) throw new Error('Punktliste leer (Spalten: ' + (rows._header||[]).join(',') + ')');
     return rows.map(r=>({
       pointId: meteoPick(r, METEO_COL_POINT_ID),
@@ -5098,7 +5105,7 @@ async function meteoLoadHourlyParam(paramShortname){
   const url = await meteoFetchLatestAssetUrl(paramShortname);
   const res = await fetch(url);
   if(!res.ok) throw new Error('Prognosedaten nicht erreichbar');
-  const rows = meteoParseSemicolonCsv(await res.text());
+  const rows = meteoParseSemicolonCsv(await meteoFetchLatin1Text(res));
   _meteoParamCsvCache[paramShortname] = { ts: Date.now(), rows };
   return rows;
 }
@@ -5201,7 +5208,8 @@ function meteoForecastWidgetHtml(lat, lon){
         const lbl = meteoFormatDayLabel(d.date);
         return `<div style="flex:none; min-width:64px; text-align:center; background:var(--ice-light); border-radius:var(--radius); padding:8px 6px;">
           <div style="font-size:11px; font-weight:700; color:var(--ink-soft);">${lbl.weekday} ${lbl.day}.${lbl.month}.</div>
-          <div style="font-size:14px; font-weight:700; margin-top:4px;">${Math.round(d.tempMax)}°</div>
+          <div style="font-size:18px; margin-top:2px;">${meteoDayIcon(d.precipMm)}</div>
+          <div style="font-size:14px; font-weight:700; margin-top:2px;">${Math.round(d.tempMax)}°</div>
           <div style="font-size:12px; color:var(--ink-soft);">${Math.round(d.tempMin)}°</div>
           <div style="font-size:11px; color:var(--ice-deep); margin-top:4px;">${d.precipMm>=0.1 ? '💧'+d.precipMm.toFixed(1)+'mm' : '–'}</div>
         </div>`;
