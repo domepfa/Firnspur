@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v180-gipfel-klettergebiet-link';
+const APP_VERSION = 'v181-gebiet-mehrere-gipfel';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1024,6 +1024,7 @@ async function loadAll(){
   // automatisch nachziehen (kein Seiteneffekt in der Filter-/Anzeigelogik).
   state.tours.filter(t=>t.tourCategory==='hochtour').forEach(ensureTourSummitLinks);
   backfillGipfelAltitudes();
+  await migrateKlettergebietGipfelLink();
   await migrateKlettergartenTours();
   render();
   checkSharedContent().then(shared=>{ if(shared) openShareImportModal(shared); });
@@ -1085,6 +1086,31 @@ function removeKlettergebiet(id){
       saveSektorCloud(s).catch(()=>{});
     }
   });
+  // Analog bei Gipfeln, die diesem Klettergebiet zugeordnet sind.
+  state.gipfel.forEach(gp=>{
+    if(gp.klettergebietId===id){
+      gp.klettergebietId = '';
+      saveGipfelCloud(gp).catch(()=>{});
+    }
+  });
+}
+// Einmalige Migration: das frühere einzelne "Gipfel"-Feld am Klettergebiet (ein Gebiet zeigte auf
+// GENAU EINEN Gipfel) wurde durch das umgekehrte, mehrfache Feld am Gipfel ersetzt (ein Gebiet
+// enthält mehrere Gipfel, analog zu Sektoren) -- bereits gesetzte alte Verknüpfungen hierher
+// übernehmen, statt sie stillschweigend zu verlieren.
+async function migrateKlettergebietGipfelLink(){
+  if(localStorage.getItem('fixseil-gipfel-klettergebiet-migrated')) return;
+  for(const geb of state.klettergebiete){
+    if(!geb.gipfelId) continue;
+    const gp = state.gipfel.find(x=>x.id===geb.gipfelId);
+    if(gp && !gp.klettergebietId){
+      gp.klettergebietId = geb.id;
+      await saveGipfelCloud(gp).catch(()=>false);
+    }
+    geb.gipfelId = '';
+    await saveKlettergebietCloud(geb).catch(()=>false);
+  }
+  localStorage.setItem('fixseil-gipfel-klettergebiet-migrated', '1');
 }
 // Einmalige Migration: "Klettergarten" ist keine eigenständige Tour-Kategorie mehr, sondern nur
 // noch ein Etikett für einen Sektor mit eigener Kletterrouten-Liste (siehe Sektor-Hierarchie-
@@ -1133,13 +1159,6 @@ function removeGipfel(id){
     if(Array.isArray(t.summitIds) && t.summitIds.includes(id)){
       t.summitIds = t.summitIds.filter(x=>x!==id);
       saveTourCloud(t).catch(()=>{});
-    }
-  });
-  // Analog bei Klettergebieten, die auf diesen Gipfel verlinkt haben.
-  state.klettergebiete.forEach(geb=>{
-    if(geb.gipfelId===id){
-      geb.gipfelId = '';
-      saveKlettergebietCloud(geb).catch(()=>{});
     }
   });
 }
@@ -1196,24 +1215,20 @@ function backfillGipfelAltitudes(){
 function ensureTourSummitLinks(t){
   if(linkTourToDefaultGipfel(t)) saveTourCloud(t).catch(()=>{});
 }
-// Verknüpft von der Gipfel-Detailseite aus ein bestehendes Klettergebiet mit diesem Gipfel --
-// spiegelbildlich zum Gipfel-Feld im Klettergebiet-Formular (dort wird geb.gipfelId genauso
-// gesetzt), nur bewusst ohne Neuanlage: ein leeres Klettergebiet nur aus einem getippten Namen
-// zu erzeugen wäre ein viel grösserer leerer Datensatz als ein blosser Gipfel-Stub.
-async function linkKlettergebietToGipfel(gipfelId){
-  const input = document.getElementById('gipfel-link-klettergebiet-input');
-  const name = input ? input.value.trim() : '';
-  if(!name) return;
-  const geb = state.klettergebiete.find(x=> (x.name||'').toLowerCase() === name.toLowerCase());
-  if(!geb){ showToast('Kein Klettergebiet mit diesem Namen gefunden.', true); return; }
-  geb.gipfelId = gipfelId;
-  geb.updatedAt = new Date().toISOString();
-  geb.updatedBy = state.myName;
+// Ordnet einen bestehenden Gipfel einem Klettergebiet zu -- analog zu assignSektorToKlettergebiet
+// (ein Gebiet kann mehrere Gipfel enthalten, z.B. "Wiwanni" mit Wiwannihorn, Gross und Chly
+// Öugstchummuhorn).
+async function assignGipfelToKlettergebiet(gipfelId, gebId){
+  const gp = state.gipfel.find(x=>x.id===gipfelId);
+  if(!gp) return;
+  gp.klettergebietId = gebId || '';
+  gp.updatedAt = new Date().toISOString();
+  gp.updatedBy = state.myName;
   render();
-  const ok = await saveKlettergebietCloud(geb).catch(()=>false);
-  geb._unsynced = !ok;
+  const ok = await saveGipfelCloud(gp).catch(()=>false);
+  gp._unsynced = !ok;
   if(!ok) markUnsaved();
-  showToast(ok ? 'Klettergebiet verknüpft.' : 'Lokal verknüpft, aber nicht synchronisiert.', !ok);
+  showToast(ok ? 'Gipfel zugeordnet.' : 'Gipfel lokal zugeordnet, aber nicht synchronisiert.', !ok);
   render();
 }
 async function assignSektorToKlettergebiet(sekId, gebId){
@@ -2121,8 +2136,6 @@ async function submitKlettergebietForm(form, existing){
   const isNew = !(existing && existing.id);
   const g = (existing && existing.id) ? {...existing} : {id: (form.klettergebietIdForTopo || uid('geb')), createdBy: state.myName, createdAt: new Date().toISOString()};
   g.name = form.name.trim();
-  const gipfelName = (form.gipfelName || '').trim();
-  g.gipfelId = gipfelName ? (findOrCreateGipfelByName(gipfelName) || {}).id || '' : '';
   g.region = form.region || '';
   g.subregion = form.subregion || '';
   g.description = form.description || '';
@@ -2172,16 +2185,10 @@ function klettergebietFormHtml(existing){
   const g = existing || {};
   const isEditing = !!(existing && existing.id);
   const isKnownRegion = REGIONS.includes(g.region);
-  const linkedGipfel = g.gipfelId ? state.gipfel.find(x=>x.id===g.gipfelId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${isEditing?'Klettergebiet bearbeiten':'Neues Klettergebiet'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="klettergebiet-form" novalidate>
       <div class="field"><label>Name *</label><input required name="name" value="${esc(g.name||'')}" placeholder="z. B. Sewen"/></div>
-      <div class="field"><label>Gipfel (optional) — für die Gipfel-Übersicht</label>
-        <input type="text" name="gipfelName" list="klettergebiet-gipfel-suggestions" value="${esc(linkedGipfel ? linkedGipfel.name : '')}" placeholder="Gipfelname eingeben oder auswählen"/>
-        <datalist id="klettergebiet-gipfel-suggestions">${state.gipfel.map(gp=>`<option value="${esc(gp.name)}">`).join('')}</datalist>
-        <div class="hint">Bestehenden Gipfel auswählen oder einen neuen Namen eintragen — leer lassen, falls das Gebiet keinem einzelnen Gipfel zugeordnet ist.</div>
-      </div>
       <div class="field"><label>Region</label>
         <div class="chips" id="region-chips">
           ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${g.region===r?'on':''}" style="${g.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
@@ -2234,6 +2241,7 @@ async function submitGipfelForm(form, existing){
   const g = (existing && existing.id) ? {...existing} : {id: uid('gip'), createdBy: state.myName, createdAt: new Date().toISOString()};
   g.name = form.name.trim();
   g.altitude = form.altitude || '';
+  g.klettergebietId = form.klettergebietId || '';
   g.region = form.region || '';
   g.subregion = form.subregion || '';
   g.updatedAt = new Date().toISOString();
@@ -2267,6 +2275,13 @@ function gipfelFormHtml(existing){
     <form id="gipfel-form" novalidate>
       <div class="field"><label>Name *</label><input required name="name" value="${esc(g.name||'')}" placeholder="z. B. Lenzspitze"/></div>
       <div class="field"><label>Höhe (m ü. M.)</label><input name="altitude" value="${esc(g.altitude||'')}" placeholder="z. B. 4294"/></div>
+      ${state.klettergebiete.length ? `<div class="field"><label>Klettergebiet (optional)</label>
+        <select name="klettergebietId">
+          <option value="">— keins —</option>
+          ${state.klettergebiete.map(geb=>`<option value="${geb.id}" ${(g.klettergebietId||'')===geb.id?'selected':''}>${esc(geb.name)}</option>`).join('')}
+        </select>
+        <div class="hint">Falls dieser Gipfel zu einem Klettergebiet gehört (z. B. einer von mehreren Gipfeln in "Wiwanni").</div>
+      </div>` : ''}
       <div class="field"><label>Region</label>
         <div class="chips" id="region-chips">
           ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${g.region===r?'on':''}" style="${g.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
@@ -2424,11 +2439,11 @@ function klettergebietDetailHtml(id){
   const unlinkedSektoren = state.sektoren.filter(s=>!s.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   const gradeRange = klettergebietClimbGradeRangeText(geb);
   const altitude = klettergebietAltitudeText(geb);
-  const linkedGipfel = geb.gipfelId ? state.gipfel.find(x=>x.id===geb.gipfelId) : null;
+  const gipfelImGebiet = state.gipfel.filter(gp=>gp.klettergebietId===geb.id).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+  const unlinkedGipfel = state.gipfel.filter(gp=>!gp.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
-      <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
-      ${linkedGipfel ? `<button type="button" data-act="open-gipfel" data-id="${linkedGipfel.id}" style="background:none; border:none; padding:0; margin-top:4px; color:var(--ice-deep); font-size:13px; font-weight:700; text-decoration:underline; cursor:pointer;">🏔️ ${esc(linkedGipfel.name)}</button>` : ''}</div>
+      <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     ${(gradeRange || altitude) ? `<div class="chips" style="margin-bottom:14px;">
@@ -2452,6 +2467,14 @@ function klettergebietDetailHtml(id){
     })()}
     <div class="detail-section">
       ${klettergebietChapterHtml(geb, sektoren, unlinkedSektoren)}
+    </div>
+    <div class="detail-section" style="border-top:1px solid var(--line); padding-top:16px;">
+      <h4>🏔️ Gipfel im Gebiet (${gipfelImGebiet.length})</h4>
+      ${gipfelImGebiet.length ? `<div class="grid" style="margin-top:6px;">${gipfelImGebiet.map(gp=>gipfelCardHtml(gp, state.tours.filter(t=>Array.isArray(t.summitIds) && t.summitIds.includes(gp.id)))).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Gipfel diesem Klettergebiet zugeordnet.</p>`}
+      ${unlinkedGipfel.length ? `<div class="detail-section" style="margin-top:14px; border:2px dashed var(--line); border-radius:var(--radius); padding:12px;">
+        <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Noch nicht zugeordnete Gipfel:</p>
+        <div class="grid">${unlinkedGipfel.map(gp=>unlinkedGipfelAssignCardHtml(gp, geb.id)).join('')}</div>
+      </div>` : ''}
     </div>
     ${geb._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
     <div class="form-actions">
@@ -3184,12 +3207,13 @@ function gipfelDetailHtml(id){
   if(!g) return `<div class="modal" data-stop="1"><p>Gipfel nicht gefunden.</p></div>`;
   const routen = state.tours.filter(t=> Array.isArray(t.summitIds) && t.summitIds.length===1 && t.summitIds[0]===g.id);
   const ueberschreitungen = state.tours.filter(t=> Array.isArray(t.summitIds) && t.summitIds.length>1 && t.summitIds.includes(g.id));
-  const gebiete = state.klettergebiete.filter(geb=>geb.gipfelId===g.id).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+  const geb = g.klettergebietId ? state.klettergebiete.find(x=>x.id===g.klettergebietId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">🏔️ ${esc(g.name)}</h2>${(g.altitude || g.region) ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${g.altitude ? esc(g.altitude) + ' m' : ''}${g.altitude && g.region ? ' · ' : ''}${g.region ? esc(g.region) + (g.subregion ? ' – ' + esc(g.subregion) : '') : ''}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
+    ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : `<p style="font-size:12px; color:var(--ink-faint); margin:0 0 10px 0;">Keinem Klettergebiet zugeordnet — das lässt sich im Klettergebiet selbst eintragen (Abschnitt "Gipfel im Gebiet") oder hier über "✏️ Bearbeiten".</p>`}
     <div class="detail-section">
       <h4>Routen auf den Gipfel (${routen.length})</h4>
       ${routen.length ? `<div class="grid" style="margin-top:6px;">${routen.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine eigene Route erfasst.</p>`}
@@ -3202,15 +3226,6 @@ function gipfelDetailHtml(id){
           <p class="excerpt">${gipfelSummitChainHtml(t)}</p>
           ${t.routeName ? `<span class="hut-link-chip">${esc(t.routeName)}</span>` : ''}
         </div>`).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Keine Überschreitung über diesen Gipfel erfasst.</p>`}
-    </div>
-    <div class="detail-section">
-      <h4>Klettergebiete am Gipfel (${gebiete.length})</h4>
-      ${gebiete.length ? `<div class="grid" style="margin-top:6px;">${gebiete.map(klettergebietCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Klettergebiet mit diesem Gipfel verknüpft.</p>`}
-      <div style="display:flex; gap:8px; margin-top:10px;">
-        <input type="text" id="gipfel-link-klettergebiet-input" list="gipfel-link-klettergebiet-suggestions" placeholder="Klettergebiet eingeben oder auswählen" style="flex:1; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); font-size:13px;"/>
-        <datalist id="gipfel-link-klettergebiet-suggestions">${state.klettergebiete.filter(geb=>geb.gipfelId!==g.id).map(geb=>`<option value="${esc(geb.name)}">`).join('')}</datalist>
-        <button type="button" class="btn secondary" style="flex:none;" data-act="link-klettergebiet-to-gipfel" data-gipfel-id="${g.id}">🔗 Verknüpfen</button>
-      </div>
     </div>
     ${g._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
     <div class="form-actions">
@@ -3696,6 +3711,14 @@ function unlinkedSektorAssignCardHtml(sek, gebId){
     <h3 style="color:var(--ice-deep); font-size:14px; margin:0;">🧭 ${esc(sek.name)}</h3>
     ${sek.region ? `<p class="excerpt" style="margin:2px 0 0 0;">${esc(sek.region)}</p>` : ''}
     <button type="button" class="btn secondary" style="margin-top:8px; font-size:12.5px; padding:6px 12px;" data-act="assign-sektor-to-klettergebiet" data-sektor-id="${sek.id}" data-klettergebiet-id="${gebId}">Diesem Gebiet zuordnen</button>
+  </div>`;
+}
+function unlinkedGipfelAssignCardHtml(gp, gebId){
+  return `
+  <div class="card" data-act="open-gipfel" data-id="${gp.id}" style="padding:10px 14px; cursor:pointer;">
+    <h3 style="color:var(--ice-deep); font-size:14px; margin:0;">🏔️ ${esc(gp.name)}</h3>
+    ${gp.altitude ? `<p class="excerpt" style="margin:2px 0 0 0;">${esc(gp.altitude)} m</p>` : ''}
+    <button type="button" class="btn secondary" style="margin-top:8px; font-size:12.5px; padding:6px 12px;" data-act="assign-gipfel-to-klettergebiet" data-gipfel-id="${gp.id}" data-klettergebiet-id="${gebId}">Diesem Gebiet zuordnen</button>
   </div>`;
 }
 
@@ -5777,16 +5800,16 @@ function wireModalHandlers(){
       renderKlettergebietOverviewMap(btn.getAttribute('data-target'), btn.getAttribute('data-klettergebiet-id'));
     });
   });
-  root.querySelectorAll('[data-act="link-klettergebiet-to-gipfel"]').forEach(btn=>{
-    btn.addEventListener('click', (e)=>{
-      e.stopPropagation();
-      linkKlettergebietToGipfel(btn.getAttribute('data-gipfel-id'));
-    });
-  });
   root.querySelectorAll('[data-act="assign-sektor-to-klettergebiet"]').forEach(btn=>{
     btn.addEventListener('click', (e)=>{
       e.stopPropagation();
       assignSektorToKlettergebiet(btn.getAttribute('data-sektor-id'), btn.getAttribute('data-klettergebiet-id'));
+    });
+  });
+  root.querySelectorAll('[data-act="assign-gipfel-to-klettergebiet"]').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      assignGipfelToKlettergebiet(btn.getAttribute('data-gipfel-id'), btn.getAttribute('data-klettergebiet-id'));
     });
   });
   root.querySelectorAll('[data-act="assign-merge-tours"]').forEach(btn=>{
