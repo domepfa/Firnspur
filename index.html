@@ -558,7 +558,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v175-wetter-3tage-zeile';
+const APP_VERSION = 'v176-wetter-zeile-zuoberst';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1351,6 +1351,7 @@ function tourCardHtml(t){
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   return `
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
+    ${(t.points && t.points.length) ? meteoCardForecastRowHtml(t.points[0].lat, t.points[0].lon) : ''}
     <div style="display:flex; justify-content:flex-end; margin-bottom:-6px;">
       ${favoriteToggleButtonHtml(t.id)}
     </div>
@@ -1361,7 +1362,6 @@ function tourCardHtml(t){
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
       </div>
     </div>
-    ${(t.points && t.points.length) ? meteoCardForecastRowHtml(t.points[0].lat, t.points[0].lon) : ''}
     ${t.routeName ? `<h3 style="margin:-4px 0 0 0; color:var(--ink-soft);">${esc(t.routeName)}</h3>` : ''}
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
