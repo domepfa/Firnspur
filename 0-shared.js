@@ -7067,27 +7067,53 @@ function blobToBase64(blob){
   });
 }
 
-// Schickt das gerade ausgewählte Foto (aus dem Topo-Bild-Datei-Feld) an die Cloud Function
-// scanKletterrouten (siehe functions/index.js) und trägt die erkannten Routen automatisch in
-// die Kletterrouten-Liste ein — bestehende Zeilen bleiben erhalten, erkannte kommen dazu.
-async function scanTopoImageForRoutes(fileInputEl, hiddenInputId, containerId, statusElId){
+// Schickt ein Topo-Foto an die Cloud Function scanKletterrouten (siehe functions/index.js) und
+// trägt die erkannten Routen automatisch in die Kletterrouten-Liste ein — bestehende Zeilen
+// bleiben erhalten, erkannte kommen dazu. Das Foto kommt entweder frisch aus dem Datei-Feld, oder
+// (falls dort gerade nichts ausgewählt ist) vom zuletzt hochgeladenen Topo-Bild: der Datei-Input
+// wird von handleTopoImageUpload nach jedem Upload geleert (siehe dort), daher ist "oben ein Foto
+// ausgewählt" für ein Bild, das man gerade erst hochgeladen hat, sonst nie mehr erfüllbar.
+async function scanTopoImageForRoutes(fileInputEl, hiddenInputId, containerId, statusElId, topoImagesHiddenId){
   const statusEl = document.getElementById(statusElId);
   if(!SCAN_KLETTERROUTEN_URL){
     showToast('Foto-Scan ist noch nicht eingerichtet — siehe functions/README.md.', true);
     return;
   }
   const file = fileInputEl && fileInputEl.files && fileInputEl.files[0];
-  if(!file){
-    showToast('Bitte zuerst oben ein Foto auswählen.', true);
-    return;
+  let imageBase64, mediaType;
+  if(file){
+    if(statusEl) statusEl.textContent = 'Erkenne Routen …';
+    imageBase64 = await blobToBase64(file);
+    mediaType = file.type || 'image/jpeg';
+  }else{
+    const topoImagesInput = topoImagesHiddenId ? document.getElementById(topoImagesHiddenId) : null;
+    let topoImages = [];
+    try{ topoImages = topoImagesInput && topoImagesInput.value ? JSON.parse(topoImagesInput.value) : []; }catch(e){ topoImages = []; }
+    const lastImg = topoImages.length ? topoImages[topoImages.length-1] : null;
+    if(!lastImg || !lastImg.url){
+      showToast('Bitte zuerst oben ein Foto auswählen.', true);
+      return;
+    }
+    if(statusEl) statusEl.textContent = 'Lade hochgeladenes Foto …';
+    try{
+      const blob = await fetch(lastImg.url).then(r=>{
+        if(!r.ok) throw new Error('Foto konnte nicht geladen werden (' + r.status + ')');
+        return r.blob();
+      });
+      imageBase64 = await blobToBase64(blob);
+      mediaType = blob.type || 'image/jpeg';
+    }catch(e){
+      if(statusEl) statusEl.textContent = '';
+      showToast('Hochgeladenes Foto konnte nicht geladen werden: ' + (e.message || e), true);
+      return;
+    }
+    if(statusEl) statusEl.textContent = 'Erkenne Routen …';
   }
-  if(statusEl) statusEl.textContent = 'Erkenne Routen …';
   try{
-    const imageBase64 = await blobToBase64(file);
     const res = await fetch(SCAN_KLETTERROUTEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageBase64, mediaType: file.type || 'image/jpeg' }),
+      body: JSON.stringify({ imageBase64, mediaType }),
     });
     if(!res.ok){
       const errBody = await res.json().catch(()=>({}));
