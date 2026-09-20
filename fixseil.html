@@ -764,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v186-topo-crop-zurueck-taste-fix';
+const APP_VERSION = 'v187-gebiet-kapitel-struktur';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1103,6 +1103,13 @@ function removeKlettergebiet(id){
       saveGipfelCloud(gp).catch(()=>{});
     }
   });
+  // Analog bei Hütten, die diesem Klettergebiet manuell zugeordnet sind.
+  state.huts.forEach(h=>{
+    if(h.klettergebietId===id){
+      h.klettergebietId = '';
+      saveHutCloud(h).catch(()=>{});
+    }
+  });
 }
 // Einmalige Migration: das frühere einzelne "Gipfel"-Feld am Klettergebiet (ein Gebiet zeigte auf
 // GENAU EINEN Gipfel) wurde durch das umgekehrte, mehrfache Feld am Gipfel ersetzt (ein Gebiet
@@ -1239,6 +1246,20 @@ async function assignGipfelToKlettergebiet(gipfelId, gebId){
   gp._unsynced = !ok;
   if(!ok) markUnsaved();
   showToast(ok ? 'Gipfel zugeordnet.' : 'Gipfel lokal zugeordnet, aber nicht synchronisiert.', !ok);
+  render();
+}
+// Ordnet eine bestehende Hütte einem Klettergebiet zu -- analog zu assignGipfelToKlettergebiet.
+async function assignHutToKlettergebiet(hutId, gebId){
+  const h = state.huts.find(x=>x.id===hutId);
+  if(!h) return;
+  h.klettergebietId = gebId || '';
+  h.updatedAt = new Date().toISOString();
+  h.updatedBy = state.myName;
+  render();
+  const ok = await saveHutCloud(h).catch(()=>false);
+  h._unsynced = !ok;
+  if(!ok) markUnsaved();
+  showToast(ok ? 'Hütte zugeordnet.' : 'Hütte lokal zugeordnet, aber nicht synchronisiert.', !ok);
   render();
 }
 async function assignSektorToKlettergebiet(sekId, gebId){
@@ -1605,6 +1626,7 @@ async function submitHutForm(form, existing){
   migrateHutAccessRoutes(h);
   h.contact = form.contact;
   h.notes = form.notes;
+  h.klettergebietId = form.klettergebietId || '';
   h.updatedAt = new Date().toISOString();
   h.updatedBy = state.myName;
 
@@ -2066,6 +2088,13 @@ function sektorTopoRoutenFormHtml(sektorId){
         <div id="kletterrouten-editor" style="margin-top:8px;"></div>
         <input type="hidden" name="kletterrouten" id="kletterrouten-hidden" value='${esc(sek.kletterrouten ? JSON.stringify(sek.kletterrouten) : "[]")}'/>
       </div>
+      ${state.huts.length ? `<div class="field"><label>Zustieg über Hütte (optional)</label>
+        <select name="hutId">
+          <option value="">— keine —</option>
+          ${state.huts.map(h=>`<option value="${h.id}" ${(sek.hutId||'')===h.id?'selected':''}>${esc(h.name)}</option>`).join('')}
+        </select>
+        <div class="hint">Ist eine Hütte gewählt, wird deren Zustieg automatisch mitgezeigt — ein eigener Zustieg unten ist nur nötig, falls der Weg ab der Hütte nochmal abweicht.</div>
+      </div>` : ''}
       <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">Klettergarten-Infos</h3>
       <div class="field"><label>Absicherung</label>
         <div class="chips" style="flex-direction:column; align-items:flex-start; gap:8px;">
@@ -2112,6 +2141,7 @@ async function submitSektorTopoRoutenForm(form){
   if(!sek) return;
   try{ sek.topoImages = form.topoImages ? JSON.parse(form.topoImages) : []; }catch(e){ sek.topoImages = []; }
   try{ sek.kletterrouten = form.kletterrouten ? JSON.parse(form.kletterrouten) : []; }catch(e){ sek.kletterrouten = []; }
+  sek.hutId = form.hutId || '';
   sek.protection = form.protection || '';
   sek.descentType = form.descentType || '';
   sek.material = Array.isArray(form.material) ? form.material : [];
@@ -2405,40 +2435,26 @@ function renderKlettergebietOverviewMap(containerId, gebId){
   });
 }
 
-// Ein Klettergebiet zeigt genau einen Pfad zu seinen Touren: Gebiet → Sektor → Tour. Keine
-// zusätzliche, flache Touren-Liste mehr daneben (die zeigte jede Sektor-verlinkte Tour zweimal:
-// einmal als eigene Karte, einmal wieder im Sektor-Kärtchen darunter). Hütten sind eigenständige
-// Kinder des Gebiets (aus den Hütten-Feldern der Sektor-Touren berechnet), unabhängig von den
-// Sektoren — keine Dopplung dorthin.
-function klettergebietChapterHtml(geb, sektoren, unlinkedSektoren){
-  const tourenListe = klettergebietTouren(geb);
-  const hutIds = new Set(tourenListe.map(t=>t.hutId).filter(Boolean));
-  const huetten = state.huts.filter(h=>hutIds.has(h.id));
-
+// Verwaltungs-Block für Klettergärten (Sektoren mit Routen-Liste): Liste + Foto-Scan +
+// nicht zugeordnete Sektoren. Sektoren ohne Kletterrouten (reine Hochtour/MSL-Klammer) erscheinen
+// hier nicht -- ihre Touren zählen einfach in den Hochtour-/MSL-Kapiteln, siehe
+// klettergebietKlettergaerten().
+function klettergebietKlettergartenChapterBodyHtml(geb, klettergaerten, unlinkedSektoren){
   return `
-    <div class="detail-section">
-      <h4>Sektoren (${sektoren.length})</h4>
-      ${sektoren.length ? `<div class="grid" style="margin-top:6px;">${sektoren.map(sektorCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Sektor diesem Klettergebiet zugeordnet.</p>`}
-      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
-        <button type="button" class="btn secondary" data-act="add-sektor-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Neuer Sektor in diesem Gebiet</button>
-        <button type="button" class="btn secondary" id="klettergebiet-scan-btn" data-klettergebiet-id="${geb.id}">📷 Foto(s) scannen (mehrere Sektoren)</button>
-        <input type="file" id="klettergebiet-scan-input" accept="image/*" multiple style="display:none;"/>
-        <button type="button" class="btn secondary" id="klettergebiet-scan-camera-btn" data-klettergebiet-id="${geb.id}">📸 Direkt fotografieren</button>
-        <input type="file" id="klettergebiet-scan-camera-input" accept="image/*" capture="environment" style="display:none;"/>
-      </div>
-      <p style="font-size:12px; color:var(--ink-soft); margin:4px 0 0 0;">Mehrere Fotos gleichzeitig auswählbar, falls das Gebiet über mehrere Führerbuch-Seiten geht — alle erkannten Sektoren landen in einer gemeinsamen Übersicht.</p>
-      <p id="klettergebiet-scan-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;"></p>
-      ${unlinkedSektoren.length ? `<div class="detail-section" style="margin-top:14px; border:2px dashed var(--line); border-radius:var(--radius); padding:12px;">
-        <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Noch nicht zugeordnete Sektoren:</p>
-        <div class="grid">${unlinkedSektoren.map(s=>unlinkedSektorAssignCardHtml(s, geb.id)).join('')}</div>
-      </div>` : ''}
+    ${klettergaerten.length ? `<div class="grid" style="margin-top:6px;">${klettergaerten.map(sektorCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Klettergarten (Sektor mit Routen-Liste) in diesem Gebiet.</p>`}
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
+      <button type="button" class="btn secondary" data-act="add-sektor-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Neuer Sektor in diesem Gebiet</button>
+      <button type="button" class="btn secondary" id="klettergebiet-scan-btn" data-klettergebiet-id="${geb.id}">📷 Foto(s) scannen (mehrere Sektoren)</button>
+      <input type="file" id="klettergebiet-scan-input" accept="image/*" multiple style="display:none;"/>
+      <button type="button" class="btn secondary" id="klettergebiet-scan-camera-btn" data-klettergebiet-id="${geb.id}">📸 Direkt fotografieren</button>
+      <input type="file" id="klettergebiet-scan-camera-input" accept="image/*" capture="environment" style="display:none;"/>
     </div>
-    <div class="detail-section" style="border-top:1px solid var(--line); padding-top:16px;">
-      <h4>🛖 Hütten (${huetten.length})</h4>
-      ${huetten.length
-        ? `<div class="grid" style="margin-top:6px;">${huetten.map(hutCardHtml).join('')}</div>`
-        : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hütte verlinkt — sobald eine Tour in einem Sektor dieses Gebiets eine Hütte als Stützpunkt hat, erscheint sie hier automatisch.</p>`}
-    </div>
+    <p style="font-size:12px; color:var(--ink-soft); margin:4px 0 0 0;">Mehrere Fotos gleichzeitig auswählbar, falls das Gebiet über mehrere Führerbuch-Seiten geht — alle erkannten Sektoren landen in einer gemeinsamen Übersicht.</p>
+    <p id="klettergebiet-scan-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;"></p>
+    ${unlinkedSektoren.length ? `<div class="detail-section" style="margin-top:14px; border:2px dashed var(--line); border-radius:var(--radius); padding:12px;">
+      <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Noch nicht zugeordnete Sektoren:</p>
+      <div class="grid">${unlinkedSektoren.map(s=>unlinkedSektorAssignCardHtml(s, geb.id)).join('')}</div>
+    </div>` : ''}
   `;
 }
 
@@ -2449,8 +2465,13 @@ function klettergebietDetailHtml(id){
   const unlinkedSektoren = state.sektoren.filter(s=>!s.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   const gradeRange = klettergebietClimbGradeRangeText(geb);
   const altitude = klettergebietAltitudeText(geb);
+  const hochtouren = klettergebietHochtouren(geb);
+  const mslTouren = klettergebietMslTouren(geb);
+  const klettergaerten = klettergebietKlettergaerten(geb);
   const gipfelImGebiet = state.gipfel.filter(gp=>gp.klettergebietId===geb.id).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   const unlinkedGipfel = state.gipfel.filter(gp=>!gp.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+  const huettenImGebiet = klettergebietHuetten(geb);
+  const unlinkedHuetten = state.huts.filter(h=>!h.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
@@ -2475,11 +2496,14 @@ function klettergebietDetailHtml(id){
         <div id="map-klettergebiet-overview-${geb.id}"></div>
       </div>`;
     })()}
-    <div class="detail-section">
-      ${klettergebietChapterHtml(geb, sektoren, unlinkedSektoren)}
-    </div>
-    <div class="detail-section" style="border-top:1px solid var(--line); padding-top:16px;">
-      <h4>🏔️ Gipfel im Gebiet (${gipfelImGebiet.length})</h4>
+    ${detailChapterHtml('🏔️ Hochtour', hochtouren.length, hochtouren.length
+      ? `<div class="grid" style="margin-top:6px;">${hochtouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>`
+      : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hochtour in diesem Gebiet. Beim Anlegen/Bearbeiten einer Hochtour lässt sie sich über das Feld "Sektor" einem Sektor dieses Gebiets zuordnen.</p>`)}
+    ${detailChapterHtml('🧗 Mehrseillänge', mslTouren.length, mslTouren.length
+      ? `<div class="grid" style="margin-top:6px;">${mslTouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>`
+      : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine MSL-Tour in diesem Gebiet.</p>`)}
+    ${detailChapterHtml('🏕️ Klettergarten', klettergaerten.length, klettergebietKlettergartenChapterBodyHtml(geb, klettergaerten, unlinkedSektoren))}
+    ${detailChapterHtml('⛰️ Gipfel', gipfelImGebiet.length, `
       ${gipfelImGebiet.length ? `<div class="grid" style="margin-top:6px;">${gipfelImGebiet.map(gp=>gipfelCardHtml(gp, state.tours.filter(t=>Array.isArray(t.summitIds) && t.summitIds.includes(gp.id)))).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Gipfel diesem Klettergebiet zugeordnet.</p>`}
       ${unlinkedGipfel.length ? `<div style="display:flex; gap:8px; margin-top:10px;">
         <select id="klettergebiet-add-gipfel-select" style="flex:1; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); font-size:13px;">
@@ -2487,7 +2511,16 @@ function klettergebietDetailHtml(id){
         </select>
         <button type="button" class="btn secondary" style="flex:none;" data-act="assign-selected-gipfel-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Hinzufügen</button>
       </div>` : ''}
-    </div>
+    `)}
+    ${detailChapterHtml('🛖 Hütten', huettenImGebiet.length, `
+      ${huettenImGebiet.length ? `<div class="grid" style="margin-top:6px;">${huettenImGebiet.map(hutCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hütte diesem Klettergebiet zugeordnet.</p>`}
+      ${unlinkedHuetten.length ? `<div style="display:flex; gap:8px; margin-top:10px;">
+        <select id="klettergebiet-add-hut-select" style="flex:1; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); font-size:13px;">
+          ${unlinkedHuetten.map(h=>`<option value="${h.id}">${esc(h.name)}</option>`).join('')}
+        </select>
+        <button type="button" class="btn secondary" style="flex:none;" data-act="assign-selected-hut-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Hinzufügen</button>
+      </div>` : ''}
+    `)}
     ${geb._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
     <div class="form-actions">
       <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
@@ -2576,13 +2609,14 @@ function renderSektorOverviewMap(containerId, sektorId){
   });
 }
 
+// Klettergarten-Mini-Übersicht: ein Sektor mit Routen-Liste zeigt sich im Gebiet nur noch als
+// dieser kompakte Eintrag -- keine eigenen Hochtour/MSL-Kapitel mehr (die Touren zählen jetzt
+// flach in den Gebiets-Kapiteln), keine Sektor-Liste als eigenständige Ebene.
 function sektorDetailHtml(id){
   const sek = state.sektoren.find(x=>x.id===id);
   if(!sek) return `<div class="modal" data-stop="1"><p>Sektor nicht gefunden.</p></div>`;
   ensureSektorRouteArrays(sek);
   const linked = state.tours.filter(t=>t.sektorId===sek.id);
-  const hochtouren = linked.filter(t=>t.tourCategory!=='msl');
-  const mslTouren = linked.filter(t=>t.tourCategory==='msl');
   const sekProtectionInfo = sek.protection ? PROTECTION_LEVELS.find(p=>p.value===sek.protection) : null;
   const accessRoutes = sek.accessRoutes || [];
   const descentRoutes = sek.descentRoutes || [];
@@ -2590,14 +2624,18 @@ function sektorDetailHtml(id){
   const descentRange = accessRouteDifficultyRangeHtml(descentRoutes);
   const mergedRoute = (accessRoutes.length===1 && descentRoutes.length===1 && sektorRoutesContentEqual(accessRoutes[0], descentRoutes[0])) ? accessRoutes[0] : null;
   const geb = sek.klettergebietId ? state.klettergebiete.find(g=>g.id===sek.klettergebietId) : null;
-  const gebSektoren = geb ? state.sektoren.filter(s=>s.klettergebietId===geb.id).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de')) : [];
-  const gebIdx = gebSektoren.findIndex(s=>s.id===sek.id);
+  const gebKlettergaerten = geb ? klettergebietKlettergaerten(geb) : [];
+  const gebIdx = gebKlettergaerten.findIndex(s=>s.id===sek.id);
+  const hut = sek.hutId ? state.huts.find(h=>h.id===sek.hutId) : null;
+  if(hut) migrateHutAccessRoutes(hut);
+  const hutRoutes = hut ? (hut.accessRoutes || []) : [];
+  const hutRange = accessRouteDifficultyRangeHtml(hutRoutes);
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div>
-        <h2 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h2>
+        <h2 style="color:var(--ice-deep);">🏕️ ${esc(sek.name)}</h2>
         ${sek.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}
-        ${gebSektoren.length>1 ? `<p style="color:var(--ink-faint); font-size:11px; margin:4px 0 0 0;">↔ ${esc(geb.name)} · Sektor ${gebIdx+1}/${gebSektoren.length} — wischen zum Wechseln</p>` : ''}
+        ${gebKlettergaerten.length>1 && gebIdx>=0 ? `<p style="color:var(--ink-faint); font-size:11px; margin:4px 0 0 0;">↔ ${esc(geb.name)} · Klettergarten ${gebIdx+1}/${gebKlettergaerten.length} — wischen zum Wechseln</p>` : ''}
       </div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
@@ -2606,15 +2644,8 @@ function sektorDetailHtml(id){
       <button type="button" class="btn secondary" data-act="convert-sektor-to-klettergebiet" data-id="${sek.id}">⛰️ In neues Klettergebiet umwandeln</button>
     </div>` : ''}
     ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
-    ${detailChapterHtml('🏔️ Hochtouren', hochtouren.length, `
-      ${hochtouren.length ? `<div class="grid" style="margin-top:6px;">${hochtouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hochtour mit diesem Sektor verlinkt.</p>`}
-      <p style="font-size:11.5px; color:var(--ink-faint); margin:6px 4px 0 4px;">Eine Hochtour lässt sich beim Anlegen/Bearbeiten diesem Sektor zuordnen (Feld "Sektor").</p>
-    `)}
-    ${detailChapterHtml('🧗 Mehrseillängen', mslTouren.length, `
-      ${mslTouren.length ? `<div class="grid" style="margin-top:6px;">${mslTouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine MSL-Tour mit diesem Sektor verlinkt.</p>`}
-      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-msl-in-sektor" data-sektor-id="${sek.id}">+ Neue MSL-Tour</button>
-    `)}
-    ${detailChapterHtml('🏕️ Klettergarten', (sek.kletterrouten && sek.kletterrouten.length) || null, `
+    <div class="detail-section">
+      <h4>Topo &amp; Routen${sek.kletterrouten && sek.kletterrouten.length ? ` (${sek.kletterrouten.length})` : ''}</h4>
       ${((sek.topoImages && sek.topoImages.length) || (sek.kletterrouten && sek.kletterrouten.length)) ? `
         ${(sek.topoImages && sek.topoImages.length) ? topoImagesGalleryHtml(sek.topoImages) : ''}
         ${kletterroutenTableHtml(sek.kletterrouten)}
@@ -2625,22 +2656,29 @@ function sektorDetailHtml(id){
       ${(sek.ropeType || sek.ropeLength) ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Seil:</strong> ${[sek.ropeType, sek.ropeLength].filter(Boolean).map(esc).join(' · ')}</p>` : ''}
       ${sek.klettergartenNotes ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Hinweise:</strong> ${esc(sek.klettergartenNotes)}</p>` : ''}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="edit-sektor-topo-routen" data-id="${sek.id}">🏕️ Klettergarten-Infos bearbeiten</button>
-    `)}
+      <button type="button" class="btn secondary" style="margin-top:10px; margin-left:8px;" data-act="add-msl-in-sektor" data-sektor-id="${sek.id}">+ Neue MSL-Tour hier</button>
+    </div>
     ${(() => {
       const hasSektorPoints = sek.points && sek.points.length;
       const hasTourData = linked.some(t=> (t.points && t.points.length) || (t.trackSimplified && t.trackSimplified.length) || (t.manualTrack && t.manualTrack.length));
       if(!hasSektorPoints && !hasTourData) return '';
       const legend = sektorOverviewLegendHtml(sek.id);
       return `<div class="detail-section">
-        <h4>🗺️ Karte — Ausgangspunkt &amp; Übersicht</h4>
-        <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Ausgangspunkt(e) &amp; alle Punkte/Tracks der verlinkten Touren, automatisch zusammengeführt — keine erneute Eingabe nötig. Antippen zum Vergrössern.</p>
+        <h4>🗺️ Karte</h4>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Ausgangspunkt(e) &amp; Touren dieses Klettergartens, automatisch zusammengeführt. Antippen zum Vergrössern.</p>
         ${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}
         <div id="map-sektor-overview-${sek.id}" data-sektor-overview-map="${sek.id}"></div>
       </div>`;
     })()}
+    ${hut && hutRoutes.length ? `<div class="detail-section">
+      <h4>🛖 Zustieg ab Hütte „${esc(hut.name)}"${hutRoutes.length>1 ? ` (${hutRoutes.length})` : ''}</h4>
+      ${hutRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${hutRange}</p>` : ''}
+      <div class="grid">${hutRoutes.map((r,i)=>accessRouteRowHtml(r,i,hut.id)).join('')}</div>
+      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-hut" data-id="${hut.id}">🛖 Hütte öffnen &amp; Zustiege verwalten</button>
+    </div>` : ''}
     ${mergedRoute ? `
     <div class="detail-section">
-      <h4>Zu-/Abstieg</h4>
+      <h4>${hut && hutRoutes.length ? 'Eigener Zu-/Abstieg' : 'Zu-/Abstieg'}</h4>
       <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Zustieg und Abstieg sind identisch — nur eine Kachel.</p>
       <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify([mergedRoute]))}' data-sektor-id="${sek.id}" data-kind="access" data-target="map-sektor-access-${sek.id}">🗺️ Karte anzeigen</button>
       <div id="map-sektor-access-${sek.id}" style="margin-bottom:10px;"></div>
@@ -2652,17 +2690,17 @@ function sektorDetailHtml(id){
     </div>
     ` : `
     <div class="detail-section">
-      <h4>Zustiege${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
+      <h4>${hut && hutRoutes.length ? 'Eigener Zustieg' : 'Zustieg'}${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
       ${accessRoutes.length ? `
         ${accessRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${accessRange}</p>` : ''}
         <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-sektor-id="${sek.id}" data-kind="access" data-target="map-sektor-access-${sek.id}">🗺️ Karte anzeigen</button>
         <div id="map-sektor-access-${sek.id}" style="margin-bottom:10px;"></div>
         <div class="grid">${accessRoutes.map((r,i)=>sektorRouteRowHtml(r,i,sek.id,'access')).join('')}</div>
-      ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
-      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="access">+ Zustieg hinzufügen</button>
+      ` : `<p style="font-size:13px; color:var(--ink-soft);">${hut && hutRoutes.length ? 'Noch kein eigener Zustieg erfasst — nur nötig, falls der Weg ab der Hütte nochmal abweicht.' : 'Noch kein Zustieg erfasst.'}</p>`}
+      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="access">+ ${hut && hutRoutes.length ? 'zusätzlichen ' : ''}Zustieg hinzufügen</button>
     </div>
     <div class="detail-section">
-      <h4>Abstiege${descentRoutes.length ? ` (${descentRoutes.length})` : ''}</h4>
+      <h4>Abstieg${descentRoutes.length ? ` (${descentRoutes.length})` : ''}</h4>
       ${descentRoutes.length ? `
         ${descentRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${descentRange}</p>` : ''}
         <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-sektor-id="${sek.id}" data-kind="descent" data-target="map-sektor-descent-${sek.id}">🗺️ Karte anzeigen</button>
@@ -3638,6 +3676,24 @@ function klettergebietTouren(geb){
   const sektorIds = new Set(state.sektoren.filter(s=>s.klettergebietId===geb.id).map(s=>s.id));
   return state.tours.filter(t=> sektorIds.has(t.sektorId));
 }
+function klettergebietHochtouren(geb){ return klettergebietTouren(geb).filter(t=>t.tourCategory!=='msl'); }
+function klettergebietMslTouren(geb){ return klettergebietTouren(geb).filter(t=>t.tourCategory==='msl'); }
+// Nur Sektoren mit eigener Routen-Liste zählen als "Klettergarten" -- ein Sektor ohne Kletterrouten
+// ist reine technische Klammer für seine Touren und taucht hier nicht als eigener Eintrag auf.
+function klettergebietKlettergaerten(geb){
+  return state.sektoren.filter(s=>s.klettergebietId===geb.id && s.kletterrouten && s.kletterrouten.length)
+    .sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+}
+// Hütten im Gebiet: manuell zugeordnet (hut.klettergebietId) ODER automatisch, weil eine Tour
+// dieses Gebiets sie als Stützpunkt (hutId) hat -- beides zusammengeführt, ohne Dopplung.
+function klettergebietHuetten(geb){
+  const tourenHutIds = new Set(klettergebietTouren(geb).map(t=>t.hutId).filter(Boolean));
+  const byId = new Map();
+  state.huts.forEach(h=>{
+    if(h.klettergebietId===geb.id || tourenHutIds.has(h.id)) byId.set(h.id, h);
+  });
+  return Array.from(byId.values()).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+}
 // Grad-Werte eines einzelnen Sektors: sowohl dessen Kletterrouten-Liste (Klettergarten-Anteil)
 // als auch obligatorisch/Schlüssel der verlinkten MSL-Touren (MSL-Anteil) — ein Sektor kann
 // beides haben. Baustein für sektorClimbGradeRangeText() und klettergebietClimbGradeRangeText().
@@ -4162,6 +4218,7 @@ function tourDetailHtml(id){
   const isMsl = t.tourCategory==='msl';
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
+  if(hut) migrateHutAccessRoutes(hut);
   const protectionInfo = t.protection ? PROTECTION_LEVELS.find(p=>p.value===t.protection) : null;
   const sektorTouren = t.sektorId ? state.tours.filter(x=>x.sektorId===t.sektorId) : [];
   const sektorTourIdx = sektorTouren.findIndex(x=>x.id===t.id);
@@ -4236,56 +4293,39 @@ function tourDetailHtml(id){
       <input type="hidden" id="quick-track-simplified-hidden-${t.id}" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
       <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${t.id}" data-act="quick-save" data-id="${t.id}" data-kind="tour">💾 Änderungen speichern</button>
     </div>
-    ${isMsl ? (() => {
-      const linkedSektor = t.sektorId ? state.sektoren.find(x=>x.id===t.sektorId) : null;
-      if(linkedSektor){
-        ensureSektorRouteArrays(linkedSektor);
-        const accessRoutes = linkedSektor.accessRoutes || [];
-        const descentRoutes = linkedSektor.descentRoutes || [];
-        const accessRange = accessRouteDifficultyRangeHtml(accessRoutes);
-        const descentRange = accessRouteDifficultyRangeHtml(descentRoutes);
-        return `
-        <div class="detail-section">
-          <h4>Zustiege${accessRoutes.length ? ` (${accessRoutes.length})` : ''} <span style="font-weight:400; font-size:12.5px; color:var(--ink-soft);">— vom Sektor „${esc(linkedSektor.name)}"</span></h4>
-          ${accessRoutes.length ? `
-            ${accessRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${accessRange}</p>` : ''}
-            <div class="grid">${accessRoutes.map((r,i)=>sektorRouteRowHtml(r,i,linkedSektor.id,'access')).join('')}</div>
-          ` : `<p style="font-size:13px; color:var(--ink-soft);">Der Sektor hat noch keinen Zustieg erfasst.</p>`}
-          <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-sektor" data-id="${linkedSektor.id}">🧭 Sektor öffnen &amp; Zustiege verwalten</button>
-        </div>
-        <div class="detail-section">
-          <h4>Abstiege${descentRoutes.length ? ` (${descentRoutes.length})` : ''} <span style="font-weight:400; font-size:12.5px; color:var(--ink-soft);">— vom Sektor „${esc(linkedSektor.name)}"</span></h4>
-          ${descentRoutes.length ? `
-            ${descentRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${descentRange}</p>` : ''}
-            <div class="grid">${descentRoutes.map((r,i)=>sektorRouteRowHtml(r,i,linkedSektor.id,'descent')).join('')}</div>
-          ` : `<p style="font-size:13px; color:var(--ink-soft);">Der Sektor hat noch keinen Abstieg erfasst.</p>`}
-          <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-sektor" data-id="${linkedSektor.id}">🧭 Sektor öffnen &amp; Abstiege verwalten</button>
-        </div>`;
-      }
+    ${(() => {
       ensureTourRouteArrays(t);
       const accessRoutes = t.accessRoutes || [];
       const descentRoutes = t.descentRoutes || [];
       const accessRange = accessRouteDifficultyRangeHtml(accessRoutes);
       const descentRange = accessRouteDifficultyRangeHtml(descentRoutes);
-      const sektorCandidates = findSektorCandidateTours(t, state.tours, 300);
+      const hutRoutes = hut ? (hut.accessRoutes || []) : [];
+      const hutRange = accessRouteDifficultyRangeHtml(hutRoutes);
+      const sektorCandidates = isMsl ? findSektorCandidateTours(t, state.tours, 300) : [];
       return `
+      ${hut && hutRoutes.length ? `<div class="detail-section">
+        <h4>🛖 Zustieg ab Hütte „${esc(hut.name)}"${hutRoutes.length>1 ? ` (${hutRoutes.length})` : ''}</h4>
+        ${hutRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${hutRange}</p>` : ''}
+        <div class="grid">${hutRoutes.map((r,i)=>accessRouteRowHtml(r,i,hut.id)).join('')}</div>
+        <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-hut" data-id="${hut.id}">🛖 Hütte öffnen &amp; Zustiege verwalten</button>
+      </div>` : ''}
       ${sektorCandidates.length ? `<div class="detail-section" style="background:#EAF3EC; border-left:3px solid #2F6B44;">
         <h4>🧭 Sektor-Vorschlag</h4>
         <p style="font-size:13.5px; margin:0 0 10px 0;">${sektorCandidates.length===1 ? 'Diese Tour teilt sich vermutlich einen Zustieg mit:' : 'Diese Tour teilt sich vermutlich einen Zustieg mit ' + sektorCandidates.length + ' weiteren Touren:'} ${sektorCandidates.map(c=>`„${esc(c.name)}${c.routeName?' – '+esc(c.routeName):''}"`).join(', ')}. Zu einem gemeinsamen Sektor zusammenlegen?</p>
         <button type="button" class="btn secondary" data-act="create-sektor-from-tours" data-tour-ids='${esc(JSON.stringify([t.id, ...sektorCandidates.map(c=>c.id)]))}'>🧭 Sektor erstellen</button>
       </div>` : ''}
       <div class="detail-section">
-        <h4>Zustiege${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
+        <h4>${hut && hutRoutes.length ? 'Eigener Zustieg' : 'Zustieg'}${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
         ${accessRoutes.length ? `
           ${accessRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${accessRange}</p>` : ''}
           <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-tour-id="${t.id}" data-kind="access" data-target="map-tour-access-${t.id}">🗺️ Karte anzeigen</button>
           <div id="map-tour-access-${t.id}" style="margin-bottom:10px;"></div>
           <div class="grid">${accessRoutes.map((r,i)=>tourRouteRowHtml(r,i,t.id,'access')).join('')}</div>
-        ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
-        <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-tour-route" data-tour-id="${t.id}" data-kind="access">+ Zustieg hinzufügen</button>
+        ` : `<p style="font-size:13px; color:var(--ink-soft);">${hut && hutRoutes.length ? 'Noch kein eigener Zustieg erfasst — nur nötig, falls der Weg ab der Hütte nochmal abweicht.' : 'Noch kein Zustieg erfasst.'}</p>`}
+        <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-tour-route" data-tour-id="${t.id}" data-kind="access">+ ${hut && hutRoutes.length ? 'zusätzlichen ' : ''}Zustieg hinzufügen</button>
       </div>
       <div class="detail-section">
-        <h4>Abstiege${descentRoutes.length ? ` (${descentRoutes.length})` : ''}</h4>
+        <h4>Abstieg${descentRoutes.length ? ` (${descentRoutes.length})` : ''}</h4>
         ${descentRoutes.length ? `
           ${descentRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${descentRange}</p>` : ''}
           <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-tour-id="${t.id}" data-kind="descent" data-target="map-tour-descent-${t.id}">🗺️ Karte anzeigen</button>
@@ -4294,7 +4334,7 @@ function tourDetailHtml(id){
         ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
         <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-tour-route" data-tour-id="${t.id}" data-kind="descent">+ Abstieg hinzufügen</button>
       </div>`;
-    })() : ''}
+    })()}
     ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.topoImages && t.topoImages.length)) ? offlineSectionHtml(t.id) : ''}
     ${(t.gpxLink || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<div class="detail-section">
       <h4>GPX-Track</h4>
@@ -4371,6 +4411,13 @@ function hutFormHtml(existing){
     <div class="modal-head"><h2>${isEditing?'Hütte bearbeiten':'Neue Hütte'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="hut-form" novalidate>
       <div class="field"><label>Name der Hütte *</label><input required name="name" value="${esc(h.name||'')}" placeholder="z. B. Domhütte"/></div>
+      ${state.klettergebiete.length ? `<div class="field"><label>Klettergebiet (optional)</label>
+        <select name="klettergebietId">
+          <option value="">— keins —</option>
+          ${state.klettergebiete.map(geb=>`<option value="${geb.id}" ${(h.klettergebietId||'')===geb.id?'selected':''}>${esc(geb.name)}</option>`).join('')}
+        </select>
+        <div class="hint">Falls diese Hütte zu einem Klettergebiet gehört (z. B. Stützpunkt für dessen Touren/Klettergärten).</div>
+      </div>` : ''}
       <div class="field"><label>Region</label>
         <div class="chips" id="region-chips">
           ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${h.region===r?'on':''}" style="${h.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
@@ -4450,11 +4497,13 @@ function hutDetailHtml(id){
   const rangeText = accessRouteDifficultyRangeHtml(routes);
   const legend = accessRouteLegendHtml(routes);
   const hasMapData = (h.points && h.points.length) || (h.manualTrack && h.manualTrack.length) || routes.length;
+  const geb = h.klettergebietId ? state.klettergebiete.find(g=>g.id===h.klettergebietId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div><h2>🛖 ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(h.region)}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
+    ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : ''}
     <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-hut-status" data-id="${h.id}">${hutStatusLabel(h)} — antippen zum Ändern</button>
     <div class="detail-stats">
       ${h.altitude ? `<div class="detail-stat"><div class="num">${esc(h.altitude)}</div><div class="lbl">m ü. M.</div></div>` : ''}
@@ -5893,6 +5942,13 @@ function wireModalHandlers(){
       const select = document.getElementById('klettergebiet-add-gipfel-select');
       if(!select || !select.value) return;
       assignGipfelToKlettergebiet(select.value, btn.getAttribute('data-klettergebiet-id'));
+    });
+  });
+  root.querySelectorAll('[data-act="assign-selected-hut-to-klettergebiet"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const select = document.getElementById('klettergebiet-add-hut-select');
+      if(!select || !select.value) return;
+      assignHutToKlettergebiet(select.value, btn.getAttribute('data-klettergebiet-id'));
     });
   });
   root.querySelectorAll('[data-act="assign-merge-tours"]').forEach(btn=>{
