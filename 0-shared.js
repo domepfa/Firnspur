@@ -3249,8 +3249,19 @@ function addBaseLayerSwitcher(map){
     maxZoom: 18,
     attribution: '© ASTRA/swisstopo/SchweizMobil'
   });
+  // Aktuelle Wetter-Messwerte (MeteoSchweiz Open Data, seit 2025) -- zeigt den IST-Zustand an
+  // den Messstationen, keine Prognose (die gibt's nur punktbezogen, siehe Tour-Detailansicht,
+  // nicht als flächendeckende Kartenebene). Gleiches WMTS-Schema wie die Ebenen oben.
+  const meteoTempLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.meteoschweiz.messwerte-lufttemperatur-10min/default/current/3857/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '© MeteoSchweiz'
+  });
+  const meteoPrecipLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.meteoschweiz.messwerte-niederschlag-10min/default/current/3857/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '© MeteoSchweiz'
+  });
   streetLayer.addTo(map);
-  const overlays = { '⛷️ Skitouren': skitourenLayer, '⚠️ Hangneigung ab 30°': hangneigungLayer, '🚧 Wegsperrungen': wegsperrungenLayer };
+  const overlays = { '⛷️ Skitouren': skitourenLayer, '⚠️ Hangneigung ab 30°': hangneigungLayer, '🚧 Wegsperrungen': wegsperrungenLayer, '🌡️ Temperatur (aktuell)': meteoTempLayer, '🌧️ Niederschlag (aktuell)': meteoPrecipLayer };
   // Lawinen-Gefahrenstufen nur in Firnspur/Skitour relevant (nicht bei MSL/Klettertouren auf Fels).
   // SEKTOREN_PATH ist nur in Fixseil definiert — dessen Fehlen erkennt hier zuverlässig die andere App.
   // Standardmässig ausgeschaltet: die Daten werden erst beim ersten Einschalten geladen, nicht bei
@@ -5198,6 +5209,45 @@ function meteoForecastWidgetHtml(lat, lon){
     </div>
     <p style="font-size:10.5px; color:var(--ink-faint); margin:6px 0 0;">Quelle: MeteoSchweiz (Open Data) · stündliche Werte zu Tageswerten zusammengefasst</p>
   </div>`;
+}
+
+// Kleines Wetter-Badge auf Touren-Kärtchen (Listenübersicht): schnell durchscrollen und sehen,
+// wo das Wetter gut aussieht, statt jede Tour einzeln öffnen zu müssen. Nutzt bewusst dieselben
+// Bulk-CSVs (alle ~6000 Punkte auf einmal) wie die Detail-Prognose -- für die ganze Liste sind
+// dadurch nur 2 Netzwerk-Anfragen nötig, nicht eine pro Tour.
+let _meteoBulkPromise = null;
+function ensureMeteoBulkData(){
+  if(_meteoBulkPromise) return;
+  state._meteoBulkStatus = 'loading';
+  _meteoBulkPromise = Promise.all([
+    meteoLoadPointList(),
+    meteoLoadHourlyParam('tre200h0'),
+    meteoLoadHourlyParam('rre150h0')
+  ]).then(([points, tempRows, precipRows])=>{
+    state._meteoBulk = { points, tempRows, precipRows };
+    state._meteoBulkStatus = 'ok';
+    render();
+  }).catch(err=>{
+    state._meteoBulkStatus = 'error';
+    _meteoBulkPromise = null;
+    console.warn('Wetter-Bulkdaten konnten nicht geladen werden:', err);
+  });
+}
+
+function meteoCardBadgeHtml(lat, lon){
+  if(!isFinite(lat) || !isFinite(lon)) return '';
+  if(state._meteoBulkStatus !== 'ok'){
+    ensureMeteoBulkData();
+    return '';
+  }
+  const bulk = state._meteoBulk;
+  const nearest = meteoFindNearestPoint(bulk.points, lat, lon);
+  if(!nearest) return '';
+  const agg = meteoAggregateDaily(bulk.tempRows, bulk.precipRows, nearest.point.pointId, nearest.point.pointTypeId);
+  const today = agg.days[0];
+  if(!today) return '';
+  const icon = today.precipMm >= 3 ? '🌧️' : today.precipMm >= 0.3 ? '🌦️' : '☀️';
+  return `<span class="badge" style="background:var(--ice-light); color:var(--ink);" title="Heute bei ${esc(nearest.point.name)}: ${Math.round(today.tempMin)}–${Math.round(today.tempMax)}°, ${today.precipMm.toFixed(1)}mm">${icon} ${Math.round(today.tempMax)}°</span>`;
 }
 
 /* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */
