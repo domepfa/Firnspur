@@ -5248,19 +5248,39 @@ function meteoDayIcon(precipMm){
 
 // Kompakte 3-Tages-Zeile fürs Kärtchen -- eigene Zeile unterhalb der Schwierigkeits-/Höhen-Chips,
 // damit sie nicht mit denen um Platz konkurriert.
+// Ergebnis pro Kartenpunkt cachen (nächster Punkt + Tageswerte) -- ohne das würde bei JEDEM
+// Rendern (jeder Tastendruck im Suchfeld, jedes Umschalten eines Favoriten usw.) für JEDE Karte
+// erneut über alle ~6000 MeteoSchweiz-Punkte und alle CSV-Zeilen gesucht/gefiltert, was die App
+// spürbar träge macht. Die Bulk-Daten selbst ändern sich innerhalb einer Sitzung nicht mehr
+// (siehe ensureMeteoBulkData), daher ist ein einmal berechnetes Ergebnis auch für die ganze
+// Sitzung gültig.
+function meteoCardForecastData(lat, lon){
+  if(!state._meteoCardCache) state._meteoCardCache = {};
+  const key = meteoCacheKey(lat, lon);
+  let cached = state._meteoCardCache[key];
+  if(cached) return cached;
+  const bulk = state._meteoBulk;
+  const nearest = meteoFindNearestPoint(bulk.points, lat, lon);
+  if(!nearest){
+    cached = { days: [] };
+  }else{
+    const agg = meteoAggregateDaily(bulk.tempRows, bulk.precipRows, nearest.point.pointId, nearest.point.pointTypeId);
+    cached = { point: nearest.point, distanceKm: nearest.distanceKm, days: agg.days };
+  }
+  state._meteoCardCache[key] = cached;
+  return cached;
+}
+
 function meteoCardForecastRowHtml(lat, lon){
   if(!isFinite(lat) || !isFinite(lon)) return '';
   if(state._meteoBulkStatus !== 'ok'){
     ensureMeteoBulkData();
     return '';
   }
-  const bulk = state._meteoBulk;
-  const nearest = meteoFindNearestPoint(bulk.points, lat, lon);
-  if(!nearest) return '';
-  const agg = meteoAggregateDaily(bulk.tempRows, bulk.precipRows, nearest.point.pointId, nearest.point.pointTypeId);
-  const days = agg.days.slice(0, 3);
+  const result = meteoCardForecastData(lat, lon);
+  const days = result.days.slice(0, 3);
   if(!days.length) return '';
-  return `<div class="weather-card-row" style="display:flex; gap:5px; margin:0 0 8px;" title="Nächste Tage bei ${esc(nearest.point.name)} (${nearest.distanceKm.toFixed(1)} km entfernt)">
+  return `<div class="weather-card-row" style="display:flex; gap:5px; margin:0 0 8px;" title="Nächste Tage bei ${esc(result.point.name)} (${result.distanceKm.toFixed(1)} km entfernt)">
     ${days.map(d=>{
       const lbl = meteoFormatDayLabel(d.date);
       return `<span style="font-size:11px; background:var(--ice-light); border-radius:4px; padding:3px 7px; white-space:nowrap;">${lbl.weekday} ${meteoDayIcon(d.precipMm)} ${Math.round(d.tempMax)}°</span>`;
