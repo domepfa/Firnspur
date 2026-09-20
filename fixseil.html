@@ -764,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v184-sektor-kapitel-msl-umwandeln';
+const APP_VERSION = 'v185-topo-scan-nach-upload-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -6180,7 +6180,7 @@ function wireModalHandlers(){
 
     const sektorScanTopoBtn = document.getElementById('sektor-scan-topo-btn');
     if(sektorScanTopoBtn) sektorScanTopoBtn.addEventListener('click', ()=>{
-      scanTopoImageForRoutes(sektorTopoImageInput, 'kletterrouten-hidden', 'kletterrouten-editor', 'sektor-topo-image-status');
+      scanTopoImageForRoutes(sektorTopoImageInput, 'kletterrouten-hidden', 'kletterrouten-editor', 'sektor-topo-image-status', 'sektor-topo-images-hidden');
     });
 
     // Absicherung/Abstieg (Einfachauswahl) + Material (Mehrfachauswahl) + Seiltyp/-länge —
