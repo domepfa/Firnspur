@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v176-wetter-zeile-zuoberst';
+const APP_VERSION = 'v177-wetter-klettergebiete';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2415,6 +2415,7 @@ function klettergebietDetailHtml(id){
       ${gradeRange ? `<span class="hut-link-chip">🧗 ${esc(gradeRange)}</span>` : ''}
       ${altitude ? `<span class="hut-link-chip">${esc(altitude)}</span>` : ''}
     </div>` : ''}
+    ${(geb.points && geb.points.length) ? meteoForecastWidgetHtml(geb.points[0].lat, geb.points[0].lon) : ''}
     ${(geb.topoImages && geb.topoImages.length) ? `<div class="detail-section"><h4>Topo / Übersicht</h4>${topoImagesGalleryHtml(geb.topoImages)}</div>` : ''}
     ${geb.description ? `<div class="detail-section"><h4>Beschreibung / Material</h4><p>${esc(geb.description)}</p></div>` : ''}
     ${(() => {
@@ -3604,6 +3605,7 @@ function klettergebietCardHtml(geb){
   const altitude = klettergebietAltitudeText(geb);
   return `
   <div class="card" data-act="open-klettergebiet" data-id="${geb.id}" tabindex="0" role="button">
+    ${(geb.points && geb.points.length) ? meteoCardForecastRowHtml(geb.points[0].lat, geb.points[0].lon) : ''}
     <div class="card-top">
       <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
       ${(gradeRange || altitude) ? `<div class="badge-row">
