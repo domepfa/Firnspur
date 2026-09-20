@@ -5252,7 +5252,7 @@ function meteoCardForecastRowHtml(lat, lon){
   const agg = meteoAggregateDaily(bulk.tempRows, bulk.precipRows, nearest.point.pointId, nearest.point.pointTypeId);
   const days = agg.days.slice(0, 3);
   if(!days.length) return '';
-  return `<div class="weather-card-row" style="display:flex; gap:5px; margin:-2px 0 8px;" title="Nächste Tage bei ${esc(nearest.point.name)} (${nearest.distanceKm.toFixed(1)} km entfernt)">
+  return `<div class="weather-card-row" style="display:flex; gap:5px; margin:0 0 8px;" title="Nächste Tage bei ${esc(nearest.point.name)} (${nearest.distanceKm.toFixed(1)} km entfernt)">
     ${days.map(d=>{
       const lbl = meteoFormatDayLabel(d.date);
       return `<span style="font-size:11px; background:var(--ice-light); border-radius:4px; padding:3px 7px; white-space:nowrap;">${lbl.weekday} ${meteoDayIcon(d.precipMm)} ${Math.round(d.tempMax)}°</span>`;

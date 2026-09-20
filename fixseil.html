@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v175-wetter-3tage-zeile';
+const APP_VERSION = 'v176-wetter-zeile-zuoberst';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3354,6 +3354,7 @@ function tourCardHtml(t, draggable){
   const last = latestCompletion(t.completions);
   return `
   <div class="card${draggable?' drag-card':''}" data-act="open-tour" data-id="${t.id}" ${draggable?`data-drag-tour-id="${t.id}"`:''} tabindex="0" role="button">
+    ${(t.points && t.points.length) ? meteoCardForecastRowHtml(t.points[0].lat, t.points[0].lon) : ''}
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
       <div class="agenda-date-row" style="font-size:12px; margin-bottom:0;">${isMsl ? '🧗 MSL — Mehrseillängen' : '🏔️ Hochtour'}</div>
       ${favoriteToggleButtonHtml(t.id)}
@@ -3368,7 +3369,6 @@ function tourCardHtml(t, draggable){
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
       </div>
     </div>
-    ${(t.points && t.points.length) ? meteoCardForecastRowHtml(t.points[0].lat, t.points[0].lon) : ''}
     ${t.routeName ? `<h3 style="margin:-4px 0 0 0; color:var(--ink-soft);">${esc(t.routeName)}</h3>` : ''}
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
