@@ -5234,7 +5234,13 @@ function ensureMeteoBulkData(){
   });
 }
 
-function meteoCardBadgeHtml(lat, lon){
+function meteoDayIcon(precipMm){
+  return precipMm >= 3 ? '🌧️' : precipMm >= 0.3 ? '🌦️' : '☀️';
+}
+
+// Kompakte 3-Tages-Zeile fürs Kärtchen -- eigene Zeile unterhalb der Schwierigkeits-/Höhen-Chips,
+// damit sie nicht mit denen um Platz konkurriert.
+function meteoCardForecastRowHtml(lat, lon){
   if(!isFinite(lat) || !isFinite(lon)) return '';
   if(state._meteoBulkStatus !== 'ok'){
     ensureMeteoBulkData();
@@ -5244,10 +5250,14 @@ function meteoCardBadgeHtml(lat, lon){
   const nearest = meteoFindNearestPoint(bulk.points, lat, lon);
   if(!nearest) return '';
   const agg = meteoAggregateDaily(bulk.tempRows, bulk.precipRows, nearest.point.pointId, nearest.point.pointTypeId);
-  const today = agg.days[0];
-  if(!today) return '';
-  const icon = today.precipMm >= 3 ? '🌧️' : today.precipMm >= 0.3 ? '🌦️' : '☀️';
-  return `<span class="badge" style="background:var(--ice-light); color:var(--ink);" title="Heute bei ${esc(nearest.point.name)}: ${Math.round(today.tempMin)}–${Math.round(today.tempMax)}°, ${today.precipMm.toFixed(1)}mm">${icon} ${Math.round(today.tempMax)}°</span>`;
+  const days = agg.days.slice(0, 3);
+  if(!days.length) return '';
+  return `<div class="weather-card-row" style="display:flex; gap:5px; margin:-2px 0 8px;" title="Nächste Tage bei ${esc(nearest.point.name)} (${nearest.distanceKm.toFixed(1)} km entfernt)">
+    ${days.map(d=>{
+      const lbl = meteoFormatDayLabel(d.date);
+      return `<span style="font-size:11px; background:var(--ice-light); border-radius:4px; padding:3px 7px; white-space:nowrap;">${lbl.weekday} ${meteoDayIcon(d.precipMm)} ${Math.round(d.tempMax)}°</span>`;
+    }).join('')}
+  </div>`;
 }
 
 /* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */

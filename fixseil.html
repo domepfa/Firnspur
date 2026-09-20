@@ -754,7 +754,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v174-wetter-karte-badges';
+const APP_VERSION = 'v175-wetter-3tage-zeile';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3366,9 +3366,9 @@ function tourCardHtml(t, draggable){
           : `${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}`
         }
         ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
-        ${(t.points && t.points.length) ? meteoCardBadgeHtml(t.points[0].lat, t.points[0].lon) : ''}
       </div>
     </div>
+    ${(t.points && t.points.length) ? meteoCardForecastRowHtml(t.points[0].lat, t.points[0].lon) : ''}
     ${t.routeName ? `<h3 style="margin:-4px 0 0 0; color:var(--ink-soft);">${esc(t.routeName)}</h3>` : ''}
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
