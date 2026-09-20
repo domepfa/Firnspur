@@ -448,6 +448,12 @@ function wireMapStripCanvases(){
     let panStartX = null, panStartY = null, panOriginX = 0, panOriginY = 0;
     let gestureMoved = false;
     let lastTapTime = 0, lastTapX = 0, lastTapY = 0;
+    // Bei der Standardansicht (ganze Schweiz, nicht reingezoomt) gibt es nichts zu verschieben --
+    // ein Einzelfinger-Wisch soll dann ganz normal die Seite runterscrollen, statt (wirkungslos)
+    // als Kartenverschieben abgefangen zu werden. Erst gezoomt macht Ein-Finger-Pan Sinn, dann
+    // braucht die Karte die Geste exklusiv fuer sich (siehe touch-action unten).
+    function updateTouchAction(){ canvasEl.style.touchAction = view.zoom > MAP_STRIP_ZOOM_MIN + 0.01 ? 'none' : 'pan-y'; }
+    updateTouchAction();
 
     function touchDist(t){ return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
     function commit(){
@@ -501,6 +507,7 @@ function wireMapStripCanvases(){
         view = mapStripClampView({ zoom: newZoom, panX: midX - pinchWorldX*newZoom, panY: midY - pinchWorldY*newZoom }, rect.width, rect.height);
         mapStripApplyLiveTransform(wrap, view);
       }else if(e.touches.length===1 && panStartX!==null){
+        if(view.zoom <= MAP_STRIP_ZOOM_MIN + 0.01) return; // nicht gezoomt -> Seite normal scrollen lassen
         e.preventDefault(); gestureMoved = true;
         const rect = canvasEl.getBoundingClientRect();
         view.panX = panOriginX + (e.touches[0].clientX-panStartX);
@@ -5135,8 +5142,16 @@ function meteoAggregateDaily(tempRows, precipRows, pointId, pointTypeId){
     if(!key || !byDate[key]) return;
     byDate[key].precipMm += v;
   });
-  const days = Object.values(byDate).sort((a,b)=> a.date.localeCompare(b.date)).slice(0, METEO_FORECAST_DAYS);
+  // Bereits vergangene Tage rausfiltern, bevor auf die ersten N geschnitten wird -- sonst kann ein
+  // (z.B. durch Zeitzonen-Randstunden) noch mitgeliefertes Gestern als erster Tag angezeigt werden.
+  const todayKey = meteoTodayKeyUTC();
+  const days = Object.values(byDate).filter(d=> d.date >= todayKey).sort((a,b)=> a.date.localeCompare(b.date)).slice(0, METEO_FORECAST_DAYS);
   return { days, tempMatches, tempRowCount: tempRows.length, tempHeader: tempRows._header };
+}
+function meteoTodayKeyUTC(){
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  return `${now.getUTCFullYear()}${pad(now.getUTCMonth()+1)}${pad(now.getUTCDate())}`;
 }
 
 async function meteoForecastForPoint(lat, lon){
