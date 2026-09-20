@@ -328,6 +328,16 @@
     color:var(--ice-deep); border-bottom:1px solid var(--line); padding-bottom:5px; margin-bottom:8px;
   }
   .detail-section p{font-size:14px; line-height:1.6; color:var(--ink); white-space:pre-wrap; margin:0;}
+  .detail-chapter{margin-top:18px; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden;}
+  .detail-chapter summary{
+    font-family:'Oswald'; text-transform:uppercase; font-size:13px; letter-spacing:0.05em;
+    color:var(--ice-deep); padding:12px 14px; cursor:pointer; list-style:none;
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+  }
+  .detail-chapter summary::-webkit-details-marker{display:none;}
+  .detail-chapter summary::after{content:'▾'; color:var(--ink-faint); font-size:12px; transition:transform 0.15s ease; flex-shrink:0;}
+  .detail-chapter[open] summary::after{transform:rotate(180deg);}
+  .detail-chapter .detail-chapter-body{padding:2px 14px 14px 14px;}
   .detail-stats{display:flex; gap:22px; flex-wrap:wrap; margin:14px 0;}
   .detail-stat .num{font-family:'JetBrains Mono'; font-size:20px; font-weight:700; color:var(--ink);}
   .detail-stat .lbl{font-size:11px; text-transform:uppercase; letter-spacing:0.04em; color:var(--ink-faint);}
@@ -754,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v183-gipfel-zuordnen-dropdown';
+const APP_VERSION = 'v184-sektor-kapitel-msl-umwandeln';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2571,11 +2581,14 @@ function sektorDetailHtml(id){
   if(!sek) return `<div class="modal" data-stop="1"><p>Sektor nicht gefunden.</p></div>`;
   ensureSektorRouteArrays(sek);
   const linked = state.tours.filter(t=>t.sektorId===sek.id);
+  const hochtouren = linked.filter(t=>t.tourCategory!=='msl');
+  const mslTouren = linked.filter(t=>t.tourCategory==='msl');
   const sekProtectionInfo = sek.protection ? PROTECTION_LEVELS.find(p=>p.value===sek.protection) : null;
   const accessRoutes = sek.accessRoutes || [];
   const descentRoutes = sek.descentRoutes || [];
   const accessRange = accessRouteDifficultyRangeHtml(accessRoutes);
   const descentRange = accessRouteDifficultyRangeHtml(descentRoutes);
+  const mergedRoute = (accessRoutes.length===1 && descentRoutes.length===1 && sektorRoutesContentEqual(accessRoutes[0], descentRoutes[0])) ? accessRoutes[0] : null;
   const geb = sek.klettergebietId ? state.klettergebiete.find(g=>g.id===sek.klettergebietId) : null;
   const gebSektoren = geb ? state.sektoren.filter(s=>s.klettergebietId===geb.id).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de')) : [];
   const gebIdx = gebSektoren.findIndex(s=>s.id===sek.id);
@@ -2593,14 +2606,15 @@ function sektorDetailHtml(id){
       <button type="button" class="btn secondary" data-act="convert-sektor-to-klettergebiet" data-id="${sek.id}">⛰️ In neues Klettergebiet umwandeln</button>
     </div>` : ''}
     ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
-    <div class="detail-section">
-      <h4>Touren (${linked.length})</h4>
-      ${linked.length ? `<div class="grid" style="margin-top:6px;">${linked.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour mit diesem Sektor verlinkt.</p>`}
+    ${detailChapterHtml('🏔️ Hochtouren', hochtouren.length, `
+      ${hochtouren.length ? `<div class="grid" style="margin-top:6px;">${hochtouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hochtour mit diesem Sektor verlinkt.</p>`}
+      <p style="font-size:11.5px; color:var(--ink-faint); margin:6px 4px 0 4px;">Eine Hochtour lässt sich beim Anlegen/Bearbeiten diesem Sektor zuordnen (Feld "Sektor").</p>
+    `)}
+    ${detailChapterHtml('🧗 Mehrseillängen', mslTouren.length, `
+      ${mslTouren.length ? `<div class="grid" style="margin-top:6px;">${mslTouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine MSL-Tour mit diesem Sektor verlinkt.</p>`}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-msl-in-sektor" data-sektor-id="${sek.id}">+ Neue MSL-Tour</button>
-      <p style="font-size:11.5px; color:var(--ink-faint); margin:6px 4px 0 4px;">Sektor ist schon fest eingetragen — keine Auswahl nötig. Eine Hochtour lässt sich beim Anlegen/Bearbeiten ebenfalls einem Sektor zuordnen (Feld "Sektor").</p>
-    </div>
-    <div class="detail-section">
-      <h4>🏕️ Klettergarten${sek.kletterrouten && sek.kletterrouten.length ? ` (${sek.kletterrouten.length})` : ''}</h4>
+    `)}
+    ${detailChapterHtml('🏕️ Klettergarten', (sek.kletterrouten && sek.kletterrouten.length) || null, `
       ${((sek.topoImages && sek.topoImages.length) || (sek.kletterrouten && sek.kletterrouten.length)) ? `
         ${(sek.topoImages && sek.topoImages.length) ? topoImagesGalleryHtml(sek.topoImages) : ''}
         ${kletterroutenTableHtml(sek.kletterrouten)}
@@ -2611,26 +2625,32 @@ function sektorDetailHtml(id){
       ${(sek.ropeType || sek.ropeLength) ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Seil:</strong> ${[sek.ropeType, sek.ropeLength].filter(Boolean).map(esc).join(' · ')}</p>` : ''}
       ${sek.klettergartenNotes ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Hinweise:</strong> ${esc(sek.klettergartenNotes)}</p>` : ''}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="edit-sektor-topo-routen" data-id="${sek.id}">🏕️ Klettergarten-Infos bearbeiten</button>
-    </div>
+    `)}
     ${(() => {
       const hasSektorPoints = sek.points && sek.points.length;
       const hasTourData = linked.some(t=> (t.points && t.points.length) || (t.trackSimplified && t.trackSimplified.length) || (t.manualTrack && t.manualTrack.length));
       if(!hasSektorPoints && !hasTourData) return '';
       const legend = sektorOverviewLegendHtml(sek.id);
       return `<div class="detail-section">
-        <h4>🗺️ Übersichtskarte</h4>
-        <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Alle Punkte &amp; Tracks der verlinkten Touren, automatisch zusammengeführt — keine erneute Eingabe nötig.</p>
+        <h4>🗺️ Karte — Ausgangspunkt &amp; Übersicht</h4>
+        <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Ausgangspunkt(e) &amp; alle Punkte/Tracks der verlinkten Touren, automatisch zusammengeführt — keine erneute Eingabe nötig. Antippen zum Vergrössern.</p>
         ${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}
-        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-overview-map" data-sektor-id="${sek.id}" data-target="map-sektor-overview-${sek.id}">🗺️ Karte anzeigen</button>
-        <div id="map-sektor-overview-${sek.id}"></div>
+        <div id="map-sektor-overview-${sek.id}" data-sektor-overview-map="${sek.id}"></div>
       </div>`;
     })()}
-    ${(sek.points && sek.points.length) || (sek.manualTrack && sek.manualTrack.length) ? `<div class="detail-section">
-      <h4>Ausgangspunkt${sek.points && sek.points.length>1?'e':''}</h4>
-      ${(sek.points && sek.points.length) ? `<div class="chips" style="margin-bottom:8px;">${sek.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
-      <button type="button" class="btn secondary" data-act="show-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-track='[]' data-manual-track='${esc(JSON.stringify(sek.manualTrack||[]))}' data-target="map-sektor-${sek.id}">🗺️ Karte anzeigen</button>
-      <div id="map-sektor-${sek.id}" style="margin-top:10px;"></div>
-    </div>` : ''}
+    ${mergedRoute ? `
+    <div class="detail-section">
+      <h4>Zu-/Abstieg</h4>
+      <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Zustieg und Abstieg sind identisch — nur eine Kachel.</p>
+      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify([mergedRoute]))}' data-sektor-id="${sek.id}" data-kind="access" data-target="map-sektor-access-${sek.id}">🗺️ Karte anzeigen</button>
+      <div id="map-sektor-access-${sek.id}" style="margin-bottom:10px;"></div>
+      <div class="grid">${sektorRouteRowHtml(mergedRoute,0,sek.id,'access')}</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+        <button type="button" class="btn secondary" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="access">+ weiteren Zustieg</button>
+        <button type="button" class="btn secondary" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="descent">+ weiteren Abstieg</button>
+      </div>
+    </div>
+    ` : `
     <div class="detail-section">
       <h4>Zustiege${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
       ${accessRoutes.length ? `
@@ -2651,6 +2671,7 @@ function sektorDetailHtml(id){
       ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="descent">+ Abstieg hinzufügen</button>
     </div>
+    `}
     ${sek._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
     <div class="form-actions">
       <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
@@ -2698,6 +2719,26 @@ function ensureSektorRouteArrays(sek){
   if(!Array.isArray(sek.descentRoutes)) sek.descentRoutes = [];
   if(!Array.isArray(sek.kletterrouten)) sek.kletterrouten = [];
   return sek;
+}
+// Eingeklapptes Kapitel für die Sektor-Detailansicht (native <details>: Pfeil + Auf-/Zuklappen
+// ganz ohne eigene JS-Zustandsverwaltung). Standardmässig eingeklappt, ausser open=true.
+function detailChapterHtml(title, count, bodyHtml, open){
+  return `<details class="detail-chapter"${open?' open':''}>
+    <summary>${title}${count!=null ? ` (${count})` : ''}</summary>
+    <div class="detail-chapter-body">${bodyHtml}</div>
+  </details>`;
+}
+// Vergleicht Zustieg/Abstieg inhaltlich (ohne id) -- wenn identisch, zeigt die Sektor-Detailansicht
+// nur eine gemeinsame "Zu-/Abstieg"-Kachel statt zwei getrennter Sektionen.
+function sektorRoutesContentEqual(a, b){
+  if(!a || !b) return false;
+  const norm = r => JSON.stringify({
+    name: (r.name||'').trim(),
+    elevation: r.elevation||'', elevationUp: r.elevationUp||'', duration: r.duration||'',
+    difficultyT: r.difficultyT||'', description: (r.description||'').trim(), gpxLink: r.gpxLink||'',
+    trackSimplified: r.trackSimplified||null, manualTrack: r.manualTrack||null,
+  });
+  return norm(a) === norm(b);
 }
 function sektorRouteFieldName(kind){ return kind==='descent' ? 'descentRoutes' : 'accessRoutes'; }
 function sektorRouteGpxPath(kind){ return kind==='descent' ? SEKTOR_DESCENT_ROUTE_GPX_PATH : SEKTOR_ACCESS_ROUTE_GPX_PATH; }
@@ -3389,15 +3430,16 @@ function emptyMsl(){
   </div>`;
 }
 
-function tourCardHtml(t, draggable){
+function tourCardHtml(t, draggable, opts){
   const isMsl = t.tourCategory==='msl';
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   const done = (t.completions && t.completions.length) || t.completed;
   const last = latestCompletion(t.completions);
+  const hideWeather = opts && opts.hideWeather;
   return `
   <div class="card${draggable?' drag-card':''}" data-act="open-tour" data-id="${t.id}" ${draggable?`data-drag-tour-id="${t.id}"`:''} tabindex="0" role="button">
-    ${(t.points && t.points.length) ? meteoCardForecastRowHtml(t.points[0].lat, t.points[0].lon) : ''}
+    ${(!hideWeather && t.points && t.points.length) ? meteoCardForecastRowHtml(t.points[0].lat, t.points[0].lon) : ''}
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
       <div class="agenda-date-row" style="font-size:12px; margin-bottom:0;">${isMsl ? '🧗 MSL — Mehrseillängen' : '🏔️ Hochtour'}</div>
       ${favoriteToggleButtonHtml(t.id)}
@@ -4278,8 +4320,47 @@ function tourDetailHtml(id){
       <button class="btn secondary" data-act="mark-done" data-kind="tour" data-id="${t.id}">✓ Als erledigt markieren</button>
       <button class="btn secondary" data-act="edit-tour" data-id="${t.id}">Bearbeiten</button>
       <button class="btn secondary" data-act="export-tour" data-id="${t.id}">📤 Exportieren</button>
+      ${isMsl && t.sektorId ? `<button class="btn secondary" data-act="convert-msl-to-klettergarten" data-id="${t.id}">🏕️ In Klettergarten-Route umwandeln</button>` : ''}
     </div>
   </div>`;
+}
+
+// Für MSL-Touren, die eigentlich einzelne Kletterrouten in einem Klettergarten sind (also
+// fälschlich als eigene Tour statt als Kletterrouten-Eintrag ihres Sektors angelegt wurden):
+// legt einen neuen Kletterrouten-Eintrag im Sektor an (Name/Grad aus der Tour übernommen,
+// vorhandene Topo-Bilder werden mitgenommen), verschiebt die MSL-Tour danach in den Papierkorb
+// und öffnet direkt den Klettergarten-Editor des Sektors, damit z. B. per Foto-Scan
+// (scanTopoImageForRoutes) sofort weitere Routen vom selben Topo erfasst werden können.
+async function convertMslToKlettergartenRoute(tourId){
+  const t = state.tours.find(x=>x.id===tourId);
+  if(!t || t.tourCategory!=='msl' || !t.sektorId) return;
+  const sek = state.sektoren.find(x=>x.id===t.sektorId);
+  if(!sek) return;
+  if(!confirm('„'+t.name+(t.routeName?' – '+t.routeName:'')+'" als Kletterroute in den Sektor „'+sek.name+'" übernehmen?\n\nDie MSL-Tour wird dabei in den Papierkorb verschoben (lässt sich '+TRASH_RETENTION_DAYS+' Tage lang wiederherstellen).')) return;
+  ensureSektorRouteArrays(sek);
+  const nextNr = sek.kletterrouten.reduce((max,r)=> Math.max(max, r.nr||0), 0) + 1;
+  const grad = t.mandatoryDifficulty || t.cruxDifficulty || t.climbGrade || '';
+  sek.kletterrouten.push({ id: uid('kr'), nr: nextNr, name: t.routeName || t.name, grad });
+  if(t.topoImages && t.topoImages.length){
+    sek.topoImages = (sek.topoImages||[]).concat(t.topoImages).slice(0, TOPO_IMAGE_MAX_COUNT);
+  }
+  sek.updatedAt = new Date().toISOString();
+  sek.updatedBy = state.myName;
+  removeTour(t.id);
+
+  closeModal(false, true, true);
+  state.modal = {type:'edit-sektor-topo-routen', payload: sek.id};
+  render();
+
+  const ok = await saveSektorCloud(sek).catch(()=>false);
+  sek._unsynced = !ok;
+  if(!ok){
+    markUnsaved();
+    showToast('Lokal übernommen, aber nicht vollständig synchronisiert. Prüfe deine Internetverbindung.', true);
+  }else{
+    showToast('Als Kletterroute übernommen — Tour liegt jetzt im Papierkorb.');
+  }
+  render();
 }
 
 function hutFormHtml(existing){
@@ -5772,6 +5853,7 @@ function wireModalHandlers(){
 
   root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="export-tour"]').forEach(el=> el.onclick = ()=>openTourExport(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="convert-msl-to-klettergarten"]').forEach(el=> el.onclick = ()=>convertMslToKlettergartenRoute(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-hut"]').forEach(el=> el.onclick = ()=>openHutDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
@@ -5933,10 +6015,15 @@ function wireModalHandlers(){
       renderTrackDisplayMap(target, [], track, manualTrack);
     });
   });
-  root.querySelectorAll('[data-act="show-sektor-overview-map"]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      renderSektorOverviewMap(btn.getAttribute('data-target'), btn.getAttribute('data-sektor-id'));
-    });
+  // Übersichtskarte (Ausgangspunkt + Touren zusammengeführt) wird direkt als kleine Vorschau
+  // gerendert statt erst hinter einem "Karte anzeigen"-Knopf -- aber nur einmal pro Sektor, damit
+  // Hintergrund-Syncs (die render() erneut auslösen) die Karte nicht ständig neu aufbauen.
+  root.querySelectorAll('[data-sektor-overview-map]').forEach(el=>{
+    const sektorId = el.getAttribute('data-sektor-overview-map');
+    if(el.getAttribute('data-rendered-for')!==sektorId){
+      el.setAttribute('data-rendered-for', sektorId);
+      renderSektorOverviewMap(el.id, sektorId);
+    }
   });
 
   const sektorRouteForm = document.getElementById('sektor-route-form');
