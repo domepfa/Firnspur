@@ -764,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v187-gebiet-kapitel-struktur';
+const APP_VERSION = 'v188-legende-antippbar';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2529,11 +2529,15 @@ function klettergebietDetailHtml(id){
   </div>`;
 }
 
+// Legende antippbar: die Punkte mehrerer Touren liegen auf der Karte oft direkt übereinander
+// (z. B. alle ab demselben Parkplatz) — nur der oberste ist dann sichtbar/antippbar. Über die
+// Legende lässt sich trotzdem jede einzelne Tour direkt öffnen, unabhängig davon, ob ihr Punkt
+// auf der Karte gerade verdeckt ist.
 function sektorOverviewLegendHtml(sektorId){
   const linkedTours = state.tours.filter(t=>t.sektorId===sektorId);
   return linkedTours.map((t,i)=>{
     const color = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
-    return `<span class="hint" style="display:inline-flex; align-items:center; gap:4px; margin-right:10px;"><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color};"></span>${esc(t.name)}${t.routeName ? ' – '+esc(t.routeName) : ''}</span>`;
+    return `<button type="button" class="hint" data-act="open-tour" data-id="${t.id}" style="display:inline-flex; align-items:center; gap:4px; margin-right:10px; margin-bottom:4px; background:none; border:none; padding:0; cursor:pointer; font-family:inherit; text-align:left;"><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; flex-shrink:0;"></span>${esc(t.name)}${t.routeName ? ' – '+esc(t.routeName) : ''}</button>`;
   }).join('');
 }
 
