@@ -764,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v190-topo-banner-kachel';
+const APP_VERSION = 'v191-topo-kompakt-kachel';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3763,28 +3763,34 @@ function klettergebietCardHtml(geb){
   const gradeRange = klettergebietClimbGradeRangeText(geb);
   const altitude = klettergebietAltitudeText(geb);
   // Vorschaubild: bevorzugt das Gebiets-eigene Übersichtsbild, sonst automatisch das erste Topo
-  // eines seiner Klettergärten (dieselbe Logik wie beim Sammeln der Galerie). Als grosses Banner
-  // über der ganzen Kachelbreite -- direktes Antippen öffnet die Topo-Galerie (siehe
-  // klettergebietTopoGalleryEntries), daher kein separater Chip mehr nötig.
+  // eines seiner Klettergärten (dieselbe Logik wie beim Sammeln der Galerie). Als Spalte rechts
+  // neben Text/Chips, in etwa deren Höhe -- nicht als zusätzliche Banner-Zeile, die die Kachel
+  // insgesamt höher (und die Liste damit länger zum Scrollen) machen würde. Direktes Antippen
+  // öffnet die Topo-Galerie (siehe klettergebietTopoGalleryEntries), daher kein separater Chip.
   const topoEntries = klettergebietTopoGalleryEntries(geb);
   const cardThumb = (geb.topoImages && geb.topoImages.length) ? geb.topoImages[0] : (topoEntries[0] || null);
+  const thumbHtml = cardThumb ? (cardThumb.cropRect
+    ? `<div data-act="show-klettergebiet-topo-gallery" data-id="${geb.id}" style="width:110px; height:110px; flex-shrink:0; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; background-image:url('${esc(cardThumb.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(cardThumb.cropRect)}"></div>`
+    : `<img src="${esc(cardThumb.url)}" data-act="show-klettergebiet-topo-gallery" data-id="${geb.id}" style="width:110px; height:110px; flex-shrink:0; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; transform:rotate(${cardThumb.rotation||0}deg);"/>`) : '';
   return `
   <div class="card" data-act="open-klettergebiet" data-id="${geb.id}" tabindex="0" role="button">
-    ${cardThumb ? (cardThumb.cropRect
-      ? `<div data-act="show-klettergebiet-topo-gallery" data-id="${geb.id}" style="margin:-18px -18px 0 -18px; height:180px; border-radius:var(--radius) var(--radius) 0 0; overflow:hidden; cursor:pointer; background-image:url('${esc(cardThumb.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(cardThumb.cropRect)}"></div>`
-      : `<img src="${esc(cardThumb.url)}" data-act="show-klettergebiet-topo-gallery" data-id="${geb.id}" style="margin:-18px -18px 0 -18px; width:calc(100% + 36px); height:180px; object-fit:cover; border-radius:var(--radius) var(--radius) 0 0; cursor:pointer; transform:rotate(${cardThumb.rotation||0}deg);"/>`) : ''}
     ${(geb.points && geb.points.length) ? meteoCardForecastRowHtml(geb.points[0].lat, geb.points[0].lon) : ''}
-    <div class="card-top">
-      <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
-      ${(gradeRange || altitude) ? `<div class="badge-row">
-        ${gradeRange ? `<span class="badge climb">🧗 ${esc(gradeRange)}</span>` : ''}
-        ${altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(altitude)}</span>` : ''}
-      </div>` : ''}
+    <div style="display:flex; gap:12px; align-items:flex-start;">
+      <div style="flex:1; min-width:0;">
+        <div class="card-top">
+          <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
+          ${(gradeRange || altitude) ? `<div class="badge-row">
+            ${gradeRange ? `<span class="badge climb">🧗 ${esc(gradeRange)}</span>` : ''}
+            ${altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(altitude)}</span>` : ''}
+          </div>` : ''}
+        </div>
+        ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
+        <span class="hut-link-chip">🧭 ${sektoren.length} Sektor${sektoren.length===1?'':'en'}</span>
+        <span class="hut-link-chip">${tourCount} Tour${tourCount===1?'':'en'}</span>
+        ${geb._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
+      </div>
+      ${thumbHtml}
     </div>
-    ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
-    <span class="hut-link-chip">🧭 ${sektoren.length} Sektor${sektoren.length===1?'':'en'}</span>
-    <span class="hut-link-chip">${tourCount} Tour${tourCount===1?'':'en'}</span>
-    ${geb._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
     <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
       <span>von ${esc(geb.createdBy||'?')} · ${fmtDate(geb.createdAt)}</span>
     </div>
