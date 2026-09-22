@@ -6848,6 +6848,26 @@ function showTopoImageLightbox(images, startIndex, offlineId){
     overlay.appendChild(counterEl);
   }
 
+  // Für gebietsweite Sammel-Galerien (mehrere Topos aus verschiedenen Klettergärten/Touren):
+  // jedes Bild kann eine Quelle tragen (ownerLabel/ownerModalType/ownerId) -- ein Tap auf den
+  // Button springt direkt zur zugehörigen Seite. Bei normalen Einzel-Galerien (kein ownerLabel
+  // gesetzt) bleibt der Button einfach weg.
+  let ownerBtn = null;
+  if(images.some(im=>im.ownerLabel)){
+    ownerBtn = document.createElement('button');
+    ownerBtn.type = 'button';
+    ownerBtn.style.cssText = 'position:absolute; bottom:16px; left:50%; transform:translateX(-50%); background:rgba(255,255,255,0.95); color:var(--ink); border:none; border-radius:16px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; max-width:82vw; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+    ownerBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const item = images[idx];
+      if(!item.ownerModalType) return;
+      closeTopOverlayLayer();
+      navigateToModal({type:item.ownerModalType, payload:item.ownerId});
+    });
+    overlay.appendChild(ownerBtn);
+    if(counterEl) counterEl.style.bottom = '62px';
+  }
+
   function updateImage(){
     const item = images[idx];
     // Bei um 90°/270° gedrehten Bildern vertauschen sich Breite/Höhe der sichtbaren Fläche —
@@ -6865,6 +6885,8 @@ function showTopoImageLightbox(images, startIndex, offlineId){
     // Zweifel (z. B. hängender IndexedDB-Zugriff) trotzdem etwas erscheint.
     imgEl.src = item.url;
     if(counterEl) counterEl.textContent = `${idx+1} / ${images.length}`;
+    if(ownerBtn) ownerBtn.style.display = item.ownerLabel ? '' : 'none';
+    if(ownerBtn && item.ownerLabel) ownerBtn.textContent = '→ ' + item.ownerLabel + ' öffnen';
     if(offlineId && item.id){
       const myIdx = idx;
       idbGet('images', offlineId + '_' + item.id).then(blob=>{

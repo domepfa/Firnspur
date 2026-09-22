@@ -764,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v188-legende-antippbar';
+const APP_VERSION = 'v189-gebiets-topo-galerie';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3698,6 +3698,21 @@ function klettergebietHuetten(geb){
   });
   return Array.from(byId.values()).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
 }
+// Sammelt alle Topo-Bilder eines Gebiets ein -- vom Gebiet selbst, all seinen Klettergärten
+// (Sektoren mit Routen-Liste) und all seinen Touren -- jedes mit einer Quellen-Angabe (ownerLabel/
+// ownerModalType/ownerId), damit die Galerie direkt zur passenden Seite weiterspringen kann.
+// Grundlage für den "📷 Topo"-Chip auf der Gebiets-Kachel und deren Vorschaubild.
+function klettergebietTopoGalleryEntries(geb){
+  const entries = [];
+  (geb.topoImages||[]).forEach(img=> entries.push({...img, ownerLabel: geb.name, ownerModalType:'klettergebiet-detail', ownerId:geb.id}));
+  klettergebietKlettergaerten(geb).forEach(sek=>{
+    (sek.topoImages||[]).forEach(img=> entries.push({...img, ownerLabel: sek.name, ownerModalType:'sektor-detail', ownerId:sek.id}));
+  });
+  klettergebietTouren(geb).forEach(t=>{
+    (t.topoImages||[]).forEach(img=> entries.push({...img, ownerLabel: t.name + (t.routeName?' – '+t.routeName:''), ownerModalType:'tour-detail', ownerId:t.id}));
+  });
+  return entries;
+}
 // Grad-Werte eines einzelnen Sektors: sowohl dessen Kletterrouten-Liste (Klettergarten-Anteil)
 // als auch obligatorisch/Schlüssel der verlinkten MSL-Touren (MSL-Anteil) — ein Sektor kann
 // beides haben. Baustein für sektorClimbGradeRangeText() und klettergebietClimbGradeRangeText().
@@ -3747,8 +3762,12 @@ function klettergebietCardHtml(geb){
   const tourCount = state.tours.filter(t=> sektoren.some(s=>s.id===t.sektorId)).length;
   const gradeRange = klettergebietClimbGradeRangeText(geb);
   const altitude = klettergebietAltitudeText(geb);
+  // Vorschaubild unten rechts: bevorzugt das Gebiets-eigene Übersichtsbild, sonst automatisch
+  // das erste Topo eines seiner Klettergärten (dieselbe Logik wie beim Sammeln der Galerie).
+  const topoEntries = klettergebietTopoGalleryEntries(geb);
+  const cardThumb = (geb.topoImages && geb.topoImages.length) ? geb.topoImages[0] : (topoEntries[0] || null);
   return `
-  <div class="card" data-act="open-klettergebiet" data-id="${geb.id}" tabindex="0" role="button">
+  <div class="card" data-act="open-klettergebiet" data-id="${geb.id}" tabindex="0" role="button" style="position:relative;">
     ${(geb.points && geb.points.length) ? meteoCardForecastRowHtml(geb.points[0].lat, geb.points[0].lon) : ''}
     <div class="card-top">
       <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
@@ -3760,10 +3779,14 @@ function klettergebietCardHtml(geb){
     ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
     <span class="hut-link-chip">🧭 ${sektoren.length} Sektor${sektoren.length===1?'':'en'}</span>
     <span class="hut-link-chip">${tourCount} Tour${tourCount===1?'':'en'}</span>
+    ${topoEntries.length ? `<button type="button" class="hut-link-chip" style="border:none; cursor:pointer;" data-act="show-klettergebiet-topo-gallery" data-id="${geb.id}">📷 Topo${topoEntries.length>1?` (${topoEntries.length})`:''}</button>` : ''}
     ${geb._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
     <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
       <span>von ${esc(geb.createdBy||'?')} · ${fmtDate(geb.createdAt)}</span>
     </div>
+    ${cardThumb ? (cardThumb.cropRect
+      ? `<div style="position:absolute; bottom:10px; right:10px; width:56px; height:56px; border-radius:var(--radius); border:1px solid var(--line); background-image:url('${esc(cardThumb.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(cardThumb.cropRect)} transform:rotate(${cardThumb.rotation||0}deg); box-shadow:0 1px 4px rgba(0,0,0,0.15);"></div>`
+      : `<img src="${esc(cardThumb.url)}" style="position:absolute; bottom:10px; right:10px; width:56px; height:56px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); transform:rotate(${cardThumb.rotation||0}deg); box-shadow:0 1px 4px rgba(0,0,0,0.15);"/>`) : ''}
   </div>`;
 }
 
@@ -4735,6 +4758,11 @@ function wireGlobalHandlers(){
       let images = [];
       try{ images = JSON.parse(el.getAttribute('data-images')||'[]'); }catch(err){ images = []; }
       showTopoImageLightbox(images, 0, el.getAttribute('data-id'));
+    };
+    else if(act==='show-klettergebiet-topo-gallery') el.onclick = (e)=>{
+      e.stopPropagation();
+      const geb = state.klettergebiete.find(g=>g.id===el.getAttribute('data-id'));
+      if(geb) showTopoImageLightbox(klettergebietTopoGalleryEntries(geb), 0);
     };
     else if(act==='toggle-favorite') el.onclick = (e)=>{ e.stopPropagation(); toggleFavorite(el.getAttribute('data-id')); };
     else if(act==='toggle-only-favorites') el.onclick = ()=>{ state.onlyFavorites = !state.onlyFavorites; render(); };
