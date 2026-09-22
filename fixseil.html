@@ -764,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v191-topo-kompakt-kachel';
+const APP_VERSION = 'v192-topo-position-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3775,15 +3775,15 @@ function klettergebietCardHtml(geb){
   return `
   <div class="card" data-act="open-klettergebiet" data-id="${geb.id}" tabindex="0" role="button">
     ${(geb.points && geb.points.length) ? meteoCardForecastRowHtml(geb.points[0].lat, geb.points[0].lon) : ''}
+    <div class="card-top">
+      <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
+      ${(gradeRange || altitude) ? `<div class="badge-row">
+        ${gradeRange ? `<span class="badge climb">🧗 ${esc(gradeRange)}</span>` : ''}
+        ${altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(altitude)}</span>` : ''}
+      </div>` : ''}
+    </div>
     <div style="display:flex; gap:12px; align-items:flex-start;">
       <div style="flex:1; min-width:0;">
-        <div class="card-top">
-          <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
-          ${(gradeRange || altitude) ? `<div class="badge-row">
-            ${gradeRange ? `<span class="badge climb">🧗 ${esc(gradeRange)}</span>` : ''}
-            ${altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(altitude)}</span>` : ''}
-          </div>` : ''}
-        </div>
         ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
         <span class="hut-link-chip">🧭 ${sektoren.length} Sektor${sektoren.length===1?'':'en'}</span>
         <span class="hut-link-chip">${tourCount} Tour${tourCount===1?'':'en'}</span>
