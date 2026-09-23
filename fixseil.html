@@ -764,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v195-gebiet-topo-fallback-fix';
+const APP_VERSION = 'v196-topo-btn-und-view-restore-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -1370,9 +1370,9 @@ function openEditTour(id){
 // Ebene zurückfällt statt — wie vorher — direkt ganz auf die Übersicht. Jeder Eintrag ist mit dem
 // Typ der neu geöffneten Ansicht markiert, damit er nie versehentlich beim Schliessen einer
 // späteren, unabhängig geöffneten Ansicht desselben Typs verwendet wird (siehe closeModal()).
-function navigateToModal(newModal){
+function navigateToModal(newModal, restoreView){
   if(state.modal){
-    state.modalBackStack.push({ forType: newModal.type, modal: state.modal });
+    state.modalBackStack.push({ forType: newModal.type, modal: state.modal, restoreView: restoreView });
     // Jede zusätzliche Cross-Link-Ebene bekommt ihren EIGENEN Browser-History-Eintrag, statt sich
     // (wie früher) auf den einen, für die ganze Sitzung geteilten Eintrag zu verlassen — sonst
     // fehlte beim Zurückschliessen mehrerer Ebenen irgendwann ein Eintrag, und ein weiteres
@@ -1392,10 +1392,15 @@ function openTourDetail(id){
   // ab hier" auf einer anderen Tour, oder ein Sektor-/Hütten-Eintrag), ohne dass zuvor der
   // passende Tab (Touren/MSL) angetippt wurde. Damit man beim Schliessen wieder in der richtigen
   // Übersicht landet statt im zuvor aktiven Tab, wird dieser hier auf die Tour-Kategorie synchronisiert.
+  // Der bisherige Tab wird per restoreView an navigateToModal weitergegeben, damit closeModal() ihn
+  // beim Zurückfallen auf die Ursprungsebene wiederherstellt — sonst landet man beim vollständigen
+  // Schliessen (z. B. aus einem Klettergebiet-Kapitel heraus) auf einem völlig anderen Tab/Liste,
+  // als der, auf der man eigentlich war ("fliegt viel zu weit retour").
+  const prevView = state.view;
   if(t){
     state.view = t.tourCategory==='msl' ? 'msl' : 'touren';
   }
-  navigateToModal({type:'tour-detail', payload:id});
+  navigateToModal({type:'tour-detail', payload:id}, prevView);
 }
 function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
 function openAddHutWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
@@ -1447,6 +1452,9 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     if(top && state.modal && top.forType === state.modal.type){
       state.modalBackStack.pop();
       state.modal = top.modal;
+      // Falls das Öffnen dieser Cross-Link-Ebene den aktiven Tab umgeschaltet hatte (siehe
+      // openTourDetail), wird er hier auf dem Rückweg wieder auf den Ursprungs-Tab zurückgesetzt.
+      if(top.restoreView !== undefined) state.view = top.restoreView;
     }else{
       state.modal = null;
     }
@@ -5967,6 +5975,12 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="edit-hut"]').forEach(el=> el.onclick = ()=>openEditHut(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-hut"]').forEach(el=> el.onclick = ()=>openHutDetail(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="open-topo-from-card"]').forEach(el=> el.onclick = (e)=>{
+    e.stopPropagation();
+    let images = [];
+    try{ images = JSON.parse(el.getAttribute('data-images') || '[]'); }catch(err){ images = []; }
+    showTopoImageLightbox(images, 0, el.getAttribute('data-id'));
+  });
   root.querySelectorAll('[data-act="edit-sektor"]').forEach(el=> el.onclick = ()=>openEditSektor(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="edit-sektor-topo-routen"]').forEach(el=> el.onclick = ()=>openEditSektorTopoRouten(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-sektor"]').forEach(el=> el.onclick = ()=>openSektorDetail(el.getAttribute('data-id')));
