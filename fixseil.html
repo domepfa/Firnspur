@@ -764,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v193-topo-kachel-kompakter';
+const APP_VERSION = 'v194-gebiet-reihenfolge-kontextabhaengig';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2481,9 +2481,46 @@ function klettergebietDetailHtml(id){
       ${gradeRange ? `<span class="hut-link-chip">🧗 ${esc(gradeRange)}</span>` : ''}
       ${altitude ? `<span class="hut-link-chip">${esc(altitude)}</span>` : ''}
     </div>` : ''}
-    ${(geb.points && geb.points.length) ? meteoForecastWidgetHtml(geb.points[0].lat, geb.points[0].lon) : ''}
     ${(geb.topoImages && geb.topoImages.length) ? `<div class="detail-section"><h4>Topo / Übersicht</h4>${topoImagesGalleryHtml(geb.topoImages)}</div>` : ''}
     ${geb.description ? `<div class="detail-section"><h4>Beschreibung / Material</h4><p>${esc(geb.description)}</p></div>` : ''}
+    ${(() => {
+      // Reihenfolge richtet sich nach dem aktuellen Bereich (Hochtour/Klettern): das jeweils
+      // relevantere Kapitel steht zuoberst, sonst identische Reihenfolge -- ein bewusst so
+      // festgelegter Standard, nicht nur für diese eine Gebiets-Seite.
+      const isMsl = state.tourCategoryContext==='msl';
+      const hochtourChapter = ['🏔️ Hochtour', hochtouren.length, hochtouren.length
+        ? `<div class="grid" style="margin-top:6px;">${hochtouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>`
+        : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hochtour in diesem Gebiet. Beim Anlegen/Bearbeiten einer Hochtour lässt sie sich über das Feld "Sektor" einem Sektor dieses Gebiets zuordnen.</p>`];
+      const mslChapter = ['🧗 Mehrseillänge', mslTouren.length, mslTouren.length
+        ? `<div class="grid" style="margin-top:6px;">${mslTouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>`
+        : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine MSL-Tour in diesem Gebiet.</p>`];
+      // Klettergarten bleibt immer sichtbar, auch mit 0 Einträgen -- sonst gäbe es bei einem frisch
+      // angelegten, noch leeren Gebiet keinen Weg mehr, überhaupt einen ersten Sektor anzulegen
+      // (die "+ Neuer Sektor"/Scan-Buttons stecken in diesem Kapitel).
+      const klettergartenChapter = ['🏕️ Klettergarten', null, klettergebietKlettergartenChapterBodyHtml(geb, klettergaerten, unlinkedSektoren)];
+      const gipfelChapter = ['⛰️ Gipfel', gipfelImGebiet.length, `
+        ${gipfelImGebiet.length ? `<div class="grid" style="margin-top:6px;">${gipfelImGebiet.map(gp=>gipfelCardHtml(gp, state.tours.filter(t=>Array.isArray(t.summitIds) && t.summitIds.includes(gp.id)))).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Gipfel diesem Klettergebiet zugeordnet.</p>`}
+        ${unlinkedGipfel.length ? `<div style="display:flex; gap:8px; margin-top:10px;">
+          <select id="klettergebiet-add-gipfel-select" style="flex:1; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); font-size:13px;">
+            ${unlinkedGipfel.map(gp=>`<option value="${gp.id}">${esc(gp.name)}</option>`).join('')}
+          </select>
+          <button type="button" class="btn secondary" style="flex:none;" data-act="assign-selected-gipfel-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Hinzufügen</button>
+        </div>` : ''}
+      `];
+      const huettenChapter = ['🛖 Hütten', huettenImGebiet.length, `
+        ${huettenImGebiet.length ? `<div class="grid" style="margin-top:6px;">${huettenImGebiet.map(hutCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hütte diesem Klettergebiet zugeordnet.</p>`}
+        ${unlinkedHuetten.length ? `<div style="display:flex; gap:8px; margin-top:10px;">
+          <select id="klettergebiet-add-hut-select" style="flex:1; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); font-size:13px;">
+            ${unlinkedHuetten.map(h=>`<option value="${h.id}">${esc(h.name)}</option>`).join('')}
+          </select>
+          <button type="button" class="btn secondary" style="flex:none;" data-act="assign-selected-hut-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Hinzufügen</button>
+        </div>` : ''}
+      `];
+      const chapters = isMsl
+        ? [mslChapter, klettergartenChapter, gipfelChapter, hochtourChapter, huettenChapter]
+        : [hochtourChapter, mslChapter, klettergartenChapter, gipfelChapter, huettenChapter];
+      return chapters.filter(([,count])=> count===null || count>0).map(([title,count,body])=>detailChapterHtml(title, count, body)).join('');
+    })()}
     ${(() => {
       const hasOwnPoints = geb.points && geb.points.length;
       const hasSektorData = sektoren.some(s=> (s.points && s.points.length) || (s.manualTrack && s.manualTrack.length));
@@ -2496,31 +2533,7 @@ function klettergebietDetailHtml(id){
         <div id="map-klettergebiet-overview-${geb.id}"></div>
       </div>`;
     })()}
-    ${detailChapterHtml('🏔️ Hochtour', hochtouren.length, hochtouren.length
-      ? `<div class="grid" style="margin-top:6px;">${hochtouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>`
-      : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hochtour in diesem Gebiet. Beim Anlegen/Bearbeiten einer Hochtour lässt sie sich über das Feld "Sektor" einem Sektor dieses Gebiets zuordnen.</p>`)}
-    ${detailChapterHtml('🧗 Mehrseillänge', mslTouren.length, mslTouren.length
-      ? `<div class="grid" style="margin-top:6px;">${mslTouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>`
-      : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine MSL-Tour in diesem Gebiet.</p>`)}
-    ${detailChapterHtml('🏕️ Klettergarten', klettergaerten.length, klettergebietKlettergartenChapterBodyHtml(geb, klettergaerten, unlinkedSektoren))}
-    ${detailChapterHtml('⛰️ Gipfel', gipfelImGebiet.length, `
-      ${gipfelImGebiet.length ? `<div class="grid" style="margin-top:6px;">${gipfelImGebiet.map(gp=>gipfelCardHtml(gp, state.tours.filter(t=>Array.isArray(t.summitIds) && t.summitIds.includes(gp.id)))).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Gipfel diesem Klettergebiet zugeordnet.</p>`}
-      ${unlinkedGipfel.length ? `<div style="display:flex; gap:8px; margin-top:10px;">
-        <select id="klettergebiet-add-gipfel-select" style="flex:1; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); font-size:13px;">
-          ${unlinkedGipfel.map(gp=>`<option value="${gp.id}">${esc(gp.name)}</option>`).join('')}
-        </select>
-        <button type="button" class="btn secondary" style="flex:none;" data-act="assign-selected-gipfel-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Hinzufügen</button>
-      </div>` : ''}
-    `)}
-    ${detailChapterHtml('🛖 Hütten', huettenImGebiet.length, `
-      ${huettenImGebiet.length ? `<div class="grid" style="margin-top:6px;">${huettenImGebiet.map(hutCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hütte diesem Klettergebiet zugeordnet.</p>`}
-      ${unlinkedHuetten.length ? `<div style="display:flex; gap:8px; margin-top:10px;">
-        <select id="klettergebiet-add-hut-select" style="flex:1; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); font-size:13px;">
-          ${unlinkedHuetten.map(h=>`<option value="${h.id}">${esc(h.name)}</option>`).join('')}
-        </select>
-        <button type="button" class="btn secondary" style="flex:none;" data-act="assign-selected-hut-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Hinzufügen</button>
-      </div>` : ''}
-    `)}
+    ${(geb.points && geb.points.length) ? meteoForecastWidgetHtml(geb.points[0].lat, geb.points[0].lon) : ''}
     ${geb._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
     <div class="form-actions">
       <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
