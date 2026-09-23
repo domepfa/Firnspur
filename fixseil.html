@@ -764,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v194-gebiet-reihenfolge-kontextabhaengig';
+const APP_VERSION = 'v195-gebiet-topo-fallback-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -2481,7 +2481,16 @@ function klettergebietDetailHtml(id){
       ${gradeRange ? `<span class="hut-link-chip">🧗 ${esc(gradeRange)}</span>` : ''}
       ${altitude ? `<span class="hut-link-chip">${esc(altitude)}</span>` : ''}
     </div>` : ''}
-    ${(geb.topoImages && geb.topoImages.length) ? `<div class="detail-section"><h4>Topo / Übersicht</h4>${topoImagesGalleryHtml(geb.topoImages)}</div>` : ''}
+    ${(() => {
+      // Hat das Gebiet selbst kein Übersichtsbild, zeigt sich hier stattdessen automatisch das
+      // Topo des ersten Klettergartens (dieselbe Logik wie beim Vorschaubild auf der Kachel) --
+      // sonst hatten Gebiete ganz ohne eigenes Bild hier gar kein Topo, obwohl eines vorhanden war.
+      const ownTopo = geb.topoImages && geb.topoImages.length ? geb.topoImages : null;
+      const fallbackOwner = !ownTopo ? klettergaerten.find(s=>s.topoImages && s.topoImages.length) : null;
+      const topoToShow = ownTopo || (fallbackOwner ? fallbackOwner.topoImages : null);
+      if(!topoToShow) return '';
+      return `<div class="detail-section"><h4>Topo / Übersicht${fallbackOwner ? ' — ' + esc(fallbackOwner.name) : ''}</h4>${topoImagesGalleryHtml(topoToShow)}</div>`;
+    })()}
     ${geb.description ? `<div class="detail-section"><h4>Beschreibung / Material</h4><p>${esc(geb.description)}</p></div>` : ''}
     ${(() => {
       // Reihenfolge richtet sich nach dem aktuellen Bereich (Hochtour/Klettern): das jeweils
