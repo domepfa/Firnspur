@@ -1140,7 +1140,7 @@ function agendaDetailHtml(id){
     <div class="detail-actions">
       <button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>
       <button class="btn secondary" data-act="edit-agenda" data-id="${a.id}">✏️ Bearbeiten</button>
-      <button class="btn secondary" data-act="print-tourenzettel" data-id="${a.id}">🖨️ Tourenzettel drucken</button>
+      <button class="btn secondary" data-act="print-tourenzettel" data-id="${a.id}">📋 Tourenzettel öffnen</button>
     </div>
     <div id="delete-agenda-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
       <button type="button" id="delete-agenda-trigger" data-id="${a.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Termin löschen</button>
@@ -1152,63 +1152,197 @@ function agendaDetailHtml(id){
     </div>
   </div>`;
 }
-// Baut ein eigenständiges, druckfreundliches Tourenzettel-Dokument für einen Agenda-Termin, zum
-// Ausdrucken/Zurücklassen bei einer Kontaktperson. Bewusst ein separates Fenster statt @media
-// print über die ganze App: die App-Ansicht enthält Overlays/fixe Elemente, die beim Drucken nur
-// stören würden — ein schlankes eigenes Dokument bleibt robust und übersichtlich.
+// Baut ein eigenständiges Tourenzettel-Dokument für einen Agenda-Termin — zum Teilen (digital,
+// z. B. per WhatsApp/Mail) oder Ausdrucken. Bewusst ein separates Fenster statt @media print über
+// die ganze App: die App-Ansicht enthält Overlays/fixe Elemente, die dabei nur stören würden — ein
+// schlankes eigenes Dokument bleibt robust und übersichtlich. Layout/Ton bewusst warm und einladend
+// (schöner Tourentag) statt bürokratisch — Notfallnummern stehen sachlich da, ohne Alarm-Rhetorik.
 function printTourenzettel(agendaId){
   const a = state.agenda.find(x=>x.id===agendaId);
   if(!a) return;
+  const win = window.open('', '_blank');
+  if(!win){ showToast('Pop-up wurde blockiert — bitte Pop-ups für diese Seite erlauben.', true); return; }
+
+  const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const dateLabel = a.endDate && a.endDate!==a.startDate
     ? `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)} – ${fmtWeekday(a.endDate)}, ${fmtDateShort(a.endDate)}`
     : `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)}`;
-  const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes(a.tourRef);
+  const typeLabel = agendaTypeLabel(a.type).replace(/^\S+\s/, '');
+  const { accessRoutes, descentRoutes, tour } = resolveAgendaTourRoutes(a.tourRef);
   const chosenAccess = a.accessRouteId ? accessRoutes.find(r=>r.id===a.accessRouteId) : null;
   const chosenDescent = a.descentRouteId ? descentRoutes.find(r=>r.id===a.descentRouteId) : null;
-  const rows = [['Datum', dateLabel]];
-  if(a.meetingPoint) rows.push(['Treffpunkt', a.meetingPoint]);
-  if(a.days && a.days.length){
-    rows.push(...agendaDayPlanTourenzettelRows(a));
-  }else{
-    if(chosenAccess) rows.push(['Zustieg', chosenAccess.name||'']);
-    if(chosenDescent) rows.push(['Abstieg', chosenDescent.name||'']);
-    if(a.etappen && a.etappen.length){
-      const etappenText = a.etappen.slice().sort((x,y)=>(x.date||'').localeCompare(y.date||''))
-        .map(e=>(e.date ? fmtDateShort(e.date) : '?') + ' — ' + (e.label||'')).join('; ');
-      rows.push(['Etappen', etappenText]);
-    }
-    if(a.anreiseType) rows.push(['Anreise', (a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' — '+a.anreiseOrt : '')]);
-    if(a.endOption) rows.push(['Nach der Tour', (a.endOption==='huette'?'Hütte':'Heimweg') + (a.endNote ? ' — '+a.endNote : '')]);
-  }
-  if(a.plannedReturnTime) rows.push(['Geplante Rückkehr', a.plannedReturnTime]);
-  if(a.emergencyContact) rows.push(['Notfallkontakt', a.emergencyContact]);
-  rows.push(['Teilnehmer', (a.participants||[]).map(p=>p.by).join(', ') || '—']);
-  if(a.note) rows.push(['Notiz', a.note]);
 
-  const win = window.open('', '_blank');
-  if(!win){ showToast('Pop-up wurde blockiert — bitte Pop-ups für diese Seite erlauben.', true); return; }
-  const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Tourenzettel — ${escHtml(a.tourName||'Termin')}</title>
-    <style>
-      body{ font-family: Arial, sans-serif; padding: 24px; color:#1a1a1a; max-width: 640px; margin:0 auto; }
-      h1{ font-size: 20px; margin: 0 0 4px 0; }
-      .sub{ color:#555; font-size:13px; margin-bottom:20px; }
-      table{ width:100%; border-collapse: collapse; }
-      td{ padding:8px 6px; border-bottom:1px solid #ddd; vertical-align:top; font-size:14px; }
-      td:first-child{ font-weight:700; width:160px; color:#333; }
-      .foot{ margin-top:24px; font-size:11px; color:#888; }
-      @media print{ .no-print{ display:none; } }
-    </style>
-  </head><body>
-    <h1>🏔️ Tourenzettel</h1>
-    <div class="sub">${escHtml(a.tourName||'Termin')}</div>
-    <table>${rows.map(([k,v])=>`<tr><td>${escHtml(k)}</td><td>${escHtml(v)}</td></tr>`).join('')}</table>
-    <div class="foot">Erstellt mit Firnspur/Fixseil am ${escHtml(new Date().toLocaleDateString('de-CH'))}.</div>
-    <div class="no-print" style="margin-top:20px;"><button onclick="window.print()">Drucken</button></div>
-  </body></html>`);
+  // Kopfzeile: Datum/Höhe/Schwierigkeit/Teilnehmerzahl als Badges — nur was tatsächlich da ist.
+  const badges = [dateLabel];
+  if(tour && tour.targetAltitude) badges.push(tour.targetAltitude + ' m ü. M.');
+  const difficultyLabel = tour ? (tour.difficulty || tour.climbGrade || tour.mandatoryDifficulty || '') : '';
+  if(difficultyLabel) badges.push(difficultyLabel + (tour && tour.glacier==='ja' ? ' · Gletscher' : ''));
+  badges.push((a.participants||[]).length + ((a.participants||[]).length===1 ? ' Person' : ' Personen'));
+
+  // Ablauf: bei Mehrtages-Terminen tageweise, sonst die klassischen Einzeltag-Felder — jeweils nur
+  // die Punkte, die auch tatsächlich erfasst sind.
+  const ablaufItems = [];
+  if(a.days && a.days.length){
+    agendaDayPlanTourenzettelRows(a).forEach(([label, text])=>{ if(text) ablaufItems.push({label, text}); });
+  }else{
+    if(a.meetingPoint) ablaufItems.push({label:'Treffpunkt', text:a.meetingPoint});
+    if(a.anreiseType) ablaufItems.push({label:'Anreise', text:(a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' — '+a.anreiseOrt : '')});
+    if(chosenAccess) ablaufItems.push({label:'Zustieg', text:chosenAccess.name||''});
+    ablaufItems.push({label:typeLabel, text:a.tourName || 'Tour'});
+    if(chosenDescent) ablaufItems.push({label:'Abstieg', text:chosenDescent.name||''});
+    if(a.endOption) ablaufItems.push({label:'Nach der Tour', text:(a.endOption==='huette'?'Hütte':'Heimweg') + (a.endNote ? ' — '+a.endNote : '')});
+    if(a.etappen && a.etappen.length){
+      ablaufItems.push({label:'Etappen', text: a.etappen.slice().sort((x,y)=>(x.date||'').localeCompare(y.date||''))
+        .map(e=>(e.date ? fmtDateShort(e.date) : '?') + ' — ' + (e.label||'')).join('; ')});
+    }
+    if(a.plannedReturnTime) ablaufItems.push({label:'Geplante Rückkehr', text:a.plannedReturnTime});
+  }
+
+  // Material: aus der verlinkten Tour, so vorhanden — Anzeige als Checkliste zum Abhaken.
+  const materialList = [];
+  if(tour && Array.isArray(tour.material)) materialList.push(...tour.material);
+  if(tour && tour.quickdrawCount) materialList.push(tour.quickdrawCount + '× Expressschlingen');
+  if(tour && tour.ropeType) materialList.push(tour.ropeType + (tour.ropeLength ? ' ('+tour.ropeLength+')' : ''));
+
+  // Notfallnummern: die beiden Schweizer Rettungsnummern immer, dazu Notfallkontakt und
+  // Hütten-Kontakt(e) — nur sachliche Nummern, keine Alarm-Formulierung.
+  const hutIds = new Set();
+  if(tour && tour.hutId) hutIds.add(tour.hutId);
+  if(a.days) a.days.forEach(d=>{ if(d.overnight && d.overnight.hutId) hutIds.add(d.overnight.hutId); });
+  const huts = [...hutIds].map(id=>state.huts.find(h=>h.id===id)).filter(h=>h && h.contact);
+  const contactRows = [['Rettung', '144'], ['REGA', '1414']];
+  if(a.emergencyContact) contactRows.push(['Notfallkontakt', a.emergencyContact]);
+  huts.forEach(h=> contactRows.push([h.name, h.contact]));
+
+  // Kartenausschnitt: echte Punkte/Track der verlinkten Tour, falls vorhanden — sonst kein Abschnitt.
+  const points = (tour && Array.isArray(tour.points)) ? tour.points.filter(p=>p && !isNaN(parseFloat(p.lat)) && !isNaN(parseFloat(p.lon))) : [];
+  const track = tour ? ((tour.trackSimplified && tour.trackSimplified.length) ? tour.trackSimplified : (tour.manualTrack && tour.manualTrack.length ? tour.manualTrack : null)) : null;
+  const hasMap = points.length > 0 || (track && track.length > 0);
+
+  const wx = a.weatherSnapshot;
+
+  const shareTextLines = [a.tourName || 'Tour', dateLabel];
+  ablaufItems.forEach(it=> shareTextLines.push(`${it.label}: ${it.text}`));
+  if(materialList.length) shareTextLines.push('Material: ' + materialList.join(', '));
+  shareTextLines.push('Rettung 144 · REGA 1414' + (a.emergencyContact ? ' · Notfallkontakt: '+a.emergencyContact : ''));
+  const shareText = shareTextLines.join('\n');
+
+  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Tourenzettel — ${escHtml(a.tourName||'Termin')}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;background:#F6F1E4;color:#2B2118;font-family:'Archivo',system-ui,sans-serif;}
+  .serif{font-family:'Fraunces',Georgia,serif;}
+  .wrap{max-width:640px;margin:0 auto;padding:36px 28px 60px;}
+  .eyebrow{font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#6B5A3E;font-weight:600;}
+  h1{font-size:32px;margin:4px 0 0 0;}
+  .routename{font-size:16px;font-style:italic;color:#4A3E2C;}
+  .badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+  .badge{display:inline-flex;align-items:center;background:#fff;border:1.5px solid #2B2118;border-radius:999px;padding:5px 13px;font-size:12.5px;font-weight:600;}
+  .section{margin-top:24px;}
+  .section h4{font-size:15px;margin:0 0 8px 0;}
+  .material-box{border:1.5px solid #D9CDB5;background:#FBF8F0;border-radius:12px;padding:12px 16px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13.5px;}
+  .contact-box{border:1.5px solid #D9CDB5;background:#FBF8F0;border-radius:12px;padding:10px 16px;font-size:13.5px;}
+  .contact-row{display:flex;justify-content:space-between;padding:3px 0;}
+  .timeline{font-size:13.5px;display:flex;flex-direction:column;gap:7px;}
+  .tl-item{padding-left:14px;border-left:2px solid #D9CDB5;}
+  .muted{color:#6B5A3E;font-size:13px;}
+  #tz-map{height:200px;border-radius:12px;border:1.5px solid #D9CDB5;margin-top:2px;}
+  .actions{margin-top:30px;display:flex;gap:10px;flex-wrap:wrap;}
+  button{font-family:inherit;font-size:13.5px;font-weight:600;padding:9px 16px;border-radius:999px;border:1.5px solid #2B2118;background:#fff;cursor:pointer;}
+  button.primary{background:#2B2118;color:#F6F1E4;}
+  .foot{margin-top:28px;font-size:11px;color:#6B5A3E;}
+  @media print{ .no-print{display:none;} body{background:#fff;} }
+</style>
+</head><body>
+<div class="wrap">
+  <div class="eyebrow">Tourenzettel · ${escHtml(typeLabel)}</div>
+  <h1 class="serif">${escHtml(a.tourName || 'Termin')}</h1>
+  ${tour && tour.routeName ? `<div class="serif routename">${escHtml(tour.routeName)}</div>` : ''}
+  <div class="badges">${badges.map(b=>`<span class="badge">${escHtml(b)}</span>`).join('')}</div>
+
+  ${ablaufItems.length ? `<div class="section"><h4>📍 Ablauf</h4><div class="timeline">${ablaufItems.map(it=>`<div class="tl-item"><strong>${escHtml(it.label)}:</strong> ${escHtml(it.text)}</div>`).join('')}</div></div>` : ''}
+
+  <div class="section"><h4>🎒 Material</h4>${materialList.length ? `<div class="material-box">${materialList.map(m=>`<div>☐ ${escHtml(m)}</div>`).join('')}</div>` : `<p class="muted">Keine Material-Angaben zu dieser Tour hinterlegt.</p>`}</div>
+
+  ${hasMap ? `<div class="section"><h4>🗺️ Kartenausschnitt</h4><div id="tz-map"></div></div>` : ''}
+
+  ${wx ? `<div class="section"><h4>🌦️ Verhältnisse${wx.locationLabel ? ' — '+escHtml(wx.locationLabel) : ''}</h4><p style="font-size:13.5px;margin:0;">${wx.icon||''} ${escHtml(wx.label||'')} · ${Math.round(wx.tempMin)}° / ${Math.round(wx.tempMax)}° · 💨 ${Math.round(wx.windMax)} km/h</p><p class="muted" style="margin:4px 0 0 0;">Stand vom ${escHtml(fmtDate(wx.savedAt))}</p></div>` : ''}
+
+  <div class="section"><h4>📞 Notfallnummern</h4><div class="contact-box">${contactRows.map(([k,v])=>`<div class="contact-row"><span class="muted">${escHtml(k)}</span><strong>${escHtml(v)}</strong></div>`).join('')}</div></div>
+
+  ${(a.participants||[]).length ? `<div class="section"><h4>👥 Teilnehmende</h4><p style="font-size:13.5px;margin:0;">${(a.participants||[]).map(p=>escHtml(p.by)).join(' · ')}</p></div>` : ''}
+  ${a.note ? `<div class="section"><h4>📝 Notiz</h4><p style="font-size:13.5px;margin:0;">${escHtml(a.note)}</p></div>` : ''}
+
+  <div class="actions no-print">
+    <button class="primary" onclick="window.print()">🖨️ Drucken</button>
+    <button id="tz-share-btn" type="button">🔗 Teilen</button>
+  </div>
+  <div class="foot">Geteilt mit Firnspur/Fixseil am ${escHtml(new Date().toLocaleDateString('de-CH'))}.</div>
+</div>
+</body></html>`;
+
+  win.document.write(html);
   win.document.close();
   win.focus();
-  try{ win.print(); }catch(e){}
+
+  // Leaflet (Kartenausschnitt) und die Teilen-Button-Logik werden bewusst NICHT über <script>-Tags
+  // im obigen document.write()-String geladen: Chrome bricht einen per document.write() injizierten,
+  // synchron ladenden Cross-Origin-<script src>-Tag unter Umständen komplett ab und verwirft dabei
+  // auch noch nicht ausgeführte Inhalte danach im selben Dokument ("document.write() intervention").
+  // Stattdessen hier, aus dem Opener-Kontext heraus, per DOM-API nachträglich ins Popup einfügen —
+  // das ist von dieser Chrome-Bremse nicht betroffen.
+  const shareBtn = win.document.getElementById('tz-share-btn');
+  if(shareBtn){
+    shareBtn.onclick = function(){
+      if(win.navigator.share){
+        win.navigator.share({title: a.tourName || 'Tourenzettel', text: shareText}).catch(()=>{});
+      }else if(win.navigator.clipboard && win.navigator.clipboard.writeText){
+        win.navigator.clipboard.writeText(shareText).then(()=>{
+          const old = shareBtn.textContent;
+          shareBtn.textContent = '✓ Kopiert';
+          win.setTimeout(()=>{ shareBtn.textContent = old; }, 1600);
+        }).catch(()=> win.alert(shareText));
+      }else{
+        win.alert(shareText);
+      }
+    };
+  }
+
+  if(hasMap){
+    const leafletCss = win.document.createElement('link');
+    leafletCss.rel = 'stylesheet';
+    leafletCss.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    win.document.head.appendChild(leafletCss);
+    const leafletJs = win.document.createElement('script');
+    leafletJs.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    leafletJs.onload = function(){
+      try{
+        const mapEl = win.document.getElementById('tz-map');
+        const map = win.L.map(mapEl, {zoomControl:false, attributionControl:true});
+        win.L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {maxZoom:18, attribution:'© swisstopo'}).addTo(map);
+        let bounds = [];
+        points.forEach(p=>{
+          const lat = parseFloat(p.lat), lon = parseFloat(p.lon);
+          const m = win.L.marker([lat, lon]).addTo(map);
+          if(p.label) m.bindPopup(p.label);
+          bounds.push([lat, lon]);
+        });
+        if(track && track.length){ win.L.polyline(track, {color:'#B5652D', weight:3}).addTo(map); bounds = bounds.concat(track); }
+        if(bounds.length > 1) map.fitBounds(bounds, {padding:[20,20]});
+        else if(bounds.length === 1) map.setView(bounds[0], 13);
+        else mapEl.style.display = 'none';
+      }catch(e){
+        const mapEl = win.document.getElementById('tz-map');
+        if(mapEl) mapEl.outerHTML = '<p class="muted">Karte konnte nicht geladen werden.</p>';
+      }
+    };
+    leafletJs.onerror = function(){
+      const mapEl = win.document.getElementById('tz-map');
+      if(mapEl) mapEl.outerHTML = '<p class="muted">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+    };
+    win.document.head.appendChild(leafletJs);
+  }
 }
 function openAddAgenda(){
   ensureName(async ()=>{
