@@ -20,6 +20,13 @@ Falls künftig eine neue Function dazukommt, zeigt ihr "📷 Foto scannen"-Knopf
 bis zum nächsten Deploy eine Fehlermeldung statt zu funktionieren — das ist erwartet und
 harmlos, nichts anderes in der App ist davon betroffen.
 
+**Zugriffsschutz:** Alle drei Functions sind öffentliche HTTPS-URLs (nötig für den Aufruf
+direkt aus dem Browser) und prüfen deshalb serverseitig einen gültigen Firebase-Auth-Token
+im `Authorization: Bearer …`-Header — denselben Token, den die App ohnehin fürs Anmelden mit
+dem App-Passwort bekommt. Ohne gültige Anmeldung liefern sie `401`. Damit kann nicht mehr
+jede Person, die die URL kennt (z. B. aus diesem — öffentlichen — Repo), beliebig oft eigene
+Fotos einschicken und damit auf unsere Kosten die Anthropic-API aufrufen.
+
 ## Was du brauchst
 
 1. Ein **Anthropic-Konto** mit Guthaben: https://console.anthropic.com — dort einen API-Key

@@ -1,10 +1,33 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const Anthropic = require('@anthropic-ai/sdk');
+const admin = require('firebase-admin');
+
+admin.initializeApp();
 
 // Wird per `firebase functions:secrets:set ANTHROPIC_API_KEY` gesetzt (siehe README.md) —
 // steht damit nur serverseitig zur Verfügung, nie im App-Code oder im Browser.
 const ANTHROPIC_API_KEY = defineSecret('ANTHROPIC_API_KEY');
+
+// Diese Functions sind öffentliche HTTPS-URLs (nötig für den Aufruf per fetch() direkt aus dem
+// Browser) — ohne diese Prüfung könnte JEDE Person, die die URL kennt (z. B. aus dem öffentlichen
+// Repo), beliebig oft eigene Fotos einschicken und damit auf unsere Kosten die Anthropic-API
+// aufrufen. Die App schickt hier denselben Firebase-Auth-Token mit, den sie ohnehin für die
+// Datenbank-Zugriffe nutzt (siehe ensureValidAuthToken() in 0-shared.js) — wer den nicht hat (also
+// sich nicht mit dem App-Passwort angemeldet hat), kommt hier nicht durch. Kein zusätzliches, im
+// Client-Code fest hinterlegtes Geheimnis, weil das ohnehin für alle einsehbar wäre, die den
+// Quellcode lesen — die echte Hürde ist das Anmelde-Passwort, nicht ein weiterer String im Code.
+async function requireAppAuth(req){
+  const header = req.get('Authorization') || '';
+  const match = header.match(/^Bearer (.+)$/);
+  if(!match) return false;
+  try{
+    await admin.auth().verifyIdToken(match[1]);
+    return true;
+  }catch(e){
+    return false;
+  }
+}
 
 // Rohes JSON-Schema statt Zod-Helper (client.messages.parse) — braucht keine zusätzliche
 // Abhängigkeit und funktioniert unabhängig von der installierten SDK-Version.
@@ -123,6 +146,7 @@ function makeScanHandler(name, prompt, schema){
     { secrets: [ANTHROPIC_API_KEY], cors: true, region: 'europe-west1', memory: '256MiB', timeoutSeconds: 60 },
     async (req, res) => {
       if (req.method !== 'POST') { res.status(405).json({ error: 'Nur POST erlaubt.' }); return; }
+      if (!(await requireAppAuth(req))) { res.status(401).json({ error: 'Nicht angemeldet.' }); return; }
       const { imageBase64, mediaType } = req.body || {};
       if (!imageBase64 || typeof imageBase64 !== 'string') {
         res.status(400).json({ error: 'imageBase64 fehlt im Request-Body.' });
