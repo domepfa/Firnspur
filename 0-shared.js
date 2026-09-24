@@ -7359,6 +7359,13 @@ async function scanKlettergebietPhoto(gebId, fileInputEl, statusElId){
 // Scan) und hängt die erkannten Sektoren dort ein — sonst werden sie an ein bestehendes Gebiet
 // (gebId) angehängt, wie beim Scan von der Klettergebiet-Detailseite aus.
 function openKlettergebietScanReview(gebId, sectors, gebietName){
+  // Vorschaubild pro Sektor cachen (statt bei jedem Render neu zu erzeugen) und jeder Route schon
+  // hier eine stabile id geben — die braucht das "Route verschieben"-Werkzeug unten, um eine Route
+  // eindeutig zwischen zwei Sektoren zu identifizieren, bevor sie überhaupt als Sektor gespeichert ist.
+  sectors.forEach(sec=>{
+    (sec.routes||[]).forEach(r=>{ if(!r.id) r.id = uid('kr'); });
+    if(sec._sourceFile) sec._previewUrl = URL.createObjectURL(sec._sourceFile);
+  });
   state.modal = { type:'klettergebiet-scan-review', payload:{ gebId, sectors, gebietName: gebietName || '' } };
   render();
 }
@@ -7367,6 +7374,11 @@ function klettergebietScanReviewHtml(payload){
   const { sectors, gebId, gebietName } = payload;
   const isNewGebiet = !gebId;
   const photoCount = new Set(sectors.map(s=>s._sourceFile)).size;
+  // Gleicher (normalisierter) Name in mehreren Sektoren deutet auf eine Doppelerkennung hin — z. B.
+  // wenn zwei Fotos denselben Bereich überlappend zeigen. Sichtbar markieren statt stillschweigend
+  // beide anzulegen, damit man es vor dem Übernehmen bemerkt.
+  const nameCounts = {};
+  sectors.forEach(s=>{ const key = (s.name||'').trim().toLowerCase(); if(key) nameCounts[key] = (nameCounts[key]||0) + 1; });
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>📷 ${isNewGebiet ? 'Neues Klettergebiet aus Foto' : 'Erkannte Sektoren'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     ${isNewGebiet ? `<div class="field" style="margin-bottom:14px;">
@@ -7374,16 +7386,36 @@ function klettergebietScanReviewHtml(payload){
       <input type="text" id="klettergebiet-scan-gebiet-name" value="${esc(gebietName||'')}" placeholder="z. B. Sewen"/>
       ${!gebietName ? `<p style="font-size:12.5px; color:var(--ink-soft); margin:4px 0 0 0;">Kein Titel auf dem Foto erkannt — bitte Namen eintragen.</p>` : ''}
     </div>` : ''}
-    <p style="font-size:13px; color:var(--ink-soft);">${sectors.length} Sektor${sectors.length===1?'':'en'} erkannt${photoCount>1 ? ' aus ' + photoCount + ' Fotos' : ''} — Namen und Routen vor dem Übernehmen kurz prüfen, jeder wird als eigener, neuer Sektor angelegt.</p>
+    <p style="font-size:13px; color:var(--ink-soft);">${sectors.length} Sektor${sectors.length===1?'':'en'} erkannt${photoCount>1 ? ' aus ' + photoCount + ' Fotos' : ''} — Foto, Name und Routen vor dem Übernehmen kurz prüfen, jeder wird als eigener, neuer Sektor angelegt.</p>
     <div id="klettergebiet-scan-sectors">
-      ${sectors.map((sec,i)=>`
-        <div class="field" style="border:1px solid var(--line); border-radius:var(--radius); padding:12px; margin-bottom:14px;">
-          <label>Sektor-Name</label>
-          <input type="text" class="scan-sector-name" data-index="${i}" value="${esc(sec.name||'')}"/>
-          <div id="scan-sector-editor-${i}" style="margin-top:8px;"></div>
+      ${sectors.map((sec,i)=>{
+        const key = (sec.name||'').trim().toLowerCase();
+        const isDuplicate = !!key && nameCounts[key] > 1;
+        const isUnsortiert = (sec.name||'').trim() === 'Unsortiert';
+        const flagged = isDuplicate || isUnsortiert;
+        return `
+        <div class="field" style="border:1px solid ${flagged ? 'var(--danger)' : 'var(--line)'}; border-radius:var(--radius); padding:12px; margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <div style="flex:1;">
+              <label>Sektor-Name</label>
+              <input type="text" class="scan-sector-name" data-index="${i}" value="${esc(sec.name||'')}"/>
+            </div>
+            <button type="button" class="scan-sector-discard btn secondary" data-index="${i}" style="margin-top:20px; font-size:12px; padding:5px 10px; white-space:nowrap;">🗑️ Verwerfen</button>
+          </div>
+          ${isDuplicate ? `<p style="font-size:12px; color:var(--danger); margin:6px 0 0 0;">⚠ Möglicherweise doppelt erkannt — gleicher Name wie ein anderer Sektor unten. Bitte vergleichen, dann einen verwerfen oder Routen zusammenführen.</p>` : ''}
+          ${isUnsortiert ? `<p style="font-size:12px; color:var(--danger); margin:6px 0 0 0;">⚠ Diese Routen konnten nicht eindeutig einem Sektor zugeordnet werden — bitte unten mit "Route verschieben" den richtigen Sektoren zuweisen.</p>` : ''}
+          ${sec._previewUrl ? `<img src="${esc(sec._previewUrl)}" alt="Foto-Vorschau" style="display:block; max-width:100%; max-height:220px; margin-top:10px; border-radius:6px; cursor:zoom-in; object-fit:contain;" onclick="showTopoImageLightbox([{url:'${esc(sec._previewUrl)}'}],0)"/>` : ''}
+          <div id="scan-sector-editor-${i}" style="margin-top:10px;"></div>
           <input type="hidden" id="scan-sector-hidden-${i}" value='${esc(JSON.stringify(sec.routes||[]))}'/>
+          ${sectors.length>1 ? `
+          <div style="margin-top:12px; padding-top:10px; border-top:1px dashed var(--line); display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+            <span style="font-size:12px; color:var(--ink-soft);">🔀 Route verschieben nach:</span>
+            <select class="scan-move-route-select" data-index="${i}" style="flex:1; min-width:120px; font-size:12.5px; padding:4px;"></select>
+            <select class="scan-move-target-select" data-index="${i}" style="flex:1; min-width:120px; font-size:12.5px; padding:4px;"></select>
+            <button type="button" class="scan-move-btn btn secondary" data-index="${i}" style="font-size:12px; padding:5px 10px;">Verschieben</button>
+          </div>` : ''}
         </div>
-      `).join('')}
+      `;}).join('')}
     </div>
     <div class="form-actions">
       <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
@@ -7399,6 +7431,79 @@ function wireKlettergebietScanReviewModal(){
   if(!payload) return;
   payload.sectors.forEach((sec,i)=> renderKletterroutenEditor('scan-sector-editor-'+i, 'scan-sector-hidden-'+i));
   applyBtn.addEventListener('click', ()=> submitKlettergebietScanReview());
+
+  // Verwerfen: Karte einfach aus der Liste nehmen und die ganze Prüfansicht neu aufbauen — dadurch
+  // verschieben sich die Indizes der übrigen Karten automatisch konsistent mit, kein Nachführen nötig.
+  document.querySelectorAll('.scan-sector-discard').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const idx = parseInt(btn.getAttribute('data-index'), 10);
+      payload.sectors.splice(idx, 1);
+      render();
+    });
+  });
+
+  // Route zwischen zwei erkannten Sektoren verschieben, bevor überhaupt etwas gespeichert wird —
+  // behebt falsch gruppierte Routen (z. B. bei unübersichtlichen Mehrsektor-Fotos), ohne alles neu
+  // abtippen zu müssen. Die Dropdown-Optionen werden erst bei Fokus aktuell befüllt (nicht fest im
+  // HTML), da sich Routenlisten/Sektor-Namen währenddessen durch Bearbeiten laufend ändern können.
+  function refreshMoveRouteOptions(i){
+    const sel = document.querySelector('.scan-move-route-select[data-index="'+i+'"]');
+    const hiddenInput = document.getElementById('scan-sector-hidden-'+i);
+    if(!sel || !hiddenInput) return;
+    let routes = [];
+    try{ routes = JSON.parse(hiddenInput.value || '[]'); }catch(e){ routes = []; }
+    sel.innerHTML = routes.length
+      ? routes.map(r=>`<option value="${esc(r.id)}">${esc((r.nr!=null?r.nr+'. ':'') + (r.name||'—'))}</option>`).join('')
+      : `<option value="">(keine Routen)</option>`;
+  }
+  function refreshMoveTargetOptions(i){
+    const sel = document.querySelector('.scan-move-target-select[data-index="'+i+'"]');
+    if(!sel) return;
+    const nameInputs = document.querySelectorAll('.scan-sector-name');
+    const opts = [];
+    nameInputs.forEach((input, j)=>{
+      if(j===i) return;
+      opts.push(`<option value="${j}">${esc(input.value.trim() || ('Sektor ' + (j+1)))}</option>`);
+    });
+    sel.innerHTML = opts.join('');
+  }
+  document.querySelectorAll('.scan-move-route-select').forEach(sel=>{
+    const i = parseInt(sel.getAttribute('data-index'), 10);
+    refreshMoveRouteOptions(i);
+    sel.addEventListener('focus', ()=> refreshMoveRouteOptions(i));
+  });
+  document.querySelectorAll('.scan-move-target-select').forEach(sel=>{
+    const i = parseInt(sel.getAttribute('data-index'), 10);
+    refreshMoveTargetOptions(i);
+    sel.addEventListener('focus', ()=> refreshMoveTargetOptions(i));
+  });
+  document.querySelectorAll('.scan-move-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const i = parseInt(btn.getAttribute('data-index'), 10);
+      const routeSel = document.querySelector('.scan-move-route-select[data-index="'+i+'"]');
+      const targetSel = document.querySelector('.scan-move-target-select[data-index="'+i+'"]');
+      const routeId = routeSel ? routeSel.value : '';
+      const targetIdx = targetSel ? parseInt(targetSel.value, 10) : NaN;
+      if(!routeId){ showToast('Keine Route zum Verschieben ausgewählt.', true); return; }
+      if(isNaN(targetIdx)){ showToast('Kein Ziel-Sektor ausgewählt.', true); return; }
+      const sourceHidden = document.getElementById('scan-sector-hidden-'+i);
+      const targetHidden = document.getElementById('scan-sector-hidden-'+targetIdx);
+      if(!sourceHidden || !targetHidden) return;
+      let sourceRoutes = [], targetRoutes = [];
+      try{ sourceRoutes = JSON.parse(sourceHidden.value || '[]'); }catch(e){ sourceRoutes = []; }
+      try{ targetRoutes = JSON.parse(targetHidden.value || '[]'); }catch(e){ targetRoutes = []; }
+      const routeIdx = sourceRoutes.findIndex(r=>r.id===routeId);
+      if(routeIdx===-1) return;
+      const [moved] = sourceRoutes.splice(routeIdx, 1);
+      targetRoutes.push(moved);
+      sourceHidden.value = JSON.stringify(sourceRoutes);
+      targetHidden.value = JSON.stringify(targetRoutes);
+      renderKletterroutenEditor('scan-sector-editor-'+i, 'scan-sector-hidden-'+i);
+      renderKletterroutenEditor('scan-sector-editor-'+targetIdx, 'scan-sector-hidden-'+targetIdx);
+      refreshMoveRouteOptions(i);
+      showToast('Route verschoben.');
+    });
+  });
 }
 
 async function submitKlettergebietScanReview(){
