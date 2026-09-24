@@ -7270,9 +7270,10 @@ async function scanTopoImageForRoutes(fileInputEl, hiddenInputId, containerId, s
     if(statusEl) statusEl.textContent = 'Erkenne Routen …';
   }
   try{
+    await ensureValidAuthToken();
     const res = await fetch(SCAN_KLETTERROUTEN_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authState.idToken },
       body: JSON.stringify({ imageBase64, mediaType }),
     });
     if(!res.ok){
@@ -7322,12 +7323,13 @@ async function scanKlettergebietPhoto(gebId, fileInputEl, statusElId){
   const allSectors = [];
   let gebietName = '';
   let failedCount = 0;
+  await ensureValidAuthToken();
   for(const file of files){
     try{
       const imageBase64 = await blobToBase64(file);
       const res = await fetch(SCAN_KLETTERGEBIET_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authState.idToken },
         body: JSON.stringify({ imageBase64, mediaType: file.type || 'image/jpeg' }),
       });
       if(!res.ok){
@@ -7477,9 +7479,10 @@ async function scanZustiegIntoForm(fileInputEl, formEl, statusElId){
   if(statusEl) statusEl.textContent = 'Erkenne Angaben …';
   try{
     const imageBase64 = await blobToBase64(file);
+    await ensureValidAuthToken();
     const res = await fetch(SCAN_ZUSTIEG_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authState.idToken },
       body: JSON.stringify({ imageBase64, mediaType: file.type || 'image/jpeg' }),
     });
     if(!res.ok){
