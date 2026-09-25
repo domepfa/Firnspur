@@ -764,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v199-scan-review-verbessert';
+const APP_VERSION = 'v200-gebiete-kontextfilter';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3132,7 +3132,7 @@ function shellHtml(){
       ` : `
         <button class="tab ${(state.view==='touren'||state.view==='msl')?'active':''}" data-act="view-tours-context">🏔️ Touren</button>
         <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
-        <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">🧭 Sektoren</button>
+        <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">⛰️ Gebiete</button>
         <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
       `}
     </div></div>
@@ -3663,8 +3663,20 @@ function filteredSektoren(){
   return list.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
 }
 
+// Ein Klettergebiet erscheint nur im jeweils relevanten Bereich (Hochtour/Klettern): ein Gebiet mit
+// beidem (z. B. Hochtour-Gipfel UND ein Klettergarten) taucht in beiden auf, eines mit nur Hochtour
+// nur dort, eines mit nur Klettern (MSL/Klettergarten) nur dort. Ein frisch angelegtes, noch
+// komplett leeres Gebiet (weder Hochtour noch Klettern-Inhalt) bleibt bewusst in BEIDEN Bereichen
+// sichtbar — sonst wäre es direkt nach dem Anlegen nirgends mehr auffindbar, um Inhalt hinzuzufügen.
+function klettergebietPasstZuBereich(geb, isMsl){
+  const hasHochtour = klettergebietHochtouren(geb).length > 0;
+  const hasKlettern = klettergebietMslTouren(geb).length > 0 || klettergebietKlettergaerten(geb).length > 0;
+  if(!hasHochtour && !hasKlettern) return true;
+  return isMsl ? hasKlettern : hasHochtour;
+}
 function filteredKlettergebiete(){
-  let list = state.klettergebiete;
+  const isMsl = state.tourCategoryContext==='msl';
+  let list = state.klettergebiete.filter(g=> klettergebietPasstZuBereich(g, isMsl));
   if(state.search.trim()){
     const q = state.search.trim().toLowerCase();
     list = list.filter(g=> (g.name||'').toLowerCase().includes(q) || (g.region||'').toLowerCase().includes(q));
