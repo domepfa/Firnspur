@@ -764,7 +764,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v200-gebiete-kontextfilter';
+const APP_VERSION = 'v201-tabreihenfolge-hochtour';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -3130,9 +3130,9 @@ function shellHtml(){
         <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
         <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
       ` : `
-        <button class="tab ${(state.view==='touren'||state.view==='msl')?'active':''}" data-act="view-tours-context">🏔️ Touren</button>
-        <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
         <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">⛰️ Gebiete</button>
+        <button class="tab ${(state.view==='touren'||state.view==='msl')?'active':''}" data-act="view-tours-context">🧗 Touren</button>
+        <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
         <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
       `}
     </div></div>
