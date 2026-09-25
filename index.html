@@ -558,7 +558,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v201-tabreihenfolge-hochtour';
+const APP_VERSION = 'v202-skigebiete';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -606,8 +606,10 @@ let state = {
   loading: true,
   tours: [],
   huts: [],
+  gebiete: [],
   trashedTours: [],
   trashedHuts: [],
+  trashedGebiete: [],
   agenda: [],
   otherAppTours: [], // Touren der jeweils anderen App, für die Termin-Auswahl
   myName: null,
@@ -647,7 +649,8 @@ let state = {
 function cacheLocalSnapshot(){
   try{
     localStorage.setItem('firnspur-cache', JSON.stringify({
-      tours: state.tours, huts: state.huts, trashedTours: state.trashedTours, trashedHuts: state.trashedHuts,
+      tours: state.tours, huts: state.huts, gebiete: state.gebiete,
+      trashedTours: state.trashedTours, trashedHuts: state.trashedHuts, trashedGebiete: state.trashedGebiete,
       agenda: state.agenda, cachedAt: new Date().toISOString()
     }));
   }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
@@ -670,17 +673,19 @@ function migrateCompletions(item){
 
 async function loadAll(){
   state.loading = true; render();
-  const [toursObj, hutsObj, agendaObj] = await Promise.all([ fbGet('tours'), fbGet('huts'), fbGet(AGENDA_PATH) ]);
+  const [toursObj, hutsObj, gebieteObj, agendaObj] = await Promise.all([ fbGet('tours'), fbGet('huts'), fbGet('gebiete'), fbGet(AGENDA_PATH) ]);
   const cached = loadLocalSnapshot();
 
-  if(!toursObj && !hutsObj && !agendaObj){
+  if(!toursObj && !hutsObj && !gebieteObj && !agendaObj){
     // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
     state.loading = false;
     if(cached){
       state.tours = (cached.tours || []).map(migrateCompletions);
       state.huts = (cached.huts || []).map(migrateCompletions);
+      state.gebiete = cached.gebiete || [];
       state.trashedTours = cached.trashedTours || [];
       state.trashedHuts = cached.trashedHuts || [];
+      state.trashedGebiete = cached.trashedGebiete || [];
       state.agenda = cached.agenda || [];
       state.offlineMode = true;
       state.offlineCachedAt = cached.cachedAt;
@@ -693,16 +698,20 @@ async function loadAll(){
     return;
   }
 
-  const toursSplit = splitTrash(toursObj), hutsSplit = splitTrash(hutsObj);
+  const toursSplit = splitTrash(toursObj), hutsSplit = splitTrash(hutsObj), gebieteSplit = splitTrash(gebieteObj);
   const tours = toursSplit.active.map(migrateCompletions);
   const trashedTours = toursSplit.trashed.map(migrateCompletions);
   const huts = hutsSplit.active.map(migrateCompletions);
   const trashedHuts = hutsSplit.trashed.map(migrateCompletions);
+  const gebiete = gebieteSplit.active;
+  const trashedGebiete = gebieteSplit.trashed;
   const agenda = (agendaObj ? Object.values(agendaObj) : []).filter(a=>a && a.id).map(migrateAgendaStatus);
   tours.sort((a,b)=> (b.createdAt||'').localeCompare(a.createdAt||''));
   huts.sort((a,b)=> a.name.localeCompare(b.name, 'de'));
+  gebiete.sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
   trashedTours.sort((a,b)=> (b.deletedAt||'').localeCompare(a.deletedAt||''));
   trashedHuts.sort((a,b)=> (b.deletedAt||'').localeCompare(a.deletedAt||''));
+  trashedGebiete.sort((a,b)=> (b.deletedAt||'').localeCompare(a.deletedAt||''));
 
   // Lokale, noch nicht synchronisierte Einträge nicht verlieren — sowohl aus dem
   // aktuellen Speicher als auch aus dem lokalen Cache (wichtig nach einem
@@ -715,6 +724,10 @@ async function loadAll(){
     ...state.huts.filter(x=>x._unsynced),
     ...((cached && cached.huts) ? cached.huts.filter(x=>x._unsynced) : [])
   ]).filter(x=>!huts.find(y=>y.id===x.id));
+  const unsyncedGebiete = dedupeById([
+    ...state.gebiete.filter(x=>x._unsynced),
+    ...((cached && cached.gebiete) ? cached.gebiete.filter(x=>x._unsynced) : [])
+  ]).filter(x=>!gebiete.find(y=>y.id===x.id));
   const unsyncedAgenda = dedupeById([
     ...state.agenda.filter(x=>x._unsynced),
     ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
@@ -722,8 +735,10 @@ async function loadAll(){
 
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
+  state.gebiete = [...unsyncedGebiete, ...gebiete];
   state.trashedTours = trashedTours;
   state.trashedHuts = trashedHuts;
+  state.trashedGebiete = trashedGebiete;
   state.agenda = [...unsyncedAgenda, ...agenda];
   state.loading = false;
   state.offlineMode = false;
@@ -731,6 +746,7 @@ async function loadAll(){
   // entfernen (siehe TRASH_RETENTION_DAYS in 0-shared.js).
   purgeExpiredTrash(state.trashedTours, 'tours');
   purgeExpiredTrash(state.trashedHuts, 'huts');
+  purgeExpiredTrash(state.trashedGebiete, 'gebiete');
   render();
   checkSharedContent().then(shared=>{ if(shared) openShareImportModal(shared); });
 
@@ -746,6 +762,11 @@ async function loadAll(){
     h._unsynced = !ok;
     if(ok) render();
   });
+  unsyncedGebiete.forEach(async g=>{
+    const ok = await saveGebietCloud(g).catch(()=>false);
+    g._unsynced = !ok;
+    if(ok) render();
+  });
   unsyncedAgenda.forEach(async a=>{
     const ok = await saveAgendaCloud(a).catch(()=>false);
     a._unsynced = !ok;
@@ -754,6 +775,7 @@ async function loadAll(){
 }
 
 async function saveTourCloud(tour){ return await fbSet('tours/'+tour.id, tour); }
+async function saveGebietCloud(geb){ return await fbSet('gebiete/'+geb.id, geb); }
 async function saveHutCloud(hut){ return await fbSet('huts/'+hut.id, hut); }
 
 async function loadOtherAppTours(){
@@ -768,12 +790,16 @@ function removeTour(id){
 function removeHut(id){
   moveToTrash(id, state.huts, state.trashedHuts, saveHutCloud);
 }
+function removeGebiet(id){
+  moveToTrash(id, state.gebiete, state.trashedGebiete, saveGebietCloud);
+}
 
 /* ================= Papierkorb ================= */
 function papierkorbGroups(){
   return [
     { kind:'tour', icon:'🎿', label:'Touren', trashedList: state.trashedTours },
     { kind:'hut', icon:'🛖', label:'Hütten', trashedList: state.trashedHuts },
+    { kind:'gebiet', icon:'⛰️', label:'Gebiete', trashedList: state.trashedGebiete },
   ];
 }
 function papierkorbTrashCount(){ return trashCountTotal(papierkorbGroups()); }
@@ -781,6 +807,7 @@ function papierkorbPageHtml(){ return papierkorbViewHtml(papierkorbGroups()); }
 const PAPIERKORB_ENTITY_MAP = {
   tour: { active: ()=>state.tours, trashed: ()=>state.trashedTours, save: saveTourCloud, path: 'tours' },
   hut: { active: ()=>state.huts, trashed: ()=>state.trashedHuts, save: saveHutCloud, path: 'huts' },
+  gebiet: { active: ()=>state.gebiete, trashed: ()=>state.trashedGebiete, save: saveGebietCloud, path: 'gebiete' },
 };
 function restoreTrashItem(kind, id){
   const m = PAPIERKORB_ENTITY_MAP[kind];
@@ -855,6 +882,35 @@ function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:
 function openAddHutWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); navigateToModal({type:'edit-hut', payload:h}); }); }
 function openHutDetail(id){ navigateToModal({type:'hut-detail', payload:id}); }
+function openAddGebiet(){ ensureName(()=>{ state.modal = {type:'edit-gebiet', payload:null}; render(); }); }
+function openEditGebiet(id){ ensureName(()=>{ const g = state.gebiete.find(x=>x.id===id); navigateToModal({type:'edit-gebiet', payload:g}); }); }
+function openGebietDetail(id){ navigateToModal({type:'gebiet-detail', payload:id}); }
+async function assignTourToGebiet(tourId, gebId){
+  const t = state.tours.find(x=>x.id===tourId);
+  if(!t) return;
+  t.gebietId = gebId || '';
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  render();
+  const ok = await saveTourCloud(t).catch(()=>false);
+  t._unsynced = !ok;
+  if(!ok) markUnsaved();
+  showToast(ok ? 'Tour zugeordnet.' : 'Tour lokal zugeordnet, aber nicht synchronisiert.', !ok);
+  render();
+}
+async function assignHutToGebiet(hutId, gebId){
+  const h = state.huts.find(x=>x.id===hutId);
+  if(!h) return;
+  h.gebietId = gebId || '';
+  h.updatedAt = new Date().toISOString();
+  h.updatedBy = state.myName;
+  render();
+  const ok = await saveHutCloud(h).catch(()=>false);
+  h._unsynced = !ok;
+  if(!ok) markUnsaved();
+  showToast(ok ? 'Hütte zugeordnet.' : 'Hütte lokal zugeordnet, aber nicht synchronisiert.', !ok);
+  render();
+}
 function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(!skipDirtyCheck && !confirmDiscardIfDirty()){
     // Nutzer will weiter bearbeiten — nichts schliessen, und explizit NICHT render() aufrufen:
@@ -970,6 +1026,7 @@ async function submitTourForm(form, existing){
   t.glacier = form.glacier || 'nein';
   t.ropeLength = form.ropeLength || '';
   t.hutId = form.hutId || '';
+  t.gebietId = form.gebietId || '';
   t.tourLink = form.tourLink;
   t.gpxLink = form.gpxLink || '';
   try{ t.trackSimplified = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ t.trackSimplified = null; }
@@ -1021,6 +1078,7 @@ async function submitHutForm(form, existing){
   h.approachTypes = Array.isArray(form.approachTypes) ? form.approachTypes : [];
   try{ h.points = form.points ? JSON.parse(form.points) : []; }catch(e){ h.points = []; }
   try{ h.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ h.manualTrack = []; }
+  h.gebietId = form.gebietId || '';
   migrateHutAccessRoutes(h);
   h.contact = form.contact;
   h.notes = form.notes;
@@ -1040,6 +1098,34 @@ async function submitHutForm(form, existing){
     showToast('Hütte ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
   }else{
     showToast('Hütte gespeichert und synchronisiert.');
+  }
+  render();
+}
+
+async function submitGebietForm(form, existing){
+  const g = (existing && existing.id) ? {...existing} : {id: (form.gebietIdForTrack || uid('geb')), createdBy: state.myName, createdAt: new Date().toISOString()};
+  g.name = form.name.trim();
+  g.region = form.region || '';
+  g.subregion = form.subregion || '';
+  g.description = form.description || '';
+  try{ g.points = form.points ? JSON.parse(form.points) : []; }catch(e){ g.points = []; }
+  try{ g.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ g.manualTrack = []; }
+  g.updatedAt = new Date().toISOString();
+  g.updatedBy = state.myName;
+
+  const idx = state.gebiete.findIndex(x=>x.id===g.id);
+  if(idx>=0) state.gebiete[idx] = g; else state.gebiete.unshift(g);
+  closeModal(false, true, true);
+  state.modal = {type:'gebiet-detail', payload:g.id};
+  render();
+
+  const ok = await saveGebietCloud(g).catch(()=>false);
+  g._unsynced = !ok;
+  if(!ok){
+    markUnsaved();
+    showToast('Gebiet ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+  }else{
+    showToast('Gebiet gespeichert und synchronisiert.');
   }
   render();
 }
@@ -1238,13 +1324,14 @@ function shellHtml(){
       </div>
     </div>
     <div class="tabs"><div class="tabs-inner">
+      <button class="tab ${state.view==='gebiete'?'active':''}" data-act="view-gebiete">⛰️ Gebiete</button>
       <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">🎿 Touren</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
       <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
     </div></div>
   </div>
   <main>
-    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml())}
+    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='gebiete' ? gebieteViewHtml() : state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml())}
   </main>
   <div id="modal-root"></div>
   `;
@@ -1349,6 +1436,7 @@ function emptyTouren(){
 function tourCardHtml(t){
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
+  const gebiet = t.gebietId ? state.gebiete.find(g=>g.id===t.gebietId) : null;
   return `
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
     ${(t.points && t.points.length) ? meteoCardForecastRowHtml(t.points[0].lat, t.points[0].lon) : ''}
@@ -1370,6 +1458,7 @@ function tourCardHtml(t){
     </div>
     ${t.region ? `<p class="excerpt">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${hut ? `<span class="hut-link-chip">🛖 ${esc(hut.name)}</span>` : ''}
+    ${gebiet ? `<span class="hut-link-chip">⛰️ ${esc(gebiet.name)}</span>` : ''}
     ${t.crux ? `<div class="conditions-note">⚠ ${esc(t.crux)}</div>` : ''}
     ${(t.completions && t.completions.length) ? `<div class="stat-row"><span>✓ ${t.completions.length===1 ? esc(t.completions[0].by||'?') + (t.completions[0].date ? ' · ' + fmtDateOnly(t.completions[0].date) : '') : t.completions.length + ' Einträge'}</span></div>` : ''}
     ${t._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
@@ -1467,6 +1556,7 @@ function hutCardHtml(h){
   const linkedCount = state.tours.filter(t=>t.hutId===h.id).length;
   const routes = h.accessRoutes || [];
   const rangeText = accessRouteDifficultyRangeHtml(routes);
+  const gebiet = h.gebietId ? state.gebiete.find(g=>g.id===h.gebietId) : null;
   return `
   <div class="card" data-act="open-hut" data-id="${h.id}" tabindex="0" role="button">
     <div class="card-top">
@@ -1477,11 +1567,245 @@ function hutCardHtml(h){
     ${routes.length ? `<div class="stat-row"><span>🚶 ${routes.length} Zustieg${routes.length===1?'':'e'}${rangeText ? ' · ' + rangeText : ''}</span></div>` : ''}
     ${((h.staffedMonths && h.staffedMonths.length) || (h.staffedMonthsPartial && h.staffedMonthsPartial.length)) ? `<div class="stat-row"><span>👤 bewartet: ${(h.staffedMonths||[]).length + (h.staffedMonthsPartial||[]).length} Mte.</span></div>` : `<div class="stat-row"><span>👤 unbewartet</span></div>`}
     <span class="hut-link-chip">${linkedCount} Tour${linkedCount===1?'':'en'} ab hier</span>
+    ${gebiet ? `<span class="hut-link-chip">⛰️ ${esc(gebiet.name)}</span>` : ''}
     ${(h.completions && h.completions.length) ? `<div class="stat-row"><span>✓ ${h.completions.length===1 ? esc(h.completions[0].by||'?') + (h.completions[0].date ? ' · ' + fmtDateOnly(h.completions[0].date) : '') : h.completions.length + ' Einträge'}</span></div>` : ''}
     ${h._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
     <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
       <span>von ${esc(h.createdBy||'?')} · ${fmtDate(h.createdAt)}</span>
       <span style="color:var(--ink-faint);">${hutStatusLabel(h)}</span>
+    </div>
+  </div>`;
+}
+
+/* ================= Gebiete view ================= */
+function filteredGebiete(){
+  let list = state.gebiete;
+  if(state.search.trim()){
+    const q = state.search.trim().toLowerCase();
+    list = list.filter(g=> (g.name||'').toLowerCase().includes(q) || (g.region||'').toLowerCase().includes(q));
+  }
+  return list.slice().sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de'));
+}
+
+function gebieteViewHtml(){
+  const list = filteredGebiete();
+  return `
+    <div class="toolbar">
+      <input class="search-input" type="text" placeholder="Gebiet oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
+      <button class="btn" data-act="add-gebiet">+ Neues Gebiet</button>
+      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
+    </div>
+    ${list.length ? `<div class="grid">${list.map(gebietCardHtml).join('')}</div>` : emptyGebiete()}
+  `;
+}
+
+function emptyGebiete(){
+  const hasAny = state.gebiete.length>0;
+  return `<div class="empty">
+    <h3>${hasAny ? 'Kein Gebiet passt zu diesem Filter' : 'Noch kein Gebiet erfasst'}</h3>
+    <p>${hasAny ? 'Suche anpassen oder ein neues Gebiet hinzufügen.' : 'Ein Gebiet fasst Touren und Hütten derselben Region zusammen (z. B. ein Tal oder Massiv) — leg es an und verlinke dann Touren/Hütten damit.'}</p>
+    <button class="btn" data-act="add-gebiet">+ Neues Gebiet</button>
+  </div>`;
+}
+
+function gebietTouren(geb){ return state.tours.filter(t=>t.gebietId===geb.id); }
+function gebietHuetten(geb){ return state.huts.filter(h=>h.gebietId===geb.id); }
+
+function gebietCardHtml(geb){
+  const touren = gebietTouren(geb);
+  const huetten = gebietHuetten(geb);
+  return `
+  <div class="card" data-act="open-gebiet" data-id="${geb.id}" tabindex="0" role="button">
+    <div class="card-top">
+      <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
+    </div>
+    ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
+    <div class="stat-row">
+      <span>🎿 ${touren.length} Tour${touren.length===1?'':'en'}</span>
+      <span>🛖 ${huetten.length} Hütte${huetten.length===1?'':'n'}</span>
+    </div>
+    ${geb._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
+    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
+      <span>von ${esc(geb.createdBy||'?')} · ${fmtDate(geb.createdAt)}</span>
+    </div>
+  </div>`;
+}
+
+// Übersichtskarte eines Gebiets: fasst die eigenen Punkte des Gebiets UND die Standorte/Tracks
+// aller verlinkten Touren und Hütten auf einer Karte zusammen — analog zu
+// renderKlettergebietOverviewMap() in fixseil.html, aber ohne Sektoren-Zwischenebene.
+function renderGebietOverviewMap(containerId, gebId){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const geb = state.gebiete.find(x=>x.id===gebId);
+    if(!geb) { el2.innerHTML = ''; return; }
+    const touren = gebietTouren(geb);
+    const huetten = gebietHuetten(geb);
+    const hasOwnPoints = geb.points && geb.points.length;
+    const hasAny = hasOwnPoints || huetten.some(h=> h.points && h.points.length) || touren.some(t=> (t.points && t.points.length) || (t.trackSimplified && t.trackSimplified.length) || (t.manualTrack && t.manualTrack.length));
+    if(!hasAny){
+      el2.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Noch keine Kartendaten — weder beim Gebiet noch bei den Touren/Hütten.</p>';
+      return;
+    }
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:280px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const firstHutPoint = huetten.map(h=> h.points && h.points.length ? h.points[0] : null).find(Boolean);
+    const startPoint = hasOwnPoints ? geb.points[0] : firstHutPoint;
+    const map = L.map(mapDivId).setView(startPoint ? [startPoint.lat, startPoint.lon] : [46.8182, 8.2275], startPoint ? 12 : 8);
+    registerMap(mapDivId, map);
+    addBaseLayerSwitcher(map);
+    const boundsItems = [];
+    if(hasOwnPoints){
+      geb.points.forEach(p=>{
+        try{
+          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(geb.name)}</strong><br/>${esc(p.label||'Punkt')}`);
+          boundsItems.push(m);
+        }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
+      });
+    }
+    huetten.forEach(h=>{
+      (h.points||[]).forEach(p=>{
+        try{
+          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>🛖 ${esc(h.name)}</strong><br/>${esc(p.label||'Punkt')}`);
+          boundsItems.push(m);
+        }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
+      });
+    });
+    touren.forEach((t,i)=>{
+      const color = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
+      const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
+      if(track){
+        try{
+          L.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
+          const line = L.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
+          boundsItems.push(line);
+        }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
+      }
+      (t.points||[]).forEach(p=>{
+        try{
+          const m = L.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
+            .bindPopup(`<strong>${esc(t.name)}</strong>${t.routeName ? ' – '+esc(t.routeName) : ''}<br/>${esc(p.label||'Punkt')}`);
+          boundsItems.push(m);
+        }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
+      });
+    });
+    if(boundsItems.length){
+      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+    }
+    if(!isFullscreen){
+      const btn = makeFullscreenButton(function(id){ renderGebietOverviewMap(id, gebId); });
+      el2.appendChild(btn);
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+function gebietFormHtml(existing){
+  const g = existing || {};
+  const isEditing = !!(existing && existing.id);
+  const isKnownRegion = REGIONS.includes(g.region);
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${isEditing?'Gebiet bearbeiten':'Neues Gebiet'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <form id="gebiet-form" novalidate>
+      <div class="field"><label>Name *</label><input required name="name" value="${esc(g.name||'')}" placeholder="z. B. Engelberger Tal"/></div>
+      <div class="field"><label>Region</label>
+        <div class="chips" id="region-chips">
+          ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${g.region===r?'on':''}" style="${g.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
+          <button type="button" class="chip region-chip ${g.region && !isKnownRegion?'on':''}" style="${g.region && !isKnownRegion?'background:var(--ice-deep)':''}" data-region="__other__">Anderes</button>
+        </div>
+        <input type="text" id="region-other-input" value="${!isKnownRegion?esc(g.region||''):''}" placeholder="eigene Region eintragen" style="margin-top:8px; ${g.region && !isKnownRegion?'':'display:none;'}"/>
+        <input type="hidden" name="region" id="region-hidden-input" value="${esc(g.region||'')}"/>
+      </div>
+      <div class="field" id="subregion-field" style="${(isKnownRegion && REGION_SUBAREAS[g.region])?'':'display:none;'}">
+        <label>Teilgebiet / Pass (optional)</label>
+        <div class="chips" id="subregion-chips">${renderSubregionChipsHtml(g.region, g.subregion)}</div>
+        <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(g.subregion||'')}"/>
+      </div>
+      <div class="field"><label>Beschreibung</label><textarea name="description" placeholder="Charakter des Gebiets, grobe Übersicht …">${esc(g.description||'')}</textarea></div>
+      <div class="field"><label>Punkte &amp; Linie auf der Karte</label>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
+        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <div id="points-map" style="margin-top:10px; display:none;"></div>
+        <div id="points-list"></div>
+        <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(g.points || []))}'/>
+        <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(g.manualTrack || []))}'/>
+      </div>
+      <input type="hidden" name="gebietIdForTrack" id="gebiet-id-for-track" value="${esc(g.id||'')}"/>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" id="gebiet-save-btn" class="btn">${isEditing?'Speichern':'Gebiet anlegen'}</button>
+      </div>
+      <button type="button" id="gebiet-fab-save-btn" class="fab-save">✓ Speichern</button>
+      ${isEditing ? `
+      <div id="delete-gebiet-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
+        <button type="button" id="delete-gebiet-trigger" data-id="${g.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Gebiet löschen</button>
+        <div id="delete-gebiet-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
+          In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)? Verlinkte Touren/Hütten bleiben erhalten, verlieren aber die Gebiets-Zuordnung.
+          <button type="button" id="delete-gebiet-yes" data-id="${g.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
+          <button type="button" id="delete-gebiet-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+        </div>
+      </div>` : ''}
+    </form>
+  </div>`;
+}
+
+function gebietDetailHtml(id){
+  const geb = state.gebiete.find(x=>x.id===id);
+  if(!geb) return `<div class="modal" data-stop="1"><p>Gebiet nicht gefunden.</p></div>`;
+  const touren = gebietTouren(geb);
+  const huetten = gebietHuetten(geb);
+  const unlinkedTouren = state.tours.filter(t=>!t.gebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+  const unlinkedHuetten = state.huts.filter(h=>!h.gebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+  const hasMapData = (geb.points && geb.points.length) || huetten.some(h=>h.points && h.points.length) || touren.some(t=> (t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length));
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head">
+      <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
+      <button class="x-btn" data-act="close-modal">×</button>
+    </div>
+    ${geb.description ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 10px 0;">${esc(geb.description)}</p>` : ''}
+    ${hasMapData ? `<div class="detail-section">
+      <h4>🗺️ Übersichtskarte</h4>
+      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gebiet-overview-map" data-gebiet-id="${geb.id}" data-target="map-gebiet-${geb.id}">🗺️ Karte anzeigen</button>
+      <div id="map-gebiet-${geb.id}"></div>
+    </div>` : ''}
+    <div class="detail-section">
+      <h4>🎿 Touren (${touren.length})</h4>
+      ${touren.length ? `<div class="grid" style="margin-top:6px;">${touren.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour in diesem Gebiet.</p>`}
+      ${unlinkedTouren.length ? `<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
+        <select id="gebiet-assign-tour-select-${geb.id}">
+          <option value="">— Tour auswählen —</option>
+          ${unlinkedTouren.map(t=>`<option value="${t.id}">${esc(t.name)}${t.routeName ? ' – '+esc(t.routeName) : ''}</option>`).join('')}
+        </select>
+        <button type="button" class="btn secondary" data-act="assign-tour-to-gebiet" data-gebiet-id="${geb.id}">+ Tour zuordnen</button>
+      </div>` : ''}
+    </div>
+    <div class="detail-section">
+      <h4>🛖 Hütten (${huetten.length})</h4>
+      ${huetten.length ? `<div class="grid" style="margin-top:6px;">${huetten.map(hutCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hütte in diesem Gebiet.</p>`}
+      ${unlinkedHuetten.length ? `<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
+        <select id="gebiet-assign-hut-select-${geb.id}">
+          <option value="">— Hütte auswählen —</option>
+          ${unlinkedHuetten.map(h=>`<option value="${h.id}">${esc(h.name)}</option>`).join('')}
+        </select>
+        <button type="button" class="btn secondary" data-act="assign-hut-to-gebiet" data-gebiet-id="${geb.id}">+ Hütte zuordnen</button>
+      </div>` : ''}
+    </div>
+    <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(geb.createdBy||'?')} · ${fmtDate(geb.createdAt)}${geb.updatedAt && geb.updatedAt!==geb.createdAt ? ` · zuletzt bearbeitet von ${esc(geb.updatedBy||'?')} · ${fmtDate(geb.updatedAt)}` : ''}</div>
+    <div class="detail-actions">
+      <button class="btn secondary" data-act="edit-gebiet" data-id="${geb.id}">Bearbeiten</button>
     </div>
   </div>`;
 }
@@ -1499,6 +1823,8 @@ function renderModal(){
   else if(m.type==='edit-access-route') inner = accessRouteFormHtml(m.payload.hutId, m.payload.route);
   else if(m.type==='access-route-detail') inner = accessRouteDetailHtml(m.payload.hutId, m.payload.route);
   else if(m.type==='hut-detail') inner = hutDetailHtml(m.payload);
+  else if(m.type==='edit-gebiet') inner = gebietFormHtml(m.payload);
+  else if(m.type==='gebiet-detail') inner = gebietDetailHtml(m.payload);
   else if(m.type==='complete-tour') inner = completeFormHtml('tour', m.payload);
   else if(m.type==='complete-hut') inner = completeFormHtml('hut', m.payload);
   else if(m.type==='export') inner = exportModalHtml(m.payload);
@@ -1733,9 +2059,13 @@ function tourFormHtml(existing){
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(t.manualTrack || []))}'/>
       </div>
       <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abfahrtsroute, Varianten …">${esc(t.descent||'')}</textarea></div>
-      <div class="field"><label>Verknüpfte Hütte</label>
-        <select name="hutId"><option value="">— keine —</option>${hutOptions}</select>
-        <div class="hint">Fehlt die Hütte? Erst unter „Hütten“ anlegen, dann hier verlinken.</div>
+      <div class=”field”><label>Verknüpfte Hütte</label>
+        <select name=”hutId”><option value=””>— keine —</option>${hutOptions}</select>
+        <div class=”hint”>Fehlt die Hütte? Erst unter „Hütten” anlegen, dann hier verlinken.</div>
+      </div>
+      <div class=”field”><label>Gebiet (optional)</label>
+        <select name=”gebietId”><option value=””>— keins —</option>${state.gebiete.map(g=>`<option value=”${g.id}” ${t.gebietId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select>
+        <div class=”hint”>Fasst Touren &amp; Hütten derselben Region zusammen. Fehlt das Gebiet? Erst unter „Gebiete” anlegen.</div>
       </div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
@@ -1833,6 +2163,7 @@ function tourDetailHtml(id){
   if(!t) return `<div class="modal" data-stop="1"><p>Tour nicht gefunden.</p></div>`;
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
+  const gebiet = t.gebietId ? state.gebiete.find(g=>g.id===t.gebietId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
       <div>
@@ -1857,6 +2188,7 @@ function tourDetailHtml(id){
       ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>
     ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
+    ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">⛰️ Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
 
     ${t.glacier==='ja' ? `<div class="detail-section"><h4>Gletscher</h4><p>Ja</p></div>` : ''}
     ${(t.exposition && t.exposition.length) ? `<div class="detail-section"><h4>Exposition</h4><p>${t.exposition.map(esc).join(', ')}</p></div>` : ''}
@@ -1957,6 +2289,10 @@ function hutFormHtml(existing){
         <div class="chips" id="subregion-chips">${renderSubregionChipsHtml(h.region, h.subregion)}</div>
         <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(h.subregion||'')}"/>
       </div>
+      <div class="field"><label>Gebiet (optional)</label>
+        <select name="gebietId"><option value="">— keins —</option>${state.gebiete.map(g=>`<option value="${g.id}" ${h.gebietId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select>
+        <div class="hint">Fasst Touren &amp; Hütten derselben Region zusammen. Fehlt das Gebiet? Erst unter „Gebiete" anlegen.</div>
+      </div>
       <div class="field"><label>Höhe (m ü. M.)</label><input name="altitude" value="${esc(h.altitude||'')}" placeholder="z. B. 1834"/></div>
       <div class="field"><label>Hütte bewartet</label>
         <div class="chips" id="staffed-months-chips">${monthChipsRowHtml('staffed-month-chip', h.staffedMonths, h.staffedMonthsPartial)}</div>
@@ -2018,6 +2354,7 @@ function hutDetailHtml(id){
   const h = state.huts.find(x=>x.id===id);
   if(!h) return `<div class="modal" data-stop="1"><p>Hütte nicht gefunden.</p></div>`;
   const linked = state.tours.filter(t=>t.hutId===h.id);
+  const gebiet = h.gebietId ? state.gebiete.find(g=>g.id===h.gebietId) : null;
   migrateHutAccessRoutes(h);
   const routes = h.accessRoutes || [];
   const rangeText = accessRouteDifficultyRangeHtml(routes);
@@ -2029,6 +2366,7 @@ function hutDetailHtml(id){
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-hut-status" data-id="${h.id}">${hutStatusLabel(h)} — antippen zum Ändern</button>
+    ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">⛰️ Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
     <div class="detail-stats">
       ${h.altitude ? `<div class="detail-stat"><div class="num">${esc(h.altitude)}</div><div class="lbl">m ü. M.</div></div>` : ''}
       ${h.capacity ? `<div class="detail-stat"><div class="num">${esc(h.capacity)}</div><div class="lbl">Kapazität</div></div>` : ''}
@@ -2228,6 +2566,7 @@ function wireGlobalHandlers(){
   app.querySelectorAll('[data-act]').forEach(el=>{
     const act = el.getAttribute('data-act');
     if(act==='view-touren') el.onclick = ()=>setView('touren');
+    else if(act==='view-gebiete') el.onclick = ()=>setView('gebiete');
     else if(act==='view-huetten') el.onclick = ()=>setView('huetten');
     else if(act==='view-abgeschlossen') el.onclick = ()=>setView('abgeschlossen');
     else if(act==='view-papierkorb') el.onclick = ()=>setView('papierkorb');
@@ -2238,6 +2577,8 @@ function wireGlobalHandlers(){
     else if(act==='import-data') el.onclick = openImport;
     else if(act==='add-tour') el.onclick = openAddTour;
     else if(act==='add-hut') el.onclick = openAddHut;
+    else if(act==='add-gebiet') el.onclick = openAddGebiet;
+    else if(act==='open-gebiet') { el.onclick = ()=>openGebietDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openGebietDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-standalone-map') el.onclick = openStandaloneMap;
     else if(act==='map-strip-toggle') el.onclick = ()=>{
       const id = el.getAttribute('data-id');
@@ -2312,7 +2653,7 @@ function wireGlobalHandlers(){
 function renderListOnly(){
   const main = document.querySelector('main');
   if(!main) return;
-  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml());
+  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='gebiete' ? gebieteViewHtml() : state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml());
   wireGlobalHandlers();
   const input = main.querySelector('.search-input');
   if(input){ input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
@@ -2966,6 +3307,30 @@ function wireModalHandlers(){
     });
   });
 
+  root.querySelectorAll('[data-act="show-gebiet-overview-map"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      renderGebietOverviewMap(btn.getAttribute('data-target'), btn.getAttribute('data-gebiet-id'));
+    });
+  });
+  root.querySelectorAll('[data-act="assign-tour-to-gebiet"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const gebId = btn.getAttribute('data-gebiet-id');
+      const sel = document.getElementById('gebiet-assign-tour-select-'+gebId);
+      if(!sel || !sel.value) return;
+      assignTourToGebiet(sel.value, gebId);
+    });
+  });
+  root.querySelectorAll('[data-act="assign-hut-to-gebiet"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const gebId = btn.getAttribute('data-gebiet-id');
+      const sel = document.getElementById('gebiet-assign-hut-select-'+gebId);
+      if(!sel || !sel.value) return;
+      assignHutToGebiet(sel.value, gebId);
+    });
+  });
+  root.querySelectorAll('[data-act="edit-gebiet"]').forEach(el=> el.onclick = ()=>openEditGebiet(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="open-gebiet"]').forEach(el=> el.onclick = ()=>openGebietDetail(el.getAttribute('data-id')));
+
   const hutForm = document.getElementById('hut-form');
   if(hutForm){
     const hutSaveBtn = document.getElementById('hut-save-btn');
@@ -3064,6 +3429,83 @@ function wireModalHandlers(){
     }
   }
 
+  const gebietForm = document.getElementById('gebiet-form');
+  if(gebietForm){
+    const gebietSaveBtn = document.getElementById('gebiet-save-btn');
+    if(gebietSaveBtn){
+      gebietSaveBtn.addEventListener('click', (e)=>{
+        e.preventDefault();
+        try{
+          const fd = new FormData(gebietForm);
+          const data = Object.fromEntries(fd.entries());
+          if(!data.name || !data.name.trim()){
+            showFormError('gebiet-form', 'Bitte einen Namen für das Gebiet eingeben.');
+            return;
+          }
+          submitGebietForm(data, state.modal.payload);
+        }catch(err){
+          showFormError('gebiet-form', 'Unerwarteter Fehler: ' + (err.message || err));
+        }
+      });
+    }
+    const gebietFabSaveBtn = document.getElementById('gebiet-fab-save-btn');
+    if(gebietFabSaveBtn) gebietFabSaveBtn.addEventListener('click', ()=>{ if(gebietSaveBtn) gebietSaveBtn.click(); });
+
+    // Region-Chips (identisch zum Touren-/Hütten-Formular)
+    const gebietRegionHidden = document.getElementById('region-hidden-input');
+    const gebietRegionOtherInput = document.getElementById('region-other-input');
+    const gebietSubregionField = document.getElementById('subregion-field');
+    const gebietSubregionChipsWrap = document.getElementById('subregion-chips');
+    const gebietSubregionHidden = document.getElementById('subregion-hidden');
+    gebietForm.querySelectorAll('.region-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        const wasOn = chip.classList.contains('on');
+        gebietForm.querySelectorAll('.region-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){
+          gebietRegionOtherInput.style.display = 'none';
+          gebietRegionOtherInput.value = '';
+          gebietRegionHidden.value = '';
+          if(gebietSubregionField){ gebietSubregionField.style.display = 'none'; gebietSubregionHidden.value = ''; }
+          return;
+        }
+        chip.classList.add('on'); chip.style.background = 'var(--ice-deep)';
+        const region = chip.getAttribute('data-region');
+        if(region==='__other__'){
+          gebietRegionOtherInput.style.display = '';
+          gebietRegionOtherInput.focus();
+          gebietRegionHidden.value = gebietRegionOtherInput.value;
+          if(gebietSubregionField){ gebietSubregionField.style.display = 'none'; gebietSubregionHidden.value = ''; }
+        }else{
+          gebietRegionOtherInput.style.display = 'none';
+          gebietRegionHidden.value = region;
+          if(gebietSubregionField && gebietSubregionChipsWrap){
+            const subs = REGION_SUBAREAS[region] || [];
+            if(subs.length){
+              gebietSubregionChipsWrap.innerHTML = renderSubregionChipsHtml(region, '');
+              gebietSubregionHidden.value = '';
+              gebietSubregionField.style.display = '';
+            }else{
+              gebietSubregionField.style.display = 'none';
+              gebietSubregionHidden.value = '';
+            }
+          }
+        }
+      });
+    });
+    if(gebietRegionOtherInput) gebietRegionOtherInput.addEventListener('input', ()=>{ gebietRegionHidden.value = gebietRegionOtherInput.value; });
+    if(gebietSubregionChipsWrap){
+      gebietSubregionChipsWrap.addEventListener('click', (e)=>{
+        const btn = e.target.closest('.subregion-chip');
+        if(!btn) return;
+        const wasOn = btn.classList.contains('on');
+        gebietSubregionChipsWrap.querySelectorAll('.subregion-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+        if(wasOn){ gebietSubregionHidden.value = ''; return; }
+        btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
+        gebietSubregionHidden.value = btn.getAttribute('data-subregion');
+      });
+    }
+  }
+
   // Dezente Löschen-Funktion mit zweistufiger Bestätigung (Tour & Hütte)
   function wireDeleteConfirm(prefix, removeFn, message){
     const trigger = document.getElementById(`delete-${prefix}-trigger`);
@@ -3089,6 +3531,7 @@ function wireModalHandlers(){
   // werden weiterhin sofort und endgültig entfernt (rein persönliche Planung, kein geteilter Inhalt).
   wireDeleteConfirm('tour', removeTour, `Tour in den Papierkorb verschoben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar).`);
   wireDeleteConfirm('hut', removeHut, `Hütte in den Papierkorb verschoben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar).`);
+  wireDeleteConfirm('gebiet', removeGebiet, `Gebiet in den Papierkorb verschoben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar).`);
   wireDeleteConfirm('agenda', removeAgendaItem, 'Termin gelöscht.');
 
   root.querySelectorAll('[data-act="edit-tour"]').forEach(el=> el.onclick = ()=>openEditTour(el.getAttribute('data-id')));
