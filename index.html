@@ -558,7 +558,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v202-skigebiete';
+const APP_VERSION = 'v203-filter-panel-fix';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -614,6 +614,11 @@ let state = {
   otherAppTours: [], // Touren der jeweils anderen App, für die Termin-Auswahl
   myName: null,
   search: '',
+  // Bewusst getrennt von den aktiven Filtern selbst (activeFilterCount) — sonst schliesst sich das
+  // Filter-Panel automatisch, sobald man den letzten aktiven Filter abwählt, obwohl man es offen
+  // lassen wollte um gleich einen anderen Filter zu wählen.
+  tourFilterPanelOpen: false,
+  hutFilterPanelOpen: false,
   activeDiffFilters: new Set(),
   activeRegionFilters: new Set(),
   activeApproachTypeFilters: new Set(),
@@ -1384,7 +1389,7 @@ function tourenViewHtml(){
       <button type="button" class="btn secondary" id="tour-filter-toggle-btn">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
       <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">⭐ Nur Merkliste</button>
     </div>
-    <div id="tour-filter-panel" style="display:${activeFilterCount ? '' : 'none'}; margin-bottom:14px;">
+    <div id="tour-filter-panel" style="display:${state.tourFilterPanelOpen ? '' : 'none'}; margin-bottom:14px;">
       <div class="field"><label>Schwierigkeit</label>
         <div class="chips">
           ${DIFF_ORDER.map(c=>`<button class="chip ${state.activeDiffFilters.has(c)?'on':''}" style="${state.activeDiffFilters.has(c)?`background:${DIFF[c].color}`:''}" title="${esc(DIFF[c].desc)}" data-act="filter-diff" data-code="${c}"><span class="dot" style="background:${state.activeDiffFilters.has(c)?'#fff':DIFF[c].color}"></span>${c}</button>`).join('')}
@@ -1510,7 +1515,7 @@ function huettenViewHtml(){
       ${sortControlHtml('hut', HUT_SORT_OPTIONS, state.hutSortBy, state.hutSortDir)}
     </div>
     <button type="button" class="btn secondary" id="hut-filter-toggle-btn" style="margin-bottom:10px;">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
-    <div id="hut-filter-panel" style="display:${activeFilterCount ? '' : 'none'}; margin-bottom:14px;">
+    <div id="hut-filter-panel" style="display:${state.hutFilterPanelOpen ? '' : 'none'}; margin-bottom:14px;">
       ${usedHutRegions.length ? `<div class="field"><label>Region</label>
         <div class="chips">
           ${usedHutRegions.map(r=>`<button class="chip ${state.activeHutRegionFilters.has(r)?'on':''}" style="${state.activeHutRegionFilters.has(r)?'background:var(--ice-deep)':''}" data-act="filter-hut-region" data-region="${esc(r)}">${esc(r)}</button>`).join('')}
@@ -2631,15 +2636,17 @@ function wireGlobalHandlers(){
   const tourFilterToggleBtn = app.querySelector('#tour-filter-toggle-btn');
   if(tourFilterToggleBtn){
     tourFilterToggleBtn.addEventListener('click', ()=>{
+      state.tourFilterPanelOpen = !state.tourFilterPanelOpen;
       const panel = app.querySelector('#tour-filter-panel');
-      if(panel) panel.style.display = (panel.style.display==='none') ? '' : 'none';
+      if(panel) panel.style.display = state.tourFilterPanelOpen ? '' : 'none';
     });
   }
   const hutFilterToggleBtn = app.querySelector('#hut-filter-toggle-btn');
   if(hutFilterToggleBtn){
     hutFilterToggleBtn.addEventListener('click', ()=>{
+      state.hutFilterPanelOpen = !state.hutFilterPanelOpen;
       const panel = app.querySelector('#hut-filter-panel');
-      if(panel) panel.style.display = (panel.style.display==='none') ? '' : 'none';
+      if(panel) panel.style.display = state.hutFilterPanelOpen ? '' : 'none';
     });
   }
   app.querySelectorAll('.agenda-status-select').forEach(sel=>{
