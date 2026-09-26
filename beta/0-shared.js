@@ -1,0 +1,8944 @@
+/* ================================================================
+   shared.js — gemeinsamer Code für Firnspur (Skitour) & Fixseil
+   (Hochtour/MSL). Wird von beiden Apps eingebunden, damit Agenda,
+   Sortierung, Regionen und Basis-Hilfsfunktionen nur an einer
+   Stelle gepflegt werden müssen.
+   ================================================================= */
+
+/* ================= Debug-Log ================= */
+let debugLog = [];
+let debugPanelOpen = false;
+function dlog(message, kind){
+  const entry = {t: new Date().toLocaleTimeString('de-CH'), message, kind: kind||'info'};
+  debugLog.push(entry);
+  if(debugLog.length > 60) debugLog.shift();
+  if(kind==='err') console.error(message); else console.log(message);
+  if(debugPanelOpen) renderDebugPanel();
+}
+function toggleDebugPanel(){
+  debugPanelOpen = !debugPanelOpen;
+  renderDebugPanel();
+}
+function renderDebugPanel(){
+  const root = document.getElementById('debug-panel-root');
+  if(!debugPanelOpen){ root.innerHTML = ''; return; }
+  const rows = debugLog.slice().reverse().map(e=>
+    `<div class="row ${e.kind==='err'?'err':(e.kind==='ok'?'ok':'')}">[${e.t}] ${esc(e.message)}</div>`
+  ).join('') || '<div class="row">Noch keine Einträge.</div>';
+  root.innerHTML = `<div class="debug-panel">
+    <div class="head"><strong>Diagnose-Log</strong><button onclick="debugLog=[];renderDebugPanel();">leeren</button></div>
+    ${rows}
+  </div>`;
+}
+
+/* ================= Firebase ================= */
+const FIREBASE_URL = 'https://firnspur-default-rtdb.europe-west1.firebasedatabase.app';
+const STORAGE_BUCKET = 'firnspur.firebasestorage.app'; // Cloud Storage, appübergreifend geteilt
+// Foto-Scan für Kletterrouten: URL der Cloud Function, siehe functions/README.md.
+// Leer = noch nicht deployt — der "Foto scannen"-Knopf zeigt dann nur eine Fehlermeldung,
+// der Rest der App bleibt davon komplett unberührt. Bewusst "var" (statt "const"), damit
+// Tests sie über window.SCAN_KLETTERROUTEN_URL überschreiben können.
+var SCAN_KLETTERROUTEN_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanKletterrouten';
+// Wie SCAN_KLETTERROUTEN_URL, aber für ein Foto mit MEHREREN Sektoren gleichzeitig (z. B.
+// eine ganze Führerbuch-Seite mit Sektor A–G) — siehe functions/README.md.
+var SCAN_KLETTERGEBIET_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanKlettergebiet';
+// Foto-Scan für einen einzelnen Zustieg/Abstieg (Hütte, Tour oder Sektor — gleiche
+// Feldstruktur überall) — siehe functions/README.md.
+var SCAN_ZUSTIEG_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanZustieg';
+async function fbGet(path){
+  try{
+    await ensureValidAuthToken();
+    const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
+    const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam);
+    if(!res.ok){ dlog('Firebase GET fehlgeschlagen ('+res.status+'): '+path, 'err'); return null; }
+    const data = await res.json();
+    return data;
+  }catch(e){
+    dlog('Firebase GET Fehler für "'+path+'": '+(e && e.message ? e.message : e), 'err');
+    return null;
+  }
+}
+async function fbSet(path, value){
+  try{
+    await ensureValidAuthToken();
+    const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
+    const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam, {
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(value)
+    });
+    if(!res.ok){ dlog('Firebase PUT fehlgeschlagen ('+res.status+'): '+path, 'err'); return false; }
+    return true;
+  }catch(e){
+    dlog('Firebase PUT Fehler für "'+path+'": '+(e && e.message ? e.message : e), 'err');
+    return false;
+  }
+}
+async function fbDelete(path){
+  try{
+    await ensureValidAuthToken();
+    const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
+    const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam, {method:'DELETE'});
+    if(!res.ok){ dlog('Firebase DELETE fehlgeschlagen ('+res.status+'): '+path, 'err'); return false; }
+    return true;
+  }catch(e){
+    dlog('Firebase DELETE Fehler für "'+path+'": '+(e && e.message ? e.message : e), 'err');
+    return false;
+  }
+}
+
+/* ================= Namen-Schutz & persönliche Merkliste =================
+   Kein echtes Login — das gemeinsame App-Passwort (signInWithPassword) regelt bereits den
+   Zugriff auf die Daten insgesamt. Das hier verhindert nur Verwechslungen: wer einen Namen
+   zum ersten Mal einträgt, vergibt ein frei wählbares Passwort dafür; will jemand denselben
+   Namen später wieder benutzen (anderes Gerät, versehentlich derselbe Name), muss das
+   Passwort übereinstimmen. Gespeichert wird nur ein Hash, kein Klartext. */
+async function sha256Hex(text){
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function sanitizeNameKey(name){
+  return (name||'').trim().toLowerCase().replace(/[.#$\[\]\/]/g, '_');
+}
+async function claimOrVerifyName(name, pin){
+  const key = sanitizeNameKey(name);
+  if(!key) return {ok:false, reason:'empty-name'};
+  let existing, fetchFailed = false;
+  try{
+    await ensureValidAuthToken();
+    const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
+    const res = await fetch(FIREBASE_URL + '/' + USERS_PATH + '/' + key + '.json' + authParam);
+    if(!res.ok){ fetchFailed = true; }
+    else{ existing = await res.json(); }
+  }catch(e){ fetchFailed = true; }
+  if(fetchFailed){
+    // Offline/Fehler: nicht aussperren, aber auch keinen neuen Eintrag anlegen — sonst könnte
+    // später beim Synchronisieren versehentlich ein bestehendes Passwort überschrieben werden.
+    return {ok:true, unverified:true};
+  }
+  if(!existing){
+    if(!pin) return {ok:false, reason:'need-pin'};
+    const pinHash = await sha256Hex(pin);
+    fbSet(USERS_PATH + '/' + key, {name: name.trim(), pinHash, createdAt: new Date().toISOString()}).catch(()=>{});
+    return {ok:true};
+  }
+  if(!existing.pinHash) return {ok:true}; // Alter Eintrag von vor diesem Feature — nicht aussperren
+  const pinHash = await sha256Hex(pin||'');
+  if(pinHash === existing.pinHash) return {ok:true};
+  return {ok:false, reason:'wrong-pin'};
+}
+// Persönliche Merkliste (★) — pro Namen in der Cloud gespeichert, damit sie geräteübergreifend
+// erhalten bleibt, aber beim Anzeigen nur die eigenen markierten Einträge gezeigt werden.
+async function loadFavorites(){
+  if(!state.myName){ state.favorites = new Set(); return; }
+  const key = sanitizeNameKey(state.myName);
+  const obj = await fbGet(USERS_PATH + '/' + key + '/favorites').catch(()=>null);
+  state.favorites = new Set(obj ? Object.keys(obj) : []);
+  render();
+}
+function isFavorite(id){ return !!(state.favorites && state.favorites.has(id)); }
+async function toggleFavorite(id){
+  if(!state.myName){ ensureName(()=>toggleFavorite(id)); return; }
+  const key = sanitizeNameKey(state.myName);
+  const already = isFavorite(id);
+  if(already) state.favorites.delete(id); else state.favorites.add(id);
+  render();
+  if(already) await fbDelete(USERS_PATH + '/' + key + '/favorites/' + id).catch(()=>{});
+  else await fbSet(USERS_PATH + '/' + key + '/favorites/' + id, true).catch(()=>{});
+}
+function favoriteToggleButtonHtml(id){
+  const on = isFavorite(id);
+  return `<button type="button" class="fav-toggle-btn ${on ? 'on' : ''}" data-act="toggle-favorite" data-id="${esc(id)}" title="${on ? 'Von Merkliste entfernen' : 'Zur Merkliste hinzufügen'}" aria-label="${on ? 'Von Merkliste entfernen' : 'Zur Merkliste hinzufügen'}" aria-pressed="${on ? 'true' : 'false'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${FS_ICON_PATHS.star}"/></svg></button>`;
+}
+
+/* ================= Basis-Hilfsfunktionen ================= */
+function uid(prefix){ return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8); }
+function dedupeById(arr){
+  const map = new Map();
+  arr.forEach(x=>{ if(x && x.id) map.set(x.id, x); });
+  return Array.from(map.values());
+}
+
+/* ================= Papierkorb (Soft-Delete) ================= */
+// Gelöschte Touren/Hütten/Sektoren/Klettergebiete/Gipfel werden nicht sofort und endgültig aus
+// Firebase entfernt, sondern nur markiert (deletedAt/deletedBy) und aus der aktiven state.xyz-
+// Liste in eine separate state.trashedXyz-Liste verschoben. Die App lebt von den über die Zeit
+// gesammelten Touren aller Nutzer:innen — ein Fehlklick soll niemanden endgültig etwas kosten.
+// Nach TRASH_RETENTION_DAYS werden Einträge beim nächsten App-Start automatisch endgültig entfernt
+// (siehe purgeExpiredTrash, aufgerufen aus loadAll() in index.html/fixseil.html).
+const TRASH_RETENTION_DAYS = 30;
+
+// Teilt eine frisch aus Firebase geladene Sammlung (das Objekt aus fbGet(), noch nicht
+// Object.values()'t) in {active, trashed} -- an jeder Ladestelle statt eines rohen
+// Object.values(...).filter(x=>x&&x.id) verwenden.
+function splitTrash(rawObj){
+  const all = (rawObj ? Object.values(rawObj) : []).filter(x=>x && x.id);
+  return { active: all.filter(x=>!x.deletedAt), trashed: all.filter(x=>x.deletedAt) };
+}
+// Verschiebt ein Objekt von der aktiven Liste in die Papierkorb-Liste (beide Arrays werden
+// in-place mutiert, wie es die bestehenden removeXyz()-Funktionen erwarten) und speichert es mit
+// deletedAt/deletedBy zurück in Firebase -- der Eintrag bleibt dort vollständig erhalten, nur die
+// App zeigt ihn nicht mehr in normalen Listen. Gibt das verschobene Objekt zurück (oder null),
+// damit Aufrufer z. B. weiterhin darauf verweisende Einträge entlinken können.
+function moveToTrash(id, activeList, trashedList, saveFn){
+  const idx = activeList.findIndex(x=>x.id===id);
+  if(idx<0) return null;
+  const item = activeList[idx];
+  activeList.splice(idx, 1);
+  item.deletedAt = new Date().toISOString();
+  item.deletedBy = state.myName;
+  trashedList.unshift(item);
+  saveFn(item).catch(()=>{ item._unsynced = true; });
+  return item;
+}
+function restoreFromTrash(id, activeList, trashedList, saveFn){
+  const idx = trashedList.findIndex(x=>x.id===id);
+  if(idx<0) return null;
+  const item = trashedList[idx];
+  trashedList.splice(idx, 1);
+  delete item.deletedAt;
+  delete item.deletedBy;
+  activeList.unshift(item);
+  saveFn(item).catch(()=>{ item._unsynced = true; });
+  return item;
+}
+// Endgültig löschen -- auf Wunsch aus dem Papierkorb heraus, oder automatisch nach Ablauf der
+// Aufbewahrungsfrist (siehe purgeExpiredTrash).
+function purgeFromTrash(id, trashedList, path){
+  const idx = trashedList.findIndex(x=>x.id===id);
+  if(idx<0) return;
+  trashedList.splice(idx, 1);
+  fbDelete(path+'/'+id).catch(()=>{});
+}
+function isTrashExpired(item){
+  if(!item || !item.deletedAt) return false;
+  return (Date.now() - new Date(item.deletedAt).getTime()) > TRASH_RETENTION_DAYS*24*60*60*1000;
+}
+function purgeExpiredTrash(trashedList, path){
+  trashedList.filter(isTrashExpired).forEach(item=> purgeFromTrash(item.id, trashedList, path));
+}
+function trashCountTotal(groups){ return groups.reduce((n,g)=> n + g.trashedList.length, 0); }
+// groups: [{kind, icon, label, trashedList}] -- ein Eintrag pro Entitätstyp der jeweiligen App.
+function papierkorbViewHtml(groups){
+  const total = trashCountTotal(groups);
+  return `
+    <div class="hero-top" style="margin-bottom:14px;"><h1 style="font-size:20px;">🗑️ Papierkorb</h1></div>
+    <p style="font-size:13px; color:var(--ink-soft); margin:0 0 16px 0;">Gelöschte Einträge bleiben ${TRASH_RETENTION_DAYS} Tage lang hier und lassen sich wiederherstellen — danach werden sie automatisch endgültig entfernt.</p>
+    ${!total ? `<div class="empty"><h3>Papierkorb ist leer</h3><p>Gelöschte Einträge erscheinen hier.</p></div>` : groups.filter(g=>g.trashedList.length).map(g=>`
+      <h4 style="margin:18px 0 8px;">${g.icon} ${esc(g.label)} (${g.trashedList.length})</h4>
+      <div class="grid">${g.trashedList.map(item=>trashItemCardHtml(item, g.kind)).join('')}</div>
+    `).join('')}
+  `;
+}
+function trashItemCardHtml(item, kind){
+  return `<div class="card">
+    <div class="card-top"><h3 style="color:var(--ink-soft);">${esc(item.name||'(ohne Namen)')}</h3></div>
+    <p class="excerpt">Gelöscht von ${esc(item.deletedBy||'?')} · ${fmtDate(item.deletedAt)}</p>
+    <div class="form-actions" style="margin-top:10px;">
+      <button type="button" class="btn secondary" data-act="restore-trash-item" data-kind="${esc(kind)}" data-id="${esc(item.id)}">↺ Wiederherstellen</button>
+      <button type="button" class="btn danger" data-act="purge-trash-item" data-kind="${esc(kind)}" data-id="${esc(item.id)}">Endgültig löschen</button>
+    </div>
+  </div>`;
+}
+function esc(s){
+  if(s===undefined||s===null) return '';
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+// Liefert die repräsentative Koordinate einer Tour für den Kartenstreifen: bevorzugt einen manuell
+// gesetzten Kartenpunkt, fällt sonst auf den Startpunkt eines GPS-/GPX-Tracks zurück -- so
+// erscheinen auch Touren, die nur per Live-GPS-Aufzeichnung oder GPX-Upload einen Streckenverlauf
+// haben (trackSimplified/manualTrack), aber (noch) keinen eigenen Punkt gesetzt bekamen.
+function tourMapPoint(t){
+  if(t.points && t.points.length) return {lat: t.points[0].lat, lon: t.points[0].lon};
+  if(t.trackSimplified && t.trackSimplified.length) return {lat: t.trackSimplified[0][0], lon: t.trackSimplified[0][1]};
+  if(t.manualTrack && t.manualTrack.length) return {lat: t.manualTrack[0][0], lon: t.manualTrack[0][1]};
+  return null;
+}
+// Kartenstreifen über Touren-/Gebiets-Listen: bewusst KEIN Leaflet, keine Kacheln, sondern eine
+// einmal offline vereinfachte/projizierte CH-Silhouette (Kantonsgrenzen, 20 Seen, Relief-Hillshade
+// aus DHM200 — siehe 0-geo-ch.js) fest in die App eingebettet. Punkte werden über dieselbe
+// Projektion wie die Silhouette platziert (echte, konstante Lage zueinander statt Min/Max-
+// Streckung auf die jeweils aktuelle Liste), dadurch bleiben nahe Gebiete/Touren bei kleinem
+// Massstab zu einem Sammel-Pin zusammengefasst und lassen sich per Pinch/Doppeltipp wieder
+// auftrennen. Dadurch entsteht beim Öffnen einer Liste weiterhin kein zusätzlicher Netzwerk-
+// Traffic — Kartendaten sind Teil des App-Shells (Service-Worker-Precache), es werden nur die
+// ohnehin schon geladenen .points der jeweiligen Tour/Klettergebiete verwendet.
+const MAP_STRIP_ZOOM_MIN = 1;
+const MAP_STRIP_ZOOM_MAX = 12;
+const MAP_STRIP_ZOOM_STEP = 2.4;
+// Abstand (in % der Kartenstreifen-Fläche) unter dem zwei Punkte bei Zoom 1x zu einem Sammel-Pin
+// zusammengefasst werden — schrumpft mit dem Zoom, damit Reinzoomen nahe Punkte wieder trennt.
+// 5.0% entspricht bei Zoom 1x (ganze Schweiz) ca. 19 km (in dieser Grössenordnung überlappen sich
+// die Pins sowieso schon rein optisch), bei ZOOM_MAX 1x/12 davon ca. 1.6 km -- reicht, um auch nah
+// beieinander liegende, aber klar unterschiedliche Gebiete/Touren (Beispiel aus dem Vorschlag:
+// zwei ca. 2 km entfernte Gipfel) beim Reinzoomen wieder zu trennen.
+const MAP_STRIP_CLUSTER_BASE_PCT = 5.0;
+
+function mapStripPositions(points){
+  const valid = points.filter(p=> p && typeof p.lat==='number' && typeof p.lon==='number');
+  if(!valid.length) return [];
+  return valid.map(p=>{
+    const proj = projectLatLon(p.lat, p.lon);
+    return {
+      ...p,
+      xPct: Math.max(1, Math.min(99, proj.x / GEO_CH_VIEWBOX.w * 100)),
+      yPct: Math.max(1, Math.min(99, proj.y / GEO_CH_VIEWBOX.h * 100))
+    };
+  });
+}
+// Fasst Punkte zusammen, die beim aktuellen Zoom näher als der Schwellwert liegen. Greedy statt
+// optimal (erster nicht zugeordneter Punkt "zieht" alle in Reichweite mit) — für die paar Dutzend
+// Punkte einer Liste reicht das, ein Sammel-Pin trägt seine Mitglieder für Popup/Rein-Zoomen mit.
+function mapStripClusterPoints(positioned, zoom){
+  const threshold = MAP_STRIP_CLUSTER_BASE_PCT / Math.max(MAP_STRIP_ZOOM_MIN, zoom);
+  const remaining = positioned.slice();
+  const out = [];
+  while(remaining.length){
+    const seed = remaining.shift();
+    const group = [seed];
+    for(let i=remaining.length-1; i>=0; i--){
+      const d = Math.hypot(remaining[i].xPct-seed.xPct, remaining[i].yPct-seed.yPct);
+      if(d <= threshold){ group.push(remaining[i]); remaining.splice(i,1); }
+    }
+    if(group.length>1){
+      out.push({
+        isCluster: true,
+        id: 'cluster-'+group.map(p=>p.id).join('-'),
+        xPct: group.reduce((s,p)=>s+p.xPct,0)/group.length,
+        yPct: group.reduce((s,p)=>s+p.yPct,0)/group.length,
+        points: group
+      });
+    }else{
+      out.push(group[0]);
+    }
+  }
+  return out;
+}
+// Hintergrund-SVG (Relief + Seen + Kantonsgrenzen) ist unabhängig von der jeweiligen Liste immer
+// gleich — einmal pro Farb-Thema (Firnspur/Fixseil, siehe GEO_CH_HILLSHADE) bauen und cachen statt
+// bei jedem render() die ~30 KB Pfad-Strings neu zusammenzusetzen.
+let _mapStripBgSvgCache = {};
+function mapStripBackgroundSvg(){
+  const isFixseilApp = typeof SEKTOREN_PATH !== 'undefined';
+  const key = isFixseilApp ? 'fixseil' : 'firnspur';
+  if(_mapStripBgSvgCache[key]) return _mapStripBgSvgCache[key];
+  const vb = GEO_CH_VIEWBOX, hs = GEO_CH_HILLSHADE;
+  const cantonPaths = Object.values(GEO_CH_CANTON_PATHS).map(d=>`<path d="${d}"/>`).join('');
+  const lakePaths = Object.values(GEO_CH_LAKE_PATHS).map(d=>`<path d="${d}"/>`).join('');
+  // Neuer Look: Relief nur innerhalb der Landesgrenze (clipPath aus den Kantonsflächen) statt als
+  // Rechteck mit ausgefransten Kachel-Rändern, darunter eine helle Landfläche mit weichem Schatten.
+  const clipId = 'ch-clip-' + key;
+  const svg = `<svg class="map-strip-bg" viewBox="0 0 ${vb.w} ${vb.h}" preserveAspectRatio="xMidYMid meet">
+    <defs><clipPath id="${clipId}">${cantonPaths}</clipPath></defs>
+    <g class="map-strip-land">${cantonPaths}</g>
+    <image class="map-strip-relief" href="${'../' + hs.srcFirnspur}" x="${hs.x}" y="${hs.y}" width="${hs.w}" height="${hs.h}" preserveAspectRatio="none" clip-path="url(#${clipId})"></image>
+    <g class="map-strip-lakes">${lakePaths}</g>
+    <g class="map-strip-cantons">${cantonPaths}</g>
+  </svg>`;
+  _mapStripBgSvgCache[key] = svg;
+  return svg;
+}
+function mapStripGetView(kind){
+  return (state._mapStripView && state._mapStripView[kind]) || {zoom: MAP_STRIP_ZOOM_MIN, panX:0, panY:0};
+}
+function mapStripSetView(kind, view){
+  if(!state._mapStripView) state._mapStripView = {};
+  state._mapStripView[kind] = view;
+}
+// transform-origin ist bewusst 0/0 (siehe Inline-Style unten) -- Panning/Zoomen bleibt dadurch
+// eine einfache translate-vor-Skalierung-Rechnung ohne Offset-Korrektur um die Mitte.
+function mapStripClampView(view, containerW, containerH){
+  view.zoom = Math.max(MAP_STRIP_ZOOM_MIN, Math.min(MAP_STRIP_ZOOM_MAX, view.zoom));
+  const minPanX = containerW - containerW*view.zoom, minPanY = containerH - containerH*view.zoom;
+  view.panX = Math.max(minPanX, Math.min(0, view.panX));
+  view.panY = Math.max(minPanY, Math.min(0, view.panY));
+  return view;
+}
+function mapStripApplyLiveTransform(wrap, view){
+  wrap.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
+}
+function mapStripZoomToPoint(kind, canvasEl, xPct, yPct){
+  const view = mapStripGetView(kind);
+  const rect = canvasEl.getBoundingClientRect();
+  // Zoom VOR der Pan-Berechnung clampen -- sonst wird panX/panY passend zum unbegrenzten Zoom
+  // zentriert und danach nur noch der Zoom selbst gekappt, wodurch das Zentrieren nicht mehr zum
+  // tatsächlichen (gekappten) Zoom passt und der Punkt aus dem sichtbaren Bereich wandern kann.
+  const nextZoom = Math.max(MAP_STRIP_ZOOM_MIN, Math.min(MAP_STRIP_ZOOM_MAX, view.zoom * MAP_STRIP_ZOOM_STEP));
+  const px = xPct/100*rect.width, py = yPct/100*rect.height;
+  const newView = mapStripClampView({ zoom: nextZoom, panX: rect.width/2 - px*nextZoom, panY: rect.height/2 - py*nextZoom }, rect.width, rect.height);
+  mapStripSetView(kind, newView);
+}
+function mapStripResetView(kind){
+  mapStripSetView(kind, {zoom: MAP_STRIP_ZOOM_MIN, panX:0, panY:0});
+}
+// Schliesst ein offenes Pin- oder Sammel-Pin-Popup (z.B. weil woanders auf die Karte getippt
+// wurde) -- gibt zurück, ob überhaupt etwas offen war, damit Aufrufer nur bei Änderung neu rendern.
+function mapStripCloseOpenPopups(){
+  let changed = false;
+  if(state._mapStripOpenPinId){ state._mapStripOpenPinId = null; changed = true; }
+  if(state._mapStripOpenClusterId){ state._mapStripOpenClusterId = null; changed = true; }
+  return changed;
+}
+// opts: {label, kind:'tour'|'klettergebiet', points:[{id,lat,lon,label}], emptyText, openPinId}
+// Neuer Look (Schritt 2): Karte als "Bühne" oben, die Liste liegt als Blatt darüber und schiebt
+// sich beim Scrollen über die Karte (siehe .fs-stage/.fs-sheet in look.css) — die Übersichtskarte
+// ist damit immer sichtbar statt erst nach einem Klick.
+function stageLayoutHtml(mapHtml, sheetHtml){
+  return `<div class="fs-stage">${mapHtml}</div><div class="fs-sheet">${sheetHtml}</div>`;
+}
+function mapStripHtml(opts){
+  const { label, kind, points, emptyText, openPinId } = opts;
+  const positioned = mapStripPositions(points || []);
+  const view = mapStripGetView(kind);
+  const clusters = mapStripClusterPoints(positioned, view.zoom);
+  const openAct = kind==='klettergebiet' ? 'open-klettergebiet' : kind==='hut' ? 'open-hut' : kind==='gebiet' ? 'open-gebiet' : 'open-tour';
+  const linkLabel = (kind==='klettergebiet' || kind==='gebiet') ? 'Zum Gebiet' : kind==='hut' ? 'Zur Hütte' : 'Zur Tour';
+  const openClusterId = state._mapStripOpenClusterId;
+  const pinScale = 1 / view.zoom;
+  return `
+    <div class="map-strip">
+      <div class="map-strip-head">
+        <span class="map-strip-label">🗺️ ${esc(label)}</span>
+        <span class="map-strip-head-actions">
+          ${view.zoom > MAP_STRIP_ZOOM_MIN + 0.01 ? `<button type="button" class="map-strip-hint" data-act="map-strip-reset" data-kind="${kind}">↺ Ganze Schweiz</button>` : ''}
+          <button type="button" class="map-strip-hint" data-act="open-standalone-map">⛶ Grosse Karte</button>
+        </span>
+      </div>
+      <div class="map-strip-canvas" data-kind="${kind}">
+        <div class="map-strip-zoomwrap" style="transform: translate(${view.panX}px, ${view.panY}px) scale(${view.zoom}); transform-origin: 0 0;">
+          ${mapStripBackgroundSvg()}
+          ${clusters.map(c=>{
+            if(c.isCluster){
+              const open = openClusterId===c.id;
+              // Statt einer nichtssagenden Zahl im Kreis: Name des ersten Punkts + Anzahl weiterer
+              // -- gibt wenigstens etwas Orientierung, welche Gegend der Sammel-Pin überhaupt meint.
+              const clusterLabel = c.points[0].label + (c.points.length>1 ? ` +${c.points.length-1}` : '');
+              return `
+                <div class="map-strip-pin map-strip-cluster ${open ? 'open' : ''}" style="left:${c.xPct}%; top:${c.yPct}%; transform:translate(-50%,-50%) scale(${pinScale});">
+                  <button type="button" class="map-strip-dot map-strip-cluster-dot" data-act="map-strip-cluster" data-kind="${kind}" data-id="${esc(c.id)}" data-cx="${c.xPct}" data-cy="${c.yPct}" title="${c.points.length} Ziele hier"></button>
+                  ${open ? `
+                    <div class="map-strip-popup map-strip-popup-list">
+                      ${c.points.map(p=>`<button type="button" data-act="${openAct}" data-id="${esc(p.id)}">${esc(p.label)}</button>`).join('')}
+                    </div>
+                  ` : `<div class="map-strip-nlabel">${esc(clusterLabel)}</div>`}
+                </div>`;
+            }
+            const p = c;
+            return `
+              <div class="map-strip-pin ${openPinId===p.id ? 'open' : ''}" style="left:${p.xPct}%; top:${p.yPct}%; transform:translate(-50%,-50%) scale(${pinScale});">
+                <button type="button" class="map-strip-dot" data-act="map-strip-toggle" data-id="${esc(p.id)}" title="${esc(p.label)}" aria-label="${esc(p.label)}"></button>
+                ${openPinId===p.id ? `
+                  <div class="map-strip-popup">
+                    <strong>${esc(p.label)}</strong>
+                    <button type="button" data-act="${openAct}" data-id="${esc(p.id)}">${linkLabel} →</button>
+                  </div>
+                ` : `<div class="map-strip-nlabel">${esc(p.label)}</div>`}
+              </div>`;
+          }).join('')}
+        </div>
+        <div class="map-strip-compass"><div class="n"></div>N</div>
+        ${!positioned.length ? `<div class="map-strip-empty">${esc(emptyText || '')}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+// Nach jedem render()/renderListOnly() aufrufen (siehe wireGlobalHandlers in index.html/fixseil.html):
+// verdrahtet Pinch-Zoom, Verschieben (Finger + Maus zum Testen) und Doppeltipp/-klick live direkt
+// auf dem DOM-Knoten, OHNE während der Geste render() aufzurufen (das würde die Geste durch das
+// Neuaufbauen des ganzen Kartenstreifens abreissen) — erst am Gesten-Ende wird der Zustand in
+// state._mapStripView committet und einmalig neu gerendert, damit die Cluster-Bildung zum neuen
+// Zoom passt.
+function wireMapStripCanvases(){
+  document.querySelectorAll('.map-strip-canvas').forEach(canvasEl=>{
+    const kind = canvasEl.getAttribute('data-kind');
+    const wrap = canvasEl.querySelector('.map-strip-zoomwrap');
+    if(!wrap || !kind) return;
+    let view = mapStripGetView(kind);
+    let pinchStartDist = null, pinchStartZoom = 1, pinchWorldX = 0, pinchWorldY = 0;
+    let panStartX = null, panStartY = null, panOriginX = 0, panOriginY = 0;
+    let gestureMoved = false;
+    let lastTapTime = 0, lastTapX = 0, lastTapY = 0;
+    // Bei der Standardansicht (ganze Schweiz, nicht reingezoomt) gibt es nichts zu verschieben --
+    // ein Einzelfinger-Wisch soll dann ganz normal die Seite runterscrollen, statt (wirkungslos)
+    // als Kartenverschieben abgefangen zu werden. Erst gezoomt macht Ein-Finger-Pan Sinn, dann
+    // braucht die Karte die Geste exklusiv fuer sich (siehe touch-action unten).
+    function updateTouchAction(){ canvasEl.style.touchAction = view.zoom > MAP_STRIP_ZOOM_MIN + 0.01 ? 'none' : 'pan-y'; }
+    updateTouchAction();
+
+    function touchDist(t){ return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
+    function commit(){
+      const rect = canvasEl.getBoundingClientRect();
+      mapStripClampView(view, rect.width, rect.height);
+      mapStripSetView(kind, view);
+      render();
+    }
+    function maybeDoubleTap(clientX, clientY){
+      const now = Date.now();
+      const isDoubleTap = (now - lastTapTime < 350) && Math.hypot(clientX-lastTapX, clientY-lastTapY) < 30;
+      lastTapTime = isDoubleTap ? 0 : now; lastTapX = clientX; lastTapY = clientY;
+      if(!isDoubleTap){
+        // Einfacher Tipp auf die Karte (nicht auf einen Pin) -- ein offenes Popup soll dabei
+        // wieder einklappen, genau wie ein zweiter Klick auf denselben Pin.
+        if(mapStripCloseOpenPopups()) render();
+        return;
+      }
+      const rect = canvasEl.getBoundingClientRect();
+      if(view.zoom > MAP_STRIP_ZOOM_MIN + 0.01){ mapStripResetView(kind); }
+      else{ mapStripZoomToPoint(kind, canvasEl, (clientX-rect.left)/rect.width*100, (clientY-rect.top)/rect.height*100); }
+      render();
+    }
+
+    canvasEl.addEventListener('touchstart', (e)=>{
+      gestureMoved = false;
+      if(e.touches.length===2){
+        panStartX = null;
+        pinchStartDist = touchDist(e.touches);
+        pinchStartZoom = view.zoom;
+        const rect = canvasEl.getBoundingClientRect();
+        const midX = (e.touches[0].clientX+e.touches[1].clientX)/2 - rect.left;
+        const midY = (e.touches[0].clientY+e.touches[1].clientY)/2 - rect.top;
+        pinchWorldX = (midX - view.panX)/view.zoom;
+        pinchWorldY = (midY - view.panY)/view.zoom;
+      }else if(e.touches.length===1){
+        pinchStartDist = null;
+        panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY;
+        panOriginX = view.panX; panOriginY = view.panY;
+      }
+    }, {passive:true});
+
+    canvasEl.addEventListener('touchmove', (e)=>{
+      if(e.touches.length===2 && pinchStartDist){
+        e.preventDefault(); gestureMoved = true;
+        const rect = canvasEl.getBoundingClientRect();
+        const newDist = touchDist(e.touches);
+        const newZoom = Math.max(MAP_STRIP_ZOOM_MIN, Math.min(MAP_STRIP_ZOOM_MAX, pinchStartZoom * (newDist/pinchStartDist)));
+        const midX = (e.touches[0].clientX+e.touches[1].clientX)/2 - rect.left;
+        const midY = (e.touches[0].clientY+e.touches[1].clientY)/2 - rect.top;
+        view = mapStripClampView({ zoom: newZoom, panX: midX - pinchWorldX*newZoom, panY: midY - pinchWorldY*newZoom }, rect.width, rect.height);
+        mapStripApplyLiveTransform(wrap, view);
+      }else if(e.touches.length===1 && panStartX!==null){
+        if(view.zoom <= MAP_STRIP_ZOOM_MIN + 0.01) return; // nicht gezoomt -> Seite normal scrollen lassen
+        e.preventDefault(); gestureMoved = true;
+        const rect = canvasEl.getBoundingClientRect();
+        view.panX = panOriginX + (e.touches[0].clientX-panStartX);
+        view.panY = panOriginY + (e.touches[0].clientY-panStartY);
+        mapStripClampView(view, rect.width, rect.height);
+        mapStripApplyLiveTransform(wrap, view);
+      }
+    }, {passive:false});
+
+    canvasEl.addEventListener('touchend', (e)=>{
+      if(e.touches.length>0) return;
+      const wasPinch = !!pinchStartDist, wasPan = panStartX!==null;
+      pinchStartDist = null; panStartX = null; panStartY = null;
+      if(!wasPinch && !wasPan) return;
+      if(gestureMoved){ commit(); return; }
+      // Tap ohne Bewegung und nicht auf einem Pin (der hat sein eigenes data-act) -> Doppeltipp prüfen.
+      const touch = e.changedTouches[0];
+      if(touch && !(touch.target && touch.target.closest && touch.target.closest('.map-strip-pin'))){
+        maybeDoubleTap(touch.clientX, touch.clientY);
+      }
+    });
+
+    // Maus-Verschieben + Doppelklick zum Testen am Desktop (Pinch geht nur mit Touch).
+    canvasEl.addEventListener('mousedown', (e)=>{
+      if(e.button!==0 || (e.target.closest && e.target.closest('.map-strip-pin'))) return;
+      gestureMoved = false;
+      const startX = e.clientX, startY = e.clientY;
+      panOriginX = view.panX; panOriginY = view.panY;
+      const onMove = (ev)=>{
+        gestureMoved = true;
+        const rect = canvasEl.getBoundingClientRect();
+        view.panX = panOriginX + (ev.clientX-startX);
+        view.panY = panOriginY + (ev.clientY-startY);
+        mapStripClampView(view, rect.width, rect.height);
+        mapStripApplyLiveTransform(wrap, view);
+      };
+      const onUp = ()=>{
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if(gestureMoved) commit();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    canvasEl.addEventListener('dblclick', (e)=>{
+      if(e.target.closest && e.target.closest('.map-strip-pin')) return;
+      e.preventDefault();
+      const rect = canvasEl.getBoundingClientRect();
+      if(view.zoom > MAP_STRIP_ZOOM_MIN + 0.01){ mapStripResetView(kind); }
+      else{ mapStripZoomToPoint(kind, canvasEl, (e.clientX-rect.left)/rect.width*100, (e.clientY-rect.top)/rect.height*100); }
+      render();
+    });
+    // Einfacher Klick auf die Karte (nicht auf einen Pin, keine Verschieben-Geste) -- Desktop-
+    // Pendant zum Einfach-Tipp oben: schliesst ein offenes Popup wieder.
+    canvasEl.addEventListener('click', (e)=>{
+      if(e.target.closest && e.target.closest('.map-strip-pin')) return;
+      if(gestureMoved) return;
+      if(mapStripCloseOpenPopups()) render();
+    });
+  });
+}
+function fmtDate(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit', year:'numeric'}) + ' ' + d.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'});
+}
+function fmtDateOnly(isoDate){
+  if(!isoDate) return '';
+  const d = new Date(isoDate+'T00:00:00');
+  if(isNaN(d.getTime())) return isoDate;
+  return d.toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit', year:'numeric'});
+}
+function fmtDateShort(dateStr){
+  if(!dateStr) return '';
+  const d = new Date(dateStr+'T00:00:00');
+  if(isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit', year:'numeric'});
+}
+function fmtWeekday(dateStr){
+  if(!dateStr) return '';
+  const d = new Date(dateStr+'T00:00:00');
+  if(isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('de-CH', {weekday:'short'});
+}
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function isPastAgendaItem(item){
+  const ref = item.endDate || item.startDate;
+  if(!ref) return false;
+  return ref < todayStr();
+}
+function showToast(message, isError){
+  const old = document.querySelector('.toast');
+  if(old) old.remove();
+  const el = document.createElement('div');
+  el.className = 'toast' + (isError ? ' error' : '');
+  el.textContent = message;
+  document.body.appendChild(el);
+  setTimeout(()=>{ el.remove(); }, isError ? 5000 : 2500);
+}
+function markUnsaved(){ state.hasUnsavedChanges = true; }
+function markSaved(){ state.hasUnsavedChanges = false; }
+
+/* ================= Region / Exposition ================= */
+const EXPOSITIONS = ['N','NE','E','SE','S','SW','W','NW'];
+const APPROACH_TYPE_LABELS = { auto:'🚗 Auto', oev:'🚌 ÖV', seilbahn:'🚡 Seilbahn', zufuss:'🥾 Zu Fuss' };
+const STAY_TYPE_LABELS = { tagestour:'☀️ Tagestour', huette:'🛖 Hütte', biwak:'⛺ Biwak', zelt:'🏕️ Zelt' };
+const MAP_POINT_CATEGORIES = {
+  '': {icon:'📍', label:'Punkt', color:'#4A3524'},
+  'gipfel': {icon:'🗻', label:'Gipfel', color:'#7A3E9E'},
+  'gefahr': {icon:'⚠️', label:'Gefahrenstelle', color:'#B0392C'},
+  'rueckzug': {icon:'↩️', label:'Rückzugspunkt', color:'#8B2E22'},
+  'wasser': {icon:'💧', label:'Wasserstelle', color:'#2E6E8E'},
+  'rast': {icon:'🍽️', label:'Rastplatz', color:'#4C8C6B'},
+  'biwak': {icon:'⛺', label:'Biwak / Übernachtung', color:'#7A5C9E'},
+  'parkplatz': {icon:'🅿️', label:'Parkplatz', color:'#5B5B5B'},
+  'toilette': {icon:'🚻', label:'Toilette', color:'#5B5B5B'},
+  'haltestelle': {icon:'🚏', label:'Haltestelle ÖV', color:'#5B5B5B'},
+  'abzweigung': {icon:'🔀', label:'Abzweigung / Orientierung', color:'#D9A441'},
+};
+function makeCategoryIcon(category){
+  const meta = MAP_POINT_CATEGORIES[category] || MAP_POINT_CATEGORIES[''];
+  return L.divIcon({
+    html: `<div style="background:${meta.color}; width:30px; height:30px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); display:flex; align-items:center; justify-content:center; box-shadow:0 2px 5px rgba(0,0,0,0.4); border:2px solid white;"><span style="transform:rotate(45deg); font-size:14px;">${meta.icon}</span></div>`,
+    className: '',
+    iconSize: [30,30],
+    iconAnchor: [15,30],
+    popupAnchor: [0,-28]
+  });
+}
+const REGIONS = ['Wallis','Berner Oberland','Simmental','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
+const REGION_SUBAREAS = {
+  'Wallis': ['Nikolaital/Zermatt','Saastal','Val d\'Anniviers','Lötschental','Goms','Unterwallis','Nufenenpass','Grimselpass','Furkapass','Simplonpass','Grosser St. Bernhard'],
+  'Berner Oberland': ['Lauterbrunnental','Haslital','Kandertal','Simmental','Diemtigtal','Justistal','Saanenland/Gstaad','Grimselpass','Sustenpass','Jochpass','Grosse Scheidegg'],
+  'Graubünden': ['Engadin','Prättigau','Albula','Surselva','Bergell','Puschlav','Julierpass','Albulapass','Flüelapass','Ofenpass','Splügenpass','Berninapass'],
+  'Tessin': ['Bedretto','Maggiatal','Blenio','Leventina','San Bernardino','Nufenenpass','Gotthardpass','Lukmanierpass'],
+  'Zentralschweiz': ['Urner Alpen','Glarner Alpen','Nidwalden','Schwyz','Sustenpass','Klausenpass','Gotthardpass','Jochpass'],
+  'Jura': ['Solothurner Jura','Waadtländer Jura','Baselbieter Jura','Neuenburger Jura','Passwang','Col de Pierre Pertuis','Balmberg'],
+  'Freiburger Alpen': ['Gantrischgebiet','Vanil-Noir-Gebiet','Jaunpass'],
+  'Waadtländer Alpen': ['Diablerets-Gebiet','Villars/Leysin-Gebiet','Col des Mosses','Col du Pillon','Col de la Croix']
+};
+function renderSubregionChipsHtml(region, selectedSub){
+  const subs = REGION_SUBAREAS[region] || [];
+  if(!subs.length) return '';
+  return subs.map(s=>`<button type="button" class="chip subregion-chip ${selectedSub===s?'on':''}" style="${selectedSub===s?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}" data-subregion="${s}">${s}</button>`).join('');
+}
+
+/* ================= Sortierung ================= */
+function compareValues(a, b, dir){
+  const aEmpty = (a===null || a===undefined || a==='');
+  const bEmpty = (b===null || b===undefined || b==='');
+  if(aEmpty && bEmpty) return 0;
+  if(aEmpty) return 1;
+  if(bEmpty) return -1;
+  let cmp;
+  if(typeof a === 'string' && typeof b === 'string') cmp = a.localeCompare(b, 'de');
+  else cmp = a - b;
+  return dir==='asc' ? cmp : -cmp;
+}
+function parseDurationHours(s){
+  if(!s) return null;
+  const hm = String(s).match(/(\d+):(\d{2})/);
+  if(hm) return parseInt(hm[1],10) + parseInt(hm[2],10)/60;
+  const num = String(s).match(/[\d.]+/);
+  return num ? parseFloat(num[0]) : null;
+}
+function tourSortKey(t, by){
+  if(by==='date') return t.createdAt || '';
+  if(by==='name') return (t.name||'').toLowerCase();
+  if(by==='region') return (t.region||'').toLowerCase();
+  if(by==='difficulty'){ const i = t.difficulty ? DIFF_ORDER.indexOf(t.difficulty) : -1; return i>=0 ? i : null; }
+  if(by==='crux'){ const i = t.cruxDifficulty ? CLIMB_ORDER.indexOf(t.cruxDifficulty) : -1; return i>=0 ? i : null; }
+  if(by==='elevation'){ const n = parseFloat(t.elevationGain); return isNaN(n) ? null : n; }
+  if(by==='duration') return parseDurationHours(t.duration);
+  return '';
+}
+function sortTours(list, sortBy, sortDir){
+  const by = sortBy || state.tourSortBy, dir = sortDir || state.tourSortDir;
+  return [...list].sort((a,b)=> compareValues(tourSortKey(a,by), tourSortKey(b,by), dir));
+}
+function hutSortKey(h, by){
+  if(by==='date') return h.createdAt || '';
+  if(by==='name') return (h.name||'').toLowerCase();
+  if(by==='region') return (h.region||'').toLowerCase();
+  if(by==='altitude'){ const n = parseFloat(h.altitude); return isNaN(n) ? null : n; }
+  return '';
+}
+function sortHuts(list){
+  const by = state.hutSortBy, dir = state.hutSortDir;
+  return [...list].sort((a,b)=> compareValues(hutSortKey(a,by), hutSortKey(b,by), dir));
+}
+const TOUR_SORT_OPTIONS = [
+  {value:'date', label:'Datum'},
+  {value:'name', label:'A–Z'},
+  {value:'region', label:'Region'},
+  {value:'difficulty', label:'Schwierigkeit'},
+  {value:'elevation', label:'Höhenmeter'},
+  {value:'duration', label:'Zeitbedarf'},
+];
+const HUT_SORT_OPTIONS = [
+  {value:'date', label:'Datum'},
+  {value:'name', label:'A–Z'},
+  {value:'region', label:'Region'},
+  {value:'altitude', label:'Höhe'},
+];
+function sortControlHtml(kind, options, sortBy, sortDir){
+  return `<div class="sort-control">
+    <select data-act="sort-by" data-kind="${kind}" aria-label="Sortieren nach">
+      ${options.map(o=>`<option value="${o.value}" ${sortBy===o.value?'selected':''}>${o.label}</option>`).join('')}
+    </select>
+    <button type="button" class="sort-dir-btn" data-act="sort-dir" data-kind="${kind}" title="Richtung umkehren" aria-label="Sortierrichtung umkehren">${sortDir==='asc'?'↑':'↓'}</button>
+  </div>`;
+}
+
+/* ================= Agenda (app-übergreifend geteilt) ================= */
+const AGENDA_PATH = 'agenda';
+const AGENDA_STATUS_ORDER = ['idee','termin-gesucht','geplant','bestaetigt','abgesagt','durchgefuehrt'];
+const AGENDA_STATUS_LABELS = {
+  'idee':'Idee', 'termin-gesucht':'Termin gesucht', 'geplant':'Geplant',
+  'bestaetigt':'Bestätigt', 'abgesagt':'Abgesagt', 'durchgefuehrt':'Durchgeführt'
+};
+function migrateAgendaStatus(a){
+  if(!a.status){
+    a.status = a.cancelled ? 'abgesagt' : (isPastAgendaItem(a) ? 'durchgefuehrt' : 'geplant');
+  }
+  return a;
+}
+async function saveAgendaCloud(item){ return await fbSet(AGENDA_PATH+'/'+item.id, item); }
+function removeAgendaItem(id){
+  state.agenda = state.agenda.filter(x=>x.id!==id);
+  fbDelete(AGENDA_PATH+'/'+id).catch(()=>{});
+}
+function agendaTypeLabel(type){
+  if(type==='hochtour') return '🏔️ Hochtour';
+  if(type==='msl') return '🧗 Klettern';
+  return '🎿 Skitour';
+}
+// Feste Hex-Farben statt CSS-Variablen: --ice/--ice-deep/--signal-deep sind pro App das eigene
+// Markenthema (blau in Firnspur, braun in Fixseil) — ein Termin muss aber unabhängig davon,
+// in welcher App man ihn gerade öffnet, immer dieselbe Farbe für seine Art zeigen.
+function agendaTypeColor(type){
+  if(type==='hochtour') return '#4A3524';
+  if(type==='msl') return '#A87A1F';
+  return '#2E6E8E';
+}
+// Findet die per Agenda-Termin verlinkte Tour unabhängig davon, in welcher der beiden Apps man
+// den Termin gerade betrachtet. tourRef.source ('own'/'other') wird beim Erstellen relativ zur
+// damals aktiven App vergeben — beim späteren Ansehen in der JEWEILS ANDEREN App würde "own" das
+// Gegenteil bedeuten. Deshalb hier bewusst NICHT nach source unterscheiden, sondern einfach beide
+// geladenen Touren-Listen (eigene + der anderen App) nach der ID durchsuchen.
+function findAgendaLinkedTour(tourRef){
+  if(!tourRef) return null;
+  return (state.tours||[]).find(t=>t.id===tourRef.id)
+    || (state.otherAppTours||[]).find(t=>t.id===tourRef.id)
+    || null;
+}
+// Löst die strukturierten Zustiege/Abstiege einer per Agenda verlinkten Tour auf — inklusive
+// dem Fall, dass eine MSL-Tour ihre Routen nicht selbst trägt, sondern über einen Sektor teilt.
+// state.sektoren existiert nur in Fixseil; in Firnspur bleibt das schlicht ein leeres Ergebnis.
+function resolveAgendaTourRoutes(tourRef){
+  if(!tourRef) return {accessRoutes:[], descentRoutes:[], tour:null};
+  const tour = findAgendaLinkedTour(tourRef);
+  if(!tour || tour.tourCategory!=='msl') return {accessRoutes:[], descentRoutes:[], tour: tour||null};
+  let accessRoutes = tour.accessRoutes || [];
+  let descentRoutes = tour.descentRoutes || [];
+  if(!accessRoutes.length && !descentRoutes.length && tour.sektorId && typeof state.sektoren !== 'undefined'){
+    const sek = state.sektoren.find(s=>s.id===tour.sektorId);
+    if(sek){ accessRoutes = sek.accessRoutes || []; descentRoutes = sek.descentRoutes || []; }
+  }
+  return {accessRoutes, descentRoutes, tour};
+}
+// Best-effort Deep-Link auf die öffentliche SBB-Fahrplansuche — keine offizielle API, kein
+// Schlüssel nötig. Ausgangsort: der Treffpunkt des Termins, falls vorhanden — sonst fragt SBB
+// beim Öffnen selbst danach (z. B. "Mein Standort").
+function buildSbbLink(destination, dateStr, origin){
+  const params = new URLSearchParams();
+  if(origin) params.set('von', origin);
+  if(destination) params.set('nach', destination);
+  if(dateStr){
+    const [y,m,d] = dateStr.split('-');
+    if(y && m && d) params.set('datum', `${d}.${m}.${y}`);
+  }
+  params.set('suche', 'true');
+  return 'https://www.sbb.ch/de/kaufen/pages/fahrplan/fahrplan.xhtml?' + params.toString();
+}
+// WMO-Wettercodes (Open-Meteo) grob zusammengefasst auf Icon + verständliches Label.
+function weatherCodeInfo(code){
+  const table = {
+    0:['☀️','Klar'], 1:['🌤️','Überwiegend klar'], 2:['⛅','Teilweise bewölkt'], 3:['☁️','Bedeckt'],
+    45:['🌫️','Nebel'], 48:['🌫️','Nebel mit Reifablagerung'],
+    51:['🌦️','Leichter Nieselregen'], 53:['🌦️','Nieselregen'], 55:['🌦️','Starker Nieselregen'],
+    56:['🌧️','Gefrierender Nieselregen'], 57:['🌧️','Starker gefrierender Nieselregen'],
+    61:['🌧️','Leichter Regen'], 63:['🌧️','Regen'], 65:['🌧️','Starker Regen'],
+    66:['🌧️','Gefrierender Regen'], 67:['🌧️','Starker gefrierender Regen'],
+    71:['❄️','Leichter Schneefall'], 73:['❄️','Schneefall'], 75:['❄️','Starker Schneefall'], 77:['❄️','Schneegriesel'],
+    80:['🌦️','Leichte Regenschauer'], 81:['🌦️','Regenschauer'], 82:['🌦️','Heftige Regenschauer'],
+    85:['🌨️','Leichte Schneeschauer'], 86:['🌨️','Starke Schneeschauer'],
+    95:['⛈️','Gewitter'], 96:['⛈️','Gewitter mit Hagel'], 99:['⛈️','Starkes Gewitter mit Hagel']
+  };
+  const entry = table[code];
+  return entry ? {icon: entry[0], label: entry[1]} : {icon:'🌡️', label:'Unbekannt'};
+}
+// Lädt Tageswerte von einem Open-Meteo-kompatiblen Endpunkt (gleiche Parameter/Antwortform bei
+// allen deren spezialisierten Modell-Endpunkten). Gibt bei jedem Problem einfach null zurück —
+// die Aufrufer entscheiden dann selbst über Fallback vs. Fehlermeldung.
+async function fetchOpenMeteoDaily(baseUrl, lat, lon, startDate, endDate, extraParams){
+  try{
+    const res = await fetch(`${baseUrl}?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max&timezone=auto&start_date=${startDate}&end_date=${endDate}${extraParams||''}`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    const d = data.daily;
+    if(!d || !Array.isArray(d.time) || !d.time.length) return null;
+    return d.time.map((date,i)=>({
+      date,
+      weathercode: d.weathercode[i],
+      tempMax: d.temperature_2m_max[i],
+      tempMin: d.temperature_2m_min[i],
+      precipitation: d.precipitation_sum[i],
+      windMax: d.windspeed_10m_max[i]
+    }));
+  }catch(e){
+    return null;
+  }
+}
+// Wettervorhersage: primär über Open-Meteos dedizierten MeteoSwiss-ICON-Endpunkt (regionales,
+// hochaufgelöstes Modell des Bundesamts, ca. 5 Tage Reichweite) — bei Termine weiter in der
+// Zukunft oder falls dieser Endpunkt ausfällt, Rückfall auf Open-Meteos allgemeinen Multi-
+// Modell-Endpunkt (ca. 16 Tage Reichweite). Beides kostenlos, kein API-Key, keine Lizenzfrage.
+async function fetchWeatherForecast(lat, lon, dateStr){
+  const target = new Date(dateStr + 'T00:00:00');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diffDays = Math.round((target - today) / 86400000);
+  if(diffDays < 0) return {status:'past'};
+  if(diffDays > 16) return {status:'too-far'};
+  // Zusätzlich zum Starttag noch 2 Folgetage mitladen ("Prognosen" statt nur ein Einzelwert) —
+  // beide Endpunkte liefern einfach weniger Tage zurück, falls das Ende ihrer Reichweite
+  // dazwischenkommt, das ist kein Fehlerfall.
+  const endDate = new Date(target.getTime() + 2*86400000).toISOString().slice(0,10);
+  let days = null, source = null;
+  if(diffDays <= 5){
+    days = await fetchOpenMeteoDaily('https://api.open-meteo.com/v1/meteoswiss', lat, lon, dateStr, endDate, '&models=meteoswiss_icon_ch2');
+    if(days) source = 'MeteoSchweiz (ICON-CH2)';
+  }
+  if(!days){
+    days = await fetchOpenMeteoDaily('https://api.open-meteo.com/v1/forecast', lat, lon, dateStr, endDate);
+    source = 'Open-Meteo';
+  }
+  if(!days) return {status:'error', message:'Wetterdaten nicht verfügbar (keine Internetverbindung?).'};
+  return {
+    status: 'ok',
+    days, source,
+    weathercode: days[0].weathercode,
+    tempMax: days[0].tempMax,
+    tempMin: days[0].tempMin,
+    precipitation: days[0].precipitation,
+    windMax: days[0].windMax
+  };
+}
+// Ort für die Wettervorhersage eines Agenda-Termins: der erste erfasste Punkt der verlinkten Tour.
+// Freitext-Termine (kein tourRef) oder Touren ohne Punkte liefern bewusst null — raten wäre falsch.
+function resolveAgendaWeatherLocation(a){
+  if(!a || !a.tourRef) return null;
+  const tour = findAgendaLinkedTour(a.tourRef);
+  const pt = tour && Array.isArray(tour.points) ? tour.points[0] : null;
+  const lat = pt ? parseFloat(pt.lat) : NaN;
+  const lon = pt ? parseFloat(pt.lon) : NaN;
+  if(isNaN(lat) || isNaN(lon)) return null;
+  return {lat, lon, label: tour.region || ''};
+}
+async function loadAgendaWeather(agendaId){
+  const a = state.agenda.find(x=>x.id===agendaId);
+  const el = document.getElementById('agenda-weather-' + agendaId);
+  if(!a || !el || !a.startDate) return;
+  const loc = resolveAgendaWeatherLocation(a);
+  if(!loc){
+    // Nicht einfach nichts anzeigen — sonst wirkt es, als gäbe es die Funktion gar nicht.
+    const reason = !a.tourRef
+      ? 'Nur bei Terminen mit verlinkter Tour verfügbar (nicht bei freien Text-Vorschlägen).'
+      : 'Die verlinkte Tour hat noch keinen Kartenpunkt hinterlegt.';
+    el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">${reason}</p></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13.5px; color:var(--ink-soft);">Wird geladen…</p></div>`;
+  let w, meteoSwissLink;
+  try{
+    [w, meteoSwissLink] = await Promise.all([
+      fetchWeatherForecast(loc.lat, loc.lon, a.startDate),
+      buildMeteoSwissLink(loc.lat, loc.lon)
+    ]);
+  }catch(e){ w = {status:'error', message:'Wetterdaten nicht verfügbar.'}; meteoSwissLink = METEOSWISS_FALLBACK_URL; }
+  if(el !== document.getElementById('agenda-weather-' + agendaId)) return; // Modal inzwischen geschlossen/gewechselt
+  if(w.status==='ok'){
+    const info = weatherCodeInfo(w.weathercode);
+    window.__agendaWeatherCache = window.__agendaWeatherCache || {};
+    window.__agendaWeatherCache[agendaId] = { icon: info.icon, label: info.label, tempMin: w.tempMin, tempMax: w.tempMax, precipitation: w.precipitation, windMax: w.windMax, locationLabel: loc.label, source: w.source, meteoSwissLink };
+    const followingDays = (w.days || []).slice(1); // Starttag selbst steht schon oben, hier nur die Folgetage
+    el.innerHTML = `<div class="detail-section">
+      <h4>Wetter${loc.label ? ' — ' + esc(loc.label) : ''}</h4>
+      <p style="font-size:15px; margin:0 0 4px 0;">${info.icon} ${esc(info.label)}</p>
+      <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(w.tempMin)}° / ${Math.round(w.tempMax)}° · 💧 ${w.precipitation} mm · 💨 ${Math.round(w.windMax)} km/h</p>
+      ${followingDays.length ? `<div style="display:flex; gap:8px; margin-top:8px;">
+        ${followingDays.map(day=>{
+          const dInfo = weatherCodeInfo(day.weathercode);
+          return `<div style="flex:1; background:var(--ice-light); border-radius:6px; padding:6px; text-align:center;">
+            <div style="font-size:11px; color:var(--ink-soft); margin-bottom:2px;">${esc(fmtDateShort(day.date))}</div>
+            <div style="font-size:16px;">${dInfo.icon}</div>
+            <div style="font-size:12px; color:var(--ink-soft);">${Math.round(day.tempMin)}° / ${Math.round(day.tempMax)}°</div>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose: ${esc(w.source||'Open-Meteo')} — kann sich noch ändern.</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <a href="${esc(meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary">🌦️ MeteoSchweiz öffnen</a>
+        <button type="button" class="btn secondary" id="save-weather-snapshot-btn-${agendaId}">📥 Für unterwegs speichern</button>
+      </div>
+    </div>`;
+    const snapBtn = document.getElementById('save-weather-snapshot-btn-' + agendaId);
+    if(snapBtn) snapBtn.onclick = ()=> saveWeatherSnapshot(agendaId);
+  }else if(w.status==='too-far'){
+    el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">Prognose erst ca. 16 Tage vor dem Termin verfügbar.</p></div>`;
+  }else if(w.status==='past'){
+    el.innerHTML = '';
+  }else{
+    el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">${esc(w.message||'Wetterdaten nicht verfügbar.')}</p></div>`;
+  }
+}
+// Friert die zuletzt geladene Wetterprognose auf dem Agenda-Eintrag ein (Offline-Snapshot) — nützlich,
+// weil die Live-Vorhersage in loadAgendaWeather() ohne Netz gar nicht erst geladen werden kann.
+// Bewusst ein expliziter Knopf statt automatisch beim Laden: der Zeitpunkt "kurz vor dem Losgehen,
+// solange noch Empfang da ist" ist der einzig sinnvolle für einen Offline-Stand.
+async function saveWeatherSnapshot(agendaId){
+  const a = state.agenda.find(x=>x.id===agendaId);
+  const cached = window.__agendaWeatherCache && window.__agendaWeatherCache[agendaId];
+  if(!a || !cached) return;
+  a.weatherSnapshot = { savedAt: new Date().toISOString(), ...cached };
+  render();
+  const ok = await saveAgendaCloud(a).catch(()=>false);
+  a._unsynced = !ok;
+  if(!ok) markUnsaved();
+  showToast('Wetterstand für unterwegs gespeichert.');
+  render();
+}
+function agendaViewHtml(){
+  const groups = {};
+  AGENDA_STATUS_ORDER.forEach(s=> groups[s] = []);
+  state.agenda.forEach(a=>{ (groups[a.status] || groups['geplant']).push(a); });
+  const descStatuses = ['abgesagt','durchgefuehrt'];
+  AGENDA_STATUS_ORDER.forEach(s=>{
+    groups[s].sort((a,b)=> descStatuses.includes(s)
+      ? (b.startDate||'').localeCompare(a.startDate||'')
+      : (a.startDate||'').localeCompare(b.startDate||''));
+  });
+  return `
+    <div class="toolbar">
+      <div></div>
+      <button class="btn fs-fab" data-act="add-agenda">+ Neuer Termin</button>
+    </div>
+    ${state.agenda.length===0 ? `<div class="empty">
+      <h3>Noch keine Termine geplant</h3>
+      <p>Schlag einen Zeitraum und eine Tour vor — andere können sich direkt eintragen.</p>
+      <button class="btn" data-act="add-agenda">+ Neuer Termin</button>
+    </div>` : AGENDA_STATUS_ORDER.map(s=>`
+    <div class="detail-section" style="margin-bottom:24px;">
+      <h4>${AGENDA_STATUS_LABELS[s]} (${groups[s].length})</h4>
+      ${groups[s].length ? `<div class="grid" style="margin-top:6px;">${groups[s].map(agendaCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-faint); margin:4px 0 0 0;">—</p>`}
+    </div>`).join('')}
+  `;
+}
+function agendaStatusSelectHtml(a){
+  return `<select class="agenda-status-select" data-id="${a.id}" style="margin-top:8px; width:auto; padding:6px 10px; font-size:13px;">
+    ${AGENDA_STATUS_ORDER.map(s=>`<option value="${s}" ${a.status===s?'selected':''}>${AGENDA_STATUS_LABELS[s]}</option>`).join('')}
+  </select>`;
+}
+function agendaCardHtml(a){
+  const dateLabel = a.endDate && a.endDate!==a.startDate
+    ? `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)} – ${fmtWeekday(a.endDate)}, ${fmtDateShort(a.endDate)}`
+    : `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)}`;
+  const dim = (a.status==='abgesagt') ? 'opacity:0.55;' : '';
+  return `
+  <div class="card" data-id="${a.id}" style="${dim}">
+    <div class="agenda-date-row" data-act="open-agenda" data-id="${a.id}" style="cursor:pointer;">📅 ${dateLabel}</div>
+    <div class="card-top" data-act="open-agenda" data-id="${a.id}" style="cursor:pointer;">
+      <h3>${a.status==='abgesagt' ? '❌ ' : ''}${esc(a.tourName || 'Termin')}</h3>
+      <span class="badge" style="background:${agendaTypeColor(a.type)}">${agendaTypeLabel(a.type)}</span>
+    </div>
+    ${a.meetingPoint ? `<div class="stat-row"><span>📍 ${esc(a.meetingPoint)}</span></div>` : ''}
+    ${a.note ? `<p class="excerpt">${esc(a.note)}</p>` : ''}
+    <span class="hut-link-chip">${(a.participants||[]).length} dabei${(a.participants||[]).length ? ': ' + (a.participants||[]).map(p=>esc(p.by)).join(', ') : ''}</span>
+    ${a._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
+    <div class="meta-line">von ${esc(a.createdBy||'?')} · ${fmtDate(a.createdAt)}</div>
+    ${agendaStatusSelectHtml(a)}
+  </div>`;
+}
+// Lesbare Tag-für-Tag-Darstellung eines strukturierten Mehrtages-Plans (a.days) — für Detailansicht
+// und Tourenzettel-Druck gemeinsam genutzt. Jedes Segment löst seine Zustiegs-/Abstiegsrouten über
+// die JEWEILS EIGENE verlinkte Tour auf, nicht über a.tourRef (das gibt es bei days-Terminen nicht).
+function agendaDaySegmentDetailLines(seg){
+  const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes(seg.tourRef);
+  const chosenAccess = seg.accessRouteId ? accessRoutes.find(r=>r.id===seg.accessRouteId) : null;
+  const chosenDescent = seg.descentRouteId ? descentRoutes.find(r=>r.id===seg.descentRouteId) : null;
+  const lines = [];
+  if(chosenAccess) lines.push(`🚶 Zustieg: ${esc(chosenAccess.name||'?')}`);
+  if(seg.tourName) lines.push(`⛰️ Tour: ${esc(seg.tourName)}`);
+  if(chosenDescent) lines.push(`🚶 Abstieg: ${esc(chosenDescent.name||'?')}`);
+  return lines;
+}
+function agendaDayOvernightLabel(day){
+  if(!day.overnight || !day.overnight.type) return '';
+  if(day.overnight.type==='huette'){
+    const hut = day.overnight.hutId ? state.huts.find(h=>h.id===day.overnight.hutId) : null;
+    return '🛖 Hütte' + (hut ? ': ' + esc(hut.name) : '');
+  }
+  if(day.overnight.type==='biwak') return '⛺ Biwak';
+  return '📍 ' + esc(day.overnight.customLabel || 'Andere Unterkunft');
+}
+function agendaDayDetailBlockHtml(day, dayIdx, isFirst, isLast){
+  const dateLabel = day.date ? fmtWeekday(day.date) + ', ' + fmtDateShort(day.date) : '?';
+  const overnightLabel = !isLast ? agendaDayOvernightLabel(day) : '';
+  const segLines = (day.segments||[]).flatMap(agendaDaySegmentDetailLines);
+  return `<div class="detail-section" style="border-left:3px solid var(--ice-light); padding-left:12px;">
+    <h4>Tag ${dayIdx+1} — ${esc(dateLabel)}</h4>
+    ${isFirst && day.anreiseType ? `<p style="margin:0 0 4px 0; font-size:14px;">${day.anreiseType==='auto'?'🚗 Anreise: Auto':'🚉 Anreise: Öffentlich'}${day.anreiseOrt?' — '+esc(day.anreiseOrt):''}</p>` : ''}
+    ${segLines.map(l=>`<p style="margin:0 0 4px 0; font-size:14px;">${l}</p>`).join('')}
+    ${overnightLabel ? `<p style="margin:4px 0 0 0; font-size:14px;">🌙 Übernachtung: ${overnightLabel}</p>` : ''}
+    ${isLast && day.abreiseType ? `<p style="margin:4px 0 0 0; font-size:14px;">${day.abreiseType==='auto'?'🚗 Rückreise: Auto':'🚉 Rückreise: Öffentlich'}${day.abreiseOrt?' — '+esc(day.abreiseOrt):''}</p>` : ''}
+  </div>`;
+}
+function agendaDayPlanDetailHtml(a){
+  if(!a.days || !a.days.length) return '';
+  return a.days.map((day,i)=> agendaDayDetailBlockHtml(day, i, i===0, i===a.days.length-1)).join('');
+}
+// Unformatierte Variante von agendaDayOvernightLabel für den Tourenzettel-Druck (dort wird der
+// gesamte Zellentext separat escaped — ein bereits mit esc() versehener HTML-String würde dort
+// doppelt escaped).
+function agendaDayOvernightPlainLabel(day){
+  if(!day.overnight || !day.overnight.type) return '';
+  if(day.overnight.type==='huette'){
+    const hut = day.overnight.hutId ? state.huts.find(h=>h.id===day.overnight.hutId) : null;
+    return 'Hütte' + (hut ? ': ' + hut.name : '');
+  }
+  if(day.overnight.type==='biwak') return 'Biwak';
+  return day.overnight.customLabel || 'Andere Unterkunft';
+}
+function agendaDayPlanTourenzettelRows(a){
+  if(!a.days || !a.days.length) return [];
+  return a.days.map((day, i)=>{
+    const isFirst = i===0, isLast = i===a.days.length-1;
+    const parts = [];
+    if(isFirst && day.anreiseType) parts.push('Anreise: ' + (day.anreiseType==='auto'?'Auto':'Öffentlich') + (day.anreiseOrt ? ' — '+day.anreiseOrt : ''));
+    (day.segments||[]).forEach(seg=>{
+      const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes(seg.tourRef);
+      const chosenAccess = seg.accessRouteId ? accessRoutes.find(r=>r.id===seg.accessRouteId) : null;
+      const chosenDescent = seg.descentRouteId ? descentRoutes.find(r=>r.id===seg.descentRouteId) : null;
+      if(chosenAccess) parts.push('Zustieg: ' + (chosenAccess.name||''));
+      if(seg.tourName) parts.push('Tour: ' + seg.tourName);
+      if(chosenDescent) parts.push('Abstieg: ' + (chosenDescent.name||''));
+    });
+    if(!isLast){
+      const overnightLabel = agendaDayOvernightPlainLabel(day);
+      if(overnightLabel) parts.push('Übernachtung: ' + overnightLabel);
+    }
+    if(isLast && day.abreiseType) parts.push('Rückreise: ' + (day.abreiseType==='auto'?'Auto':'Öffentlich') + (day.abreiseOrt ? ' — '+day.abreiseOrt : ''));
+    const dateLabel = day.date ? fmtDateShort(day.date) : '?';
+    return [`Tag ${i+1} (${dateLabel})`, parts.join('; ')];
+  });
+}
+function agendaDetailHtml(id){
+  const a = state.agenda.find(x=>x.id===id);
+  if(!a) return `<div class="modal" data-stop="1"><p>Termin nicht gefunden.</p></div>`;
+  const dateLabel = a.endDate && a.endDate!==a.startDate
+    ? `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)} – ${fmtWeekday(a.endDate)}, ${fmtDateShort(a.endDate)}`
+    : `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)}`;
+  const joined = state.myName && (a.participants||[]).some(p=>p.by===state.myName);
+  const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes(a.tourRef);
+  const chosenAccess = a.accessRouteId ? accessRoutes.find(r=>r.id===a.accessRouteId) : null;
+  const chosenDescent = a.descentRouteId ? descentRoutes.find(r=>r.id===a.descentRouteId) : null;
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head">
+      <div>
+        <div class="detail-badge-row">
+          <span class="badge" style="background:${agendaTypeColor(a.type)}">${agendaTypeLabel(a.type)}</span>
+        </div>
+        <h2>${esc(a.tourName || 'Termin')}</h2>
+      </div>
+      <button class="x-btn" data-act="close-modal">×</button>
+    </div>
+    <div class="bf-meta">
+      <span class="bf-date">${fsIconHtml('calendar')} ${dateLabel}</span>
+      <span class="bf-avatars">${(a.participants||[]).slice(0,6).map((p,i)=>`<i style="background:${['var(--ink)','var(--ice-deep)','#7D8C96','#B0875A','#5E7A3A','#6570B0'][i%6]}" title="${esc(p.by)}">${esc((p.by||'?').charAt(0).toUpperCase())}</i>`).join('')}</span>
+    </div>
+    <div class="field bf-status"><label>Status</label>${agendaStatusSelectHtml(a)}</div>
+    ${briefingTabsBarHtml()}
+    ${(state._briefTab||'ablauf')==='pack' ? briefingPackHtml(a) : (state._briefTab||'ablauf')==='notfall' ? briefingNotfallHtml(a) : `
+    ${briefingAblaufExtrasHtml(a)}
+    ${a.weatherSnapshot ? `<div class="detail-section" style="background:var(--ice-light);">
+      <h4>📥 Für unterwegs gespeichert${a.weatherSnapshot.locationLabel ? ' — ' + esc(a.weatherSnapshot.locationLabel) : ''}</h4>
+      <p style="font-size:15px; margin:0 0 4px 0;">${a.weatherSnapshot.icon||'🌡️'} ${esc(a.weatherSnapshot.label||'')}</p>
+      <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(a.weatherSnapshot.tempMin)}° / ${Math.round(a.weatherSnapshot.tempMax)}° · 💧 ${a.weatherSnapshot.precipitation} mm · 💨 ${Math.round(a.weatherSnapshot.windMax)} km/h</p>
+      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Stand vom ${esc(fmtDate(a.weatherSnapshot.savedAt))}${a.weatherSnapshot.source ? ' · ' + esc(a.weatherSnapshot.source) : ''} — bleibt auch ohne Netz sichtbar.</p>
+      ${a.weatherSnapshot.meteoSwissLink ? `<a href="${esc(a.weatherSnapshot.meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block; margin-top:8px;">🌦️ MeteoSchweiz öffnen</a>` : ''}
+    </div>` : ''}
+    <div id="agenda-weather-${a.id}"></div>
+    ${a.meetingPoint ? `<div class="detail-section"><h4>Treffpunkt</h4><p>${esc(a.meetingPoint)}</p></div>` : ''}
+    ${a.days && a.days.length ? agendaDayPlanDetailHtml(a) : `
+    ${(chosenAccess || chosenDescent) ? `<div class="detail-section">
+      <h4>Route</h4>
+      ${chosenAccess ? `<p style="margin:0 0 4px 0;">🚶 Zustieg: ${esc(chosenAccess.name||'?')}</p>` : ''}
+      ${chosenDescent ? `<p style="margin:0;">🚶 Abstieg: ${esc(chosenDescent.name||'?')}</p>` : ''}
+    </div>` : ''}
+    ${(a.etappen && a.etappen.length) ? `<div class="detail-section">
+      <h4>Etappen</h4>
+      ${a.etappen.slice().sort((x,y)=>(x.date||'').localeCompare(y.date||'')).map(e=>`<p style="margin:0 0 4px 0; font-size:14px;">📅 ${e.date ? esc(fmtDateShort(e.date)) : '?'} — ${esc(e.label||'')}</p>`).join('')}
+    </div>` : ''}
+    ${a.anreiseType ? `<div class="detail-section">
+      <h4>Anreise</h4>
+      <p style="margin:0 0 8px 0;">${a.anreiseType==='auto' ? '🚗 Auto' : '🚉 Öffentlicher Verkehr'}${a.anreiseOrt ? ' — ' + esc(a.anreiseOrt) : ''}</p>
+      ${a.anreiseType==='oev' ? `<a href="${esc(buildSbbLink(a.anreiseOrt, a.startDate, a.meetingPoint))}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block;">🚉 SBB Fahrplan öffnen</a>` : ''}
+    </div>` : ''}
+    ${a.endOption ? `<div class="detail-section">
+      <h4>Nach der Tour</h4>
+      <p style="margin:0;">${a.endOption==='huette' ? '🛖 Hütte' : '🏠 Heimweg'}${a.endNote ? ' — ' + esc(a.endNote) : ''}</p>
+    </div>` : ''}
+    `}
+    ${a.note ? `<div class="detail-section"><h4>Notiz</h4><p>${esc(a.note)}</p></div>` : ''}
+    `}
+    <div class="detail-section">
+      <h4>Teilnehmer (${(a.participants||[]).length})</h4>
+      ${(a.participants||[]).length ? (a.participants||[]).map(p=>`<p style="margin:0 0 4px 0; font-size:14px;">✓ ${esc(p.by)}</p>`).join('') : `<p style="font-size:13.5px; color:var(--ink-soft);">Noch niemand dabei.</p>`}
+    </div>
+    <div class="meta-line" style="margin-top:16px;">Vorgeschlagen von ${esc(a.createdBy||'?')} · ${fmtDate(a.createdAt)}</div>
+    <div class="detail-actions">
+      <button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>
+      <button class="btn secondary" data-act="edit-agenda" data-id="${a.id}">✏️ Bearbeiten</button>
+      <button class="btn secondary" data-act="print-tourenzettel" data-id="${a.id}">📋 Tourenzettel teilen</button>
+    </div>
+    <div id="delete-agenda-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
+      <button type="button" id="delete-agenda-trigger" data-id="${a.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Termin löschen</button>
+      <div id="delete-agenda-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
+        Wirklich unwiderruflich löschen?
+        <button type="button" id="delete-agenda-yes" data-id="${a.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
+        <button type="button" id="delete-agenda-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+      </div>
+    </div>
+  </div>`;
+}
+// Baut ein eigenständiges Tourenzettel-Dokument für einen Agenda-Termin — zum Teilen (digital,
+// z. B. per WhatsApp/Mail) oder Ausdrucken. Bewusst ein separates Fenster statt @media print über
+// die ganze App: die App-Ansicht enthält Overlays/fixe Elemente, die dabei nur stören würden — ein
+// schlankes eigenes Dokument bleibt robust und übersichtlich. Layout/Ton bewusst warm und einladend
+// (schöner Tourentag) statt bürokratisch — Notfallnummern stehen sachlich da, ohne Alarm-Rhetorik.
+function printTourenzettel(agendaId){
+  const a = state.agenda.find(x=>x.id===agendaId);
+  if(!a) return;
+  const win = window.open('', '_blank');
+  if(!win){ showToast('Pop-up wurde blockiert — bitte Pop-ups für diese Seite erlauben.', true); return; }
+
+  const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const dateLabel = a.endDate && a.endDate!==a.startDate
+    ? `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)} – ${fmtWeekday(a.endDate)}, ${fmtDateShort(a.endDate)}`
+    : `${fmtWeekday(a.startDate)}, ${fmtDateShort(a.startDate)}`;
+  const typeLabel = agendaTypeLabel(a.type).replace(/^\S+\s/, '');
+  const { accessRoutes, descentRoutes, tour } = resolveAgendaTourRoutes(a.tourRef);
+  const chosenAccess = a.accessRouteId ? accessRoutes.find(r=>r.id===a.accessRouteId) : null;
+  const chosenDescent = a.descentRouteId ? descentRoutes.find(r=>r.id===a.descentRouteId) : null;
+
+  // Kopfzeile: Datum/Höhe/Schwierigkeit/Teilnehmerzahl als Badges — nur was tatsächlich da ist.
+  const badges = [dateLabel];
+  if(tour && tour.targetAltitude) badges.push(tour.targetAltitude + ' m ü. M.');
+  const difficultyLabel = tour ? (tour.difficulty || tour.climbGrade || tour.mandatoryDifficulty || '') : '';
+  if(difficultyLabel) badges.push(difficultyLabel + (tour && tour.glacier==='ja' ? ' · Gletscher' : ''));
+  badges.push((a.participants||[]).length + ((a.participants||[]).length===1 ? ' Person' : ' Personen'));
+
+  // Ablauf: bei Mehrtages-Terminen tageweise, sonst die klassischen Einzeltag-Felder — jeweils nur
+  // die Punkte, die auch tatsächlich erfasst sind.
+  const ablaufItems = [];
+  if(a.days && a.days.length){
+    agendaDayPlanTourenzettelRows(a).forEach(([label, text])=>{ if(text) ablaufItems.push({label, text}); });
+  }else{
+    if(a.meetingPoint) ablaufItems.push({label:'Treffpunkt', text:a.meetingPoint});
+    if(a.anreiseType) ablaufItems.push({label:'Anreise', text:(a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' — '+a.anreiseOrt : '')});
+    if(chosenAccess) ablaufItems.push({label:'Zustieg', text:chosenAccess.name||''});
+    ablaufItems.push({label:typeLabel, text:a.tourName || 'Tour'});
+    if(chosenDescent) ablaufItems.push({label:'Abstieg', text:chosenDescent.name||''});
+    if(a.endOption) ablaufItems.push({label:'Nach der Tour', text:(a.endOption==='huette'?'Hütte':'Heimweg') + (a.endNote ? ' — '+a.endNote : '')});
+    if(a.etappen && a.etappen.length){
+      ablaufItems.push({label:'Etappen', text: a.etappen.slice().sort((x,y)=>(x.date||'').localeCompare(y.date||''))
+        .map(e=>(e.date ? fmtDateShort(e.date) : '?') + ' — ' + (e.label||'')).join('; ')});
+    }
+    if(a.plannedReturnTime) ablaufItems.push({label:'Geplante Rückkehr', text:a.plannedReturnTime});
+  }
+
+  // Tourenbriefing (Schritt 4): eigener Ablauf mit Zeiten ersetzt die abgeleitete Liste,
+  // Anreise bleibt als erste Zeile erhalten.
+  const brief = briefingOf(a);
+  if(brief.ablauf && brief.ablauf.length){
+    const keepAnreise = ablaufItems.filter(it=> it.label==='Anreise');
+    ablaufItems.length = 0;
+    keepAnreise.forEach(it=> ablaufItems.push(it));
+    brief.ablauf.forEach(r=> ablaufItems.push({
+      label: r.t || (BRIEFING_KINDS[r.kind] ? BRIEFING_KINDS[r.kind].label : 'Punkt'),
+      text: (r.kind==='entscheid' ? '⚠ Entscheidungspunkt: ' : r.kind==='umkehr' ? '⏰ Umkehrzeit: ' : '') + (r.label||'')
+    }));
+  }
+
+  // Material: aus der verlinkten Tour, so vorhanden — Anzeige als Checkliste zum Abhaken.
+  const materialList = [];
+  if(tour && Array.isArray(tour.material)) materialList.push(...tour.material);
+  if(tour && tour.quickdrawCount) materialList.push(tour.quickdrawCount + '× Expressschlingen');
+  if(tour && tour.ropeType) materialList.push(tour.ropeType + (tour.ropeLength ? ' ('+tour.ropeLength+')' : ''));
+  if(brief.pack && brief.pack.length){ materialList.length = 0; brief.pack.forEach(p=> materialList.push(p.label + (p.must ? ' (Pflicht)' : ''))); }
+
+  // Notfallnummern: die beiden Schweizer Rettungsnummern immer, dazu Notfallkontakt und
+  // Hütten-Kontakt(e) — nur sachliche Nummern, keine Alarm-Formulierung.
+  const hutIds = new Set();
+  if(tour && tour.hutId) hutIds.add(tour.hutId);
+  if(a.days) a.days.forEach(d=>{ if(d.overnight && d.overnight.hutId) hutIds.add(d.overnight.hutId); });
+  const huts = [...hutIds].map(id=>state.huts.find(h=>h.id===id)).filter(h=>h && h.contact);
+  const contactRows = [['Rettung', '144'], ['REGA', '1414']];
+  if(a.emergencyContact) contactRows.push(['Notfallkontakt', a.emergencyContact]);
+  huts.forEach(h=> contactRows.push([h.name, h.contact]));
+
+  // Kartenausschnitt: echte Punkte/Track der verlinkten Tour, falls vorhanden — sonst kein Abschnitt.
+  const points = (tour && Array.isArray(tour.points)) ? tour.points.filter(p=>p && !isNaN(parseFloat(p.lat)) && !isNaN(parseFloat(p.lon))) : [];
+  const track = tour ? ((tour.trackSimplified && tour.trackSimplified.length) ? tour.trackSimplified : (tour.manualTrack && tour.manualTrack.length ? tour.manualTrack : null)) : null;
+  const hasMap = points.length > 0 || (track && track.length > 0);
+
+  const wx = a.weatherSnapshot;
+
+  const shareTextLines = [a.tourName || 'Tour', dateLabel];
+  ablaufItems.forEach(it=> shareTextLines.push(`${it.label}: ${it.text}`));
+  if(brief.planB) shareTextLines.push('Plan B: ' + brief.planB);
+  if(materialList.length) shareTextLines.push('Material: ' + materialList.join(', '));
+  shareTextLines.push('Rettung 144 · REGA 1414' + (a.emergencyContact ? ' · Notfallkontakt: '+a.emergencyContact : ''));
+  const shareText = shareTextLines.join('\n');
+
+  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Tourenzettel — ${escHtml(a.tourName||'Termin')}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;background:#F3F6F8;color:#0F1E27;font-family:'Manrope',system-ui,sans-serif;}
+  .serif{font-family:'Instrument Serif',Georgia,serif;}
+  .wrap{max-width:640px;margin:0 auto;padding:36px 28px 60px;}
+  .eyebrow{font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#4A5A64;font-weight:600;}
+  h1{font-size:40px;font-weight:400;margin:4px 0 0 0;}
+  .routename{font-size:16px;font-style:italic;color:#4A5A64;}
+  .badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+  .badge{display:inline-flex;align-items:center;background:#fff;border:1.5px solid #0F1E27;border-radius:999px;padding:5px 13px;font-size:12.5px;font-weight:600;}
+  .section{margin-top:24px;}
+  .section h4{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#4A5A64;margin:0 0 8px 0;}
+  .material-box{border:1.5px solid #E1E7EB;background:#FFFFFF;border-radius:12px;padding:12px 16px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13.5px;}
+  .contact-box{border:1.5px solid #E1E7EB;background:#FFFFFF;border-radius:12px;padding:10px 16px;font-size:13.5px;}
+  .contact-row{display:flex;justify-content:space-between;padding:3px 0;}
+  .timeline{font-size:13.5px;display:flex;flex-direction:column;gap:7px;}
+  .tl-item{padding-left:14px;border-left:2px solid #E1E7EB;}
+  .muted{color:#4A5A64;font-size:13px;}
+  #tz-map{height:200px;border-radius:12px;border:1.5px solid #E1E7EB;margin-top:2px;}
+  .actions{margin-top:30px;display:flex;gap:10px;flex-wrap:wrap;}
+  button{font-family:inherit;font-size:13.5px;font-weight:600;padding:9px 16px;border-radius:999px;border:1.5px solid #0F1E27;background:#fff;cursor:pointer;}
+  button.primary{background:#0F1E27;color:#F3F6F8;}
+  .foot{margin-top:28px;font-size:11px;color:#4A5A64;}
+  @media print{ .no-print{display:none;} body{background:#fff;} }
+</style>
+</head><body>
+<div class="wrap">
+  <div class="eyebrow">Tourenzettel · ${escHtml(typeLabel)}</div>
+  <h1 class="serif">${escHtml(a.tourName || 'Termin')}</h1>
+  ${tour && tour.routeName ? `<div class="serif routename">${escHtml(tour.routeName)}</div>` : ''}
+  <div class="badges">${badges.map(b=>`<span class="badge">${escHtml(b)}</span>`).join('')}</div>
+
+  ${ablaufItems.length ? `<div class="section"><h4>📍 Ablauf</h4><div class="timeline">${ablaufItems.map(it=>`<div class="tl-item"><strong>${escHtml(it.label)}:</strong> ${escHtml(it.text)}</div>`).join('')}</div></div>` : ''}
+
+  ${brief.planB ? `<div class="section"><h4>↩️ Plan B</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.planB)}</p></div>` : ''}
+  ${brief.anforderungen ? `<div class="section"><h4>💪 Das braucht es</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.anforderungen)}</p></div>` : ''}
+
+  <div class="section"><h4>🎒 Material</h4>${materialList.length ? `<div class="material-box">${materialList.map(m=>`<div>☐ ${escHtml(m)}</div>`).join('')}</div>` : `<p class="muted">Keine Material-Angaben zu dieser Tour hinterlegt.</p>`}</div>
+
+  ${hasMap ? `<div class="section"><h4>🗺️ Kartenausschnitt</h4><div id="tz-map"></div></div>` : ''}
+
+  ${wx ? `<div class="section"><h4>🌦️ Verhältnisse${wx.locationLabel ? ' — '+escHtml(wx.locationLabel) : ''}</h4><p style="font-size:13.5px;margin:0;">${wx.icon||''} ${escHtml(wx.label||'')} · ${Math.round(wx.tempMin)}° / ${Math.round(wx.tempMax)}° · 💨 ${Math.round(wx.windMax)} km/h</p><p class="muted" style="margin:4px 0 0 0;">Stand vom ${escHtml(fmtDate(wx.savedAt))}</p></div>` : ''}
+
+  <div class="section"><h4>📞 Notfallnummern</h4><div class="contact-box">${contactRows.map(([k,v])=>`<div class="contact-row"><span class="muted">${escHtml(k)}</span><strong>${escHtml(v)}</strong></div>`).join('')}</div></div>
+
+  ${(a.participants||[]).length ? `<div class="section"><h4>👥 Teilnehmende</h4><p style="font-size:13.5px;margin:0;">${(a.participants||[]).map(p=>escHtml(p.by)).join(' · ')}</p></div>` : ''}
+  ${a.note ? `<div class="section"><h4>📝 Notiz</h4><p style="font-size:13.5px;margin:0;">${escHtml(a.note)}</p></div>` : ''}
+
+  <div class="actions no-print">
+    <button class="primary" onclick="window.print()">🖨️ Drucken</button>
+    <button id="tz-share-btn" type="button">🔗 Teilen</button>
+  </div>
+  <div class="foot">Geteilt mit Firnspur/Fixseil am ${escHtml(new Date().toLocaleDateString('de-CH'))}.</div>
+</div>
+</body></html>`;
+
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+
+  // Leaflet (Kartenausschnitt) und die Teilen-Button-Logik werden bewusst NICHT über <script>-Tags
+  // im obigen document.write()-String geladen: Chrome bricht einen per document.write() injizierten,
+  // synchron ladenden Cross-Origin-<script src>-Tag unter Umständen komplett ab und verwirft dabei
+  // auch noch nicht ausgeführte Inhalte danach im selben Dokument ("document.write() intervention").
+  // Stattdessen hier, aus dem Opener-Kontext heraus, per DOM-API nachträglich ins Popup einfügen —
+  // das ist von dieser Chrome-Bremse nicht betroffen.
+  const shareBtn = win.document.getElementById('tz-share-btn');
+  if(shareBtn){
+    shareBtn.onclick = function(){
+      if(win.navigator.share){
+        win.navigator.share({title: a.tourName || 'Tourenzettel', text: shareText}).catch(()=>{});
+      }else if(win.navigator.clipboard && win.navigator.clipboard.writeText){
+        win.navigator.clipboard.writeText(shareText).then(()=>{
+          const old = shareBtn.textContent;
+          shareBtn.textContent = '✓ Kopiert';
+          win.setTimeout(()=>{ shareBtn.textContent = old; }, 1600);
+        }).catch(()=> win.alert(shareText));
+      }else{
+        win.alert(shareText);
+      }
+    };
+  }
+
+  if(hasMap){
+    const leafletCss = win.document.createElement('link');
+    leafletCss.rel = 'stylesheet';
+    leafletCss.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    win.document.head.appendChild(leafletCss);
+    const leafletJs = win.document.createElement('script');
+    leafletJs.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    leafletJs.onload = function(){
+      try{
+        const mapEl = win.document.getElementById('tz-map');
+        const map = win.L.map(mapEl, {zoomControl:false, attributionControl:true});
+        win.L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {maxZoom:18, attribution:'© swisstopo'}).addTo(map);
+        let bounds = [];
+        points.forEach(p=>{
+          const lat = parseFloat(p.lat), lon = parseFloat(p.lon);
+          const m = win.L.marker([lat, lon]).addTo(map);
+          if(p.label) m.bindPopup(p.label);
+          bounds.push([lat, lon]);
+        });
+        if(track && track.length){ win.L.polyline(track, {color:'#B5652D', weight:3}).addTo(map); bounds = bounds.concat(track); }
+        if(bounds.length > 1) map.fitBounds(bounds, {padding:[20,20]});
+        else if(bounds.length === 1) map.setView(bounds[0], 13);
+        else mapEl.style.display = 'none';
+      }catch(e){
+        const mapEl = win.document.getElementById('tz-map');
+        if(mapEl) mapEl.outerHTML = '<p class="muted">Karte konnte nicht geladen werden.</p>';
+      }
+    };
+    leafletJs.onerror = function(){
+      const mapEl = win.document.getElementById('tz-map');
+      if(mapEl) mapEl.outerHTML = '<p class="muted">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+    };
+    win.document.head.appendChild(leafletJs);
+  }
+}
+function openAddAgenda(){
+  ensureName(async ()=>{
+    if(!state.otherAppTours.length) await loadOtherAppTours();
+    state._briefingDraft = null;
+    state.modal = {type:'add-agenda'};
+    render();
+  });
+}
+// state.otherAppTours wird sonst nur beim Anlegen eines neuen Termins geladen — ein Termin kann
+// aber auch von der jeweils anderen App aus verlinkt sein. Ohne diesen Vorab-Load bliebe die
+// Zustiegs-/Abstiegs-/Wetter-Auflösung leer, weil findAgendaLinkedTour() nichts zu durchsuchen hätte.
+async function openAgendaDetail(id){
+  if(!state.otherAppTours.length) await loadOtherAppTours();
+  state._briefTab = 'ablauf';
+  state.modal = {type:'agenda-detail', payload:id};
+  render();
+}
+// Öffnet einen bestehenden Termin zur Bearbeitung — bei Mehrtages-Terminen wird agendaDayPlanDraft
+// bereits HIER mit einer Kopie der bestehenden Tage vorbelegt (vor dem ersten Rendern), damit
+// syncAgendaDayPlanMode() sie beim Formularaufbau unverändert übernimmt (siehe deren Kommentar zu
+// syncAgendaDaysToRange). Die klassischen Einzeltag-Felder werden separat über
+// applyAgendaEditPrefill() befüllt, weil sie erst nach dem Einfügen ins DOM existieren.
+function openEditAgenda(id){
+  ensureName(async ()=>{
+    const a = state.agenda.find(x=>x.id===id);
+    if(!a) return;
+    if(!state.otherAppTours.length) await loadOtherAppTours();
+    agendaDayPlanDraft = a.days ? JSON.parse(JSON.stringify(a.days)) : null;
+    state._briefingDraft = null;
+    state.modal = {type:'edit-agenda', payload:id};
+    render();
+  });
+}
+// Befüllt die klassischen Einzeltag-Felder beim ersten Aufbau des Bearbeiten-Formulars mit den
+// Werten des bestehenden Termins — simuliert dieselben Interaktionen (Tour wählen, Chip klicken)
+// wie ein Benutzer, damit dieselbe Wiring-Logik (Routen-Dropdowns befüllen, Sichtbarkeit
+// umschalten) automatisch mitläuft statt dupliziert zu werden. Mehrtägige Termine sind hier ein
+// No-op — die werden bereits über das Vorbelegen von agendaDayPlanDraft in openEditAgenda() vor dem
+// ersten Rendern abgedeckt.
+function applyAgendaEditPrefill(agendaForm, a){
+  if(a.days && a.days.length) return;
+  const tourSelect = agendaForm.querySelector('#agenda-tour-select');
+  if(tourSelect){
+    const desiredVal = a.tourRef ? `${a.tourRef.source}:${a.tourRef.id}` : 'custom';
+    tourSelect.value = desiredVal;
+    if(tourSelect.value !== desiredVal) tourSelect.value = 'custom'; // Referenzierte Tour existiert nicht mehr
+    tourSelect.dispatchEvent(new Event('change'));
+  }
+  const customInput = agendaForm.querySelector('input[name="customName"]');
+  if(customInput && tourSelect && tourSelect.value==='custom') customInput.value = a.tourName || '';
+  const accessSelect = agendaForm.querySelector('#agenda-access-route-select');
+  if(accessSelect && a.accessRouteId) accessSelect.value = a.accessRouteId;
+  const descentSelect = agendaForm.querySelector('#agenda-descent-route-select');
+  if(descentSelect && a.descentRouteId) descentSelect.value = a.descentRouteId;
+  if(a.anreiseType){
+    const anreiseChip = agendaForm.querySelector(`.anreise-chip[data-anreise="${a.anreiseType}"]`);
+    if(anreiseChip) anreiseChip.click();
+    const anreiseOrtInput = agendaForm.querySelector('input[name="anreiseOrt"]');
+    if(anreiseOrtInput) anreiseOrtInput.value = a.anreiseOrt || '';
+  }
+  if(a.endOption){
+    const endChip = agendaForm.querySelector(`.end-option-chip[data-end="${a.endOption}"]`);
+    if(endChip) endChip.click();
+    const endNoteInput = agendaForm.querySelector('#end-note-input');
+    if(endNoteInput) endNoteInput.value = a.endNote || '';
+  }
+}
+// Ohne editId: leeres Formular für einen neuen Termin (bisheriges Verhalten). Mit editId: dasselbe
+// Formular, aber mit den Werten des bestehenden Termins vorbelegt (Titel/Button-Beschriftung
+// passen sich an) — die eigentliche Feld-für-Feld-Vorbelegung der Tour-/Tagesplan-Felder läuft
+// separat über applyAgendaEditPrefill() bzw. das Vorbelegen von agendaDayPlanDraft, weil diese
+// Felder erst nach dem Einfügen ins DOM (in syncAgendaDayPlanMode) aufgebaut werden.
+function agendaFormHtml(editId){
+  const a = editId ? state.agenda.find(x=>x.id===editId) : null;
+  const today = todayStr();
+  const typeOpt = (val, label) => `<option value="${val}" ${a && a.type===val ? 'selected' : ''}>${label}</option>`;
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${a ? 'Termin bearbeiten' : 'Neuer Termin'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <form id="agenda-form" novalidate>
+      ${a ? `<input type="hidden" name="agendaEditId" value="${esc(a.id)}"/>` : ''}
+      <div class="row2">
+        <div class="field"><label>Startdatum *</label><input required type="date" name="startDate" id="agenda-start-date" value="${a ? esc(a.startDate) : today}"/></div>
+        <div class="field"><label>Enddatum (optional)</label><input type="date" name="endDate" id="agenda-end-date" value="${a ? esc(a.endDate||'') : ''}"/></div>
+      </div>
+      <div class="field"><label>Art</label>
+        <select name="type">
+          ${typeOpt('ski','🎿 Skitour')}
+          ${typeOpt('hochtour','🏔️ Hochtour')}
+          ${typeOpt('msl','🧗 Klettern')}
+        </select>
+      </div>
+      <div id="agenda-day-plan-container"></div>
+      <div class="field"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof" value="${a ? esc(a.meetingPoint||'') : ''}"/></div>
+      <div class="row2">
+        <div class="field"><label>Geplante Rückkehrzeit</label><input name="plannedReturnTime" placeholder="z. B. 18:00" value="${a ? esc(a.plannedReturnTime||'') : ''}"/></div>
+        <div class="field"><label>Notfallkontakt</label><input name="emergencyContact" placeholder="Name, Telefonnummer" value="${a ? esc(a.emergencyContact||'') : ''}"/></div>
+      </div>
+      ${briefingEditorHtml(editId)}
+      <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Ausrüstung, offene Fragen …">${a ? esc(a.note||'') : ''}</textarea></div>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        <button type="button" id="agenda-save-btn" class="btn">${a ? '💾 Änderungen speichern' : 'Termin vorschlagen'}</button>
+      </div>
+    </form>
+  </div>`;
+}
+// Klassifiziert eine Tour app-unabhängig in dieselben drei Kategorien wie das Agenda-"Art"-Feld
+// (ski/hochtour/msl) — Skitouren tragen nie ein tourCategory-Feld, Hochtour/MSL-Touren (aus
+// Fixseil) immer. Grundlage für die Filterung der Tour-Dropdowns nach gewählter Art.
+function tourAgendaType(t){
+  if(!t || !t.tourCategory) return 'ski';
+  return t.tourCategory==='msl' ? 'msl' : 'hochtour';
+}
+// Baut die <option>-Liste für ein Tour-Dropdown, gefiltert auf eine Art (ski/hochtour/msl) — eigene
+// und andere-App-Touren zusammen, geteilt zwischen Einzeltag- und Mehrtages-Feldern.
+function agendaTourOptionsHtml(type, selectedValue){
+  const own = state.tours.filter(t=>tourAgendaType(t)===type)
+    .map(t=>`<option value="own:${t.id}" ${selectedValue==='own:'+t.id?'selected':''}>${OWN_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+  const other = state.otherAppTours.filter(t=>tourAgendaType(t)===type)
+    .map(t=>`<option value="other:${t.id}" ${selectedValue==='other:'+t.id?'selected':''}>${OTHER_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+  return own + other;
+}
+function agendaTourChoiceMatchesType(choiceVal, type){
+  if(!choiceVal || choiceVal==='custom') return false;
+  const [src, refId] = choiceVal.split(':');
+  const list = src==='own' ? state.tours : state.otherAppTours;
+  const ref = list.find(t=>t.id===refId);
+  return !!ref && tourAgendaType(ref)===type;
+}
+// Baut nach einer Änderung des "Art"-Felds alle Tour-Dropdowns (Einzeltag ODER jedes Tagesabschnitt-
+// Dropdown bei Mehrtages-Terminen) neu auf, gefiltert auf die neu gewählte Art — eine schon
+// getroffene Auswahl, die zur neuen Art nicht mehr passt, wird auf "Freitext" zurückgesetzt statt
+// einfach zu verschwinden.
+function filterAgendaTourSelectsByType(agendaForm){
+  const typeSelect = agendaForm.querySelector('select[name="type"]');
+  const type = typeSelect ? typeSelect.value : 'ski';
+  const container = agendaForm.querySelector('#agenda-day-plan-container');
+  if(!container) return;
+  const customOpt = current => `<option value="custom" ${current==='custom'?'selected':''}>— Neuer Vorschlag (Freitext) —</option>`;
+  if(container.dataset.mode==='multi'){
+    container.querySelectorAll('.agenda-day-tour-select').forEach(sel=>{
+      const current = sel.value;
+      const stillValid = agendaTourChoiceMatchesType(current, type);
+      sel.innerHTML = customOpt(current==='custom' || !stillValid ? 'custom' : current) + agendaTourOptionsHtml(type, stillValid ? current : '');
+      if(!stillValid) sel.value = 'custom';
+      syncAgendaDaySegmentRouteFields(sel.closest('.agenda-day-segment'));
+    });
+  }else{
+    const sel = agendaForm.querySelector('#agenda-tour-select');
+    if(!sel) return;
+    const current = sel.value;
+    const stillValid = agendaTourChoiceMatchesType(current, type);
+    sel.innerHTML = customOpt(current==='custom' || !stillValid ? 'custom' : current) + agendaTourOptionsHtml(type, stillValid ? current : '');
+    if(!stillValid){
+      sel.value = 'custom';
+      const customField = agendaForm.querySelector('#agenda-custom-field');
+      if(customField) customField.style.display = '';
+      const routeFieldsWrap = agendaForm.querySelector('#agenda-route-fields');
+      if(routeFieldsWrap) routeFieldsWrap.style.display = 'none';
+    }
+  }
+}
+// Die klassischen Felder für einen eintägigen Termin — unverändert gegenüber vorher, nur aus der
+// Formular-Vorlage herausgelöst, damit sie bei einem Mehrtages-Datum (siehe unten) durch den
+// strukturierten Tagesplan ersetzt werden können, ohne das Formular selbst neu zu bauen.
+function agendaSingleDayFieldsHtml(currentType){
+  const type = currentType || 'ski';
+  return `
+    <div class="field"><label>Tour</label>
+      <select name="tourChoice" id="agenda-tour-select">
+        <option value="custom">— Neuer Vorschlag (Freitext) —</option>
+        ${agendaTourOptionsHtml(type, '')}
+      </select>
+    </div>
+    <div class="field" id="agenda-custom-field"><label>Geplante Tour</label><input name="customName" placeholder="z. B. Wildspitze über Vent"/></div>
+    <div class="field" id="agenda-route-fields" style="display:none;">
+      <label>Zustieg</label>
+      <select name="accessRouteId" id="agenda-access-route-select"><option value="">— nicht festgelegt —</option></select>
+      <label style="margin-top:10px; display:block;">Abstieg</label>
+      <select name="descentRouteId" id="agenda-descent-route-select"><option value="">— nicht festgelegt —</option></select>
+    </div>
+    <div class="field">
+      <label>Anreise</label>
+      <div class="chips">
+        <button type="button" class="chip anreise-chip" data-anreise="auto">🚗 Auto</button>
+        <button type="button" class="chip anreise-chip" data-anreise="oev">🚉 Öffentlich</button>
+      </div>
+      <input type="hidden" name="anreiseType" id="anreise-type-hidden" value=""/>
+      <div id="anreise-oev-field" style="display:none; margin-top:8px;">
+        <input name="anreiseOrt" placeholder="Zielort für Fahrplan, z. B. Kandersteg"/>
+        <button type="button" class="btn secondary" id="sbb-link-btn" style="margin-top:8px;">🚉 SBB Fahrplan öffnen</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Nach der Tour</label>
+      <div class="chips">
+        <button type="button" class="chip end-option-chip" data-end="huette">🛖 Hütte</button>
+        <button type="button" class="chip end-option-chip" data-end="heimweg">🏠 Heimweg</button>
+      </div>
+      <input type="hidden" name="endOption" id="end-option-hidden" value=""/>
+      <input name="endNote" id="end-note-input" style="margin-top:8px; display:none;"/>
+    </div>
+  `;
+}
+
+/* ================= Mehrtägige Termine: strukturierter Tagesplan =================
+   Bei Start- ≠ Enddatum ersetzt ein Tag-für-Tag-Ablauf die einfachen Tour-/Anreise-Felder oben:
+   pro Tag mindestens eine Tour (Zustieg/Tour/Abstieg, per "+" beliebig erweiterbar), Übernachtung
+   (Biwak/Hütte-Auswahl/Andere-Freitext) an allen Tagen ausser dem letzten, Anreise nur am ersten
+   und Rückreise nur am letzten Tag. Der Entwurf lebt in agendaDayPlanDraft (nicht im DOM allein),
+   damit er beim Ändern des Datumsbereichs erhalten bleibt statt bei jedem Neu-Rendern verloren zu
+   gehen — collectAgendaDayPlanFromDom() liest den jeweils aktuellen DOM-Stand vorher zurück ein. */
+let agendaDayPlanDraft = null;
+function blankAgendaDaySegment(){
+  return { tourChoice:'custom', tourName:'', tourRef:null, accessRouteId:'', descentRouteId:'' };
+}
+function blankAgendaDay(date){
+  return { date, anreiseType:'', anreiseOrt:'', segments:[blankAgendaDaySegment()], overnight:{type:'', hutId:'', customLabel:''}, abreiseType:'', abreiseOrt:'' };
+}
+function agendaDateRangeArray(startDate, endDate){
+  if(!startDate || !endDate) return [];
+  const start = new Date(startDate + 'T00:00:00');
+  const end = new Date(endDate + 'T00:00:00');
+  if(isNaN(start) || isNaN(end) || end < start) return [];
+  const out = [];
+  const d = new Date(start);
+  while(d <= end){
+    out.push(d.toISOString().slice(0,10));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+// Tage werden per Position (nicht per Datum) abgeglichen: verschiebt man z. B. das Enddatum um
+// einen Tag nach hinten, bleibt Tag 1/2/... unverändert erhalten und nur ein neuer Tag kommt dazu.
+function syncAgendaDaysToRange(existingDays, startDate, endDate){
+  const dates = agendaDateRangeArray(startDate, endDate);
+  return dates.map((date, i) => {
+    const prev = existingDays && existingDays[i];
+    return prev ? {...prev, date} : blankAgendaDay(date);
+  });
+}
+function agendaDaySegmentHtml(seg, dayIdx, segIdx, type){
+  const hasRoutes = seg.tourChoice!=='custom';
+  return `<div class="agenda-day-segment" data-day="${dayIdx}" data-seg="${segIdx}" style="border:1px solid var(--line); border-radius:var(--radius); padding:10px; margin-bottom:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <label style="margin:0;">Tour${segIdx>0 ? ' (weitere)' : ''}</label>
+      ${segIdx>0 ? `<button type="button" class="agenda-seg-remove" data-day="${dayIdx}" data-seg="${segIdx}" style="background:none; border:none; color:var(--danger); font-weight:700; cursor:pointer; font-size:16px; padding:0 4px;">×</button>` : ''}
+    </div>
+    <select class="agenda-day-tour-select" data-day="${dayIdx}" data-seg="${segIdx}">
+      <option value="custom" ${seg.tourChoice==='custom'?'selected':''}>— Neuer Vorschlag (Freitext) —</option>
+      ${agendaTourOptionsHtml(type||'ski', seg.tourChoice)}
+    </select>
+    <input type="text" class="agenda-day-custom-name" data-day="${dayIdx}" data-seg="${segIdx}" placeholder="z. B. Wildspitze über Vent" value="${esc(seg.tourChoice==='custom' ? (seg.tourName||'') : '')}" style="margin-top:6px; width:100%; box-sizing:border-box; ${seg.tourChoice==='custom'?'':'display:none;'}"/>
+    <div class="agenda-day-route-fields" data-day="${dayIdx}" data-seg="${segIdx}" style="margin-top:6px; ${hasRoutes?'':'display:none;'}">
+      <label style="font-size:12.5px;">Zustieg</label>
+      <select class="agenda-day-access-select" data-day="${dayIdx}" data-seg="${segIdx}"><option value="">— nicht festgelegt —</option></select>
+      <label style="font-size:12.5px; margin-top:6px; display:block;">Abstieg</label>
+      <select class="agenda-day-descent-select" data-day="${dayIdx}" data-seg="${segIdx}"><option value="">— nicht festgelegt —</option></select>
+    </div>
+  </div>`;
+}
+function agendaDayOvernightHtml(day, dayIdx){
+  const hutOptions = state.huts.map(h=>`<option value="${esc(h.id)}" ${day.overnight.type==='huette' && day.overnight.hutId===h.id ? 'selected':''}>${esc(h.name)}</option>`).join('');
+  const chip = (val, label) => `<button type="button" class="chip agenda-overnight-chip ${day.overnight.type===val?'on':''}" style="${day.overnight.type===val?'background:var(--ice-deep)':''}" data-day="${dayIdx}" data-overnight="${val}">${label}</button>`;
+  return `<div class="field">
+    <label>Übernachtung</label>
+    <div class="chips">
+      ${chip('biwak', '⛺ Biwak')}
+      ${chip('huette', '🛖 Hütte')}
+      ${chip('andere', '📍 Andere')}
+    </div>
+    <select class="agenda-overnight-hut-select" data-day="${dayIdx}" style="margin-top:8px; ${day.overnight.type==='huette'?'':'display:none;'}">
+      <option value="">— Hütte wählen —</option>
+      ${hutOptions}
+    </select>
+    <input type="text" class="agenda-overnight-custom" data-day="${dayIdx}" placeholder="z. B. Zeltplatz, Privatunterkunft" value="${esc(day.overnight.type==='andere' ? (day.overnight.customLabel||'') : '')}" style="margin-top:8px; ${day.overnight.type==='andere'?'':'display:none;'}"/>
+  </div>`;
+}
+function agendaDayTravelHtml(day, dayIdx, kind){ // kind: 'anreise' (nur erster Tag) | 'abreise' (nur letzter Tag, = Rückreise)
+  const isAnreise = kind==='anreise';
+  const typeVal = isAnreise ? day.anreiseType : day.abreiseType;
+  const ortVal = isAnreise ? day.anreiseOrt : day.abreiseOrt;
+  const chip = (val, label) => `<button type="button" class="chip agenda-travel-chip ${typeVal===val?'on':''}" style="${typeVal===val?'background:var(--ice-deep)':''}" data-day="${dayIdx}" data-kind="${kind}" data-travel="${val}">${label}</button>`;
+  return `<div class="field">
+    <label>${isAnreise ? 'Anreise' : 'Rückreise'}</label>
+    <div class="chips">
+      ${chip('auto', '🚗 Auto')}
+      ${chip('oev', '🚉 Öffentlich')}
+    </div>
+    <div class="agenda-travel-oev-field" data-day="${dayIdx}" data-kind="${kind}" style="margin-top:8px; ${typeVal==='oev'?'':'display:none;'}">
+      <input type="text" class="agenda-travel-ort" data-day="${dayIdx}" data-kind="${kind}" placeholder="${isAnreise?'Zielort für Fahrplan, z. B. Kandersteg':'Zielort für Rückfahrt'}" value="${esc(ortVal||'')}"/>
+    </div>
+  </div>`;
+}
+function agendaDayBlockHtml(day, dayIdx, isFirst, isLast, type){
+  const dateLabel = day.date ? fmtWeekday(day.date) + ', ' + fmtDateShort(day.date) : '?';
+  return `<div class="agenda-day-block" data-day="${dayIdx}" data-date="${esc(day.date||'')}" style="border:1px solid var(--line); border-radius:var(--radius); padding:12px; margin-bottom:12px;">
+    <h4 style="margin:0 0 10px 0;">📅 Tag ${dayIdx+1} — ${esc(dateLabel)}</h4>
+    ${isFirst ? agendaDayTravelHtml(day, dayIdx, 'anreise') : ''}
+    <div class="agenda-day-segments" data-day="${dayIdx}">
+      ${day.segments.map((seg,segIdx)=> agendaDaySegmentHtml(seg, dayIdx, segIdx, type)).join('')}
+    </div>
+    <button type="button" class="btn secondary agenda-add-segment-btn" data-day="${dayIdx}" style="font-size:12.5px; margin-bottom:10px;">+ Weitere Tour an diesem Tag</button>
+    ${!isLast ? agendaDayOvernightHtml(day, dayIdx) : ''}
+    ${isLast ? agendaDayTravelHtml(day, dayIdx, 'abreise') : ''}
+  </div>`;
+}
+function agendaDayPlanHtml(days, type){
+  return `<div class="field"><label>Tagesplan</label></div>` + days.map((day,i)=> agendaDayBlockHtml(day, i, i===0, i===days.length-1, type)).join('');
+}
+// Liest Zustieg/Abstieg-Auswahl für ein Segment neu ein (abhängig von der dort gewählten Tour) —
+// gleiche Logik wie beim eintägigen Formular, nur pro Segment statt einmal fürs ganze Formular.
+// Optionales seg-Objekt (aus dem Draft): stellt eine dort bereits gespeicherte Zustiegs-/Abstiegs-
+// Auswahl nach dem Neuaufbau der Options-Liste wieder her (z. B. nach Tour hinzufügen/entfernen an
+// einem ANDEREN Tag, oder beim Vorbelegen eines zu bearbeitenden Termins) — ohne seg (direkte
+// Nutzer-Änderung der Tour in diesem Segment) bleibt die Auswahl bewusst leer, weil sie zur neuen
+// Tour nicht mehr passt.
+function syncAgendaDaySegmentRouteFields(segEl, seg){
+  const tourSelect = segEl.querySelector('.agenda-day-tour-select');
+  const customInput = segEl.querySelector('.agenda-day-custom-name');
+  const routeWrap = segEl.querySelector('.agenda-day-route-fields');
+  const accessSelect = segEl.querySelector('.agenda-day-access-select');
+  const descentSelect = segEl.querySelector('.agenda-day-descent-select');
+  const val = tourSelect.value;
+  customInput.style.display = val==='custom' ? '' : 'none';
+  if(val==='custom'){ routeWrap.style.display = 'none'; return; }
+  const [src, refId] = val.split(':');
+  const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes({source:src, id:refId});
+  if(!accessRoutes.length && !descentRoutes.length){ routeWrap.style.display = 'none'; return; }
+  routeWrap.style.display = '';
+  const opt = r => `<option value="${esc(r.id)}">${esc(r.name||'?')}</option>`;
+  accessSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + accessRoutes.map(opt).join('');
+  descentSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + descentRoutes.map(opt).join('');
+  if(seg){
+    if(seg.accessRouteId) accessSelect.value = seg.accessRouteId;
+    if(seg.descentRouteId) descentSelect.value = seg.descentRouteId;
+  }
+}
+// Liest den kompletten aktuellen DOM-Stand des Tagesplans in ein days-Array zurück — läuft vor
+// jedem Neu-Rendern (Datumsänderung, Tour hinzufügen/entfernen), damit nichts verloren geht.
+function collectAgendaDayPlanFromDom(container){
+  const dayBlocks = Array.from(container.querySelectorAll('.agenda-day-block'));
+  return dayBlocks.map((block, dayIdx)=>{
+    const isFirst = dayIdx===0;
+    const isLast = dayIdx===dayBlocks.length-1;
+    const segments = Array.from(block.querySelectorAll('.agenda-day-segment')).map(segEl=>{
+      const tourSelect = segEl.querySelector('.agenda-day-tour-select');
+      const tourChoice = tourSelect ? tourSelect.value : 'custom';
+      const customInput = segEl.querySelector('.agenda-day-custom-name');
+      let tourName = '', tourRef = null;
+      if(tourChoice!=='custom'){
+        const [src, refId] = tourChoice.split(':');
+        const list = src==='own' ? state.tours : state.otherAppTours;
+        const ref = list.find(t=>t.id===refId);
+        tourName = ref ? ref.name : '';
+        if(ref) tourRef = {source:src, id:refId};
+      }else{
+        tourName = customInput ? customInput.value.trim() : '';
+      }
+      const accessSelect = segEl.querySelector('.agenda-day-access-select');
+      const descentSelect = segEl.querySelector('.agenda-day-descent-select');
+      return { tourChoice, tourName, tourRef, accessRouteId: accessSelect?accessSelect.value:'', descentRouteId: descentSelect?descentSelect.value:'' };
+    });
+    const anreiseChip = isFirst ? block.querySelector('.agenda-travel-chip.on[data-kind="anreise"]') : null;
+    const anreiseOrtInput = isFirst ? block.querySelector('.agenda-travel-ort[data-kind="anreise"]') : null;
+    const abreiseChip = isLast ? block.querySelector('.agenda-travel-chip.on[data-kind="abreise"]') : null;
+    const abreiseOrtInput = isLast ? block.querySelector('.agenda-travel-ort[data-kind="abreise"]') : null;
+    const overnightChip = !isLast ? block.querySelector('.agenda-overnight-chip.on') : null;
+    const overnightHutSelect = block.querySelector('.agenda-overnight-hut-select');
+    const overnightCustomInput = block.querySelector('.agenda-overnight-custom');
+    return {
+      date: block.getAttribute('data-date') || '',
+      anreiseType: anreiseChip ? anreiseChip.getAttribute('data-travel') : '',
+      anreiseOrt: anreiseOrtInput ? anreiseOrtInput.value.trim() : '',
+      segments: segments.length ? segments : [blankAgendaDaySegment()],
+      overnight: {
+        type: overnightChip ? overnightChip.getAttribute('data-overnight') : '',
+        hutId: overnightHutSelect ? overnightHutSelect.value : '',
+        customLabel: overnightCustomInput ? overnightCustomInput.value.trim() : ''
+      },
+      abreiseType: abreiseChip ? abreiseChip.getAttribute('data-travel') : '',
+      abreiseOrt: abreiseOrtInput ? abreiseOrtInput.value.trim() : ''
+    };
+  });
+}
+// Baut den Bereich unterhalb von "Art" neu auf: klassische Einzeltag-Felder, solange kein
+// (abweichendes) Enddatum gesetzt ist, sonst der Tag-für-Tag-Plan. Wird beim ersten Öffnen des
+// Formulars UND bei jeder Änderung von Start-/Enddatum aufgerufen.
+function syncAgendaDayPlanMode(agendaForm){
+  const container = agendaForm.querySelector('#agenda-day-plan-container');
+  if(!container) return;
+  const startDate = agendaForm.querySelector('#agenda-start-date').value;
+  const endDate = agendaForm.querySelector('#agenda-end-date').value;
+  const typeSelect = agendaForm.querySelector('select[name="type"]');
+  const currentType = typeSelect ? typeSelect.value : 'ski';
+  const isMultiDay = !!(startDate && endDate && endDate > startDate);
+  if(container.dataset.mode==='multi'){
+    // Vor jedem Neu-Rendern zuerst den aktuellen DOM-Stand sichern (Tour-Auswahl, Übernachtung
+    // usw.) — sonst gingen Eingaben verloren, die keinen Rebuild ausgelöst haben.
+    agendaDayPlanDraft = collectAgendaDayPlanFromDom(container);
+  }
+  if(!isMultiDay){
+    container.dataset.mode = 'single';
+    container.innerHTML = agendaSingleDayFieldsHtml(currentType);
+    agendaDayPlanDraft = null;
+    wireAgendaSingleDayFieldHandlers(agendaForm);
+    return;
+  }
+  agendaDayPlanDraft = syncAgendaDaysToRange(agendaDayPlanDraft, startDate, endDate);
+  container.dataset.mode = 'multi';
+  container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft, currentType);
+  container.querySelectorAll('.agenda-day-segment').forEach(segEl => {
+    const d = Number(segEl.getAttribute('data-day')), s = Number(segEl.getAttribute('data-seg'));
+    syncAgendaDaySegmentRouteFields(segEl, agendaDayPlanDraft[d] && agendaDayPlanDraft[d].segments[s]);
+  });
+}
+// Verdrahtet die klassischen Einzeltag-Felder — identisch zum bisherigen Verhalten, nur hierher
+// verschoben, weil sie jetzt bei jedem Moduswechsel neu ins DOM eingefügt werden.
+function wireAgendaSingleDayFieldHandlers(agendaForm){
+  const tourSelect = agendaForm.querySelector('#agenda-tour-select');
+  const customField = agendaForm.querySelector('#agenda-custom-field');
+  const routeFieldsWrap = agendaForm.querySelector('#agenda-route-fields');
+  const accessRouteSelect = agendaForm.querySelector('#agenda-access-route-select');
+  const descentRouteSelect = agendaForm.querySelector('#agenda-descent-route-select');
+  function syncCustomFieldVisibility(){
+    if(customField) customField.style.display = (tourSelect && tourSelect.value!=='custom') ? 'none' : '';
+  }
+  function syncTypeFromTourChoice(){
+    if(!tourSelect || tourSelect.value==='custom') return;
+    const [src, refId] = tourSelect.value.split(':');
+    const list = src==='own' ? state.tours : state.otherAppTours;
+    const ref = list.find(t=>t.id===refId);
+    if(!ref) return;
+    const typeSelect = agendaForm.querySelector('select[name="type"]');
+    if(!typeSelect) return;
+    // Nur Hochtour/MSL-Touren tragen ein tourCategory-Feld (Skitouren nie, unabhängig davon, ob
+    // das in dieser App die "eigenen" oder die "anderen" Touren sind) — app-unabhängig also anhand
+    // dieses Felds entscheiden statt anhand von src (das würde je nach App das Gegenteil bedeuten).
+    typeSelect.value = ref.tourCategory ? (ref.tourCategory==='msl' ? 'msl' : 'hochtour') : 'ski';
+  }
+  function syncRouteFieldsFromTourChoice(){
+    if(!tourSelect || !routeFieldsWrap) return;
+    if(tourSelect.value==='custom'){ routeFieldsWrap.style.display = 'none'; accessRouteSelect.innerHTML = ''; descentRouteSelect.innerHTML = ''; return; }
+    const [src, refId] = tourSelect.value.split(':');
+    const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes({source:src, id:refId});
+    if(!accessRoutes.length && !descentRoutes.length){ routeFieldsWrap.style.display = 'none'; return; }
+    routeFieldsWrap.style.display = '';
+    const opt = r => `<option value="${esc(r.id)}">${esc(r.name||'?')}</option>`;
+    accessRouteSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + accessRoutes.map(opt).join('');
+    descentRouteSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + descentRoutes.map(opt).join('');
+  }
+  if(tourSelect){
+    tourSelect.addEventListener('change', ()=>{ syncCustomFieldVisibility(); syncTypeFromTourChoice(); syncRouteFieldsFromTourChoice(); });
+    syncCustomFieldVisibility();
+    syncTypeFromTourChoice();
+    syncRouteFieldsFromTourChoice();
+  }
+  const anreiseHidden = agendaForm.querySelector('#anreise-type-hidden');
+  const anreiseOevField = agendaForm.querySelector('#anreise-oev-field');
+  agendaForm.querySelectorAll('.anreise-chip').forEach(chip=>{
+    chip.onclick = ()=>{
+      const val = chip.getAttribute('data-anreise');
+      const already = anreiseHidden.value === val;
+      agendaForm.querySelectorAll('.anreise-chip').forEach(c=>{ c.classList.remove('on'); c.style.background = ''; });
+      anreiseHidden.value = already ? '' : val;
+      if(!already){ chip.classList.add('on'); chip.style.background = 'var(--ice-deep)'; }
+      anreiseOevField.style.display = anreiseHidden.value==='oev' ? '' : 'none';
+    };
+  });
+  const sbbLinkBtn = agendaForm.querySelector('#sbb-link-btn');
+  if(sbbLinkBtn) sbbLinkBtn.onclick = ()=>{
+    const ortInput = agendaForm.querySelector('input[name="anreiseOrt"]');
+    const dateInput = agendaForm.querySelector('input[name="startDate"]');
+    const meetingInput = agendaForm.querySelector('input[name="meetingPoint"]');
+    window.open(buildSbbLink(ortInput ? ortInput.value.trim() : '', dateInput ? dateInput.value : '', meetingInput ? meetingInput.value.trim() : ''), '_blank', 'noopener');
+  };
+  const endOptionHidden = agendaForm.querySelector('#end-option-hidden');
+  const endNoteInput = agendaForm.querySelector('#end-note-input');
+  agendaForm.querySelectorAll('.end-option-chip').forEach(chip=>{
+    chip.onclick = ()=>{
+      const val = chip.getAttribute('data-end');
+      const already = endOptionHidden.value === val;
+      agendaForm.querySelectorAll('.end-option-chip').forEach(c=>{ c.classList.remove('on'); c.style.background = ''; });
+      endOptionHidden.value = already ? '' : val;
+      if(!already){ chip.classList.add('on'); chip.style.background = 'var(--ice-deep)'; }
+      endNoteInput.style.display = endOptionHidden.value ? '' : 'none';
+      endNoteInput.placeholder = endOptionHidden.value==='huette' ? 'Name der Hütte' : endOptionHidden.value==='heimweg' ? 'Notiz zum Heimweg (optional)' : '';
+    };
+  });
+}
+// Event-Delegation auf dem Container statt Einzel-Listenern: Tage/Segmente werden dynamisch
+// hinzugefügt/entfernt, eine Delegation muss darum nicht nach jedem Neu-Rendern neu verdrahtet
+// werden. Wird einmal beim Öffnen des Formulars aufgerufen.
+function wireAgendaDayPlanContainer(agendaForm){
+  const container = agendaForm.querySelector('#agenda-day-plan-container');
+  if(!container) return;
+  container.addEventListener('click', (e)=>{
+    const typeSelect = agendaForm.querySelector('select[name="type"]');
+    const currentType = typeSelect ? typeSelect.value : 'ski';
+    const addSegBtn = e.target.closest('.agenda-add-segment-btn');
+    if(addSegBtn){
+      const dayIdx = Number(addSegBtn.getAttribute('data-day'));
+      agendaDayPlanDraft = collectAgendaDayPlanFromDom(container);
+      agendaDayPlanDraft[dayIdx].segments.push(blankAgendaDaySegment());
+      container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft, currentType);
+      container.querySelectorAll('.agenda-day-segment').forEach(segEl => {
+        const d = Number(segEl.getAttribute('data-day')), s = Number(segEl.getAttribute('data-seg'));
+        syncAgendaDaySegmentRouteFields(segEl, agendaDayPlanDraft[d].segments[s]);
+      });
+      markModalDirty();
+      return;
+    }
+    const removeSegBtn = e.target.closest('.agenda-seg-remove');
+    if(removeSegBtn){
+      const dayIdx = Number(removeSegBtn.getAttribute('data-day'));
+      const segIdx = Number(removeSegBtn.getAttribute('data-seg'));
+      agendaDayPlanDraft = collectAgendaDayPlanFromDom(container);
+      agendaDayPlanDraft[dayIdx].segments.splice(segIdx, 1);
+      container.innerHTML = agendaDayPlanHtml(agendaDayPlanDraft, currentType);
+      container.querySelectorAll('.agenda-day-segment').forEach(segEl => {
+        const d = Number(segEl.getAttribute('data-day')), s = Number(segEl.getAttribute('data-seg'));
+        syncAgendaDaySegmentRouteFields(segEl, agendaDayPlanDraft[d].segments[s]);
+      });
+      markModalDirty();
+      return;
+    }
+    const overnightChip = e.target.closest('.agenda-overnight-chip');
+    if(overnightChip){
+      const dayIdx = overnightChip.getAttribute('data-day');
+      const val = overnightChip.getAttribute('data-overnight');
+      const block = overnightChip.closest('.agenda-day-block');
+      const already = overnightChip.classList.contains('on');
+      block.querySelectorAll('.agenda-overnight-chip').forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+      const hutSelect = block.querySelector('.agenda-overnight-hut-select');
+      const customInput = block.querySelector('.agenda-overnight-custom');
+      if(already){
+        hutSelect.style.display = 'none'; customInput.style.display = 'none';
+      }else{
+        overnightChip.classList.add('on'); overnightChip.style.background = 'var(--ice-deep)';
+        hutSelect.style.display = val==='huette' ? '' : 'none';
+        customInput.style.display = val==='andere' ? '' : 'none';
+      }
+      return;
+    }
+    const travelChip = e.target.closest('.agenda-travel-chip');
+    if(travelChip){
+      const kind = travelChip.getAttribute('data-kind');
+      const val = travelChip.getAttribute('data-travel');
+      const block = travelChip.closest('.agenda-day-block');
+      const already = travelChip.classList.contains('on');
+      block.querySelectorAll(`.agenda-travel-chip[data-kind="${kind}"]`).forEach(c=>{ c.classList.remove('on'); c.style.background=''; });
+      const oevField = block.querySelector(`.agenda-travel-oev-field[data-kind="${kind}"]`);
+      if(already){
+        oevField.style.display = 'none';
+      }else{
+        travelChip.classList.add('on'); travelChip.style.background = 'var(--ice-deep)';
+        oevField.style.display = val==='oev' ? '' : 'none';
+      }
+      return;
+    }
+  });
+  container.addEventListener('change', (e)=>{
+    const tourSelect = e.target.closest('.agenda-day-tour-select');
+    if(tourSelect){ syncAgendaDaySegmentRouteFields(tourSelect.closest('.agenda-day-segment')); markModalDirty(); }
+  });
+}
+async function submitAgendaForm(form){
+  const startDate = form.startDate;
+  if(!startDate){ showFormError('agenda-form', 'Bitte ein Startdatum wählen.'); return; }
+  const isMultiDay = Array.isArray(form.days) && form.days.length>0;
+  let tourName = '', tourRef = null;
+  let accessRouteId = '', descentRouteId = '';
+  let anreiseType = '', anreiseOrt = '';
+  let endOption = '', endNote = '';
+  let days = null;
+  if(isMultiDay){
+    days = form.days;
+    const firstNamedSeg = days.flatMap(d=>d.segments).find(s=> s.tourName);
+    tourName = firstNamedSeg ? firstNamedSeg.tourName : '';
+    const firstSegWithRef = days[0].segments.find(s=>s.tourRef);
+    tourRef = firstSegWithRef ? firstSegWithRef.tourRef : null;
+    accessRouteId = days[0].segments[0] ? days[0].segments[0].accessRouteId : '';
+    descentRouteId = days[days.length-1].segments.slice(-1)[0] ? days[days.length-1].segments.slice(-1)[0].descentRouteId : '';
+    anreiseType = days[0].anreiseType; anreiseOrt = days[0].anreiseOrt;
+    const lastDay = days[days.length-1];
+    endOption = lastDay.abreiseType ? 'heimweg' : '';
+  }else{
+    if(form.tourChoice && form.tourChoice!=='custom'){
+      const [src, refId] = form.tourChoice.split(':');
+      const list = src==='own' ? state.tours : state.otherAppTours;
+      const ref = list.find(t=>t.id===refId);
+      tourName = ref ? ref.name : (form.customName||'').trim();
+      if(ref) tourRef = {source: src, id: refId};
+    }else{
+      tourName = (form.customName||'').trim();
+    }
+    accessRouteId = form.accessRouteId||''; descentRouteId = form.descentRouteId||'';
+    anreiseType = form.anreiseType||''; anreiseOrt = form.anreiseOrt||'';
+    endOption = form.endOption||''; endNote = form.endNote||'';
+  }
+  if(!tourName){ showFormError('agenda-form', isMultiDay ? 'Bitte für mindestens einen Tag eine Tour auswählen oder einen Vorschlag eintragen.' : 'Bitte eine Tour auswählen oder einen Vorschlag eintragen.'); return; }
+
+  // Beim Bearbeiten eines bestehenden Termins bleiben Teilnehmer/Status/Ersteller/Wetter-Snapshot
+  // unangetastet (per Spread übernommen) — nur die im Formular editierbaren Felder werden ersetzt.
+  const editId = form.agendaEditId || '';
+  const existing = editId ? state.agenda.find(x=>x.id===editId) : null;
+  const editableFields = {
+    type: form.type||'ski', startDate, endDate: form.endDate||'',
+    tourName, tourRef, meetingPoint: form.meetingPoint||'', note: form.note||'',
+    days,
+    accessRouteId, descentRouteId,
+    anreiseType, anreiseOrt,
+    endOption, endNote,
+    plannedReturnTime: form.plannedReturnTime||'', emergencyContact: form.emergencyContact||'',
+  };
+  // Tourenbriefing (Schritt 4) — nur übernehmen, wenn das Formular es mitgeschickt hat.
+  if(typeof form.briefing === 'string' && form.briefing){
+    try{
+      const b = JSON.parse(form.briefing);
+      b.ablauf = (b.ablauf||[]).filter(r=> (r.label||'').trim() || (r.t||'').trim());
+      editableFields.briefing = b;
+    }catch(e){}
+  }
+  state._briefingDraft = null;
+  const a = existing ? {...existing, ...editableFields} : {
+    id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
+    ...editableFields,
+    participants: [{by: state.myName, joinedAt: new Date().toISOString()}],
+    status: 'geplant'
+  };
+  if(existing){
+    state.agenda[state.agenda.findIndex(x=>x.id===editId)] = a;
+  }else{
+    state.agenda.unshift(a);
+  }
+  closeModal();
+  state.modal = {type:'agenda-detail', payload:a.id};
+  render();
+  const ok = await saveAgendaCloud(a).catch(()=>false);
+  a._unsynced = !ok;
+  if(!ok){ markUnsaved(); showToast(existing ? 'Änderungen lokal gespeichert, aber nicht synchronisiert.' : 'Termin lokal gespeichert, aber nicht synchronisiert.', true); }
+  else{ showToast(existing ? 'Änderungen gespeichert.' : 'Termin vorgeschlagen.'); }
+  render();
+}
+async function toggleParticipation(id){
+  ensureName(async ()=>{
+    const a = state.agenda.find(x=>x.id===id);
+    if(!a) return;
+    a.participants = a.participants || [];
+    const idx = a.participants.findIndex(p=>p.by===state.myName);
+    if(idx>=0) a.participants.splice(idx,1);
+    else a.participants.push({by: state.myName, joinedAt: new Date().toISOString()});
+    render();
+    const ok = await saveAgendaCloud(a).catch(()=>false);
+    a._unsynced = !ok;
+    if(!ok) markUnsaved();
+    render();
+  });
+}
+async function setAgendaStatus(id, status){
+  const a = state.agenda.find(x=>x.id===id);
+  if(!a || !AGENDA_STATUS_ORDER.includes(status)) return;
+  a.status = status;
+  render();
+  const ok = await saveAgendaCloud(a).catch(()=>false);
+  a._unsynced = !ok;
+  if(!ok) markUnsaved();
+  render();
+}
+
+/* ================= Notfallkarte (app-übergreifend geteilt) ================= */
+function wgs84ToLV95(lat, lon){
+  const latSec = lat * 3600;
+  const lonSec = lon * 3600;
+  const latAux = (latSec - 169028.66) / 10000;
+  const lonAux = (lonSec - 26782.5) / 10000;
+  const E = 2600072.37
+    + 211455.93 * lonAux
+    - 10938.51 * lonAux * latAux
+    - 0.36 * lonAux * latAux * latAux
+    - 44.54 * lonAux * lonAux * lonAux;
+  const N = 1200147.07
+    + 308807.95 * latAux
+    - 3745.25 * lonAux * lonAux
+    - 76.63 * latAux * latAux
+    - 194.56 * lonAux * lonAux * latAux
+    + 119.79 * latAux * latAux * latAux;
+  return { E: Math.round(E), N: Math.round(N) };
+}
+
+function emergencyCardHtml(){
+  return `<div class="modal" data-stop="1" style="max-width:520px;">
+    <div class="modal-head"><h2>🆘 Notfallkarte</h2><button class="x-btn" data-act="close-modal">×</button></div>
+
+    <div class="detail-section" style="margin-top:0;">
+      <h4>Alarmierung</h4>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <a href="tel:1414" style="display:flex; justify-content:space-between; align-items:center; background:var(--danger); color:#fff; padding:12px 16px; border-radius:var(--radius); text-decoration:none; font-weight:700;">
+          <span>🚁 Rega (Gebirgsnotfall)</span><span class="mono">1414</span>
+        </a>
+        <a href="tel:112" style="display:flex; justify-content:space-between; align-items:center; background:var(--ice-deep); color:#fff; padding:12px 16px; border-radius:var(--radius); text-decoration:none; font-weight:700;">
+          <span>🆘 Europäischer Notruf</span><span class="mono">112</span>
+        </a>
+        <a href="tel:117" style="display:flex; justify-content:space-between; align-items:center; background:var(--ink-soft); color:#fff; padding:12px 16px; border-radius:var(--radius); text-decoration:none; font-weight:700;">
+          <span>👮 Polizei</span><span class="mono">117</span>
+        </a>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <h4>Notruf — die 5 W</h4>
+      <p style="line-height:1.9; margin:0;">
+        <strong>Wer</strong> meldet den Unfall?<br>
+        <strong>Was</strong> ist passiert?<br>
+        <strong>Wo</strong> — Ort/Koordinaten (siehe unten)?<br>
+        <strong>Wie viele</strong> Verletzte, welcher Zustand?<br>
+        <strong>Wetter</strong> — Sicht, Wind, Wolken vor Ort?
+      </p>
+      <p style="font-size:12.5px; color:var(--ink-faint); margin:8px 0 0 0;">Nicht auflegen, bis die Zentrale das Gespräch beendet.</p>
+    </div>
+
+    <div class="detail-section">
+      <h4>📍 Aktueller Standort</h4>
+      <button type="button" class="btn secondary" id="gps-fetch-btn">Standort abrufen</button>
+      <p id="gps-status" style="font-size:13px; color:var(--ink-soft); margin-top:8px;"></p>
+      <div id="gps-result" style="display:none; margin-top:10px;"></div>
+    </div>
+
+    <div class="detail-section">
+      <h4>❄️ Lawinen-Notfall (Kameradenrettung)</h4>
+      <ol style="padding-left:18px; line-height:2; margin:0;">
+        <li>Ruhe bewahren, eigene Sicherheit prüfen (Nachlawine?)</li>
+        <li>Verschwindepunkt der/des Verschütteten merken</li>
+        <li>Notruf absetzen (1414 / 112) — wenn möglich jemand anderen damit beauftragen</li>
+        <li>LVS auf Suchen schalten, Suchstreifen abgehen (Grobsuche)</li>
+        <li>Feinsuche: LVS nah am Schnee, kreuzweise absuchen</li>
+        <li>Sondieren am Signalpunkt, spiralförmig</li>
+        <li>Zügig ausschaufeln — Kopf/Atemwege zuerst freilegen</li>
+        <li>Erste Hilfe, vor Auskühlung schützen, auf Rettung warten</li>
+      </ol>
+      <p style="font-size:12.5px; color:var(--ink-faint); margin-top:8px;">Die Überlebenschance sinkt mit der Verschüttungsdauer rasch — schnelles, strukturiertes Handeln zählt.</p>
+    </div>
+  </div>`;
+}
+
+function startGpsLookup(){
+  const statusEl = document.getElementById('gps-status');
+  const resultEl = document.getElementById('gps-result');
+  if(!navigator.geolocation){
+    if(statusEl) statusEl.textContent = 'Geolokalisierung wird von diesem Gerät/Browser nicht unterstützt.';
+    return;
+  }
+  if(statusEl) statusEl.textContent = 'Standort wird ermittelt…';
+  if(resultEl) resultEl.style.display = 'none';
+  navigator.geolocation.getCurrentPosition(
+    (pos)=>{
+      const lat = pos.coords.latitude, lon = pos.coords.longitude, acc = pos.coords.accuracy;
+      const lv95 = wgs84ToLV95(lat, lon);
+      const wgsText = lat.toFixed(6) + ', ' + lon.toFixed(6);
+      const lv95Text = lv95.E + ' / ' + lv95.N;
+      if(statusEl) statusEl.textContent = '';
+      if(resultEl){
+        resultEl.style.display = '';
+        resultEl.innerHTML = `
+          <div class="field"><label>WGS84 (Breite, Länge)</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input readonly value="${esc(wgsText)}" id="gps-wgs84-value" style="flex:1;"/>
+              <button type="button" class="btn secondary" data-copy-target="gps-wgs84-value">Kopieren</button>
+            </div>
+          </div>
+          <div class="field"><label>Schweizer Landeskoordinaten (LV95)</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input readonly value="${esc(lv95Text)}" id="gps-lv95-value" style="flex:1;"/>
+              <button type="button" class="btn secondary" data-copy-target="gps-lv95-value">Kopieren</button>
+            </div>
+          </div>
+          <p style="font-size:12.5px; color:var(--ink-faint); margin:6px 0 0 0;">Genauigkeit: ±${Math.round(acc)} m</p>
+          <button type="button" class="btn secondary" style="margin-top:10px;" onclick="renderMiniMap('emergency-map', ${lat}, ${lon}, 'Aktueller Standort')">🗺️ Karte anzeigen</button>
+          <div id="emergency-map" style="margin-top:10px;"></div>
+        `;
+        resultEl.querySelectorAll('[data-copy-target]').forEach(btn=>{
+          btn.addEventListener('click', ()=>{
+            const input = document.getElementById(btn.getAttribute('data-copy-target'));
+            if(input){
+              input.select();
+              try{ navigator.clipboard.writeText(input.value); showToast('Kopiert.'); }
+              catch(e){ showToast('Kopieren nicht möglich — bitte manuell markieren.', true); }
+            }
+          });
+        });
+      }
+    },
+    (err)=>{
+      if(statusEl) statusEl.textContent = 'Standort konnte nicht ermittelt werden: ' + (err && err.message ? err.message : 'Zugriff verweigert oder kein Signal.');
+    },
+    { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
+  );
+}
+
+/* ================= Karte (app-übergreifend geteilt, nur bei Bedarf geladen) ================= */
+let leafletLoadPromise = null;
+function ensureLeafletLoaded(){
+  if(window.L) return Promise.resolve();
+  if(leafletLoadPromise) return leafletLoadPromise;
+  leafletLoadPromise = new Promise((resolve, reject)=>{
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Kartenbibliothek konnte nicht geladen werden.'));
+    document.head.appendChild(script);
+  });
+  return leafletLoadPromise;
+}
+/* ================= Vollbild-Karte (generisch, für alle Kartenansichten) ================= */
+function ensureFullscreenMapOverlay(){
+  let overlay = document.getElementById('fullscreen-map-overlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'fullscreen-map-overlay';
+    overlay.style.cssText = 'position:fixed; inset:0; z-index:200; background:#000; display:none;';
+    overlay.innerHTML = `
+      <button id="fullscreen-map-close" style="position:absolute; top:14px; right:14px; z-index:100000; background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 18px; height:46px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.5); display:flex; align-items:center; gap:6px;">✕ Schliessen</button>
+      <div id="fullscreen-map-container" style="width:100%; height:100%;"></div>
+    `;
+    document.body.appendChild(overlay);
+    document.getElementById('fullscreen-map-close').addEventListener('click', closeTopOverlayLayer);
+  }
+  return overlay;
+}
+function openFullscreenMap(renderFn, onCloseCallback){
+  const overlay = ensureFullscreenMapOverlay();
+  overlay.style.display = 'block';
+  overlay._onClose = onCloseCallback || null;
+  renderFn('fullscreen-map-container');
+  pushOverlayLayer(closeFullscreenMap);
+}
+function closeFullscreenMap(){
+  const overlay = document.getElementById('fullscreen-map-overlay');
+  if(!overlay) return;
+  // Sicherheitsnetz für die Übersichtskarte: den zuletzt gezeigten Ausschnitt direkt vom lebenden
+  // Leaflet-Objekt abfragen, statt sich allein auf das 'moveend'-Event zu verlassen — ein Wisch mit
+  // Schwung (Trägheits-Animation) feuert moveend erst nach dessen Ende; wird die Karte (z. B. durch
+  // Antippen eines Tour-Markers direkt danach) schon vorher geschlossen, blieb lastStandaloneMapView
+  // sonst auf dem alten Stand, und beim nächsten Öffnen zoomte die Karte scheinbar grundlos zurück.
+  const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
+  if(m && m._isStandaloneMap){
+    try{ lastStandaloneMapView = {center: m.getCenter(), zoom: m.getZoom()}; }catch(e){}
+  }else if(m && m._isPointsEditorMap){
+    // Gleiches Sicherheitsnetz wie oben, für die Punkte-Karte der Bearbeiten-Formulare.
+    try{ lastPointsEditorMapView = {center: m.getCenter(), zoom: m.getZoom()}; }catch(e){}
+  }
+  overlay.style.display = 'none';
+  const container = document.getElementById('fullscreen-map-container');
+  if(container) container.innerHTML = '';
+  if(overlay._onClose){ overlay._onClose(); overlay._onClose = null; }
+}
+
+/* ================= Eigenständige Karte (unabhängig von einer Tour), mit Standort/Navi =================
+   Öffnet die Vollbild-Karte direkt, ohne dass vorher eine Tour/Hütte geöffnet sein muss —
+   erreichbar über den Button "🗺️ Karte" oben in der App-Umschalt-Leiste. */
+function openStandaloneMap(){
+  openFullscreenMap(renderStandaloneMap, function(){
+    const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
+    if(m){ try{ m.stopLocate(); }catch(e){} }
+  });
+}
+
+function renderStandaloneMap(containerId){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:#fff;">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    el2.style.position = 'relative';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = 'width:100%; height:100%;';
+    el2.appendChild(mapDiv);
+    const map = L.map(mapDivId, {attributionControl:true});
+    // Markiert diese Karte als DIE Übersichtskarte (im Unterschied zu den vielen anderen, kleineren
+    // Vollbild-Karten, die denselben Container über makeFullscreenButton/openFullscreenMap nutzen) —
+    // ausgewertet in closeFullscreenMap(), damit der zuletzt gezeigte Ausschnitt auch dann sicher
+    // festgehalten wird, wenn kein abschliessendes 'moveend' mehr ankommt (z. B. weil eine Schwung-
+    // Animation nach dem Verschieben/Zoomen noch läuft und die Karte währenddessen geschlossen wird).
+    map._isStandaloneMap = true;
+    if(lastStandaloneMapView) map.setView(lastStandaloneMapView.center, lastStandaloneMapView.zoom);
+    else map.setView([46.8182, 8.2275], 8);
+    map.on('moveend', ()=>{ lastStandaloneMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
+    registerMap(mapDivId, map);
+    const { skitourenLayer, wegsperrungenLayer } = addBaseLayerSwitcher(map);
+
+    // Ist die Skitouren- oder Wegsperrungen-Ebene eingeschaltet, zeigt ein Klick Infos zur
+    // angetippten Route/Sperrung — analog zum Punkte/Linie-Editor.
+    map.on('click', async (e)=>{
+      // Wartet der Wanderungsplaner gerade auf einen Kartenklick für Start/Ziel/Zwischenpunkt
+      // (siehe weiter unten), wird der Klick dafür verwendet und nicht mehr an die Skitouren-/
+      // Sperrungs-Erkennung weitergereicht. Bei Zwischenpunkten bleibt der Auswahlmodus aktiv,
+      // damit mehrere hintereinander gesetzt werden können, ohne den Button erneut zu drücken.
+      if(typeof plannerExpanded !== 'undefined' && plannerExpanded && !plannerPicking && !(typeof addPointPicking !== 'undefined' && addPointPicking)){
+        plannerTapOnMap(e.latlng.lat, e.latlng.lng);
+        return;
+      }
+      if(typeof plannerPicking !== 'undefined' && plannerPicking){
+        if(plannerPicking === 'waypoint'){
+          addPlannerWaypoint(e.latlng.lat, e.latlng.lng);
+          return;
+        }
+        const which = plannerPicking;
+        plannerPicking = null;
+        setPlannerPoint(which, e.latlng.lat, e.latlng.lng, which==='start' ? 'Punkt auf der Karte' : 'Zielpunkt auf der Karte');
+        return;
+      }
+      // "Punkt setzen"-Modus (siehe addPointBtn weiter unten) — ebenfalls zweistufig: erst den
+      // Knopf scharf schalten, dann diesen einen Tap verwenden, danach automatisch wieder aus.
+      if(typeof addPointPicking !== 'undefined' && addPointPicking){
+        addPointPicking = false;
+        if(typeof renderAddPointBtn === 'function') renderAddPointBtn();
+        L.popup().setLatLng(e.latlng).setContent(pointPlacementPopupContent(e.latlng.lat, e.latlng.lng)).openOn(map);
+        return;
+      }
+      if(skitourenLayer && map.hasLayer(skitourenLayer)){
+        const feature = await identifySkitourAt(map, e.latlng);
+        if(feature){
+          L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature)).openOn(map);
+          return;
+        }
+      }
+      if(wegsperrungenLayer && map.hasLayer(wegsperrungenLayer)){
+        const feature = await identifyWegsperrungAt(map, e.latlng);
+        if(feature){
+          L.popup().setLatLng(e.latlng).setContent(buildWegsperrungPopupContent(feature)).openOn(map);
+        }
+      }
+    });
+
+    // Alle eigenen Touren (Punkte & Tracks) auf der Karte anzeigen — analog zur Skitouren-Ebene,
+    // aber immer sichtbar (das ist ja der Zweck dieser Übersichtskarte), nach Tourenart farblich
+    // unterschieden und einzeln ein-/ausblendbar. Antippen eines Punkts/Tracks öffnet die
+    // jeweilige Tour direkt.
+    const TOUR_CATEGORY_META = {
+      // Neuer Look: dieselben Akzentfarben wie die Disziplinen (Skitour/Hochtour/Klettern).
+      hochtour: { label: '🏔️ Hochtour', color: '#4E5A9C' },
+      msl: { label: '🧗 MSL', color: '#9A5418' },
+      skitour: { label: '🎿 Skitour', color: '#1E6AA0' },
+      huette: { label: '🛖 Hütten', color: '#33434D' },
+      sektor: { label: '⛺ Sektoren', color: '#5E7A3A' },
+      klettergebiet: { label: '⛰️ Klettergebiete', color: '#B06A2A' },
+      zustieg: { label: '🚶 Zustiege', color: '#2F7DB5' }
+    };
+    // Sommerzustiege gelb, Winterzustiege (und Tour-/Sektor-Routen ohne Saison) blau —
+    // analog zur Farblogik in accessRouteColor() für die einzelnen Zustiegs-Karten.
+    function zustiegLineColor(r){
+      return r.season==='sommer' ? '#E8B93E' : TOUR_CATEGORY_META.zustieg.color;
+    }
+    // Welche Tourenarten überhaupt möglich sind, hängt von der App ab (nicht von
+    // Zufällen in den Daten wie z. B. alten Hochtour/MSL-Einträgen ohne tourCategory-Feld
+    // aus der Zeit vor dieser Unterscheidung) — sonst könnte in der Skitour-App fälschlich
+    // ein Hochtour-Chip auftauchen bzw. in der Hochtour/MSL-App ein Skitour-Chip.
+    const isFixseilApp = typeof SEKTOREN_PATH !== 'undefined';
+    function tourCategoryKey(t){
+      if(!isFixseilApp) return 'skitour'; // Skitour-App: nur diese eine Tourenart möglich
+      return t.tourCategory === 'msl' ? 'msl' : 'hochtour'; // Hochtour/MSL-App: 'hochtour' auch als Fallback für alte Touren ohne das Feld
+    }
+    function openTourFromMap(tourId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openTourDetail === 'function') openTourDetail(tourId);
+    }
+    // Springt direkt ins Bearbeiten-Formular mit bereits geöffneter Punkte-Karte (siehe
+    // state._openPointsMapOnNextRender, ausgewertet in wireModalHandlers).
+    function openTourEditFromMap(tourId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openEditTour === 'function'){
+        state._openPointsMapOnNextRender = true;
+        openEditTour(tourId);
+      }
+    }
+    function openHutFromMap(hutId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openHutDetail === 'function') openHutDetail(hutId);
+    }
+    function openHutEditFromMap(hutId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openEditHut === 'function'){
+        state._openPointsMapOnNextRender = true;
+        openEditHut(hutId);
+      }
+    }
+    function openHutAccessRouteFromMap(hutId, routeId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      const hut = (state.huts||[]).find(h=>h.id===hutId);
+      const route = hut && hut.accessRoutes ? hut.accessRoutes.find(r=>r.id===routeId) : null;
+      if(!hut || !route) return;
+      state.modal = {type:'access-route-detail', payload:{hutId, route}};
+      render();
+    }
+    function openSektorFromMap(sektorId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openSektorDetail === 'function') openSektorDetail(sektorId);
+    }
+    function openSektorEditFromMap(sektorId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openEditSektor === 'function'){
+        state._openPointsMapOnNextRender = true;
+        openEditSektor(sektorId);
+      }
+    }
+    function openKlettergebietFromMap(gebId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openKlettergebietDetail === 'function') openKlettergebietDetail(gebId);
+    }
+    function openKlettergebietEditFromMap(gebId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      if(typeof openEditKlettergebiet === 'function'){
+        state._openPointsMapOnNextRender = true;
+        openEditKlettergebiet(gebId);
+      }
+    }
+    // Hängt einen frisch auf der Übersichtskarte getippten Punkt an eine bestehende Tour/Hütte/
+    // einen Sektor an (siehe pointPlacementPopupContent) — speichert sofort und zeichnet die
+    // Karte an Ort und Stelle neu (der Kartenausschnitt bleibt dabei erhalten, siehe
+    // lastStandaloneMapView), damit der neue Marker ohne Kartenwechsel sichtbar wird.
+    async function appendPointToTourFromMap(tourId, lat, lon){
+      const t = (state.tours||[]).find(x=>x.id===tourId);
+      if(!t) return;
+      if(!Array.isArray(t.points)) t.points = [];
+      t.points.push({label:'', lat, lon});
+      t.updatedAt = new Date().toISOString();
+      t.updatedBy = state.myName;
+      const ok = (typeof saveTourCloud === 'function') ? await saveTourCloud(t).catch(()=>false) : false;
+      t._unsynced = !ok;
+      showToast(ok ? 'Punkt zu "' + t.name + '" hinzugefügt.' : 'Punkt lokal hinzugefügt, aber nicht synchronisiert.', !ok);
+      renderStandaloneMap(containerId);
+    }
+    async function appendPointToHutFromMap(hutId, lat, lon){
+      const h = (state.huts||[]).find(x=>x.id===hutId);
+      if(!h) return;
+      if(!Array.isArray(h.points)) h.points = [];
+      h.points.push({label:'', lat, lon});
+      h.updatedAt = new Date().toISOString();
+      h.updatedBy = state.myName;
+      const ok = (typeof saveHutCloud === 'function') ? await saveHutCloud(h).catch(()=>false) : false;
+      h._unsynced = !ok;
+      showToast(ok ? 'Punkt zu "' + h.name + '" hinzugefügt.' : 'Punkt lokal hinzugefügt, aber nicht synchronisiert.', !ok);
+      renderStandaloneMap(containerId);
+    }
+    async function appendPointToSektorFromMap(sektorId, lat, lon){
+      const sek = (state.sektoren||[]).find(x=>x.id===sektorId);
+      if(!sek) return;
+      if(!Array.isArray(sek.points)) sek.points = [];
+      sek.points.push({label:'', lat, lon});
+      sek.updatedAt = new Date().toISOString();
+      sek.updatedBy = state.myName;
+      const ok = (typeof saveSektorCloud === 'function') ? await saveSektorCloud(sek).catch(()=>false) : false;
+      sek._unsynced = !ok;
+      showToast(ok ? 'Punkt zu "' + sek.name + '" hinzugefügt.' : 'Punkt lokal hinzugefügt, aber nicht synchronisiert.', !ok);
+      renderStandaloneMap(containerId);
+    }
+    async function appendPointToKlettergebietFromMap(gebId, lat, lon){
+      const geb = (state.klettergebiete||[]).find(x=>x.id===gebId);
+      if(!geb) return;
+      if(!Array.isArray(geb.points)) geb.points = [];
+      geb.points.push({label:'', lat, lon});
+      geb.updatedAt = new Date().toISOString();
+      geb.updatedBy = state.myName;
+      const ok = (typeof saveKlettergebietCloud === 'function') ? await saveKlettergebietCloud(geb).catch(()=>false) : false;
+      geb._unsynced = !ok;
+      showToast(ok ? 'Punkt zu "' + geb.name + '" hinzugefügt.' : 'Punkt lokal hinzugefügt, aber nicht synchronisiert.', !ok);
+      renderStandaloneMap(containerId);
+    }
+    // Öffnet das Neu-Anlegen-Formular mit dem getippten Punkt schon eingetragen — schliesst dazu
+    // erst die Vollbildkarte (wie die anderen *FromMap-Funktionen), damit sich Formular und Karte
+    // nicht überlagern.
+    function openAddTourFromMapWithPoint(lat, lon){
+      closeTopOverlayLayer();
+      if(typeof openAddTourWithPoint === 'function') openAddTourWithPoint(lat, lon);
+    }
+    function openAddHutFromMapWithPoint(lat, lon){
+      closeTopOverlayLayer();
+      if(typeof openAddHutWithPoint === 'function') openAddHutWithPoint(lat, lon);
+    }
+    function openAddSektorFromMapWithPoint(lat, lon){
+      closeTopOverlayLayer();
+      if(typeof openAddSektorWithPoint === 'function') openAddSektorWithPoint(lat, lon);
+    }
+    function openAddKlettergebietFromMapWithPoint(lat, lon){
+      closeTopOverlayLayer();
+      if(typeof openAddKlettergebietWithPoint === 'function') openAddKlettergebietWithPoint(lat, lon);
+    }
+    // Popup, das nach einem Tap auf eine leere Stelle im "Punkt setzen"-Modus erscheint: entweder
+    // den Punkt einer bestehenden Tour/Hütte/einem Sektor hinzufügen, oder gleich neu anlegen.
+    function pointPlacementPopupContent(lat, lon){
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '220px';
+      const title = document.createElement('p');
+      title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+      title.textContent = '📍 Neuer Punkt';
+      wrap.appendChild(title);
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'Bestehende Tour/Hütte' + (isFixseilApp ? '/Sektor/Klettergebiet' : '') + ' suchen …';
+      input.style.cssText = 'width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:13px; margin-bottom:4px;';
+      wrap.appendChild(input);
+      const results = document.createElement('div');
+      results.style.cssText = 'max-height:150px; overflow-y:auto;';
+      wrap.appendChild(results);
+      function renderResults(){
+        const q = input.value.trim().toLowerCase();
+        results.innerHTML = '';
+        if(!q) return;
+        searchIndex.filter(e=> e.appendPointFn && e.name.toLowerCase().includes(q)).slice(0,6).forEach(entry=>{
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.style.cssText = 'display:block; width:100%; text-align:left; background:none; border:none; border-top:1px solid var(--line); padding:6px 2px; font-size:13px; cursor:pointer; color:var(--ink);';
+          btn.textContent = entry.icon + ' ' + entry.name;
+          btn.addEventListener('click', ()=>{ map.closePopup(); entry.appendPointFn(lat, lon); });
+          results.appendChild(btn);
+        });
+      }
+      input.addEventListener('input', renderResults);
+      const divider = document.createElement('p');
+      divider.style.cssText = 'margin:8px 0 6px 0; padding-top:8px; border-top:1px solid var(--line); font-size:11.5px; color:var(--ink-faint);';
+      divider.textContent = 'Oder neu anlegen mit diesem Punkt:';
+      wrap.appendChild(divider);
+      const newBtnsWrap = document.createElement('div');
+      newBtnsWrap.style.cssText = 'display:flex; flex-direction:column; gap:6px;';
+      wrap.appendChild(newBtnsWrap);
+      function addNewBtn(label, onClick){
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = label;
+        b.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:7px 10px; font-size:12.5px; cursor:pointer;';
+        b.addEventListener('click', ()=>{ map.closePopup(); onClick(); });
+        newBtnsWrap.appendChild(b);
+      }
+      addNewBtn('+ Neue Tour', ()=> openAddTourFromMapWithPoint(lat, lon));
+      addNewBtn('+ Neue Hütte', ()=> openAddHutFromMapWithPoint(lat, lon));
+      if(isFixseilApp){
+        addNewBtn('+ Neuer Sektor', ()=> openAddSektorFromMapWithPoint(lat, lon));
+        addNewBtn('+ Neues Klettergebiet', ()=> openAddKlettergebietFromMapWithPoint(lat, lon));
+      }
+      return wrap;
+    }
+    function openTourRouteFromMap(tourId, kind, routeId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      const t = (state.tours||[]).find(x=>x.id===tourId);
+      const list = t ? (kind==='descent' ? t.descentRoutes : t.accessRoutes) : null;
+      const route = list ? list.find(r=>r.id===routeId) : null;
+      if(!t || !route) return;
+      state.modal = {type:'tour-route-detail', payload:{tourId, kind, route}};
+      render();
+    }
+    function openSektorRouteFromMap(sektorId, kind, routeId){
+      modalOpenedFromStandaloneMap = true;
+      closeTopOverlayLayer();
+      const sek = (state.sektoren||[]).find(x=>x.id===sektorId);
+      const list = sek ? (kind==='descent' ? sek.descentRoutes : sek.accessRoutes) : null;
+      const route = list ? list.find(r=>r.id===routeId) : null;
+      if(!sek || !route) return;
+      state.modal = {type:'sektor-route-detail', payload:{sektorId, kind, route}};
+      render();
+    }
+    // onEdit ist optional (nur bei Touren/Hütten/Sektoren gesetzt, nicht bei Zustiegen/Abstiegen) —
+    // springt direkt ins Bearbeiten-Formular mit bereits geöffneter Punkte-Karte, ohne den Umweg
+    // über die Detailansicht. Bewusst ein eigener, kleiner Stift-Knopf statt eines Textknopfs, damit
+    // ein Antippen des Popups weiterhin zwei bewusste Taps braucht (Marker, dann Knopf) und nichts
+    // aus Versehen beim blossen Verschieben/Zoomen der Karte verändert werden kann.
+    // topoImages (optional): zeigt eine kleine Topo-Vorschau links neben dem Titel — antippen
+    // öffnet den bestehenden Vollbild-Topo-Viewer direkt, ohne erst die Detailansicht zu öffnen.
+    function mapPopupContent(icon, title, buttonLabel, onOpen, onEdit, topoImages){
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '170px';
+      const headRow = document.createElement('div');
+      headRow.style.cssText = 'display:flex; align-items:flex-start; gap:8px; margin:0 0 8px 0;';
+      if(topoImages && topoImages.length){
+        const thumb = document.createElement('div');
+        thumb.title = 'Topo ansehen';
+        thumb.style.cssText = 'flex:none; width:44px; height:44px; border-radius:4px; overflow:hidden; border:1px solid #DED0B8; cursor:pointer; position:relative;';
+        if(topoImages[0].cropRect){
+          const cropDiv = document.createElement('div');
+          cropDiv.style.cssText = 'width:100%; height:100%; background-image:url(\'' + topoImages[0].url + '\'); background-repeat:no-repeat; ' + topoCropBackgroundCss(topoImages[0].cropRect) + (topoImages[0].rotation ? ' transform:rotate('+topoImages[0].rotation+'deg);' : '');
+          thumb.appendChild(cropDiv);
+        }else{
+          const img = document.createElement('img');
+          img.src = topoImages[0].url;
+          img.style.cssText = 'width:100%; height:100%; object-fit:cover; display:block;' + (topoImages[0].rotation ? ' transform:rotate('+topoImages[0].rotation+'deg);' : '');
+          thumb.appendChild(img);
+        }
+        const badge = document.createElement('div');
+        badge.textContent = '🔍';
+        badge.style.cssText = 'position:absolute; bottom:1px; right:1px; background:rgba(43,32,25,0.75); color:#fff; font-size:9px; padding:1px 3px; border-radius:2px; line-height:1;';
+        thumb.appendChild(badge);
+        thumb.addEventListener('click', (e)=>{ e.stopPropagation(); showTopoImageLightbox(topoImages, 0, null); });
+        headRow.appendChild(thumb);
+      }
+      const titleCol = document.createElement('div');
+      titleCol.style.cssText = 'flex:1; min-width:0;';
+      const titleRow = document.createElement('div');
+      titleRow.style.cssText = 'display:flex; align-items:flex-start; justify-content:space-between; gap:6px;';
+      const titleEl = document.createElement('p');
+      titleEl.style.cssText = 'margin:0; font-weight:700;';
+      titleEl.textContent = icon + ' ' + title;
+      titleRow.appendChild(titleEl);
+      if(onEdit){
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.title = 'Bearbeiten';
+        editBtn.textContent = '✏️';
+        editBtn.style.cssText = 'flex:none; background:none; border:none; padding:0 0 0 4px; font-size:14px; line-height:1; cursor:pointer;';
+        editBtn.addEventListener('click', onEdit);
+        titleRow.appendChild(editBtn);
+      }
+      titleCol.appendChild(titleRow);
+      headRow.appendChild(titleCol);
+      wrap.appendChild(headRow);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = buttonLabel;
+      btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+      btn.addEventListener('click', onOpen);
+      wrap.appendChild(btn);
+      return wrap;
+    }
+    const categoryLayers = {}; // key -> L.layerGroup()
+    const allBoundsItems = [];
+    const pointMarkers = []; // alle Punkt-Marker (nicht Linien) -- fuer die zoomabhaengige Groesse unten
+    // Feste Pixelgroesse wirkt beim Rauszoomen unuebersichtlich: nahe Punkte ruecken naeher
+    // zusammen und die (bei fixer Groesse gleich grossen) Kreise ueberlappen sich zu wirkenden
+    // "Klumpen". Bei kleinem Massstab deshalb kleiner zeichnen, bei grossem wie bisher.
+    function radiusForZoom(zoom){
+      return Math.max(5, Math.min(11, 5 + (zoom - 7)));
+    }
+    // Für die Suchfunktion (Textfeld oben rechts): Name + Koordinate + Öffnen-Funktion je
+    // Tour/Hütte/Sektor — bewusst nicht die einzelnen Zustiege/Abstiege, das würde die
+    // Trefferliste v.a. bei generischen Namen wie "Sommer"/"Winter" nur unübersichtlich machen.
+    const searchIndex = [];
+    // Fügt einen Track (Linie) und/oder Punkte einer Kategorie hinzu; Antippen öffnet über
+    // popupContentFn() das jeweilige Original-Element direkt. Normales 'click' statt 'contextmenu'
+    // (langes Drücken), da auf dieser reinen Übersichtskarte nichts versehentlich gesetzt/verändert
+    // werden kann — und langes Drücken auf manchen Mobilgeräten (z. B. iOS Safari) beim Antippen
+    // eines Kartenelements ohnehin nicht zuverlässig als contextmenu-Ereignis ankommt.
+    function addMapEntity(catKey, color, track, points, popupContentFn){
+      if(!categoryLayers[catKey]) categoryLayers[catKey] = L.layerGroup();
+      const layer = categoryLayers[catKey];
+      if(track && track.length){
+        try{
+          // Breite unsichtbare Klickfläche unter der sichtbaren, dünnen Linie — deutlich
+          // leichter mit dem Finger zu treffen.
+          const hitLine = L.polyline(track, {color:'#000', weight:22, opacity:0}).addTo(layer);
+          const line = L.polyline(track, {color, weight:3.5, opacity:0.85}).addTo(layer);
+          hitLine.on('click', (e)=>{
+            L.DomEvent.stopPropagation(e);
+            L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
+          });
+          allBoundsItems.push(line);
+        }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
+      }
+      (points||[]).forEach(p=>{
+        try{
+          const m = L.circleMarker([p.lat, p.lon], {radius:radiusForZoom(map.getZoom()), color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
+          m.on('click', (e)=>{
+            L.DomEvent.stopPropagation(e);
+            L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
+          });
+          allBoundsItems.push(m);
+          pointMarkers.push(m);
+        }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
+      });
+    }
+    function routeTrack(r){
+      return (r.trackSimplified && r.trackSimplified.length) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length ? r.manualTrack : null);
+    }
+    (state.tours || []).forEach(t=>{
+      const catKey = tourCategoryKey(t);
+      const color = (TOUR_CATEGORY_META[catKey] || TOUR_CATEGORY_META.skitour).color;
+      const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
+      addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id), ()=> openTourEditFromMap(t.id), t.topoImages));
+      if(t.points && t.points.length) searchIndex.push({name: t.name, icon:'🏔️', label:'Tour öffnen', coords:[t.points[0].lat, t.points[0].lon], openFn: ()=> openTourFromMap(t.id), editFn: ()=> openTourEditFromMap(t.id), appendPointFn: (lat,lon)=> appendPointToTourFromMap(t.id, lat, lon), topoImages: t.topoImages});
+    });
+    // Hütten (beide Apps) — eigener Standort/Linie, plus deren Zustiege.
+    (state.huts || []).forEach(h=>{
+      const track = (h.manualTrack && h.manualTrack.length) ? h.manualTrack : null;
+      addMapEntity('huette', TOUR_CATEGORY_META.huette.color, track, h.points, ()=> mapPopupContent('🛖', h.name, 'Hütte öffnen', ()=> openHutFromMap(h.id), ()=> openHutEditFromMap(h.id)));
+      if(h.points && h.points.length) searchIndex.push({name: h.name, icon:'🛖', label:'Hütte öffnen', coords:[h.points[0].lat, h.points[0].lon], openFn: ()=> openHutFromMap(h.id), editFn: ()=> openHutEditFromMap(h.id), appendPointFn: (lat,lon)=> appendPointToHutFromMap(h.id, lat, lon)});
+      (h.accessRoutes || []).forEach(r=>{
+        const rTrack = routeTrack(r);
+        if(!rTrack) return;
+        addMapEntity('zustieg', zustiegLineColor(r), rTrack, null, ()=> mapPopupContent('🚶', r.name, 'Zustieg öffnen', ()=> openHutAccessRouteFromMap(h.id, r.id)));
+      });
+    });
+    if(isFixseilApp){
+      // MSL-Touren: strukturierte Zustiege & Abstiege.
+      (state.tours || []).forEach(t=>{
+        ['accessRoutes','descentRoutes'].forEach(field=>{
+          const kind = field==='descentRoutes' ? 'descent' : 'access';
+          (t[field] || []).forEach(r=>{
+            const rTrack = routeTrack(r);
+            if(!rTrack) return;
+            addMapEntity('zustieg', zustiegLineColor(r), rTrack, null, ()=> mapPopupContent('🚶', r.name, (kind==='descent'?'Abstieg':'Zustieg') + ' öffnen', ()=> openTourRouteFromMap(t.id, kind, r.id)));
+          });
+        });
+      });
+      // Sektoren: Ausgangspunkt(e) plus deren Zustiege/Abstiege.
+      (state.sektoren || []).forEach(sek=>{
+        const track = (sek.manualTrack && sek.manualTrack.length) ? sek.manualTrack : null;
+        addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id), ()=> openSektorEditFromMap(sek.id), sek.topoImages));
+        if(sek.points && sek.points.length) searchIndex.push({name: sek.name, icon:'⛺', label:'Sektor öffnen', coords:[sek.points[0].lat, sek.points[0].lon], openFn: ()=> openSektorFromMap(sek.id), editFn: ()=> openSektorEditFromMap(sek.id), appendPointFn: (lat,lon)=> appendPointToSektorFromMap(sek.id, lat, lon), topoImages: sek.topoImages});
+        ['accessRoutes','descentRoutes'].forEach(field=>{
+          const kind = field==='descentRoutes' ? 'descent' : 'access';
+          (sek[field] || []).forEach(r=>{
+            const rTrack = routeTrack(r);
+            if(!rTrack) return;
+            addMapEntity('zustieg', zustiegLineColor(r), rTrack, null, ()=> mapPopupContent('🚶', r.name, (kind==='descent'?'Abstieg':'Zustieg') + ' öffnen', ()=> openSektorRouteFromMap(sek.id, kind, r.id)));
+          });
+        });
+      });
+      // Klettergebiete: eigener Zustieg/Lage-Punkt bzw. -Linie, unabhängig von deren Sektoren
+      // (die ja bereits oben eigenständig auf der Karte erscheinen).
+      (state.klettergebiete || []).forEach(geb=>{
+        const track = (geb.manualTrack && geb.manualTrack.length) ? geb.manualTrack : null;
+        addMapEntity('klettergebiet', TOUR_CATEGORY_META.klettergebiet.color, track, geb.points, ()=> mapPopupContent('⛰️', geb.name, 'Klettergebiet öffnen', ()=> openKlettergebietFromMap(geb.id), ()=> openKlettergebietEditFromMap(geb.id), geb.topoImages));
+        if(geb.points && geb.points.length) searchIndex.push({name: geb.name, icon:'⛰️', label:'Klettergebiet öffnen', coords:[geb.points[0].lat, geb.points[0].lon], openFn: ()=> openKlettergebietFromMap(geb.id), editFn: ()=> openKlettergebietEditFromMap(geb.id), appendPointFn: (lat,lon)=> appendPointToKlettergebietFromMap(geb.id, lat, lon), topoImages: geb.topoImages});
+      });
+    }
+    const presentCategories = Object.keys(categoryLayers);
+    // Zustieg-Linien immer zuerst (unterste Ebene) zur Karte hinzufügen: an einem gemeinsamen
+    // Punkt — z. B. eine Hütte am Ende eines Zustiegs — sollen Hütten-/Touren-/Sektor-Marker
+    // klar bevorzugt anklickbar sein, statt mit der Zustiegslinie um denselben Klick zu
+    // konkurrieren. Zustieg besteht ohnehin nie aus Punkten, nur aus Linien (siehe addMapEntity-
+    // Aufrufe oben, points-Parameter immer null) — die Reihenfolge der übrigen Kategorien
+    // untereinander bleibt unverändert (auch für die Filter-Chips unten, dafür bewusst eine
+    // separate Kopie statt presentCategories selbst umzusortieren).
+    const zOrderedCategories = [...presentCategories.filter(k=>k==='zustieg'), ...presentCategories.filter(k=>k!=='zustieg')];
+    zOrderedCategories.forEach(key=> categoryLayers[key].addTo(map));
+    if(allBoundsItems.length){
+      map.fitBounds(L.featureGroup(allBoundsItems).getBounds(), {padding:[30,30]});
+    }
+    map.on('zoomend', ()=>{
+      const r = radiusForZoom(map.getZoom());
+      pointMarkers.forEach(m=> m.setRadius(r));
+    });
+    // Umschalt-Chips — auch bei nur einer Tourenart (z. B. in der Skitour-App), damit sich die
+    // eigenen Touren bei Bedarf auch ganz ausblenden lassen. Als echtes Leaflet-Control, damit
+    // es zuverlässig über der Karte liegt.
+    if(presentCategories.length >= 1){
+      // Zugeklappt (Standard) nur ein kleiner Knopf, damit die Karte selbst nicht sofort von
+      // der Filterleiste verdeckt wird — v.a. bei mehreren Tourenarten wurde das schnell breit.
+      // Der An/Aus-Zustand pro Kategorie bleibt in filterState erhalten, auch wenn man die
+      // Leiste zuklappt und wieder öffnet.
+      const filterState = {};
+      presentCategories.forEach(key=> filterState[key] = true);
+      const TourFilterControl = L.Control.extend({
+        options: { position: 'topleft' },
+        onAdd: function(){
+          const wrap = L.DomUtil.create('div', 'fsm-ctl fsm-filter');
+          L.DomEvent.disableClickPropagation(wrap);
+          let expanded = false;
+          function renderControl(){
+            wrap.innerHTML = '';
+            if(!expanded){
+              wrap.style.cssText = 'background:#fff; border-radius:50%; width:40px; height:40px; box-shadow:0 2px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px;';
+              wrap.onclick = ()=>{ expanded = true; renderControl(); };
+              wrap.title = 'Tourenarten filtern';
+              wrap.textContent = '🎚️'; // bewusst kein Lupen-Symbol — zu leicht mit dem Suchen-Button (🔍) verwechselbar
+            }else{
+              wrap.style.cssText = 'background:rgba(255,255,255,0.95); padding:6px; border-radius:8px; gap:6px; display:flex; flex-wrap:wrap; align-items:center; max-width:220px;';
+              wrap.onclick = null;
+              presentCategories.forEach(key=>{
+                const meta = TOUR_CATEGORY_META[key];
+                const isOn = filterState[key];
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'chip' + (isOn ? ' on' : '');
+                btn.style.cssText = 'background:' + (isOn ? meta.color : '') + '; color:' + (isOn ? '#fff' : meta.color) + '; border-color:transparent; font-size:12px; padding:5px 10px;';
+                btn.textContent = meta.label;
+                btn.addEventListener('click', ()=>{
+                  filterState[key] = !filterState[key];
+                  const on = filterState[key];
+                  btn.classList.toggle('on', on);
+                  btn.style.background = on ? meta.color : '';
+                  btn.style.color = on ? '#fff' : meta.color;
+                  if(on) map.addLayer(categoryLayers[key]); else map.removeLayer(categoryLayers[key]);
+                });
+                wrap.appendChild(btn);
+              });
+              const closeBtn = document.createElement('button');
+              closeBtn.type = 'button';
+              closeBtn.textContent = '✕';
+              closeBtn.style.cssText = 'background:none; border:none; font-size:14px; cursor:pointer; padding:2px 4px; color:var(--ink-soft);';
+              // stopPropagation ist zwingend: der Klick bubbelt sonst bis zu wrap hoch, dessen
+              // onclick renderControl() (durchs Zuklappen unten) gerade eben neu auf "wieder
+              // aufklappen" gesetzt hat — ohne Stop öffnet sich das Fenster sofort wieder (siehe
+              // dieselbe Ursache/denselben Fix beim Suchen-Button oben).
+              closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); expanded = false; renderControl(); });
+              wrap.appendChild(closeBtn);
+            }
+          }
+          renderControl();
+          return wrap;
+        }
+      });
+      map.addControl(new TourFilterControl());
+    }
+
+    // Suchfeld — kombiniert zwei Quellen: die eigenen Touren/Hütten/Sektoren (searchIndex,
+    // funktioniert offline) UND eine Orts-/Berg-/Adresssuche über die offizielle swisstopo-
+    // Suche (api3.geo.admin.ch, braucht Internet). Eigene Treffer erscheinen sofort beim Tippen,
+    // Online-Treffer verzögert (debounced) darunter. Schlägt die Online-Suche fehl (z. B. offline),
+    // bleiben die eigenen Treffer trotzdem nutzbar — nur ein Hinweistext macht das kenntlich.
+    {
+      const SearchControl = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd: function(){
+          const wrap = L.DomUtil.create('div', 'fsm-ctl fsm-search');
+          L.DomEvent.disableClickPropagation(wrap);
+          L.DomEvent.disableScrollPropagation(wrap);
+          let expanded = false;
+          let searchSeq = 0;
+          let debounceTimer = null;
+          function renderControl(){
+            wrap.innerHTML = '';
+            // margin-top schiebt den Button unter den schwebenden "✕ Schliessen"-Button der
+            // Vollbildkarte (position:fixed, oben rechts, z-index:100000) — sonst liegt der
+            // Suchen-Button optisch exakt darunter und ist unauffindbar.
+            if(!expanded){
+              wrap.style.cssText = 'margin-top:64px; background:#fff; border-radius:50%; width:40px; height:40px; box-shadow:0 2px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px;';
+              wrap.onclick = ()=>{ expanded = true; renderControl(); wrap.querySelector('input').focus(); };
+              wrap.title = 'Suchen';
+              wrap.textContent = '🔍';
+            }else{
+              wrap.style.cssText = 'margin-top:64px; background:rgba(255,255,255,0.97); padding:8px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.35); width:240px;';
+              wrap.onclick = null;
+              const row = document.createElement('div');
+              row.style.cssText = 'display:flex; gap:4px; align-items:center;';
+              const input = document.createElement('input');
+              input.type = 'text';
+              input.placeholder = 'Berg, Hütte, Ort, Adresse …';
+              input.style.cssText = 'flex:1; border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:13px; min-width:0;';
+              const closeBtn = document.createElement('button');
+              closeBtn.type = 'button';
+              closeBtn.textContent = '✕';
+              closeBtn.style.cssText = 'background:none; border:none; font-size:14px; cursor:pointer; padding:2px 4px; color:var(--ink-soft);';
+              // stopPropagation ist hier zwingend: der Klick bubbelt sonst bis zu wrap hoch, dessen
+              // onclick renderControl() (aufgerufen unten) gerade eben neu auf "wieder aufklappen"
+              // gesetzt hat — ohne Stop würde derselbe Klick das Suchfeld sofort wieder öffnen.
+              closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); if(debounceTimer) clearTimeout(debounceTimer); expanded = false; renderControl(); });
+              row.appendChild(input);
+              row.appendChild(closeBtn);
+              wrap.appendChild(row);
+              const status = document.createElement('div');
+              status.style.cssText = 'margin-top:4px; font-size:11.5px; color:var(--ink-faint); min-height:14px;';
+              wrap.appendChild(status);
+              const results = document.createElement('div');
+              results.id = 'map-search-results';
+              results.style.cssText = 'margin-top:2px; max-height:220px; overflow-y:auto;';
+              wrap.appendChild(results);
+
+              function resultButtonHtml(icon, label, onClick){
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.style.cssText = 'display:block; width:100%; text-align:left; background:none; border:none; border-top:1px solid var(--line); padding:6px 2px; font-size:13px; cursor:pointer; color:var(--ink);';
+                btn.textContent = icon + ' ' + label;
+                // stopPropagation: sonst bubbelt der Klick bis zu wrap hoch, dessen onclick
+                // jumpTo() (löst gleich renderControl() im Kollaps-Zustand aus) gerade eben neu
+                // auf "wieder aufklappen" gesetzt hat — das Suchfeld würde sich sofort wieder öffnen.
+                btn.addEventListener('click', (e)=>{ e.stopPropagation(); onClick(); });
+                return btn;
+              }
+              function jumpTo(coords, popupContent){
+                map.setView(coords, 15);
+                L.popup().setLatLng(coords).setContent(popupContent).openOn(map);
+                expanded = false; renderControl();
+              }
+              function renderResults(localMatches, onlineMatches, statusText){
+                results.innerHTML = '';
+                localMatches.slice(0,8).forEach(entry=>{
+                  results.appendChild(resultButtonHtml(entry.icon, entry.name, ()=>{
+                    jumpTo(entry.coords, mapPopupContent(entry.icon, entry.name, entry.label, entry.openFn, entry.editFn, entry.topoImages));
+                  }));
+                });
+                (onlineMatches||[]).slice(0,8).forEach(entry=>{
+                  results.appendChild(resultButtonHtml('📍', entry.name, ()=>{
+                    jumpTo(entry.coords, `<strong>📍 ${esc(entry.name)}</strong>`);
+                  }));
+                });
+                status.textContent = statusText || '';
+              }
+              input.addEventListener('input', ()=>{
+                const q = input.value.trim();
+                const seq = ++searchSeq;
+                const localMatches = q ? searchIndex.filter(e=> e.name.toLowerCase().includes(q.toLowerCase())) : [];
+                if(debounceTimer) clearTimeout(debounceTimer);
+                if(!q){ renderResults([], [], ''); return; }
+                renderResults(localMatches, [], 'Suche online …');
+                debounceTimer = setTimeout(async ()=>{
+                  try{
+                    const res = await fetch('https://api3.geo.admin.ch/rest/services/api/SearchServer?type=locations&limit=8&sr=4326&searchText=' + encodeURIComponent(q));
+                    if(seq !== searchSeq) return; // Eingabe hat sich inzwischen geändert — Antwort ist veraltet
+                    const data = await res.json();
+                    const online = (data.results || [])
+                      .map(r=> r.attrs || {})
+                      .filter(a=> a.lat!=null && a.lon!=null)
+                      .map(a=> ({ name: (a.label || q).replace(/<[^>]+>/g, ''), coords: [a.lat, a.lon] }));
+                    renderResults(localMatches, online, online.length ? '' : (localMatches.length ? '' : 'Keine Treffer.'));
+                  }catch(e){
+                    if(seq !== searchSeq) return;
+                    renderResults(localMatches, [], 'Offline — nur eigene Einträge durchsucht.');
+                  }
+                }, 350);
+              });
+            }
+          }
+          renderControl();
+          return wrap;
+        }
+      });
+      map.addControl(new SearchControl());
+    }
+
+    // Als echtes Leaflet-Control eingebunden (statt als loses DOM-Element über der Karte) —
+    // so landet der Button garantiert in Leaflets eigener Control-Ebene, oberhalb der
+    // Kartenkacheln, statt visuell dahinter zu verschwinden.
+    const GpsControl = L.Control.extend({
+      options: { position: 'bottomright' },
+      onAdd: function(ctrlMap){
+        const btn = L.DomUtil.create('button', 'fsm-ctl fsm-gps');
+        btn.type = 'button';
+        btn.textContent = '🧭 Standort anzeigen';
+        btn.style.cssText = 'background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 16px; height:44px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.4); margin:0 10px 10px 0;';
+        L.DomEvent.disableClickPropagation(btn);
+        L.DomEvent.disableScrollPropagation(btn);
+        let gpsMarker = null;
+        let gpsActive = false;
+        btn.addEventListener('click', ()=>{
+          if(!gpsActive){
+            ctrlMap.locate({ setView:true, maxZoom:15, watch:true, enableHighAccuracy:true });
+            gpsActive = true;
+            btn.textContent = '🧭 Standort ausblenden';
+            btn.classList.add('on');
+          }else{
+            ctrlMap.stopLocate();
+            gpsActive = false;
+            btn.textContent = '🧭 Standort anzeigen';
+            btn.classList.remove('on');
+          }
+        });
+        ctrlMap.on('locationfound', (e)=>{
+          if(!gpsMarker){
+            gpsMarker = L.circleMarker(e.latlng, {radius:8, color:'#fff', weight:3, fillColor:'#1565C0', fillOpacity:1}).addTo(ctrlMap);
+          }else{
+            gpsMarker.setLatLng(e.latlng);
+          }
+        });
+        ctrlMap.on('locationerror', (err)=>{
+          showToast('Standort konnte nicht ermittelt werden: ' + (err && err.message ? err.message : ''), true);
+          gpsActive = false;
+          btn.textContent = '🧭 Standort anzeigen';
+          btn.classList.remove('on');
+        });
+        return btn;
+      }
+    });
+    map.addControl(new GpsControl());
+
+    /* ================= Neuen Punkt direkt auf der Übersichtskarte setzen, ohne die Karte zu
+       wechseln. Bewusst zweistufig wie die Wanderungsplanung unten: erst diesen Knopf antippen
+       ("scharf schalten"), dann einen Tap auf die Karte — blosses Verschieben/Zoomen der Karte
+       verändert dadurch nie aus Versehen etwas. */
+    let addPointPicking = false;
+    const addPointBtn = document.createElement('div');
+    addPointBtn.id = 'add-point-toggle';
+    addPointBtn.style.cssText = 'position:absolute; left:50%; bottom:76px; transform:translateX(-50%); z-index:1000; background:#fff; border-radius:50%; box-shadow:0 3px 12px rgba(0,0,0,0.4); width:52px; height:52px; display:flex; align-items:center; justify-content:center; font-size:22px; cursor:pointer;';
+    L.DomEvent.disableClickPropagation(addPointBtn);
+    L.DomEvent.disableScrollPropagation(addPointBtn);
+    el2.appendChild(addPointBtn);
+    function renderAddPointBtn(){
+      addPointBtn.textContent = addPointPicking ? '✕' : '➕';
+      addPointBtn.title = addPointPicking ? 'Abbrechen' : 'Neuen Punkt setzen';
+      addPointBtn.style.background = addPointPicking ? 'var(--ice-deep)' : '#fff';
+      addPointBtn.style.color = addPointPicking ? '#fff' : '#2B2019';
+    }
+    addPointBtn.addEventListener('click', ()=>{
+      addPointPicking = !addPointPicking;
+      if(addPointPicking){
+        plannerPicking = null; // beide Modi gleichzeitig scharf wäre ein mehrdeutiger Zustand
+        renderPlannerPanel();
+        showToast('Tippe auf die Karte, um den Punkt zu setzen.');
+      }
+      renderAddPointBtn();
+    });
+    renderAddPointBtn();
+
+    /* ================= Spontane Wanderung planen (Start/Ziel, Route berechnen, optional als
+       Tour-Entwurf speichern) — eine ausklappbare Kachel am unteren Kartenrand, unabhängig von
+       einer bestehenden Tour: für kurzfristige Planung direkt auf der Übersichtskarte. */
+    let plannerExpanded = false;
+    let plannerStart = null; // {lat, lon, label}
+    let plannerEnd = null;
+    let plannerWaypoints = []; // [{lat, lon, marker}] — in Reihenfolge Start -> Ziel
+    let plannerStartMode = 'gps'; // 'gps' | 'map'
+    let plannerEndMode = 'search'; // 'search' | 'map'
+    let plannerPicking = null; // 'start' | 'end' | 'waypoint' | null — wartet auf einen Kartenklick
+    let plannerEndQuery = '';
+    let plannerSearchBusy = false;
+    let plannerEndCandidates = null; // Trefferliste der letzten Suche, zur Auswahl bei Mehrdeutigkeit
+    let plannerCalcBusy = false;
+    let plannerResult = null; // {coords, distanceM, durationS, ascentM, descentM}
+    let plannerStartMarker = null, plannerEndMarker = null, plannerRouteLine = null;
+    let plannerEndEditing = false; // Ziel ist gesetzt, soll aber per Suche ersetzt werden
+    let plannerMode = 'ziel'; // 'ziel' = Start → Ziel (Tipps setzen Zwischenpunkte) | 'kette' = Punkt für Punkt (jeder Tipp verlängert die Route)
+    let plannerAutoCalcTimer = null;
+
+    const plannerPanel = document.createElement('div');
+    plannerPanel.id = 'planner-panel';
+    plannerPanel.className = 'fsp';
+    L.DomEvent.disableClickPropagation(plannerPanel);
+    L.DomEvent.disableScrollPropagation(plannerPanel);
+    el2.appendChild(plannerPanel);
+
+    // Farbige Punkt-Icons als echte L.marker (statt L.circleMarker) — nur L.marker unterstützt
+    // in Leaflet ohne Zusatz-Plugin das Ziehen (draggable:true), was Start/Ziel/Zwischenpunkte
+    // direkt auf der Karte korrigierbar macht.
+    // Neuer Look: Start = weiss mit dunklem Ring, Zwischenpunkt = weiss mit Akzent-Ring und
+    // Nummer, Ziel = Akzentfarbe gefüllt (Farben siehe .fsp-marker in look.css).
+    function makePlannerDivIcon(color, label){
+      const kind = label==='S' ? 'start' : label==='Z' ? 'end' : 'via';
+      return L.divIcon({
+        className: '', iconSize: [30,30], iconAnchor: [15,15],
+        html: `<div class="fsp-marker fsp-marker-${kind}">${kind==='via' ? (label||'') : ''}</div>`
+      });
+    }
+
+    function invalidatePlannerResult(){
+      plannerResult = null;
+      if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
+      scheduleAutoPlannerCalc();
+    }
+    // Sobald Start und Ziel stehen, rechnet sich die Route nach jeder Änderung (Punkt gesetzt,
+    // verschoben, entfernt) von selbst neu — kurz verzögert, damit mehrere Änderungen
+    // hintereinander nur eine Anfrage auslösen.
+    let plannerRecalcPending = false;
+    function scheduleAutoPlannerCalc(){
+      clearTimeout(plannerAutoCalcTimer);
+      if(!plannerStart || !plannerEnd) return;
+      if(plannerCalcBusy){ plannerRecalcPending = true; return; }
+      plannerAutoCalcTimer = setTimeout(()=>{ if(!plannerResult) calculatePlannerRoute(); }, 450);
+    }
+    // Tipp auf die Karte bei offener Planung (ohne gewählten Modus): erst Start, dann Ziel,
+    // danach Zwischenpunkte.
+    function plannerTapOnMap(lat, lon){
+      if(!plannerStart){ setPlannerPoint('start', lat, lon, 'Punkt auf der Karte'); return; }
+      if(!plannerEnd){ setPlannerPoint('end', lat, lon, 'Zielpunkt auf der Karte'); return; }
+      if(plannerMode === 'kette'){
+        // Punkt für Punkt: bisheriges Ziel wird zum letzten Zwischenpunkt, der neue Tipp zum Ziel.
+        addPlannerWaypoint(plannerEnd.lat, plannerEnd.lon);
+        setPlannerPoint('end', lat, lon, 'Zielpunkt auf der Karte');
+        return;
+      }
+      addPlannerWaypoint(lat, lon);
+    }
+    // Punkt für Punkt: letzten Schritt zurücknehmen (Ziel weg, letzter Zwischenpunkt wird Ziel).
+    function undoLastPlannerPoint(){
+      if(plannerWaypoints.length){
+        const last = plannerWaypoints[plannerWaypoints.length-1];
+        removePlannerWaypoint(plannerWaypoints.length-1);
+        setPlannerPoint('end', last.lat, last.lon, 'Zielpunkt auf der Karte');
+      }else if(plannerEnd){
+        if(plannerEndMarker){ map.removeLayer(plannerEndMarker); plannerEndMarker = null; }
+        plannerEnd = null;
+        invalidatePlannerResult();
+        renderPlannerPanel();
+      }else if(plannerStart){
+        discardPlannerRoute();
+      }
+    }
+
+    function setPlannerPoint(which, lat, lon, label){
+      const point = {lat, lon, label};
+      if(which==='start'){
+        plannerStart = point;
+        if(plannerStartMarker){
+          plannerStartMarker.setLatLng([lat,lon]);
+        }else{
+          plannerStartMarker = L.marker([lat,lon], {icon: makePlannerDivIcon('#2F6B44','S'), draggable:true}).addTo(map);
+          plannerStartMarker.on('dragend', ()=>{
+            const ll = plannerStartMarker.getLatLng();
+            setPlannerPoint('start', ll.lat, ll.lng, 'Startpunkt (verschoben)');
+          });
+        }
+        plannerStartMarker.unbindTooltip().bindTooltip('Start: ' + label);
+      }else{
+        plannerEnd = point;
+        plannerEndCandidates = null;
+        plannerEndEditing = false;
+        if(plannerEndMarker){
+          plannerEndMarker.setLatLng([lat,lon]);
+        }else{
+          plannerEndMarker = L.marker([lat,lon], {icon: makePlannerDivIcon('#B0392C','Z'), draggable:true}).addTo(map);
+          plannerEndMarker.on('dragend', ()=>{
+            const ll = plannerEndMarker.getLatLng();
+            setPlannerPoint('end', ll.lat, ll.lng, 'Zielpunkt (verschoben)');
+          });
+        }
+        plannerEndMarker.unbindTooltip().bindTooltip('Ziel: ' + label);
+      }
+      // Ein bereits berechnetes Ergebnis wird ungültig, sobald sich ein Punkt ändert.
+      invalidatePlannerResult();
+      renderPlannerPanel();
+    }
+
+    function renumberPlannerWaypointIcons(){
+      plannerWaypoints.forEach((wp,i)=> wp.marker.setIcon(makePlannerDivIcon('#1565C0', String(i+1))));
+    }
+
+    function addPlannerWaypoint(lat, lon){
+      const wp = {lat, lon};
+      const marker = L.marker([lat,lon], {icon: makePlannerDivIcon('#1565C0', String(plannerWaypoints.length+1)), draggable:true}).addTo(map);
+      marker.on('dragend', ()=>{
+        const ll = marker.getLatLng();
+        wp.lat = ll.lat; wp.lon = ll.lng;
+        invalidatePlannerResult();
+        renderPlannerPanel();
+      });
+      wp.marker = marker;
+      plannerWaypoints.push(wp);
+      invalidatePlannerResult();
+      renderPlannerPanel();
+    }
+
+    function removePlannerWaypoint(index){
+      const wp = plannerWaypoints[index];
+      if(!wp) return;
+      map.removeLayer(wp.marker);
+      plannerWaypoints.splice(index, 1);
+      renumberPlannerWaypointIcons();
+      invalidatePlannerResult();
+      renderPlannerPanel();
+    }
+
+    function useMyLocationAsStart(){
+      if(!navigator.geolocation){ showToast('Geolokalisierung wird von diesem Gerät/Browser nicht unterstützt.', true); return; }
+      showToast('Standort wird ermittelt…');
+      navigator.geolocation.getCurrentPosition(
+        (pos)=> setPlannerPoint('start', pos.coords.latitude, pos.coords.longitude, 'Mein Standort'),
+        ()=> showToast('Standort konnte nicht ermittelt werden.', true),
+        {enableHighAccuracy:true, timeout:10000}
+      );
+    }
+
+    // Zeigt bei Mehrdeutigkeit (z. B. mehrere Orte namens "Bern") eine Trefferliste zur Auswahl,
+    // statt kommentarlos den ersten Treffer zu übernehmen — vorher liess sich nicht nachvollziehen,
+    // welcher Ort tatsächlich gemeint war.
+    async function searchAndSetEnd(query){
+      if(!query || !query.trim()) return;
+      plannerSearchBusy = true; plannerEndCandidates = null; renderPlannerPanel();
+      try{
+        const hits = await geocodePlaces(query.trim(), 5);
+        if(!hits.length) showToast('Kein Ort mit diesem Namen gefunden.', true);
+        else if(hits.length===1) setPlannerPoint('end', hits[0].lat, hits[0].lon, hits[0].label);
+        else plannerEndCandidates = hits;
+      }catch(e){
+        showToast('Suche fehlgeschlagen: ' + (e && e.message ? e.message : e), true);
+      }
+      plannerSearchBusy = false;
+      renderPlannerPanel();
+    }
+
+    function chooseEndCandidate(index){
+      const hit = plannerEndCandidates && plannerEndCandidates[index];
+      if(!hit) return;
+      plannerEndCandidates = null;
+      setPlannerPoint('end', hit.lat, hit.lon, hit.label);
+    }
+
+    async function calculatePlannerRoute(){
+      if(!plannerStart || !plannerEnd || plannerCalcBusy) return;
+      plannerCalcBusy = true; renderPlannerPanel();
+      try{
+        const waypointCoords = plannerWaypoints.map(w=> [w.lat, w.lon]);
+        const coords = [[plannerStart.lat, plannerStart.lon], ...waypointCoords, [plannerEnd.lat, plannerEnd.lon]];
+        const result = await fetchCalculatedRoute(coords);
+        plannerResult = result;
+        if(plannerRouteLine) map.removeLayer(plannerRouteLine);
+        const accent = (getComputedStyle(document.documentElement).getPropertyValue('--ice-deep') || '#1E6AA0').trim();
+        plannerRouteLine = L.polyline(result.coords, {color:accent, weight:6, opacity:0.95, lineCap:'round', lineJoin:'round'}).addTo(map);
+        map.fitBounds(plannerRouteLine.getBounds(), {paddingTopLeft:[40,80], paddingBottomRight:[40, Math.round(plannerPanel.offsetHeight||0) + 30]});
+      }catch(e){
+        showToast('Route konnte nicht berechnet werden: ' + (e && e.message ? e.message : e), true);
+      }
+      plannerCalcBusy = false;
+      // Wurde während der Berechnung ein Punkt verändert, gilt das Ergebnis nicht mehr.
+      if(plannerRecalcPending){ plannerRecalcPending = false; invalidatePlannerResult(); }
+      renderPlannerPanel();
+    }
+
+    function discardPlannerRoute(){
+      clearTimeout(plannerAutoCalcTimer); plannerRecalcPending = false;
+      plannerWaypoints.forEach(wp=> map.removeLayer(wp.marker));
+      plannerWaypoints = [];
+      if(plannerStartMarker){ map.removeLayer(plannerStartMarker); plannerStartMarker = null; }
+      if(plannerEndMarker){ map.removeLayer(plannerEndMarker); plannerEndMarker = null; }
+      plannerStart = null; plannerEnd = null; plannerPicking = null; plannerEndCandidates = null; plannerEndEditing = false;
+      plannerResult = null;
+      if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
+      renderPlannerPanel();
+    }
+
+    // Legt aus Start/Ziel/berechneter Route einen neuen Tour-Entwurf an (Status "entwurf") —
+    // Felder analog zu einer über das normale Formular neu angelegten Tour, damit die Anzeige
+    // (Kartenübersicht, Detailansicht) ohne Sonderfälle funktioniert. In Fixseil zusätzlich mit
+    // den MSL/Hochtour-spezifischen Feldern (leer/neutral), da tourCategory dort Pflicht ist.
+    function savePlannerRouteAsDraft(){
+      if(!plannerStart || !plannerEnd) return;
+      ensureName(()=>{
+        const isFixseilAppNow = typeof SEKTOREN_PATH !== 'undefined';
+        // Ohne echte Ortsnamen (nur auf der Karte getippt) ein lesbarer Name statt
+        // "Punkt auf der Karte → Zielpunkt auf der Karte".
+        const generic = /auf der Karte|\(verschoben\)|^Mein Standort$/;
+        const name = (generic.test(plannerStart.label) && generic.test(plannerEnd.label))
+          ? 'Neue Route ' + new Date().toLocaleDateString('de-CH')
+          : (plannerStart.label + ' → ' + plannerEnd.label).slice(0, 120);
+        const t = {
+          id: uid('t'), name, routeName: '',
+          difficulty: '', targetAltitude: '',
+          elevationGain: plannerResult && typeof plannerResult.ascentM==='number' ? String(Math.round(plannerResult.ascentM)) : '',
+          elevationLoss: plannerResult && typeof plannerResult.descentM==='number' ? String(Math.round(plannerResult.descentM)) : '',
+          duration: plannerResult && typeof plannerResult.durationS==='number' ? formatDurationHM(plannerResult.durationS) : '',
+          region: '', subregion: '',
+          material: [], exposition: [], gefahren: [],
+          glacier: 'nein', ropeType: '', ropeLength: '',
+          approachTypes: [], stayTypes: [],
+          points: [
+            {label: plannerStart.label, lat: plannerStart.lat, lon: plannerStart.lon, category: ''},
+            ...plannerWaypoints.map((w,i)=> ({label: 'Zwischenpunkt ' + (i+1), lat: w.lat, lon: w.lon, category: ''})),
+            {label: plannerEnd.label, lat: plannerEnd.lat, lon: plannerEnd.lon, category: ''}
+          ],
+          manualTrack: plannerResult ? plannerResult.coords : [],
+          hutId: '', tourLink: '', gpxLink: '',
+          crux: '', special: '', approach: '', ascent: '', descent: '',
+          status: 'entwurf', conditions: null, completions: [],
+          createdBy: state.myName, createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(), updatedBy: state.myName
+        };
+        if(isFixseilAppNow){
+          t.tourCategory = 'hochtour';
+          t.climbGrade = ''; t.crevasseRisk = 'nein';
+          t.mandatoryDifficulty = ''; t.cruxDifficulty = ''; t.pitchCount = ''; t.longestPitch = ''; t.protection = '';
+          t.descentType = ''; t.sektorId = ''; t.quickdrawCount = ''; t.topoImages = [];
+          t.accessRoutes = []; t.descentRoutes = [];
+        }
+        state.tours.unshift(t);
+        closeTopOverlayLayer();
+        render();
+        saveTourCloud(t).then(ok=>{
+          if(!ok){ t._unsynced = true; markUnsaved(); showToast('Entwurf lokal gespeichert, aber nicht synchronisiert.', true); }
+          else showToast('Als Tour-Entwurf gespeichert — Details kannst du jetzt ergänzen.');
+          render();
+        }).catch(()=>{ t._unsynced = true; markUnsaved(); render(); });
+        if(typeof openTourDetail === 'function') openTourDetail(t.id);
+      });
+    }
+
+    function statCardHtml(icon, value){
+      return `<div style="flex:1; background:#EAF3EC; border-radius:6px; padding:8px 6px; text-align:center;">
+        <div style="font-size:16px;">${icon}</div>
+        <div style="font-size:14px; font-weight:700; color:#2F6B44;">${esc(value)}</div>
+      </div>`;
+    }
+
+    // Neuer Look (Schritt 3): ruhige Stationen-Liste statt Formular, Punkte direkt auf der Karte
+    // antippen (erst Start, dann Ziel, danach Zwischenpunkte, siehe plannerTapOnMap), Route rechnet
+    // sich automatisch neu, sobald sich ein Punkt ändert (scheduleAutoPlannerCalc).
+    function plannerHintText(){
+      if(plannerPicking==='start') return 'Tippe auf die Karte, um den Start zu setzen.';
+      if(plannerPicking==='end') return 'Tippe auf die Karte, um das Ziel zu setzen.';
+      if(plannerPicking==='waypoint') return 'Tippe auf die Karte für weitere Zwischenpunkte.';
+      if(!plannerStart) return 'Tippe auf die Karte, um den Start zu setzen, oder nimm deinen Standort.';
+      if(!plannerEnd) return plannerMode === 'kette' ? 'Tippe den nächsten Punkt auf die Karte.' : 'Tippe auf die Karte oder suche einen Ort für das Ziel.';
+      if(plannerCalcBusy) return 'Route wird berechnet …';
+      if(plannerMode === 'kette') return 'Jeder Tipp auf die Karte verlängert die Route. Alle Punkte lassen sich verschieben.';
+      if(!plannerResult) return '';
+      return 'Weitere Tipps auf die Karte setzen Zwischenpunkte. Alle Punkte lassen sich verschieben.';
+    }
+    function renderPlannerPanel(){
+      const accent = (getComputedStyle(document.documentElement).getPropertyValue('--ice-deep') || '#1E6AA0').trim();
+      if(plannerRouteLine) plannerRouteLine.setStyle({color: accent});
+      if(!plannerExpanded){
+        plannerPanel.className = 'fsp fsp-collapsed';
+        plannerPanel.style.cssText = '';
+        plannerPanel.innerHTML = `<button type="button" class="fsp-fab" data-act="planner-toggle">🧭 Route planen</button>`;
+        wirePlannerPanel();
+        return;
+      }
+      plannerPanel.className = 'fsp fsp-open';
+      plannerPanel.style.cssText = '';
+      const showEndInput = !plannerEnd || plannerEndEditing;
+      const hint = plannerHintText();
+      const km = plannerResult && typeof plannerResult.distanceM==='number' ? (plannerResult.distanceM>=1000 ? (plannerResult.distanceM/1000).toFixed(1).replace('.',',') : String(Math.round(plannerResult.distanceM))) : null;
+      const kmUnit = plannerResult && plannerResult.distanceM>=1000 ? 'km' : 'm';
+      plannerPanel.innerHTML = `
+        <div class="fsp-head">
+          <span class="fsp-grip" aria-hidden="true"></span>
+          <h3>Route planen</h3>
+          <button type="button" class="fsp-x" data-act="planner-toggle" aria-label="Planung einklappen">${fsIconHtml('chevdown')}</button>
+        </div>
+        <div class="fsp-mode" role="group" aria-label="Art der Planung">
+          <button type="button" data-act="planner-mode" data-mode="ziel" aria-pressed="${plannerMode==='ziel'}" class="${plannerMode==='ziel'?'on':''}">Start → Ziel</button>
+          <button type="button" data-act="planner-mode" data-mode="kette" aria-pressed="${plannerMode==='kette'}" class="${plannerMode==='kette'?'on':''}">Punkt für Punkt</button>
+        </div>
+        <div class="fsp-stops">
+          <div class="fsp-stop">
+            <span class="fsp-dot fsp-dot-start" aria-hidden="true"></span>
+            <div class="fsp-stop-body">
+              <div class="fsp-k">Start</div>
+              <div class="fsp-v ${plannerStart ? '' : 'fsp-muted'}">${plannerStart ? esc(plannerStart.label) : 'Noch nicht gesetzt'}</div>
+            </div>
+            <div class="fsp-stop-actions">
+              <button type="button" class="fsp-icon" data-act="planner-start-gps" aria-label="Mein Standort als Start" title="Mein Standort als Start">${fsIconHtml('gps')}</button>
+              <button type="button" class="fsp-icon ${plannerPicking==='start'?'on':''}" data-act="planner-start-map" aria-label="Start auf der Karte wählen" title="Start auf der Karte wählen">${fsIconHtml('pin')}</button>
+            </div>
+          </div>
+          ${plannerWaypoints.map((wp,i)=>`
+          <div class="fsp-stop">
+            <span class="fsp-dot fsp-dot-via" aria-hidden="true">${i+1}</span>
+            <div class="fsp-stop-body"><div class="fsp-v">Zwischenpunkt ${i+1}</div></div>
+            <div class="fsp-stop-actions">
+              <button type="button" class="fsp-icon" data-act="planner-waypoint-remove" data-index="${i}" aria-label="Zwischenpunkt ${i+1} entfernen" title="Entfernen">${fsIconHtml('x')}</button>
+            </div>
+          </div>`).join('')}
+          <div class="fsp-stop">
+            <span class="fsp-dot fsp-dot-end" aria-hidden="true"></span>
+            <div class="fsp-stop-body">
+              <div class="fsp-k">Ziel</div>
+              ${showEndInput ? `
+                <form class="fsp-search" data-act="planner-search-form">
+                  <input type="text" id="planner-search-input" placeholder="Ort, Hütte oder Gipfel suchen" aria-label="Ziel suchen" enterkeyhint="search"/>
+                </form>` : `<div class="fsp-v">${esc(plannerEnd.label)}</div>`}
+            </div>
+            <div class="fsp-stop-actions">
+              ${showEndInput
+                ? `<button type="button" class="fsp-icon" data-act="planner-search-btn" aria-label="Suchen" title="Suchen" ${plannerSearchBusy?'disabled':''}>${plannerSearchBusy ? '…' : fsIconHtml('search')}</button>`
+                : `<button type="button" class="fsp-icon" data-act="planner-end-edit" aria-label="Ziel suchen" title="Ziel suchen">${fsIconHtml('search')}</button>`}
+              <button type="button" class="fsp-icon ${plannerPicking==='end'?'on':''}" data-act="planner-end-map" aria-label="Ziel auf der Karte wählen" title="Ziel auf der Karte wählen">${fsIconHtml('pin')}</button>
+            </div>
+          </div>
+          ${plannerEndCandidates ? `
+            <div class="fsp-cands">
+              <div class="fsp-k">Welcher Ort ist gemeint?</div>
+              ${plannerEndCandidates.map((c,i)=>`<button type="button" data-act="planner-end-candidate" data-index="${i}">📍 ${esc(c.label)}</button>`).join('')}
+            </div>` : ''}
+          ${plannerMode==='kette'
+            ? `<button type="button" class="fsp-add" data-act="planner-undo" ${plannerStart ? '' : 'disabled'}>↩️ Letzten Punkt zurück</button>`
+            : `<button type="button" class="fsp-add ${plannerPicking==='waypoint'?'on':''}" data-act="planner-add-waypoint">➕ ${plannerPicking==='waypoint' ? 'Fertig mit Zwischenpunkten' : 'Zwischenpunkt setzen'}</button>`}
+        </div>
+        ${hint ? `<p class="fsp-hint">${esc(hint)}</p>` : ''}
+        ${plannerResult ? `
+          <div class="fsp-stats">
+            ${km!==null ? `<div><b>${km}</b><span>${kmUnit}</span></div>` : ''}
+            <div><b>${Math.round(plannerResult.ascentM||0)}</b><span>Hm auf</span></div>
+            <div><b>${Math.round(plannerResult.descentM||0)}</b><span>Hm ab</span></div>
+            ${typeof plannerResult.durationS==='number' ? `<div><b>${Math.floor(plannerResult.durationS/3600)}:${String(Math.round(plannerResult.durationS/60)%60).padStart(2,'0')}</b><span>Std</span></div>` : ''}
+          </div>
+          <div class="fsp-profile">${elevationProfileSvgHtml(plannerResult.elevationProfile)}</div>
+          <p class="fsp-note">Grobe Schätzung, ohne Pausen.</p>
+        ` : ''}
+        <div class="fsp-actions">
+          ${(plannerStart || plannerEnd || plannerWaypoints.length) ? `<button type="button" class="fsp-icon fsp-icon-lg" data-act="planner-discard" aria-label="Route verwerfen" title="Verwerfen">${fsIconHtml('trash')}</button>` : ''}
+          ${plannerResult
+            ? `<button type="button" class="btn" data-act="planner-save">Als Tour speichern</button>`
+            : `<button type="button" class="btn" data-act="planner-calc" ${canCalcPlanner() ? '' : 'disabled'}>${plannerCalcBusy ? 'Berechne …' : 'Route berechnen'}</button>`}
+        </div>
+      `;
+      wirePlannerPanel();
+    }
+    function canCalcPlanner(){ return !!(plannerStart && plannerEnd && !plannerCalcBusy); }
+
+    function wirePlannerPanel(){
+      const toggleBtn = plannerPanel.querySelector('[data-act="planner-toggle"]');
+      if(toggleBtn) toggleBtn.onclick = ()=>{ plannerExpanded = !plannerExpanded; renderPlannerPanel(); };
+      const startGpsBtn = plannerPanel.querySelector('[data-act="planner-start-gps"]');
+      if(startGpsBtn) startGpsBtn.onclick = ()=>{ plannerStartMode = 'gps'; plannerPicking = null; useMyLocationAsStart(); };
+      const startMapBtn = plannerPanel.querySelector('[data-act="planner-start-map"]');
+      if(startMapBtn) startMapBtn.onclick = ()=>{ plannerStartMode = 'map'; plannerPicking = 'start'; addPointPicking = false; renderAddPointBtn(); renderPlannerPanel(); showToast('Tippe auf die Karte, um den Startpunkt zu setzen.'); };
+      const endMapBtn = plannerPanel.querySelector('[data-act="planner-end-map"]');
+      if(endMapBtn) endMapBtn.onclick = ()=>{ plannerEndMode = 'map'; plannerPicking = 'end'; addPointPicking = false; renderAddPointBtn(); renderPlannerPanel(); showToast('Tippe auf die Karte, um den Zielpunkt zu setzen.'); };
+      const addWaypointBtn = plannerPanel.querySelector('[data-act="planner-add-waypoint"]');
+      if(addWaypointBtn) addWaypointBtn.onclick = ()=>{
+        // Erneutes Antippen beendet den (sonst dauerhaften) Auswahlmodus wieder.
+        plannerPicking = (plannerPicking==='waypoint') ? null : 'waypoint';
+        addPointPicking = false; renderAddPointBtn();
+        renderPlannerPanel();
+        if(plannerPicking==='waypoint') showToast('Tippe auf die Karte, um Zwischenpunkte zu setzen.');
+      };
+      plannerPanel.querySelectorAll('[data-act="planner-waypoint-remove"]').forEach(btn=>{
+        btn.onclick = ()=> removePlannerWaypoint(parseInt(btn.getAttribute('data-index'), 10));
+      });
+      const searchInput = plannerPanel.querySelector('#planner-search-input');
+      if(searchInput){
+        searchInput.value = plannerEndQuery;
+        searchInput.oninput = (e)=>{ plannerEndQuery = e.target.value; };
+        searchInput.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); searchAndSetEnd(plannerEndQuery); } };
+      }
+      const searchBtn = plannerPanel.querySelector('[data-act="planner-search-btn"]');
+      if(searchBtn) searchBtn.onclick = ()=> searchAndSetEnd(plannerEndQuery);
+      const searchForm = plannerPanel.querySelector('[data-act="planner-search-form"]');
+      if(searchForm) searchForm.onsubmit = (e)=>{ e.preventDefault(); searchAndSetEnd(plannerEndQuery); };
+      plannerPanel.querySelectorAll('[data-act="planner-mode"]').forEach(btn=>{
+        btn.onclick = ()=>{ plannerMode = btn.getAttribute('data-mode'); plannerPicking = null; renderPlannerPanel(); };
+      });
+      const undoBtn = plannerPanel.querySelector('[data-act="planner-undo"]');
+      if(undoBtn) undoBtn.onclick = undoLastPlannerPoint;
+      const endEditBtn = plannerPanel.querySelector('[data-act="planner-end-edit"]');
+      if(endEditBtn) endEditBtn.onclick = ()=>{ plannerEndEditing = true; renderPlannerPanel(); const i = plannerPanel.querySelector('#planner-search-input'); if(i) i.focus(); };
+      plannerPanel.querySelectorAll('[data-act="planner-end-candidate"]').forEach(btn=>{
+        btn.onclick = ()=> chooseEndCandidate(parseInt(btn.getAttribute('data-index'), 10));
+      });
+      const calcBtn = plannerPanel.querySelector('[data-act="planner-calc"]');
+      if(calcBtn) calcBtn.onclick = calculatePlannerRoute;
+      const discardBtn = plannerPanel.querySelector('[data-act="planner-discard"]');
+      if(discardBtn) discardBtn.onclick = discardPlannerRoute;
+      const saveBtn = plannerPanel.querySelector('[data-act="planner-save"]');
+      if(saveBtn) saveBtn.onclick = savePlannerRouteAsDraft;
+    }
+
+    renderPlannerPanel();
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:#fff;">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+function destroyExistingMap(leafletContainerId){
+  window.__activeLeafletMaps = window.__activeLeafletMaps || {};
+  if(window.__activeLeafletMaps[leafletContainerId]){
+    try{ window.__activeLeafletMaps[leafletContainerId].remove(); }catch(e){}
+    delete window.__activeLeafletMaps[leafletContainerId];
+  }
+}
+function registerMap(leafletContainerId, map){
+  window.__activeLeafletMaps = window.__activeLeafletMaps || {};
+  window.__activeLeafletMaps[leafletContainerId] = map;
+}
+function makeFullscreenButton(renderFn, onCloseCallback){
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn secondary';
+  btn.style.cssText = 'margin-top:8px; font-size:12.5px; padding:6px 12px;';
+  btn.textContent = '⛶ Vollbild';
+  btn.addEventListener('click', ()=> openFullscreenMap(renderFn, onCloseCallback||null));
+  return btn;
+}
+
+// Standard-Skala der europäischen Lawinenwarndienste (EAWS), 5 Stufen mit fest definierten Farben.
+const SLF_DANGER_LEVELS = {
+  low: {level:1, color:'#ccff66', label:'1 – Gering'},
+  moderate: {level:2, color:'#ffff00', label:'2 – Mässig'},
+  considerable: {level:3, color:'#ff9900', label:'3 – Erheblich'},
+  high: {level:4, color:'#ff0000', label:'4 – Gross'},
+  very_high: {level:5, color:'#800000', label:'5 – Sehr gross'}
+};
+// Lawinen-Gefahrenstufen als Kartenebene — offene Daten von aws.slf.ch (CC BY 4.0, kein API-Key
+// nötig): Warnregionen-Geometrie (GeoJSON) + aktuelles Bulletin (EAWS-CAAML-JSON, Standardformat
+// vieler europäischer Lawinenwarndienste). Bewusst defensiv geparst (mehrere mögliche Feldnamen
+// für die Regions-ID, "worst case" bei mehreren Höhenbändern/Expositionen) — bei unerwarteter
+// Antwortform gibt es "keine Daten" statt eines Fehlers oder einer falschen Einfärbung.
+async function fetchSlfDangerRegions(){
+  const [regionsRes, bulletinRes] = await Promise.all([
+    fetch('https://aws.slf.ch/api/warningregion/'),
+    fetch('https://aws.slf.ch/api/bulletin/caaml')
+  ]);
+  if(!regionsRes.ok || !bulletinRes.ok) throw new Error('Lawinendaten aktuell nicht abrufbar.');
+  const regionsData = await regionsRes.json();
+  const bulletinData = await bulletinRes.json();
+  const features = Array.isArray(regionsData.features) ? regionsData.features : [];
+  if(!features.length) throw new Error('Keine Warnregionen erhalten.');
+  const bulletins = Array.isArray(bulletinData) ? bulletinData : (Array.isArray(bulletinData.bulletins) ? bulletinData.bulletins : []);
+  const dangerByRegion = {};
+  bulletins.forEach(b=>{
+    const ratings = Array.isArray(b.dangerRatings) ? b.dangerRatings : [];
+    let maxInfo = null;
+    ratings.forEach(r=>{
+      const info = SLF_DANGER_LEVELS[r.mainValue];
+      if(info && (!maxInfo || info.level > maxInfo.level)) maxInfo = info;
+    });
+    if(!maxInfo) return;
+    (Array.isArray(b.regions) ? b.regions : []).forEach(rr=>{
+      const rid = rr.regionID || rr.id;
+      if(rid) dangerByRegion[rid] = maxInfo;
+    });
+  });
+  return { features, dangerByRegion, bulletinCount: bulletins.length };
+}
+function slfRegionId(feature){
+  const p = feature.properties || {};
+  return p.regionID || p.id || p.RegionID || p.region_id || null;
+}
+async function loadSlfDangerLayer(layerGroup){
+  try{
+    const { features, dangerByRegion, bulletinCount } = await fetchSlfDangerRegions();
+    let matched = 0;
+    features.forEach(f=>{
+      const rid = slfRegionId(f);
+      const info = rid ? dangerByRegion[rid] : null;
+      if(!info) return; // keine gemeldete Gefahrenstufe für diese Region -> nicht einfärben statt raten
+      matched++;
+      const layer = L.geoJSON(f, { style: { fillColor: info.color, fillOpacity: 0.45, color:'#555', weight:1 } });
+      layer.bindPopup(`<b>Lawinengefahr: Stufe ${esc(info.label)}</b><br/><a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`);
+      layerGroup.addLayer(layer);
+    });
+    if(!matched){
+      // Ausserhalb der Wintersaison veröffentlicht das SLF meist gar kein Bulletin (bulletinCount
+      // dann 0) — das ist der Normalfall im Sommer/Herbst, kein Fehler. Nur wenn Bulletins da
+      // sind, aber keiner Region zugeordnet werden konnte, deutet das auf ein echtes Problem hin.
+      const msg = bulletinCount===0
+        ? 'Aktuell kein Lawinenbulletin veröffentlicht (ausserhalb der Wintersaison meist normal).'
+        : 'Lawinen-Gefahrenstufen aktuell nicht zuordenbar.';
+      showToast(msg, true);
+    }
+  }catch(e){
+    showToast('Lawinendaten aktuell nicht verfügbar: ' + (e && e.message ? e.message : e), true);
+  }
+}
+
+/* ================= Kartenebenen: Landeskarte + Satellit (zum Wechseln) ================= */
+function addBaseLayerSwitcher(map){
+  const streetLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
+    maxZoom: 18,
+    attribution: '© swisstopo'
+  });
+  const satelliteLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg', {
+    maxZoom: 18,
+    attribution: '© swisstopo'
+  });
+  // Zuschaltbare Overlays (zusätzlich zur Karte/Satellit-Auswahl, standardmässig aus) — offizielle
+  // swisstopo-Routen-Ebenen, gerendert als Kacheln über der jeweils gewählten Grundkarte.
+  const skitourenLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo-karto.skitouren/default/current/3857/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '© swisstopo'
+  });
+  // Hangneigungsklassen ab 30° (SLF/SAC-Empfehlung) — essenziell für die Lawinen-Einschätzung
+  // bei der Skitourenplanung. Standardmässig etwas transparent, damit das Gelände darunter
+  // noch erkennbar bleibt (analog zur Voreinstellung auf map.geo.admin.ch).
+  const hangneigungLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.hangneigung-ueber_30/default/current/3857/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    opacity: 0.6,
+    attribution: '© swisstopo'
+  });
+  // Wegsperrungen/Umleitungen auf dem Wanderwegnetz — offizielle, offene Geodaten von ASTRA/
+  // swisstopo/Schweizer Wanderwege/SchweizMobil (opendata.swiss), stündlich bis täglich
+  // aktualisiert. Nur Sperrungen ab 1 Woche Dauer, die vor Ort signalisiert sind (keine
+  // saisonalen wie Schnee/Eis). Als WMS eingebunden (kein eigenes WMTS-Kachelschema bekannt).
+  const wegsperrungenLayer = L.tileLayer.wms('https://wms.geo.admin.ch', {
+    layers: 'ch.astra.wanderland-sperrungen_umleitungen',
+    format: 'image/png',
+    transparent: true,
+    maxZoom: 18,
+    attribution: '© ASTRA/swisstopo/SchweizMobil'
+  });
+  // Aktuelle Wetter-Messwerte (MeteoSchweiz Open Data, seit 2025) -- zeigt den IST-Zustand an
+  // den Messstationen, keine Prognose (die gibt's nur punktbezogen, siehe Tour-Detailansicht,
+  // nicht als flächendeckende Kartenebene). Gleiches WMTS-Schema wie die Ebenen oben.
+  const meteoTempLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.meteoschweiz.messwerte-lufttemperatur-10min/default/current/3857/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '© MeteoSchweiz'
+  });
+  const meteoPrecipLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.meteoschweiz.messwerte-niederschlag-10min/default/current/3857/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '© MeteoSchweiz'
+  });
+  streetLayer.addTo(map);
+  const overlays = { '⛷️ Skitouren': skitourenLayer, '⚠️ Hangneigung ab 30°': hangneigungLayer, '🚧 Wegsperrungen': wegsperrungenLayer, '🌡️ Temperatur (aktuell)': meteoTempLayer, '🌧️ Niederschlag (aktuell)': meteoPrecipLayer };
+  // Lawinen-Gefahrenstufen nur in Firnspur/Skitour relevant (nicht bei MSL/Klettertouren auf Fels).
+  // SEKTOREN_PATH ist nur in Fixseil definiert — dessen Fehlen erkennt hier zuverlässig die andere App.
+  // Standardmässig ausgeschaltet: die Daten werden erst beim ersten Einschalten geladen, nicht bei
+  // jedem Kartenaufruf (Traffic/Ladezeit sparen für ein Feature, das nicht immer gebraucht wird).
+  let slfDangerLayer = null;
+  if(typeof SEKTOREN_PATH === 'undefined'){
+    slfDangerLayer = L.layerGroup();
+    let slfLoaded = false;
+    map.on('overlayadd', (e)=>{
+      if(e.layer === slfDangerLayer && !slfLoaded){
+        slfLoaded = true;
+        loadSlfDangerLayer(slfDangerLayer);
+      }
+    });
+    overlays['🔺 Lawinengefahr (SLF)'] = slfDangerLayer;
+  }
+  L.control.layers(
+    { '🗺️ Karte': streetLayer, '🛰️ Satellit': satelliteLayer },
+    overlays,
+    { position: 'bottomleft', collapsed: true }
+  ).addTo(map);
+  return { streetLayer, satelliteLayer, skitourenLayer, hangneigungLayer, wegsperrungenLayer, slfDangerLayer };
+}
+
+// Fragt swisstopos "identify"-Dienst ab, um herauszufinden, welche eingezeichnete Skitour
+// (falls überhaupt eine) sich an einer angetippten Stelle befindet — inkl. Name & Geometrie,
+// damit sie als Info angezeigt und als GPX exportiert werden kann.
+async function identifySkitourAt(map, latlng){
+  try{
+    const b = map.getBounds();
+    const size = map.getSize();
+    const params = new URLSearchParams({
+      geometryType: 'esriGeometryPoint',
+      geometry: latlng.lng + ',' + latlng.lat,
+      geometryFormat: 'geojson',
+      layers: 'all:ch.swisstopo-karto.skitouren',
+      tolerance: '8',
+      mapExtent: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(','),
+      imageDisplay: size.x + ',' + size.y + ',96',
+      sr: '4326',
+      returnGeometry: 'true'
+    });
+    const res = await fetch('https://api3.geo.admin.ch/rest/services/all/MapServer/identify?' + params.toString());
+    if(!res.ok) return null;
+    const data = await res.json();
+    return (data.results && data.results.length) ? data.results[0] : null;
+  }catch(e){ return null; }
+}
+
+// Fragt dieselbe geo.admin.ch-"identify"-Schnittstelle für die Wegsperrungen-Ebene ab —
+// analog zu identifySkitourAt(), nur mit anderem Layer-Namen.
+async function identifyWegsperrungAt(map, latlng){
+  try{
+    const b = map.getBounds();
+    const size = map.getSize();
+    const params = new URLSearchParams({
+      geometryType: 'esriGeometryPoint',
+      geometry: latlng.lng + ',' + latlng.lat,
+      geometryFormat: 'geojson',
+      layers: 'all:ch.astra.wanderland-sperrungen_umleitungen',
+      tolerance: '8',
+      mapExtent: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(','),
+      imageDisplay: size.x + ',' + size.y + ',96',
+      sr: '4326',
+      returnGeometry: 'true'
+    });
+    const res = await fetch('https://api3.geo.admin.ch/rest/services/all/MapServer/identify?' + params.toString());
+    if(!res.ok) return null;
+    const data = await res.json();
+    return (data.results && data.results.length) ? data.results[0] : null;
+  }catch(e){ return null; }
+}
+// Baut den Popup-Inhalt für eine angetippte Wegsperrung. Das genaue Namensschema der
+// Beschreibungs-Felder ist von aussen nicht zuverlässig dokumentiert (mehrsprachige Varianten
+// wie content_provider_de) — daher wie bei buildSkitourPopupContent() ein bekanntes Feld
+// bevorzugt anzeigen, sonst alle Rohdaten auflisten, statt "undefined" zu riskieren.
+function buildWegsperrungPopupContent(feature){
+  const wrap = document.createElement('div');
+  wrap.style.minWidth = '200px';
+  const attrs = feature.attributes || feature.properties || {};
+  const title = document.createElement('p');
+  title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+  title.textContent = '🚧 Wegsperrung / Umleitung';
+  wrap.appendChild(title);
+  const knownDesc = attrs.content_provider_de || attrs.beschreibung_de || attrs.description_de || attrs.info_de || attrs.text_de;
+  if(knownDesc){
+    const descP = document.createElement('p');
+    descP.style.cssText = 'margin:0 0 8px 0; font-size:13px;';
+    descP.textContent = knownDesc;
+    wrap.appendChild(descP);
+  }else{
+    const debugKeys = Object.keys(attrs).filter(k=> attrs[k] !== null && attrs[k] !== '' && k !== 'geometry');
+    if(debugKeys.length){
+      const debugP = document.createElement('p');
+      debugP.style.cssText = 'margin:0 0 8px 0; font-size:11px; color:#888; max-height:120px; overflow-y:auto;';
+      debugP.textContent = debugKeys.map(k=> k + ': ' + attrs[k]).join(' | ');
+      wrap.appendChild(debugP);
+    }
+  }
+  const link = document.createElement('a');
+  link.href = 'https://schweizmobil.ch';
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.style.cssText = 'font-size:12.5px;';
+  link.textContent = 'Details auf SchweizMobil ↗';
+  wrap.appendChild(link);
+  return wrap;
+}
+
+// GeoJSON-Geometrie (EPSG:4326, [lon,lat]) in Leaflet-Koordinaten ([lat,lon]) umwandeln.
+function geojsonToLatLngs(geometry){
+  if(!geometry) return [];
+  if(geometry.type === 'LineString') return geometry.coordinates.map(c=>[c[1], c[0]]);
+  if(geometry.type === 'MultiLineString') return geometry.coordinates.flat().map(c=>[c[1], c[0]]);
+  return [];
+}
+
+// Popup-Inhalt für eine per identifySkitourAt() gefundene Skitour — Name (falls bekannt)
+// plus GPX-Download. Geteilt zwischen der Standalone-Karte und dem Punkte/Linie-Editor.
+function buildSkitourPopupContent(feature){
+  const wrap = document.createElement('div');
+  wrap.style.minWidth = '190px';
+  // Je nach angeforderter Geometrie-Form liefert swisstopo die Sachdaten mal unter
+  // "attributes" (ESRI-Stil), mal unter "properties" (GeoJSON-Stil) — beides abdecken.
+  const attrs = feature.attributes || feature.properties || {};
+  const knownName = attrs.name || attrs.bezeichnung || attrs.routenname || attrs.label || attrs.title || attrs.routename || attrs.strecke;
+  const name = knownName || 'Skitour';
+  const title = document.createElement('p');
+  title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+  title.textContent = '⛷️ ' + name;
+  wrap.appendChild(title);
+  if(!knownName){
+    // Temporär, bis das echte Namensfeld bekannt ist: alle Rohdaten anzeigen, damit wir
+    // den richtigen Feldnamen identifizieren können.
+    const debugKeys = Object.keys(attrs).filter(k=> attrs[k] !== null && attrs[k] !== '' && k !== 'geometry');
+    if(debugKeys.length){
+      const debugP = document.createElement('p');
+      debugP.style.cssText = 'margin:0 0 8px 0; font-size:11px; color:#888; max-height:120px; overflow-y:auto;';
+      debugP.textContent = debugKeys.map(k=> k + ': ' + attrs[k]).join(' | ');
+      wrap.appendChild(debugP);
+    }
+  }
+  const coords = geojsonToLatLngs(feature.geometry);
+  if(coords.length){
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = '📥 GPX herunterladen';
+    btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+    btn.addEventListener('click', ()=> downloadTrackAsGpx(coords, name));
+    wrap.appendChild(btn);
+    // Direkt einer bestehenden Tour zuweisen, statt den Umweg über Herunterladen und
+    // anschliessendes manuelles Hochladen im Formular zu gehen — die Koordinaten liegen ja
+    // schon hier vor. Nur sinnvoll, wenn es überhaupt eigene Touren gibt.
+    if(Array.isArray(state.tours) && state.tours.length){
+      const attachWrap = document.createElement('div');
+      attachWrap.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid #eee;';
+      const select = document.createElement('select');
+      select.style.cssText = 'width:100%; margin-bottom:6px; padding:6px 8px; border:1px solid #ccc; border-radius:3px; font-size:12.5px; box-sizing:border-box;';
+      state.tours.forEach(t=>{
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.name || '?';
+        select.appendChild(opt);
+      });
+      attachWrap.appendChild(select);
+      const mainBtn = document.createElement('button');
+      mainBtn.type = 'button';
+      mainBtn.style.cssText = 'width:100%; background:var(--ice-deep, #1F4D63); color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer; margin-bottom:6px;';
+      // Beschriftung hängt davon ab, ob die gewählte Tour schon einen Haupttrack hat — bei
+      // Auswahländerung entsprechend nachziehen.
+      function syncMainBtnLabel(){
+        const t = state.tours.find(x=>x.id===select.value);
+        mainBtn.textContent = (t && t.trackSimplified) ? '🔁 Haupttrack ersetzen' : '➕ Als Haupttrack übernehmen';
+      }
+      select.addEventListener('change', syncMainBtnLabel);
+      syncMainBtnLabel();
+      mainBtn.addEventListener('click', async ()=>{
+        const targetTour = state.tours.find(t=>t.id===select.value);
+        if(!targetTour) return;
+        if(targetTour.trackSimplified && !confirm(`"${targetTour.name}" hat schon einen Haupttrack. Wirklich ersetzen?`)) return;
+        mainBtn.disabled = true;
+        mainBtn.textContent = 'Wird übernommen…';
+        const ok = await attachSkitourTrackToTour(targetTour.id, coords, name);
+        mainBtn.disabled = false;
+        syncMainBtnLabel();
+        showToast(ok ? `Track zu "${targetTour.name}" hinzugefügt.` : 'Konnte nicht übernommen werden (Internetverbindung prüfen).', !ok);
+      });
+      attachWrap.appendChild(mainBtn);
+      const altBtn = document.createElement('button');
+      altBtn.type = 'button';
+      altBtn.textContent = '➕ Als Alternativroute hinzufügen';
+      altBtn.style.cssText = 'width:100%; background:#fff; color:var(--ice-deep, #1F4D63); border:1px solid var(--ice-deep, #1F4D63); border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+      altBtn.addEventListener('click', async ()=>{
+        const targetTour = state.tours.find(t=>t.id===select.value);
+        if(!targetTour) return;
+        altBtn.disabled = true;
+        altBtn.textContent = 'Wird hinzugefügt…';
+        const ok = await attachSkitourTrackToTour(targetTour.id, coords, name, {asAlternative:true});
+        altBtn.disabled = false;
+        altBtn.textContent = '➕ Als Alternativroute hinzufügen';
+        showToast(ok ? `"${name}" als Alternativroute zu "${targetTour.name}" hinzugefügt.` : 'Konnte nicht hinzugefügt werden (Internetverbindung prüfen).', !ok);
+      });
+      attachWrap.appendChild(altBtn);
+      wrap.appendChild(attachWrap);
+    }
+  }
+  return wrap;
+}
+// Übernimmt die von identifySkitourAt() gelieferten Koordinaten direkt als GPX-Track einer
+// bestehenden Tour — ohne den Umweg über "Herunterladen" und anschliessendes manuelles
+// Hochladen im Formular. Ohne opts.asAlternative wird der Haupttrack (er)setzt; mit
+// opts.asAlternative:true kommt der Track als zusätzliche, unabhängige Alternativroute dazu,
+// der bestehende Haupttrack bleibt unangetastet. Aktualisiert sowohl die vereinfachte Linie
+// (für die Kartenanzeige, wie beim normalen Upload über simplifyTrackForStorage) als auch die
+// als Original abrufbare GPX-Datei.
+async function attachSkitourTrackToTour(tourId, coords, name, opts){
+  opts = opts || {};
+  const tour = state.tours.find(t=>t.id===tourId);
+  if(!tour) return false;
+  let simplified;
+  try{
+    simplified = simplifyTrackForStorage(coords.map(c=>({lat:c[0], lon:c[1]})), 200)
+      .map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]);
+  }catch(e){ simplified = coords; }
+  const gpx = buildGpxXml(coords, name);
+  let ok2;
+  if(opts.asAlternative){
+    // Eigener Pfad (GPX_TRACKS_PATH + 'Alt'), NICHT unter dem Haupttrack-Pfad verschachtelt:
+    // fbSet ist ein reines PUT und würde beim (Er)setzen des Haupttracks sonst alles darunter
+    // — inklusive bereits gespeicherter Alternativrouten — mit überschreiben.
+    if(!Array.isArray(tour.altTracks)) tour.altTracks = [];
+    const altId = 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+    tour.altTracks.push({ id: altId, name: name || 'Alternativroute', trackSimplified: simplified });
+    ok2 = await fbSet(GPX_TRACKS_PATH + 'Alt/' + tourId + '/' + altId, { gpx, uploadedAt: new Date().toISOString(), fileName: (name||'alternativroute') + '.gpx' }).catch(()=>false);
+  }else{
+    tour.trackSimplified = simplified;
+    ok2 = await fbSet(GPX_TRACKS_PATH + '/' + tourId, { gpx, uploadedAt: new Date().toISOString(), fileName: (name||'track') + '.gpx' }).catch(()=>false);
+  }
+  const ok1 = await saveTourCloud(tour).catch(()=>false);
+  if(state.modal && state.modal.type==='edit-tour' && state.modal.payload && state.modal.payload.id===tourId) render();
+  return ok1 && ok2;
+}
+
+// Lädt die als Original gespeicherte GPX-Datei einer einzelnen Alternativroute herunter —
+// analog zu downloadFullGpx(), nur unter dem separaten Alternativrouten-Pfad.
+async function downloadAltGpx(tourId, altId, name){
+  try{
+    const data = await fbGet(GPX_TRACKS_PATH + 'Alt/' + tourId + '/' + altId);
+    if(!data || !data.gpx){ showToast('Keine gespeicherte GPX-Datei für diese Alternativroute gefunden.', true); return; }
+    const blob = new Blob([data.gpx], {type:'application/gpx+xml'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (name || 'alternativroute').replace(/[^a-z0-9äöüÄÖÜ_\- ]/gi,'').trim() + '.gpx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  }catch(err){
+    showToast('GPX-Datei konnte nicht heruntergeladen werden.', true);
+  }
+}
+
+// Entfernt eine einzelne Alternativroute wieder von einer Tour (Haupttrack bleibt unberührt).
+async function removeAltTrack(tourId, altId){
+  const tour = state.tours.find(t=>t.id===tourId);
+  if(!tour || !Array.isArray(tour.altTracks)) return false;
+  tour.altTracks = tour.altTracks.filter(a=>a.id!==altId);
+  const ok1 = await saveTourCloud(tour).catch(()=>false);
+  const ok2 = await fbDelete(GPX_TRACKS_PATH + 'Alt/' + tourId + '/' + altId).catch(()=>false);
+  if(state.modal && state.modal.type==='edit-tour' && state.modal.payload && state.modal.payload.id===tourId) render();
+  return ok1 && ok2;
+}
+
+// HTML-Liste der Alternativrouten einer Tour für die Detailansicht (Download + Entfernen je
+// Route) — geteilt zwischen Firnspur/Skitour und Fixseil/MSL, da beide dasselbe altTracks-Feld
+// und dieselben Shared-Funktionen (downloadAltGpx/removeAltTrack) nutzen.
+function altTracksListHtml(tour){
+  if(!tour.altTracks || !tour.altTracks.length) return '';
+  return `<div style="margin-top:10px;">
+    <p style="font-size:12.5px; font-weight:600; margin:0 0 6px 0;">Alternativrouten (${tour.altTracks.length})</p>
+    ${tour.altTracks.map((a,i)=>`<div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px solid var(--line);">
+      <span style="width:10px; height:10px; border-radius:50%; background:${ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length]}; flex-shrink:0;"></span>
+      <span style="flex:1; font-size:13px;">${esc(a.name || 'Alternativroute')}</span>
+      <button type="button" class="btn secondary" style="padding:4px 8px; font-size:12px;" data-act="download-alt-gpx" data-tour-id="${tour.id}" data-alt-id="${a.id}" data-name="${esc(a.name||'Alternativroute')}">📥</button>
+      <button type="button" class="btn secondary" style="padding:4px 8px; font-size:12px;" data-act="remove-alt-track" data-tour-id="${tour.id}" data-alt-id="${a.id}">🗑️</button>
+    </div>`).join('')}
+  </div>`;
+}
+
+function renderMiniMap(containerId, lat, lon, label){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:220px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const map = L.map(mapDivId, {attributionControl:true}).setView([lat, lon], isFullscreen ? 15 : 14);
+    registerMap(mapDivId, map);
+    addBaseLayerSwitcher(map);
+    L.marker([lat, lon]).addTo(map).bindPopup(label || '').openPopup();
+    if(!isFullscreen){
+      const btn = makeFullscreenButton(function(id){ renderMiniMap(id, lat, lon, label); });
+      el2.appendChild(btn);
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+function fetchLocationIntoForm(latInputId, lonInputId, statusId){
+  const statusEl = document.getElementById(statusId);
+  if(!navigator.geolocation){
+    if(statusEl) statusEl.textContent = 'Geolokalisierung wird von diesem Gerät/Browser nicht unterstützt.';
+    return;
+  }
+  if(statusEl) statusEl.textContent = 'Standort wird ermittelt…';
+  navigator.geolocation.getCurrentPosition(
+    (pos)=>{
+      const lat = pos.coords.latitude, lon = pos.coords.longitude;
+      const latInput = document.getElementById(latInputId);
+      const lonInput = document.getElementById(lonInputId);
+      if(latInput) latInput.value = lat;
+      if(lonInput) lonInput.value = lon;
+      if(statusEl) statusEl.textContent = '📍 Gespeichert: ' + lat.toFixed(5) + ', ' + lon.toFixed(5);
+    },
+    (err)=>{
+      if(statusEl) statusEl.textContent = 'Standort konnte nicht ermittelt werden: ' + (err && err.message ? err.message : 'Zugriff verweigert oder kein Signal.');
+    },
+    { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
+  );
+}
+
+/* ================= Interaktive Punkte-Karte (mehrere Stecknadeln, manuell setzbar) ================= */
+// Referenz-Tracks für die Karte eines Elements mit Zustiegen/Abstiegen (Hütte, MSL-Tour, Sektor):
+// alle bereits erfassten Routen ausser der ggf. gerade selbst bearbeiteten — so ist innerhalb eines
+// Elements auf jeder Karte (eigene Punkte, einzelner Zustieg/Abstieg …) dasselbe zu sehen, nichts
+// geht beim Wechseln zwischen den Ansichten "verloren".
+function siblingRouteRefTracks(entity, excludeRouteId){
+  if(!entity) return [];
+  const out = [];
+  let colorIdx = 0;
+  ['accessRoutes','descentRoutes'].forEach(field=>{
+    const kindLabel = field==='descentRoutes' ? 'Abstieg' : 'Zustieg';
+    (entity[field] || []).forEach(r=>{
+      const color = accessRouteColor(r, colorIdx);
+      colorIdx++;
+      if(r.id === excludeRouteId) return;
+      const track = (r.trackSimplified && r.trackSimplified.length) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length ? r.manualTrack : null);
+      if(track) out.push({coords:track, color, label:'🚶 ' + kindLabel + ': ' + (r.name||'?')});
+    });
+  });
+  return out;
+}
+// Referenz-Punkte für die Karte eines Zustiegs/Abstiegs: die eigenen Standort-Punkte des
+// übergeordneten Elements, damit man auch dort sieht, wo dieses selbst liegt.
+function ownPointRefPoints(entity, label, color){
+  if(!entity || !entity.points || !entity.points.length) return [];
+  return entity.points.map(p=> ({lat:p.lat, lon:p.lon, label: label + (p.label ? ' – ' + p.label : ''), color: color||'#4A3524'}));
+}
+function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig){
+  // autofillFields (optional): {ascent, descent, duration} — Formularfelder (DOM-Elemente), die nach
+  // "Route berechnen" automatisch mit den berechneten Werten befüllt werden.
+  // refTracks: Array von {coords, color, label} — beliebig viele statische Referenzlinien (z. B. Zustiege/
+  // Abstiege desselben Elements oder GPX-Tracks anderer Einträge), nur zur Orientierung, hier nicht bearbeitbar.
+  // refPoints: Array von {lat, lon, label, color} — analog, einzelne Referenz-Standorte (z. B. der Standort
+  // der übergeordneten Hütte/Tour/Sektor beim Bearbeiten eines einzelnen Zustiegs).
+  // gpxConfig (optional): {hiddenId, idHiddenId, trackPathPrefix, statusId} — macht den EIGENEN hochgeladenen
+  // GPX-Track dieses Elements direkt in dieser Karte bearbeitbar (ziehen/entfernen einzelner Punkte, siehe
+  // redrawLine unten), statt ihn nur als feste Referenzlinie zu zeigen und für Korrekturen eine zweite,
+  // separate Karte zu benötigen ("zu viele Karten" — vorher gab es dafür renderGpxTrackEditorMap).
+  refTracks = Array.isArray(refTracks) ? refTracks.filter(rt=>rt && rt.coords && rt.coords.length) : [];
+  refPoints = Array.isArray(refPoints) ? refPoints.filter(rp=>rp && typeof rp.lat==='number' && typeof rp.lon==='number') : [];
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    const hiddenInput = document.getElementById(hiddenInputId);
+    const listEl = document.getElementById(listContainerId);
+    const manualTrackHidden = manualTrackHiddenId ? document.getElementById(manualTrackHiddenId) : null;
+    const gpxHiddenInput = (gpxConfig && gpxConfig.hiddenId) ? document.getElementById(gpxConfig.hiddenId) : null;
+    let gpxTrackFromHidden = null;
+    if(gpxHiddenInput && gpxHiddenInput.value){
+      try{ const parsed = JSON.parse(gpxHiddenInput.value); if(Array.isArray(parsed) && parsed.length) gpxTrackFromHidden = parsed; }catch(e){}
+    }
+    if(!el2 || !hiddenInput) return;
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+
+    const wrapDiv = document.createElement('div');
+    if(isFullscreen){
+      wrapDiv.style.cssText = 'height:100%; display:flex; flex-direction:column; box-sizing:border-box; padding:56px 12px 12px 12px;';
+    }
+
+    // Orts-/Bergsuche, um die Karte schnell an eine bestimmte Stelle zu bringen (z. B. ein Dorf
+    // oder ein Gipfel weit weg vom aktuellen Ausschnitt) — setzt nur den Kartenausschnitt, einen
+    // Punkt legt man wie gewohnt bewusst per langem Drücken selbst (siehe pointHint unten).
+    const searchRow = document.createElement('div');
+    searchRow.style.cssText = 'display:flex; gap:4px; margin-bottom:8px;';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Ort, Berg oder Dorf suchen …';
+    searchInput.style.cssText = 'flex:1; min-width:0; border:1px solid var(--line); border-radius:4px; padding:7px 9px; font-size:13px;';
+    const searchBtn = document.createElement('button');
+    searchBtn.type = 'button';
+    searchBtn.className = 'btn secondary';
+    searchBtn.style.cssText = 'flex:none; font-size:12.5px; padding:7px 10px;';
+    searchBtn.textContent = '🔍';
+    searchRow.appendChild(searchInput);
+    searchRow.appendChild(searchBtn);
+    wrapDiv.appendChild(searchRow);
+    const searchResults = document.createElement('div');
+    searchResults.style.cssText = 'margin:-4px 0 8px 0; display:flex; flex-direction:column; gap:2px; font-size:12.5px; color:var(--ink-soft);';
+    wrapDiv.appendChild(searchResults);
+    let placeSearchBusy = false;
+    async function runPlaceSearch(){
+      const q = searchInput.value.trim();
+      if(!q || placeSearchBusy) return;
+      placeSearchBusy = true;
+      searchResults.textContent = 'Suche …';
+      try{
+        const hits = await geocodePlaces(q, 5);
+        searchResults.innerHTML = '';
+        if(!hits.length){
+          searchResults.textContent = 'Kein Ort gefunden.';
+        }else{
+          hits.forEach(hit=>{
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.style.cssText = 'text-align:left; background:var(--ice-light); border:none; border-radius:4px; padding:6px 9px; font-size:12.5px; color:var(--ink); cursor:pointer;';
+            btn.textContent = '📍 ' + hit.label;
+            btn.addEventListener('click', ()=>{ map.setView([hit.lat, hit.lon], 15); searchResults.innerHTML = ''; searchInput.value = ''; });
+            searchResults.appendChild(btn);
+          });
+        }
+      }catch(e){
+        searchResults.textContent = 'Suche fehlgeschlagen (offline?).';
+      }
+      placeSearchBusy = false;
+    }
+    searchBtn.addEventListener('click', runPlaceSearch);
+    searchInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); runPlaceSearch(); } });
+
+    // Segmentierter Umschalter statt einzelner loser Chips — grössere Tippflächen, und die
+    // Farbe jedes Modus entspricht genau der Farbe, die er auf der Karte zeichnet (Blau =
+    // Linie, Grün = Route), damit auf einen Blick klar ist, was gerade aktiv ist.
+    const MODE_META = {
+      point: { label: '📍 Punkt', color: 'var(--ice-deep)' },
+      line: { label: '✏️ Linie', color: '#1565C0' },
+      route: { label: '🧭 Route', color: '#2F6B44' }
+    };
+    const modeRow = document.createElement('div');
+    modeRow.style.cssText = 'display:flex; gap:4px; margin-bottom:10px; background:var(--ice-light); padding:4px; border-radius:20px;';
+    function makeModeBtn(key){
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.style.cssText = 'flex:1; border:none; background:transparent; border-radius:16px; padding:10px 4px; font-size:13px; font-weight:700; cursor:pointer; transition:background 0.15s ease, color 0.15s ease; color:var(--ink-soft);';
+      btn.textContent = MODE_META[key].label;
+      return btn;
+    }
+    const pointModeBtn = makeModeBtn('point');
+    const lineModeBtn = makeModeBtn('line');
+    const routeModeBtn = makeModeBtn('route');
+    modeRow.appendChild(pointModeBtn);
+    modeRow.appendChild(lineModeBtn);
+    modeRow.appendChild(routeModeBtn);
+    wrapDiv.appendChild(modeRow);
+
+    // Mehrstufiges Rückgängig für alle drei Modi (Punkt/Linie/Route) — immer sichtbar, nicht an
+    // einen Modus gebunden, damit z. B. ein versehentlich gelöschter Punkt oder eine ganze
+    // gelöschte Route wiederhergestellt werden kann, auch über mehrere Schritte hinweg.
+    const undoAllBtn = document.createElement('button');
+    undoAllBtn.type = 'button';
+    undoAllBtn.className = 'btn secondary';
+    undoAllBtn.style.cssText = 'width:100%; margin-bottom:8px; font-size:12.5px; padding:7px 12px;';
+    undoAllBtn.textContent = '↩️ Rückgängig';
+    wrapDiv.appendChild(undoAllBtn);
+
+    const pointHint = document.createElement('p');
+    pointHint.className = 'hint';
+    pointHint.style.marginBottom = '4px';
+    pointHint.textContent = 'Lange drücken, um einen Punkt zu setzen. Normal antippen zeigt Infos zur Skitouren-Ebene (falls eingeschaltet).';
+    wrapDiv.appendChild(pointHint);
+
+    if(gpxTrackFromHidden){
+      const gpxHint = document.createElement('p');
+      gpxHint.className = 'hint';
+      gpxHint.style.marginBottom = '4px';
+      gpxHint.textContent = '🔴 Rot: dein hochgeladener GPX-Track — im Linie-Modus einen Punkt ziehen zum Verschieben, lange drücken/Rechtsklick zum Entfernen, Karte antippen fügt einen Punkt am Ende hinzu.';
+      wrapDiv.appendChild(gpxHint);
+    }
+    refTracks.forEach(rt=>{
+      const refHint = document.createElement('p');
+      refHint.className = 'hint';
+      refHint.style.marginBottom = '4px';
+      refHint.textContent = `${rt.label || 'Referenz-Track'} (zur Orientierung, nicht bearbeitbar hier).`;
+      wrapDiv.appendChild(refHint);
+    });
+    if(refPoints.length){
+      const refPointHint = document.createElement('p');
+      refPointHint.className = 'hint';
+      refPointHint.style.marginBottom = '4px';
+      refPointHint.textContent = 'Kleine Punkte zur Orientierung: eigene Standorte des übergeordneten Eintrags (nicht bearbeitbar hier).';
+      wrapDiv.appendChild(refPointHint);
+    }
+
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    if(isFullscreen){
+      mapDiv.style.cssText = 'flex:1 1 auto; min-height:0; border-radius:0; overflow:hidden; border:none;';
+    }else{
+      mapDiv.style.cssText = 'height:260px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    }
+    wrapDiv.appendChild(mapDiv);
+
+    const lineActionsRow = document.createElement('div');
+    lineActionsRow.style.cssText = 'display:none; gap:8px; margin-top:8px; flex-wrap:wrap;';
+    const undoBtn = document.createElement('button');
+    undoBtn.type = 'button'; undoBtn.className = 'btn secondary'; undoBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    undoBtn.textContent = '↺ Letzten Punkt entfernen';
+    const clearLineBtn = document.createElement('button');
+    clearLineBtn.type = 'button'; clearLineBtn.className = 'btn secondary'; clearLineBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; color:#B0392C;';
+    clearLineBtn.textContent = '🗑️ Linie löschen';
+    const finishBtn = document.createElement('button');
+    finishBtn.type = 'button'; finishBtn.className = 'btn secondary'; finishBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    finishBtn.textContent = '✓ Linie fertig';
+    lineActionsRow.appendChild(undoBtn);
+    lineActionsRow.appendChild(clearLineBtn);
+    lineActionsRow.appendChild(finishBtn);
+    // Nur sichtbar, solange die Linie tatsächlich (noch) der eigene hochgeladene GPX-Track ist —
+    // schreibt die bearbeitete Linie zusätzlich als neue Originaldatei zurück, damit auch der
+    // "GPX herunterladen"-Button in der Detailansicht danach die korrigierte Version liefert.
+    const replaceGpxOriginalBtn = document.createElement('button');
+    replaceGpxOriginalBtn.type = 'button'; replaceGpxOriginalBtn.className = 'btn secondary'; replaceGpxOriginalBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; display:none;';
+    replaceGpxOriginalBtn.textContent = '💾 Original-GPX-Datei ersetzen';
+    lineActionsRow.appendChild(replaceGpxOriginalBtn);
+    wrapDiv.appendChild(lineActionsRow);
+
+    // Route-Modus als eigene, grün getönte Karte (passend zur grünen Routen-Farbe auf der Karte) —
+    // mit Zähler, wie viele Wegpunkte schon gesetzt sind, und einem grossen, deutlich erkennbaren
+    // "Route berechnen"-Knopf, der erst ab zwei Wegpunkten farbig/aktiv wird.
+    const routeActionsRow = document.createElement('div');
+    routeActionsRow.style.cssText = 'display:none; margin-top:8px; padding:10px 12px; background:#EAF3EC; border-left:3px solid #2F6B44; border-radius:4px;';
+    const routeHint = document.createElement('p');
+    routeHint.className = 'hint';
+    routeHint.style.cssText = 'margin:0 0 8px 0;';
+    routeHint.textContent = 'Start, ggf. Zwischenziele und Ziel antippen — die App sucht dann einen echten Wanderweg dazwischen.';
+    const routeWaypointCount = document.createElement('span');
+    routeWaypointCount.style.cssText = 'display:inline-block; margin-bottom:8px; font-size:12px; font-weight:700; color:#2F6B44; background:#fff; border:1px solid #2F6B44; border-radius:12px; padding:3px 10px;';
+    const routeSmallBtnsRow = document.createElement('div');
+    routeSmallBtnsRow.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;';
+    const routeUndoBtn = document.createElement('button');
+    routeUndoBtn.type = 'button'; routeUndoBtn.className = 'btn secondary'; routeUndoBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    routeUndoBtn.textContent = '↺ Letzten Wegpunkt entfernen';
+    const clearRouteBtn = document.createElement('button');
+    clearRouteBtn.type = 'button'; clearRouteBtn.className = 'btn secondary'; clearRouteBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; color:#B0392C;';
+    clearRouteBtn.textContent = '🗑️ Wegpunkte löschen';
+    routeSmallBtnsRow.appendChild(routeUndoBtn);
+    routeSmallBtnsRow.appendChild(clearRouteBtn);
+    const calcRouteBtn = document.createElement('button');
+    calcRouteBtn.type = 'button';
+    calcRouteBtn.style.cssText = 'display:block; width:100%; border:none; border-radius:6px; padding:13px; font-size:14.5px; font-weight:700; cursor:pointer; transition:background 0.15s ease, box-shadow 0.15s ease;';
+    calcRouteBtn.textContent = '🧭 Route berechnen';
+    const routeStatus = document.createElement('p');
+    routeStatus.style.cssText = 'margin:8px 0 0 0; font-size:12.5px;';
+    routeActionsRow.appendChild(routeHint);
+    routeActionsRow.appendChild(routeWaypointCount);
+    routeActionsRow.appendChild(routeSmallBtnsRow);
+    routeActionsRow.appendChild(calcRouteBtn);
+    routeActionsRow.appendChild(routeStatus);
+    wrapDiv.appendChild(routeActionsRow);
+
+    // Ausserhalb von routeActionsRow (also nicht an den Route-Modus gebunden), damit die Kennzahlen
+    // der zuletzt berechneten Route sichtbar bleiben, auch nachdem automatisch in den Punkt-Modus
+    // zurückgewechselt wird. Als kleine Kennzahlen-Kärtchen statt einer einzelnen Textzeile.
+    const routeStatsEl = document.createElement('div');
+    routeStatsEl.style.cssText = 'display:none; margin-top:8px; gap:6px; flex-wrap:wrap;';
+    wrapDiv.appendChild(routeStatsEl);
+
+    el2.appendChild(wrapDiv);
+
+    let points = [];
+    try{ points = JSON.parse(hiddenInput.value || '[]'); }catch(e){ points = []; }
+    // Ist ein eigener GPX-Track hochgeladen, wird DIESER zur bearbeitbaren Linie (statt einer separaten,
+    // nicht bearbeitbaren Referenzlinie plus einer zweiten Karte nur zum Korrigieren) — usingGpxTrack
+    // steuert, wohin persistTrack() schreibt und ob der "Original ersetzen"-Knopf sichtbar ist.
+    let usingGpxTrack = !!gpxTrackFromHidden;
+    let manualTrack = gpxTrackFromHidden ? gpxTrackFromHidden.map(p=>[p[0], p[1]]) : [];
+    if(!usingGpxTrack && manualTrackHidden){
+      try{ manualTrack = JSON.parse(manualTrackHidden.value || '[]'); }catch(e){ manualTrack = []; }
+    }
+    let mode = 'point';
+
+    const firstRefTrack = refTracks.length ? refTracks[0].coords : null;
+    const firstRefPoint = refPoints.length ? [refPoints[0].lat, refPoints[0].lon] : null;
+    // Beim Wechsel Mini-Karte <-> Vollbild (siehe makeFullscreenButton-Aufruf unten) denselben
+    // Ausschnitt behalten statt auf den ersten Punkt zurückzuspringen — lastPointsEditorMapView
+    // wird nur bei einer wirklich NEUEN Bearbeiten-Sitzung zurückgesetzt (siehe
+    // syncModalDirtyTracking), nicht bei diesem Mini/Vollbild-Wechsel selbst.
+    const center = lastPointsEditorMapView ? lastPointsEditorMapView.center
+      : (points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : (firstRefPoint || [46.8182, 8.2275]))));
+    const zoom = lastPointsEditorMapView ? lastPointsEditorMapView.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
+    const map = L.map(mapDivId).setView(center, zoom);
+    map._isPointsEditorMap = true;
+    map.on('moveend', ()=>{ lastPointsEditorMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
+    registerMap(mapDivId, map);
+    const { skitourenLayer } = addBaseLayerSwitcher(map);
+
+    refTracks.forEach(rt=>{
+      L.polyline(rt.coords, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
+      L.polyline(rt.coords, {color: rt.color || '#E8384F', weight:3, opacity:0.8}).addTo(map);
+    });
+    refPoints.forEach(rp=>{
+      L.circleMarker([rp.lat, rp.lon], {radius:6, color:'#fff', weight:2, fillColor: rp.color || '#4A3524', fillOpacity:0.9}).bindTooltip(rp.label || '').addTo(map);
+    });
+
+    const markerLayer = L.layerGroup().addTo(map);
+    let lineLayer = L.layerGroup().addTo(map);
+    let routeLayer = L.layerGroup().addTo(map);
+    let routeWaypoints = [];
+    // Gesetzt durch "➕ Zwischenpunkt danach setzen" (Klick auf einen Wegpunkt) — der nächste
+    // Kartenklick fügt den neuen Punkt dort ein, statt ihn ans Ende der Liste anzuhängen. So lässt
+    // sich eine bestehende Route gezielt umleiten, ohne sie komplett neu zeichnen zu müssen.
+    let insertAfterWaypointIndex = null;
+    // Kennzahlen der zuletzt berechneten Route — auf den Strich tippen zeigt sie erneut an
+    // (klein/vergänglich unter der Karte reicht sonst nicht: kaum lesbar und beim Verlassen weg).
+    // Wird zurückgesetzt, sobald die Linie manuell verändert wird (dann stimmen die Zahlen nicht mehr).
+    // An das (formularweit stabile) manualTrackHidden-Element gehängt statt nur in dieser
+    // Funktionsinstanz gehalten: renderPointsEditorMap wird bei jedem "Karte öffnen" und beim
+    // Wechsel in die Vollbildansicht (und zurück) komplett neu aufgerufen — ohne diese Ablage
+    // wären die Kennzahlen (und damit Tippen-zum-Anzeigen sowie der Löschen-Knopf) danach weg,
+    // obwohl die Route selbst (in manualTrack) weiterhin da und sichtbar ist.
+    let lastRouteStats = (manualTrackHidden && manualTrackHidden._routeStats) || null;
+    function setLastRouteStats(v){
+      lastRouteStats = v;
+      if(manualTrackHidden) manualTrackHidden._routeStats = v;
+    }
+
+    // Mehrstufiges Rückgängig: vor jeder zerstörenden Aktion (Punkt/Linie/Wegpunkt entfernen,
+    // Route neu berechnen/löschen) wird ein Snapshot abgelegt. An manualTrackHidden gehängt (wie
+    // lastRouteStats oben), damit die Historie einen Wechsel in/aus der Vollbildansicht überlebt.
+    let undoStack = (manualTrackHidden && manualTrackHidden._undoStack) || [];
+    function pushUndo(){
+      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats, usingGpxTrack}));
+      if(undoStack.length > 25) undoStack.shift();
+      if(manualTrackHidden) manualTrackHidden._undoStack = undoStack;
+      updateUndoBtn();
+    }
+    function updateUndoBtn(){
+      const n = undoStack.length;
+      undoAllBtn.disabled = n === 0;
+      undoAllBtn.style.opacity = n === 0 ? '0.4' : '1';
+      undoAllBtn.style.cursor = n === 0 ? 'default' : 'pointer';
+      undoAllBtn.textContent = '↩️ Rückgängig' + (n > 0 ? ' (' + n + ')' : '');
+    }
+    function performUndo(){
+      if(!undoStack.length) return;
+      const snap = JSON.parse(undoStack.pop());
+      points = snap.points;
+      manualTrack = snap.manualTrack;
+      routeWaypoints = snap.routeWaypoints;
+      usingGpxTrack = !!snap.usingGpxTrack;
+      insertAfterWaypointIndex = null;
+      setLastRouteStats(snap.lastRouteStats);
+      hiddenInput.value = JSON.stringify(points);
+      persistTrack();
+      updateGpxReplaceBtn();
+      markModalDirty();
+      renderList();
+      redraw();
+      redrawLine();
+      redrawRoute();
+      if(lastRouteStats) renderRouteStatCards(routeStatsEl, lastRouteStats, clearCalculatedRoute, editCalculatedRoute);
+      else { routeStatsEl.style.display = 'none'; routeStatsEl.innerHTML = ''; }
+      updateUndoBtn();
+      showToast('Rückgängig gemacht.');
+    }
+    undoAllBtn.addEventListener('click', performUndo);
+    updateUndoBtn();
+
+    function persist(){
+      hiddenInput.value = JSON.stringify(points);
+      markModalDirty();
+      renderList();
+    }
+    function persistTrack(){
+      markModalDirty();
+      const target = usingGpxTrack ? gpxHiddenInput : manualTrackHidden;
+      if(target) target.value = JSON.stringify(manualTrack);
+    }
+    // Blendet den "Original ersetzen"-Knopf ein/aus, je nachdem ob die Linie aktuell (noch) der
+    // eigene GPX-Track ist — nicht mehr der Fall, sobald z. B. eine neu berechnete Route sie ersetzt.
+    function updateGpxReplaceBtn(){
+      replaceGpxOriginalBtn.style.display = (usingGpxTrack && gpxConfig && manualTrack.length >= 2) ? 'inline-block' : 'none';
+    }
+    function renderList(){
+      if(!listEl) return;
+      if(!points.length){
+        listEl.innerHTML = '<p style="font-size:12.5px; color:var(--ink-faint); margin:8px 0 0 0;">Noch keine Punkte gesetzt.</p>';
+        return;
+      }
+      listEl.innerHTML = '<div class="chips" style="margin-top:8px;">' +
+        points.map((p,i)=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('') +
+        '</div>';
+    }
+
+    function buildPopupContent(point){
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '190px';
+      const select = document.createElement('select');
+      select.style.cssText = 'width:100%; margin-bottom:6px; padding:6px 8px; border:1px solid #ccc; border-radius:3px; font-size:13px; box-sizing:border-box;';
+      Object.keys(MAP_POINT_CATEGORIES).forEach(key=>{
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = MAP_POINT_CATEGORIES[key].icon + ' ' + MAP_POINT_CATEGORIES[key].label;
+        if((point.category||'') === key) opt.selected = true;
+        select.appendChild(opt);
+      });
+      wrap.appendChild(select);
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = point.label || '';
+      input.placeholder = 'z. B. Parkplatz, Haltestelle …';
+      input.style.cssText = 'width:100%; margin-bottom:6px; padding:6px 8px; border:1px solid #ccc; border-radius:3px; font-size:13px; box-sizing:border-box;';
+      wrap.appendChild(input);
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex; gap:6px;';
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.textContent = 'Speichern';
+      saveBtn.style.cssText = 'flex:1; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:6px 10px; font-size:12.5px; cursor:pointer;';
+      saveBtn.addEventListener('click', ()=>{
+        point.label = input.value.trim() || 'Punkt';
+        point.category = select.value;
+        persist();
+        redraw();
+        map.closePopup();
+      });
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.textContent = 'Entfernen';
+      delBtn.style.cssText = 'background:#fff; color:#B0392C; border:1px solid #B0392C; border-radius:3px; padding:6px 10px; font-size:12.5px; cursor:pointer;';
+      delBtn.addEventListener('click', ()=>{
+        pushUndo();
+        points = points.filter(p=>p!==point);
+        persist();
+        redraw();
+        map.closePopup();
+      });
+      btnRow.appendChild(saveBtn);
+      btnRow.appendChild(delBtn);
+      wrap.appendChild(btnRow);
+      return wrap;
+    }
+
+    function redraw(){
+      markerLayer.clearLayers();
+      points.forEach(point=>{
+        const marker = L.marker([point.lat, point.lon], {icon: makeCategoryIcon(point.category)}).addTo(markerLayer);
+        marker.bindPopup(buildPopupContent(point));
+        if(point._justAdded){ delete point._justAdded; marker.openPopup(); }
+      });
+    }
+    function redrawLine(){
+      lineLayer.clearLayers();
+      if(manualTrack.length){
+        // Deutlich breitere, unsichtbare Klickfläche unter der sichtbaren Linie — auf einer
+        // schmalen 4px-Linie mit dem Finger genau zu treffen ist auf dem Handy sehr schwierig.
+        const hitLine = L.polyline(manualTrack, {color:'#000', weight:26, opacity:0}).addTo(lineLayer);
+        L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(lineLayer);
+        L.polyline(manualTrack, {color: usingGpxTrack ? '#E8384F' : '#1565C0', weight:4, opacity:1}).addTo(lineLayer);
+        if(lastRouteStats){
+          const statsText = formatRouteStats(lastRouteStats);
+          if(statsText){
+            hitLine.on('click', (e)=>{
+              L.DomEvent.stopPropagation(e);
+              L.popup().setLatLng(e.latlng).setContent('<strong>🧭 Berechnete Route</strong><br>' + statsText).openOn(map);
+            });
+          }
+        }
+        if(usingGpxTrack && mode==='line'){
+          // Nur beim (max. 200 Punkte grossen, siehe simplifyTrackForStorage) eigenen GPX-Track UND
+          // nur im Linie-Modus: jeder Punkt einzeln verschiebbar/entfernbar, wie zuvor in der
+          // separaten GPX-Karte (renderGpxTrackEditorMap, jetzt entfernt). Ausserhalb des Linie-
+          // Modus (Punkt/Route) bewusst nur als reine, nicht ziehbare Linie gezeigt — sonst könnte
+          // ein simples Verschieben/Zoomen der Karte versehentlich einen Punkt mitziehen. Bei einer
+          // berechneten Route mit u. U. hunderten Geometrie-Punkten wäre das ausserdem unbrauchbar.
+          manualTrack.forEach((pt, i)=>{
+            const vertexIcon = L.divIcon({
+              className: 'gpx-edit-vertex-icon',
+              html: '<div style="width:12px; height:12px; border-radius:50%; background:#E8384F; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>',
+              iconSize: [12,12], iconAnchor: [6,6]
+            });
+            const marker = L.marker(pt, {icon: vertexIcon, draggable: true}).addTo(lineLayer);
+            marker.on('dragstart', ()=> pushUndo());
+            marker.on('dragend', ()=>{
+              const ll = marker.getLatLng();
+              manualTrack[i] = [ll.lat, ll.lng];
+              setLastRouteStats(null);
+              routeStatsEl.style.display = 'none';
+              routeStatsEl.innerHTML = '';
+              redrawLine();
+              persistTrack();
+            });
+            marker.on('click', (e)=> L.DomEvent.stopPropagation(e));
+            marker.on('contextmenu', (e)=>{
+              L.DomEvent.stopPropagation(e);
+              L.DomEvent.preventDefault(e.originalEvent);
+              const btn = document.createElement('button');
+              btn.type = 'button';
+              btn.textContent = '🗑️ Diesen Punkt entfernen';
+              btn.style.cssText = 'background:#B0392C; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+              btn.addEventListener('click', ()=>{
+                pushUndo();
+                manualTrack.splice(i, 1);
+                setLastRouteStats(null);
+                routeStatsEl.style.display = 'none';
+                routeStatsEl.innerHTML = '';
+                redrawLine();
+                persistTrack();
+                map.closePopup();
+              });
+              L.popup().setLatLng(pt).setContent(btn).openOn(map);
+            });
+          });
+        }
+      }
+      updateGpxReplaceBtn();
+    }
+    redrawLine();
+    // Kennzahlen-Kärtchen (inkl. Löschen-Knopf) gleich wiederherstellen, falls für die aktuelle
+    // Linie schon welche vorliegen (z. B. nach Rückkehr aus der Vollbildansicht) — sonst wäre die
+    // Route zwar noch sichtbar, aber ohne erneut antippbaren Popup und ohne Löschen-Möglichkeit.
+    if(lastRouteStats) renderRouteStatCards(routeStatsEl, lastRouteStats, clearCalculatedRoute, editCalculatedRoute);
+
+    function redrawRoute(){
+      routeLayer.clearLayers();
+      routeWaypoints.forEach((wp, i)=>{
+        const marker = L.circleMarker(wp, {radius:11, color:'#fff', weight:2, fillColor:'#2F6B44', fillOpacity:1}).addTo(routeLayer)
+          .bindTooltip(String(i+1), {permanent:true, direction:'center', className:'route-waypoint-label'});
+        // Auf einen Wegpunkt tippen erlaubt gezieltes Einfügen/Entfernen an dieser Stelle — vorher
+        // liess sich nur der jeweils letzte Wegpunkt entfernen bzw. nur am Ende neu anhängen.
+        marker.on('click', (e)=>{
+          L.DomEvent.stopPropagation(e);
+          const wrap = document.createElement('div');
+          wrap.style.minWidth = '200px';
+          const insertBtn = document.createElement('button');
+          insertBtn.type = 'button';
+          insertBtn.textContent = '➕ Zwischenpunkt danach setzen';
+          insertBtn.style.cssText = 'width:100%; margin-bottom:6px; background:#2F6B44; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+          insertBtn.addEventListener('click', ()=>{
+            insertAfterWaypointIndex = i;
+            routeStatus.style.color = 'var(--ink-soft)';
+            routeStatus.textContent = 'Nächster Kartentipp fügt einen Punkt nach Wegpunkt ' + (i+1) + ' ein.';
+            map.closePopup();
+          });
+          const delWpBtn = document.createElement('button');
+          delWpBtn.type = 'button';
+          delWpBtn.textContent = '🗑️ Diesen Wegpunkt entfernen';
+          delWpBtn.style.cssText = 'width:100%; background:#fff; color:#B0392C; border:1px solid #B0392C; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+          delWpBtn.addEventListener('click', ()=>{
+            pushUndo();
+            routeWaypoints.splice(i, 1);
+            if(insertAfterWaypointIndex === i) insertAfterWaypointIndex = null;
+            redrawRoute();
+            map.closePopup();
+          });
+          wrap.appendChild(insertBtn);
+          wrap.appendChild(delWpBtn);
+          L.popup().setLatLng(wp).setContent(wrap).openOn(map);
+        });
+      });
+      if(routeWaypoints.length > 1){
+        L.polyline(routeWaypoints, {color:'#2F6B44', weight:2, opacity:0.6, dashArray:'6,6'}).addTo(routeLayer);
+      }
+      updateRoutePanelState();
+    }
+    // Lädt die Wegpunkte einer bereits berechneten Route wieder in den Route-Modus, damit sie
+    // gezielt verändert (Zwischenpunkt einfügen/entfernen, siehe redrawRoute oben) und neu
+    // berechnet werden kann — vorher liess sich eine bestehende Route nur komplett löschen und
+    // von Null neu zeichnen ("Diese Route löschen").
+    function editCalculatedRoute(){
+      if(!lastRouteStats || !Array.isArray(lastRouteStats.waypoints) || lastRouteStats.waypoints.length < 2){
+        showToast('Für diese (ältere) Route sind keine Wegpunkte zum Bearbeiten gespeichert — bitte neu zeichnen.', true);
+        return;
+      }
+      routeWaypoints = lastRouteStats.waypoints.map(wp=> [wp[0], wp[1]]);
+      insertAfterWaypointIndex = null;
+      setMode('route');
+      redrawRoute();
+      showToast('Wegpunkte geladen — Wegpunkt antippen zum Einfügen/Entfernen, dann neu berechnen.');
+    }
+    // Zähler + Zustand des "Route berechnen"-Knopfs: erst ab zwei Wegpunkten farbig/aktiv,
+    // sonst gedämpft und deaktiviert — macht auf einen Blick klar, wann es losgehen kann.
+    function updateRoutePanelState(){
+      const n = routeWaypoints.length;
+      routeWaypointCount.textContent = n===0 ? 'Noch keine Wegpunkte gesetzt' : n===1 ? '1 Wegpunkt gesetzt — noch ein Ziel antippen' : n + ' Wegpunkte gesetzt';
+      const ready = n >= 2;
+      calcRouteBtn.disabled = !ready;
+      calcRouteBtn.style.background = ready ? '#2F6B44' : 'var(--line)';
+      calcRouteBtn.style.color = ready ? '#fff' : 'var(--ink-faint)';
+      calcRouteBtn.style.boxShadow = ready ? '0 2px 8px rgba(47,107,68,0.4)' : 'none';
+      calcRouteBtn.style.cursor = ready ? 'pointer' : 'default';
+    }
+
+    function setMode(newMode){
+      mode = newMode;
+      [['point',pointModeBtn],['line',lineModeBtn],['route',routeModeBtn]].forEach(([key,btn])=>{
+        const active = mode===key;
+        btn.style.background = active ? MODE_META[key].color : 'transparent';
+        btn.style.color = active ? '#fff' : 'var(--ink-soft)';
+        btn.style.boxShadow = active ? '0 1px 4px rgba(0,0,0,0.25)' : 'none';
+      });
+      lineActionsRow.style.display = mode==='line' ? 'flex' : 'none';
+      routeActionsRow.style.display = mode==='route' ? 'block' : 'none';
+      pointHint.style.display = mode==='point' ? '' : 'none';
+      // Zeigt/versteckt die ziehbaren Punkte des eigenen GPX-Tracks je nach Modus (siehe redrawLine).
+      if(typeof redrawLine === 'function') redrawLine();
+    }
+    setMode('point');
+    updateRoutePanelState();
+    pointModeBtn.addEventListener('click', ()=> setMode('point'));
+    lineModeBtn.addEventListener('click', ()=> setMode('line'));
+    routeModeBtn.addEventListener('click', ()=> setMode('route'));
+    undoBtn.addEventListener('click', ()=>{
+      pushUndo();
+      manualTrack.pop();
+      setLastRouteStats(null);
+      routeStatsEl.style.display = 'none';
+      routeStatsEl.innerHTML = '';
+      redrawLine();
+      persistTrack();
+    });
+    clearLineBtn.addEventListener('click', ()=>{
+      pushUndo();
+      manualTrack.length = 0;
+      setLastRouteStats(null);
+      routeStatsEl.style.display = 'none';
+      routeStatsEl.innerHTML = '';
+      redrawLine();
+      persistTrack();
+    });
+    finishBtn.addEventListener('click', ()=> setMode('point'));
+    replaceGpxOriginalBtn.addEventListener('click', async ()=>{
+      if(!gpxConfig || manualTrack.length < 2) return;
+      // gpxConfig.id: fixes Kürzel für Fälle, in denen die ID schon als JS-Variable bekannt ist
+      // (z. B. Schnell-Bearbeiten in der Detailansicht) und kein eigenes verstecktes Feld dafür
+      // angelegt werden muss — sonst wie gehabt über idHiddenId aus dem Formular gelesen.
+      const idInput = gpxConfig.idHiddenId ? document.getElementById(gpxConfig.idHiddenId) : null;
+      const trackId = gpxConfig.id || (idInput ? idInput.value : '');
+      const statusEl = gpxConfig.statusId ? document.getElementById(gpxConfig.statusId) : null;
+      if(!trackId){
+        if(statusEl){ statusEl.style.color = 'var(--danger)'; statusEl.textContent = 'Zuerst das Formular einmal speichern.'; }
+        return;
+      }
+      if(statusEl){ statusEl.style.color = 'var(--ink-soft)'; statusEl.textContent = 'Wird gespeichert…'; }
+      const gpx = buildGpxXml(manualTrack, 'Bearbeiteter Track');
+      const ok = await fbSet(gpxConfig.trackPathPrefix + '/' + trackId, { gpx, uploadedAt: new Date().toISOString(), fileName: 'bearbeitet.gpx' }).catch(()=>false);
+      if(statusEl){
+        statusEl.style.color = ok ? 'var(--ink-soft)' : 'var(--danger)';
+        statusEl.textContent = ok ? '✓ GPX-Track bereits hochgeladen.' : '⚠ Konnte nicht gespeichert werden (Internetverbindung prüfen).';
+      }
+      showToast(ok ? 'Original-GPX-Datei ersetzt — der Download-Button liefert jetzt diese Version.' : 'Konnte nicht gespeichert werden (Internetverbindung prüfen).', !ok);
+    });
+
+    routeUndoBtn.addEventListener('click', ()=>{
+      pushUndo();
+      routeWaypoints.pop();
+      redrawRoute();
+    });
+    clearRouteBtn.addEventListener('click', ()=>{
+      pushUndo();
+      routeWaypoints.length = 0;
+      insertAfterWaypointIndex = null;
+      redrawRoute();
+      routeStatus.textContent = '';
+    });
+    // Löscht die zuletzt berechnete Route wieder — direkt neben den Kennzahlen erreichbar,
+    // statt dass man erst wissen muss, dass eine Route technisch auch nur eine "Linie" ist.
+    function clearCalculatedRoute(){
+      pushUndo();
+      manualTrack = [];
+      setLastRouteStats(null);
+      redrawLine();
+      persistTrack();
+      routeStatsEl.style.display = 'none';
+      routeStatsEl.innerHTML = '';
+      showToast('Berechnete Route gelöscht.');
+    }
+    // Kurzes Aufblitzen, damit sichtbar ist, WELCHES Feld gerade automatisch befüllt wurde —
+    // sonst leicht zu übersehen, vor allem wenn das Feld nicht im sichtbaren Bereich liegt.
+    function flashFilledField(fieldEl){
+      if(!fieldEl) return;
+      fieldEl.scrollIntoView({behavior:'smooth', block:'center'});
+      const prevBg = fieldEl.style.backgroundColor;
+      const prevTransition = fieldEl.style.transition;
+      fieldEl.style.transition = 'background-color 0.3s ease';
+      fieldEl.style.backgroundColor = '#FFF3C4';
+      setTimeout(()=>{ fieldEl.style.backgroundColor = prevBg; setTimeout(()=>{ fieldEl.style.transition = prevTransition; }, 350); }, 1400);
+    }
+    calcRouteBtn.addEventListener('click', async ()=>{
+      if(routeWaypoints.length < 2) return;
+      routeStatus.style.color = 'var(--ink-soft)';
+      routeStatus.textContent = '⏳ Route wird berechnet…';
+      calcRouteBtn.disabled = true;
+      try{
+        const calculated = await fetchCalculatedRoute(routeWaypoints);
+        // Die Wegpunkte selbst mit ablegen (nicht nur die berechnete Linie) — damit "Route
+        // bearbeiten" sie später wieder laden kann, um gezielt umzuleiten statt neu zu zeichnen.
+        calculated.waypoints = routeWaypoints.map(wp=> [wp[0], wp[1]]);
+        pushUndo();
+        // Eine neu berechnete Route ersetzt "die Linie" komplett — war das bisher der eigene
+        // GPX-Track, wird dessen Feld hier explizit geleert, statt eine veraltete Kopie stehen zu
+        // lassen (persistTrack() schreibt ab jetzt wieder in manualTrackHidden statt gpxHiddenInput).
+        if(usingGpxTrack && gpxHiddenInput) gpxHiddenInput.value = '';
+        usingGpxTrack = false;
+        manualTrack = calculated.coords;
+        setLastRouteStats(calculated);
+        redrawLine();
+        persistTrack();
+        routeWaypoints = [];
+        insertAfterWaypointIndex = null;
+        redrawRoute();
+        routeStatus.textContent = '';
+        setMode('point');
+        renderRouteStatCards(routeStatsEl, calculated, clearCalculatedRoute, editCalculatedRoute);
+        const filledLabels = [];
+        if(autofillFields){
+          if(autofillFields.ascent && typeof calculated.ascentM==='number'){
+            autofillFields.ascent.value = String(Math.round(calculated.ascentM));
+            flashFilledField(autofillFields.ascent);
+            filledLabels.push('Aufstieg');
+          }
+          if(autofillFields.descent && typeof calculated.descentM==='number'){
+            autofillFields.descent.value = String(Math.round(calculated.descentM));
+            filledLabels.push('Abstieg');
+          }
+          if(autofillFields.duration && typeof calculated.durationS==='number'){
+            autofillFields.duration.value = formatDurationShort(calculated.durationS);
+            filledLabels.push('Zeitbedarf');
+          }
+        }
+        const statsText = formatRouteStats(calculated);
+        showToast('Route berechnet' + (statsText ? ': ' + statsText : '') + (filledLabels.length ? ' — im Formular übernommen: ' + filledLabels.join(', ') + '.' : (autofillFields ? ' (keine passenden Felder automatisch befüllt.)' : '')));
+      }catch(err){
+        routeStatus.style.color = 'var(--danger)';
+        routeStatus.textContent = '⚠ ' + (err && err.message ? err.message : 'Route konnte nicht berechnet werden.');
+      }
+      updateRoutePanelState();
+    });
+
+    map.on('click', async (e)=>{
+      if(mode==='line'){
+        pushUndo();
+        manualTrack.push([e.latlng.lat, e.latlng.lng]);
+        setLastRouteStats(null);
+        routeStatsEl.style.display = 'none';
+        routeStatsEl.innerHTML = '';
+        redrawLine();
+        persistTrack();
+      }else if(mode==='route'){
+        pushUndo();
+        if(insertAfterWaypointIndex !== null){
+          // Wurde über "➕ Zwischenpunkt danach setzen" (siehe redrawRoute) angefordert: fügt den
+          // neuen Wegpunkt gezielt an dieser Stelle ein, statt ihn ans Ende der Liste anzuhängen —
+          // so lässt sich eine bestehende Route gezielt umleiten.
+          routeWaypoints.splice(insertAfterWaypointIndex + 1, 0, [e.latlng.lat, e.latlng.lng]);
+          insertAfterWaypointIndex = null;
+          routeStatus.textContent = '';
+        }else{
+          routeWaypoints.push([e.latlng.lat, e.latlng.lng]);
+        }
+        redrawRoute();
+      }else if(skitourenLayer && map.hasLayer(skitourenLayer)){
+        // Punkt-Modus + Skitouren-Ebene eingeschaltet: ein normaler Klick zeigt Infos zur
+        // angetippten Route, statt einen Punkt zu setzen (das geht per langem Drücken, s. u.).
+        const feature = await identifySkitourAt(map, e.latlng);
+        if(feature){
+          L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature)).openOn(map);
+        }
+      }
+    });
+
+    // Langes Drücken (auf dem Handy) bzw. Rechtsklick (Desktop) öffnet ein kleines Menü zum
+    // gezielten Setzen eines Punkts — ein normaler Klick setzt im Punkt-Modus keinen mehr.
+    map.on('contextmenu', (e)=>{
+      if(mode!=='point') return;
+      L.DomEvent.preventDefault(e.originalEvent);
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '170px';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '📍 Punkt hier setzen';
+      btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+      btn.addEventListener('click', ()=>{
+        pushUndo();
+        points.push({ label:'', lat: e.latlng.lat, lon: e.latlng.lng, _justAdded:true });
+        redraw();
+        persist();
+        map.closePopup();
+      });
+      wrap.appendChild(btn);
+      L.popup().setLatLng(e.latlng).setContent(wrap).openOn(map);
+    });
+
+    redraw();
+    renderList();
+    if(!isFullscreen){
+      const btn = makeFullscreenButton(
+        function(id){ renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig); },
+        function(){ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig); }
+      );
+      wrapDiv.appendChild(btn);
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+function renderPointsDisplayMap(containerId, points){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2 || !points.length) return;
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const map = L.map(mapDivId).setView([points[0].lat, points[0].lon], isFullscreen ? 14 : 13);
+    registerMap(mapDivId, map);
+    addBaseLayerSwitcher(map);
+    const group = [];
+    points.forEach(p=>{
+      const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
+      group.push(m);
+    });
+    if(group.length > 1){
+      map.fitBounds(L.featureGroup(group).getBounds(), {padding:[30,30]});
+    }
+    if(!isFullscreen){
+      const btn = makeFullscreenButton(function(id){ renderPointsDisplayMap(id, points); });
+      el2.appendChild(btn);
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+/* ================= GPX-Tracks: automatische Vereinfachung + separater Volldownload ================= */
+function douglasPeucker(points, tolerance){
+  if(points.length < 3) return points;
+  function perpendicularDistance(pt, lineStart, lineEnd){
+    const dx = lineEnd.lat - lineStart.lat;
+    const dy = lineEnd.lon - lineStart.lon;
+    if(dx===0 && dy===0){
+      return Math.sqrt(Math.pow(pt.lat-lineStart.lat,2)+Math.pow(pt.lon-lineStart.lon,2));
+    }
+    const t = ((pt.lat-lineStart.lat)*dx + (pt.lon-lineStart.lon)*dy) / (dx*dx+dy*dy);
+    const closestLat = lineStart.lat + t*dx;
+    const closestLon = lineStart.lon + t*dy;
+    return Math.sqrt(Math.pow(pt.lat-closestLat,2)+Math.pow(pt.lon-closestLon,2));
+  }
+  function rdp(pts){
+    if(pts.length < 3) return pts;
+    let maxDist = 0, index = 0;
+    for(let i=1;i<pts.length-1;i++){
+      const d = perpendicularDistance(pts[i], pts[0], pts[pts.length-1]);
+      if(d > maxDist){ maxDist = d; index = i; }
+    }
+    if(maxDist > tolerance){
+      const left = rdp(pts.slice(0, index+1));
+      const right = rdp(pts.slice(index));
+      return left.slice(0,-1).concat(right);
+    }
+    return [pts[0], pts[pts.length-1]];
+  }
+  return rdp(points);
+}
+
+function simplifyTrackForStorage(points, targetCount){
+  targetCount = targetCount || 200;
+  if(points.length <= targetCount) return points;
+  let tolerance = 0.00005;
+  let simplified = points;
+  let iterations = 0;
+  while(simplified.length > targetCount && iterations < 20){
+    simplified = douglasPeucker(points, tolerance);
+    tolerance *= 1.6;
+    iterations++;
+  }
+  return simplified;
+}
+
+function parseGpxTrackPoints(gpxText){
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(gpxText, 'text/xml');
+  const trkpts = Array.from(doc.getElementsByTagName('trkpt'));
+  if(trkpts.length){
+    return trkpts.map(pt=>({lat: parseFloat(pt.getAttribute('lat')), lon: parseFloat(pt.getAttribute('lon'))})).filter(p=>!isNaN(p.lat) && !isNaN(p.lon));
+  }
+  const rtepts = Array.from(doc.getElementsByTagName('rtept'));
+  return rtepts.map(pt=>({lat: parseFloat(pt.getAttribute('lat')), lon: parseFloat(pt.getAttribute('lon'))})).filter(p=>!isNaN(p.lat) && !isNaN(p.lon));
+}
+
+function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simplifiedHiddenId, statusId, onSimplifiedReady){
+  // onSimplifiedReady (optional): wird aufgerufen, sobald die vereinfachte Linie im Formular steht
+  // (nicht erst nach dem — u. U. langsamen — Hochladen der Originaldatei) — damit eine bereits
+  // offene Punkte-Karte den frisch hochgeladenen Track sofort als bearbeitbare Linie zeigen kann.
+  const file = fileInputEl.files && fileInputEl.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById(statusId);
+  if(statusEl) statusEl.textContent = 'GPX-Datei wird gelesen…';
+  const reader = new FileReader();
+  reader.onload = async ()=>{
+    try{
+      const gpxText = reader.result;
+      const points = parseGpxTrackPoints(gpxText);
+      if(!points.length){
+        if(statusEl) statusEl.textContent = 'Keine Track-Punkte in dieser Datei gefunden.';
+        return;
+      }
+      const simplified = simplifyTrackForStorage(points, 200);
+      const simplifiedInput = document.getElementById(simplifiedHiddenId);
+      if(simplifiedInput) simplifiedInput.value = JSON.stringify(simplified.map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]));
+      markModalDirty();
+      if(typeof onSimplifiedReady === 'function') onSimplifiedReady();
+
+      const tourIdInput = document.getElementById(tourIdHiddenId);
+      let trackId = tourIdInput.value;
+      if(!trackId){ trackId = uid('t'); tourIdInput.value = trackId; }
+
+      if(statusEl) statusEl.textContent = 'Original wird hochgeladen…';
+      const ok = await fbSet(trackPathPrefix + '/' + trackId, { gpx: gpxText, uploadedAt: new Date().toISOString(), fileName: file.name }).catch(()=>false);
+      if(statusEl){
+        statusEl.textContent = ok
+          ? `✓ GPX übernommen: ${points.length} Punkte aufgezeichnet, für die Karte auf ${simplified.length} Punkte vereinfacht. Original bleibt zum Download verfügbar.`
+          : 'Vereinfachte Linie übernommen, Original konnte aber nicht hochgeladen werden (Internetverbindung prüfen).';
+      }
+    }catch(err){
+      if(statusEl) statusEl.textContent = 'Fehler beim Verarbeiten der GPX-Datei: ' + (err && err.message ? err.message : err);
+    }
+  };
+  reader.onerror = ()=>{ if(statusEl) statusEl.textContent = 'Datei konnte nicht gelesen werden.'; };
+  reader.readAsText(file);
+}
+// Ein einmal hochgeladener GPX-Track liess sich bisher nur durch eine neue Datei überschreiben,
+// nicht vollständig entfernen. Löscht sowohl die vereinfachte Linie (im Formular, wird beim
+// Speichern übernommen) als auch die Originaldatei in der Cloud.
+async function removeGpxTrack(trackPathPrefix, tourIdHiddenId, simplifiedHiddenId, statusId, removeBtnId){
+  const tourIdInput = document.getElementById(tourIdHiddenId);
+  const trackId = tourIdInput ? tourIdInput.value : '';
+  const simplifiedInput = document.getElementById(simplifiedHiddenId);
+  if(simplifiedInput) simplifiedInput.value = '';
+  markModalDirty();
+  const statusEl = document.getElementById(statusId);
+  if(statusEl) statusEl.textContent = 'Track wird entfernt…';
+  const removeBtn = removeBtnId ? document.getElementById(removeBtnId) : null;
+  if(removeBtn) removeBtn.style.display = 'none';
+  if(trackId) await fbDelete(trackPathPrefix + '/' + trackId).catch(()=>{});
+  if(statusEl) statusEl.textContent = 'Noch kein Track hochgeladen.';
+}
+
+/* ================= Routenplaner (OpenRouteService) =================
+   Kostenlosen API-Key holen: https://openrouteservice.org/dev/#/signup
+   (Free-Plan, kein Kreditkarte nötig). Key hier eintragen, um die
+   Routenberechnung zu aktivieren — ohne Key gibt's nur eine klare
+   Fehlermeldung im UI, der Rest der App funktioniert unabhängig davon. */
+const OPENROUTESERVICE_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImMzNGNmZWNmY2Q3YzRjODlhNGJkNzVjOThlZjkyMjg4IiwiaCI6Im11cm11cjY0In0=';
+
+async function fetchCalculatedRoute(waypoints){
+  // waypoints: Array von [lat, lon], mindestens 2 Punkte.
+  // Rückgabe: {coords, distanceM, durationS, ascentM, descentM} — Distanz/Zeit liefert ORS immer,
+  // Höhenmeter (ascent/descent) nur, wenn elevation:true angefragt wird (Geometrie wird dann 3D).
+  // Die Zeit ist eine grobe Wanderzeit-Schätzung von ORS (Tobler-Funktion, ohne Pausen) — kein
+  // Ersatz für eine SAC-Zeitangabe, aber ein brauchbarer erster Anhaltspunkt.
+  if(!OPENROUTESERVICE_API_KEY){
+    throw new Error('Noch kein API-Key für die Routenberechnung hinterlegt.');
+  }
+  if(!waypoints || waypoints.length < 2){
+    throw new Error('Mindestens zwei Punkte (Start und Ziel) nötig.');
+  }
+  const coordinates = waypoints.map(w=> [w[1], w[0]]); // ORS erwartet [lon, lat]
+  let res;
+  try{
+    res = await fetch('https://api.openrouteservice.org/v2/directions/foot-hiking/geojson', {
+      method: 'POST',
+      headers: { 'Authorization': OPENROUTESERVICE_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ coordinates, elevation: true })
+    });
+  }catch(e){
+    throw new Error('Route konnte nicht berechnet werden (keine Internetverbindung?).');
+  }
+  if(!res.ok){
+    let msg = 'Route konnte nicht berechnet werden.';
+    try{ const err = await res.json(); if(err && err.error && err.error.message) msg = err.error.message; }catch(e){}
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  const feature = data.features && data.features[0];
+  const rawCoords = (feature && feature.geometry.coordinates) || [];
+  const coords = rawCoords.map(c=> [c[1], c[0]]); // zurück zu [lat, lon], Höhe (falls 3D) bleibt aussen vor
+  const props = (feature && feature.properties) || {};
+  const summary = props.summary || {};
+  // Höhenmeter stehen laut ORS-Schema in summary.ascent/.descent; als Rückfallebene (manche
+  // Antworten liefern sie stattdessen nur pro Segment) wird notfalls über alle Segmente summiert.
+  const segments = Array.isArray(props.segments) ? props.segments : [];
+  const segAscent = segments.reduce((sum,s)=> sum + (typeof s.ascent==='number' ? s.ascent : 0), 0);
+  const segDescent = segments.reduce((sum,s)=> sum + (typeof s.descent==='number' ? s.descent : 0), 0);
+  const ascentM = typeof summary.ascent==='number' ? summary.ascent : (segments.length ? segAscent : null);
+  const descentM = typeof summary.descent==='number' ? summary.descent : (segments.length ? segDescent : null);
+  // Höhenprofil fürs Diagramm: kumulierte Distanz + Höhe je Wegpunkt, aus der 3D-Geometrie
+  // (rawCoords[i] = [lon, lat, ele]) — bisher wurde die Höhe hier verworfen (siehe coords oben).
+  let elevationProfile = null;
+  if(rawCoords.length && rawCoords[0].length>=3){
+    let dist = 0;
+    elevationProfile = rawCoords.map((c,i)=>{
+      if(i>0) dist += haversineMeters(rawCoords[i-1][1], rawCoords[i-1][0], c[1], c[0]);
+      return {distM: dist, eleM: c[2]};
+    });
+  }
+  return {
+    coords,
+    distanceM: typeof summary.distance==='number' ? summary.distance : null,
+    durationS: typeof summary.duration==='number' ? summary.duration : null,
+    ascentM,
+    descentM,
+    elevationProfile
+  };
+}
+// Ortssuche (Name -> Koordinaten) für den Wanderungsplaner auf der Übersichtskarte — nutzt dieselbe
+// OpenRouteService-Anbindung/denselben Key wie fetchCalculatedRoute(), aber deren separate
+// Geocoding-Schnittstelle (Pelias-basiert, Key als Query-Parameter statt Authorization-Header).
+// Auf die Schweiz eingegrenzt, da die App nur Schweizer Regionen kennt (reduziert Fehltreffer).
+async function geocodePlaces(query, count){
+  if(!OPENROUTESERVICE_API_KEY){
+    throw new Error('Noch kein API-Key für die Ortssuche hinterlegt.');
+  }
+  let res;
+  try{
+    res = await fetch('https://api.openrouteservice.org/geocode/search?api_key=' + encodeURIComponent(OPENROUTESERVICE_API_KEY) + '&text=' + encodeURIComponent(query) + '&size=' + (count||5) + '&boundary.country=CH');
+  }catch(e){
+    throw new Error('Suche fehlgeschlagen (keine Internetverbindung?).');
+  }
+  if(!res.ok){
+    throw new Error('Suche fehlgeschlagen.');
+  }
+  const data = await res.json();
+  const features = Array.isArray(data.features) ? data.features : [];
+  return features.map(feature=>{
+    const coords = feature.geometry && feature.geometry.coordinates;
+    if(!coords) return null;
+    const label = (feature.properties && (feature.properties.label || feature.properties.name)) || query;
+    return { lat: coords[1], lon: coords[0], label };
+  }).filter(Boolean);
+}
+// Verlinkt die MeteoSchweiz-Lokalprognose (z. B. meteoschweiz.admin.ch/local-forecasts/zurich/8001.html) —
+// dafür braucht es Ortsname + PLZ, die per Reverse-Geocoding (gleiche ORS/Pelias-Anbindung wie
+// geocodePlaces) aus den Koordinaten ermittelt werden. Schlägt das fehl (kein Treffer, keine PLZ,
+// kein API-Key, Netzwerkfehler), landet man stattdessen auf der allgemeinen MeteoSchweiz-Startseite
+// statt auf einem geratenen, evtl. falschen Link — lieber weniger präzise als kaputt.
+// Wichtig: Die deutsche Sprache steckt hier nicht in einem Pfad-Präfix, sondern im Domainnamen
+// selbst — meteoswiss.admin.ch ist Englisch, meteoschweiz.admin.ch Deutsch (per Screenshot bestätigt).
+const METEOSWISS_FALLBACK_URL = 'https://www.meteoschweiz.admin.ch/';
+async function buildMeteoSwissLink(lat, lon){
+  if(!OPENROUTESERVICE_API_KEY) return METEOSWISS_FALLBACK_URL;
+  try{
+    const res = await fetch(`https://api.openrouteservice.org/geocode/reverse?api_key=${encodeURIComponent(OPENROUTESERVICE_API_KEY)}&point.lat=${lat}&point.lon=${lon}&boundary.country=CHE&size=1`);
+    if(!res.ok) return METEOSWISS_FALLBACK_URL;
+    const data = await res.json();
+    const props = data.features && data.features[0] && data.features[0].properties;
+    if(!props) return METEOSWISS_FALLBACK_URL;
+    const plz = props.postalcode || props.postal_code || props.zip;
+    const localityRaw = props.locality || props.localadmin || props.county || props.region;
+    if(!plz || !localityRaw) return METEOSWISS_FALLBACK_URL;
+    const combiningDiacritics = new RegExp('[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']', 'g');
+    const slug = localityRaw.toLowerCase()
+      .normalize('NFD').replace(combiningDiacritics, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if(!slug) return METEOSWISS_FALLBACK_URL;
+    return `https://www.meteoschweiz.admin.ch/local-forecasts/${slug}/${plz}.html`;
+  }catch(e){
+    return METEOSWISS_FALLBACK_URL;
+  }
+}
+// Formatiert die Dauer einer berechneten Route im "H:MM"-Format, passend zum sonst in der App
+// verwendeten Zeitbedarf-Feld (z. B. "1:45"), statt der ausgeschriebenen Kurzform für Stat-Karten.
+// Reines Inline-SVG (keine Chart-Bibliothek nötig) für das Höhenprofil einer berechneten Route.
+function elevationProfileSvgHtml(profile){
+  if(!profile || profile.length<2) return '';
+  const w = 300, h = 90, pad = 4;
+  const eles = profile.map(p=>p.eleM);
+  const minEle = Math.min(...eles), maxEle = Math.max(...eles);
+  const eleRange = Math.max(maxEle-minEle, 1);
+  const maxDist = profile[profile.length-1].distM || 1;
+  const points = profile.map(p=>{
+    const x = pad + (p.distM/maxDist)*(w-2*pad);
+    const y = pad + (1 - (p.eleM-minEle)/eleRange)*(h-2*pad);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const areaPoints = `${pad},${h-pad} ${points} ${w-pad},${h-pad}`;
+  return `<div style="margin-top:10px;">
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%; height:70px; display:block;">
+      <polygon points="${areaPoints}" fill="var(--ice-light)" stroke="none"/>
+      <polyline points="${points}" fill="none" stroke="var(--ice-deep)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg>
+    <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--ink-faint); margin-top:2px;">
+      <span>${Math.round(minEle)} m</span>
+      <span>Höhenprofil</span>
+      <span>${Math.round(maxEle)} m</span>
+    </div>
+  </div>`;
+}
+function formatDurationHM(durationS){
+  const totalMin = Math.round(durationS/60);
+  const h = Math.floor(totalMin/60), m = totalMin%60;
+  return h + ':' + String(m).padStart(2,'0');
+}
+// Formatiert die Kennzahlen einer berechneten Route für die Anzeige (Distanz, Höhenmeter, grobe Zeit).
+function formatDurationShort(durationS){
+  const totalMin = Math.round(durationS/60);
+  const h = Math.floor(totalMin/60), m = totalMin%60;
+  return 'ca. ' + (h>0 ? h+' Std. ' : '') + m+' Min.';
+}
+function formatRouteStats(r){
+  const parts = [];
+  if(typeof r.distanceM==='number'){
+    parts.push(r.distanceM >= 1000 ? (r.distanceM/1000).toFixed(1).replace('.', ',') + ' km' : Math.round(r.distanceM) + ' m');
+  }
+  if(typeof r.ascentM==='number' || typeof r.descentM==='number'){
+    parts.push('↑ ' + Math.round(r.ascentM||0) + ' Hm / ↓ ' + Math.round(r.descentM||0) + ' Hm');
+  }
+  if(typeof r.durationS==='number'){
+    parts.push(formatDurationShort(r.durationS));
+  }
+  return parts.length ? parts.join(' · ') + ' (grobe Schätzung, ohne Pausen)' : '';
+}
+// Zeigt die Kennzahlen einer berechneten Route als kleine, farbige Kärtchen statt einer
+// einzelnen schwer lesbaren Textzeile — je eins für Distanz, Höhenmeter und Zeit — plus einen
+// Löschen-Knopf direkt daneben (vorher liess sich die berechnete Route nur finden, indem man
+// erst in den Linie-Modus wechselte — nicht offensichtlich, da sie ja über "Route" entstand).
+function renderRouteStatCards(el, r, onDelete, onEdit){
+  const cards = [];
+  if(typeof r.distanceM==='number'){
+    cards.push({icon:'📏', value: r.distanceM >= 1000 ? (r.distanceM/1000).toFixed(1).replace('.', ',') + ' km' : Math.round(r.distanceM) + ' m', label:'Distanz'});
+  }
+  if(typeof r.ascentM==='number' || typeof r.descentM==='number'){
+    cards.push({icon:'⛰️', value: '↑' + Math.round(r.ascentM||0) + ' / ↓' + Math.round(r.descentM||0), label:'Hm'});
+  }
+  if(typeof r.durationS==='number'){
+    cards.push({icon:'⏱️', value: formatDurationShort(r.durationS).replace('ca. ', ''), label:'Zeit (Schätzung)'});
+  }
+  if(!cards.length){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'flex';
+  el.innerHTML = cards.map(c=>
+    `<div style="flex:1; min-width:80px; background:#EAF3EC; border-radius:6px; padding:8px 6px; text-align:center;">
+      <div style="font-size:16px;">${c.icon}</div>
+      <div style="font-size:14px; font-weight:700; color:#2F6B44;">${esc(c.value)}</div>
+      <div style="font-size:10.5px; color:var(--ink-soft);">${esc(c.label)}</div>
+    </div>`
+  ).join('')
+    + (onEdit ? '<button type="button" data-act="edit-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid #2F6B44; color:#2F6B44; border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">✏️ Route bearbeiten</button>' : '')
+    + '<button type="button" data-act="delete-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid var(--danger); color:var(--danger); border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">🗑️ Diese Route löschen</button>'
+    + '<p style="width:100%; margin:6px 0 0 0; font-size:11.5px; color:var(--ink-faint);">Auf den Routenstrich tippen zeigt dies erneut an. Grobe Schätzung, ohne Pausen.</p>';
+  const editBtn = el.querySelector('[data-act="edit-calculated-route"]');
+  if(editBtn && onEdit) editBtn.addEventListener('click', onEdit);
+  const deleteBtn = el.querySelector('[data-act="delete-calculated-route"]');
+  if(deleteBtn && onDelete) deleteBtn.addEventListener('click', onDelete);
+}
+
+// Baut aus einer Koordinatenliste eine GPX-Datei und löst den Download aus —
+// für manuell gezeichnete oder berechnete Tracks (kein Original-Upload nötig).
+function buildGpxXml(coords, name){
+  const points = coords.map(c=> `    <trkpt lat="${c[0]}" lon="${c[1]}"></trkpt>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Firnspur" xmlns="http://www.topografix.com/GPX/1/1">\n  <trk>\n    <name>${esc(name || 'Track')}</name>\n    <trkseg>\n${points}\n    </trkseg>\n  </trk>\n</gpx>`;
+}
+function downloadTrackAsGpx(coords, name){
+  if(!coords || !coords.length){ showToast('Kein Track zum Exportieren vorhanden.', true); return; }
+  const gpx = buildGpxXml(coords, name);
+  const blob = new Blob([gpx], {type:'application/gpx+xml'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (name || 'track').replace(/[^a-z0-9äöüÄÖÜ_\- ]/gi,'').trim() + '.gpx';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+
+/* ================= Camptocamp.org-Suche (offene, kostenlose API — kein Login nötig) =================
+   ⚠ Die genaue Antwortstruktur der API konnte hier nicht live gegengeprüft werden. Der Aufbau
+   folgt der dokumentierten/bekannten Konvention (c2corg v6_api), mit defensiver Auswertung
+   mehrerer möglicher Feldnamen — bitte einmal live testen. */
+async function searchCamptocamp(query){
+  const res = await fetch('https://api.camptocamp.org/search?q=' + encodeURIComponent(query) + '&limit=10&l=de');
+  if(!res.ok) throw new Error('Suche fehlgeschlagen (Status ' + res.status + ').');
+  const data = await res.json();
+  const bucket = data.routes || data.results || data;
+  const documents = (bucket && bucket.documents) || (Array.isArray(bucket) ? bucket : []) || [];
+  return documents;
+}
+
+function extractCamptocampTitle(doc){
+  if(doc.title) return doc.title;
+  if(Array.isArray(doc.locales) && doc.locales.length){
+    const loc = doc.locales.find(l=> l.lang==='de') || doc.locales[0];
+    if(loc && loc.title) return loc.title;
+  }
+  return null;
+}
+// camptocamp.org-URLs ohne Sprachsegment (nur /routes/<id>) landen auf der Startsprache der Seite
+// (i. d. R. Französisch) statt auf Deutsch — deshalb gezielt das Format .../routes/<id>/de/<slug>
+// bauen, das camptocamp selbst für seine eigenen Links verwendet (bestätigt z. B. an
+// camptocamp.org/routes/53870/en/matterhorn-hornli-ridge). Ohne deutschen Titel in den Locales
+// (manche Routen sind nur französisch dokumentiert) bleibt die URL ohne Sprachsegment.
+function slugifyCamptocampTitle(title){
+  return (title||'')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Umlaute/Akzente auf Grundbuchstaben reduzieren
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+function buildCamptocampRouteUrl(doc){
+  const id = doc.document_id || doc.id;
+  if(!id) return null;
+  const deLocale = Array.isArray(doc.locales) ? doc.locales.find(l=> l.lang==='de') : null;
+  if(deLocale && deLocale.title){
+    const slug = slugifyCamptocampTitle(deLocale.title);
+    return `https://www.camptocamp.org/routes/${id}/de${slug ? '/' + slug : ''}`;
+  }
+  return `https://www.camptocamp.org/routes/${id}`;
+}
+
+// Baut eine kleine Such-Widget (Eingabefeld + Ergebnisliste) in das Element mit der ID
+// containerId. Ein Klick auf "Link übernehmen" trägt die camptocamp.org-URL in das Feld mit
+// der ID tourLinkInputId ein — sonst keine Übernahme weiterer Felder (bewusst zurückhaltend,
+// solange die Feldnamen der API nicht bestätigt sind).
+function renderCamptocampSearchBox(containerId, tourLinkInputId){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  el.innerHTML = '';
+  const inputRow = document.createElement('div');
+  inputRow.style.cssText = 'display:flex; gap:8px;';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'z. B. Aletschhorn';
+  input.style.cssText = 'flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); font-size:15px; box-sizing:border-box;';
+  const searchBtn = document.createElement('button');
+  searchBtn.type = 'button';
+  searchBtn.className = 'btn secondary';
+  searchBtn.textContent = 'Suchen';
+  inputRow.appendChild(input);
+  inputRow.appendChild(searchBtn);
+  el.appendChild(inputRow);
+  const resultsEl = document.createElement('div');
+  resultsEl.style.cssText = 'margin-top:10px;';
+  el.appendChild(resultsEl);
+
+  async function doSearch(){
+    const q = input.value.trim();
+    if(!q) return;
+    resultsEl.innerHTML = '<p class="hint">Suche läuft…</p>';
+    try{
+      const docs = await searchCamptocamp(q);
+      if(!docs.length){
+        resultsEl.innerHTML = '<p class="hint">Keine Treffer.</p>';
+        return;
+      }
+      resultsEl.innerHTML = '';
+      docs.slice(0, 10).forEach(doc=>{
+        const id = doc.document_id || doc.id;
+        const title = extractCamptocampTitle(doc) || ('Route' + (id ? ' #' + id : ''));
+        const url = buildCamptocampRouteUrl(doc);
+        const row = document.createElement('div');
+        row.style.cssText = 'border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; margin-bottom:8px;';
+        const nameP = document.createElement('p');
+        nameP.style.cssText = 'margin:0 0 6px 0; font-weight:700;';
+        nameP.textContent = title;
+        row.appendChild(nameP);
+        if(url){
+          const btnRow = document.createElement('div');
+          btnRow.style.cssText = 'display:flex; gap:10px; flex-wrap:wrap; align-items:center;';
+          const useBtn = document.createElement('button');
+          useBtn.type = 'button';
+          useBtn.className = 'btn secondary';
+          useBtn.style.fontSize = '12.5px';
+          useBtn.textContent = '✓ Link übernehmen';
+          useBtn.addEventListener('click', ()=>{
+            const linkInput = document.getElementById(tourLinkInputId);
+            if(linkInput) linkInput.value = url;
+            showToast('Link übernommen.');
+          });
+          btnRow.appendChild(useBtn);
+          const openA = document.createElement('a');
+          openA.href = url; openA.target = '_blank'; openA.rel = 'noopener noreferrer';
+          openA.textContent = '↗ Auf camptocamp.org öffnen';
+          openA.style.fontSize = '12.5px';
+          btnRow.appendChild(openA);
+          row.appendChild(btnRow);
+        }
+        resultsEl.appendChild(row);
+      });
+    }catch(err){
+      resultsEl.innerHTML = '<p class="hint" style="color:var(--danger);">⚠ ' + (err && err.message ? err.message : 'Suche fehlgeschlagen.') + '</p>';
+    }
+  }
+  searchBtn.addEventListener('click', doSearch);
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); doSearch(); } });
+}
+
+async function downloadFullGpx(trackPathPrefix, tourId, tourName){
+  try{
+    const data = await fbGet(trackPathPrefix + '/' + tourId);
+    if(!data || !data.gpx){ showToast('Keine hochgeladene GPX-Datei für diese Tour gefunden.', true); return; }
+    const blob = new Blob([data.gpx], {type:'application/gpx+xml'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (tourName || 'tour').replace(/[^a-z0-9äöüÄÖÜ_\- ]/gi,'').trim() + '.gpx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  }catch(err){
+    showToast('GPX-Datei konnte nicht heruntergeladen werden.', true);
+  }
+}
+
+function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoords, offlineId, altTracks){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const hasTrack = trackCoords && trackCoords.length;
+    const hasManualTrack = manualTrackCoords && manualTrackCoords.length;
+    const hasPoints = points && points.length;
+    const altList = (altTracks||[]).filter(a=> a.trackSimplified && a.trackSimplified.length);
+    if(!hasTrack && !hasManualTrack && !hasPoints && !altList.length) return;
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const startView = hasTrack ? trackCoords[0] : (hasManualTrack ? manualTrackCoords[0] : (altList.length ? altList[0].trackSimplified[0] : [points[0].lat, points[0].lon]));
+    const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
+    registerMap(mapDivId, map);
+    if(offlineId){
+      createOfflineAwareTileLayer(offlineId).addTo(map); // Offline-Kacheln nur für die Landeskarte zwischengespeichert — kein Ebenen-Wechsel hier
+    }else{
+      addBaseLayerSwitcher(map);
+    }
+    if(offlineId && gpsActiveOfflineId === offlineId){
+      startLiveGpsOnMap(map, offlineId); // GPS lief bereits für diese Tour — auf die neue Karte (z. B. Vollbild) mitnehmen
+    }
+    const boundsItems = [];
+    if(hasTrack){
+      L.polyline(trackCoords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line = L.polyline(trackCoords, {color:'#E8384F', weight:4, opacity:1}).addTo(map);
+      boundsItems.push(line);
+    }
+    if(hasManualTrack){
+      L.polyline(manualTrackCoords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line2 = L.polyline(manualTrackCoords, {color:'#1565C0', weight:4, opacity:1}).addTo(map);
+      boundsItems.push(line2);
+    }
+    altList.forEach((a,i)=>{
+      const color = ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length];
+      L.polyline(a.trackSimplified, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
+      const line = L.polyline(a.trackSimplified, {color, weight:3.5, opacity:1, dashArray:'6,5'}).addTo(map).bindPopup(esc(a.name||'Alternativroute'));
+      boundsItems.push(line);
+    });
+    if(hasPoints){
+      points.forEach(p=>{
+        const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
+        boundsItems.push(m);
+      });
+    }
+    if(boundsItems.length){
+      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+    }
+    if(!isFullscreen){
+      const btn = makeFullscreenButton(function(id){ renderTrackDisplayMap(id, points||[], trackCoords||[], manualTrackCoords||[], offlineId, altTracks||[]); });
+      el2.appendChild(btn);
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+/* ================= Touren mit gemeinsamem Ausgangspunkt verknüpfen ================= */
+function haversineMeters(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2-lat1);
+  const dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
+  const c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R*c;
+}
+function findToursSharingPoints(currentTour, allTours, maxMeters){
+  maxMeters = maxMeters || 300;
+  const myPoints = currentTour.points || [];
+  if(!myPoints.length) return [];
+  return allTours.filter(t=>{
+    if(t.id === currentTour.id) return false;
+    const otherPoints = t.points || [];
+    return otherPoints.some(op => myPoints.some(mp => haversineMeters(mp.lat, mp.lon, op.lat, op.lon) <= maxMeters));
+  });
+}
+
+/* ================= MeteoSchweiz Mehrtagesprognose (Open Data) =================
+   Nutzt die seit 2025 offiziellen, kostenlosen MeteoSchweiz-Lokalprognosedaten
+   (dieselben Zahlen wie MeteoSchweiz-App/Website) statt eines globalen Wetterdiensts --
+   das 1-2km-Modell von MeteoSchweiz löst Alpentäler/Grate deutlich besser auf als
+   generische internationale Dienste. Ablauf: 1) Punktliste (Postleitzahlen/Gipfel/
+   Hütten, ~6000 Punkte, einmalig geladen) durchsuchen, 2) nächstgelegenen Punkt zur
+   Tour-/Gipfel-/Hütten-Koordinate suchen, 3) stündliche Temperatur/Niederschlag für
+   diesen Punkt laden und selbst zu Tageswerten zusammenfassen -- für Postleitzahl-/
+   Berg-Punkte gibt es (im Gegensatz zu echten Messstationen) laut MeteoSchweiz nur
+   stündliche, keine fertigen Tageswerte.
+   Hinweis: Das exakte Dateiformat liess sich in der Entwicklungsumgebung nicht live
+   gegen die echten MeteoSchweiz-Server verifizieren (Netzwerkzugriff dort blockiert) --
+   basiert auf offiziellen Ankündigungen/Beispielcode von MeteoSchweiz. Bei Abweichungen
+   bitte Fehlermeldung im UI melden.
+*/
+const METEO_STAC_BASE = 'https://data.geo.admin.ch/api/stac/v1';
+const METEO_COLLECTION = 'ch.meteoschweiz.ogd-local-forecasting';
+const METEO_FORECAST_DAYS = 9;
+let _meteoPointListPromise = null;
+const _meteoParamCsvCache = {}; // paramShortname -> {ts, rows}
+const METEO_PARAM_CACHE_MS = 55 * 60 * 1000; // knapp unter der stündlichen Aktualisierung
+
+// MeteoSchweiz liefert diese CSVs laut eigener Doku in Latin1/ISO-8859-1 aus, nicht UTF-8 --
+// ohne explizite Dekodierung werden Umlaute in Ortsnamen (z.B. "Bächlistock") zu "?" verstümmelt.
+async function meteoFetchLatin1Text(res){
+  const buf = await res.arrayBuffer();
+  return new TextDecoder('iso-8859-1').decode(buf);
+}
+
+function meteoParseSemicolonCsv(text){
+  const lines = text.split(/\r?\n/).filter(l=>l.length);
+  if(!lines.length) return [];
+  const header = lines[0].split(';').map(h=>h.trim());
+  const rows = lines.slice(1).map(line=>{
+    const cells = line.split(';');
+    const row = {};
+    header.forEach((h,i)=>{ row[h] = cells[i]!==undefined ? cells[i].trim() : ''; });
+    return row;
+  });
+  rows._header = header; // fuer Diagnose bei unerwartetem Format (siehe meteoForecastWidgetHtml)
+  return rows;
+}
+
+// MeteoSchweiz hat die Spaltennamen dieser Open-Data-Schnittstelle im Zuge der offiziellen
+// Einführung 2025 umbenannt (ältere Beispieldaten nutzten z.B. "LocationID"/"Date" statt
+// "point_id"/"reference_timestamp") -- da sich das exakte, aktuell gültige Format von hier aus
+// nicht live verifizieren liess, probieren wir beim Lesen mehrere bekannte Varianten durch.
+function meteoPick(row, candidates){
+  for(const c of candidates){ if(row[c] !== undefined && row[c] !== '') return row[c]; }
+  return undefined;
+}
+const METEO_COL_POINT_ID = ['point_id', 'LocationID', 'location_id'];
+const METEO_COL_POINT_TYPE = ['point_type_id', 'LocationType', 'location_type'];
+const METEO_COL_TIMESTAMP = ['reference_timestamp', 'Date', 'date', 'valid_date', 'time'];
+
+async function meteoLoadPointList(){
+  if(_meteoPointListPromise) return _meteoPointListPromise;
+  _meteoPointListPromise = (async ()=>{
+    const res = await fetch(`https://data.geo.admin.ch/${METEO_COLLECTION}/ogd-local-forecasting_meta_point.csv`);
+    if(!res.ok) throw new Error('Punktliste nicht erreichbar (HTTP ' + res.status + ')');
+    const rows = meteoParseSemicolonCsv(await meteoFetchLatin1Text(res));
+    if(!rows.length) throw new Error('Punktliste leer (Spalten: ' + (rows._header||[]).join(',') + ')');
+    return rows.map(r=>({
+      pointId: meteoPick(r, METEO_COL_POINT_ID),
+      pointTypeId: meteoPick(r, METEO_COL_POINT_TYPE),
+      name: r.point_name || r.LocationName || meteoPick(r, METEO_COL_POINT_ID),
+      heightMasl: parseFloat(r.point_height_masl),
+      lat: parseFloat(r.point_coordinates_wgs84_lat),
+      lon: parseFloat(r.point_coordinates_wgs84_lon)
+    })).filter(p=> isFinite(p.lat) && isFinite(p.lon));
+  })();
+  return _meteoPointListPromise.catch(err=>{ _meteoPointListPromise = null; throw err; });
+}
+
+function meteoFindNearestPoint(points, lat, lon){
+  let best = null, bestDist = Infinity;
+  points.forEach(p=>{
+    const d = haversineMeters(lat, lon, p.lat, p.lon);
+    if(d < bestDist){ bestDist = d; best = p; }
+  });
+  return best ? { point: best, distanceKm: bestDist/1000 } : null;
+}
+
+// Fragt die STAC-Schnittstelle nach den aktuellsten Prognose-Items und liest daraus die
+// Download-URL für die angeforderte Parameter-Datei (eine CSV pro Parameter mit allen
+// ~6000 Punkten drin -- wir filtern unten selbst auf unseren einen Punkt).
+async function meteoFetchLatestAssetUrl(paramShortname){
+  const res = await fetch(`${METEO_STAC_BASE}/collections/${METEO_COLLECTION}/items?limit=10`);
+  if(!res.ok) throw new Error('STAC-Abfrage fehlgeschlagen');
+  const data = await res.json();
+  const items = (data.features || []).slice().sort((a,b)=> (b.properties && b.properties.datetime || '').localeCompare(a.properties && a.properties.datetime || ''));
+  for(const item of items){
+    const assets = item.assets || {};
+    const key = Object.keys(assets).find(k=> k.endsWith('.' + paramShortname + '.csv'));
+    if(key) return assets[key].href;
+  }
+  throw new Error('Kein aktuelles Prognose-Item für ' + paramShortname + ' gefunden');
+}
+
+async function meteoLoadHourlyParam(paramShortname){
+  const cached = _meteoParamCsvCache[paramShortname];
+  if(cached && (Date.now() - cached.ts) < METEO_PARAM_CACHE_MS) return cached.rows;
+  const url = await meteoFetchLatestAssetUrl(paramShortname);
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('Prognosedaten nicht erreichbar');
+  const rows = meteoParseSemicolonCsv(await meteoFetchLatin1Text(res));
+  _meteoParamCsvCache[paramShortname] = { ts: Date.now(), rows };
+  return rows;
+}
+
+// Baut aus stündlichen Werten (Temperatur/Niederschlag) Tageswerte (Min/Max/Summe) --
+// die Zuordnung zu Kalendertagen erfolgt anhand des UTC-Zeitstempels (kleine Ungenauigkeit
+// von 1-2h an Tagesgrenzen durch die Zeitzonenverschiebung wird bewusst in Kauf genommen).
+function meteoAggregateDaily(tempRows, precipRows, pointId, pointTypeId){
+  const byDate = {};
+  function dateKeyOf(row){ return (meteoPick(row, METEO_COL_TIMESTAMP) || '').replace(/[^0-9]/g,'').slice(0,8); }
+  let tempMatches = 0;
+  tempRows.forEach(r=>{
+    if(meteoPick(r, METEO_COL_POINT_ID) !== pointId || meteoPick(r, METEO_COL_POINT_TYPE) !== pointTypeId) return;
+    const v = parseFloat(r.tre200h0);
+    if(!isFinite(v)) return;
+    const key = dateKeyOf(r);
+    if(!key) return;
+    tempMatches++;
+    if(!byDate[key]) byDate[key] = { date: key, tempMin: v, tempMax: v, precipMm: 0 };
+    else{ byDate[key].tempMin = Math.min(byDate[key].tempMin, v); byDate[key].tempMax = Math.max(byDate[key].tempMax, v); }
+  });
+  precipRows.forEach(r=>{
+    if(meteoPick(r, METEO_COL_POINT_ID) !== pointId || meteoPick(r, METEO_COL_POINT_TYPE) !== pointTypeId) return;
+    const v = parseFloat(r.rre150h0);
+    if(!isFinite(v)) return;
+    const key = dateKeyOf(r);
+    if(!key || !byDate[key]) return;
+    byDate[key].precipMm += v;
+  });
+  // Bereits vergangene Tage rausfiltern, bevor auf die ersten N geschnitten wird -- sonst kann ein
+  // (z.B. durch Zeitzonen-Randstunden) noch mitgeliefertes Gestern als erster Tag angezeigt werden.
+  const todayKey = meteoTodayKeyUTC();
+  const days = Object.values(byDate).filter(d=> d.date >= todayKey).sort((a,b)=> a.date.localeCompare(b.date)).slice(0, METEO_FORECAST_DAYS);
+  return { days, tempMatches, tempRowCount: tempRows.length, tempHeader: tempRows._header };
+}
+function meteoTodayKeyUTC(){
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  return `${now.getUTCFullYear()}${pad(now.getUTCMonth()+1)}${pad(now.getUTCDate())}`;
+}
+
+async function meteoForecastForPoint(lat, lon){
+  const points = await meteoLoadPointList();
+  const nearest = meteoFindNearestPoint(points, lat, lon);
+  if(!nearest) throw new Error('Kein Prognosepunkt gefunden');
+  const [tempRows, precipRows] = await Promise.all([
+    meteoLoadHourlyParam('tre200h0'),
+    meteoLoadHourlyParam('rre150h0')
+  ]);
+  const agg = meteoAggregateDaily(tempRows, precipRows, nearest.point.pointId, nearest.point.pointTypeId);
+  return {
+    point: nearest.point,
+    distanceKm: nearest.distanceKm,
+    days: agg.days,
+    debug: { tempMatches: agg.tempMatches, tempRowCount: agg.tempRowCount, tempHeader: agg.tempHeader, pointId: nearest.point.pointId, pointTypeId: nearest.point.pointTypeId }
+  };
+}
+
+function meteoCacheKey(lat, lon){
+  return lat.toFixed(3) + ',' + lon.toFixed(3);
+}
+
+function ensureMeteoForecast(lat, lon){
+  if(!state._meteoForecastCache) state._meteoForecastCache = {};
+  const key = meteoCacheKey(lat, lon);
+  const entry = state._meteoForecastCache[key];
+  if(entry && (entry.status === 'loading' || entry.status === 'ok')) return;
+  state._meteoForecastCache[key] = { status: 'loading' };
+  meteoForecastForPoint(lat, lon).then(result=>{
+    state._meteoForecastCache[key] = Object.assign({ status: 'ok' }, result);
+    render();
+  }).catch(err=>{
+    state._meteoForecastCache[key] = { status: 'error', message: (err && err.message) || String(err) };
+    render();
+  });
+}
+
+const METEO_WEEKDAYS = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+function meteoFormatDayLabel(dateKey){
+  const y = +dateKey.slice(0,4), m = +dateKey.slice(4,6)-1, d = +dateKey.slice(6,8);
+  const dt = new Date(y, m, d);
+  return { weekday: METEO_WEEKDAYS[dt.getDay()], day: d, month: m+1 };
+}
+
+function meteoForecastWidgetHtml(lat, lon){
+  if(!isFinite(lat) || !isFinite(lon)) return '';
+  const key = meteoCacheKey(lat, lon);
+  const entry = (state._meteoForecastCache || {})[key];
+  if(!entry || entry.status === 'loading'){
+    if(!entry) ensureMeteoForecast(lat, lon);
+    return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Lädt…</p></div>`;
+  }
+  if(entry.status === 'error'){
+    return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Prognose momentan nicht verfügbar (${esc(entry.message||'')}).</p></div>`;
+  }
+  if(!entry.days || !entry.days.length){
+    // Diagnose-Infos statt nur "keine Daten" -- das genaue Dateiformat liess sich beim Bauen
+    // nicht live verifizieren; diese Angaben helfen, eine falsche Spaltenannahme zu erkennen.
+    const dbg = entry.debug;
+    return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Keine Prognosedaten für diesen Punkt gefunden.</p>
+      ${dbg ? `<details style="margin-top:6px; font-size:11px; color:var(--ink-faint);"><summary>Diagnose</summary>Punkt: ${esc(dbg.pointId)} / Typ ${esc(dbg.pointTypeId)}<br/>Zeilen in Prognosedatei: ${dbg.tempRowCount}, davon passend: ${dbg.tempMatches}<br/>Spalten: ${esc((dbg.tempHeader||[]).join(', '))}</details>` : ''}
+    </div>`;
+  }
+  return `<div class="detail-section">
+    <h4>🌤️ Wetterprognose <span style="font-weight:400; font-size:11.5px; color:var(--ink-faint);">— ${esc(entry.point.name)} (${entry.distanceKm.toFixed(1)} km entfernt)</span></h4>
+    <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:4px;">
+      ${entry.days.map(d=>{
+        const lbl = meteoFormatDayLabel(d.date);
+        return `<div style="flex:none; min-width:64px; text-align:center; background:var(--ice-light); border-radius:var(--radius); padding:8px 6px;">
+          <div style="font-size:11px; font-weight:700; color:var(--ink-soft);">${lbl.weekday} ${lbl.day}.${lbl.month}.</div>
+          <div style="font-size:18px; margin-top:2px;">${meteoDayIcon(d.precipMm)}</div>
+          <div style="font-size:14px; font-weight:700; margin-top:2px;">${Math.round(d.tempMax)}°</div>
+          <div style="font-size:12px; color:var(--ink-soft);">${Math.round(d.tempMin)}°</div>
+          <div style="font-size:11px; color:var(--ice-deep); margin-top:4px;">${d.precipMm>=0.1 ? '💧'+d.precipMm.toFixed(1)+'mm' : '–'}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <p style="font-size:10.5px; color:var(--ink-faint); margin:6px 0 0;">Quelle: MeteoSchweiz (Open Data) · stündliche Werte zu Tageswerten zusammengefasst</p>
+  </div>`;
+}
+
+// Kleines Wetter-Badge auf Touren-Kärtchen (Listenübersicht): schnell durchscrollen und sehen,
+// wo das Wetter gut aussieht, statt jede Tour einzeln öffnen zu müssen. Nutzt bewusst dieselben
+// Bulk-CSVs (alle ~6000 Punkte auf einmal) wie die Detail-Prognose -- für die ganze Liste sind
+// dadurch nur 2 Netzwerk-Anfragen nötig, nicht eine pro Tour.
+let _meteoBulkPromise = null;
+function ensureMeteoBulkData(){
+  if(_meteoBulkPromise) return;
+  state._meteoBulkStatus = 'loading';
+  _meteoBulkPromise = Promise.all([
+    meteoLoadPointList(),
+    meteoLoadHourlyParam('tre200h0'),
+    meteoLoadHourlyParam('rre150h0')
+  ]).then(([points, tempRows, precipRows])=>{
+    state._meteoBulk = { points, tempRows, precipRows };
+    state._meteoBulkStatus = 'ok';
+    render();
+  }).catch(err=>{
+    state._meteoBulkStatus = 'error';
+    _meteoBulkPromise = null;
+    console.warn('Wetter-Bulkdaten konnten nicht geladen werden:', err);
+  });
+}
+
+function meteoDayIcon(precipMm){
+  return precipMm >= 3 ? '🌧️' : precipMm >= 0.3 ? '🌦️' : '☀️';
+}
+
+// Kompakte 3-Tages-Zeile fürs Kärtchen -- eigene Zeile unterhalb der Schwierigkeits-/Höhen-Chips,
+// damit sie nicht mit denen um Platz konkurriert.
+// Ergebnis pro Kartenpunkt cachen (nächster Punkt + Tageswerte) -- ohne das würde bei JEDEM
+// Rendern (jeder Tastendruck im Suchfeld, jedes Umschalten eines Favoriten usw.) für JEDE Karte
+// erneut über alle ~6000 MeteoSchweiz-Punkte und alle CSV-Zeilen gesucht/gefiltert, was die App
+// spürbar träge macht. Die Bulk-Daten selbst ändern sich innerhalb einer Sitzung nicht mehr
+// (siehe ensureMeteoBulkData), daher ist ein einmal berechnetes Ergebnis auch für die ganze
+// Sitzung gültig.
+function meteoCardForecastData(lat, lon){
+  if(!state._meteoCardCache) state._meteoCardCache = {};
+  const key = meteoCacheKey(lat, lon);
+  let cached = state._meteoCardCache[key];
+  if(cached) return cached;
+  const bulk = state._meteoBulk;
+  const nearest = meteoFindNearestPoint(bulk.points, lat, lon);
+  if(!nearest){
+    cached = { days: [] };
+  }else{
+    const agg = meteoAggregateDaily(bulk.tempRows, bulk.precipRows, nearest.point.pointId, nearest.point.pointTypeId);
+    cached = { point: nearest.point, distanceKm: nearest.distanceKm, days: agg.days };
+  }
+  state._meteoCardCache[key] = cached;
+  return cached;
+}
+
+function meteoCardForecastRowHtml(lat, lon){
+  if(!isFinite(lat) || !isFinite(lon)) return '';
+  if(state._meteoBulkStatus !== 'ok'){
+    ensureMeteoBulkData();
+    return '';
+  }
+  const result = meteoCardForecastData(lat, lon);
+  const days = result.days.slice(0, 3);
+  if(!days.length) return '';
+  return `<div class="weather-card-row" style="display:flex; gap:5px; margin:0 0 8px;" title="Nächste Tage bei ${esc(result.point.name)} (${result.distanceKm.toFixed(1)} km entfernt)">
+    ${days.map(d=>{
+      const lbl = meteoFormatDayLabel(d.date);
+      return `<span style="font-size:11px; background:var(--ice-light); border-radius:4px; padding:3px 7px; white-space:nowrap;">${lbl.weekday} ${meteoDayIcon(d.precipMm)} ${Math.round(d.tempMax)}°</span>`;
+    }).join('')}
+  </div>`;
+}
+
+/* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */
+async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, trackSimplifiedHiddenId){
+  let points = [], manualTrack = [];
+  try{ const pEl = document.getElementById(pointsHiddenId); points = pEl && pEl.value ? JSON.parse(pEl.value) : []; }catch(e){ points = []; }
+  try{ const mEl = document.getElementById(manualTrackHiddenId); manualTrack = mEl && mEl.value ? JSON.parse(mEl.value) : []; }catch(e){ manualTrack = []; }
+  const list = kind==='tour' ? state.tours : state.huts;
+  const item = list.find(x=>x.id===id);
+  if(!item) return;
+  item.points = points;
+  item.manualTrack = manualTrack;
+  // Nur bei Touren: der eigene GPX-Track ist im Schnell-Bearbeiten-Modus (wie im vollen
+  // Bearbeiten-Formular) direkt editierbar — dessen Feld hier mit zurückschreiben.
+  if(trackSimplifiedHiddenId){
+    const tEl = document.getElementById(trackSimplifiedHiddenId);
+    if(tEl){
+      try{ item.trackSimplified = tEl.value ? JSON.parse(tEl.value) : null; }catch(e){}
+    }
+  }
+  item.updatedAt = new Date().toISOString();
+  item.updatedBy = state.myName;
+  const saveFn = kind==='tour' ? saveTourCloud : saveHutCloud;
+  const ok = await saveFn(item).catch(()=>false);
+  item._unsynced = !ok;
+  closeModal();
+  state.modal = {type: kind==='tour' ? 'tour-detail' : 'hut-detail', payload:id};
+  render();
+  showToast(ok ? 'Punkte/Linie gespeichert.' : 'Lokal gespeichert, aber nicht synchronisiert.', !ok);
+}
+/* ================= Login (Firebase Authentication, einmalig pro Gerät) ================= */
+const FIREBASE_API_KEY = 'AIzaSyDKHMUoOL5aosFU7OhCt22REbyOvXqAXmU';
+const AUTH_EMAIL = 'firn@spur.so'; // gemeinsames Gruppen-Login — das Passwort ist das eigentliche Geheimnis
+let authState = { idToken: null, refreshToken: null, expiresAt: 0 };
+
+function loadAuthFromStorage(){
+  try{
+    const raw = localStorage.getItem('bergtouren-auth');
+    if(raw) authState = JSON.parse(raw);
+  }catch(e){ authState = { idToken: null, refreshToken: null, expiresAt: 0 }; }
+}
+function saveAuthToStorage(){
+  try{ localStorage.setItem('bergtouren-auth', JSON.stringify(authState)); }catch(e){}
+}
+function clearAuth(){
+  authState = { idToken: null, refreshToken: null, expiresAt: 0 };
+  try{ localStorage.removeItem('bergtouren-auth'); }catch(e){}
+}
+function isLoggedIn(){
+  return !!(authState.idToken && authState.refreshToken);
+}
+
+async function signInWithPassword(password){
+  try{
+    const res = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=' + FIREBASE_API_KEY, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email: AUTH_EMAIL, password: password, returnSecureToken: true })
+    });
+    if(!res.ok) return false;
+    const data = await res.json();
+    authState = {
+      idToken: data.idToken,
+      refreshToken: data.refreshToken,
+      expiresAt: Date.now() + (parseInt(data.expiresIn, 10) * 1000) - 60000
+    };
+    saveAuthToStorage();
+    return true;
+  }catch(e){ return false; }
+}
+
+async function refreshAuthToken(){
+  if(!authState.refreshToken) return false;
+  try{
+    const res = await fetch('https://securetoken.googleapis.com/v1/token?key=' + FIREBASE_API_KEY, {
+      method: 'POST',
+      headers: {'Content-Type':'application/x-www-form-urlencoded'},
+      body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(authState.refreshToken)
+    });
+    if(!res.ok){ clearAuth(); return false; }
+    const data = await res.json();
+    authState = {
+      idToken: data.id_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + (parseInt(data.expires_in, 10) * 1000) - 60000
+    };
+    saveAuthToStorage();
+    return true;
+  }catch(e){ return false; }
+}
+
+async function ensureValidAuthToken(){
+  if(authState.idToken && Date.now() < authState.expiresAt) return true;
+  if(authState.refreshToken) return await refreshAuthToken();
+  return false;
+}
+
+function loginScreenHtml(){
+  return `<div style="min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; box-sizing:border-box;">
+    <div style="max-width:340px; width:100%; text-align:center;">
+      <div style="font-size:40px; margin-bottom:8px;">🔒</div>
+      <h2 style="margin:0 0 20px 0;">Anmelden</h2>
+      <input type="password" id="login-password-input" placeholder="Passwort" autofocus
+        style="width:100%; padding:13px 14px; border:1px solid var(--line); border-radius:var(--radius); font-size:16px; margin-bottom:12px; box-sizing:border-box; font-family:inherit;"/>
+      <button type="button" id="login-submit-btn" class="btn" style="width:100%;">Anmelden</button>
+      <p id="login-error" style="color:var(--danger); font-size:13px; margin-top:14px; display:none;">Falsches Passwort — bitte nochmal versuchen.</p>
+    </div>
+  </div>`;
+}
+
+function wireLoginScreen(){
+  const btn = document.getElementById('login-submit-btn');
+  const input = document.getElementById('login-password-input');
+  const errorEl = document.getElementById('login-error');
+  if(!btn || !input) return;
+  async function attemptLogin(){
+    const pw = input.value;
+    if(!pw) return;
+    btn.disabled = true; btn.textContent = 'Prüfe…';
+    if(errorEl) errorEl.style.display = 'none';
+    const ok = await signInWithPassword(pw);
+    if(ok){
+      location.reload();
+    }else{
+      if(errorEl) errorEl.style.display = '';
+      btn.disabled = false; btn.textContent = 'Anmelden';
+      input.value = '';
+      input.focus();
+    }
+  }
+  btn.addEventListener('click', attemptLogin);
+  input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptLogin(); });
+}
+
+/* ================= Tour-Status: Entwurf / Vollständig ================= */
+async function toggleTourStatus(id){
+  const t = state.tours.find(x=>x.id===id);
+  if(!t) return;
+  t.status = (t.status === 'vollstaendig') ? 'entwurf' : 'vollstaendig';
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  const ok = await saveTourCloud(t).catch(()=>false);
+  t._unsynced = !ok;
+  render();
+  showToast(t.status === 'vollstaendig' ? '✅ Als vollständig markiert.' : '📝 Als Entwurf markiert.', !ok);
+}
+function tourStatusLabel(t){
+  return (!t.status || t.status==='entwurf') ? '📝 Entwurf' : '✅ Vollständig';
+}
+async function toggleHutStatus(id){
+  const h = state.huts.find(x=>x.id===id);
+  if(!h) return;
+  h.status = (h.status === 'vollstaendig') ? 'entwurf' : 'vollstaendig';
+  h.updatedAt = new Date().toISOString();
+  h.updatedBy = state.myName;
+  const ok = await saveHutCloud(h).catch(()=>false);
+  h._unsynced = !ok;
+  render();
+  showToast(h.status === 'vollstaendig' ? '✅ Als vollständig markiert.' : '📝 Als Entwurf markiert.', !ok);
+}
+function hutStatusLabel(h){
+  return (!h.status || h.status==='entwurf') ? '📝 Entwurf' : '✅ Vollständig';
+}
+
+/* ================= Zurück-Taste/X schliesst immer nur die zuoberst offene Ebene =================
+   Es gibt zwei Arten von "Ebenen":
+   - das Modal-System (state.modal) — verschachtelte Fenster (z. B. Zustieg-Detail über Hütten-Detail)
+     schliessen sich dort Schritt für Schritt zur jeweiligen Elternebene (siehe closeModal()); dafür
+     wird EIN History-Eintrag "offen gehalten", solange irgendein Modal sichtbar ist, und erst beim
+     endgültigen Schliessen (state.modal wird null) konsumiert.
+   - "Overlay-Ebenen" (Vollbild-Karte, Bild-Vollbildansicht) liegen visuell über dem Modal-System und
+     sind komplett unabhängig davon; jede pusht ihren eigenen History-Eintrag, damit Zurück/Hardware-
+     Zurück erst diese schliesst, bevor je wieder das Modal darunter betroffen ist. */
+let modalHistoryPushed = false;
+let overlayLayers = []; // Stack von Close-Callbacks, zuletzt geöffnete Overlay-Ebene zuoberst
+let suppressNextPopstateHandling = false;
+// Merkt sich, ob die aktuell offene Detailansicht von der Vollbild-Übersichtskarte aus geöffnet
+// wurde (siehe openTourFromMap() etc. unten) — damit closeModal() beim endgültigen Schliessen
+// wieder dorthin zurückkehrt statt einfach zur normalen Übersicht. Wird auch bei einem
+// Tab-Wechsel zurückgesetzt (siehe setView()), da man die Karte dann bewusst verlassen hat.
+let modalOpenedFromStandaloneMap = false;
+// Merkt sich den zuletzt gesehenen Kartenausschnitt der Vollbild-Übersichtskarte, damit sie beim
+// Zurückkehren aus einer Tour/Hütte/Sektor-Detailansicht dort weitermacht, statt jedes Mal auf
+// die Schweiz-Übersicht zurückzuspringen.
+let lastStandaloneMapView = null;
+// Analog zu lastStandaloneMapView, aber für die Punkte-Karte in den Bearbeiten-Formularen
+// (renderPointsEditorMap): merkt sich den zuletzt gezeigten Ausschnitt, damit der Wechsel
+// Mini-Karte <-> Vollbild denselben Ausschnitt behält statt jedes Mal auf den ersten Punkt
+// zurückzuspringen. Wird bei jedem NEUEN Bearbeiten-Vorgang zurückgesetzt (siehe
+// syncModalDirtyTracking) — nicht bei einem blossen Re-Render derselben Sitzung (z. B. nach
+// Umschalten Hochtour/MSL) —, damit der Ausschnitt einer anderen Tour/Hütte nicht fälschlich
+// als Startansicht einer neu geöffneten Maske übernommen wird.
+let lastPointsEditorMapView = null;
+
+function pushModalHistoryIfNeeded(){
+  if(!modalHistoryPushed){
+    try{ history.pushState({fsLayer:'modal'}, '', location.href); }catch(e){}
+    modalHistoryPushed = true;
+  }
+}
+
+// Von uns selbst ausgelöstes "Zurück" (X-Button o. Ä.): konsumiert den zugehörigen History-Eintrag,
+// ohne dass der popstate-Handler die Ebene ein zweites Mal schliesst.
+function consumeHistoryEntry(){
+  suppressNextPopstateHandling = true;
+  try{ history.back(); }catch(e){ suppressNextPopstateHandling = false; }
+}
+
+// Registriert eine neue Overlay-Ebene (Vollbild-Karte, Bild-Vollbildansicht) über dem Modal-System.
+// closeFn schliesst die Ebene rein visuell (DOM ausblenden/entfernen) und wird genau einmal aufgerufen —
+// egal ob über einen Schliessen-Button (closeTopOverlayLayer) oder die Hardware-Zurück-Taste (popstate).
+function pushOverlayLayer(closeFn){
+  overlayLayers.push(closeFn);
+  try{ history.pushState({fsLayer:'overlay'}, '', location.href); }catch(e){}
+}
+// Manuelles Schliessen der obersten Overlay-Ebene (Schliessen-Button/X).
+function closeTopOverlayLayer(){
+  if(!overlayLayers.length) return;
+  const closeFn = overlayLayers.pop();
+  if(closeFn){ try{ closeFn(); }catch(e){} }
+  consumeHistoryEntry();
+}
+
+/* ================= "Ungespeicherte Änderungen"-Warnung beim Verlassen einer Bearbeiten-Maske =====
+   Frühere Idee war, beim Verlassen (X, Klick daneben, Zurück-Taste) automatisch zu speichern —
+   das führte aber dazu, dass auch versehentliche Änderungen unbemerkt übernommen wurden. Jetzt
+   wird stattdessen nur noch nachgefragt: hat sich seit dem Öffnen der Maske etwas geändert,
+   fragt closeModal() vor dem Verwerfen einmal nach ("Ungespeicherte Änderungen verwerfen?").
+   Speichern und Löschen laufen unverändert direkt durch (skipDirtyCheck-Parameter). */
+const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-sektor','edit-klettergebiet','edit-gipfel','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda','edit-agenda'];
+let modalIsDirty = false;
+let lastDirtyTrackedModalKey = null;
+function modalDirtyTrackingKey(){
+  if(!state.modal || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return null;
+  const p = state.modal.payload;
+  const entityId = p && (p.id || (p.route && p.route.id));
+  return state.modal.type + '|' + (entityId || 'new');
+}
+// Bei jedem Render einer Bearbeiten-Maske aufgerufen: erkennt, ob eine NEUE Sitzung begonnen hat
+// (dann wird der Dirty-Status zurückgesetzt) oder ob es sich nur um ein erneutes Rendern derselben
+// Sitzung handelt (z. B. nach Umschalten Hochtour/MSL) — dann bleibt der Status bestehen.
+function syncModalDirtyTracking(){
+  const key = modalDirtyTrackingKey();
+  if(key !== lastDirtyTrackedModalKey){
+    modalIsDirty = false;
+    lastDirtyTrackedModalKey = key;
+    lastPointsEditorMapView = null;
+  }
+}
+function markModalDirty(){ modalIsDirty = true; }
+// Gegenstück zu markModalDirty() — gebraucht nach dem programmatischen Vorbefüllen einer
+// Bearbeiten-Maske (applyAgendaEditPrefill simuliert Klicks/Change-Events, die sonst fälschlich
+// "ungespeicherte Änderungen" auslösen würden, obwohl der Nutzer noch gar nichts angefasst hat).
+function resetModalDirty(){ modalIsDirty = false; }
+// true = Schliessen darf weitergehen; false = Nutzer hat abgebrochen (Maske bleibt offen).
+function confirmDiscardIfDirty(){
+  if(!modalIsDirty || !state.modal || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return true;
+  const ok = confirm('Ungespeicherte Änderungen verwerfen?');
+  if(ok) modalIsDirty = false;
+  return ok;
+}
+
+window.addEventListener('popstate', ()=>{
+  if(suppressNextPopstateHandling){ suppressNextPopstateHandling = false; return; }
+  // Oberste Ebene zuerst: offene Vollbild-Karte / Bild-Vollbildansicht schliesst nur sich selbst.
+  if(overlayLayers.length){
+    const closeFn = overlayLayers.pop();
+    if(closeFn){ try{ closeFn(); }catch(e){} }
+    return;
+  }
+  if(typeof state !== 'undefined' && state.modal){
+    // modalHistoryPushed wird NICHT hier zurückgesetzt: closeModal() selbst entscheidet danach,
+    // ob wirklich alles geschlossen wurde (dann ist der History-Eintrag aufgebraucht) oder nur auf
+    // eine übergeordnete Cross-Link-Ebene zurückgefallen wurde (deren eigener, bei navigateToModal()
+    // gepushter Eintrag genau diesen Zurück-Schritt bereits repräsentiert — kein Reset nötig).
+    if(typeof closeModal === 'function'){ closeModal(true); }
+    else{ state.modal = null; modalHistoryPushed = false; if(typeof render === 'function') render(); }
+  }else{
+    modalHistoryPushed = false;
+  }
+});
+
+/* ================= Wischgeste zwischen den Apps (nur auf der oberen Umschalt-Leiste) ================= */
+function wireAppSwitchSwipe(otherAppUrl){
+  const bar = document.querySelector('.app-switch-bar');
+  if(!bar) return;
+  let startX = null, startY = null;
+  bar.addEventListener('touchstart', (e)=>{
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, {passive:true});
+  bar.addEventListener('touchend', (e)=>{
+    if(startX===null) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    startX = null; startY = null;
+    if(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)){
+      window.location.href = otherAppUrl;
+    }
+  });
+}
+
+/* ================= Vorlagen fuer ChatGPT/Gemini + Bedienungsanleitung (direkt in der App) ================= */
+const VORLAGE_ANLEITUNG_TEXT = `# Anleitung für ChatGPT/Gemini: Touren-Daten im richtigen Format erstellen
+
+Ziel: Erstelle eine gültige JSON-Datei nach dem Muster der Vorlage, mit einem oder
+mehreren Touren-/Hütten-Einträgen. Diese Datei wird danach über die
+"Importieren"-Funktion der App eingefügt.
+
+## Wichtigste Regel: keine Halluzinationen
+
+**Nur Fakten, niemals erfinden oder schätzen.** Trage ausschliesslich Informationen
+ein, die aus der gegebenen Quelle (Screenshot, Text, Link) tatsächlich
+hervorgehen. Wenn eine Information nicht eindeutig vorliegt, bleibt das
+entsprechende Feld leer — auch wenn ein plausibler Wert naheliegend erscheint.
+Das gilt für alle Felder gleichermassen, ganz besonders aber für Koordinaten
+(siehe unten): Ein erfundener Standort ist schlimmer als ein fehlender.
+
+## Wichtigste Regeln
+
+- Struktur exakt beibehalten: \`{"tours": [...], "huts": [...]}\`. Nur für Fixseil
+  (Hochtour/MSL) gibt es zusätzlich ein drittes, optionales Feld \`"sektoren":
+  [...]\` (siehe ganz unten) — Firnspur (Skitour) kennt keine Sektoren, dort
+  bleibt es bei den zwei Feldern \`"tours"\`/\`"huts"\`.
+- **id**: IMMER eine neue, eindeutige Zeichenfolge pro Tour/Hütte (z. B. \`t_\` +
+  zufällige Buchstaben/Zahlen, bzw. \`h_\` für Hütten). Niemals zwei Einträge mit
+  gleicher id, ausser man will einen bestehenden Eintrag bewusst überschreiben.
+- Alle Textfelder auf Deutsch.
+- Felder, für die keine Information vorliegt, als leerer String \`""\` bzw. leeres
+  Array \`[]\` lassen — NIEMALS raten oder erfinden.
+- \`"conditions"\`: immer \`null\`, \`"completions"\`: immer \`[]\`
+- \`"status"\`: neue Touren immer \`"entwurf"\` (bedeutet: noch nicht fertig
+  ausgearbeitet/verifiziert)
+- \`"createdAt"\`/\`"updatedAt"\`: aktuelles Datum im Format
+  \`"2026-09-05T00:00:00.000Z"\` (Uhrzeit kann immer 00:00:00 sein)
+
+## Standort-Punkte (points)
+
+Sowohl Touren als auch Hütten haben ein Feld \`"points"\`: eine Liste von
+Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
+
+\`\`\`json
+"points": [
+  {"label": "Parkplatz XY", "lat": 46.5, "lon": 7.9, "category": "parkplatz"}
+]
+\`\`\`
+
+- \`label\`: kurze Bezeichnung, was der Punkt ist
+- \`lat\`/\`lon\`: WGS84-Koordinaten (Dezimalgrad, mit Punkt statt Komma)
+- \`category\`: optional — bestimmt Symbol/Farbe des Punkts auf der Karte. Gültige
+  Werte: \`""\` (Standard-Pin), \`"gipfel"\` (Gipfel), \`"gefahr"\` (Gefahrenstelle),
+  \`"rueckzug"\` (Rückzugspunkt), \`"wasser"\` (Wasserstelle), \`"rast"\` (Rastplatz),
+  \`"biwak"\` (Biwak/Übernachtung), \`"parkplatz"\`, \`"toilette"\`, \`"haltestelle"\`
+  (ÖV), \`"abzweigung"\` (Abzweigung/Orientierung). Bei Unsicherheit einfach
+  weglassen oder \`""\` — nie eine Kategorie raten, die nicht klar aus der Quelle
+  hervorgeht.
+- Mehrere Punkte pro Eintrag möglich
+- **Koordinaten nur bei eindeutigen GPS-Daten eintragen.** Steht in der Quelle keine
+  klare, konkrete Koordinate (z. B. ein GPS-Wert, ein exakter Kartenpunkt) — auch
+  keine ungefähre Ortsangabe wie ein Ortsname oder eine grobe Beschreibung —
+  bleibt \`"points": []\`. Kein Schätzen anhand von Ortsnamen, keine Koordinaten
+  aus dem eigenen Wissen ergänzen, auch wenn der Ort bekannt vorkommt.
+- \`"manualTrack"\`: immer \`[]\` lassen (wird nur direkt in der App per Hand
+  gezeichnet oder per GPX-Upload/Routenberechnung befüllt, nicht per JSON-Import)
+
+## Felder-Erklärung (Firnspur = Skitour)
+
+- \`name\`: Gipfel/Bergmassiv (Pflichtfeld, Hauptname der Tour)
+- \`routeName\`: Name der Route (optional, z. B. "Nordwand")
+- \`difficulty\`: SAC-Skala: L, WS-, WS, WS+, ZS-, ZS, ZS+, S-, S, S+, SS (oder leer)
+- \`targetAltitude\`: Gipfelhöhe in Metern (nur Zahl, als Text)
+- \`elevationGain\`/\`elevationLoss\`: Höhenmeter Aufstieg / Abfahrt
+- \`duration\`: Zeitbedarf, z. B. "4-5" oder "1:45-2:45"
+- \`region\`: Wallis, Berner Oberland, Simmental, Graubünden, Tessin,
+  Zentralschweiz, Jura, Freiburger Alpen, Waadtländer Alpen (oder eigener Text)
+- \`subregion\`: Teilgebiet/Pass innerhalb der Region (optional). Gültige Werte:
+  - **Wallis**: Nikolaital/Zermatt, Saastal, Val d'Anniviers, Lötschental, Goms,
+    Unterwallis, Nufenenpass, Grimselpass, Furkapass, Simplonpass,
+    Grosser St. Bernhard
+  - **Berner Oberland**: Lauterbrunnental, Haslital, Kandertal, Simmental,
+    Diemtigtal, Justistal, Saanenland/Gstaad, Grimselpass, Sustenpass,
+    Jochpass, Grosse Scheidegg
+  - **Simmental**: keine eigenen Teilgebiete — subregion bleibt hier immer leer
+    (auch wenn "Simmental" gleichzeitig als Teilgebiet von Berner Oberland
+    existiert — beide Einträge sind unabhängig voneinander, so wie es die App
+    aktuell vorsieht)
+  - **Graubünden**: Engadin, Prättigau, Albula, Surselva, Bergell, Puschlav,
+    Julierpass, Albulapass, Flüelapass, Ofenpass, Splügenpass, Berninapass
+  - **Tessin**: Bedretto, Maggiatal, Blenio, Leventina, San Bernardino,
+    Nufenenpass, Gotthardpass, Lukmanierpass
+  - **Zentralschweiz**: Urner Alpen, Glarner Alpen, Nidwalden, Schwyz,
+    Sustenpass, Klausenpass, Gotthardpass, Jochpass
+  - **Jura**: Solothurner Jura, Waadtländer Jura, Baselbieter Jura,
+    Neuenburger Jura, Passwang, Col de Pierre Pertuis, Balmberg
+  - **Freiburger Alpen**: Gantrischgebiet, Vanil-Noir-Gebiet, Jaunpass
+  - **Waadtländer Alpen**: Diablerets-Gebiet, Villars/Leysin-Gebiet,
+    Col des Mosses, Col du Pillon, Col de la Croix
+
+  Bei eigener/anderer region bleibt subregion leer.
+- \`material\`: Liste aus: Steigeisen, Pickel, Gurt, Spaltenrettungsset
+- \`exposition\`: Liste aus: N, NE, E, SE, S, SW, W, NW
+- \`gefahren\`: Liste aus: Lawinenhang, Triebschnee, Steilhänge über 40°,
+  Absturzgelände, Engpass, vereiste Passage, Gletscher/Spalten, schwierige
+  Orientierung, Waldpassagen, Wechten
+- \`glacier\`: "ja" oder "nein"
+- \`ropeType\`: Gletscherseil, Einfachseil, Halbseilstrang, Zwillingsseil (oder leer)
+- \`ropeLength\`: 30m, 40m, 50m, 60m, 70m (oder leer)
+- \`crux\`: kurze Beschreibung der Schlüsselstelle
+- \`tourLink\`: Link zur Quelle (falls vorhanden), sonst leer
+- \`gpxLink\`: Link zu einer externen GPX-Datei (falls vorhanden), sonst leer
+- \`approachTypes\`: Liste (mehrere möglich) aus: "auto", "oev", "seilbahn", "zufuss"
+- \`stayTypes\`: Liste (mehrere möglich) aus: "tagestour", "huette", "biwak", "zelt"
+
+## Felder-Erklärung (Fixseil = Hochtour/Klettern-MSL) — zusätzlich zu obigem
+
+- \`region\`/\`subregion\`/\`points\`: identisch zu Firnspur
+- \`tourCategory\`: "hochtour" ODER "msl" — bestimmt, welche Feldgruppe
+  ausgefüllt wird (die jeweils andere bleibt leer):
+
+  **Falls tourCategory = "hochtour":**
+  - \`difficulty\`: SAC-Skala wie oben (inkl. S+)
+  - \`climbGrade\`: max. Felsschwierigkeit, franz. Skala (z. B. "3a")
+  - \`glacier\`: "ja"/"nein"
+  - \`crevasseRisk\`: "nein", "moeglich", "ausgepraegt"
+  - \`descentType\`: "Fussabstieg", "Abseilen", oder "Kombination"
+  - \`descent\`: Freitext-Beschreibung der Abfahrt/des Abstiegs
+  - \`sektorId\`: Normalerweise leerer String \`""\`. Optional setzbar — z. B. wenn
+    derselbe Sektor auch eine MSL-Route auf denselben Gipfel trägt (siehe unten).
+    Anders als bei MSL werden Zustieg/Abstieg dadurch NICHT vom Sektor übernommen,
+    \`descent\` bleibt Freitext wie gewohnt.
+
+  **Falls tourCategory = "msl" (Mehrseillängen-Klettertour):**
+  - \`mandatoryDifficulty\`: obligatorische Schwierigkeit, franz. Skala
+  - \`cruxDifficulty\`: Schlüsselstelle, franz. Skala
+  - \`pitchCount\`: Anzahl Seillängen (Zahl als Text)
+  - \`longestPitch\`: längste Seillänge (z. B. "35m")
+  - \`protection\`: "sehr-gut", "gut", "alpin", oder "ernst"
+  - \`descentType\`: "Fussabstieg", "Abseilen", oder "Kombination" — grobe
+    Einordnung, zusätzlich zu den strukturierten Abstiegen weiter unten
+  - \`descent\`: bei MSL IMMER leerer String \`""\` lassen — der Abstieg wird bei
+    MSL-Touren ausschliesslich strukturiert über \`descentRoutes\` erfasst
+    (siehe unten), nicht als Freitext
+  - \`sektorId\`: Normalerweise leerer String \`""\`. Nur setzen, wenn diese Tour
+    zu einem Sektor gehört, den du im selben Import über \`"sektoren"\` (siehe
+    unten) mit anlegst oder auf einen bereits bestehenden Sektor verweist —
+    dann \`sektorId\` exakt auf die \`id\` dieses Sektors setzen. Verweist eine
+    Tour auf einen Sektor, übernimmt sie dessen Zustiege/Abstiege automatisch
+    und die eigenen \`accessRoutes\`/\`descentRoutes\` der Tour werden ignoriert
+    (dort trotzdem \`[]\` eintragen, nie raten).
+
+  Franz. Kletterskala: 1, 2a-, 2a, 2a+, 2b-, 2b, 2b+, 2c-, 2c, 2c+, 3a-, 3a, 3a+,
+  3b-, 3b, 3b+, 3c-, 3c, 3c+, 4a- ... bis 7a (jeweils mit -/+ Abstufungen)
+
+  - \`material\`: zusätzlich möglich: Helm, Eisschrauben, Schraubkarabiner, Prusik,
+    Bandschlingen, Friends, Keile, Biwaksack, Stirnlampe
+  - \`quickdrawCount\`: Anzahl Expressschlingen (Zahl als Text)
+  - \`gefahren\` (Hochtour): Spalten, Steinschlag, Eispassage, Firngrat, Wechte,
+    Absturzgelände, schwierige Wegfindung, brüchiger Fels, schwieriger Rückzug
+  - \`gefahren\` (MSL): Steinschlag, brüchiger Fels, Runout, schwieriger Rückzug,
+    nasser Fels, komplexer Abstieg, Abseilstellen, ausgesetzter Zustieg
+  - \`ropeType\`: zusätzlich "Gletscherseil" möglich
+  - \`ascent\`: Freitext-Beschreibung des Aufstiegs — bei Hochtour UND MSL gleich
+    verwendbar (unabhängig von den strukturierten Zustiegen bei MSL)
+  - \`topoImages\`: IMMER leeres Array \`[]\` — Foto-Scans von Topo-Kletterführern
+    werden ausschliesslich manuell in der App hochgeladen (Copyright-Gründe),
+    niemals von ChatGPT/Gemini befüllen oder Bild-URLs erfinden.
+
+  **Strukturierte Zustiege/Abstiege bei MSL-Touren (\`accessRoutes\`/\`descentRoutes\`):**
+  Nur bei \`tourCategory: "msl"\` relevant (bei Hochtour bleiben beide Felder
+  leere Arrays \`[]\`, dort zählt nur die Freitext-Beschreibung in \`ascent\`/
+  \`descent\`). Beliebig viele Einträge möglich, z. B. mehrere Zustiegsvarianten.
+  Struktur identisch für \`accessRoutes\` und \`descentRoutes\`, JEDER Eintrag hat:
+  - \`id\`: eindeutige Kennung, Format \`tr_\` + zufällige Buchstaben/Zahlen
+  - \`name\`: Bezeichnung (Pflichtfeld) — z. B. "Ab Parkplatz XY",
+    "Fussabstieg über Normalweg"
+  - \`elevation\`: Höhenmeter (nur Zahl, als Text) — bei \`descentRoutes\` die
+    Abstiegs-Höhenmeter (abwärts)
+  - \`elevationUp\`: NUR bei \`descentRoutes\` relevant — Gegenanstieg in Hm, falls
+    der Abstieg zwischendurch wieder aufwärts führt; bei \`accessRoutes\` immer
+    leerer String \`""\`
+  - \`duration\`: Zeitbedarf, z. B. "1-2"
+  - \`difficultyT\`: Schweizer Wanderskala ("T1" bis "T6"), oder leer — KEINE
+    separate SAC-Skala hier (anders als bei Zustiegen zu Hütten, siehe unten)
+  - \`description\`: Beschreibung dieses Zustiegs/Abstiegs
+  - \`gpxLink\`: IMMER leer \`""\` — kein Link erfinden
+  - \`trackSimplified\`: IMMER \`null\` — nur von der App selbst befüllt (eigener
+    GPX-Upload)
+  - \`manualTrack\`: IMMER leeres Array \`[]\` — nur von der App selbst befüllt
+    (von Hand gezeichnet oder per Routenberechnung)
+
+  Falls keine Zustiegs-/Abstiegsinformationen vorliegen, als leeres Array \`[]\`
+  lassen statt Einträge zu erfinden.
+
+## Felder-Erklärung (Hütten — identisch in Firnspur & Fixseil)
+
+- \`name\`: Name der Hütte (Pflichtfeld)
+- \`region\`/\`subregion\`: wie oben bei Touren
+- \`altitude\`: Höhe der Hütte in Metern (nur Zahl, als Text)
+- \`capacity\`: Betten/Kapazität, z. B. "60 Betten"
+- \`staffedMonths\`: Liste der Monate, in denen die Hütte VOLL bewartet ist.
+  Werte: "jan", "feb", "maer", "apr", "mai", "jun", "jul", "aug", "sep", "okt",
+  "nov", "dez". Leeres Array \`[]\`, falls unbewartet.
+- \`staffedMonthsPartial\`: Liste der Monate mit TEILWEISER Bewartung (z. B. nur
+  an Wochenenden) — gleiche Werte wie \`staffedMonths\`, eigene separate Liste.
+- \`staffedNote\`: Freitext-Präzisierung zur Bewartung (z. B. "nur an
+  Wochenenden", "ab 20. Juni"), optional
+- \`winterraum\`: Beschreibung Winterraum/Schutzraum (Kapazität, Zugang,
+  Ausstattung)
+- \`winterraumMonths\`/\`winterraumMonthsPartial\`: wie bei \`staffedMonths\` oben,
+  aber für den Winterraum/Schutzraum (voll bzw. teilweise offen)
+- \`winterraumNote\`: Freitext-Präzisierung zum Schutzraum (z. B. "nur wenn
+  unbewartet zugänglich"), optional
+- \`hutLink\`: Link zur Hütten-Website, SAC-Seite o. Ä. (falls vorhanden), sonst
+  leer
+- \`approach\`: Anfahrt zum Ausgangspunkt (Parkplatz, ÖV, Seilbahn) — NICHT der
+  Zustieg zur Hütte selbst, das gehört zu \`accessRoutes\` (siehe unten)
+- \`points\`: siehe oben — z. B. Hütte selbst + Parkplatz als zwei Punkte
+- \`manualTrack\`: IMMER leeres Array \`[]\` — nur für eine allgemeine, in der App
+  von Hand eingezeichnete Linie zur Hütte, nicht von ChatGPT/Gemini befüllen.
+- \`approachTypes\`: wie oben bei Touren (mehrere möglich) — bezieht sich hier
+  auf die Anfahrt zum Ausgangspunkt/Zustieg zur Hütte
+- \`accessRoutes\`: Liste der Zustiege zur Hütte — beliebig viele möglich (z. B.
+  "Sommer ab Randa", "Winter ab Randa", weitere Varianten). JEDER Eintrag in
+  dieser Liste hat folgende Felder:
+  - \`id\`: eindeutige Kennung, Format \`ar_\` + zufällige Buchstaben/Zahlen
+    (z. B. \`ar_x7k2m9\`)
+  - \`name\`: Bezeichnung des Zustiegs (Pflichtfeld) — z. B. "Sommer", "Winter",
+    oder bei mehreren Varianten pro Jahreszeit z. B. "Ab Randa", "Ab
+    Bergstation"
+  - \`season\`: "sommer", "winter", oder leer \`""\` falls nicht eindeutig
+    zuordenbar
+  - \`elevation\`: Höhenmeter Zustieg (nur Zahl, als Text)
+  - \`duration\`: Zeitbedarf, z. B. "3-4"
+  - \`difficulty\`: SAC-Skala wie bei Touren, oder leer
+  - \`difficultyT\`: Schweizer Wanderskala ("T1" bis "T6"), nur falls reiner
+    Wanderweg ohne Firn/Schnee-Querung, sonst leer. SAC-Skala und T-Skala
+    schliessen sich nicht aus.
+  - \`description\`: Beschreibung der Zustiegsroute für diesen Eintrag
+  - \`gpxLink\`: IMMER leer \`""\` — kein Link erfinden
+  - \`trackSimplified\`: IMMER \`null\` — nur von der App selbst befüllt (eigener
+    GPX-Upload)
+  - \`manualTrack\`: IMMER leeres Array \`[]\` — nur von der App selbst befüllt
+    (von Hand gezeichnete Linie)
+
+  Falls keine Zustiegsinformationen vorliegen, \`accessRoutes\` als leeres Array
+  \`[]\` lassen statt Einträge zu erfinden.
+- \`contact\`: Telefon/Website/Sektion
+- \`notes\`: Sonstiges (z. B. Reservationshinweise)
+- \`completions\`: immer \`[]\` (wird von der App selbst befüllt)
+
+## Felder-Erklärung (Sektoren — nur Fixseil, optionales Feld \`"sektoren"\`)
+
+Ein Sektor bündelt mehrere MSL-Touren mit gemeinsamem Ausgangspunkt und
+geteilten Zustiegen/Abstiegen (analog zu Hütten-Zustiegen). Ein Sektor kann
+daneben auch Hochtouren verlinkt haben, die z. B. auf denselben Gipfel führen —
+bei denen bleiben \`descent\`/eigene Zustiege aber Freitext, nichts wird vom
+Sektor übernommen (siehe \`sektorId\` bei Hochtour weiter oben). Nur relevant für
+Fixseil (Hochtour/MSL) — Firnspur kennt keine Sektoren. Nur eintragen, wenn
+aus der Quelle klar hervorgeht, dass mehrere Touren denselben Zustieg/
+Ausgangspunkt teilen; sonst \`"sektoren": []\` lassen und \`sektorId\` bei den
+Touren leer lassen.
+
+- \`id\`: eindeutige Kennung, Format \`sek_\` + zufällige Buchstaben/Zahlen
+- \`name\`: Bezeichnung des Sektors (Pflichtfeld), z. B. "Chatzenfluh Nordwand"
+- \`region\`/\`subregion\`: wie oben bei Touren
+- \`description\`: Freitext, Charakter/Übersicht des Sektors, optional
+- \`points\`/\`manualTrack\`: wie oben bei Touren/Hütten — \`manualTrack\` immer \`[]\`
+- \`accessRoutes\`/\`descentRoutes\`: gemeinsame Zustiege/Abstiege für alle Touren
+  dieses Sektors. Gleiche Struktur wie bei den MSL-Touren weiter oben (Felder
+  \`id\` (Format \`tr_\` + zufällige Buchstaben/Zahlen), \`name\`, \`elevation\`,
+  \`elevationUp\` (nur bei \`descentRoutes\`, sonst \`""\`), \`duration\`,
+  \`difficultyT\`, \`description\`, \`gpxLink\` (immer \`""\`), \`trackSimplified\`
+  (immer \`null\`), \`manualTrack\` (immer \`[]\`)). Falls keine Angaben vorliegen,
+  beide als \`[]\` lassen.
+- \`createdBy\`/\`createdAt\`/\`updatedBy\`/\`updatedAt\`: wie bei Touren/Hütten
+
+Um eine MSL-Tour mit einem Sektor zu verknüpfen: Sektor unter \`"sektoren"\`
+anlegen und die \`id\` dieses Sektors bei der Tour in \`sektorId\` eintragen (siehe
+oben). Die Tour braucht dann keine eigenen \`accessRoutes\`/\`descentRoutes\`
+mehr (dort \`[]\` eintragen) — sie übernimmt automatisch die des Sektors.
+
+**Wichtig — Klettergebiete lassen sich per Import NICHT anlegen.** Ein
+Klettergebiet (z. B. "Furka") bündelt mehrere Sektoren an einem Berg — es ist
+eine eigene Entität in der App, aber (noch) kein eigenes JSON-Feld. Importierte
+Sektoren landen darum immer erst unter "Sektoren ohne Gebiet"; das Zuordnen zu
+einem (ggf. neuen) Klettergebiet macht die Person danach direkt in der App
+("Sektor bearbeiten" oder der Knopf "In neues Klettergebiet umwandeln").
+
+## Auftrag an ChatGPT/Gemini
+
+Erstelle nach diesem Muster einen oder mehrere Touren-/Hütten-Einträge (bei
+Fixseil optional auch Sektoren) basierend auf den Informationen, die ich dir
+gebe (z. B. Screenshot, Text, Link). Prüfe zuerst, ob es sich um eine Tour
+(Gipfel, Route), eine Hütte (Übernachtungsmöglichkeit) oder — nur bei Fixseil,
+falls mehrere Touren klar denselben Zustieg teilen — einen Sektor handelt, und
+trage den Eintrag entsprechend im richtigen Feld ("tours", "huts" bzw.
+"sektoren") ein. Gib mir am Ende NUR die vollständige, gültige JSON-Datei
+zurück, bereit zum Kopieren.`;
+const BEDIENUNGSANLEITUNG_TEXT = `# Firnspur & Fixseil — Bedienungsanleitung
+
+Kurze Einführung für neue Nutzer:innen, mit Tipps und Tricks, die man beim ersten Mal leicht übersieht.
+
+## Die zwei Apps
+
+- **🎿 Firnspur** — für Skitouren (Winter)
+- **🧗 Fixseil** — für Hochtouren, Mehrseillängen-Klettertouren & Klettergärten (Sommer)
+
+Beide teilen sich **Hütten** und **Agenda** — was du in der einen App an Hütten oder Terminen anlegst, siehst du auch in der anderen. Touren selbst sind pro App getrennt, weil Winter und Sommer inhaltlich zu unterschiedlich sind. Innerhalb von Fixseil sind "🏔️ Hochtour" und "🧗 Klettern" ebenfalls getrennte Tabs.
+
+**Zwischen den Apps wechseln:** Entweder oben auf "🎿 Skitour" / "🏔️ Hochtour" / "🧗 Klettern" tippen, oder auf der oberen Leiste **nach links/rechts wischen**.
+
+### Der "🧗 Klettern"-Bereich: Klettergebiete als Einstieg
+
+Wechselst du zu "🧗 Klettern", landest du direkt auf den **⛰️ Klettergebieten** (z. B. "Furka") statt auf einer flachen Touren-Liste. Ein Gebiet antippen zeigt genau einen Pfad zu seinen Touren: **Klettergebiet → Sektor → Tour**. Keine zusätzliche, flache Touren-Liste daneben — jede Tour steht genau einmal, im Sektor-Kärtchen. Darunter, unabhängig von den Sektoren, die Liste **🛖 Hütten** (automatisch ermittelt anhand der Touren, die in einem Sektor dieses Gebiets stecken).
+
+Ein Sektor ist jede Wand/jeder Fels dieses Gebiets, mit Topo-Bild, Kletterrouten-Liste und Zustiegen/Abstiegen. "Klettergarten" und "MSL" sind dabei keine getrennten Ebenen, sondern nur Etiketten für den Inhalt eines Sektors: hat ein Sektor eine eigene Kletterrouten-Liste (Nr./Name/Grad), gilt er als Klettergarten; hat er verlinkte MSL-Touren, gilt er als MSL-Wand — ein Sektor kann problemlos beides gleichzeitig sein. Ein Sektor kann ausserdem Hochtouren verlinkt haben, die z. B. auf denselben Gipfel führen wie eine MSL-Route desselben Sektors (Feld "Sektor" im Touren-Formular, für Hochtour wie MSL) — unabhängig vom bestehenden Gipfel-Bezug der Hochtour (Höhe/Normalweg bleiben dort erfasst).
+
+Die flache Liste aller Touren bleibt daneben als Reiter **"🧗 Alle Touren"** erreichbar. Ein Sektor, der eigentlich ein ganzes Gebiet ist: in dessen Detailansicht "⛰️ In neues Klettergebiet umwandeln" antippen — verändert die vorhandenen Daten nicht, sondern ordnet nur neu ein.
+
+## Erstmaliges Einloggen
+
+Beim ersten Öffnen erscheint ein Passwort-Feld. Einmal eingeben — danach bleibst du auf dem Gerät dauerhaft angemeldet, bis du den Browser-Speicher löschst.
+
+## Grundlegende Navigation
+
+Vier Reiter ganz oben in jeder App:
+- **Touren** — alle erfassten Skitouren bzw. Hochtouren/MSL-Touren
+- **Hütten** — appübergreifend geteilt
+- **Agenda** — appübergreifend geteilte Terminplanung
+- **Done** — eigene und fremde abgeschlossene Touren/Hütten, nach Person gruppiert
+
+## Touren anlegen & bearbeiten
+
+- **"+ Neue Tour"** oben im Touren-Reiter
+- Felder sind grösstenteils **Kästchen zum Antippen** statt Freitext (Region, Schwierigkeit, Material, Gefahren, Anfahrt-Art, usw.) — schnelleres Erfassen, einheitlichere Daten
+- **Tipp:** Ein bereits ausgewähltes Kästchen lässt sich durch **erneutes Antippen wieder abwählen** — falls man aus Versehen daneben tippt, muss man nicht zwingend eine andere Option wählen
+- **Region wählen** → passende Teilgebiete/Pässe erscheinen automatisch darunter
+- **Speichern-Button** bleibt beim Bearbeiten immer unten rechts sichtbar — kein Scrollen zum Speichern nötig
+
+### Status "Entwurf" / "Vollständig"
+
+Jede neue Tour startet als **📝 Entwurf** — das kennzeichnet: "Angaben evtl. noch nicht vollständig geprüft". Erst wenn die Tour wirklich fertig ausgearbeitet ist, in der Detailansicht auf den Status-Knopf tippen und auf **✅ Vollständig** umstellen. So sieht man auf einen Blick, welche Touren noch in Arbeit sind.
+
+## Karte & Standortpunkte
+
+Beim Bearbeiten einer Tour: **"🗺️ Karte öffnen"**
+
+- **📍 Punkt setzen**: antippen → auf die Karte tippen → Kategorie wählen (Gipfel, Parkplatz, Wasserstelle, Gefahrenstelle, Rastplatz, Biwak, Toilette, Haltestelle, Abzweigung, Rückzugspunkt) → Bezeichnung eintragen → Speichern. Jede Kategorie hat ein eigenes farbiges Symbol auf der Karte.
+- **✏️ Linie zeichnen**: antippen → jeder weitere Kartenklick fügt einen Wegpunkt zur blauen Linie hinzu. "↺ Letzten Punkt entfernen" bei Fehltipp, "✓ Linie fertig" zum Abschliessen.
+- **⛶ Vollbild**: für genaueres Zoomen/Suchen — auf jeder Karte verfügbar
+- **Tipp:** Direkt aus der Tour-**Detailansicht** lassen sich Punkte/Linie auch bearbeiten, ohne den Umweg über "Tour bearbeiten" zu gehen — Knopf "✏️ Punkte/Linie direkt bearbeiten"
+
+### GPX-Tracks
+
+- **Link zu einer GPX-Datei im Internet** eintragen, oder
+- **Eigene GPX-Datei hochladen** — wird automatisch für die Kartenanzeige vereinfacht (spart Datenvolumen), die Originaldatei bleibt separat gespeichert und lässt sich jederzeit als Volldownload wieder herunterladen
+- 🔴 Rot = aufgezeichneter GPX-Track, 🔵 Blau = selbst gezeichnete Linie — beide können gleichzeitig angezeigt werden
+
+## Filtern & Sortieren
+
+Im Touren-Reiter: **"🔍 Filter"** antippen, um nach Region und Schwierigkeit einzugrenzen (bei Fixseil zusätzlich getrennt für Hochtour/MSL). Die Zahl neben "Filter" zeigt, wie viele Filter gerade aktiv sind. Sortierung (nach Datum, Name, Schwierigkeit, usw.) daneben.
+
+## Hütten
+
+Wie Touren mit Region/Teilgebiet-Auswahl. Da sich der Zustieg je nach Jahreszeit stark unterscheiden kann, gibt's **getrennte Felder für Sommer- und Winter-Zustieg** (Höhenmeter, Zeitbedarf, Schwierigkeit, Beschreibung).
+
+## Agenda
+
+Termine appübergreifend sichtbar. Wählst du beim Erstellen eine bestehende Tour aus, stellt sich "Art" (Skitour/Hochtour/Klettern-MSL) automatisch passend ein. Status-Ablauf: Idee → Termin gesucht → Geplant → Bestätigt → Durchgeführt (oder Abgesagt).
+
+## Notfallkarte
+
+Roter **"SOS"**-Streifen am linken Bildschirmrand — immer erreichbar, auch ohne Login. Antippen **oder** nach rechts/unten wegziehen öffnet sie. Enthält:
+- Direktwahl-Nummern (Rega 1414, Europanotruf 112, Polizei 117)
+- Notruf-Checkliste ("5 W")
+- **Standort abrufen** — zeigt aktuelle GPS-Koordinaten (WGS84 + Schweizer Landeskoordinaten) mit Kopieren-Knopf, plus Kartenanzeige
+- Lawinen-Notfallblatt (Kameradenrettung-Ablauf)
+
+## Daten importieren/exportieren
+
+Oben in der App: **"Exportieren"** (eigene Sicherung) und **"Importieren"** (Daten von anderen einfügen). Beim Importieren findest du auch den Link zu den **Vorlagen für ChatGPT/Gemini** — damit können Kolleg:innen ihre KI Touren-Daten im richtigen Format ausgeben lassen, ohne die App-Struktur selbst kennen zu müssen.
+
+## Tipps & Tricks im Überblick
+
+- **Zurück-Taste** des Handys schliesst offene Fenster/Karten, statt die App zu verlassen
+- **Wischen** auf der oberen App-Wechsel-Leiste wechselt zwischen Firnspur/Fixseil
+- Jedes **Kästchen-Feld** (Region, Material, Gefahren, usw.) lässt sich durch erneutes Antippen wieder abwählen
+- **Automatische Sicherung:** Offline erfasste Touren werden lokal gespeichert und synchronisieren sich automatisch, sobald wieder Internet da ist — auch nach einem Seiten-Neuladen
+- **Wöchentliches Backup:** Jeden Montag wird der gesamte Datenbestand automatisch als Sicherung im GitHub-Repo abgelegt (Ordner \`backups/\`)
+- Bei Fragen zum Dateiformat für den Import: Anleitung im \`vorlagen/\`-Ordner des Repos, direkt aus der App verlinkt
+
+---
+*Bei technischen Problemen oder Wünschen für neue Funktionen: an den App-Verantwortlichen wenden.*
+`;
+
+function escMd(s){
+  let out = esc(s);
+  out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  out = out.replace(/`(.+?)`/g, '<code style="background:var(--ice-light); padding:1px 4px; border-radius:2px; font-family:\'JetBrains Mono\';">$1</code>');
+  return out;
+}
+function renderMarkdownBasic(text){
+  const lines = text.split('\n');
+  let html = '';
+  let inList = false;
+  lines.forEach(line=>{
+    const l = line;
+    if(/^### /.test(l)){
+      if(inList){ html += '</ul>'; inList=false; }
+      html += `<h4 style="margin-top:16px;">${escMd(l.slice(4))}</h4>`;
+    }else if(/^## /.test(l)){
+      if(inList){ html += '</ul>'; inList=false; }
+      html += `<h3 style="margin-top:22px; font-size:17px;">${escMd(l.slice(3))}</h3>`;
+    }else if(/^# /.test(l)){
+      if(inList){ html += '</ul>'; inList=false; }
+      html += `<h2 style="margin-top:4px;">${escMd(l.slice(2))}</h2>`;
+    }else if(/^- /.test(l)){
+      if(!inList){ html += '<ul style="margin:8px 0; padding-left:22px;">'; inList=true; }
+      html += `<li style="margin-bottom:5px; line-height:1.5;">${escMd(l.slice(2))}</li>`;
+    }else if(/^---\s*$/.test(l)){
+      if(inList){ html += '</ul>'; inList=false; }
+      html += '<hr style="border:none; border-top:1px solid var(--line); margin:18px 0;"/>';
+    }else if(l.trim()===''){
+      if(inList){ html += '</ul>'; inList=false; }
+    }else{
+      if(inList){ html += '</ul>'; inList=false; }
+      html += `<p style="margin:8px 0; line-height:1.6;">${escMd(l)}</p>`;
+    }
+  });
+  if(inList) html += '</ul>';
+  return html;
+}
+function vorlagenModalHtml(tourVorlageJson){
+  return `<div class="modal" data-stop="1" style="max-width:560px;">
+    <div class="modal-head"><h2>📋 Ressourcen &amp; Vorlagen</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 16px 0;">Zum Weitergeben an Kolleg:innen — Bedienungsanleitung für neue Nutzer:innen, sowie JSON-Vorlage &amp; Anleitung für ChatGPT/Gemini, um Touren effizient per KI zu erfassen.</p>
+
+    <div class="detail-section" style="margin-top:0;">
+      <h4>📖 Bedienungsanleitung für neue Nutzer:innen</h4>
+      <button type="button" class="btn secondary" data-act="open-bedienungsanleitung">📖 In Vollbild anzeigen</button>
+    </div>
+
+    <div class="detail-section">
+      <h4>JSON-Vorlage (Beispiel-Tour &amp; -Hütte)</h4>
+      <textarea readonly id="vorlage-json-text" style="width:100%; min-height:140px; font-family:'Manrope'; font-size:11px;">${tourVorlageJson}</textarea>
+      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="copy-vorlage" data-target="vorlage-json-text">📋 Vorlage kopieren</button>
+    </div>
+
+    <div class="detail-section">
+      <h4>Anleitung für die KI (ChatGPT/Gemini)</h4>
+      <textarea readonly id="vorlage-anleitung-text" style="width:100%; min-height:140px; font-family:'Manrope'; font-size:11px;">${VORLAGE_ANLEITUNG_TEXT}</textarea>
+      <button type="button" class="btn secondary" style="margin-top:8px;" data-act="copy-vorlage" data-target="vorlage-anleitung-text">📋 Anleitung kopieren</button>
+    </div>
+  </div>`;
+}
+
+function bedienungsanleitungModalHtml(){
+  return `<div class="modal" data-stop="1" style="max-width:640px;">
+    <div class="modal-head"><h2>📖 Bedienungsanleitung</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div style="max-height:72vh; overflow-y:auto; padding-right:4px;">${renderMarkdownBasic(BEDIENUNGSANLEITUNG_TEXT)}</div>
+  </div>`;
+}
+
+function copyTextareaContent(textareaId){
+  const el = document.getElementById(textareaId);
+  if(!el) return;
+  el.select();
+  el.setSelectionRange(0, 999999);
+  try{
+    navigator.clipboard.writeText(el.value);
+    showToast('Kopiert.');
+  }catch(e){
+    try{ document.execCommand('copy'); showToast('Kopiert.'); }
+    catch(e2){ showToast('Kopieren nicht möglich — bitte manuell markieren und kopieren.', true); }
+  }
+}
+
+const HIKE_SCALE = {
+  'T1': {label:'Wandern', color:'#5FA8D3', desc:'Weg gut gebahnt, keine Absturzgefahr.'},
+  'T2': {label:'Bergwandern', color:'#2E7EB0', desc:'Weg mit durchgehendem Trassee, kann steil sein.'},
+  'T3': {label:'Anspruchsvolles Bergwandern', color:'#C9A227', desc:'Weg nicht immer sichtbar, exponierte Stellen teils gesichert.'},
+  'T4': {label:'Alpinwandern', color:'#D97B3E', desc:'Weglos oder spärlich markiert, anspruchsvolles Gelände, Hände nötig.'},
+  'T5': {label:'Anspruchsvolles Alpinwandern', color:'#C2452D', desc:'Exponiert, weglos, evtl. Firn/Blockgletscher.'},
+  'T6': {label:'Schwieriges Alpinwandern', color:'#8A2E2E', desc:'Sehr exponiert, Gletscher/Firn, Kletterstellen bis II.'}
+};
+const HIKE_SCALE_ORDER = ['T1','T2','T3','T4','T5','T6'];
+
+const MONTHS = [
+  {key:'jan', label:'Jan.'}, {key:'feb', label:'Feb.'}, {key:'maer', label:'März'},
+  {key:'apr', label:'Apr.'}, {key:'mai', label:'Mai'}, {key:'jun', label:'Juni'},
+  {key:'jul', label:'Juli'}, {key:'aug', label:'Aug.'}, {key:'sep', label:'Sept.'},
+  {key:'okt', label:'Okt.'}, {key:'nov', label:'Nov.'}, {key:'dez', label:'Dez.'}
+];
+function monthChipsRowHtml(fieldClass, fullMonths, partialMonths){
+  const full = Array.isArray(fullMonths) ? fullMonths : [];
+  const partial = Array.isArray(partialMonths) ? partialMonths : [];
+  return MONTHS.map(m=>{
+    const state = full.includes(m.key) ? 'full' : (partial.includes(m.key) ? 'partial' : 'off');
+    const style = state==='full' ? 'background:var(--ok); border-color:transparent; color:#fff;'
+      : state==='partial' ? 'background:#E8B93E; border-color:transparent; color:#3D2E12;'
+      : '';
+    return `<button type="button" class="chip ${fieldClass}" data-month="${m.key}" data-state="${state}" style="${style}">${m.label}</button>`;
+  }).join('');
+}
+function monthChipsReadonlyHtml(fullMonths, partialMonths, fullColorVar){
+  const full = Array.isArray(fullMonths) ? fullMonths : [];
+  const partial = Array.isArray(partialMonths) ? partialMonths : [];
+  return MONTHS.map(m=>{
+    if(full.includes(m.key)) return `<span class="chip" style="background:${fullColorVar||'var(--ok)'}; border-color:transparent; color:#fff;">${m.label}</span>`;
+    if(partial.includes(m.key)) return `<span class="chip" style="background:#E8B93E; border-color:transparent; color:#3D2E12;">${m.label}</span>`;
+    return `<span class="chip" style="opacity:0.45;">${m.label}</span>`;
+  }).join('');
+}
+function wireMonthCycleChips(root, selector){
+  root.querySelectorAll(selector).forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      const cur = chip.getAttribute('data-state') || 'off';
+      const next = cur==='off' ? 'full' : (cur==='full' ? 'partial' : 'off');
+      chip.setAttribute('data-state', next);
+      chip.style.cssText = next==='full' ? 'background:var(--ok); border-color:transparent; color:#fff;'
+        : next==='partial' ? 'background:#E8B93E; border-color:transparent; color:#3D2E12;'
+        : '';
+    });
+  });
+}
+
+// Farbpalette für Alternativrouten einer Tour (Haupttrack bleibt Rot #E8384F, manuelle Linie Blau
+// #1565C0 — beide hier bewusst ausgespart, damit Alternativrouten optisch unterscheidbar bleiben).
+const ALT_TRACK_COLORS = ['#8E44AD','#E8B93E','#2F6B44','#FF8C00','#00838F','#C2185B'];
+
+/* ================= Hütten-Zustiege: mehrere Varianten pro Hütte ================= */
+const ACCESS_ROUTE_COLORS = ['#E8B93E','#1565C0','#E8384F','#2E7EB0','#8A2E2E','#3C7A52'];
+// Sommer/Winter-Zustiege bekommen eine feste, wiedererkennbare Farbe statt einer zufälligen
+// Reihenfolge-Farbe — nur Hütten-Zustiege haben ein season-Feld, Tour-/Sektor-Routen (MSL)
+// fallen deshalb immer auf die Index-Farbe zurück.
+function accessRouteColor(r, index){
+  if(r && r.season==='sommer') return '#E8B93E';
+  if(r && r.season==='winter') return '#1565C0';
+  return ACCESS_ROUTE_COLORS[index % ACCESS_ROUTE_COLORS.length];
+}
+
+function migrateHutAccessRoutes(h){
+  if(Array.isArray(h.accessRoutes)) return h;
+  h.accessRoutes = [];
+  const hasSummer = h.accessElevationSummer || h.accessDurationSummer || h.accessDifficultySummer || h.accessDifficultySummerT || h.accessSummer || h.gpxLinkSummer || h.trackSimplifiedSummer;
+  const hasWinter = h.accessElevationWinter || h.accessDurationWinter || h.accessDifficultyWinter || h.accessWinter || h.gpxLinkWinter || h.trackSimplifiedWinter;
+  if(hasSummer){
+    h.accessRoutes.push({
+      id: uid('ar'), name:'Sommer', season:'sommer',
+      elevation: h.accessElevationSummer||'', duration: h.accessDurationSummer||'',
+      difficulty: h.accessDifficultySummer||'', difficultyT: h.accessDifficultySummerT||'',
+      description: h.accessSummer||'', gpxLink: h.gpxLinkSummer||'',
+      trackSimplified: h.trackSimplifiedSummer||null, manualTrack: (h.manualTrack||[])
+    });
+  }
+  if(hasWinter){
+    h.accessRoutes.push({
+      id: uid('ar'), name:'Winter', season:'winter',
+      elevation: h.accessElevationWinter||'', duration: h.accessDurationWinter||'',
+      difficulty: h.accessDifficultyWinter||'', difficultyT:'',
+      description: h.accessWinter||'', gpxLink: h.gpxLinkWinter||'',
+      trackSimplified: h.trackSimplifiedWinter||null, manualTrack: []
+    });
+  }
+  return h;
+}
+
+function accessRouteDifficultyRangeHtml(routes){
+  if(!routes || !routes.length) return '';
+  const sacCodes = routes.map(r=>r.difficulty).filter(Boolean);
+  const tCodes = routes.map(r=>r.difficultyT).filter(Boolean);
+  const parts = [];
+  if(sacCodes.length){
+    const idxs = sacCodes.map(c=>DIFF_ORDER.indexOf(c)).filter(i=>i>=0);
+    if(idxs.length){
+      const lo = DIFF_ORDER[Math.min(...idxs)], hi = DIFF_ORDER[Math.max(...idxs)];
+      parts.push(lo===hi ? `SAC ${lo}` : `SAC ${lo}–${hi}`);
+    }
+  }
+  if(tCodes.length){
+    const idxs = tCodes.map(c=>HIKE_SCALE_ORDER.indexOf(c)).filter(i=>i>=0);
+    if(idxs.length){
+      const lo = HIKE_SCALE_ORDER[Math.min(...idxs)], hi = HIKE_SCALE_ORDER[Math.max(...idxs)];
+      parts.push(lo===hi ? lo : `${lo}–${hi}`);
+    }
+  }
+  return parts.join(' · ');
+}
+function accessRouteLegendHtml(routes){
+  return routes.map((r,i)=>{
+    const color = accessRouteColor(r, i);
+    const hasTrack = (r.trackSimplified && r.trackSimplified.length) || (r.manualTrack && r.manualTrack.length);
+    if(!hasTrack) return '';
+    return `<span class="hint" style="display:inline-flex; align-items:center; gap:4px; margin-right:10px;"><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color};"></span>${esc(r.name)}</span>`;
+  }).filter(Boolean).join('');
+}
+
+// Eine einzige Karte für Punkte + allgemeine Linie + alle benannten Routen (Zustiege/Abstiege)
+// zusammen — geteilt zwischen Hütten-, Tour- und Sektor-Zustiegen. onRouteClick(route) ist
+// optional: Aufrufer, die beim Antippen einer Linie ein Popup mit "öffnen"-Knopf zur jeweiligen
+// Route wollen (analog zum Antippen der Route-Karte in der Liste), übergeben hier ihre eigene
+// "Route-Detail öffnen"-Logik — Hütte/Tour/Sektor haben je einen eigenen Modal-Typ dafür.
+function renderHutAccessRoutesMap(containerId, points, routes, manualTrack, onRouteClick){
+  const el = document.getElementById(containerId);
+  if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
+  ensureLeafletLoaded().then(()=>{
+    const el2 = document.getElementById(containerId);
+    if(!el2) return;
+    const tracks = (routes||[]).map((r,i)=>({
+      coords: (r.trackSimplified && r.trackSimplified.length) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length ? r.manualTrack : null),
+      color: accessRouteColor(r, i),
+      route: r
+    })).filter(t=>t.coords);
+    const hasPoints = points && points.length;
+    const hasManualTrack = manualTrack && manualTrack.length;
+    if(!tracks.length && !hasPoints && !hasManualTrack){
+      if(el2) el2.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Keine Kartendaten vorhanden — noch kein Zustieg hat eine Linie oder einen GPX-Track.</p>';
+      return;
+    }
+    const mapDivId = containerId + '-inner';
+    destroyExistingMap(mapDivId);
+    el2.innerHTML = '';
+    const isFullscreen = containerId === 'fullscreen-map-container';
+    const mapDiv = document.createElement('div');
+    mapDiv.id = mapDivId;
+    mapDiv.style.cssText = isFullscreen
+      ? 'height:100%; border-radius:0; overflow:hidden;'
+      : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
+    el2.appendChild(mapDiv);
+    const startView = tracks.length ? tracks[0].coords[0] : (hasManualTrack ? manualTrack[0] : [points[0].lat, points[0].lon]);
+    const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
+    registerMap(mapDivId, map);
+    addBaseLayerSwitcher(map);
+    // Popup mit Name + "öffnen"-Knopf fürs Antippen einer Route-Linie — bewusst als eigener,
+    // kleiner Baustein hier (statt die gleichnamige Variante aus renderStandaloneMap zu teilen),
+    // um die riesige, eng verzahnte Standalone-Karten-Funktion nicht anfassen zu müssen.
+    function openRoutePopup(latlng, route){
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '170px';
+      const title = document.createElement('p');
+      title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
+      title.textContent = '🚶 ' + (route.name || 'Zustieg');
+      wrap.appendChild(title);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Öffnen';
+      btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+      btn.addEventListener('click', ()=> onRouteClick(route));
+      wrap.appendChild(btn);
+      L.popup().setLatLng(latlng).setContent(wrap).openOn(map);
+    }
+    const boundsItems = [];
+    if(hasManualTrack){
+      L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line = L.polyline(manualTrack, {color:'#E8384F', weight:4, opacity:1}).addTo(map);
+      boundsItems.push(line);
+    }
+    tracks.forEach(t=>{
+      try{
+        // Breite unsichtbare Klickfläche unter der sichtbaren, dünnen Linie — deutlich leichter
+        // mit dem Finger zu treffen (analog zur Standalone-Übersichtskarte).
+        const hitLine = L.polyline(t.coords, {color:'#000', weight:22, opacity:0}).addTo(map);
+        L.polyline(t.coords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+        const line = L.polyline(t.coords, {color:t.color, weight:4, opacity:1}).addTo(map);
+        if(onRouteClick){
+          hitLine.on('click', (e)=>{ L.DomEvent.stopPropagation(e); openRoutePopup(e.latlng, t.route); });
+          line.on('click', (e)=>{ L.DomEvent.stopPropagation(e); openRoutePopup(e.latlng, t.route); });
+        }
+        boundsItems.push(line);
+      }catch(e){ /* einzelne fehlerhafte Linie überspringen, Rest der Karte trotzdem zeigen */ }
+    });
+    if(hasPoints){
+      points.forEach(p=>{
+        try{
+          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
+          boundsItems.push(m);
+        }catch(e){ /* einzelner fehlerhafter Punkt überspringen */ }
+      });
+    }
+    if(boundsItems.length){
+      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+    }
+    if(!isFullscreen){
+      const btn = makeFullscreenButton(function(id){ renderHutAccessRoutesMap(id, points||[], routes||[], manualTrack||[], onRouteClick); });
+      el2.appendChild(btn);
+    }
+  }).catch(err=>{
+    const el3 = document.getElementById(containerId);
+    if(el3) el3.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+function accessRouteFormHtml(hutId, route){
+  const r = route || {};
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${route?'Zustieg bearbeiten':'Neuer Zustieg'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <form id="access-route-form" novalidate>
+      <input type="hidden" name="hutId" value="${esc(hutId)}"/>
+      <input type="hidden" name="routeId" value="${esc(r.id||'')}"/>
+      <div class="field"><label>Name des Zustiegs *</label><input required name="name" value="${esc(r.name||'')}" placeholder="z. B. Ab Randa"/></div>
+      ${scanZustiegButtonHtml('access-route')}
+      <div class="field"><label>Jahreszeit</label>
+        <div class="chips">
+          <button type="button" class="chip season-chip ${r.season==='sommer'?'on':''}" style="${r.season==='sommer'?'background:var(--ice-deep)':''}" data-value="sommer">🌞 Sommer</button>
+          <button type="button" class="chip season-chip ${r.season==='winter'?'on':''}" style="${r.season==='winter'?'background:var(--ice-deep)':''}" data-value="winter">❄️ Winter</button>
+        </div>
+        <input type="hidden" name="season" id="access-route-season-hidden" value="${esc(r.season||'')}"/>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Höhenmeter (Hm)</label><input name="elevation" value="${esc(r.elevation||'')}"/></div>
+        <div class="field"><label>Zeitbedarf</label><input name="duration" value="${esc(r.duration||'')}"/></div>
+      </div>
+      <div class="field"><label>Schwierigkeit (SAC)</label>
+        <select name="difficulty">
+          <option value="">— keine Angabe —</option>
+          ${DIFF_ORDER.map(c=>`<option value="${c}" ${r.difficulty===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Wanderskala (T)</label>
+        <select name="difficultyT">
+          <option value="">— keine Angabe —</option>
+          ${HIKE_SCALE_ORDER.map(c=>`<option value="${c}" ${r.difficultyT===c?'selected':''}>${c} — ${HIKE_SCALE[c].label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Beschreibung</label><textarea name="description">${esc(r.description||'')}</textarea></div>
+      <div class="field"><label>Link zu einer GPX-Datei</label><input type="url" name="gpxLink" value="${esc(r.gpxLink||'')}"/></div>
+      <div class="field"><label>Eigenen GPX-Track hochladen</label>
+        <input type="file" id="access-route-gpx-input" accept=".gpx,application/gpx+xml"/>
+        <div class="hint">Wird automatisch für die Kartenanzeige vereinfacht und direkt in der Karte unten bearbeitbar. Die Originaldatei bleibt separat gespeichert und ist jederzeit als Volldownload abrufbar.</div>
+        <p id="access-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
+        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="access-route-gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>` : ''}
+        <input type="hidden" name="trackSimplified" id="access-route-track-hidden" value='${esc(r.trackSimplified ? JSON.stringify(r.trackSimplified) : "")}'/>
+        <input type="hidden" name="routeIdForTrack" id="access-route-id-for-track" value="${esc(r.id||'')}"/>
+      </div>
+      <div class="field"><label>Route auf der Karte einzeichnen (falls kein GPX vorhanden)</label>
+        <button type="button" class="btn secondary" id="access-route-map-toggle-btn">🗺️ Karte öffnen</button>
+        <div class="hint">✏️ Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
+        <div id="access-route-map" style="margin-top:10px; display:none;"></div>
+        <input type="hidden" name="manualTrack" id="access-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+        ${route ? `<button type="button" class="btn danger" data-act="delete-access-route" data-hut-id="${esc(hutId)}" data-route-id="${esc(r.id)}" style="margin-right:auto;">Löschen</button>` : ''}
+        <button type="button" id="access-route-save-btn" class="btn">${route?'Speichern':'Zustieg hinzufügen'}</button>
+      </div>
+    </form>
+  </div>`;
+}
+
+function accessRouteRowHtml(r, index, hutId){
+  const color = accessRouteColor(r, index);
+  const seasonIcon = r.season==='sommer' ? '🌞' : (r.season==='winter' ? '❄️' : '📍');
+  const diffBadges = [];
+  if(r.difficulty) diffBadges.push(`<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${r.difficulty}</span>`);
+  if(r.difficultyT) diffBadges.push(`<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span>`);
+  return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="open-access-route" data-hut-id="${hutId}" data-route-id="${r.id}" tabindex="0" role="button">
+    <div class="card-top">
+      <h3 style="font-size:15px;">${seasonIcon} ${esc(r.name)}</h3>
+      <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; margin-top:4px;"></span>
+    </div>
+    ${(r.elevation || r.duration) ? `<div class="stat-row">
+      ${r.elevation ? `<span>↑ <span class="mono">${esc(r.elevation)}</span> Hm</span>` : ''}
+      ${r.duration ? `<span>⏱ <span class="mono">${esc(r.duration)}</span></span>` : ''}
+    </div>` : ''}
+    ${diffBadges.length ? `<div class="badge-row">${diffBadges.join(' ')}</div>` : ''}
+    ${r.description ? `<p class="excerpt">${esc(r.description)}</p>` : ''}
+  </div>`;
+}
+
+function accessRouteDetailHtml(hutId, route){
+  const r = route;
+  const seasonIcon = r.season==='sommer' ? '🌞' : (r.season==='winter' ? '❄️' : '📍');
+  const seasonLabel = r.season==='sommer' ? 'Sommer' : (r.season==='winter' ? 'Winter' : '');
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>${seasonIcon} ${esc(r.name)}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    ${seasonLabel ? `<span class="badge" style="background:var(--ice-deep); margin-bottom:10px; display:inline-block;">${seasonLabel}</span>` : ''}
+    ${(r.elevation || r.duration) ? `<div class="detail-stats">
+      ${r.elevation ? `<div class="detail-stat"><div class="num">${esc(r.elevation)}</div><div class="lbl">Hm</div></div>` : ''}
+      ${r.duration ? `<div class="detail-stat"><div class="num">${esc(r.duration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+    </div>` : ''}
+    ${(r.difficulty || r.difficultyT) ? `<div style="margin:10px 0;">
+      ${r.difficulty ? `<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${r.difficulty}</span> ` : ''}
+      ${r.difficultyT ? `<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span>` : ''}
+    </div>` : ''}
+    ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(r.description)}</p></div>` : ''}
+    ${r.gpxLink ? `<div class="detail-section"><h4>GPX-Link</h4><p><a href="${esc(r.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(r.gpxLink)}</a></p></div>` : ''}
+    ${(r.trackSimplified || (r.manualTrack && r.manualTrack.length)) ? `<div class="detail-section">
+      <h4>Karte</h4>
+      <button type="button" class="btn secondary" data-act="show-access-route-map" data-track='${esc(JSON.stringify(r.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(r.manualTrack||[]))}' data-target="map-access-route-${r.id}">🗺️ Karte anzeigen</button>
+      <div id="map-access-route-${r.id}" style="margin-top:10px;"></div>
+    </div>` : ''}
+    <div class="form-actions">
+      <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
+      <button type="button" class="btn" data-act="edit-access-route" data-hut-id="${esc(hutId)}" data-route-id="${esc(r.id)}">✏️ Bearbeiten</button>
+    </div>
+  </div>`;
+}
+
+/* ================= Topo-Bilder (MSL/Hochtour) — Cloud Storage ================= */
+const TOPO_IMAGES_PATH = 'topoImages';
+const TOPO_IMAGE_MAX_COUNT = 10;
+
+function compressImageFile(file, maxWidth, quality){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let w = img.width, h = img.height;
+        if(w > maxWidth){ h = Math.round(h * (maxWidth / w)); w = maxWidth; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob((blob)=>{
+          if(blob) resolve(blob); else reject(new Error('Komprimierung fehlgeschlagen.'));
+        }, 'image/jpeg', quality);
+      };
+      img.onerror = ()=> reject(new Error('Bild konnte nicht gelesen werden — ist es eine gültige Bilddatei?'));
+      img.src = reader.result;
+    };
+    reader.onerror = ()=> reject(new Error('Datei konnte nicht gelesen werden.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadTopoImageBlob(blob, storagePath){
+  await ensureValidAuthToken();
+  const url = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o?name=${encodeURIComponent(storagePath)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + authState.idToken, 'Content-Type': 'image/jpeg' },
+    body: blob
+  });
+  if(!res.ok) throw new Error('Upload fehlgeschlagen (Status ' + res.status + ')');
+  const data = await res.json();
+  const token = data.downloadTokens;
+  return `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`;
+}
+
+async function deleteTopoImageFile(storagePath){
+  try{
+    await ensureValidAuthToken();
+    const url = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodeURIComponent(storagePath)}`;
+    const res = await fetch(url, { method:'DELETE', headers:{ 'Authorization': 'Bearer ' + authState.idToken } });
+    return res.ok;
+  }catch(e){ return false; }
+}
+
+// Ausschnitt (cropRect: {x,y,w,h,naturalW,naturalH}, alle Brüche 0..1 relativ zum
+// UNROTIERTEN Originalbild) als CSS background-size/-position umrechnen — funktioniert
+// unabhängig von der tatsächlichen Bildgrösse dank der nativen Prozent-Semantik von
+// background-size/-position (der Browser bezieht sich dabei immer auf die echten Bild-Pixel,
+// nicht auf das Element). Das Originalbild bleibt dabei in Storage unverändert; ein entfernter
+// cropRect zeigt sofort wieder das ganze Bild.
+function topoCropBackgroundCss(cropRect){
+  if(!cropRect) return '';
+  const w = Math.min(1, Math.max(0.05, cropRect.w));
+  const h = Math.min(1, Math.max(0.05, cropRect.h));
+  const x = Math.min(1 - w, Math.max(0, cropRect.x));
+  const y = Math.min(1 - h, Math.max(0, cropRect.y));
+  const sizeX = 100 / w, sizeY = 100 / h;
+  const posX = w >= 0.9999 ? 0 : (x / (1 - w) * 100);
+  const posY = h >= 0.9999 ? 0 : (y / (1 - h) * 100);
+  return `background-size:${sizeX.toFixed(2)}% ${sizeY.toFixed(2)}%; background-position:${posX.toFixed(2)}% ${posY.toFixed(2)}%;`;
+}
+// Seitenverhältnis des Ausschnitts in echten Pixeln (aus den beim Zuschneiden gemerkten
+// Originalmassen) — damit der Ausschnitt in der grossen Galerie sein eigenes Format behält,
+// statt in ein festes Quadrat gepresst zu werden.
+function topoCropAspectCss(cropRect){
+  if(!cropRect || !cropRect.naturalW || !cropRect.naturalH) return '';
+  const w = Math.round(cropRect.w * cropRect.naturalW) || 1;
+  const h = Math.round(cropRect.h * cropRect.naturalH) || 1;
+  return `aspect-ratio:${w}/${h};`;
+}
+
+// images wird explizit übergeben (statt aus dem hiddenListId-Feld gelesen): beim allerersten
+// Rendern eines Formulars existiert das zugehörige Hidden-Input im DOM noch gar nicht — das
+// Formular-HTML wird ja gerade erst als String gebaut. Ein DOM-Read an dieser Stelle liefe daher
+// leer, und die Miniaturansicht (samt Dreh-/Entfernen-Buttons) würde beim Öffnen fehlen.
+function topoImageThumbsHtml(images, hiddenListId){
+  if(!images || !images.length) return '';
+  const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url, rotation:img.rotation||0}))));
+  return `<div class="chips" style="margin-top:8px;">${images.map((img,i)=>
+    `<span class="chip" style="background:var(--ice-light); border-color:transparent; padding:3px 8px 3px 3px; display:inline-flex; align-items:center; gap:6px;">
+      ${img.cropRect
+        ? `<div data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:32px; height:32px; border-radius:2px; cursor:pointer; background-image:url('${esc(img.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(img.cropRect)} transform:rotate(${img.rotation||0}deg);"></div>`
+        : `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:32px; height:32px; object-fit:cover; border-radius:2px; cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>`}
+      Bild ${i+1}${img.cropRect ? ' · ✂️' : ''}
+      <button type="button" data-act="crop-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="Ausschnitt festlegen — nur dieser Teil wird in Listen/Details gezeigt, das Originalbild bleibt erhalten" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">✂️</button>
+      <button type="button" data-act="rotate-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="90° drehen — z. B. wenn quer statt hoch hochgeladen" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">🔄</button>
+      <button type="button" data-act="remove-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">×</button>
+    </span>`
+  ).join('')}</div>`;
+}
+
+function removeTopoImageLocal(hiddenListId, imageId){
+  const hiddenInput = document.getElementById(hiddenListId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  const removed = images.find(img=>img.id===imageId);
+  images = images.filter(img=>img.id!==imageId);
+  if(hiddenInput) hiddenInput.value = JSON.stringify(images);
+  markModalDirty();
+  if(removed && removed.storagePath) deleteTopoImageFile(removed.storagePath).catch(()=>{});
+  const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
+  if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
+}
+
+// Dreht ein Topo-Bild um 90° (nur die Anzeige-Drehung als Metadatum — das Original-Bild bleibt
+// unverändert). Praktisch für Bilder, die quer statt hoch hochgeladen wurden.
+function rotateTopoImageLocal(hiddenListId, imageId){
+  const hiddenInput = document.getElementById(hiddenListId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  const img = images.find(im=>im.id===imageId);
+  if(!img) return;
+  img.rotation = ((img.rotation||0) + 90) % 360;
+  if(hiddenInput) hiddenInput.value = JSON.stringify(images);
+  markModalDirty();
+  const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
+  if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
+}
+
+// Setzt/löscht den Ausschnitt (cropRect) eines Topo-Bilds — reine Anzeige-Metadaten wie bei
+// rotation, das Original bleibt in Storage unverändert; cropRect:null zeigt sofort wieder das
+// ganze Bild ("Zurücksetzen").
+function setTopoImageCropLocal(hiddenListId, imageId, cropRect){
+  const hiddenInput = document.getElementById(hiddenListId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  const img = images.find(im=>im.id===imageId);
+  if(!img) return;
+  img.cropRect = cropRect || null;
+  if(hiddenInput) hiddenInput.value = JSON.stringify(images);
+  markModalDirty();
+  const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
+  if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
+}
+
+// Rechnet ein auf dem angezeigten (ggf. rotierten) Bild gezogenes Auswahlrechteck
+// (dx,dy,dw,dh — Brüche 0..1 relativ zur Anzeige) zurück in Brüche relativ zum UNROTIERTEN
+// Originalbild — nötig, weil cropRect immer im Original-Koordinatensystem gespeichert wird
+// (unabhängig von der aktuellen rotation), damit ein späteres Drehen den Ausschnitt nicht
+// verschiebt. rotation ist immer ein Vielfaches von 90°, daher bildet sich ein Rechteck exakt
+// auf ein Rechteck ab (keine Interpolation nötig).
+function topoCropDisplayRectToOriginal(dx, dy, dw, dh, rotation){
+  const rot = ((rotation||0) % 360 + 360) % 360;
+  if(rot === 90) return { x: dy, y: 1 - dx - dw, w: dh, h: dw };
+  if(rot === 180) return { x: 1 - dx - dw, y: 1 - dy - dh, w: dw, h: dh };
+  if(rot === 270) return { x: 1 - dy - dh, y: dx, w: dh, h: dw };
+  return { x: dx, y: dy, w: dw, h: dh };
+}
+
+// Vollbild-Editor: Ausschnitt für ein Topo-Bild markieren (ziehen = neues Rechteck). Zeigt das
+// Bild in seiner aktuellen Drehung an (wie überall sonst) — die Auswahl wird beim Übernehmen ins
+// unrotierte Original-Koordinatensystem zurückgerechnet (siehe topoCropDisplayRectToOriginal),
+// damit ein späteres 🔄 Drehen den einmal gewählten Ausschnitt nicht verschiebt.
+function openTopoCropEditor(hiddenListId, imageId){
+  const hiddenInput = document.getElementById(hiddenListId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  const imgData = images.find(im=>im.id===imageId);
+  if(!imgData) return;
+  const rotation = ((imgData.rotation||0) % 360 + 360) % 360;
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:210; display:flex; flex-direction:column; touch-action:none;';
+
+  const topBar = document.createElement('div');
+  topBar.style.cssText = 'padding:14px 16px; display:flex; align-items:center; justify-content:space-between; color:#fff; font-weight:600; font-size:14px; letter-spacing:0.02em;';
+  topBar.innerHTML = `<span>✂️ AUSSCHNITT WÄHLEN</span>`;
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button'; closeBtn.textContent = '×';
+  closeBtn.style.cssText = 'background:rgba(255,255,255,0.15); border:none; color:#fff; width:30px; height:30px; border-radius:50%; font-size:16px; cursor:pointer;';
+  closeBtn.onclick = ()=> closeTopOverlayLayer();
+  topBar.appendChild(closeBtn);
+  overlay.appendChild(topBar);
+
+  const stageOuter = document.createElement('div');
+  stageOuter.style.cssText = 'flex:1; position:relative; display:flex; align-items:center; justify-content:center; overflow:hidden;';
+  overlay.appendChild(stageOuter);
+
+  const hint = document.createElement('p');
+  hint.textContent = 'Ecke/Rand ziehen zum Anpassen · Original bleibt immer erhalten';
+  hint.style.cssText = 'margin:0; padding:10px 16px 4px; text-align:center; font-size:12px; color:rgba(255,255,255,0.75);';
+  overlay.appendChild(hint);
+
+  const bottomBar = document.createElement('div');
+  bottomBar.style.cssText = 'padding:10px 16px 18px; display:flex; gap:10px;';
+  const resetBtn = document.createElement('button');
+  resetBtn.type = 'button'; resetBtn.textContent = 'Zurücksetzen';
+  resetBtn.style.cssText = 'flex:1; padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.3); background:transparent; color:#fff; font-size:14px; font-weight:600; cursor:pointer;';
+  const applyBtn = document.createElement('button');
+  applyBtn.type = 'button'; applyBtn.textContent = '✓ Übernehmen';
+  applyBtn.style.cssText = 'flex:1; padding:12px; border-radius:8px; border:none; background:var(--signal); color:var(--ice-deep); font-size:14px; font-weight:600; cursor:pointer;';
+  bottomBar.appendChild(resetBtn); bottomBar.appendChild(applyBtn);
+  overlay.appendChild(bottomBar);
+
+  const raw = new Image();
+  raw.onload = ()=>{
+    const naturalW = raw.naturalWidth, naturalH = raw.naturalHeight;
+    const swapped = rotation === 90 || rotation === 270;
+    const availW = Math.min(window.innerWidth * 0.94, 640);
+    const availH = stageOuter.clientHeight || (window.innerHeight * 0.55);
+    const dispNatW = swapped ? naturalH : naturalW, dispNatH = swapped ? naturalW : naturalH;
+    const scale = Math.min(availW / dispNatW, availH / dispNatH);
+    const stageW = dispNatW * scale, stageH = dispNatH * scale;
+
+    const stage = document.createElement('div');
+    stage.dataset.cropStage = '1';
+    stage.style.cssText = `position:relative; width:${stageW}px; height:${stageH}px; overflow:hidden; background:#F7F3EA;`;
+    const innerImg = document.createElement('img');
+    innerImg.src = imgData.url;
+    innerImg.style.cssText = `position:absolute; top:50%; left:50%; width:${naturalW*scale}px; height:${naturalH*scale}px; transform:translate(-50%,-50%) rotate(${rotation}deg); max-width:none; max-height:none;`;
+    stage.appendChild(innerImg);
+    stageOuter.appendChild(stage);
+
+    // Vorbelegung: bestehender Ausschnitt (zurückgerechnet ins Anzeige-Koordinatensystem) oder
+    // das ganze Bild.
+    function originalToDisplayRect(o){
+      if(rotation === 90) return { x: 1 - o.y - o.h, y: o.x, w: o.h, h: o.w };
+      if(rotation === 180) return { x: 1 - o.x - o.w, y: 1 - o.y - o.h, w: o.w, h: o.h };
+      if(rotation === 270) return { x: o.y, y: 1 - o.x - o.w, w: o.h, h: o.w };
+      return { x: o.x, y: o.y, w: o.w, h: o.h };
+    }
+    let sel = imgData.cropRect ? originalToDisplayRect(imgData.cropRect) : { x:0, y:0, w:1, h:1 };
+
+    const selEl = document.createElement('div');
+    selEl.style.cssText = 'position:absolute; border:2.5px solid var(--signal); box-shadow:0 0 0 4000px rgba(0,0,0,0.55);';
+    stage.appendChild(selEl);
+    ['tl','tr','bl','br'].forEach(pos=>{
+      const handle = document.createElement('div');
+      handle.dataset.handle = pos;
+      handle.style.cssText = `position:absolute; width:22px; height:22px; border-radius:50%; background:var(--signal); border:2px solid #fff; touch-action:none;`;
+      selEl.appendChild(handle);
+    });
+
+    function paintSel(){
+      selEl.style.left = (sel.x*stageW) + 'px';
+      selEl.style.top = (sel.y*stageH) + 'px';
+      selEl.style.width = (sel.w*stageW) + 'px';
+      selEl.style.height = (sel.h*stageH) + 'px';
+      selEl.querySelectorAll('div').forEach(h=>{
+        const pos = h.dataset.handle;
+        h.style.top = (pos[0]==='t' ? -11 : sel.h*stageH-11) + 'px';
+        h.style.left = (pos[1]==='l' ? -11 : sel.w*stageW-11) + 'px';
+      });
+    }
+    paintSel();
+
+    const MIN_FRAC = 0.06;
+    function clampSel(){
+      sel.w = Math.max(MIN_FRAC, Math.min(1, sel.w));
+      sel.h = Math.max(MIN_FRAC, Math.min(1, sel.h));
+      sel.x = Math.max(0, Math.min(1 - sel.w, sel.x));
+      sel.y = Math.max(0, Math.min(1 - sel.h, sel.y));
+    }
+
+    function pointerXY(e){
+      const t = e.touches && e.touches.length ? e.touches[0] : e;
+      const rect = stage.getBoundingClientRect();
+      return { x: (t.clientX - rect.left) / stageW, y: (t.clientY - rect.top) / stageH };
+    }
+
+    // Ecke ziehen = bestehende Auswahl in dieser Ecke resizen; irgendwo sonst ziehen = neue
+    // Auswahl von Grund auf aufziehen.
+    let dragMode = null, dragAnchor = null;
+    function onDown(e){
+      e.preventDefault();
+      const handle = e.target.closest && e.target.closest('[data-handle]');
+      if(handle){
+        dragMode = 'resize';
+        dragAnchor = handle.dataset.handle;
+      }else{
+        dragMode = 'draw';
+        const p = pointerXY(e);
+        dragAnchor = { x: p.x, y: p.y };
+        sel = { x:p.x, y:p.y, w:0.001, h:0.001 };
+      }
+      const onMove = (ev)=>{
+        ev.preventDefault();
+        const p = pointerXY(ev);
+        if(dragMode==='draw'){
+          const x0 = dragAnchor.x, y0 = dragAnchor.y;
+          sel = { x: Math.min(x0,p.x), y: Math.min(y0,p.y), w: Math.abs(p.x-x0), h: Math.abs(p.y-y0) };
+        }else{
+          const fixedX = dragAnchor.includes('l') ? sel.x+sel.w : sel.x;
+          const fixedY = dragAnchor.includes('t') ? sel.y+sel.h : sel.y;
+          sel = { x: Math.min(fixedX,p.x), y: Math.min(fixedY,p.y), w: Math.abs(p.x-fixedX), h: Math.abs(p.y-fixedY) };
+        }
+        clampSel();
+        paintSel();
+      };
+      const onUp = ()=>{
+        clampSel(); paintSel();
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('touchmove', onMove);
+        window.removeEventListener('touchend', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchmove', onMove, { passive:false });
+      window.addEventListener('touchend', onUp);
+    }
+    stage.addEventListener('mousedown', onDown);
+    stage.addEventListener('touchstart', onDown, { passive:false });
+
+    resetBtn.onclick = ()=>{
+      setTopoImageCropLocal(hiddenListId, imageId, null);
+      closeTopOverlayLayer();
+    };
+    applyBtn.onclick = ()=>{
+      clampSel();
+      const orig = topoCropDisplayRectToOriginal(sel.x, sel.y, sel.w, sel.h, rotation);
+      setTopoImageCropLocal(hiddenListId, imageId, { x:orig.x, y:orig.y, w:orig.w, h:orig.h, naturalW, naturalH });
+      closeTopOverlayLayer();
+    };
+  };
+  raw.onerror = ()=>{ closeTopOverlayLayer(); showToast('Bild konnte nicht geladen werden.', true); };
+  raw.src = imgData.url;
+
+  document.body.appendChild(overlay);
+  // Ohne eigenen History-Eintrag verlässt die Hardware-/Browser-Zurück-Taste hier komplett die
+  // App statt nur den Editor zu schliessen (kein popstate-Ziel registriert). pushOverlayLayer
+  // reiht den Editor stattdessen in den bestehenden Overlay-Stack ein (siehe openImageCropDialog).
+  pushOverlayLayer(()=> overlay.remove());
+}
+
+function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, statusId){
+  const files = fileInputEl.files;
+  if(!files || !files.length) return;
+  const statusEl = document.getElementById(statusId);
+  const hiddenInput = document.getElementById(hiddenListId);
+  const tourIdInput = document.getElementById(tourIdHiddenId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  let tourId = tourIdInput ? tourIdInput.value : '';
+  if(!tourId){ tourId = uid('t'); if(tourIdInput) tourIdInput.value = tourId; }
+  const filesToAdd = Array.from(files).slice(0, Math.max(0, TOPO_IMAGE_MAX_COUNT - images.length));
+  if(!filesToAdd.length){
+    if(statusEl) statusEl.textContent = `Maximal ${TOPO_IMAGE_MAX_COUNT} Bilder pro Tour — zuerst eins entfernen.`;
+    fileInputEl.value = '';
+    return;
+  }
+  (async ()=>{
+    for(let i=0; i<filesToAdd.length; i++){
+      const rawFile = filesToAdd[i];
+      const cropped = await openImageCropDialog(rawFile);
+      if(!cropped) continue; // "Bild überspringen" oder Zurück-Taste — dieses Bild nicht übernehmen
+      const file = cropped;
+      if(statusEl) statusEl.textContent = `Bild ${images.length+1}/${TOPO_IMAGE_MAX_COUNT} wird komprimiert…`;
+      try{
+        const blob = await compressImageFile(file, 1200, 0.78);
+        const imgId = uid('img');
+        const storagePath = `${TOPO_IMAGES_PATH}/${tourId}/${imgId}.jpg`;
+        if(statusEl) statusEl.textContent = `Bild ${images.length+1}/${TOPO_IMAGE_MAX_COUNT} wird hochgeladen…`;
+        const url = await uploadTopoImageBlob(blob, storagePath);
+        images.push({id: imgId, url, storagePath});
+        if(hiddenInput) hiddenInput.value = JSON.stringify(images);
+        markModalDirty();
+        const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
+        if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
+      }catch(err){
+        if(statusEl) statusEl.textContent = 'Fehler beim Hochladen: ' + (err && err.message ? err.message : err);
+        fileInputEl.value = '';
+        return;
+      }
+    }
+    if(statusEl) statusEl.textContent = images.length ? `✓ ${images.length}/${TOPO_IMAGE_MAX_COUNT} Bilder hochgeladen.` : 'Noch keine Bilder hochgeladen.';
+    fileInputEl.value = '';
+  })();
+}
+
+function topoImagesGalleryHtml(images){
+  if(!images || !images.length) return '';
+  const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url, rotation:img.rotation||0}))));
+  // Kein width/height, sondern max-width/max-height: zeigt das ganze Foto in seinem eigenen
+  // Seitenverhältnis (typischerweise ein hochformatiges Führerbuch-Foto) statt es auf ein Quadrat
+  // zuzuschneiden — dieselbe schon geladene Bilddatei wird nur grösser dargestellt, das kostet
+  // keinen zusätzlichen Datentraffic. Ist ein Ausschnitt (cropRect) gesetzt, wird stattdessen nur
+  // dieser Teil gezeigt (per background-position/-size), im eigenen Seitenverhältnis des
+  // Ausschnitts — ebenfalls dieselbe Datei, kein Zusatz-Traffic.
+  return `<div class="chips topo-gallery" style="margin-top:6px;">${images.map((img,i)=>
+    img.cropRect
+      ? `<div data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:170px; ${topoCropAspectCss(img.cropRect)} border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; background-image:url('${esc(img.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(img.cropRect)}"></div>`
+      : `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="max-width:170px; max-height:230px; object-fit:contain; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>`
+  ).join('')}</div>`;
+}
+
+function showTopoImageLightbox(images, startIndex, offlineId){
+  if(!images || !images.length) return;
+  let idx = startIndex || 0;
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; touch-action:pan-y;';
+
+  const imgEl = document.createElement('img');
+  imgEl.style.cssText = 'max-width:100%; max-height:100%; object-fit:contain; border-radius:4px; touch-action:none; transform-origin:center center;';
+  overlay.appendChild(imgEl);
+
+  // ===== Zoom (Pinch, Doppeltipp, Mausrad) & Verschieben im gezoomten Zustand =====
+  const ZOOM_MIN = 1, ZOOM_MAX = 4;
+  let scale = 1, panX = 0, panY = 0, currentRotation = 0;
+  function applyTransform(withTransition){
+    imgEl.style.transition = withTransition ? 'transform 0.18s ease-out' : 'none';
+    imgEl.style.transform = `rotate(${currentRotation}deg) translate(${panX}px, ${panY}px) scale(${scale})`;
+  }
+  function clampPan(){
+    // Grobe Begrenzung, damit das Bild beim Verschieben nicht zu weit aus dem Bild verschwindet.
+    const maxOffset = (scale - 1) * (imgEl.clientWidth || overlay.clientWidth) * 0.6;
+    panX = Math.max(-maxOffset, Math.min(maxOffset, panX));
+    const maxOffsetY = (scale - 1) * (imgEl.clientHeight || overlay.clientHeight) * 0.6;
+    panY = Math.max(-maxOffsetY, Math.min(maxOffsetY, panY));
+  }
+  function resetZoom(withTransition){
+    scale = 1; panX = 0; panY = 0;
+    applyTransform(withTransition);
+  }
+
+  function closeLightbox(){ overlay.remove(); }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button'; closeBtn.textContent = '×';
+  closeBtn.style.cssText = 'position:absolute; top:16px; right:16px; background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:22px; line-height:1;';
+  closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); closeTopOverlayLayer(); });
+  overlay.appendChild(closeBtn);
+
+  let counterEl = null;
+  function goTo(n){ idx = (n + images.length) % images.length; resetZoom(false); updateImage(); }
+  if(images.length > 1){
+    const prevBtn = document.createElement('button');
+    prevBtn.type = 'button'; prevBtn.textContent = '‹';
+    prevBtn.style.cssText = 'position:absolute; left:10px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:44px; height:44px; font-size:24px;';
+    prevBtn.addEventListener('click', (e)=>{ e.stopPropagation(); goTo(idx-1); });
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button'; nextBtn.textContent = '›';
+    nextBtn.style.cssText = 'position:absolute; right:10px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:44px; height:44px; font-size:24px;';
+    nextBtn.addEventListener('click', (e)=>{ e.stopPropagation(); goTo(idx+1); });
+    counterEl = document.createElement('div');
+    counterEl.style.cssText = 'position:absolute; bottom:16px; left:50%; transform:translateX(-50%); color:#fff; font-size:13px; background:rgba(0,0,0,0.5); padding:4px 12px; border-radius:12px;';
+    overlay.appendChild(prevBtn);
+    overlay.appendChild(nextBtn);
+    overlay.appendChild(counterEl);
+  }
+
+  // Für gebietsweite Sammel-Galerien (mehrere Topos aus verschiedenen Klettergärten/Touren):
+  // jedes Bild kann eine Quelle tragen (ownerLabel/ownerModalType/ownerId) -- ein Tap auf den
+  // Button springt direkt zur zugehörigen Seite. Bei normalen Einzel-Galerien (kein ownerLabel
+  // gesetzt) bleibt der Button einfach weg.
+  let ownerBtn = null;
+  if(images.some(im=>im.ownerLabel)){
+    ownerBtn = document.createElement('button');
+    ownerBtn.type = 'button';
+    ownerBtn.style.cssText = 'position:absolute; bottom:16px; left:50%; transform:translateX(-50%); background:rgba(255,255,255,0.95); color:var(--ink); border:none; border-radius:16px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; max-width:82vw; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+    ownerBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const item = images[idx];
+      if(!item.ownerModalType) return;
+      closeTopOverlayLayer();
+      navigateToModal({type:item.ownerModalType, payload:item.ownerId});
+    });
+    overlay.appendChild(ownerBtn);
+    if(counterEl) counterEl.style.bottom = '62px';
+  }
+
+  function updateImage(){
+    const item = images[idx];
+    // Bei um 90°/270° gedrehten Bildern vertauschen sich Breite/Höhe der sichtbaren Fläche —
+    // sonst würde das gedrehte Bild über den Bildschirmrand hinausragen bzw. winzig erscheinen.
+    currentRotation = item.rotation || 0;
+    if(currentRotation===90 || currentRotation===270){
+      imgEl.style.maxWidth = 'calc(100vh - 40px)';
+      imgEl.style.maxHeight = 'calc(100vw - 40px)';
+    }else{
+      imgEl.style.maxWidth = '100%';
+      imgEl.style.maxHeight = '100%';
+    }
+    applyTransform(false);
+    // Bild sofort anzeigen — nicht auf die Offline-Prüfung warten, damit im
+    // Zweifel (z. B. hängender IndexedDB-Zugriff) trotzdem etwas erscheint.
+    imgEl.src = item.url;
+    if(counterEl) counterEl.textContent = `${idx+1} / ${images.length}`;
+    if(ownerBtn) ownerBtn.style.display = item.ownerLabel ? '' : 'none';
+    if(ownerBtn && item.ownerLabel) ownerBtn.textContent = '→ ' + item.ownerLabel + ' öffnen';
+    if(offlineId && item.id){
+      const myIdx = idx;
+      idbGet('images', offlineId + '_' + item.id).then(blob=>{
+        if(blob && idx===myIdx){ imgEl.src = URL.createObjectURL(blob); } // nur ersetzen, falls zwischenzeitlich nicht weitergeblättert wurde
+      }).catch(()=>{ /* kein Offline-Bild vorhanden — angezeigte URL bleibt bestehen */ });
+    }
+  }
+  updateImage();
+
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay && scale===1) closeTopOverlayLayer(); });
+
+  function touchDist(touches){
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.hypot(dx, dy);
+  }
+
+  let touchStartX = null;
+  let pinchStartDist = null, pinchStartScale = 1;
+  let panStartX = null, panStartY = null, panOriginX = 0, panOriginY = 0;
+  let lastTapTime = 0, lastTapX = 0, lastTapY = 0;
+
+  overlay.addEventListener('touchstart', (e)=>{
+    if(e.touches.length === 2){
+      touchStartX = null;
+      pinchStartDist = touchDist(e.touches);
+      pinchStartScale = scale;
+    }else if(e.touches.length === 1){
+      pinchStartDist = null;
+      if(scale > 1){
+        panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY;
+        panOriginX = panX; panOriginY = panY;
+      }else{
+        touchStartX = e.touches[0].clientX;
+      }
+    }
+  }, {passive:true});
+
+  overlay.addEventListener('touchmove', (e)=>{
+    if(e.touches.length === 2 && pinchStartDist){
+      e.preventDefault();
+      const newDist = touchDist(e.touches);
+      scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pinchStartScale * (newDist / pinchStartDist)));
+      clampPan();
+      applyTransform(false);
+    }else if(e.touches.length === 1 && panStartX !== null){
+      e.preventDefault();
+      panX = panOriginX + (e.touches[0].clientX - panStartX);
+      panY = panOriginY + (e.touches[0].clientY - panStartY);
+      clampPan();
+      applyTransform(false);
+    }
+  }, {passive:false});
+
+  overlay.addEventListener('touchend', (e)=>{
+    if(e.touches.length > 0) return; // erst reagieren, wenn wirklich alle Finger weg sind
+    if(pinchStartDist){
+      pinchStartDist = null;
+      if(scale < 1.05) resetZoom(true);
+      return;
+    }
+    if(panStartX !== null){
+      panStartX = null; panStartY = null;
+      return;
+    }
+    if(touchStartX !== null){
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - touchStartX;
+      touchStartX = null;
+      if(Math.abs(dx) > 50){ goTo(dx>0 ? idx-1 : idx+1); return; }
+      // Doppeltipp erkennen (zwei kurz aufeinanderfolgende Taps am gleichen Ort) → rein-/rauszoomen
+      const now = Date.now();
+      const closeToLastTap = Math.hypot(touch.clientX - lastTapX, touch.clientY - lastTapY) < 40;
+      if(now - lastTapTime < 300 && closeToLastTap){
+        if(scale > 1) resetZoom(true);
+        else{ scale = 2.5; applyTransform(true); }
+        lastTapTime = 0;
+      }else{
+        lastTapTime = now; lastTapX = touch.clientX; lastTapY = touch.clientY;
+      }
+    }
+  }, {passive:true});
+
+  // Doppelklick (Desktop/Maus) zoomt rein/raus
+  imgEl.addEventListener('dblclick', (e)=>{
+    e.stopPropagation();
+    if(scale > 1) resetZoom(true);
+    else{ scale = 2.5; applyTransform(true); }
+  });
+  // Mausrad zoomt rein/raus (Desktop)
+  overlay.addEventListener('wheel', (e)=>{
+    e.preventDefault();
+    scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale - e.deltaY * 0.0025));
+    if(scale <= 1.01){ resetZoom(false); }else{ clampPan(); applyTransform(false); }
+  }, {passive:false});
+
+  document.body.appendChild(overlay);
+  pushOverlayLayer(closeLightbox);
+}
+
+/* ================= Kletterrouten-Liste (mehrere benannte Routen an einer Wand) =================
+   Anders als eine einzelne MSL-Tour (= eine Route mit einer Schwierigkeit) kann ein Sektor mehrere
+   benannte Kletterrouten haben, die sich ein gemeinsames Topo-Bild teilen (z. B. ein ganzer
+   Klettergarten-Sektor mit 16 Routen an einer Wand — "Klettergarten" ist dabei nur das Etikett für
+   einen Sektor mit einer solchen Liste, keine eigene Tour). Die Liste lässt sich Zeile für Zeile von
+   Hand pflegen ODER als Text einfügen — z. B. das Ergebnis, wenn man einer Chat-KI (Claude/ChatGPT/
+   Gemini), die man ohnehin schon abonniert hat, ein Foto der Führerbuch-Seite gibt und um eine Liste
+   "Nr. | Name | Grad" bittet. parseKletterroutenText() zerlegt das automatisch. */
+function kletterrouteGradeTier(grad){
+  const m = String(grad||'').match(/(\d+)/);
+  if(!m) return 'mid';
+  const num = parseInt(m[1], 10);
+  if(num <= 4) return 'easy';
+  if(num === 5) return 'mid';
+  return 'hard';
+}
+const KLETTERROUTE_GRADE_COLORS = { easy: '#3C7A52', mid: '#A87A1F', hard: '#B0392C' };
+
+// Sortierwert für französische Kletter-Grade (3a < 3a+ < 3b < … < 4a < …) — nur zum Vergleichen/
+// Sortieren gedacht, kein exaktes Schwierigkeitsmass. Liefert null bei unbekanntem Format.
+function kletterrouteGradeSortValue(grad){
+  const m = String(grad||'').match(/^(\d+)\s*([a-c])?\s*(\+)?/i);
+  if(!m) return null;
+  const num = parseInt(m[1], 10);
+  const letterVal = { a:0, b:1, c:2 }[(m[2]||'a').toLowerCase()] || 0;
+  return num*10 + letterVal*3 + (m[3] ? 1 : 0);
+}
+// Kurze Grad-Spanne für Sektor-Kärtchen (z. B. "3a–7a") — damit man beim Durchblättern mehrerer
+// Sektoren eines Klettergebiets auf einen Blick sieht, was einen erwartet.
+function kletterroutenGradeRangeText(routes){
+  const values = (routes||[]).map(r=>({grad:r.grad, v:kletterrouteGradeSortValue(r.grad)})).filter(x=>x.v!==null);
+  if(!values.length) return '';
+  values.sort((a,b)=>a.v-b.v);
+  const min = values[0].grad, max = values[values.length-1].grad;
+  return min===max ? min : `${min}–${max}`;
+}
+
+// Erkennt mit |, ; , Komma oder Tab getrennte Zeilen (auch als Markdown-Tabelle mit
+// führendem/abschliessendem |) sowie reine Leerzeichen-Trennung — dann gilt: erstes Token = Nr.
+// (falls rein numerisch), letztes gradartig aussehende Token = Grad, alles dazwischen = Name.
+// Kopfzeilen ("Nr. | Name | Grad") werden erkannt und übersprungen. Zeilen ohne erkennbare Nummer
+// bekommen automatisch die nächste freie ab startNr.
+function parseKletterroutenText(text, startNr){
+  const GRADE_RE = /^\d{1,2}[a-c]?[+-]?$/i;
+  const lines = String(text||'').split('\n').map(l=>l.trim()).filter(Boolean);
+  const out = [];
+  let autoNr = startNr || 1;
+  lines.forEach(line=>{
+    let parts;
+    if(/[|;,\t]/.test(line)){
+      parts = line.split(/[|;,\t]/).map(p=>p.trim()).filter(p=>p!=='');
+    }else{
+      parts = line.split(/\s+/).filter(Boolean);
+    }
+    if(parts.length < 2) return;
+    // Kopfzeile erkennen und überspringen (z. B. "Nr. | Name | Grad" oder "Nr Route Grad Beg.").
+    const looksLikeHeader = parts.every(p => !/\d/.test(p)) && /nr\.?$|name|route|grad/i.test(line);
+    if(looksLikeHeader) return;
+    let nr = null;
+    if(/^\d+\.?$/.test(parts[0])){
+      nr = parseInt(parts[0], 10);
+      parts = parts.slice(1);
+    }
+    if(!parts.length) return;
+    let grad = '';
+    if(GRADE_RE.test(parts[parts.length-1])){
+      grad = parts[parts.length-1];
+      parts = parts.slice(0, -1);
+    }
+    const name = parts.join(' ').trim();
+    if(!name) return;
+    out.push({ id: uid('kr'), nr: nr!==null ? nr : autoNr, name, grad });
+    autoNr = (nr!==null ? nr : autoNr) + 1;
+  });
+  return out;
+}
+
+// Reine Anzeige (Sektor-Detailansicht) — nicht editierbar.
+function kletterroutenTableHtml(routes){
+  if(!routes || !routes.length) return '';
+  const sorted = routes.slice().sort((a,b)=> (a.nr||0) - (b.nr||0));
+  return `<table style="width:100%; border-collapse:collapse; font-size:14px; margin-top:8px;">
+    <thead><tr>
+      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Nr.</th>
+      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Route</th>
+      <th style="text-align:center; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 0 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
+    </tr></thead>
+    <tbody>${sorted.map(r=>`
+      <tr style="border-bottom:1px solid var(--line);">
+        <td class="mono" style="padding:7px 8px 7px 0; color:var(--ink-faint); font-weight:600;">${esc(r.nr!=null ? String(r.nr) : '')}</td>
+        <td style="padding:7px 8px 7px 0; font-weight:600;">${esc(r.name||'')}</td>
+        <td style="padding:7px 0; text-align:center;">${r.grad ? `<span style="display:inline-block; min-width:32px; padding:2px 6px; border-radius:10px; font-weight:700; font-size:12.5px; color:#fff; background:${KLETTERROUTE_GRADE_COLORS[kletterrouteGradeTier(r.grad)]};">${esc(r.grad)}</span>` : ''}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function blobToBase64(blob){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = ()=> reject(new Error('Datei konnte nicht gelesen werden.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Schickt ein Topo-Foto an die Cloud Function scanKletterrouten (siehe functions/index.js) und
+// trägt die erkannten Routen automatisch in die Kletterrouten-Liste ein — bestehende Zeilen
+// bleiben erhalten, erkannte kommen dazu. Das Foto kommt entweder frisch aus dem Datei-Feld, oder
+// (falls dort gerade nichts ausgewählt ist) vom zuletzt hochgeladenen Topo-Bild: der Datei-Input
+// wird von handleTopoImageUpload nach jedem Upload geleert (siehe dort), daher ist "oben ein Foto
+// ausgewählt" für ein Bild, das man gerade erst hochgeladen hat, sonst nie mehr erfüllbar.
+async function scanTopoImageForRoutes(fileInputEl, hiddenInputId, containerId, statusElId, topoImagesHiddenId){
+  const statusEl = document.getElementById(statusElId);
+  if(!SCAN_KLETTERROUTEN_URL){
+    showToast('Foto-Scan ist noch nicht eingerichtet — siehe functions/README.md.', true);
+    return;
+  }
+  const file = fileInputEl && fileInputEl.files && fileInputEl.files[0];
+  let imageBase64, mediaType;
+  if(file){
+    if(statusEl) statusEl.textContent = 'Erkenne Routen …';
+    imageBase64 = await blobToBase64(file);
+    mediaType = file.type || 'image/jpeg';
+  }else{
+    const topoImagesInput = topoImagesHiddenId ? document.getElementById(topoImagesHiddenId) : null;
+    let topoImages = [];
+    try{ topoImages = topoImagesInput && topoImagesInput.value ? JSON.parse(topoImagesInput.value) : []; }catch(e){ topoImages = []; }
+    const lastImg = topoImages.length ? topoImages[topoImages.length-1] : null;
+    if(!lastImg || !lastImg.url){
+      showToast('Bitte zuerst oben ein Foto auswählen.', true);
+      return;
+    }
+    if(statusEl) statusEl.textContent = 'Lade hochgeladenes Foto …';
+    try{
+      const blob = await fetch(lastImg.url).then(r=>{
+        if(!r.ok) throw new Error('Foto konnte nicht geladen werden (' + r.status + ')');
+        return r.blob();
+      });
+      imageBase64 = await blobToBase64(blob);
+      mediaType = blob.type || 'image/jpeg';
+    }catch(e){
+      if(statusEl) statusEl.textContent = '';
+      showToast('Hochgeladenes Foto konnte nicht geladen werden: ' + (e.message || e), true);
+      return;
+    }
+    if(statusEl) statusEl.textContent = 'Erkenne Routen …';
+  }
+  try{
+    await ensureValidAuthToken();
+    const res = await fetch(SCAN_KLETTERROUTEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authState.idToken },
+      body: JSON.stringify({ imageBase64, mediaType }),
+    });
+    if(!res.ok){
+      const errBody = await res.json().catch(()=>({}));
+      throw new Error(errBody.error || ('Serverfehler ' + res.status));
+    }
+    const data = await res.json();
+    const hiddenInput = document.getElementById(hiddenInputId);
+    let existing = [];
+    try{ existing = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ existing = []; }
+    const nextNr = existing.reduce((max,r)=> Math.max(max, r.nr||0), 0) + 1;
+    const added = (data.routes||[]).map((r,i)=>({
+      id: uid('kr'),
+      nr: (r.nr!=null) ? r.nr : (nextNr+i),
+      name: r.name || ('Route ' + (nextNr+i)),
+      grad: r.grad || '',
+    }));
+    if(hiddenInput) hiddenInput.value = JSON.stringify(existing.concat(added));
+    renderKletterroutenEditor(containerId, hiddenInputId);
+    if(statusEl) statusEl.textContent = added.length ? `✓ ${added.length} Route(n) erkannt — bitte kurz prüfen.` : 'Keine Routen erkannt.';
+    showToast(added.length ? (added.length + ' Route(n) erkannt und übernommen.') : 'Keine Routen erkannt — Foto evtl. unscharf oder falscher Ausschnitt.', !added.length);
+  }catch(e){
+    if(statusEl) statusEl.textContent = '';
+    showToast('Foto-Scan fehlgeschlagen: ' + (e.message || e), true);
+  }
+}
+
+// Wie scanTopoImageForRoutes, aber für ein oder mehrere Fotos mit MEHREREN Sektoren gleichzeitig
+// (z. B. eine ganze Führerbuch-Seite eines Klettergebiets, oder mehrere Seiten auf einmal, falls
+// das Gebiet sich über mehrere Seiten erstreckt). Jedes Foto wird einzeln an die Cloud Function
+// geschickt; alle erkannten Sektoren landen zusammengeführt in EINEM Prüf-Fenster, statt die
+// Routen direkt zu übernehmen, da hier gleich mehrere neue Sektoren entstehen. Jeder Sektor trägt
+// eine Referenz auf sein Quellfoto (_sourceFile), damit beim Übernehmen das richtige Topo-Bild
+// hochgeladen wird statt (bei mehreren Fotos) versehentlich immer dasselbe.
+async function scanKlettergebietPhoto(gebId, fileInputEl, statusElId){
+  const statusEl = document.getElementById(statusElId);
+  if(!SCAN_KLETTERGEBIET_URL){
+    showToast('Mehrfach-Sektor-Scan ist noch nicht eingerichtet — siehe functions/README.md.', true);
+    return;
+  }
+  const files = fileInputEl && fileInputEl.files ? Array.from(fileInputEl.files) : [];
+  if(!files.length){
+    showToast('Bitte zuerst ein Foto auswählen.', true);
+    return;
+  }
+  if(statusEl) statusEl.textContent = files.length>1 ? `Erkenne Sektoren auf ${files.length} Fotos …` : 'Erkenne Sektoren …';
+  const allSectors = [];
+  let gebietName = '';
+  let failedCount = 0;
+  await ensureValidAuthToken();
+  for(const file of files){
+    try{
+      const imageBase64 = await blobToBase64(file);
+      const res = await fetch(SCAN_KLETTERGEBIET_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authState.idToken },
+        body: JSON.stringify({ imageBase64, mediaType: file.type || 'image/jpeg' }),
+      });
+      if(!res.ok){
+        const errBody = await res.json().catch(()=>({}));
+        throw new Error(errBody.error || ('Serverfehler ' + res.status));
+      }
+      const data = await res.json();
+      (data.sectors || []).filter(s=>s && s.name).forEach(s=> allSectors.push({ ...s, _sourceFile: file }));
+      if(!gebietName && data.gebietName) gebietName = data.gebietName;
+    }catch(e){
+      failedCount++;
+    }
+  }
+  if(statusEl) statusEl.textContent = '';
+  if(!allSectors.length){
+    showToast('Keine Sektoren erkannt — Foto(s) evtl. unscharf oder falscher Ausschnitt.', true);
+    return;
+  }
+  if(failedCount){
+    showToast(failedCount + ' von ' + files.length + ' Foto(s) konnten nicht ausgewertet werden — die übrigen wurden trotzdem erkannt.', true);
+  }
+  openKlettergebietScanReview(gebId, allSectors, gebietName);
+}
+
+// gebId===null bedeutet "neues Klettergebiet": submitKlettergebietScanReview legt dann zuerst
+// ein neues Klettergebiet an (Name aus dem editierbaren Feld, vorbefüllt mit gebietName aus dem
+// Scan) und hängt die erkannten Sektoren dort ein — sonst werden sie an ein bestehendes Gebiet
+// (gebId) angehängt, wie beim Scan von der Klettergebiet-Detailseite aus.
+function openKlettergebietScanReview(gebId, sectors, gebietName){
+  // Vorschaubild pro Sektor cachen (statt bei jedem Render neu zu erzeugen) und jeder Route schon
+  // hier eine stabile id geben — die braucht das "Route verschieben"-Werkzeug unten, um eine Route
+  // eindeutig zwischen zwei Sektoren zu identifizieren, bevor sie überhaupt als Sektor gespeichert ist.
+  sectors.forEach(sec=>{
+    (sec.routes||[]).forEach(r=>{ if(!r.id) r.id = uid('kr'); });
+    if(sec._sourceFile) sec._previewUrl = URL.createObjectURL(sec._sourceFile);
+  });
+  state.modal = { type:'klettergebiet-scan-review', payload:{ gebId, sectors, gebietName: gebietName || '' } };
+  render();
+}
+
+function klettergebietScanReviewHtml(payload){
+  const { sectors, gebId, gebietName } = payload;
+  const isNewGebiet = !gebId;
+  const photoCount = new Set(sectors.map(s=>s._sourceFile)).size;
+  // Gleicher (normalisierter) Name in mehreren Sektoren deutet auf eine Doppelerkennung hin — z. B.
+  // wenn zwei Fotos denselben Bereich überlappend zeigen. Sichtbar markieren statt stillschweigend
+  // beide anzulegen, damit man es vor dem Übernehmen bemerkt.
+  const nameCounts = {};
+  sectors.forEach(s=>{ const key = (s.name||'').trim().toLowerCase(); if(key) nameCounts[key] = (nameCounts[key]||0) + 1; });
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>📷 ${isNewGebiet ? 'Neues Klettergebiet aus Foto' : 'Erkannte Sektoren'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    ${isNewGebiet ? `<div class="field" style="margin-bottom:14px;">
+      <label>Klettergebiet-Name *</label>
+      <input type="text" id="klettergebiet-scan-gebiet-name" value="${esc(gebietName||'')}" placeholder="z. B. Sewen"/>
+      ${!gebietName ? `<p style="font-size:12.5px; color:var(--ink-soft); margin:4px 0 0 0;">Kein Titel auf dem Foto erkannt — bitte Namen eintragen.</p>` : ''}
+    </div>` : ''}
+    <p style="font-size:13px; color:var(--ink-soft);">${sectors.length} Sektor${sectors.length===1?'':'en'} erkannt${photoCount>1 ? ' aus ' + photoCount + ' Fotos' : ''} — Foto, Name und Routen vor dem Übernehmen kurz prüfen, jeder wird als eigener, neuer Sektor angelegt.</p>
+    <div id="klettergebiet-scan-sectors">
+      ${sectors.map((sec,i)=>{
+        const key = (sec.name||'').trim().toLowerCase();
+        const isDuplicate = !!key && nameCounts[key] > 1;
+        const isUnsortiert = (sec.name||'').trim() === 'Unsortiert';
+        const flagged = isDuplicate || isUnsortiert;
+        return `
+        <div class="field" style="border:1px solid ${flagged ? 'var(--danger)' : 'var(--line)'}; border-radius:var(--radius); padding:12px; margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <div style="flex:1;">
+              <label>Sektor-Name</label>
+              <input type="text" class="scan-sector-name" data-index="${i}" value="${esc(sec.name||'')}"/>
+            </div>
+            <button type="button" class="scan-sector-discard btn secondary" data-index="${i}" style="margin-top:20px; font-size:12px; padding:5px 10px; white-space:nowrap;">🗑️ Verwerfen</button>
+          </div>
+          ${isDuplicate ? `<p style="font-size:12px; color:var(--danger); margin:6px 0 0 0;">⚠ Möglicherweise doppelt erkannt — gleicher Name wie ein anderer Sektor unten. Bitte vergleichen, dann einen verwerfen oder Routen zusammenführen.</p>` : ''}
+          ${isUnsortiert ? `<p style="font-size:12px; color:var(--danger); margin:6px 0 0 0;">⚠ Diese Routen konnten nicht eindeutig einem Sektor zugeordnet werden — bitte unten mit "Route verschieben" den richtigen Sektoren zuweisen.</p>` : ''}
+          ${sec._previewUrl ? `<img src="${esc(sec._previewUrl)}" alt="Foto-Vorschau" style="display:block; max-width:100%; max-height:220px; margin-top:10px; border-radius:6px; cursor:zoom-in; object-fit:contain;" onclick="showTopoImageLightbox([{url:'${esc(sec._previewUrl)}'}],0)"/>` : ''}
+          <div id="scan-sector-editor-${i}" style="margin-top:10px;"></div>
+          <input type="hidden" id="scan-sector-hidden-${i}" value='${esc(JSON.stringify(sec.routes||[]))}'/>
+          ${sectors.length>1 ? `
+          <div style="margin-top:12px; padding-top:10px; border-top:1px dashed var(--line); display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+            <span style="font-size:12px; color:var(--ink-soft);">🔀 Route verschieben nach:</span>
+            <select class="scan-move-route-select" data-index="${i}" style="flex:1; min-width:120px; font-size:12.5px; padding:4px;"></select>
+            <select class="scan-move-target-select" data-index="${i}" style="flex:1; min-width:120px; font-size:12.5px; padding:4px;"></select>
+            <button type="button" class="scan-move-btn btn secondary" data-index="${i}" style="font-size:12px; padding:5px 10px;">Verschieben</button>
+          </div>` : ''}
+        </div>
+      `;}).join('')}
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
+      <button type="button" id="klettergebiet-scan-apply-btn" class="btn">✓ ${isNewGebiet ? 'Gebiet mit Sektoren anlegen' : 'Als neue Sektoren übernehmen'}</button>
+    </div>
+  </div>`;
+}
+
+function wireKlettergebietScanReviewModal(){
+  const applyBtn = document.getElementById('klettergebiet-scan-apply-btn');
+  if(!applyBtn) return;
+  const payload = state.modal && state.modal.payload;
+  if(!payload) return;
+  payload.sectors.forEach((sec,i)=> renderKletterroutenEditor('scan-sector-editor-'+i, 'scan-sector-hidden-'+i));
+  applyBtn.addEventListener('click', ()=> submitKlettergebietScanReview());
+
+  // Verwerfen: Karte einfach aus der Liste nehmen und die ganze Prüfansicht neu aufbauen — dadurch
+  // verschieben sich die Indizes der übrigen Karten automatisch konsistent mit, kein Nachführen nötig.
+  document.querySelectorAll('.scan-sector-discard').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const idx = parseInt(btn.getAttribute('data-index'), 10);
+      payload.sectors.splice(idx, 1);
+      render();
+    });
+  });
+
+  // Route zwischen zwei erkannten Sektoren verschieben, bevor überhaupt etwas gespeichert wird —
+  // behebt falsch gruppierte Routen (z. B. bei unübersichtlichen Mehrsektor-Fotos), ohne alles neu
+  // abtippen zu müssen. Die Dropdown-Optionen werden erst bei Fokus aktuell befüllt (nicht fest im
+  // HTML), da sich Routenlisten/Sektor-Namen währenddessen durch Bearbeiten laufend ändern können.
+  function refreshMoveRouteOptions(i){
+    const sel = document.querySelector('.scan-move-route-select[data-index="'+i+'"]');
+    const hiddenInput = document.getElementById('scan-sector-hidden-'+i);
+    if(!sel || !hiddenInput) return;
+    let routes = [];
+    try{ routes = JSON.parse(hiddenInput.value || '[]'); }catch(e){ routes = []; }
+    sel.innerHTML = routes.length
+      ? routes.map(r=>`<option value="${esc(r.id)}">${esc((r.nr!=null?r.nr+'. ':'') + (r.name||'—'))}</option>`).join('')
+      : `<option value="">(keine Routen)</option>`;
+  }
+  function refreshMoveTargetOptions(i){
+    const sel = document.querySelector('.scan-move-target-select[data-index="'+i+'"]');
+    if(!sel) return;
+    const nameInputs = document.querySelectorAll('.scan-sector-name');
+    const opts = [];
+    nameInputs.forEach((input, j)=>{
+      if(j===i) return;
+      opts.push(`<option value="${j}">${esc(input.value.trim() || ('Sektor ' + (j+1)))}</option>`);
+    });
+    sel.innerHTML = opts.join('');
+  }
+  document.querySelectorAll('.scan-move-route-select').forEach(sel=>{
+    const i = parseInt(sel.getAttribute('data-index'), 10);
+    refreshMoveRouteOptions(i);
+    sel.addEventListener('focus', ()=> refreshMoveRouteOptions(i));
+  });
+  document.querySelectorAll('.scan-move-target-select').forEach(sel=>{
+    const i = parseInt(sel.getAttribute('data-index'), 10);
+    refreshMoveTargetOptions(i);
+    sel.addEventListener('focus', ()=> refreshMoveTargetOptions(i));
+  });
+  document.querySelectorAll('.scan-move-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const i = parseInt(btn.getAttribute('data-index'), 10);
+      const routeSel = document.querySelector('.scan-move-route-select[data-index="'+i+'"]');
+      const targetSel = document.querySelector('.scan-move-target-select[data-index="'+i+'"]');
+      const routeId = routeSel ? routeSel.value : '';
+      const targetIdx = targetSel ? parseInt(targetSel.value, 10) : NaN;
+      if(!routeId){ showToast('Keine Route zum Verschieben ausgewählt.', true); return; }
+      if(isNaN(targetIdx)){ showToast('Kein Ziel-Sektor ausgewählt.', true); return; }
+      const sourceHidden = document.getElementById('scan-sector-hidden-'+i);
+      const targetHidden = document.getElementById('scan-sector-hidden-'+targetIdx);
+      if(!sourceHidden || !targetHidden) return;
+      let sourceRoutes = [], targetRoutes = [];
+      try{ sourceRoutes = JSON.parse(sourceHidden.value || '[]'); }catch(e){ sourceRoutes = []; }
+      try{ targetRoutes = JSON.parse(targetHidden.value || '[]'); }catch(e){ targetRoutes = []; }
+      const routeIdx = sourceRoutes.findIndex(r=>r.id===routeId);
+      if(routeIdx===-1) return;
+      const [moved] = sourceRoutes.splice(routeIdx, 1);
+      targetRoutes.push(moved);
+      sourceHidden.value = JSON.stringify(sourceRoutes);
+      targetHidden.value = JSON.stringify(targetRoutes);
+      renderKletterroutenEditor('scan-sector-editor-'+i, 'scan-sector-hidden-'+i);
+      renderKletterroutenEditor('scan-sector-editor-'+targetIdx, 'scan-sector-hidden-'+targetIdx);
+      refreshMoveRouteOptions(i);
+      showToast('Route verschoben.');
+    });
+  });
+}
+
+async function submitKlettergebietScanReview(){
+  const payload = state.modal && state.modal.payload;
+  if(!payload) return;
+  const isNewGebiet = !payload.gebId;
+
+  let gebId = payload.gebId;
+  let newGeb = null;
+  if(isNewGebiet){
+    const nameInput = document.getElementById('klettergebiet-scan-gebiet-name');
+    const gebietName = nameInput ? nameInput.value.trim() : '';
+    if(!gebietName){ showToast('Bitte einen Namen für das Klettergebiet eintragen.', true); return; }
+    newGeb = { id: uid('geb'), name: gebietName, region: '', subregion: '', description: '', points: [], manualTrack: [], createdBy: state.myName, createdAt: new Date().toISOString() };
+    gebId = newGeb.id;
+  }
+
+  const nameInputs = document.querySelectorAll('.scan-sector-name');
+  const created = [];
+  nameInputs.forEach((input, i)=>{
+    const name = input.value.trim();
+    if(!name) return;
+    let routes = [];
+    try{ routes = JSON.parse(document.getElementById('scan-sector-hidden-'+i).value || '[]'); }catch(e){ routes = []; }
+    const sek = { id: uid('sek'), name, klettergebietId: gebId, kletterrouten: routes, topoImages: [], createdBy: state.myName, createdAt: new Date().toISOString() };
+    ensureSektorRouteArrays(sek);
+    const sourceSector = payload.sectors[i];
+    if(sourceSector && sourceSector._sourceFile) sek._sourceFile = sourceSector._sourceFile;
+    created.push(sek);
+  });
+  if(!created.length){ showToast('Bitte mindestens einen Sektor-Namen eintragen.', true); return; }
+
+  for(const sek of created){
+    if(!sek._sourceFile) continue;
+    try{
+      const blob = await compressImageFile(sek._sourceFile, 1200, 0.78);
+      const imgId = uid('img');
+      const storagePath = `${TOPO_IMAGES_PATH}/${sek.id}/${imgId}.jpg`;
+      const url = await uploadTopoImageBlob(blob, storagePath);
+      sek.topoImages = [{ id: imgId, url, storagePath }];
+    }catch(e){ /* Topo-Bild kann später manuell ergänzt werden — kein Abbruch */ }
+    delete sek._sourceFile;
+  }
+
+  if(newGeb) state.klettergebiete.unshift(newGeb);
+  state.sektoren.unshift(...created);
+  closeModal(false, true, true);
+  state.modal = { type:'klettergebiet-detail', payload: gebId };
+  render();
+
+  const gebResult = newGeb ? await saveKlettergebietCloud(newGeb).catch(()=>false) : true;
+  if(newGeb) newGeb._unsynced = !gebResult;
+  const results = await Promise.all(created.map(sek=> saveSektorCloud(sek).catch(()=>false)));
+  created.forEach((sek,i)=>{ sek._unsynced = !results[i]; });
+  if(gebResult && results.every(r=>r)){
+    showToast((newGeb ? 'Klettergebiet mit ' : '') + created.length + ' Sektor' + (created.length===1?'':'en') + ' angelegt und synchronisiert.');
+  }else{
+    markUnsaved();
+    showToast('Einiges ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+  }
+  render();
+}
+
+// Foto-Scan für einen einzelnen Zustieg/Abstieg — füllt direkt die gleichnamigen Formularfelder
+// (name/elevation/elevationUp/duration/difficultyT/description), egal ob Hütten-Zustieg
+// (accessRouteFormHtml), Tour-Route oder Sektor-Route: alle drei nutzen dieselben Feldnamen.
+async function scanZustiegIntoForm(fileInputEl, formEl, statusElId){
+  const statusEl = document.getElementById(statusElId);
+  if(!SCAN_ZUSTIEG_URL){
+    showToast('Foto-Scan ist noch nicht eingerichtet — siehe functions/README.md.', true);
+    return;
+  }
+  const file = fileInputEl && fileInputEl.files && fileInputEl.files[0];
+  if(!file){
+    showToast('Bitte zuerst ein Foto auswählen.', true);
+    return;
+  }
+  if(statusEl) statusEl.textContent = 'Erkenne Angaben …';
+  try{
+    const imageBase64 = await blobToBase64(file);
+    await ensureValidAuthToken();
+    const res = await fetch(SCAN_ZUSTIEG_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authState.idToken },
+      body: JSON.stringify({ imageBase64, mediaType: file.type || 'image/jpeg' }),
+    });
+    if(!res.ok){
+      const errBody = await res.json().catch(()=>({}));
+      throw new Error(errBody.error || ('Serverfehler ' + res.status));
+    }
+    const data = await res.json();
+    const setIfPresent = (name, val)=>{
+      if(!val) return;
+      const el = formEl.querySelector('[name="'+name+'"]');
+      if(el) el.value = val;
+    };
+    setIfPresent('name', data.name);
+    setIfPresent('elevation', data.elevation);
+    setIfPresent('elevationUp', data.elevationUp);
+    setIfPresent('duration', data.duration);
+    setIfPresent('description', data.description);
+    if(data.difficultyT){
+      const sel = formEl.querySelector('[name="difficultyT"]');
+      if(sel) sel.value = data.difficultyT;
+    }
+    if(statusEl) statusEl.textContent = '✓ Angaben übernommen — bitte kurz prüfen.';
+    showToast('Angaben erkannt und übernommen — bitte kurz prüfen.');
+    markModalDirty();
+  }catch(e){
+    if(statusEl) statusEl.textContent = '';
+    showToast('Foto-Scan fehlgeschlagen: ' + (e.message || e), true);
+  }
+}
+
+// Wiederverwendbarer Foto-Scan-Block fürs Zustieg/Abstieg-Formular (Hütte/Tour/Sektor) —
+// idPrefix macht die Element-IDs pro Formular eindeutig.
+function scanZustiegButtonHtml(idPrefix){
+  return `<div class="field">
+    <button type="button" class="btn secondary" id="${idPrefix}-scan-btn">📷 Foto scannen</button>
+    <input type="file" id="${idPrefix}-scan-input" accept="image/*" style="display:none;"/>
+    <p id="${idPrefix}-scan-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;"></p>
+    <div class="hint">Liest Name/Höhenmeter/Zeit/Beschreibung aus einem Foto der Führerbuch-Seite und trägt sie unten ein — bitte danach kurz prüfen.</div>
+  </div>`;
+}
+function wireScanZustiegButton(idPrefix, formEl){
+  const btn = document.getElementById(idPrefix+'-scan-btn');
+  const input = document.getElementById(idPrefix+'-scan-input');
+  if(!btn || !input || !formEl) return;
+  btn.addEventListener('click', ()=> input.click());
+  input.addEventListener('change', ()=> scanZustiegIntoForm(input, formEl, idPrefix+'-scan-status'));
+}
+
+// Editierbare Liste fürs Bearbeiten-Formular: Zeilen mit direkt editierbaren Feldern, ein
+// "Liste einfügen"-Textfeld (nutzt parseKletterroutenText) und "+ Route hinzufügen" für einzelne
+// neue Zeilen. Schreibt bei jeder Änderung sofort ins hiddenInputId-Feld zurück.
+function renderKletterroutenEditor(containerId, hiddenInputId){
+  const el = document.getElementById(containerId);
+  const hiddenInput = document.getElementById(hiddenInputId);
+  if(!el || !hiddenInput) return;
+  let routes = [];
+  try{ routes = hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ routes = []; }
+
+  function persist(){
+    hiddenInput.value = JSON.stringify(routes);
+    markModalDirty();
+  }
+
+  function makeFieldInput(value, placeholder, align, onCommit){
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = value;
+    if(placeholder) input.placeholder = placeholder;
+    input.style.cssText = `width:100%; border:1px solid transparent; background:transparent; font-family:inherit; font-size:13.5px; padding:4px 3px; border-radius:2px; ${align ? 'text-align:'+align+';' : ''}`;
+    input.addEventListener('focus', ()=>{ input.style.borderColor = 'var(--line)'; input.style.background = '#fff'; });
+    input.addEventListener('blur', ()=>{ input.style.borderColor = 'transparent'; input.style.background = 'transparent'; onCommit(input.value.trim()); });
+    return input;
+  }
+
+  function redraw(){
+    el.innerHTML = '';
+    const wrap = document.createElement('div');
+
+    const pasteHint = document.createElement('p');
+    pasteHint.className = 'hint';
+    pasteHint.style.marginBottom = '4px';
+    pasteHint.textContent = 'Tipp: Foto der Führerbuch-Seite einer Chat-KI (z. B. Claude, ChatGPT, Gemini) geben und um eine Liste "Nr. | Name | Grad" bitten — das Ergebnis hier einfügen.';
+    wrap.appendChild(pasteHint);
+
+    const pasteArea = document.createElement('textarea');
+    pasteArea.rows = 3;
+    pasteArea.placeholder = '1 | Frog | 5c\n2 | Snake | 5b\n3 | Kreuzotter | 4b …';
+    pasteArea.style.cssText = 'width:100%; font-family:inherit; font-size:13px; padding:8px; border:1px solid var(--line); border-radius:var(--radius); resize:vertical; box-sizing:border-box;';
+    wrap.appendChild(pasteArea);
+
+    const pasteBtn = document.createElement('button');
+    pasteBtn.type = 'button'; pasteBtn.className = 'btn secondary';
+    pasteBtn.style.cssText = 'margin-top:6px; font-size:12.5px; padding:6px 12px;';
+    pasteBtn.textContent = '+ Liste übernehmen';
+    pasteBtn.addEventListener('click', ()=>{
+      const nextNr = routes.reduce((max,r)=> Math.max(max, r.nr||0), 0) + 1;
+      const parsed = parseKletterroutenText(pasteArea.value, nextNr);
+      if(!parsed.length){ showToast('Keine Routen erkannt — Format prüfen.', true); return; }
+      routes = routes.concat(parsed);
+      persist();
+      pasteArea.value = '';
+      redraw();
+      showToast(parsed.length + ' Route(n) übernommen.');
+    });
+    wrap.appendChild(pasteBtn);
+
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%; border-collapse:collapse; font-size:13.5px; margin-top:14px;';
+    const thead = document.createElement('thead');
+    thead.innerHTML = `<tr>
+      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:38px;">Nr.</th>
+      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line);">Route</th>
+      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
+      <th style="border-bottom:1px solid var(--line); width:26px;"></th>
+    </tr>`;
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    routes.forEach((r)=>{
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid var(--line)';
+
+      const nrTd = document.createElement('td');
+      nrTd.style.padding = '4px 4px 4px 0';
+      nrTd.appendChild(makeFieldInput(r.nr!=null ? String(r.nr) : '', 'Nr.', 'left', (v)=>{ r.nr = v ? parseInt(v,10) : null; persist(); }));
+      tr.appendChild(nrTd);
+
+      const nameTd = document.createElement('td');
+      nameTd.style.padding = '4px';
+      const nameInput = makeFieldInput(r.name || '', 'Name', null, (v)=>{ r.name = v; persist(); });
+      nameInput.style.fontWeight = '600';
+      nameTd.appendChild(nameInput);
+      tr.appendChild(nameTd);
+
+      const gradeTd = document.createElement('td');
+      gradeTd.style.padding = '4px';
+      gradeTd.appendChild(makeFieldInput(r.grad || '', '5c', 'center', (v)=>{ r.grad = v; persist(); }));
+      tr.appendChild(gradeTd);
+
+      const delTd = document.createElement('td');
+      delTd.style.padding = '4px 0';
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button'; delBtn.textContent = '🗑️';
+      delBtn.title = 'Route entfernen';
+      delBtn.style.cssText = 'background:none; border:none; color:var(--danger); cursor:pointer; font-size:14px; padding:0;';
+      delBtn.addEventListener('click', ()=>{
+        routes = routes.filter(x=>x!==r);
+        persist();
+        redraw();
+      });
+      delTd.appendChild(delBtn);
+      tr.appendChild(delTd);
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    if(routes.length) wrap.appendChild(table);
+    else{
+      const empty = document.createElement('p');
+      empty.style.cssText = 'font-size:12.5px; color:var(--ink-faint); margin:10px 0 0 0;';
+      empty.textContent = 'Noch keine Routen erfasst.';
+      wrap.appendChild(empty);
+    }
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button'; addBtn.className = 'btn secondary';
+    addBtn.style.cssText = 'margin-top:10px; font-size:12.5px; padding:6px 12px;';
+    addBtn.textContent = '+ Route hinzufügen';
+    addBtn.addEventListener('click', ()=>{
+      const nextNr = routes.reduce((max,r)=> Math.max(max, r.nr||0), 0) + 1;
+      routes.push({id: uid('kr'), nr: nextNr, name: '', grad: ''});
+      persist();
+      redraw();
+    });
+    wrap.appendChild(addBtn);
+
+    el.appendChild(wrap);
+  }
+  redraw();
+}
+
+/* ================= Zuschneiden von Topo-Bildern vor dem Hochladen =================
+   Bewusst VOR dem Hochladen, auf der lokal ausgewählten Datei: ein Zuschnitt am bereits
+   hochgeladenen Bild müsste es per <canvas> aus der Firebase-Storage-URL neu einlesen — das
+   scheitert ohne eigens am Storage-Bucket gesetzte CORS-Regeln. Die Dreh-Funktion oben umgeht
+   dasselbe Problem, indem sie nur eine Anzeige-Metadaten-Drehung speichert statt die Pixel zu
+   verändern; ein echter Zuschnitt braucht dagegen Pixelzugriff, den es nur vor dem Hochladen
+   ohne Weiteres gibt. Gibt eine Promise zurück: das zugeschnittene Blob, die Originaldatei
+   („Ohne Zuschneiden verwenden“ oder Zurück-Taste), oder null bei „Bild überspringen“.
+   Bild überspringen liefert dasselbe null wie die Zurück-Taste — beides heisst "dieses Bild
+   nicht übernehmen", ist also bewusst identisch behandelt. */
+function openImageCropDialog(file){
+  return new Promise((resolve)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:210; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:16px; touch-action:none;';
+
+        const hint = document.createElement('div');
+        hint.textContent = 'Ausschnitt wählen: Ecken ziehen zum Grösse ändern, Rahmen verschieben';
+        hint.style.cssText = 'color:#fff; font-size:13px; margin-bottom:10px; text-align:center;';
+        overlay.appendChild(hint);
+
+        const stage = document.createElement('div');
+        stage.style.cssText = 'position:relative; touch-action:none; line-height:0;';
+        const imgEl = document.createElement('img');
+        imgEl.src = reader.result;
+        imgEl.draggable = false;
+        imgEl.style.cssText = 'display:block; max-width:calc(100vw - 32px); max-height:60vh; user-select:none; -webkit-user-drag:none;';
+        stage.appendChild(imgEl);
+
+        const box = document.createElement('div');
+        box.style.cssText = 'position:absolute; border:2px solid #fff; box-sizing:border-box; box-shadow:0 0 0 2000px rgba(0,0,0,0.55); touch-action:none; cursor:move;';
+        stage.appendChild(box);
+
+        const CORNERS = ['nw','ne','sw','se'];
+        const handles = {};
+        CORNERS.forEach(c=>{
+          const h = document.createElement('div');
+          h.style.cssText = `position:absolute; width:26px; height:26px; margin:-13px; background:#fff; border-radius:50%; touch-action:none; cursor:${(c==='nw'||c==='se')?'nwse-resize':'nesw-resize'};`;
+          h.style[c.includes('n')?'top':'bottom'] = '0';
+          h.style[c.includes('w')?'left':'right'] = '0';
+          box.appendChild(h);
+          handles[c] = h;
+        });
+
+        overlay.appendChild(stage);
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; justify-content:center;';
+        const applyBtn = document.createElement('button');
+        applyBtn.type = 'button'; applyBtn.textContent = '✓ Zuschnitt übernehmen'; applyBtn.className = 'btn';
+        const skipBtn = document.createElement('button');
+        skipBtn.type = 'button'; skipBtn.textContent = 'Ohne Zuschneiden verwenden'; skipBtn.className = 'btn secondary';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button'; cancelBtn.textContent = 'Bild überspringen'; cancelBtn.className = 'btn secondary';
+        btnRow.appendChild(applyBtn); btnRow.appendChild(skipBtn); btnRow.appendChild(cancelBtn);
+        overlay.appendChild(btnRow);
+
+        document.body.appendChild(overlay);
+
+        const MIN_SIZE = 30;
+        let boxRect = {left:0, top:0, width:0, height:0};
+        function renderBox(){
+          box.style.left = boxRect.left + 'px';
+          box.style.top = boxRect.top + 'px';
+          box.style.width = boxRect.width + 'px';
+          box.style.height = boxRect.height + 'px';
+        }
+        function initBox(){
+          const iw = imgEl.clientWidth, ih = imgEl.clientHeight;
+          stage.style.width = iw + 'px';
+          stage.style.height = ih + 'px';
+          const margin = Math.min(iw, ih) * 0.1;
+          boxRect = { left: margin, top: margin, width: iw - margin*2, height: ih - margin*2 };
+          renderBox();
+        }
+        // Läuft nach dem Layout — direkt nach dem Anhängen ist imgEl.clientWidth/Height noch 0.
+        requestAnimationFrame(initBox);
+        function clampBox(){
+          const iw = imgEl.clientWidth, ih = imgEl.clientHeight;
+          boxRect.width = Math.max(MIN_SIZE, Math.min(boxRect.width, iw));
+          boxRect.height = Math.max(MIN_SIZE, Math.min(boxRect.height, ih));
+          boxRect.left = Math.max(0, Math.min(boxRect.left, iw - boxRect.width));
+          boxRect.top = Math.max(0, Math.min(boxRect.top, ih - boxRect.height));
+        }
+
+        let dragMode = null, dragStartX = 0, dragStartY = 0, startBox = null;
+        function onPointerMove(e){
+          if(!dragMode) return;
+          const dx = e.clientX - dragStartX, dy = e.clientY - dragStartY;
+          if(dragMode==='move'){
+            boxRect.left = startBox.left + dx;
+            boxRect.top = startBox.top + dy;
+          }else{
+            let {left, top, width, height} = startBox;
+            if(dragMode.includes('w')){ left = startBox.left + dx; width = startBox.width - dx; }
+            if(dragMode.includes('e')){ width = startBox.width + dx; }
+            if(dragMode.includes('n')){ top = startBox.top + dy; height = startBox.height - dy; }
+            if(dragMode.includes('s')){ height = startBox.height + dy; }
+            if(width < MIN_SIZE){ if(dragMode.includes('w')) left = startBox.left + startBox.width - MIN_SIZE; width = MIN_SIZE; }
+            if(height < MIN_SIZE){ if(dragMode.includes('n')) top = startBox.top + startBox.height - MIN_SIZE; height = MIN_SIZE; }
+            boxRect = {left, top, width, height};
+          }
+          clampBox();
+          renderBox();
+        }
+        function onPointerUp(){
+          dragMode = null;
+          document.removeEventListener('pointermove', onPointerMove);
+          document.removeEventListener('pointerup', onPointerUp);
+        }
+        function onPointerDown(mode, e){
+          e.preventDefault(); e.stopPropagation();
+          dragMode = mode;
+          dragStartX = e.clientX; dragStartY = e.clientY;
+          startBox = {...boxRect};
+          document.addEventListener('pointermove', onPointerMove);
+          document.addEventListener('pointerup', onPointerUp);
+        }
+        box.addEventListener('pointerdown', (e)=>{ if(e.target===box) onPointerDown('move', e); });
+        CORNERS.forEach(c=> handles[c].addEventListener('pointerdown', (e)=> onPointerDown(c, e)));
+
+        // Genau ein Rückgabepfad: alle Buttons setzen pendingResult und schliessen dann über den
+        // Overlay-Stack — so löst auch die Hardware-Zurück-Taste (popstate ruft denselben
+        // registrierten closeFn) korrekt auf (dann bleibt pendingResult bei null = übersprungen).
+        let pendingResult = null;
+        pushOverlayLayer(()=>{ overlay.remove(); resolve(pendingResult); });
+        function closeWith(result){ pendingResult = result; closeTopOverlayLayer(); }
+
+        applyBtn.addEventListener('click', ()=>{
+          const scaleX = img.naturalWidth / imgEl.clientWidth;
+          const scaleY = img.naturalHeight / imgEl.clientHeight;
+          const sx = Math.round(boxRect.left * scaleX), sy = Math.round(boxRect.top * scaleY);
+          const sw = Math.round(boxRect.width * scaleX), sh = Math.round(boxRect.height * scaleY);
+          const canvas = document.createElement('canvas');
+          canvas.width = sw; canvas.height = sh;
+          canvas.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+          canvas.toBlob((blob)=> closeWith(blob || file), 'image/jpeg', 0.92);
+        });
+        skipBtn.addEventListener('click', ()=> closeWith(file));
+        cancelBtn.addEventListener('click', ()=> closeWith(null));
+      };
+      img.onerror = ()=> resolve(file);
+      img.src = reader.result;
+    };
+    reader.onerror = ()=> resolve(file);
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ================= Offline-Download für unterwegs (Kartenkacheln + Bilder, 7 Tage) ================= */
+const OFFLINE_DB_NAME = 'bergtourenbeta-offline';
+const OFFLINE_DAYS = 7;
+const OFFLINE_ZOOMS = [13, 14, 15, 16];
+const OFFLINE_MAX_TILES = 500;
+
+function openOfflineDB(){
+  return new Promise((resolve, reject)=>{
+    if(!window.indexedDB){ reject(new Error('Offline-Speicher wird von diesem Browser nicht unterstützt.')); return; }
+    const req = indexedDB.open(OFFLINE_DB_NAME, 1);
+    req.onupgradeneeded = (e)=>{
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains('tiles')) db.createObjectStore('tiles');
+      if(!db.objectStoreNames.contains('images')) db.createObjectStore('images');
+      if(!db.objectStoreNames.contains('downloads')) db.createObjectStore('downloads');
+    };
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error || new Error('Offline-Datenbank konnte nicht geöffnet werden.'));
+  });
+}
+async function idbPut(storeName, key, value){
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).put(value, key);
+    tx.oncomplete = ()=> resolve();
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+async function idbGet(storeName, key){
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(storeName, 'readonly');
+    const req = tx.objectStore(storeName).get(key);
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function idbGetAllEntries(storeName){
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(storeName, 'readonly');
+    const store = tx.objectStore(storeName);
+    const keysReq = store.getAllKeys();
+    const valsReq = store.getAll();
+    let keys=null, vals=null;
+    keysReq.onsuccess = ()=> keys = keysReq.result;
+    valsReq.onsuccess = ()=> vals = valsReq.result;
+    tx.oncomplete = ()=> resolve((keys||[]).map((k,i)=>({key:k, value:(vals||[])[i]})));
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+async function idbDeleteByPrefix(storeName, prefix){
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    const req = store.openCursor();
+    req.onsuccess = (e)=>{
+      const cursor = e.target.result;
+      if(cursor){
+        if(String(cursor.key).indexOf(prefix)===0) cursor.delete();
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = ()=> resolve();
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+async function idbDeleteKey(storeName, key){
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).delete(key);
+    tx.oncomplete = ()=> resolve();
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+
+function lonToTileX(lon, z){ return Math.floor((lon+180)/360*Math.pow(2,z)); }
+function latToTileY(lat, z){
+  const rad = lat*Math.PI/180;
+  return Math.floor((1 - Math.log(Math.tan(rad)+1/Math.cos(rad))/Math.PI)/2 * Math.pow(2,z));
+}
+
+function computeOfflineTileList(allCoords){
+  if(!allCoords.length) return [];
+  let minLat=90, maxLat=-90, minLon=180, maxLon=-180;
+  allCoords.forEach(([lat,lon])=>{
+    if(lat<minLat) minLat=lat; if(lat>maxLat) maxLat=lat;
+    if(lon<minLon) minLon=lon; if(lon>maxLon) maxLon=lon;
+  });
+  const buf = 0.01; // grober Puffer rund um die Route
+  minLat-=buf; maxLat+=buf; minLon-=buf; maxLon+=buf;
+  const tiles = [];
+  OFFLINE_ZOOMS.forEach(z=>{
+    const xMin = lonToTileX(minLon,z), xMax = lonToTileX(maxLon,z);
+    const yMin = latToTileY(maxLat,z), yMax = latToTileY(minLat,z);
+    for(let x=xMin; x<=xMax; x++){
+      for(let y=yMin; y<=yMax; y++){
+        tiles.push({z,x,y});
+      }
+    }
+  });
+  return tiles;
+}
+
+async function deleteTourOfflineData(offlineId){
+  await idbDeleteByPrefix('tiles', offlineId + '_');
+  await idbDeleteByPrefix('images', offlineId + '_');
+  await idbDeleteKey('downloads', offlineId);
+}
+
+async function getTourOfflineStatus(offlineId){
+  try{
+    const record = await idbGet('downloads', offlineId);
+    if(!record) return null;
+    if(Date.now() > record.expiresAt){
+      await deleteTourOfflineData(offlineId);
+      return null;
+    }
+    return record;
+  }catch(e){ return null; }
+}
+
+async function cleanupExpiredOfflineDownloads(){
+  try{
+    const all = await idbGetAllEntries('downloads');
+    const now = Date.now();
+    for(const entry of all){
+      if(entry.value && entry.value.expiresAt < now){
+        await deleteTourOfflineData(entry.key);
+      }
+    }
+  }catch(e){ /* Offline-Speicher evtl. nicht verfügbar — kein Problem, still ignorieren */ }
+}
+
+async function downloadTourOffline(offlineId, tourName, allCoords, images, onProgress){
+  await deleteTourOfflineData(offlineId);
+  const tileList = computeOfflineTileList(allCoords || []);
+  if(!tileList.length && (!images || !images.length)) throw new Error('Weder Standortdaten noch Topo-Bilder zum Herunterladen vorhanden.');
+  if(tileList.length > OFFLINE_MAX_TILES) throw new Error('Das abgedeckte Gebiet ist zu gross für den Offline-Download (mehr als ' + OFFLINE_MAX_TILES + ' Kartenkacheln).');
+  const totalSteps = tileList.length + (images ? images.length : 0);
+  let done = 0;
+  for(const {z,x,y} of tileList){
+    try{
+      const url = `https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/${z}/${x}/${y}.jpeg`;
+      const res = await fetch(url);
+      if(res.ok){
+        const blob = await res.blob();
+        await idbPut('tiles', `${offlineId}_${z}_${x}_${y}`, blob);
+      }
+    }catch(e){ /* einzelne Kachel überspringen, Rest weiter versuchen */ }
+    done++;
+    if(onProgress) onProgress(done, totalSteps);
+  }
+  if(images && images.length){
+    for(const img of images){
+      try{
+        const res = await fetch(img.url);
+        if(res.ok){
+          const blob = await res.blob();
+          await idbPut('images', `${offlineId}_${img.id}`, blob);
+        }
+      }catch(e){}
+      done++;
+      if(onProgress) onProgress(done, totalSteps);
+    }
+  }
+  const now = Date.now();
+  const expiresAt = now + OFFLINE_DAYS*24*60*60*1000;
+  await idbPut('downloads', offlineId, { offlineId, tourName, downloadedAt: now, expiresAt, tileCount: tileList.length, imageCount: (images?images.length:0) });
+  return true;
+}
+
+function formatOfflineRemaining(expiresAt){
+  const msLeft = expiresAt - Date.now();
+  if(msLeft <= 0) return 'abgelaufen';
+  const daysLeft = Math.floor(msLeft / (24*60*60*1000));
+  const hoursLeft = Math.floor((msLeft % (24*60*60*1000)) / (60*60*1000));
+  if(daysLeft >= 1) return `noch ${daysLeft} Tag${daysLeft===1?'':'e'} offline verfügbar`;
+  return `noch ${hoursLeft} Std. offline verfügbar`;
+}
+
+function createOfflineAwareTileLayer(offlineId){
+  const OfflineTileLayer = L.TileLayer.extend({
+    createTile: function(coords, done){
+      const tile = document.createElement('img');
+      const z = coords.z, x = coords.x, y = coords.y;
+      const networkUrl = `https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/${z}/${x}/${y}.jpeg`;
+      idbGet('tiles', `${offlineId}_${z}_${x}_${y}`).then(blob=>{
+        if(blob){
+          tile.src = URL.createObjectURL(blob);
+          done(null, tile);
+        }else{
+          tile.onload = ()=> done(null, tile);
+          tile.onerror = ()=> done(new Error('Kachel nicht verfügbar'), tile);
+          tile.src = networkUrl;
+        }
+      }).catch(()=>{
+        tile.onload = ()=> done(null, tile);
+        tile.onerror = ()=> done(new Error('Kachel nicht verfügbar'), tile);
+        tile.src = networkUrl;
+      });
+      return tile;
+    }
+  });
+  return new OfflineTileLayer('', { maxZoom: 18, attribution: '© swisstopo' });
+}
+
+/* ================= Live-GPS-Standort auf der Karte ================= */
+let gpsWatchId = null;
+let gpsMarker = null;
+let gpsActiveOfflineId = null; // für welche Tour GPS aktuell läuft — überlebt einen Kartenwechsel (z. B. beim Öffnen der Vollbildansicht)
+function startLiveGpsOnMap(map, offlineId){
+  if(!navigator.geolocation) return;
+  stopLiveGpsOnMap();
+  gpsActiveOfflineId = offlineId || null;
+  gpsWatchId = navigator.geolocation.watchPosition((pos)=>{
+    const latlng = [pos.coords.latitude, pos.coords.longitude];
+    if(!gpsMarker){
+      gpsMarker = L.circleMarker(latlng, {radius:8, color:'#fff', weight:3, fillColor:'#1565C0', fillOpacity:1, pane:'markerPane'}).addTo(map);
+    }else{
+      gpsMarker.setLatLng(latlng);
+    }
+  }, (err)=>{
+    dlog('GPS-Standort nicht verfügbar: ' + (err && err.message ? err.message : err), 'err');
+  }, { enableHighAccuracy:true, maximumAge:5000 });
+}
+function stopLiveGpsOnMap(){
+  gpsActiveOfflineId = null;
+  if(gpsWatchId !== null){ try{ navigator.geolocation.clearWatch(gpsWatchId); }catch(e){} gpsWatchId = null; }
+  if(gpsMarker){ try{ gpsMarker.remove(); }catch(e){} gpsMarker = null; }
+}
+
+/* ================= Offline-Bereich: Anzeige in der Detailansicht ================= */
+function offlineSectionHtml(offlineId){
+  return `<div class="detail-section" id="offline-section-${offlineId}">
+    <h4>Für unterwegs</h4>
+    <div id="offline-body-${offlineId}"><p style="font-size:13px; color:var(--ink-soft);">Lädt…</p></div>
+  </div>`;
+}
+
+async function refreshOfflineSectionUI(offlineId){
+  const bodyEl = document.getElementById('offline-body-' + offlineId);
+  if(!bodyEl) return;
+  const status = await getTourOfflineStatus(offlineId);
+  if(status){
+    bodyEl.innerHTML = `
+      <p style="font-size:13px; color:var(--ok); margin:0 0 8px 0;">✓ ${formatOfflineRemaining(status.expiresAt)}</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="btn secondary" id="gps-toggle-${offlineId}" data-act="toggle-live-gps" data-offline-id="${offlineId}">📍 Standort auf Karte zeigen</button>
+        <button type="button" class="btn secondary" data-act="delete-offline" data-offline-id="${offlineId}" style="color:var(--danger);">🗑️ Offline-Daten löschen</button>
+      </div>
+    `;
+  }else{
+    bodyEl.innerHTML = `
+      <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Lädt Kartenausschnitt und Bilder herunter, ${OFFLINE_DAYS} Tage offline verfügbar — praktisch, bevor's losgeht.</p>
+      <button type="button" class="btn secondary" id="download-offline-btn-${offlineId}" data-act="download-offline" data-offline-id="${offlineId}">🔽 Für unterwegs herunterladen</button>
+    `;
+  }
+}
+
+/* ================= Web-Share-Target: Fotos/Links aus anderen Apps direkt hier landen =====
+   Android/Chrome schickt geteilte Inhalte per POST an share-target-*.html (siehe manifest*.json).
+   sw.js fängt diesen POST ab, legt Text/Datei kurz im Cache ab und leitet auf ?shared=1 um.
+   checkSharedContent() holt die Daten hier wieder ab — einmalig, danach wird der Cache geleert. */
+const SHARE_TARGET_CACHE = 'share-target-v1';
+
+async function checkSharedContent(){
+  if(!('caches' in window)) return null;
+  if(!location.search.includes('shared=1')) return null;
+  history.replaceState(null, '', location.pathname);
+  try{
+    const cache = await caches.open(SHARE_TARGET_CACHE);
+    const dataRes = await cache.match('/__shared-data');
+    if(!dataRes) return null;
+    const data = await dataRes.json();
+    let fileBlob = null;
+    if(data.fileCount > 0){
+      const fileRes = await cache.match('/__shared-file-0');
+      if(fileRes) fileBlob = await fileRes.blob();
+    }
+    await cache.delete('/__shared-data');
+    for(let i=0; i<data.fileCount; i++) await cache.delete('/__shared-file-' + i);
+    if(!fileBlob && !data.text && !data.url) return null;
+    return { text: data.text || '', url: data.url || '', title: data.title || '', fileBlob };
+  }catch(e){
+    dlog('Geteilter Inhalt konnte nicht gelesen werden: ' + (e.message || e), 'err');
+    return null;
+  }
+}
+
+function openShareImportModal(shared){
+  state.modal = { type: 'share-import', payload: shared };
+  render();
+}
+
+function shareImportModalHtml(shared){
+  const hasImage = !!shared.fileBlob;
+  const linkText = shared.url || shared.text || '';
+  const hasSektoren = typeof state.sektoren !== 'undefined';
+  let body = '';
+  if(hasImage){
+    const objUrl = URL.createObjectURL(shared.fileBlob);
+    if(hasSektoren && state.sektoren.length){
+      body = `
+        <img src="${objUrl}" style="width:100%; max-height:260px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); margin-bottom:14px;"/>
+        <div class="field"><label>Als Topo-Bild verwenden für Sektor …</label>
+          <select id="share-import-sektor-select">
+            ${state.sektoren.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+          </select>
+        </div>
+        <button type="button" class="btn" id="share-import-image-btn" style="width:100%; margin-top:6px;">🧗 Als Topo-Bild übernehmen</button>
+      `;
+    }else{
+      body = `
+        <img src="${objUrl}" style="width:100%; max-height:260px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); margin-bottom:14px;"/>
+        <p style="font-size:13px; color:var(--ink-soft);">Geteilte Fotos werden in dieser App aktuell nicht weiterverarbeitet — dieses Feature gibt es bisher nur bei Kletter-Sektoren (Hochtour/MSL-App).</p>
+      `;
+    }
+  }else if(linkText){
+    body = `
+      <div class="field"><label>Geteilter Link/Text</label>
+        <p class="mono" style="font-size:12.5px; word-break:break-all; background:var(--ice-light); border-radius:var(--radius); padding:8px;">${esc(linkText)}</p>
+      </div>
+      ${state.tours.length ? `
+        <div class="field"><label>Als GPX-Link speichern für Tour …</label>
+          <select id="share-import-tour-select">
+            ${state.tours.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')}
+          </select>
+        </div>
+        <button type="button" class="btn" id="share-import-link-btn" style="width:100%; margin-top:6px;">🔗 Als GPX-Link übernehmen</button>
+      ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour vorhanden, der der Link zugeordnet werden könnte.</p>`}
+    `;
+  }else{
+    body = `<p style="font-size:13px; color:var(--ink-soft);">Kein verwertbarer Inhalt empfangen.</p>`;
+  }
+  return `<div class="modal" data-stop="1">
+    <div class="modal-head"><h2>📥 Geteilter Inhalt</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    ${body}
+    <div class="form-actions"><button type="button" class="btn secondary" data-act="close-modal">Schliessen</button></div>
+  </div>`;
+}
+
+function wireShareImportModal(){
+  const imgBtn = document.getElementById('share-import-image-btn');
+  if(imgBtn) imgBtn.addEventListener('click', ()=>{
+    const sel = document.getElementById('share-import-sektor-select');
+    const sektorId = sel ? sel.value : '';
+    const shared = state.modal && state.modal.payload;
+    if(!sektorId || !shared || !shared.fileBlob) return;
+    applySharedImageToSektor(sektorId, shared.fileBlob);
+  });
+  const linkBtn = document.getElementById('share-import-link-btn');
+  if(linkBtn) linkBtn.addEventListener('click', ()=>{
+    const sel = document.getElementById('share-import-tour-select');
+    const tourId = sel ? sel.value : '';
+    const shared = state.modal && state.modal.payload;
+    const link = shared ? (shared.url || shared.text || '') : '';
+    if(!tourId || !link) return;
+    submitShareImportGpxLink(tourId, link);
+  });
+}
+
+// Öffnet den bestehenden Topo-&-Routen-Bereich eines Sektors und speist das geteilte Foto
+// direkt in den vorhandenen Upload-Ablauf ein (Zuschneiden/Komprimieren/Hochladen) — per
+// DataTransfer wird die Bild-Datei so ins Datei-Feld gelegt, als hätte man sie ausgewählt.
+function applySharedImageToSektor(sektorId, blob){
+  openEditSektorTopoRouten(sektorId);
+  const input = document.getElementById('sektor-topo-image-input');
+  if(!input){ showToast('Sektor-Bearbeitung konnte nicht geöffnet werden.', true); return; }
+  try{
+    const dt = new DataTransfer();
+    dt.items.add(new File([blob], 'geteiltes-foto.jpg', { type: blob.type || 'image/jpeg' }));
+    input.files = dt.files;
+    handleTopoImageUpload(input, 'sektor-id-for-topo', 'sektor-topo-images-hidden', 'sektor-topo-image-status');
+  }catch(e){
+    showToast('Geteiltes Foto konnte nicht übernommen werden: ' + (e.message || e), true);
+  }
+}
+
+async function submitShareImportGpxLink(tourId, link){
+  const t = state.tours.find(x=>x.id===tourId);
+  if(!t){ showToast('Tour nicht gefunden.', true); return; }
+  t.gpxLink = link;
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  closeModal(false, true, true);
+  state.modal = { type:'tour-detail', payload:t.id };
+  render();
+  const ok = await saveTourCloud(t).catch(()=>false);
+  t._unsynced = !ok;
+  if(!ok){
+    markUnsaved();
+    showToast('GPX-Link ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+  }else{
+    showToast('GPX-Link gespeichert und synchronisiert.');
+  }
+  render();
+}
+
+
+/* ================= Icons statt Emoji (neuer Look) =================
+   Android zeichnet Emoji als bunte Kacheln (siehe Pincho/DESIGN.md Teil A). Statt jede der über
+   hundert Stellen in den Vorlagen einzeln umzuschreiben, ersetzt ein MutationObserver bekannte
+   Emoji in Textknoten durch schlichte Strich-Icons im gleichen Stil. Eingabefelder, Textareas und
+   Attribute bleiben unangetastet; in <option> (kann kein SVG) wird das Emoji einfach weggelassen. */
+const FS_ICON_PATHS = {
+  map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
+  hut: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5',
+  climb: 'M9 3h5a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8a5 5 0 0 1 5-5zM8 8v8',
+  pin: 'M12 21s-7-6.2-7-11.5a7 7 0 1 1 14 0C19 14.8 12 21 12 21zM12 7.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z',
+  mountain: 'M2.5 20l7-12.5 4 7 2.5-4 5.5 9.5zM7.3 11.5l2.2 1.8 2-1.6',
+  edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+  alert: 'M12 3.5L2.5 20h19zM12 10v4.5M12 17.2v.3',
+  compass: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM15.5 8.5l-2 5-5 2 2-5z',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
+  walk: 'M13 4.5a1.5 1.5 0 1 0 0-3a1.5 1.5 0 1 0 0 3zM10 21l2-6 3 3v3M8 13l1.5-4.5L13 7l2.5 3 3 1M12.5 7.5l-1.5 5 2.5 3',
+  snow: 'M12 2v20M4.2 7l15.6 10M4.2 17L19.8 7M9.5 3.5L12 6l2.5-2.5M9.5 20.5L12 18l2.5 2.5',
+  search: 'M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14zM20 20l-4-4',
+  download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+  upload: 'M12 16V4M7 9l5-5 5 5M5 20h14',
+  car: 'M4 16v-4l2-5h12l2 5v4zM4 12h16M6 16v3h2v-3M16 16v3h2v-3M7.5 14h.5M16 14h.5',
+  partly: 'M8 3.5V5M3.5 8H5M4.8 4.8l1 1M11.2 4.8l-1 1M5.3 10.8A3.5 3.5 0 1 1 11.4 7.6M9 20h9a3.5 3.5 0 0 0 0-7 5 5 0 0 0-9.6 1.2A3 3 0 0 0 9 20z',
+  note: 'M9 3.5h6v3H9zM7.5 5H5.5v16h13V5h-2M8.5 11h7M8.5 15h5',
+  tent: 'M3 20L12 4l9 16zM9 20l3-5 3 5',
+  rain: 'M7 15a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 8.5a3.5 3.5 0 0 1-1 6.5M8 18l-1 2.5M12 18l-1 2.5M16 18l-1 2.5',
+  checkc: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM8 12.5l3 3 5-6',
+  check: 'M5 12.5l4.5 4.5L19 7.5',
+  flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
+  chevdown: 'M6 9l6 6 6-6',
+  plus: 'M12 5v14M5 12h14',
+  calendar: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4',
+  save: 'M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6',
+  camera: 'M4 8h3l2-3h6l2 3h3v12H4zM12 10a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7z',
+  train: 'M7 3h10a2 2 0 0 1 2 2v10a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V5a2 2 0 0 1 2-2zM5 11h14M9 21l1.5-3M15 21l-1.5-3M8.5 14.5h.5M15 14.5h.5',
+  bus: 'M6 3h12a1 1 0 0 1 1 1v13H5V4a1 1 0 0 1 1-1zM5 11h14M7 17v3M17 17v3M8 14.5h.5M15.5 14.5h.5',
+  cable: 'M3 4l18 3M12 5.5V9M7 9h10a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM5 14h14',
+  sun: 'M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4',
+  cloud: 'M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z',
+  storm: 'M7 15a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 8.5a3.5 3.5 0 0 1-1 6.5M12.5 13l-2.5 4h4l-2.5 4',
+  fog: 'M4 9h16M6 13h14M4 17h12',
+  snowcloud: 'M7 15a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 8.5a3.5 3.5 0 0 1-1 6.5M8 18.5v.5M12 18.5v.5M16 18.5v.5M10 21v.5M14 21v.5',
+  therm: 'M10 14V5a2 2 0 1 1 4 0v9a4 4 0 1 1-4 0zM12 9v7',
+  wind: 'M3 9h11a3 3 0 1 0-3-3M3 13h15a3 3 0 1 1-3 3M3 17h7',
+  drop: 'M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z',
+  undo: 'M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
+  user: 'M12 11a4 4 0 1 0 0-8a4 4 0 1 0 0 8zM4 21a8 8 0 0 1 16 0',
+  users: 'M9 11a3.5 3.5 0 1 0 0-7a3.5 3.5 0 1 0 0 7zM2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 6.5M18 14a6 6 0 0 1 3.5 6',
+  scissors: 'M6 9a3 3 0 1 0 0-6a3 3 0 1 0 0 6zM6 21a3 3 0 1 0 0-6a3 3 0 1 0 0 6zM8.5 7.5L20 18M8.5 16.5L20 6',
+  offline: 'M3 3l18 18M8.5 16.5a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 4-2.4M19 12.5a10 10 0 0 0-3-2M12 20h.01',
+  refresh: 'M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4',
+  home: 'M3 11l9-7 9 7M5 10v10h14V10',
+  phone: 'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2',
+  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  sos: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8zM5.6 5.6l3.6 3.6M14.8 14.8l3.6 3.6M18.4 5.6l-3.6 3.6M9.2 14.8l-3.6 3.6',
+  ruler: 'M3 17L17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2',
+  clock: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM12 7v5l3 2',
+  expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+  barrier: 'M3 8h18v6H3zM7 8l-3 6M13 8l-3 6M19 8l-3 6M6 14v6M18 14v6',
+  food: 'M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 0-3 3-3 7h3v11',
+  parking: 'M5 3h14v18H5zM10 17V8h3a2.5 2.5 0 0 1 0 5h-3',
+  x: 'M6 6l12 12M18 6L6 18',
+  moon: 'M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z',
+  pack: 'M6 9a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v11H6zM9 5V3h6v2M9 13h6v4H9z',
+  printer: 'M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z',
+  heli: 'M3 5h14M10 5v3M6 8h8a4 4 0 0 1 4 4v1a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3zM18 12h3M9 16l-1 3M15 16l1 3M6 19h12',
+  shield: 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z',
+  sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 5v4M8 15v4',
+  gps: 'M12 10a2 2 0 1 0 0 4a2 2 0 1 0 0-4zM5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14M8 8a5.5 5.5 0 0 0 0 8M16 8a5.5 5.5 0 0 1 0 8',
+  lock: 'M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11',
+  star: 'M12 3.2l2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8z',
+  dot: 'M12 6a6 6 0 1 0 0 12a6 6 0 1 0 0-12z',
+  tri: 'M12 5l8 14H4z'
+};
+// Emoji -> [Icon, Farbe (optional, sonst Textfarbe), gefüllt?]
+const FS_EMOJI_ICONS = {
+  '🗺':['map'], '🛖':['hut'], '🧗':['climb'], '📍':['pin'], '⛰':['mountain'], '🏔':['mountain'], '🗻':['mountain'],
+  '✏':['edit'], '⚠':['alert'], '🧭':['compass'], '🗑':['trash'], '🚶':['walk'], '🥾':['walk'], '🎿':['snow'], '⛷':['snow'],
+  '🔍':['search'], '📥':['download'], '📤':['upload'], '🚗':['car'], '🌦':['partly'], '🌤':['partly'], '⛅':['partly'],
+  '📝':['note'], '📋':['note'], '📖':['note'], '⛺':['tent'], '🏕':['tent'], '🌧':['rain'], '✅':['checkc','#2E6B3C'],
+  '🔽':['chevdown'], '❄':['snow'], '➕':['plus'], '📅':['calendar'], '💾':['save'], '📷':['camera'], '📸':['camera'],
+  '🚉':['train'], '🚌':['bus'], '🚏':['bus'], '🚡':['cable'], '☀':['sun','#C27C0E'], '🌞':['sun','#C27C0E'], '☁':['cloud'],
+  '⛈':['storm'], '🌫':['fog'], '🌨':['snowcloud'], '🌡':['therm'], '💨':['wind'], '💧':['drop'], '↩':['undo'],
+  '👤':['user'], '👥':['users'], '🚻':['users'], '✂':['scissors'], '📡':['offline'], '🔄':['refresh'], '🔁':['refresh'], '🔀':['refresh'],
+  '🏠':['home'], '📞':['phone'], '🔗':['link'], '🆘':['sos','#B42318'], '📏':['ruler'], '⏱':['clock'], '⏰':['clock'], '⏳':['clock'],
+  '⛶':['expand'], '🚧':['barrier'], '🍽':['food'], '🅿':['parking'], '❌':['x','#B42318'], '🌙':['moon'], '🎒':['pack'],
+  '🖨':['printer'], '🚁':['heli'], '👮':['shield'], '🎚':['sliders'], '🛰':['gps'], '🔒':['lock'],
+  '⭐':['star','#D99A1E',true], '🔵':['dot','#2F7DB5',true], '🔴':['dot','#C0392B',true], '🟡':['dot','#E0A91B',true], '🟢':['dot','#3C8A55',true], '🔺':['tri','#C0392B',true]
+};
+const FS_EMOJI_RE = new RegExp('(' + Object.keys(FS_EMOJI_ICONS).sort((a,b)=>b.length-a.length).map(k=>k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')\\uFE0F?', 'gu');
+const FS_SVG_NS = 'http://www.w3.org/2000/svg';
+function fsIconSvg(name, color, filled){
+  const svg = document.createElementNS(FS_SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', 'fs-i' + (filled ? ' fs-i-fill' : ''));
+  if(color) svg.style.color = color;
+  const p = document.createElementNS(FS_SVG_NS, 'path');
+  p.setAttribute('d', FS_ICON_PATHS[name]);
+  svg.appendChild(p);
+  return svg;
+}
+function fsIconHtml(name){ return `<svg class="fs-i" viewBox="0 0 24 24" aria-hidden="true"><path d="${FS_ICON_PATHS[name]}"/></svg>`; }
+const FS_SKIP_TAGS = new Set(['SCRIPT','STYLE','TEXTAREA','INPUT','SELECT','svg','title']);
+function fsReplaceEmojiInTextNode(node){
+  const txt = node.nodeValue;
+  if(!txt) return;
+  FS_EMOJI_RE.lastIndex = 0;
+  if(!FS_EMOJI_RE.test(txt)) return;
+  const parent = node.parentNode;
+  if(!parent) return;
+  if(parent.nodeName === 'OPTION'){
+    node.nodeValue = txt.replace(FS_EMOJI_RE, '').replace(/^\s+/, '');
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  let last = 0;
+  FS_EMOJI_RE.lastIndex = 0;
+  let m;
+  while((m = FS_EMOJI_RE.exec(txt))){
+    if(m.index > last) frag.appendChild(document.createTextNode(txt.slice(last, m.index)));
+    const def = FS_EMOJI_ICONS[m[1]];
+    frag.appendChild(fsIconSvg(def[0], def[1], def[2]));
+    last = m.index + m[0].length;
+  }
+  if(last < txt.length) frag.appendChild(document.createTextNode(txt.slice(last)));
+  parent.replaceChild(frag, node);
+}
+function fsReplaceEmojiIn(root){
+  if(!root) return;
+  if(root.nodeType === 3){ if(root.parentNode && !fsSkipNode(root.parentNode)) fsReplaceEmojiInTextNode(root); return; }
+  if(root.nodeType !== 1 || fsSkipNode(root)) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n)=> fsSkipNode(n.parentNode) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+  });
+  const nodes = [];
+  while(walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(fsReplaceEmojiInTextNode);
+}
+function fsSkipNode(el){
+  for(let n = el; n && n.nodeType === 1; n = n.parentNode){
+    if(FS_SKIP_TAGS.has(n.nodeName) || n.isContentEditable || (n.classList && n.classList.contains('fs-keep-emoji'))) return true;
+    if(n === document.body) break;
+  }
+  return false;
+}
+(function fsStartEmojiIcons(){
+  const start = ()=>{
+    fsReplaceEmojiIn(document.body);
+    new MutationObserver((muts)=>{
+      muts.forEach(m=>{
+        if(m.type === 'characterData') fsReplaceEmojiIn(m.target);
+        else m.addedNodes.forEach(fsReplaceEmojiIn);
+      });
+    }).observe(document.body, {childList:true, subtree:true, characterData:true});
+  };
+  if(document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+})();
+
+/* ================= Tourenbriefing (Schritt 4) =================
+   Baut auf dem Agenda-Termin auf (Datum, Teilnehmer, Treffpunkt, Rückkehr, Notfallkontakt gibt es
+   dort schon). Neu pro Termin: a.briefing = {ablauf:[{t,label,kind}], planB, anforderungen,
+   pack:[{id,label,must}]} und a.packChecks = {<name-key>: [item-ids]} — damit wissen Leitung und
+   Gäste am Schluss, was passiert, was mit muss und welche Eckpunkte wann erreicht werden sollen.
+   Alte Termine ohne diese Felder funktionieren unverändert weiter (alles optional). */
+const BRIEFING_KINDS = {
+  punkt:   {label:'Punkt'},
+  start:   {label:'Start'},
+  entscheid:{label:'Entscheidungspunkt'},
+  gipfel:  {label:'Gipfel / Ziel'},
+  umkehr:  {label:'Umkehrzeit'},
+  ende:    {label:'Zurück'}
+};
+const BRIEFING_PACK_TEMPLATES = {
+  ski: [
+    ['Sicherheit', [['LVS',1],['Schaufel',1],['Sonde',1],['Erste-Hilfe-Set',0],['Handy geladen',0]]],
+    ['Ski', [['Tourenski und Schuhe',0],['Felle',0],['Harscheisen',0],['Stöcke',0]]],
+    ['Bekleidung', [['Daunenjacke',0],['Handschuhe, 2 Paar',0],['Mütze und Skibrille',0],['Sonnencreme',0]]],
+    ['Verpflegung', [['Warmes Getränk',0],['Lunch',0]]]
+  ],
+  hochtour: [
+    ['Sicherheit', [['Helm',1],['Klettergurt',1],['Steigeisen',1],['Pickel',1],['Seil',0],['Schraubkarabiner',0],['Prusik / Bandschlinge',0],['Erste-Hilfe-Set',0]]],
+    ['Ausrüstung', [['Bergschuhe, steigeisenfest',0],['Stirnlampe',0],['Stöcke',0]]],
+    ['Bekleidung', [['Hardshell',0],['Handschuhe',0],['Mütze und Sonnenbrille',0],['Sonnencreme',0]]],
+    ['Hütte und Verpflegung', [['Hüttenschlafsack',0],['Bargeld',0],['Wasser',0],['Lunch',0]]]
+  ],
+  msl: [
+    ['Sicherheit', [['Helm',1],['Klettergurt',1],['Sicherungsgerät',1],['Schraubkarabiner',0],['Erste-Hilfe-Set',0]]],
+    ['Seilschaft', [['Seil',0],['Expressschlingen',0],['Bandschlingen',0],['Friends / Keile',0]]],
+    ['Persönlich', [['Kletterfinken',0],['Zustiegsschuhe',0],['Stirnlampe',0],['Windjacke',0]]],
+    ['Verpflegung', [['Wasser',0],['Lunch',0]]]
+  ]
+};
+function briefingSlug(label){ return (label||'').toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || uid('p'); }
+function briefingPackFromTemplate(type, tour){
+  const groups = BRIEFING_PACK_TEMPLATES[type] || BRIEFING_PACK_TEMPLATES.ski;
+  const items = [];
+  groups.forEach(([group, list])=> list.forEach(([label, must])=> items.push({id: briefingSlug(label), label, must: !!must, group})));
+  // Material der verlinkten Tour (z. B. "Spaltenrettungsset") ergänzen, falls noch nicht drin.
+  const extra = [];
+  if(tour && Array.isArray(tour.material)) extra.push(...tour.material);
+  if(tour && tour.ropeType) extra.push(tour.ropeType + (tour.ropeLength ? ' ' + tour.ropeLength : ''));
+  if(tour && tour.quickdrawCount) extra.push(tour.quickdrawCount + ' Expressschlingen');
+  extra.forEach(label=>{
+    const id = briefingSlug(label);
+    if(label && !items.some(i=>i.id===id)) items.push({id, label, must:false, group:'Für diese Tour'});
+  });
+  return items;
+}
+function briefingSuggestedAblauf(a){
+  const rows = [];
+  const mp = (a.meetingPoint||'').match(/(\d{1,2}[:.]\d{2})/);
+  rows.push({t: mp ? mp[1].replace('.',':') : '', label: a.meetingPoint ? 'Treffpunkt ' + a.meetingPoint.replace(mp ? mp[1] : '', '').trim() : 'Treffpunkt', kind:'punkt'});
+  rows.push({t:'', label:'Start' + (a.tourName ? ' ' + a.tourName : ''), kind:'start'});
+  rows.push({t:'', label:'Entscheidungspunkt (Schlüsselstelle, Verhältnisse prüfen)', kind:'entscheid'});
+  rows.push({t:'', label: a.tourName ? 'Gipfel / Ziel ' + a.tourName : 'Gipfel / Ziel', kind:'gipfel'});
+  rows.push({t:'', label:'Umkehrzeit – spätestens jetzt zurück, egal wo', kind:'umkehr'});
+  const rt = (a.plannedReturnTime||'').match(/(\d{1,2}[:.]\d{2})/);
+  rows.push({t: rt ? rt[1].replace('.',':') : '', label:'Zurück', kind:'ende'});
+  return rows;
+}
+function briefingOf(a){ return (a && a.briefing) || {ablauf:[], planB:'', anforderungen:'', pack:[]}; }
+function briefingMyChecks(a){
+  const key = sanitizeNameKey(state.myName||'');
+  return new Set(((a.packChecks||{})[key]) || []);
+}
+
+// ---------- Anzeige im Termin ----------
+function briefingTimelineHtml(a){
+  const b = briefingOf(a);
+  const rows = (b.ablauf && b.ablauf.length) ? b.ablauf : null;
+  if(!rows) return `<div class="bf-card"><h3 class="bf-h">Ablauf</h3>
+    <p class="bf-empty">Noch kein Ablauf festgelegt. Unter „Bearbeiten“ kannst du Zeiten, Entscheidungspunkte und die Umkehrzeit eintragen.</p></div>`;
+  return `<div class="bf-card"><h3 class="bf-h">Ablauf</h3>
+    <ol class="bf-tl">
+      ${rows.map(r=>`<li class="bf-tl-row bf-k-${esc(r.kind||'punkt')}">
+        <span class="bf-tl-time">${esc(r.t||'')}</span>
+        <span class="bf-tl-dot" aria-hidden="true"></span>
+        <span class="bf-tl-body">
+          ${r.kind==='entscheid' ? `<span class="bf-tag bf-tag-entscheid">⚠ Entscheidungspunkt</span>` : ''}
+          ${r.kind==='umkehr' ? `<span class="bf-tag bf-tag-umkehr">⏰ Umkehrzeit</span>` : ''}
+          <span class="bf-tl-label">${esc(r.label||BRIEFING_KINDS[r.kind||'punkt'].label)}</span>
+        </span>
+      </li>`).join('')}
+    </ol>
+  </div>`;
+}
+function briefingPackHtml(a){
+  const b = briefingOf(a);
+  const pack = b.pack || [];
+  if(!pack.length) return `<div class="bf-card"><h3 class="bf-h">Packliste</h3>
+    <p class="bf-empty">Noch keine Packliste. Unter „Bearbeiten“ lässt sie sich aus einer Vorlage für ${esc(agendaTypeLabel(a.type).replace(/^\S+\s/,''))} übernehmen.</p></div>`;
+  const mine = briefingMyChecks(a);
+  const done = pack.filter(p=>mine.has(p.id)).length;
+  const pct = Math.round(done / pack.length * 100);
+  const others = (a.participants||[]).map(p=>p.by).filter(n=> n && n!==state.myName).map(n=>{
+    const c = new Set(((a.packChecks||{})[sanitizeNameKey(n)]) || []);
+    const cnt = pack.filter(p=>c.has(p.id)).length;
+    return {n, cnt, all: cnt===pack.length};
+  });
+  const groups = [];
+  pack.forEach(p=>{ const g = p.group || 'Material'; let e = groups.find(x=>x.g===g); if(!e){ e = {g, items:[]}; groups.push(e); } e.items.push(p); });
+  return `<div class="bf-card">
+      <div class="bf-row"><h3 class="bf-h">Packliste</h3><span class="bf-count">${state.myName ? `${done} von ${pack.length}` : ''}</span></div>
+      ${state.myName ? `<div class="bf-bar"><span style="width:${pct}%"></span></div>` : `<p class="bf-empty">Setze deinen Namen, um abzuhaken.</p>`}
+      ${others.length ? `<div class="bf-people">${others.map(o=>`<span class="bf-person"><i class="${o.all?'ok':''}"></i>${esc(o.n)} · ${o.all ? 'komplett' : o.cnt + ' von ' + pack.length}</span>`).join('')}</div>` : ''}
+    </div>
+    ${groups.map(g=>`<div class="bf-group">
+      <div class="bf-kicker">${esc(g.g)}</div>
+      <div class="bf-list">
+        ${g.items.map(p=>{ const on = mine.has(p.id); return `<button type="button" class="bf-check ${on?'on':''}" data-act="brief-pack" data-id="${esc(a.id)}" data-item="${esc(p.id)}" aria-pressed="${on}">
+          <span class="bf-box" aria-hidden="true">${fsIconHtml('check')}</span>
+          <span class="bf-check-label">${esc(p.label)}</span>
+          ${p.must ? `<span class="bf-must">Pflicht</span>` : ''}
+        </button>`; }).join('')}
+      </div>
+    </div>`).join('')}`;
+}
+function briefingNotfallHtml(a){
+  const b = briefingOf(a);
+  const tour = findAgendaLinkedTour(a.tourRef);
+  const pt = tour ? tourMapPoint(tour) : null;
+  const telOf = (s)=>{ const m = (s||'').match(/\+?[\d][\d\s\/-]{6,}/); return m ? m[0].replace(/[\s\/-]/g,'') : ''; };
+  const contactTel = telOf(a.emergencyContact);
+  const rows = [
+    pt ? ['pin','Koordinaten Ziel', pt.lat.toFixed(4) + '° N · ' + pt.lon.toFixed(4) + '° E'] : null,
+    b.planB ? ['flag','Plan B', b.planB] : null,
+    a.plannedReturnTime ? ['clock','Geplante Rückkehr', a.plannedReturnTime] : null,
+    a.emergencyContact ? ['users','Notfallkontakt', a.emergencyContact] : null
+  ].filter(Boolean);
+  return `<a class="bf-sos" href="tel:1414">
+      <span class="bf-sos-ic">${fsIconHtml('phone')}</span>
+      <span><b>Rega 1414</b><small>Rettungshelikopter · Schweiz</small></span>
+    </a>
+    <div class="bf-sos-row">
+      <a class="bf-sos2" href="tel:112">112 · Euronotruf</a>
+      ${contactTel ? `<a class="bf-sos2" href="tel:${esc(contactTel)}">Notfallkontakt anrufen</a>` : `<a class="bf-sos2" href="tel:117">117 · Polizei</a>`}
+    </div>
+    <div class="bf-card bf-info">
+      ${rows.length ? rows.map(r=>`<div class="bf-info-row"><span class="bf-info-ic">${fsIconHtml(r[0])}</span><span><span class="bf-kicker">${esc(r[1])}</span><span class="bf-info-v">${esc(r[2])}</span></span></div>`).join('')
+        : `<p class="bf-empty">Noch keine Angaben. Unter „Bearbeiten“: Notfallkontakt, geplante Rückkehr und Plan B.</p>`}
+    </div>
+    <button type="button" class="btn secondary" data-act="brief-open-emergency" style="width:100%;">🆘 Notfallkarte mit den 5 W und Standort</button>`;
+}
+function briefingTabsBarHtml(){
+  const tab = state._briefTab || 'ablauf';
+  const tabs = [['ablauf','Ablauf','clock'],['pack','Packliste','pack'],['notfall','Notfall','sos']];
+  return `<div class="bf-tabs" role="tablist">
+      ${tabs.map(t=>`<button type="button" role="tab" data-act="brief-tab" data-tab="${t[0]}" aria-selected="${tab===t[0]}" class="${tab===t[0]?'on':''}">${fsIconHtml(t[2])}${t[1]}</button>`).join('')}
+    </div>`;
+}
+function briefingAblaufExtrasHtml(a){
+  const b = briefingOf(a);
+  return `${briefingTimelineHtml(a)}
+    ${b.anforderungen ? `<div class="bf-card"><h3 class="bf-h">Das braucht es</h3><p class="bf-text">${esc(b.anforderungen)}</p></div>` : ''}
+    ${b.planB ? `<div class="bf-card bf-planb"><div class="bf-kicker">Plan B</div><p class="bf-text">${esc(b.planB)}</p></div>` : ''}`;
+}
+function briefingTabsHtml(a){
+  const tab = state._briefTab || 'ablauf';
+  const b = briefingOf(a);
+  const tabs = [['ablauf','Ablauf','clock'],['pack','Packliste','pack'],['notfall','Notfall','sos']];
+  return `<div class="bf-tabs" role="tablist">
+      ${tabs.map(t=>`<button type="button" role="tab" data-act="brief-tab" data-tab="${t[0]}" aria-selected="${tab===t[0]}" class="${tab===t[0]?'on':''}">${fsIconHtml(t[2])}${t[1]}</button>`).join('')}
+    </div>
+    <div class="bf-panel">
+      ${tab==='ablauf' ? `
+        ${briefingTimelineHtml(a)}
+        ${b.anforderungen ? `<div class="bf-card"><h3 class="bf-h">Das braucht es</h3><p class="bf-text">${esc(b.anforderungen)}</p></div>` : ''}
+        ${b.planB ? `<div class="bf-card bf-planb"><div class="bf-kicker">Plan B</div><p class="bf-text">${esc(b.planB)}</p></div>` : ''}
+      ` : tab==='pack' ? briefingPackHtml(a) : briefingNotfallHtml(a)}
+    </div>`;
+}
+
+// ---------- Bearbeiten im Termin-Formular ----------
+function briefingDraftFor(editId){
+  const key = editId || 'new';
+  if(state._briefingDraft && state._briefingDraft.key===key) return state._briefingDraft.data;
+  const a = editId ? state.agenda.find(x=>x.id===editId) : null;
+  const b = a && a.briefing ? JSON.parse(JSON.stringify(a.briefing)) : {ablauf:[], planB:'', anforderungen:'', pack:[]};
+  b.ablauf = Array.isArray(b.ablauf) ? b.ablauf : []; b.pack = Array.isArray(b.pack) ? b.pack : [];
+  state._briefingDraft = {key, data:b};
+  return b;
+}
+function briefingEditorInnerHtml(d){
+  return `
+    <div class="bf-ed-h"><span class="bf-kicker">Ablauf</span>
+      ${d.ablauf.length ? '' : `<button type="button" class="chip" data-act="brief-ed-suggest">Vorschlag einfügen</button>`}</div>
+    <div class="bf-ed-rows">
+      ${d.ablauf.map((r,i)=>`<div class="bf-ed-row">
+        <input type="text" inputmode="numeric" placeholder="06:30" value="${esc(r.t||'')}" data-bf-field="t" data-i="${i}" aria-label="Zeit" class="bf-ed-time"/>
+        <input type="text" placeholder="Was passiert hier?" value="${esc(r.label||'')}" data-bf-field="label" data-i="${i}" aria-label="Beschreibung"/>
+        <select data-bf-field="kind" data-i="${i}" aria-label="Art">
+          ${Object.entries(BRIEFING_KINDS).map(([k,v])=>`<option value="${k}" ${r.kind===k?'selected':''}>${v.label}</option>`).join('')}
+        </select>
+        <button type="button" class="bf-ed-x" data-act="brief-ed-remove" data-i="${i}" aria-label="Zeile entfernen">${fsIconHtml('x')}</button>
+      </div>`).join('')}
+    </div>
+    <button type="button" class="chip" data-act="brief-ed-add">➕ Zeile</button>
+    <div class="field" style="margin-top:14px;"><label>Plan B</label><textarea data-bf-field="planB" placeholder="z. B. bei Triebschnee Umkehr über die Aufstiegsspur">${esc(d.planB||'')}</textarea></div>
+    <div class="field"><label>Das braucht es (Kondition, Technik)</label><textarea data-bf-field="anforderungen" placeholder="z. B. 1200 Hm in 4½ h, Spitzkehren sicher">${esc(d.anforderungen||'')}</textarea></div>
+    <div class="bf-ed-h"><span class="bf-kicker">Packliste${d.pack.length ? ' (' + d.pack.length + ')' : ''}</span>
+      <button type="button" class="chip" data-act="brief-ed-template">${d.pack.length ? 'Vorlage neu laden' : 'Vorlage übernehmen'}</button></div>
+    ${d.pack.length ? `<div class="chips bf-ed-pack">${d.pack.map((p,i)=>`<button type="button" class="chip on" data-act="brief-ed-pack-remove" data-i="${i}" title="Entfernen" style="background:var(--ice-deep)">${esc(p.label)}${p.must?' ·&nbsp;Pflicht':''} ✕</button>`).join('')}</div>` : ''}
+    <div class="bf-ed-addpack"><input type="text" placeholder="Eigener Gegenstand" data-bf-newpack aria-label="Eigener Gegenstand"/><button type="button" class="chip" data-act="brief-ed-pack-add">➕</button></div>
+  `;
+}
+function briefingEditorHtml(editId){
+  const d = briefingDraftFor(editId);
+  return `<details class="bf-editor" ${d.ablauf.length || d.pack.length || d.planB ? 'open' : ''}>
+    <summary>📋 Tourenbriefing: Ablauf, Plan B, Packliste</summary>
+    <input type="hidden" name="briefing" id="agenda-briefing-json" value="${esc(JSON.stringify(d))}"/>
+    <div id="agenda-briefing-editor">${briefingEditorInnerHtml(d)}</div>
+  </details>`;
+}
+function briefingEditorSync(rerender){
+  const d = state._briefingDraft && state._briefingDraft.data;
+  if(!d) return;
+  const hidden = document.getElementById('agenda-briefing-json');
+  if(hidden) hidden.value = JSON.stringify(d);
+  if(rerender){
+    const box = document.getElementById('agenda-briefing-editor');
+    if(box) box.innerHTML = briefingEditorInnerHtml(d);
+  }
+  if(typeof markModalDirty === 'function') markModalDirty();
+}
+function briefingFormValues(){
+  const f = document.getElementById('agenda-form');
+  const get = (n)=>{ const el = f && f.querySelector('[name="'+n+'"]'); return el ? el.value : ''; };
+  const sel = f && f.querySelector('select[name="tourChoice"]');
+  let tour = null;
+  if(sel && sel.value && sel.value!=='custom'){
+    const [src, refId] = sel.value.split(':');
+    tour = (src==='own' ? state.tours : state.otherAppTours).find(t=>t.id===refId) || null;
+  }
+  return {type:get('type')||'ski', meetingPoint:get('meetingPoint'), plannedReturnTime:get('plannedReturnTime'),
+    tourName: tour ? tour.name : get('customName'), tour};
+}
+
+// Ein zentraler Klick-/Eingabe-Handler (Delegation, in der Capture-Phase, weil Dialoge Klicks
+// per stopPropagation abfangen), damit index.html und fixseil.html nichts zusätzlich verdrahten müssen.
+document.addEventListener('click', async (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act^="brief-"]');
+  if(!el) return;
+  const act = el.getAttribute('data-act');
+  if(act==='brief-tab'){ state._briefTab = el.getAttribute('data-tab'); render(); return; }
+  if(act==='brief-open-emergency'){
+    if(typeof navigateToModal === 'function') navigateToModal({type:'emergency'});
+    else{ state.modal = {type:'emergency'}; render(); }
+    return;
+  }
+  if(act==='brief-pack'){
+    ensureName(async ()=>{
+      const a = state.agenda.find(x=>x.id===el.getAttribute('data-id'));
+      if(!a) return;
+      const key = sanitizeNameKey(state.myName);
+      a.packChecks = a.packChecks || {};
+      const set = new Set(a.packChecks[key] || []);
+      const item = el.getAttribute('data-item');
+      if(set.has(item)) set.delete(item); else set.add(item);
+      a.packChecks[key] = Array.from(set);
+      render();
+      const ok = await saveAgendaCloud(a).catch(()=>false);
+      a._unsynced = !ok; if(!ok) markUnsaved();
+    });
+    return;
+  }
+  const d = state._briefingDraft && state._briefingDraft.data;
+  if(!d) return;
+  const i = parseInt(el.getAttribute('data-i'), 10);
+  if(act==='brief-ed-add'){ d.ablauf.push({t:'', label:'', kind:'punkt'}); briefingEditorSync(true); }
+  else if(act==='brief-ed-remove'){ d.ablauf.splice(i,1); briefingEditorSync(true); }
+  else if(act==='brief-ed-suggest'){ d.ablauf = briefingSuggestedAblauf(briefingFormValues()); briefingEditorSync(true); }
+  else if(act==='brief-ed-template'){ const v = briefingFormValues(); d.pack = briefingPackFromTemplate(v.type, v.tour); briefingEditorSync(true); }
+  else if(act==='brief-ed-pack-remove'){ d.pack.splice(i,1); briefingEditorSync(true); }
+  else if(act==='brief-ed-pack-add'){
+    const inp = document.querySelector('[data-bf-newpack]');
+    const label = inp && inp.value.trim();
+    if(label && !d.pack.some(p=>p.id===briefingSlug(label))){ d.pack.push({id:briefingSlug(label), label, must:false, group:'Eigenes'}); briefingEditorSync(true); }
+  }
+}, true);
+document.addEventListener('input', (e)=>{
+  const el = e.target;
+  if(!el || !el.getAttribute) return;
+  const field = el.getAttribute('data-bf-field');
+  const d = state._briefingDraft && state._briefingDraft.data;
+  if(!field || !d) return;
+  if(field==='planB' || field==='anforderungen') d[field] = el.value;
+  else{ const i = parseInt(el.getAttribute('data-i'), 10); if(d.ablauf[i]) d.ablauf[i][field] = el.value; }
+  briefingEditorSync(false);
+}, true);
+document.addEventListener('change', (e)=>{
+  const el = e.target;
+  if(el && el.getAttribute && el.getAttribute('data-bf-field')==='kind'){
+    const d = state._briefingDraft && state._briefingDraft.data;
+    const i = parseInt(el.getAttribute('data-i'), 10);
+    if(d && d.ablauf[i]){ d.ablauf[i].kind = el.value; briefingEditorSync(false); }
+  }
+}, true);
+document.addEventListener('keydown', (e)=>{
+  if(e.key==='Enter' && e.target && e.target.hasAttribute && e.target.hasAttribute('data-bf-newpack')){
+    e.preventDefault();
+    const btn = document.querySelector('[data-act="brief-ed-pack-add"]'); if(btn) btn.click();
+  }
+}, true);
