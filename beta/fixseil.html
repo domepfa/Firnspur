@@ -2523,7 +2523,9 @@ function klettergebietDetailHtml(id){
       // Klettergarten bleibt immer sichtbar, auch mit 0 Einträgen -- sonst gäbe es bei einem frisch
       // angelegten, noch leeren Gebiet keinen Weg mehr, überhaupt einen ersten Sektor anzulegen
       // (die "+ Neuer Sektor"/Scan-Buttons stecken in diesem Kapitel).
-      const klettergartenChapter = ['🏕️ Klettergarten', null, klettergebietKlettergartenChapterBodyHtml(geb, klettergaerten, unlinkedSektoren)];
+      // Neuer Look: ohne Klettergarten heisst das Kapitel "+ Klettergarten hinzufügen" und steht
+      // am Schluss (statt als leeres Kapitel "Klettergarten" mitten in der Liste).
+      const klettergartenChapter = [klettergaerten.length ? '🏕️ Klettergarten' : '➕ Klettergarten hinzufügen', klettergaerten.length || null, klettergebietKlettergartenChapterBodyHtml(geb, klettergaerten, unlinkedSektoren)];
       const gipfelChapter = ['⛰️ Gipfel', gipfelImGebiet.length, `
         ${gipfelImGebiet.length ? `<div class="grid" style="margin-top:6px;">${gipfelImGebiet.map(gp=>gipfelCardHtml(gp, state.tours.filter(t=>Array.isArray(t.summitIds) && t.summitIds.includes(gp.id)))).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Gipfel diesem Klettergebiet zugeordnet.</p>`}
         ${unlinkedGipfel.length ? `<div style="display:flex; gap:8px; margin-top:10px;">
@@ -2545,7 +2547,10 @@ function klettergebietDetailHtml(id){
       const chapters = isMsl
         ? [mslChapter, klettergartenChapter, gipfelChapter, hochtourChapter, huettenChapter]
         : [hochtourChapter, mslChapter, klettergartenChapter, gipfelChapter, huettenChapter];
-      return chapters.filter(([,count])=> count===null || count>0).map(([title,count,body])=>detailChapterHtml(title, count, body)).join('');
+      // Leere Kapitel ausblenden; ein Kapitel mit genau einem Eintrag gleich aufgeklappt zeigen.
+      const visible = chapters.filter(([,count])=> count===null || count>0);
+      visible.sort((a,b)=> (a[1]===null) - (b[1]===null));
+      return visible.map(([title,count,body])=>detailChapterHtml(title, count, body, count===1)).join('');
     })()}
     ${(() => {
       const hasOwnPoints = geb.points && geb.points.length;
@@ -3249,8 +3254,9 @@ function tourenViewHtml(){
 // gespeichert ist (t.summitIds trägt mehrere Gipfel-IDs, Reihenfolge = Begehungsrichtung).
 // Sobald gesucht/gefiltert wird, zeigt die Liste wieder alle passenden Touren einzeln.
 function tourenListOrGroupedHtml(list, activeFilterCount){
-  const isBrowsing = !state.search.trim() && !activeFilterCount && !state.onlyFavorites;
-  if(!isBrowsing) return `<div class="grid">${list.map(tourCardHtml).join('')}</div>`;
+  // Neuer Look: die Tourenliste zeigt immer einzelne Touren. Gipfel stehen im Gebiet (bzw. unter
+  // "Gipfel ohne Gebiet"), die Tour zeigt ihre Gipfel als antippbare Chips.
+  return `<div class="grid">${list.map(t=>tourCardHtml(t)).join('')}</div>`;
   const gipfelIds = new Set();
   list.forEach(t=> (t.summitIds||[]).forEach(gid=>gipfelIds.add(gid)));
   const directTourIds = new Set();
@@ -3317,6 +3323,13 @@ function gipfelCardHtml(g, tours){
   </div>`;
 }
 
+// Gipfel einer Tour als Chips (bei Überschreitungen in Begehungsrichtung). Nur zeigen, wenn es
+// mehr als den Gipfel im Tournamen zu sehen gibt.
+function summitChipsForCardHtml(t){
+  const gs = (t.summitIds||[]).map(id=>state.gipfel.find(g=>g.id===id)).filter(Boolean);
+  if(!gs.length || (gs.length===1 && (gs[0].name||'').trim()===(t.name||'').trim())) return '';
+  return `<div class="summit-chips">${gs.map((g,i)=>`${i ? '<span class="summit-sep" aria-hidden="true">→</span>' : ''}<button type="button" class="summit-chip" data-act="open-gipfel-chip" data-id="${g.id}">⛰️ ${esc(g.name)}</button>`).join('')}</div>`;
+}
 function gipfelSummitChainHtml(t){
   return (t.summitIds||[]).map(sid=>{
     const sg = state.gipfel.find(x=>x.id===sid);
@@ -3437,8 +3450,9 @@ function mslViewHtml(){
 // MSL-Routen am selben Berg schnell unübersichtlich. Sobald gesucht/gefiltert wird, zeigt die
 // Liste wieder alle passenden Touren einzeln, damit eine gesuchte Tour direkt auftaucht.
 function mslListOrGroupedHtml(list, activeFilterCount){
-  const isBrowsing = !state.search.trim() && !activeFilterCount && !state.onlyFavorites;
-  if(!isBrowsing) return `<div class="grid">${list.map(tourCardHtml).join('')}</div>`;
+  // Neuer Look: die Tourenliste zeigt immer einzelne Touren. Gipfel stehen im Gebiet (bzw. unter
+  // "Gipfel ohne Gebiet"), die Tour zeigt ihre Gipfel als antippbare Chips.
+  return `<div class="grid">${list.map(t=>tourCardHtml(t)).join('')}</div>`;
 
   const bySektor = {};
   const loose = [];
@@ -3515,7 +3529,6 @@ function tourCardHtml(t, draggable, opts){
   const hideWeather = opts && opts.hideWeather;
   return `
   <div class="card${draggable?' drag-card':''}" data-act="open-tour" data-id="${t.id}" ${draggable?`data-drag-tour-id="${t.id}"`:''} tabindex="0" role="button">
-    ${(!hideWeather && t.points && t.points.length) ? meteoCardForecastRowHtml(t.points[0].lat, t.points[0].lon) : ''}
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
       <div class="agenda-date-row" style="font-size:12px; margin-bottom:0;">${isMsl ? '🧗 MSL — Mehrseillängen' : '🏔️ Hochtour'}</div>
       ${favoriteToggleButtonHtml(t.id)}
@@ -3537,6 +3550,7 @@ function tourCardHtml(t, draggable, opts){
       ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span></span>` : ''}
     </div>
     ${t.region ? `<p class="excerpt">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
+    ${summitChipsForCardHtml(t)}
     ${hut ? `<span class="hut-link-chip">🛖 ${esc(hut.name)}</span>` : ''}
     ${last ? `<span class="hut-link-chip" style="background:#E3EFE6; color:#2F6B44;">✓ ${esc(last.by)} · ${esc(fmtDateOnly(last.date))}${t.completions.length>1 ? ` (+${t.completions.length-1})` : ''}</span>` : ''}
     ${t.crux ? `<div class="conditions-note">⚠ ${esc(t.crux)}</div>` : ''}
@@ -3688,24 +3702,30 @@ function filteredKlettergebiete(){
 }
 
 function sektorenViewHtml(){
-  const gebieteList = filteredKlettergebiete();
+  const gebieteAll = filteredKlettergebiete();
+  const gebieteList = applyGebietListControls(gebieteAll);
+  // Gipfel gehören ins Gebiet (nicht in die Tourenliste); Gipfel ohne Gebiet stehen hier separat.
+  const looseGipfel = state.gipfel.filter(gp=>!gp.klettergebietId && (!state.search.trim() || (gp.name||'').toLowerCase().includes(state.search.trim().toLowerCase())))
+    .sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   const standaloneList = filteredSektoren().filter(s=>!s.klettergebietId);
   const hasAny = gebieteList.length || standaloneList.length;
   return stageLayoutHtml(mapStripHtml({label:'Gebiete auf der Karte', kind:'klettergebiet', points: gebieteList.filter(g=>g.points&&g.points.length).map(g=>({id:g.id, lat:g.points[0].lat, lon:g.points[0].lon, label:g.name})), emptyText:'Noch kein Klettergebiet mit Kartenpunkt erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Klettergebiet, Sektor oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-klettergebiet">+ Neues Klettergebiet</button>
-      <button class="btn secondary" id="klettergebiet-new-scan-btn">📷 Gebiet per Foto(s) scannen</button>
+      <button class="btn secondary" id="klettergebiet-new-scan-btn" style="display:none;">📷 Gebiet per Foto(s) scannen</button>
       <input type="file" id="klettergebiet-new-scan-input" accept="image/*" multiple style="display:none;"/>
-      <button class="btn secondary" id="klettergebiet-new-scan-camera-btn">📸 Direkt fotografieren</button>
+      <button class="btn secondary" id="klettergebiet-new-scan-camera-btn" style="display:none;">📸 Direkt fotografieren</button>
       <input type="file" id="klettergebiet-new-scan-camera-input" accept="image/*" capture="environment" style="display:none;"/>
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
+    ${gebietListControlsHtml(gebieteAll, {scan:true})}
     <p id="klettergebiet-new-scan-status" style="font-size:12.5px; color:var(--ink-soft); margin:-6px 0 10px 0;"></p>
     ${!hasAny ? emptySektoren() : `
       ${gebieteList.length ? `<h4 style="margin:4px 0 8px;">⛰️ Klettergebiete</h4><div class="grid">${gebieteList.map(klettergebietCardHtml).join('')}</div>` : ''}
       ${standaloneList.length ? `<h4 style="margin:${gebieteList.length?'18px':'4px'} 0 8px;">🧭 Sektoren ohne Klettergebiet</h4><div class="grid">${standaloneList.map(sektorCardHtml).join('')}</div>` : ''}
     `}
+    ${looseGipfel.length && !gebietListState().onlyFav ? `<h4 style="margin:18px 0 8px;">⛰️ Gipfel ohne Gebiet</h4><div class="grid">${looseGipfel.map(gp=>gipfelCardHtml(gp, state.tours.filter(t=>Array.isArray(t.summitIds) && t.summitIds.includes(gp.id)))).join('')}</div>` : ''}
   `);
 }
 
@@ -3818,6 +3838,7 @@ function klettergebietCardHtml(geb){
     : `<img src="${esc(cardThumb.url)}" data-act="show-klettergebiet-topo-gallery" data-id="${geb.id}" style="width:122px; height:122px; flex-shrink:0; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; transform:rotate(${cardThumb.rotation||0}deg);"/>`) : '';
   return `
   <div class="card" data-act="open-klettergebiet" data-id="${geb.id}" tabindex="0" role="button" style="gap:6px;">
+    <div>${favoriteToggleButtonHtml(geb.id)}</div>
     ${(geb.points && geb.points.length) ? meteoCardForecastRowHtml(geb.points[0].lat, geb.points[0].lon) : ''}
     <div class="card-top">
       <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
@@ -4301,7 +4322,7 @@ function tourDetailHtml(id){
   const sektorTouren = t.sektorId ? state.tours.filter(x=>x.sektorId===t.sektorId) : [];
   const sektorTourIdx = sektorTouren.findIndex(x=>x.id===t.id);
   const sektorForPager = t.sektorId ? state.sektoren.find(s=>s.id===t.sektorId) : null;
-  return `<div class="modal" data-stop="1">
+  return `<div class="modal td" data-stop="1">
     <div class="modal-head">
       <div>
         <div class="agenda-date-row" style="font-size:12.5px;">${isMsl ? '🧗 MSL — Mehrseillängen-Klettertour' : '🏔️ Hochtour'}</div>
@@ -4326,7 +4347,6 @@ function tourDetailHtml(id){
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${(sektorForPager && sektorTouren.length>1) ? `<p style="color:var(--ink-faint); font-size:11px; margin:0 0 6px 0;">↔ ${esc(sektorForPager.name)} · Tour ${sektorTourIdx+1}/${sektorTouren.length} — wischen zum Wechseln</p>` : ''}
     <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-tour-status" data-id="${t.id}">${tourStatusLabel(t)} — antippen zum Ändern</button>
-    ${(t.points && t.points.length) ? meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon) : ''}
     ${(t.topoImages && t.topoImages.length) ? `<div class="detail-section" style="margin-bottom:14px;"><h4>Topo</h4>${topoImagesGalleryHtml(t.topoImages)}</div>` : ''}
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
@@ -4335,7 +4355,10 @@ function tourDetailHtml(id){
       ${t.pitchCount ? `<div class="detail-stat"><div class="num">${esc(t.pitchCount)}</div><div class="lbl">Seillängen</div></div>` : ''}
       ${t.longestPitch ? `<div class="detail-stat"><div class="num">${esc(t.longestPitch)}</div><div class="lbl">Längste SL</div></div>` : ''}
     </div>
+    ${summitChipsForCardHtml(t)}
     ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button>` : ''}
+    ${tourMapPoint(t) ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-3d" data-lat="${tourMapPoint(t).lat}" data-lon="${tourMapPoint(t).lon}">⛰️ In 3D ansehen</button>` : ''}
+    ${(t.points && t.points.length) ? meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon) : ''}
 
     ${!isMsl && (t.glacier==='ja' || t.crevasseRisk!=='nein') ? `<div class="detail-section"><h4>Gletscher &amp; Spalten</h4><p>${t.glacier==='ja'?'Gletscher: Ja':''}${t.glacier==='ja' && t.crevasseRisk && t.crevasseRisk!=='nein' ? ' · ' : ''}${t.crevasseRisk==='moeglich'?'Spaltenrisiko: möglich':t.crevasseRisk==='ausgepraegt'?'Spaltenrisiko: ausgeprägt':''}</p></div>` : ''}
     ${isMsl && protectionInfo ? `<div class="detail-section"><h4>Absicherung</h4><p>${protectionInfo.label} — ${protectionInfo.desc}</p></div>` : ''}

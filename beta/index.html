@@ -1442,7 +1442,6 @@ function tourCardHtml(t){
   const gebiet = t.gebietId ? state.gebiete.find(g=>g.id===t.gebietId) : null;
   return `
   <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
-    ${(t.points && t.points.length) ? meteoCardForecastRowHtml(t.points[0].lat, t.points[0].lon) : ''}
     <div style="display:flex; justify-content:flex-end; margin-bottom:-6px;">
       ${favoriteToggleButtonHtml(t.id)}
     </div>
@@ -1590,13 +1589,15 @@ function filteredGebiete(){
 }
 
 function gebieteViewHtml(){
-  const list = filteredGebiete();
+  const listAll = filteredGebiete();
+  const list = applyGebietListControls(listAll);
   return stageLayoutHtml(mapStripHtml({label:'Gebiete auf der Karte', kind:'gebiet', points: list.filter(g=>g.points&&g.points.length).map(g=>({id:g.id, lat:g.points[0].lat, lon:g.points[0].lon, label:g.name})), emptyText:'Noch kein Gebiet mit Kartenpunkt erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Gebiet oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-gebiet">+ Neues Gebiet</button>
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
+    ${gebietListControlsHtml(listAll, {scan:false})}
     ${list.length ? `<div class="grid">${list.map(gebietCardHtml).join('')}</div>` : emptyGebiete()}
   `);
 }
@@ -1618,6 +1619,7 @@ function gebietCardHtml(geb){
   const huetten = gebietHuetten(geb);
   return `
   <div class="card" data-act="open-gebiet" data-id="${geb.id}" tabindex="0" role="button">
+    <div>${favoriteToggleButtonHtml(geb.id)}</div>
     <div class="card-top">
       <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
     </div>
@@ -1626,6 +1628,7 @@ function gebietCardHtml(geb){
       <span>🎿 ${touren.length} Tour${touren.length===1?'':'en'}</span>
       <span>🛖 ${huetten.length} Hütte${huetten.length===1?'':'n'}</span>
     </div>
+    ${(geb.points && geb.points.length) ? meteoCardForecastRowHtml(geb.points[0].lat, geb.points[0].lon) : ''}
     ${geb._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
     <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
       <span>von ${esc(geb.createdBy||'?')} · ${fmtDate(geb.createdAt)}</span>
@@ -2166,7 +2169,7 @@ function tourDetailHtml(id){
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   const gebiet = t.gebietId ? state.gebiete.find(g=>g.id===t.gebietId) : null;
-  return `<div class="modal" data-stop="1">
+  return `<div class="modal td" data-stop="1">
     <div class="modal-head">
       <div>
         <div class="detail-badge-row">
@@ -2183,7 +2186,6 @@ function tourDetailHtml(id){
     ${t.routeName ? `<h2 style="margin:0 0 6px 0; color:var(--ink-soft);">${esc(t.routeName)}</h2>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-tour-status" data-id="${t.id}">${tourStatusLabel(t)} — antippen zum Ändern</button>
-    ${(t.points && t.points.length) ? meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon) : ''}
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abfahrt</div></div>` : ''}
@@ -2191,6 +2193,8 @@ function tourDetailHtml(id){
     </div>
     ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
     ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">⛰️ Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
+    ${tourMapPoint(t) ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-3d" data-lat="${tourMapPoint(t).lat}" data-lon="${tourMapPoint(t).lon}">⛰️ In 3D ansehen</button>` : ''}
+    ${(t.points && t.points.length) ? meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon) : ''}
 
     ${t.glacier==='ja' ? `<div class="detail-section"><h4>Gletscher</h4><p>Ja</p></div>` : ''}
     ${(t.exposition && t.exposition.length) ? `<div class="detail-section"><h4>Exposition</h4><p>${t.exposition.map(esc).join(', ')}</p></div>` : ''}
