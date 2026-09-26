@@ -480,3 +480,148 @@ main{ padding-top:6px; }
 /* Die grosse Karte öffnet man jetzt direkt auf der Bühne ("Grosse Karte") — kein zweiter Knopf im Blatt */
 .fs-sheet .toolbar > .btn.secondary[data-act="open-standalone-map"]{ display:none; }
 .map-strip-pin.open, .map-strip-cluster.open{ z-index:10; }
+
+/* =====================================================================
+   Schritt 3: Grosse Karte und Routenplanung
+   ===================================================================== */
+#fullscreen-map-overlay{ background:#E7ECEF !important; }
+/* Runde, ruhige Knöpfe auf der Karte (überschreibt die Inline-Stile der Leaflet-Controls) */
+#fullscreen-map-close{
+  top:calc(12px + env(safe-area-inset-top, 0px)) !important; right:12px !important;
+  height:48px !important; padding:0 16px !important; border:none !important; border-radius:999px !important;
+  background:rgba(255,255,255,.92) !important; color:var(--ink) !important;
+  -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px);
+  box-shadow:0 4px 16px rgba(15,30,39,.18) !important; font-family:var(--font-ui) !important;
+  font-size:14.5px !important; font-weight:700 !important;
+}
+.fsm-ctl{
+  background:rgba(255,255,255,.92) !important; color:var(--ink) !important;
+  -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px);
+  box-shadow:0 4px 16px rgba(15,30,39,.18) !important; border:none !important;
+  font-family:var(--font-ui) !important;
+}
+.fsm-filter, .fsm-search{ margin-left:12px !important; }
+.fsm-search{ margin-right:12px !important; }
+.fsm-filter:not([style*="padding"]), .fsm-search:not([style*="padding"]){ width:48px !important; height:48px !important; }
+.fsm-filter .fs-i, .fsm-search .fs-i{ width:22px; height:22px; color:var(--ink); }
+.fsm-filter[style*="padding"], .fsm-search[style*="padding"]{ border-radius:18px !important; padding:10px !important; }
+.fsm-search input{ min-height:40px; border-radius:999px !important; padding:0 14px !important; font-size:14px !important; }
+/* Standort-Knopf: nur Icon, rund; aktiv in Akzentfarbe */
+.fsm-gps{
+  width:52px !important; height:52px !important; padding:0 !important; border-radius:50% !important;
+  font-size:0 !important; margin:0 12px 16px 0 !important;
+  display:flex !important; align-items:center; justify-content:center;
+}
+.fsm-gps .fs-i{ width:24px; height:24px; color:var(--ice-deep); }
+.fsm-gps.on{ background:var(--ice-deep) !important; }
+.fsm-gps.on .fs-i{ color:#fff; }
+/* Punkt setzen: rechts über dem Standort-Knopf statt mitten auf der Karte */
+#add-point-toggle{
+  left:auto !important; right:12px !important; bottom:84px !important; transform:none !important;
+  background:rgba(255,255,255,.92); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px);
+  box-shadow:0 4px 16px rgba(15,30,39,.18) !important; color:var(--ink);
+}
+#add-point-toggle .fs-i{ width:24px; height:24px; }
+/* Zoom-Knöpfe nur mit Maus (am Handy zoomt man mit zwei Fingern) */
+.leaflet-control-zoom{ border:none !important; box-shadow:0 4px 16px rgba(15,30,39,.18) !important; border-radius:14px !important; overflow:hidden; margin-left:12px !important; }
+.leaflet-control-zoom a{ width:44px !important; height:44px !important; line-height:44px !important; color:var(--ink) !important; }
+@media (pointer:coarse){ .leaflet-control-zoom{ display:none; } }
+.leaflet-control-layers{
+  border:none !important; border-radius:16px !important;
+  box-shadow:0 4px 16px rgba(15,30,39,.18) !important; margin:0 0 16px 12px !important;
+  font-family:var(--font-ui);
+}
+.leaflet-control-layers-toggle{ width:52px !important; height:52px !important; border-radius:16px; }
+.leaflet-control-layers-expanded{ padding:12px 14px !important; font-size:14px; }
+.leaflet-popup-content-wrapper{ border-radius:16px; box-shadow:var(--shadow-lg); font-family:var(--font-ui); }
+.leaflet-container{ font-family:var(--font-ui); }
+
+/* Routenplanung: eingeklappt ein Knopf unten in der Mitte, ausgeklappt ein Blatt */
+.fsp{ position:absolute; z-index:1000; }
+.fsp-collapsed{ left:50%; bottom:calc(16px + env(safe-area-inset-bottom, 0px)); transform:translateX(-50%); }
+.fsp-fab{
+  display:inline-flex; align-items:center; gap:8px; height:52px; padding:0 22px;
+  border:none; border-radius:999px; background:var(--ice-deep); color:#fff;
+  font-family:var(--font-ui); font-size:15.5px; font-weight:800; white-space:nowrap;
+  box-shadow:0 10px 26px rgba(15,30,39,.28); cursor:pointer;
+}
+.fsp-fab .fs-i{ width:20px; height:20px; }
+.fsp-open{
+  left:0; right:0; bottom:0; max-height:56%; overflow-y:auto;
+  background:var(--cream); border-radius:26px 26px 0 0;
+  box-shadow:0 -10px 34px rgba(15,30,39,.2);
+  padding:6px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  font-family:var(--font-ui); color:var(--ink);
+}
+.fsp-head{ position:relative; display:flex; align-items:center; justify-content:space-between; padding:14px 0 10px; }
+.fsp-grip{ position:absolute; top:4px; left:50%; transform:translateX(-50%); width:40px; height:5px; border-radius:3px; background:#C9D2D8; }
+.fsp-head h3{ font-size:28px; line-height:1; margin:0; }
+.fsp-x, .fsp-icon{
+  width:44px; height:44px; flex-shrink:0; border-radius:50%; border:none; cursor:pointer;
+  background:#E6EBEE; color:var(--ink); display:inline-flex; align-items:center; justify-content:center;
+}
+.fsp-icon[disabled]{ opacity:.5; }
+.fsp-icon.on{ background:var(--ice-deep); color:#fff; }
+.fsp-icon .fs-i, .fsp-x .fs-i{ width:20px; height:20px; }
+.fsp-icon-lg{ width:54px; height:54px; border-radius:18px; background:var(--paper); border:1px solid var(--line); }
+.fsp-stops{ background:var(--paper); border-radius:20px; padding:4px 12px; box-shadow:var(--shadow); position:relative; }
+.fsp-stop{ display:flex; align-items:center; gap:12px; min-height:60px; border-bottom:1px solid var(--line-soft); position:relative; }
+.fsp-stop-body{ flex:1; min-width:0; }
+.fsp-stop-actions{ display:flex; gap:6px; }
+.fsp-k{ font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint); }
+.fsp-v{ font-size:15px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fsp-muted{ color:var(--ink-faint); font-weight:600; }
+.fsp-dot{
+  width:22px; height:22px; flex-shrink:0; border-radius:50%; box-sizing:border-box;
+  display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:800;
+}
+.fsp-dot-start{ border:5px solid var(--ink); background:#fff; }
+.fsp-dot-via{ border:2.5px solid var(--ice-deep); background:#fff; color:var(--ice-deep); }
+.fsp-dot-end{ background:var(--ice-deep); box-shadow:0 0 0 4px var(--ice-light); }
+.fsp-pill{
+  height:40px; padding:0 12px; border-radius:999px; border:1px solid var(--line); background:var(--paper);
+  color:var(--ink); font-family:var(--font-ui); font-size:13px; font-weight:700; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:5px; cursor:pointer;
+}
+.fsp-pill .fs-i{ color:var(--ice-deep); }
+.fsp-search{ margin:2px 0 0; }
+.fsp-search input{
+  width:100%; min-height:36px; border:none; border-bottom:1.5px solid var(--line); background:transparent;
+  font-family:var(--font-ui); font-size:15px; font-weight:600; color:var(--ink); padding:0; outline:none;
+}
+.fsp-search input:focus{ border-bottom-color:var(--ice-deep); }
+.fsp-cands{ display:flex; flex-direction:column; gap:4px; padding:10px 0; border-bottom:1px solid var(--line-soft); }
+.fsp-cands button{
+  text-align:left; background:#F1F4F6; border:none; border-radius:12px; padding:10px 12px;
+  font-family:var(--font-ui); font-size:14px; color:var(--ink); cursor:pointer; display:flex; gap:8px; align-items:center;
+}
+.fsp-add{
+  width:100%; min-height:48px; border:none; background:none; cursor:pointer;
+  font-family:var(--font-ui); font-size:14px; font-weight:700; color:var(--ice-deep);
+  display:flex; align-items:center; gap:8px; padding:0 2px;
+}
+.fsp-add.on{ color:var(--signal-deep); }
+.fsp-hint{ font-size:13px; color:var(--ink-soft); margin:12px 4px 0; line-height:1.45; }
+.fsp-stats{
+  display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); margin-top:12px;
+  background:var(--paper); border-radius:18px; padding:12px 4px; box-shadow:var(--shadow);
+}
+.fsp-stats div{ text-align:center; border-left:1px solid var(--line-soft); }
+.fsp-stats div:first-child{ border-left:none; }
+.fsp-stats b{ display:block; font-size:20px; font-weight:800; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+.fsp-stats span{ font-size:10.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); }
+.fsp-profile{ margin-top:10px; }
+.fsp-note{ font-size:11.5px; color:var(--ink-faint); margin:6px 4px 0; }
+.fsp-actions{ display:flex; gap:10px; margin-top:14px; }
+.fsp-actions .btn{ flex:1; min-height:54px; border-radius:18px; font-size:15.5px; font-weight:800; }
+.fsp-actions .btn[disabled]{ opacity:.45; }
+/* Marker der Routenplanung */
+.fsp-marker{
+  width:30px; height:30px; border-radius:50%; box-sizing:border-box;
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--font-ui); font-size:12px; font-weight:800;
+  box-shadow:0 3px 10px rgba(15,30,39,.35);
+}
+.fsp-marker-start{ background:#fff; border:7px solid var(--ink); }
+.fsp-marker-via{ background:#fff; border:3px solid var(--ice-deep); color:var(--ice-deep); }
+.fsp-marker-end{ background:var(--ice-deep); border:4px solid #fff; }

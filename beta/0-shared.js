@@ -2247,6 +2247,10 @@ function renderStandaloneMap(containerId){
       // (siehe weiter unten), wird der Klick dafür verwendet und nicht mehr an die Skitouren-/
       // Sperrungs-Erkennung weitergereicht. Bei Zwischenpunkten bleibt der Auswahlmodus aktiv,
       // damit mehrere hintereinander gesetzt werden können, ohne den Button erneut zu drücken.
+      if(typeof plannerExpanded !== 'undefined' && plannerExpanded && !plannerPicking && !(typeof addPointPicking !== 'undefined' && addPointPicking)){
+        plannerTapOnMap(e.latlng.lat, e.latlng.lng);
+        return;
+      }
       if(typeof plannerPicking !== 'undefined' && plannerPicking){
         if(plannerPicking === 'waypoint'){
           addPlannerWaypoint(e.latlng.lat, e.latlng.lng);
@@ -2285,13 +2289,14 @@ function renderStandaloneMap(containerId){
     // unterschieden und einzeln ein-/ausblendbar. Antippen eines Punkts/Tracks öffnet die
     // jeweilige Tour direkt.
     const TOUR_CATEGORY_META = {
-      hochtour: { label: '🏔️ Hochtour', color: '#6A3FA0' },
-      msl: { label: '🧗 MSL', color: '#1E8A7A' },
-      skitour: { label: '🎿 Skitour', color: '#1F4D63' },
-      huette: { label: '🛖 Hütten', color: '#8A5A2E' },
-      sektor: { label: '⛺ Sektoren', color: '#4A6B3A' },
-      klettergebiet: { label: '⛰️ Klettergebiete', color: '#C77B2E' },
-      zustieg: { label: '🚶 Zustiege', color: '#1565C0' }
+      // Neuer Look: dieselben Akzentfarben wie die Disziplinen (Skitour/Hochtour/Klettern).
+      hochtour: { label: '🏔️ Hochtour', color: '#4E5A9C' },
+      msl: { label: '🧗 MSL', color: '#9A5418' },
+      skitour: { label: '🎿 Skitour', color: '#1E6AA0' },
+      huette: { label: '🛖 Hütten', color: '#33434D' },
+      sektor: { label: '⛺ Sektoren', color: '#5E7A3A' },
+      klettergebiet: { label: '⛰️ Klettergebiete', color: '#B06A2A' },
+      zustieg: { label: '🚶 Zustiege', color: '#2F7DB5' }
     };
     // Sommerzustiege gelb, Winterzustiege (und Tour-/Sektor-Routen ohne Saison) blau —
     // analog zur Farblogik in accessRouteColor() für die einzelnen Zustiegs-Karten.
@@ -2707,7 +2712,7 @@ function renderStandaloneMap(containerId){
       const TourFilterControl = L.Control.extend({
         options: { position: 'topleft' },
         onAdd: function(){
-          const wrap = L.DomUtil.create('div', '');
+          const wrap = L.DomUtil.create('div', 'fsm-ctl fsm-filter');
           L.DomEvent.disableClickPropagation(wrap);
           let expanded = false;
           function renderControl(){
@@ -2766,7 +2771,7 @@ function renderStandaloneMap(containerId){
       const SearchControl = L.Control.extend({
         options: { position: 'topright' },
         onAdd: function(){
-          const wrap = L.DomUtil.create('div', '');
+          const wrap = L.DomUtil.create('div', 'fsm-ctl fsm-search');
           L.DomEvent.disableClickPropagation(wrap);
           L.DomEvent.disableScrollPropagation(wrap);
           let expanded = false;
@@ -2878,7 +2883,7 @@ function renderStandaloneMap(containerId){
     const GpsControl = L.Control.extend({
       options: { position: 'bottomright' },
       onAdd: function(ctrlMap){
-        const btn = L.DomUtil.create('button', '');
+        const btn = L.DomUtil.create('button', 'fsm-ctl fsm-gps');
         btn.type = 'button';
         btn.textContent = '🧭 Standort anzeigen';
         btn.style.cssText = 'background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 16px; height:44px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.4); margin:0 10px 10px 0;';
@@ -2891,10 +2896,12 @@ function renderStandaloneMap(containerId){
             ctrlMap.locate({ setView:true, maxZoom:15, watch:true, enableHighAccuracy:true });
             gpsActive = true;
             btn.textContent = '🧭 Standort ausblenden';
+            btn.classList.add('on');
           }else{
             ctrlMap.stopLocate();
             gpsActive = false;
             btn.textContent = '🧭 Standort anzeigen';
+            btn.classList.remove('on');
           }
         });
         ctrlMap.on('locationfound', (e)=>{
@@ -2908,6 +2915,7 @@ function renderStandaloneMap(containerId){
           showToast('Standort konnte nicht ermittelt werden: ' + (err && err.message ? err.message : ''), true);
           gpsActive = false;
           btn.textContent = '🧭 Standort anzeigen';
+          btn.classList.remove('on');
         });
         return btn;
       }
@@ -2958,9 +2966,12 @@ function renderStandaloneMap(containerId){
     let plannerCalcBusy = false;
     let plannerResult = null; // {coords, distanceM, durationS, ascentM, descentM}
     let plannerStartMarker = null, plannerEndMarker = null, plannerRouteLine = null;
+    let plannerEndEditing = false; // Ziel ist gesetzt, soll aber per Suche ersetzt werden
+    let plannerAutoCalcTimer = null;
 
     const plannerPanel = document.createElement('div');
     plannerPanel.id = 'planner-panel';
+    plannerPanel.className = 'fsp';
     L.DomEvent.disableClickPropagation(plannerPanel);
     L.DomEvent.disableScrollPropagation(plannerPanel);
     el2.appendChild(plannerPanel);
@@ -2968,16 +2979,37 @@ function renderStandaloneMap(containerId){
     // Farbige Punkt-Icons als echte L.marker (statt L.circleMarker) — nur L.marker unterstützt
     // in Leaflet ohne Zusatz-Plugin das Ziehen (draggable:true), was Start/Ziel/Zwischenpunkte
     // direkt auf der Karte korrigierbar macht.
+    // Neuer Look: Start = weiss mit dunklem Ring, Zwischenpunkt = weiss mit Akzent-Ring und
+    // Nummer, Ziel = Akzentfarbe gefüllt (Farben siehe .fsp-marker in look.css).
     function makePlannerDivIcon(color, label){
+      const kind = label==='S' ? 'start' : label==='Z' ? 'end' : 'via';
       return L.divIcon({
-        className: '', iconSize: [18,18], iconAnchor: [9,9],
-        html: `<div style="width:18px; height:18px; border-radius:50%; background:${color}; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; font-size:9px; color:#fff; font-weight:700; line-height:1;">${label||''}</div>`
+        className: '', iconSize: [30,30], iconAnchor: [15,15],
+        html: `<div class="fsp-marker fsp-marker-${kind}">${kind==='via' ? (label||'') : ''}</div>`
       });
     }
 
     function invalidatePlannerResult(){
       plannerResult = null;
       if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
+      scheduleAutoPlannerCalc();
+    }
+    // Sobald Start und Ziel stehen, rechnet sich die Route nach jeder Änderung (Punkt gesetzt,
+    // verschoben, entfernt) von selbst neu — kurz verzögert, damit mehrere Änderungen
+    // hintereinander nur eine Anfrage auslösen.
+    let plannerRecalcPending = false;
+    function scheduleAutoPlannerCalc(){
+      clearTimeout(plannerAutoCalcTimer);
+      if(!plannerStart || !plannerEnd) return;
+      if(plannerCalcBusy){ plannerRecalcPending = true; return; }
+      plannerAutoCalcTimer = setTimeout(()=>{ if(!plannerResult) calculatePlannerRoute(); }, 450);
+    }
+    // Tipp auf die Karte bei offener Planung (ohne gewählten Modus): erst Start, dann Ziel,
+    // danach Zwischenpunkte.
+    function plannerTapOnMap(lat, lon){
+      if(!plannerStart){ setPlannerPoint('start', lat, lon, 'Punkt auf der Karte'); return; }
+      if(!plannerEnd){ setPlannerPoint('end', lat, lon, 'Zielpunkt auf der Karte'); return; }
+      addPlannerWaypoint(lat, lon);
     }
 
     function setPlannerPoint(which, lat, lon, label){
@@ -2997,6 +3029,7 @@ function renderStandaloneMap(containerId){
       }else{
         plannerEnd = point;
         plannerEndCandidates = null;
+        plannerEndEditing = false;
         if(plannerEndMarker){
           plannerEndMarker.setLatLng([lat,lon]);
         }else{
@@ -3086,17 +3119,27 @@ function renderStandaloneMap(containerId){
         const result = await fetchCalculatedRoute(coords);
         plannerResult = result;
         if(plannerRouteLine) map.removeLayer(plannerRouteLine);
-        plannerRouteLine = L.polyline(result.coords, {color:'#1565C0', weight:5, opacity:0.9}).addTo(map);
-        map.fitBounds(plannerRouteLine.getBounds(), {padding:[40,40]});
+        const accent = (getComputedStyle(document.documentElement).getPropertyValue('--ice-deep') || '#1E6AA0').trim();
+        plannerRouteLine = L.polyline(result.coords, {color:accent, weight:6, opacity:0.95, lineCap:'round', lineJoin:'round'}).addTo(map);
+        map.fitBounds(plannerRouteLine.getBounds(), {paddingTopLeft:[40,80], paddingBottomRight:[40, Math.round(plannerPanel.offsetHeight||0) + 30]});
       }catch(e){
         showToast('Route konnte nicht berechnet werden: ' + (e && e.message ? e.message : e), true);
       }
       plannerCalcBusy = false;
+      // Wurde während der Berechnung ein Punkt verändert, gilt das Ergebnis nicht mehr.
+      if(plannerRecalcPending){ plannerRecalcPending = false; invalidatePlannerResult(); }
       renderPlannerPanel();
     }
 
     function discardPlannerRoute(){
-      invalidatePlannerResult();
+      clearTimeout(plannerAutoCalcTimer); plannerRecalcPending = false;
+      plannerWaypoints.forEach(wp=> map.removeLayer(wp.marker));
+      plannerWaypoints = [];
+      if(plannerStartMarker){ map.removeLayer(plannerStartMarker); plannerStartMarker = null; }
+      if(plannerEndMarker){ map.removeLayer(plannerEndMarker); plannerEndMarker = null; }
+      plannerStart = null; plannerEnd = null; plannerPicking = null; plannerEndCandidates = null; plannerEndEditing = false;
+      plannerResult = null;
+      if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
       renderPlannerPanel();
     }
 
@@ -3108,7 +3151,12 @@ function renderStandaloneMap(containerId){
       if(!plannerStart || !plannerEnd) return;
       ensureName(()=>{
         const isFixseilAppNow = typeof SEKTOREN_PATH !== 'undefined';
-        const name = (plannerStart.label + ' → ' + plannerEnd.label).slice(0, 120);
+        // Ohne echte Ortsnamen (nur auf der Karte getippt) ein lesbarer Name statt
+        // "Punkt auf der Karte → Zielpunkt auf der Karte".
+        const generic = /auf der Karte|\(verschoben\)|^Mein Standort$/;
+        const name = (generic.test(plannerStart.label) && generic.test(plannerEnd.label))
+          ? 'Neue Route ' + new Date().toLocaleDateString('de-CH')
+          : (plannerStart.label + ' → ' + plannerEnd.label).slice(0, 120);
         const t = {
           id: uid('t'), name, routeName: '',
           difficulty: '', targetAltitude: '',
@@ -3157,77 +3205,105 @@ function renderStandaloneMap(containerId){
       </div>`;
     }
 
+    // Neuer Look (Schritt 3): ruhige Stationen-Liste statt Formular, Punkte direkt auf der Karte
+    // antippen (erst Start, dann Ziel, danach Zwischenpunkte, siehe plannerTapOnMap), Route rechnet
+    // sich automatisch neu, sobald sich ein Punkt ändert (scheduleAutoPlannerCalc).
+    function plannerHintText(){
+      if(plannerPicking==='start') return 'Tippe auf die Karte, um den Start zu setzen.';
+      if(plannerPicking==='end') return 'Tippe auf die Karte, um das Ziel zu setzen.';
+      if(plannerPicking==='waypoint') return 'Tippe auf die Karte für weitere Zwischenpunkte.';
+      if(!plannerStart) return 'Tippe auf die Karte, um den Start zu setzen, oder nimm deinen Standort.';
+      if(!plannerEnd) return 'Tippe auf die Karte oder suche einen Ort für das Ziel.';
+      if(plannerCalcBusy) return 'Route wird berechnet …';
+      if(!plannerResult) return '';
+      return 'Weitere Tipps auf die Karte setzen Zwischenpunkte. Alle Punkte lassen sich verschieben.';
+    }
     function renderPlannerPanel(){
-      const canCalc = plannerStart && plannerEnd && !plannerCalcBusy;
-      // Collapsed: kleiner, runder Icon-Button unten mittig — bewusst nicht in einer Ecke und
-      // nicht als breite Textpille, da Leaflet die Ecken bereits selbst belegt (Ebenen-Auswahl
-      // unten links, Standort-Button unten rechts, Tourenart-Filter oben links); so bleibt auch
-      // auf schmalen Handy-Bildschirmen garantiert Abstand zu beiden unteren Controls.
-      // Expanded: volle Breite als Bottom-Sheet, dann sind die Kartensteuerelemente ohnehin
-      // vorübergehend verdeckt (die Karte wird zu diesem Zeitpunkt nicht bedient).
-      plannerPanel.style.cssText = plannerExpanded
-        ? 'position:absolute; left:0; right:0; bottom:0; z-index:1000; background:#fff; border-radius:14px 14px 0 0; box-shadow:0 -4px 20px rgba(0,0,0,0.35); max-height:55%; overflow-y:auto;'
-        : 'position:absolute; left:50%; bottom:12px; transform:translateX(-50%); z-index:1000; background:#fff; border-radius:50%; box-shadow:0 3px 12px rgba(0,0,0,0.4); width:52px; height:52px;';
+      const accent = (getComputedStyle(document.documentElement).getPropertyValue('--ice-deep') || '#1E6AA0').trim();
+      if(plannerRouteLine) plannerRouteLine.setStyle({color: accent});
+      if(!plannerExpanded){
+        plannerPanel.className = 'fsp fsp-collapsed';
+        plannerPanel.style.cssText = '';
+        plannerPanel.innerHTML = `<button type="button" class="fsp-fab" data-act="planner-toggle">🧭 Route planen</button>`;
+        wirePlannerPanel();
+        return;
+      }
+      plannerPanel.className = 'fsp fsp-open';
+      plannerPanel.style.cssText = '';
+      const showEndInput = !plannerEnd || plannerEndEditing;
+      const hint = plannerHintText();
+      const km = plannerResult && typeof plannerResult.distanceM==='number' ? (plannerResult.distanceM>=1000 ? (plannerResult.distanceM/1000).toFixed(1).replace('.',',') : String(Math.round(plannerResult.distanceM))) : null;
+      const kmUnit = plannerResult && plannerResult.distanceM>=1000 ? 'km' : 'm';
       plannerPanel.innerHTML = `
-        <button type="button" data-act="planner-toggle" title="Wanderung planen" style="${plannerExpanded ? 'width:100%; padding:12px 18px; justify-content:center;' : 'width:52px; height:52px; padding:0; justify-content:center; font-size:22px;'} background:none; border:none; font-family:'Manrope', sans-serif; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; font-size:${plannerExpanded ? '14px' : '22px'}; color:var(--ice-deep); display:flex; align-items:center; gap:8px; cursor:pointer; white-space:nowrap; border-radius:50%;">
-          ${plannerExpanded ? '🧭 Wanderung planen ▾' : '🧭'}
-        </button>
-        ${plannerExpanded ? `
-        <div style="padding:0 16px 18px 16px;">
-          <div style="margin-bottom:12px;">
-            <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:var(--ink-soft); margin-bottom:5px;">Start</label>
-            <div class="chips" style="margin-bottom:6px;">
-              <button type="button" class="chip ${plannerStartMode==='gps'?'on':''}" style="${plannerStartMode==='gps'?'background:var(--ice-deep)':''}" data-act="planner-start-gps">📍 Mein Standort</button>
-              <button type="button" class="chip ${plannerStartMode==='map'?'on':''}" style="${plannerStartMode==='map'?'background:var(--ice-deep)':''}" data-act="planner-start-map">🗺️ Punkt auf Karte</button>
+        <div class="fsp-head">
+          <span class="fsp-grip" aria-hidden="true"></span>
+          <h3>Route planen</h3>
+          <button type="button" class="fsp-x" data-act="planner-toggle" aria-label="Planung einklappen">${fsIconHtml('chevdown')}</button>
+        </div>
+        <div class="fsp-stops">
+          <div class="fsp-stop">
+            <span class="fsp-dot fsp-dot-start" aria-hidden="true"></span>
+            <div class="fsp-stop-body">
+              <div class="fsp-k">Start</div>
+              <div class="fsp-v ${plannerStart ? '' : 'fsp-muted'}">${plannerStart ? esc(plannerStart.label) : 'Noch nicht gesetzt'}</div>
             </div>
-            ${plannerPicking==='start' ? `<p style="font-size:12.5px; color:var(--ice-deep); margin:0;">Tippe auf die Karte, um den Startpunkt zu setzen…</p>` : ''}
-            ${plannerStart ? `<p style="font-size:13px; color:var(--ink); margin:0;">✓ ${esc(plannerStart.label)} <span style="color:var(--ink-faint); font-size:11.5px;">(auf der Karte verschiebbar)</span></p>` : ''}
+            <div class="fsp-stop-actions">
+              <button type="button" class="fsp-icon" data-act="planner-start-gps" aria-label="Mein Standort als Start" title="Mein Standort als Start">${fsIconHtml('gps')}</button>
+              <button type="button" class="fsp-icon ${plannerPicking==='start'?'on':''}" data-act="planner-start-map" aria-label="Start auf der Karte wählen" title="Start auf der Karte wählen">${fsIconHtml('pin')}</button>
+            </div>
           </div>
-          <div style="margin-bottom:14px;">
-            <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:var(--ink-soft); margin-bottom:5px;">Zwischenpunkte (optional)</label>
-            ${plannerWaypoints.length ? `<div style="display:flex; flex-direction:column; gap:4px; margin-bottom:6px; max-height:110px; overflow-y:auto;">
-              ${plannerWaypoints.map((wp,i)=>`<div style="display:flex; align-items:center; justify-content:space-between; background:var(--ice-light); border-radius:4px; padding:5px 9px; font-size:12.5px;">
-                <span>${i+1}. Zwischenpunkt <span style="color:var(--ink-faint);">(verschiebbar)</span></span>
-                <button type="button" data-act="planner-waypoint-remove" data-index="${i}" style="background:none; border:none; color:var(--danger); font-weight:700; cursor:pointer; padding:0 4px;">×</button>
-              </div>`).join('')}
+          ${plannerWaypoints.map((wp,i)=>`
+          <div class="fsp-stop">
+            <span class="fsp-dot fsp-dot-via" aria-hidden="true">${i+1}</span>
+            <div class="fsp-stop-body"><div class="fsp-v">Zwischenpunkt ${i+1}</div></div>
+            <div class="fsp-stop-actions">
+              <button type="button" class="fsp-icon" data-act="planner-waypoint-remove" data-index="${i}" aria-label="Zwischenpunkt ${i+1} entfernen" title="Entfernen">${fsIconHtml('x')}</button>
+            </div>
+          </div>`).join('')}
+          <div class="fsp-stop">
+            <span class="fsp-dot fsp-dot-end" aria-hidden="true"></span>
+            <div class="fsp-stop-body">
+              <div class="fsp-k">Ziel</div>
+              ${showEndInput ? `
+                <form class="fsp-search" data-act="planner-search-form">
+                  <input type="text" id="planner-search-input" placeholder="Ort, Hütte oder Gipfel suchen" aria-label="Ziel suchen" enterkeyhint="search"/>
+                </form>` : `<div class="fsp-v">${esc(plannerEnd.label)}</div>`}
+            </div>
+            <div class="fsp-stop-actions">
+              ${showEndInput
+                ? `<button type="button" class="fsp-icon" data-act="planner-search-btn" aria-label="Suchen" title="Suchen" ${plannerSearchBusy?'disabled':''}>${plannerSearchBusy ? '…' : fsIconHtml('search')}</button>`
+                : `<button type="button" class="fsp-icon" data-act="planner-end-edit" aria-label="Ziel suchen" title="Ziel suchen">${fsIconHtml('search')}</button>`}
+              <button type="button" class="fsp-icon ${plannerPicking==='end'?'on':''}" data-act="planner-end-map" aria-label="Ziel auf der Karte wählen" title="Ziel auf der Karte wählen">${fsIconHtml('pin')}</button>
+            </div>
+          </div>
+          ${plannerEndCandidates ? `
+            <div class="fsp-cands">
+              <div class="fsp-k">Welcher Ort ist gemeint?</div>
+              ${plannerEndCandidates.map((c,i)=>`<button type="button" data-act="planner-end-candidate" data-index="${i}">📍 ${esc(c.label)}</button>`).join('')}
             </div>` : ''}
-            <button type="button" class="chip ${plannerPicking==='waypoint'?'on':''}" style="${plannerPicking==='waypoint'?'background:var(--ice-deep)':''}" data-act="planner-add-waypoint">➕ Zwischenpunkt auf Karte setzen</button>
-            ${plannerPicking==='waypoint' ? `<p style="font-size:12.5px; color:var(--ice-deep); margin:6px 0 0 0;">Tippe auf die Karte — beliebig oft, dann nochmal antippen zum Beenden.</p>` : ''}
+          <button type="button" class="fsp-add ${plannerPicking==='waypoint'?'on':''}" data-act="planner-add-waypoint">➕ ${plannerPicking==='waypoint' ? 'Fertig mit Zwischenpunkten' : 'Zwischenpunkt setzen'}</button>
+        </div>
+        ${hint ? `<p class="fsp-hint">${esc(hint)}</p>` : ''}
+        ${plannerResult ? `
+          <div class="fsp-stats">
+            ${km!==null ? `<div><b>${km}</b><span>${kmUnit}</span></div>` : ''}
+            <div><b>${Math.round(plannerResult.ascentM||0)}</b><span>Hm auf</span></div>
+            <div><b>${Math.round(plannerResult.descentM||0)}</b><span>Hm ab</span></div>
+            ${typeof plannerResult.durationS==='number' ? `<div><b>${Math.floor(plannerResult.durationS/3600)}:${String(Math.round(plannerResult.durationS/60)%60).padStart(2,'0')}</b><span>Std</span></div>` : ''}
           </div>
-          <div style="margin-bottom:14px;">
-            <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.03em; color:var(--ink-soft); margin-bottom:5px;">Ziel</label>
-            <div style="display:flex; gap:6px; margin-bottom:6px;">
-              <input type="text" id="planner-search-input" placeholder="Ortsname eingeben…" style="flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); font-size:14px;"/>
-              <button type="button" class="btn secondary" data-act="planner-search-btn" ${plannerSearchBusy?'disabled':''}>${plannerSearchBusy ? '…' : 'Suchen'}</button>
-            </div>
-            <button type="button" class="chip ${plannerEndMode==='map'?'on':''}" style="${plannerEndMode==='map'?'background:var(--ice-deep)':''}" data-act="planner-end-map">🗺️ Punkt auf Karte</button>
-            ${plannerPicking==='end' ? `<p style="font-size:12.5px; color:var(--ice-deep); margin:6px 0 0 0;">Tippe auf die Karte, um den Zielpunkt zu setzen…</p>` : ''}
-            ${plannerEndCandidates ? `
-              <p style="font-size:12.5px; color:var(--ink-soft); margin:8px 0 4px 0;">Welcher Ort ist gemeint?</p>
-              <div style="display:flex; flex-direction:column; gap:4px;">
-                ${plannerEndCandidates.map((c,i)=>`<button type="button" data-act="planner-end-candidate" data-index="${i}" style="text-align:left; background:var(--ice-light); border:none; border-radius:4px; padding:8px 10px; font-size:13px; color:var(--ink); cursor:pointer;">📍 ${esc(c.label)}</button>`).join('')}
-              </div>
-            ` : ''}
-            ${plannerEnd ? `<p style="font-size:13px; color:var(--ink); margin:6px 0 0 0;">✓ ${esc(plannerEnd.label)} <span style="color:var(--ink-faint); font-size:11.5px;">(auf der Karte verschiebbar)</span></p>` : ''}
-          </div>
-          <button type="button" class="btn" data-act="planner-calc" style="width:100%;" ${canCalc?'':'disabled'}>${plannerCalcBusy ? 'Berechne…' : '🧭 Route berechnen'}</button>
-          ${plannerResult ? `
-            <div style="display:flex; gap:8px; margin-top:12px;">
-              ${typeof plannerResult.distanceM==='number' ? statCardHtml('📏', plannerResult.distanceM>=1000 ? (plannerResult.distanceM/1000).toFixed(1).replace('.',',')+' km' : Math.round(plannerResult.distanceM)+' m') : ''}
-              ${(typeof plannerResult.ascentM==='number' || typeof plannerResult.descentM==='number') ? statCardHtml('⛰️', '↑'+Math.round(plannerResult.ascentM||0)+' / ↓'+Math.round(plannerResult.descentM||0)) : ''}
-              ${typeof plannerResult.durationS==='number' ? statCardHtml('⏱️', formatDurationShort(plannerResult.durationS).replace('ca. ', '')) : ''}
-            </div>
-            ${elevationProfileSvgHtml(plannerResult.elevationProfile)}
-            <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Grobe Schätzung, ohne Pausen. Eigene Position während der Wanderung: Button "🧭 Standort anzeigen" unten rechts auf der Karte.</p>
-            <div style="display:flex; gap:8px; margin-top:10px;">
-              <button type="button" class="btn secondary" data-act="planner-discard" style="flex:1;">Verwerfen</button>
-              <button type="button" class="btn" data-act="planner-save" style="flex:1;">💾 Als Entwurf speichern</button>
-            </div>
-          ` : ''}
-        </div>` : ''}
+          <div class="fsp-profile">${elevationProfileSvgHtml(plannerResult.elevationProfile)}</div>
+          <p class="fsp-note">Grobe Schätzung, ohne Pausen.</p>
+        ` : ''}
+        <div class="fsp-actions">
+          ${(plannerStart || plannerEnd || plannerWaypoints.length) ? `<button type="button" class="fsp-icon fsp-icon-lg" data-act="planner-discard" aria-label="Route verwerfen" title="Verwerfen">${fsIconHtml('trash')}</button>` : ''}
+          ${plannerResult
+            ? `<button type="button" class="btn" data-act="planner-save">Als Tour speichern</button>`
+            : `<button type="button" class="btn" data-act="planner-calc" ${canCalcPlanner() ? '' : 'disabled'}>${plannerCalcBusy ? 'Berechne …' : 'Route berechnen'}</button>`}
+        </div>
       `;
       wirePlannerPanel();
     }
+    function canCalcPlanner(){ return !!(plannerStart && plannerEnd && !plannerCalcBusy); }
 
     function wirePlannerPanel(){
       const toggleBtn = plannerPanel.querySelector('[data-act="planner-toggle"]');
@@ -3257,6 +3333,10 @@ function renderStandaloneMap(containerId){
       }
       const searchBtn = plannerPanel.querySelector('[data-act="planner-search-btn"]');
       if(searchBtn) searchBtn.onclick = ()=> searchAndSetEnd(plannerEndQuery);
+      const searchForm = plannerPanel.querySelector('[data-act="planner-search-form"]');
+      if(searchForm) searchForm.onsubmit = (e)=>{ e.preventDefault(); searchAndSetEnd(plannerEndQuery); };
+      const endEditBtn = plannerPanel.querySelector('[data-act="planner-end-edit"]');
+      if(endEditBtn) endEditBtn.onclick = ()=>{ plannerEndEditing = true; renderPlannerPanel(); const i = plannerPanel.querySelector('#planner-search-input'); if(i) i.focus(); };
       plannerPanel.querySelectorAll('[data-act="planner-end-candidate"]').forEach(btn=>{
         btn.onclick = ()=> chooseEndCandidate(parseInt(btn.getAttribute('data-index'), 10));
       });
@@ -4837,8 +4917,8 @@ function elevationProfileSvgHtml(profile){
   const areaPoints = `${pad},${h-pad} ${points} ${w-pad},${h-pad}`;
   return `<div style="margin-top:10px;">
     <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%; height:70px; display:block;">
-      <polygon points="${areaPoints}" fill="#EAF3EC" stroke="none"/>
-      <polyline points="${points}" fill="none" stroke="#2F6B44" stroke-width="2"/>
+      <polygon points="${areaPoints}" fill="var(--ice-light)" stroke="none"/>
+      <polyline points="${points}" fill="none" stroke="var(--ice-deep)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
     </svg>
     <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--ink-faint); margin-top:2px;">
       <span>${Math.round(minEle)} m</span>
