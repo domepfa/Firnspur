@@ -381,13 +381,19 @@ function mapStripCloseOpenPopups(){
   return changed;
 }
 // opts: {label, kind:'tour'|'klettergebiet', points:[{id,lat,lon,label}], emptyText, openPinId}
+// Neuer Look (Schritt 2): Karte als "Bühne" oben, die Liste liegt als Blatt darüber und schiebt
+// sich beim Scrollen über die Karte (siehe .fs-stage/.fs-sheet in look.css) — die Übersichtskarte
+// ist damit immer sichtbar statt erst nach einem Klick.
+function stageLayoutHtml(mapHtml, sheetHtml){
+  return `<div class="fs-stage">${mapHtml}</div><div class="fs-sheet">${sheetHtml}</div>`;
+}
 function mapStripHtml(opts){
   const { label, kind, points, emptyText, openPinId } = opts;
   const positioned = mapStripPositions(points || []);
   const view = mapStripGetView(kind);
   const clusters = mapStripClusterPoints(positioned, view.zoom);
-  const openAct = kind==='klettergebiet' ? 'open-klettergebiet' : 'open-tour';
-  const linkLabel = kind==='klettergebiet' ? 'Zum Gebiet' : 'Zur Tour';
+  const openAct = kind==='klettergebiet' ? 'open-klettergebiet' : kind==='hut' ? 'open-hut' : kind==='gebiet' ? 'open-gebiet' : 'open-tour';
+  const linkLabel = (kind==='klettergebiet' || kind==='gebiet') ? 'Zum Gebiet' : kind==='hut' ? 'Zur Hütte' : 'Zur Tour';
   const openClusterId = state._mapStripOpenClusterId;
   const pinScale = 1 / view.zoom;
   return `
@@ -396,7 +402,7 @@ function mapStripHtml(opts){
         <span class="map-strip-label">🗺️ ${esc(label)}</span>
         <span class="map-strip-head-actions">
           ${view.zoom > MAP_STRIP_ZOOM_MIN + 0.01 ? `<button type="button" class="map-strip-hint" data-act="map-strip-reset" data-kind="${kind}">↺ Ganze Schweiz</button>` : ''}
-          <button type="button" class="map-strip-hint" data-act="open-standalone-map">🔍 Echte Karte</button>
+          <button type="button" class="map-strip-hint" data-act="open-standalone-map">⛶ Grosse Karte</button>
         </span>
       </div>
       <div class="map-strip-canvas" data-kind="${kind}">

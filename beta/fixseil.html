@@ -3192,7 +3192,7 @@ function tourenViewHtml(){
   const list = filteredTours();
   const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeGlacierFilter ? 1 : 0);
   const usedRegions = Array.from(new Set(state.tours.filter(t=>(t.tourCategory||'hochtour')==='hochtour').map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
-  return `
+  return stageLayoutHtml(mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.map(t=>{ const p = tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-tour">+ Neue Tour</button>
@@ -3238,9 +3238,8 @@ function tourenViewHtml(){
       </div>
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
     </div>
-    ${mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.map(t=>{ const p = tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId})}
     ${list.length ? tourenListOrGroupedHtml(list, activeFilterCount) : emptyTouren()}
-  `;
+  `);
 }
 
 // Ohne aktive Suche/Filter zeigt die Hochtour-Übersicht eine Gipfel-Karte pro verknüpftem Gipfel
@@ -3394,7 +3393,7 @@ function mslViewHtml(){
   const list = filteredMslTours();
   const usedRegions = Array.from(new Set(state.tours.filter(t=>t.tourCategory==='msl').map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   const activeFilterCount = state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size;
-  return `
+  return stageLayoutHtml(mapStripHtml({label:'Touren auf der Karte', kind:'msl', points: list.map(t=>{ const p = tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-msl">+ Neue MSL-Tour</button>
@@ -3430,7 +3429,7 @@ function mslViewHtml(){
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
     </div>
     ${list.length ? mslListOrGroupedHtml(list, activeFilterCount) : emptyMsl()}
-  `;
+  `);
 }
 
 // Ohne aktive Suche/Filter fasst die Übersicht Touren desselben Sektors bzw. Klettergebiets zu
@@ -3580,7 +3579,7 @@ function huettenViewHtml(){
   const activeFilterCount = state.activeHutRegionFilters.size + state.activeHutDiffFilters.size + state.activeHutApproachTypeFilters.size + state.activeHutStaffedMonthFilters.size + state.activeHutWinterraumMonthFilters.size;
   const usedHutRegions = Array.from(new Set(state.huts.map(h=>h.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   const allDiffCodes = [...DIFF_ORDER, ...HIKE_SCALE_ORDER];
-  return `
+  return stageLayoutHtml(mapStripHtml({label:'Hütten auf der Karte', kind:'hut', points: list.filter(h=>h.points&&h.points.length).map(h=>({id:h.id, lat:h.points[0].lat, lon:h.points[0].lon, label:h.name})), emptyText:'Noch keine Hütte mit Kartenpunkt erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Hütte oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-hut">+ Neue Hütte</button>
@@ -3619,7 +3618,7 @@ function huettenViewHtml(){
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-hut-filters">Filter zurücksetzen</button>` : ''}
     </div>
     ${list.length ? `<div class="grid">${list.map(hutCardHtml).join('')}</div>` : emptyHuts()}
-  `;
+  `);
 }
 
 function emptyHuts(){
@@ -3692,7 +3691,7 @@ function sektorenViewHtml(){
   const gebieteList = filteredKlettergebiete();
   const standaloneList = filteredSektoren().filter(s=>!s.klettergebietId);
   const hasAny = gebieteList.length || standaloneList.length;
-  return `
+  return stageLayoutHtml(mapStripHtml({label:'Gebiete auf der Karte', kind:'klettergebiet', points: gebieteList.filter(g=>g.points&&g.points.length).map(g=>({id:g.id, lat:g.points[0].lat, lon:g.points[0].lon, label:g.name})), emptyText:'Noch kein Klettergebiet mit Kartenpunkt erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Klettergebiet, Sektor oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-klettergebiet">+ Neues Klettergebiet</button>
@@ -3703,12 +3702,11 @@ function sektorenViewHtml(){
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <p id="klettergebiet-new-scan-status" style="font-size:12.5px; color:var(--ink-soft); margin:-6px 0 10px 0;"></p>
-    ${mapStripHtml({label:'Gebiete auf der Karte', kind:'klettergebiet', points: gebieteList.filter(g=>g.points&&g.points.length).map(g=>({id:g.id, lat:g.points[0].lat, lon:g.points[0].lon, label:g.name})), emptyText:'Noch kein Klettergebiet mit Kartenpunkt erfasst.', openPinId: state._mapStripOpenPinId})}
     ${!hasAny ? emptySektoren() : `
       ${gebieteList.length ? `<h4 style="margin:4px 0 8px;">⛰️ Klettergebiete</h4><div class="grid">${gebieteList.map(klettergebietCardHtml).join('')}</div>` : ''}
       ${standaloneList.length ? `<h4 style="margin:${gebieteList.length?'18px':'4px'} 0 8px;">🧭 Sektoren ohne Klettergebiet</h4><div class="grid">${standaloneList.map(sektorCardHtml).join('')}</div>` : ''}
     `}
-  `;
+  `);
 }
 
 function emptySektoren(){

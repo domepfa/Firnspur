@@ -1377,7 +1377,7 @@ function tourenViewHtml(){
   const list = filteredTours();
   const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeGlacierFilter ? 1 : 0);
   const usedRegions = Array.from(new Set(state.tours.map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
-  return `
+  return stageLayoutHtml(mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.map(t=>{ const p = tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-tour">+ Neue Tour</button>
@@ -1423,9 +1423,8 @@ function tourenViewHtml(){
       </div>
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
     </div>
-    ${mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.map(t=>{ const p = tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId})}
     ${list.length ? `<div class="grid">${list.map(tourCardHtml).join('')}</div>` : emptyTouren()}
-  `;
+  `);
 }
 
 function emptyTouren(){
@@ -1503,7 +1502,7 @@ function huettenViewHtml(){
   const activeFilterCount = state.activeHutRegionFilters.size + state.activeHutDiffFilters.size + state.activeHutApproachTypeFilters.size + state.activeHutStaffedMonthFilters.size + state.activeHutWinterraumMonthFilters.size;
   const usedHutRegions = Array.from(new Set(state.huts.map(h=>h.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   const allDiffCodes = [...DIFF_ORDER, ...HIKE_SCALE_ORDER];
-  return `
+  return stageLayoutHtml(mapStripHtml({label:'Hütten auf der Karte', kind:'hut', points: list.filter(h=>h.points&&h.points.length).map(h=>({id:h.id, lat:h.points[0].lat, lon:h.points[0].lon, label:h.name})), emptyText:'Noch keine Hütte mit Kartenpunkt erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Hütte oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-hut">+ Neue Hütte</button>
@@ -1542,7 +1541,7 @@ function huettenViewHtml(){
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-hut-filters">Filter zurücksetzen</button>` : ''}
     </div>
     ${list.length ? `<div class="grid">${list.map(hutCardHtml).join('')}</div>` : emptyHuts()}
-  `;
+  `);
 }
 
 function emptyHuts(){
@@ -1592,14 +1591,14 @@ function filteredGebiete(){
 
 function gebieteViewHtml(){
   const list = filteredGebiete();
-  return `
+  return stageLayoutHtml(mapStripHtml({label:'Gebiete auf der Karte', kind:'gebiet', points: list.filter(g=>g.points&&g.points.length).map(g=>({id:g.id, lat:g.points[0].lat, lon:g.points[0].lon, label:g.name})), emptyText:'Noch kein Gebiet mit Kartenpunkt erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Gebiet oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-gebiet">+ Neues Gebiet</button>
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     ${list.length ? `<div class="grid">${list.map(gebietCardHtml).join('')}</div>` : emptyGebiete()}
-  `;
+  `);
 }
 
 function emptyGebiete(){
