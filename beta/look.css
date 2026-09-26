@@ -625,3 +625,11 @@ main{ padding-top:6px; }
 .fsp-marker-start{ background:#fff; border:7px solid var(--ink); }
 .fsp-marker-via{ background:#fff; border:3px solid var(--ice-deep); color:var(--ice-deep); }
 .fsp-marker-end{ background:var(--ice-deep); border:4px solid #fff; }
+/* Umschalter Start → Ziel / Punkt für Punkt */
+.fsp-mode{ display:flex; background:#E6EBEE; border-radius:14px; padding:4px; margin-bottom:12px; }
+.fsp-mode button{
+  flex:1; min-height:40px; border:none; border-radius:11px; background:transparent; cursor:pointer;
+  font-family:var(--font-ui); font-size:14px; font-weight:700; color:var(--ink-soft);
+}
+.fsp-mode button.on{ background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(15,30,39,.12); }
+.fsp-add[disabled]{ opacity:.4; }

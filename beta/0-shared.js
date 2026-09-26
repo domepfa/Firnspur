@@ -2967,6 +2967,7 @@ function renderStandaloneMap(containerId){
     let plannerResult = null; // {coords, distanceM, durationS, ascentM, descentM}
     let plannerStartMarker = null, plannerEndMarker = null, plannerRouteLine = null;
     let plannerEndEditing = false; // Ziel ist gesetzt, soll aber per Suche ersetzt werden
+    let plannerMode = 'ziel'; // 'ziel' = Start → Ziel (Tipps setzen Zwischenpunkte) | 'kette' = Punkt für Punkt (jeder Tipp verlängert die Route)
     let plannerAutoCalcTimer = null;
 
     const plannerPanel = document.createElement('div');
@@ -3009,7 +3010,28 @@ function renderStandaloneMap(containerId){
     function plannerTapOnMap(lat, lon){
       if(!plannerStart){ setPlannerPoint('start', lat, lon, 'Punkt auf der Karte'); return; }
       if(!plannerEnd){ setPlannerPoint('end', lat, lon, 'Zielpunkt auf der Karte'); return; }
+      if(plannerMode === 'kette'){
+        // Punkt für Punkt: bisheriges Ziel wird zum letzten Zwischenpunkt, der neue Tipp zum Ziel.
+        addPlannerWaypoint(plannerEnd.lat, plannerEnd.lon);
+        setPlannerPoint('end', lat, lon, 'Zielpunkt auf der Karte');
+        return;
+      }
       addPlannerWaypoint(lat, lon);
+    }
+    // Punkt für Punkt: letzten Schritt zurücknehmen (Ziel weg, letzter Zwischenpunkt wird Ziel).
+    function undoLastPlannerPoint(){
+      if(plannerWaypoints.length){
+        const last = plannerWaypoints[plannerWaypoints.length-1];
+        removePlannerWaypoint(plannerWaypoints.length-1);
+        setPlannerPoint('end', last.lat, last.lon, 'Zielpunkt auf der Karte');
+      }else if(plannerEnd){
+        if(plannerEndMarker){ map.removeLayer(plannerEndMarker); plannerEndMarker = null; }
+        plannerEnd = null;
+        invalidatePlannerResult();
+        renderPlannerPanel();
+      }else if(plannerStart){
+        discardPlannerRoute();
+      }
     }
 
     function setPlannerPoint(which, lat, lon, label){
@@ -3213,8 +3235,9 @@ function renderStandaloneMap(containerId){
       if(plannerPicking==='end') return 'Tippe auf die Karte, um das Ziel zu setzen.';
       if(plannerPicking==='waypoint') return 'Tippe auf die Karte für weitere Zwischenpunkte.';
       if(!plannerStart) return 'Tippe auf die Karte, um den Start zu setzen, oder nimm deinen Standort.';
-      if(!plannerEnd) return 'Tippe auf die Karte oder suche einen Ort für das Ziel.';
+      if(!plannerEnd) return plannerMode === 'kette' ? 'Tippe den nächsten Punkt auf die Karte.' : 'Tippe auf die Karte oder suche einen Ort für das Ziel.';
       if(plannerCalcBusy) return 'Route wird berechnet …';
+      if(plannerMode === 'kette') return 'Jeder Tipp auf die Karte verlängert die Route. Alle Punkte lassen sich verschieben.';
       if(!plannerResult) return '';
       return 'Weitere Tipps auf die Karte setzen Zwischenpunkte. Alle Punkte lassen sich verschieben.';
     }
@@ -3239,6 +3262,10 @@ function renderStandaloneMap(containerId){
           <span class="fsp-grip" aria-hidden="true"></span>
           <h3>Route planen</h3>
           <button type="button" class="fsp-x" data-act="planner-toggle" aria-label="Planung einklappen">${fsIconHtml('chevdown')}</button>
+        </div>
+        <div class="fsp-mode" role="group" aria-label="Art der Planung">
+          <button type="button" data-act="planner-mode" data-mode="ziel" aria-pressed="${plannerMode==='ziel'}" class="${plannerMode==='ziel'?'on':''}">Start → Ziel</button>
+          <button type="button" data-act="planner-mode" data-mode="kette" aria-pressed="${plannerMode==='kette'}" class="${plannerMode==='kette'?'on':''}">Punkt für Punkt</button>
         </div>
         <div class="fsp-stops">
           <div class="fsp-stop">
@@ -3281,7 +3308,9 @@ function renderStandaloneMap(containerId){
               <div class="fsp-k">Welcher Ort ist gemeint?</div>
               ${plannerEndCandidates.map((c,i)=>`<button type="button" data-act="planner-end-candidate" data-index="${i}">📍 ${esc(c.label)}</button>`).join('')}
             </div>` : ''}
-          <button type="button" class="fsp-add ${plannerPicking==='waypoint'?'on':''}" data-act="planner-add-waypoint">➕ ${plannerPicking==='waypoint' ? 'Fertig mit Zwischenpunkten' : 'Zwischenpunkt setzen'}</button>
+          ${plannerMode==='kette'
+            ? `<button type="button" class="fsp-add" data-act="planner-undo" ${plannerStart ? '' : 'disabled'}>↩️ Letzten Punkt zurück</button>`
+            : `<button type="button" class="fsp-add ${plannerPicking==='waypoint'?'on':''}" data-act="planner-add-waypoint">➕ ${plannerPicking==='waypoint' ? 'Fertig mit Zwischenpunkten' : 'Zwischenpunkt setzen'}</button>`}
         </div>
         ${hint ? `<p class="fsp-hint">${esc(hint)}</p>` : ''}
         ${plannerResult ? `
@@ -3335,6 +3364,11 @@ function renderStandaloneMap(containerId){
       if(searchBtn) searchBtn.onclick = ()=> searchAndSetEnd(plannerEndQuery);
       const searchForm = plannerPanel.querySelector('[data-act="planner-search-form"]');
       if(searchForm) searchForm.onsubmit = (e)=>{ e.preventDefault(); searchAndSetEnd(plannerEndQuery); };
+      plannerPanel.querySelectorAll('[data-act="planner-mode"]').forEach(btn=>{
+        btn.onclick = ()=>{ plannerMode = btn.getAttribute('data-mode'); plannerPicking = null; renderPlannerPanel(); };
+      });
+      const undoBtn = plannerPanel.querySelector('[data-act="planner-undo"]');
+      if(undoBtn) undoBtn.onclick = undoLastPlannerPoint;
       const endEditBtn = plannerPanel.querySelector('[data-act="planner-end-edit"]');
       if(endEditBtn) endEditBtn.onclick = ()=>{ plannerEndEditing = true; renderPlannerPanel(); const i = plannerPanel.querySelector('#planner-search-input'); if(i) i.focus(); };
       plannerPanel.querySelectorAll('[data-act="planner-end-candidate"]').forEach(btn=>{
