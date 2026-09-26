@@ -2237,6 +2237,15 @@ function closeFullscreenMap(){
 /* ================= Eigenständige Karte (unabhängig von einer Tour), mit Standort/Navi =================
    Öffnet die Vollbild-Karte direkt, ohne dass vorher eine Tour/Hütte geöffnet sein muss —
    erreichbar über den Button "🗺️ Karte" oben in der App-Umschalt-Leiste. */
+// swisstopo-3D-Ansicht an einer Stelle öffnen. Die Kamera steht etwas südlich des Punkts und
+// schaut schräg nach Norden auf ihn — so sieht man das Gelände statt nur von oben.
+function open3dViewAt(lat, lon, zoom){
+  const height = Math.max(2500, Math.min(20000, 3200 * Math.pow(2, 13 - (zoom || 13))));
+  const back = (height * 1.3) / 111000;
+  const url = 'https://map.geo.admin.ch/#/map?lang=de&bgLayer=ch.swisstopo.pixelkarte-farbe&3d&camera='
+    + [lon.toFixed(5), (lat - back).toFixed(5), Math.round(height + 1500), -35, 0, ''].join(',');
+  window.open(url, '_blank', 'noopener');
+}
 function openStandaloneMap(){
   openFullscreenMap(renderStandaloneMap, function(){
     const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
@@ -2269,7 +2278,24 @@ function renderStandaloneMap(containerId){
     else map.setView([46.8182, 8.2275], 8);
     map.on('moveend', ()=>{ lastStandaloneMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
     registerMap(mapDivId, map);
-    const { skitourenLayer, wegsperrungenLayer } = addBaseLayerSwitcher(map);
+    const { skitourenLayer, wegsperrungenLayer, wanderwegeLayer } = addBaseLayerSwitcher(map);
+
+    // "In 3D ansehen": öffnet die offizielle swisstopo-Karte (map.geo.admin.ch) in der 3D-Ansicht
+    // am aktuellen Kartenausschnitt — kein eigener 3D-Motor nötig.
+    const View3dControl = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd: function(){
+        const btn = L.DomUtil.create('button', 'fsm-ctl fsm-3d');
+        btn.type = 'button';
+        btn.textContent = '3D';
+        btn.title = 'In 3D ansehen (swisstopo)';
+        btn.setAttribute('aria-label', 'Ausschnitt in 3D ansehen (swisstopo)');
+        L.DomEvent.disableClickPropagation(btn);
+        btn.addEventListener('click', ()=>{ const c = map.getCenter(); open3dViewAt(c.lat, c.lng, map.getZoom()); });
+        return btn;
+      }
+    });
+    map.addControl(new View3dControl());
 
     // Ist die Skitouren- oder Wegsperrungen-Ebene eingeschaltet, zeigt ein Klick Infos zur
     // angetippten Route/Sperrung — analog zum Punkte/Linie-Editor.
@@ -3011,6 +3037,53 @@ function renderStandaloneMap(containerId){
     // Farbige Punkt-Icons als echte L.marker (statt L.circleMarker) — nur L.marker unterstützt
     // in Leaflet ohne Zusatz-Plugin das Ziehen (draggable:true), was Start/Ziel/Zwischenpunkte
     // direkt auf der Karte korrigierbar macht.
+    // Punkte sind fest: Karte verschieben bewegt nie einen Punkt. Verschieben erst nach langem
+    // Drücken (~0,45 s, kurze Vibration) — dann folgt der Punkt dem Finger, bis man loslässt.
+    function makeLongPressDraggable(marker, onMoved){
+      let timer = null, start = null, active = false, pid = null;
+      const cancel = ()=>{ clearTimeout(timer); timer = null; };
+      const down = (ev)=>{
+        start = {x: ev.clientX, y: ev.clientY}; pid = ev.pointerId;
+        cancel();
+        timer = setTimeout(()=>{
+          active = true;
+          map.dragging.disable();
+          const el = marker.getElement(); if(el) el.classList.add('fsp-lifted');
+          if(navigator.vibrate) try{ navigator.vibrate(15); }catch(e){}
+        }, 450);
+      };
+      const move = (ev)=>{
+        if(ev.pointerId !== pid) return;
+        if(!active){ if(start && Math.hypot(ev.clientX-start.x, ev.clientY-start.y) > 8) cancel(); return; }
+        ev.preventDefault();
+        marker.setLatLng(map.mouseEventToLatLng(ev));
+      };
+      const up = (ev)=>{
+        if(ev.pointerId !== pid) return;
+        cancel();
+        if(active){
+          active = false;
+          map.dragging.enable();
+          const el = marker.getElement(); if(el) el.classList.remove('fsp-lifted');
+          onMoved(marker.getLatLng());
+        }
+        pid = null; start = null;
+      };
+      // Neu anbinden, wenn Leaflet das Icon-Element austauscht (setIcon beim Umnummerieren).
+      marker._fsAttachLongPress = ()=>{
+        const el = marker.getElement();
+        if(el && !el._fsLongPress){ el._fsLongPress = true; el.addEventListener('pointerdown', down); }
+      };
+      document.addEventListener('pointermove', move, {passive:false});
+      document.addEventListener('pointerup', up);
+      document.addEventListener('pointercancel', up);
+      marker.once('remove', ()=>{
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', up);
+        document.removeEventListener('pointercancel', up);
+      });
+      if(marker.getElement()) marker._fsAttachLongPress(); else marker.once('add', marker._fsAttachLongPress);
+    }
     // Neuer Look: Start = weiss mit dunklem Ring, Zwischenpunkt = weiss mit Akzent-Ring und
     // Nummer, Ziel = Akzentfarbe gefüllt (Farben siehe .fsp-marker in look.css).
     function makePlannerDivIcon(color, label){
@@ -3072,11 +3145,8 @@ function renderStandaloneMap(containerId){
         if(plannerStartMarker){
           plannerStartMarker.setLatLng([lat,lon]);
         }else{
-          plannerStartMarker = L.marker([lat,lon], {icon: makePlannerDivIcon('#2F6B44','S'), draggable:true}).addTo(map);
-          plannerStartMarker.on('dragend', ()=>{
-            const ll = plannerStartMarker.getLatLng();
-            setPlannerPoint('start', ll.lat, ll.lng, 'Startpunkt (verschoben)');
-          });
+          plannerStartMarker = L.marker([lat,lon], {icon: makePlannerDivIcon('#2F6B44','S')}).addTo(map);
+          makeLongPressDraggable(plannerStartMarker, (ll)=> setPlannerPoint('start', ll.lat, ll.lng, 'Startpunkt (verschoben)'));
         }
         plannerStartMarker.unbindTooltip().bindTooltip('Start: ' + label);
       }else{
@@ -3086,11 +3156,8 @@ function renderStandaloneMap(containerId){
         if(plannerEndMarker){
           plannerEndMarker.setLatLng([lat,lon]);
         }else{
-          plannerEndMarker = L.marker([lat,lon], {icon: makePlannerDivIcon('#B0392C','Z'), draggable:true}).addTo(map);
-          plannerEndMarker.on('dragend', ()=>{
-            const ll = plannerEndMarker.getLatLng();
-            setPlannerPoint('end', ll.lat, ll.lng, 'Zielpunkt (verschoben)');
-          });
+          plannerEndMarker = L.marker([lat,lon], {icon: makePlannerDivIcon('#B0392C','Z')}).addTo(map);
+          makeLongPressDraggable(plannerEndMarker, (ll)=> setPlannerPoint('end', ll.lat, ll.lng, 'Zielpunkt (verschoben)'));
         }
         plannerEndMarker.unbindTooltip().bindTooltip('Ziel: ' + label);
       }
@@ -3100,14 +3167,13 @@ function renderStandaloneMap(containerId){
     }
 
     function renumberPlannerWaypointIcons(){
-      plannerWaypoints.forEach((wp,i)=> wp.marker.setIcon(makePlannerDivIcon('#1565C0', String(i+1))));
+      plannerWaypoints.forEach((wp,i)=>{ wp.marker.setIcon(makePlannerDivIcon('#1565C0', String(i+1))); if(wp.marker._fsAttachLongPress) wp.marker._fsAttachLongPress(); });
     }
 
     function addPlannerWaypoint(lat, lon){
       const wp = {lat, lon};
-      const marker = L.marker([lat,lon], {icon: makePlannerDivIcon('#1565C0', String(plannerWaypoints.length+1)), draggable:true}).addTo(map);
-      marker.on('dragend', ()=>{
-        const ll = marker.getLatLng();
+      const marker = L.marker([lat,lon], {icon: makePlannerDivIcon('#1565C0', String(plannerWaypoints.length+1))}).addTo(map);
+      makeLongPressDraggable(marker, (ll)=>{
         wp.lat = ll.lat; wp.lon = ll.lng;
         invalidatePlannerResult();
         renderPlannerPanel();
@@ -3268,9 +3334,97 @@ function renderStandaloneMap(containerId){
       if(!plannerStart) return 'Tippe auf die Karte, um den Start zu setzen, oder nimm deinen Standort.';
       if(!plannerEnd) return plannerMode === 'kette' ? 'Tippe den nächsten Punkt auf die Karte.' : 'Tippe auf die Karte oder suche einen Ort für das Ziel.';
       if(plannerCalcBusy) return 'Route wird berechnet …';
-      if(plannerMode === 'kette') return 'Jeder Tipp auf die Karte verlängert die Route. Alle Punkte lassen sich verschieben.';
+      if(plannerMode === 'kette') return 'Jeder Tipp auf die Karte verlängert die Route. Zum Verschieben einen Punkt lange drücken.';
       if(!plannerResult) return '';
-      return 'Weitere Tipps auf die Karte setzen Zwischenpunkte. Alle Punkte lassen sich verschieben.';
+      return 'Weitere Tipps auf die Karte setzen Zwischenpunkte. Zum Verschieben einen Punkt lange drücken.';
+    }
+    // Start/Ziel als Suchfelder: beim Antippen "Mein Standort", "Auf der Karte wählen" und die
+    // zuletzt benutzten Orte, beim Tippen laufend Vorschläge (eigene Einträge sofort und offline,
+    // darunter Orte/Berge/Hütten aus der swisstopo-Suche — dieselbe Quelle wie die Lupe oben).
+    let plannerWpOpen = false;
+    let plannerSuggSeq = 0, plannerSuggTimer = null;
+    function plannerStopFieldHtml(which){
+      const p = which==='start' ? plannerStart : plannerEnd;
+      const picking = plannerPicking===which;
+      return `<div class="fsp-stop">
+        <span class="fsp-dot ${which==='start' ? 'fsp-dot-start' : 'fsp-dot-end'}" aria-hidden="true"></span>
+        <div class="fsp-stop-body">
+          <div class="fsp-k">${which==='start' ? 'Start' : 'Ziel'}</div>
+          <input type="text" class="fsp-field" data-planner-field="${which}" value="${p ? esc(p.label) : ''}"
+            placeholder="${picking ? 'Tippe auf die Karte …' : 'Ort, Hütte oder Gipfel'}" aria-label="${which==='start' ? 'Start suchen' : 'Ziel suchen'}" autocomplete="off" enterkeyhint="search"/>
+        </div>
+        ${p ? `<button type="button" class="fsp-icon fsp-clear" data-act="planner-clear" data-which="${which}" aria-label="${which==='start' ? 'Start' : 'Ziel'} entfernen" title="Entfernen">${fsIconHtml('x')}</button>` : ''}
+      </div>`;
+    }
+    function plannerRecent(){ try{ return JSON.parse(localStorage.getItem('fs-planner-recent')||'[]'); }catch(e){ return []; } }
+    function plannerRememberRecent(label, lat, lon){
+      if(!label || /auf der Karte|verschoben|^Mein Standort$/.test(label)) return;
+      try{
+        const list = plannerRecent().filter(r=> r.label!==label);
+        list.unshift({label, lat, lon});
+        localStorage.setItem('fs-planner-recent', JSON.stringify(list.slice(0,5)));
+      }catch(e){}
+    }
+    function plannerSuggButtonsHtml(items){
+      return items.map((it,i)=>`<button type="button" class="fsp-sugg-item" data-sugg-index="${i}">
+        <span class="fsp-sugg-ic">${fsIconHtml(it.icon||'pin')}</span><span class="fsp-sugg-label">${esc(it.label)}</span>${it.sub ? `<span class="fsp-sugg-sub">${esc(it.sub)}</span>` : ''}
+      </button>`).join('');
+    }
+    function showPlannerSuggestions(which, query){
+      const box = plannerPanel.querySelector('#fsp-sugg-' + which);
+      if(!box) return;
+      const q = (query||'').trim();
+      const base = [
+        ...(which==='start' ? [{icon:'gps', label:'Mein Standort', action:'gps'}] : []),
+        {icon:'map', label:'Auf der Karte wählen', action:'map'}
+      ];
+      const pick = (items, status)=>{
+        box.hidden = false;
+        box.innerHTML = plannerSuggButtonsHtml(items) + (status ? `<div class="fsp-sugg-status">${esc(status)}</div>` : '');
+        box.querySelectorAll('[data-sugg-index]').forEach(btn=>{
+          // pointerdown statt click: sonst schliesst das Blur des Eingabefelds die Liste zuerst.
+          btn.addEventListener('pointerdown', (ev)=>{
+            ev.preventDefault();
+            const it = items[parseInt(btn.getAttribute('data-sugg-index'), 10)];
+            box.hidden = true;
+            const inp = plannerPanel.querySelector('[data-planner-field="' + which + '"]'); if(inp) inp.blur();
+            if(it.action==='gps'){ plannerStartMode = 'gps'; plannerPicking = null; useMyLocationAsStart(); return; }
+            if(it.action==='map'){ plannerPicking = which; addPointPicking = false; renderAddPointBtn(); renderPlannerPanel(); showToast(which==='start' ? 'Tippe auf die Karte, um den Start zu setzen.' : 'Tippe auf die Karte, um das Ziel zu setzen.'); return; }
+            plannerRememberRecent(it.label, it.lat, it.lon);
+            setPlannerPoint(which, it.lat, it.lon, it.label);
+            map.setView([it.lat, it.lon], Math.max(map.getZoom(), 13));
+          });
+        });
+      };
+      if(!q){
+        const recent = plannerRecent().map(r=>({icon:'clock', label:r.label, lat:r.lat, lon:r.lon, sub:'zuletzt'}));
+        pick([...base, ...recent]);
+        return;
+      }
+      const local = searchIndex.filter(e=> e.name.toLowerCase().includes(q.toLowerCase())).slice(0,6)
+        .map(e=>({icon:'pin', label:e.name, lat:e.coords[0], lon:e.coords[1], sub:'eigener Eintrag'}));
+      pick([...local, ...base], 'Suche online …');
+      const seq = ++plannerSuggSeq;
+      clearTimeout(plannerSuggTimer);
+      plannerSuggTimer = setTimeout(async ()=>{
+        try{
+          const res = await fetch('https://api3.geo.admin.ch/rest/services/api/SearchServer?type=locations&limit=8&sr=4326&searchText=' + encodeURIComponent(q));
+          if(seq !== plannerSuggSeq) return;
+          const data = await res.json();
+          const online = (data.results||[]).map(r=>r.attrs||{}).filter(a=>a.lat!=null && a.lon!=null)
+            .map(a=>({icon:'pin', label:(a.label||q).replace(/<[^>]+>/g,''), lat:a.lat, lon:a.lon}));
+          pick([...local, ...online, ...base], (local.length || online.length) ? '' : 'Keine Treffer.');
+        }catch(e){
+          if(seq !== plannerSuggSeq) return;
+          pick([...local, ...base], 'Offline — nur eigene Einträge durchsucht.');
+        }
+      }, 300);
+    }
+    function clearPlannerPoint(which){
+      if(which==='start'){ if(plannerStartMarker){ map.removeLayer(plannerStartMarker); plannerStartMarker = null; } plannerStart = null; }
+      else{ if(plannerEndMarker){ map.removeLayer(plannerEndMarker); plannerEndMarker = null; } plannerEnd = null; }
+      invalidatePlannerResult();
+      renderPlannerPanel();
     }
     function renderPlannerPanel(){
       const accent = (getComputedStyle(document.documentElement).getPropertyValue('--ice-deep') || '#1E6AA0').trim();
@@ -3299,46 +3453,24 @@ function renderStandaloneMap(containerId){
           <button type="button" data-act="planner-mode" data-mode="kette" aria-pressed="${plannerMode==='kette'}" class="${plannerMode==='kette'?'on':''}">Punkt für Punkt</button>
         </div>
         <div class="fsp-stops">
-          <div class="fsp-stop">
-            <span class="fsp-dot fsp-dot-start" aria-hidden="true"></span>
-            <div class="fsp-stop-body">
-              <div class="fsp-k">Start</div>
-              <div class="fsp-v ${plannerStart ? '' : 'fsp-muted'}">${plannerStart ? esc(plannerStart.label) : 'Noch nicht gesetzt'}</div>
-            </div>
-            <div class="fsp-stop-actions">
-              <button type="button" class="fsp-icon" data-act="planner-start-gps" aria-label="Mein Standort als Start" title="Mein Standort als Start">${fsIconHtml('gps')}</button>
-              <button type="button" class="fsp-icon ${plannerPicking==='start'?'on':''}" data-act="planner-start-map" aria-label="Start auf der Karte wählen" title="Start auf der Karte wählen">${fsIconHtml('pin')}</button>
-            </div>
-          </div>
-          ${plannerWaypoints.map((wp,i)=>`
+          ${plannerStopFieldHtml('start')}
+          <div class="fsp-sugg" id="fsp-sugg-start" hidden></div>
+          ${plannerWaypoints.length > 2 && !plannerWpOpen ? `
+          <button type="button" class="fsp-stop fsp-wp-summary" data-act="planner-wp-toggle" aria-expanded="false">
+            <span class="fsp-dot fsp-dot-via" aria-hidden="true">${plannerWaypoints.length}</span>
+            <span class="fsp-stop-body"><span class="fsp-v">${plannerWaypoints.length} Zwischenpunkte</span></span>
+            <span class="fsp-chev" aria-hidden="true"></span>
+          </button>` : plannerWaypoints.map((wp,i)=>`
           <div class="fsp-stop">
             <span class="fsp-dot fsp-dot-via" aria-hidden="true">${i+1}</span>
             <div class="fsp-stop-body"><div class="fsp-v">Zwischenpunkt ${i+1}</div></div>
             <div class="fsp-stop-actions">
+              ${i===0 && plannerWaypoints.length > 2 ? `<button type="button" class="fsp-icon" data-act="planner-wp-toggle" aria-label="Zwischenpunkte zuklappen" title="Zuklappen">${fsIconHtml('chevdown')}</button>` : ''}
               <button type="button" class="fsp-icon" data-act="planner-waypoint-remove" data-index="${i}" aria-label="Zwischenpunkt ${i+1} entfernen" title="Entfernen">${fsIconHtml('x')}</button>
             </div>
           </div>`).join('')}
-          <div class="fsp-stop">
-            <span class="fsp-dot fsp-dot-end" aria-hidden="true"></span>
-            <div class="fsp-stop-body">
-              <div class="fsp-k">Ziel</div>
-              ${showEndInput ? `
-                <form class="fsp-search" data-act="planner-search-form">
-                  <input type="text" id="planner-search-input" placeholder="Ort, Hütte oder Gipfel suchen" aria-label="Ziel suchen" enterkeyhint="search"/>
-                </form>` : `<div class="fsp-v">${esc(plannerEnd.label)}</div>`}
-            </div>
-            <div class="fsp-stop-actions">
-              ${showEndInput
-                ? `<button type="button" class="fsp-icon" data-act="planner-search-btn" aria-label="Suchen" title="Suchen" ${plannerSearchBusy?'disabled':''}>${plannerSearchBusy ? '…' : fsIconHtml('search')}</button>`
-                : `<button type="button" class="fsp-icon" data-act="planner-end-edit" aria-label="Ziel suchen" title="Ziel suchen">${fsIconHtml('search')}</button>`}
-              <button type="button" class="fsp-icon ${plannerPicking==='end'?'on':''}" data-act="planner-end-map" aria-label="Ziel auf der Karte wählen" title="Ziel auf der Karte wählen">${fsIconHtml('pin')}</button>
-            </div>
-          </div>
-          ${plannerEndCandidates ? `
-            <div class="fsp-cands">
-              <div class="fsp-k">Welcher Ort ist gemeint?</div>
-              ${plannerEndCandidates.map((c,i)=>`<button type="button" data-act="planner-end-candidate" data-index="${i}">📍 ${esc(c.label)}</button>`).join('')}
-            </div>` : ''}
+          ${plannerStopFieldHtml('end')}
+          <div class="fsp-sugg" id="fsp-sugg-end" hidden></div>
           ${plannerMode==='kette'
             ? `<button type="button" class="fsp-add" data-act="planner-undo" ${plannerStart ? '' : 'disabled'}>↩️ Letzten Punkt zurück</button>`
             : `<button type="button" class="fsp-add ${plannerPicking==='waypoint'?'on':''}" data-act="planner-add-waypoint">➕ ${plannerPicking==='waypoint' ? 'Fertig mit Zwischenpunkten' : 'Zwischenpunkt setzen'}</button>`}
@@ -3367,7 +3499,12 @@ function renderStandaloneMap(containerId){
 
     function wirePlannerPanel(){
       const toggleBtn = plannerPanel.querySelector('[data-act="planner-toggle"]');
-      if(toggleBtn) toggleBtn.onclick = ()=>{ plannerExpanded = !plannerExpanded; renderPlannerPanel(); };
+      if(toggleBtn) toggleBtn.onclick = ()=>{
+        plannerExpanded = !plannerExpanded;
+        // Beim Planen die Wanderwege automatisch einblenden (bleiben danach an, bis man sie abwählt).
+        if(plannerExpanded && wanderwegeLayer && !map.hasLayer(wanderwegeLayer)) map.addLayer(wanderwegeLayer);
+        renderPlannerPanel();
+      };
       const startGpsBtn = plannerPanel.querySelector('[data-act="planner-start-gps"]');
       if(startGpsBtn) startGpsBtn.onclick = ()=>{ plannerStartMode = 'gps'; plannerPicking = null; useMyLocationAsStart(); };
       const startMapBtn = plannerPanel.querySelector('[data-act="planner-start-map"]');
@@ -3398,6 +3535,17 @@ function renderStandaloneMap(containerId){
       plannerPanel.querySelectorAll('[data-act="planner-mode"]').forEach(btn=>{
         btn.onclick = ()=>{ plannerMode = btn.getAttribute('data-mode'); plannerPicking = null; renderPlannerPanel(); };
       });
+      plannerPanel.querySelectorAll('[data-planner-field]').forEach(inp=>{
+        const which = inp.getAttribute('data-planner-field');
+        inp.addEventListener('focus', ()=>{ inp.select(); showPlannerSuggestions(which, ''); });
+        inp.addEventListener('input', ()=> showPlannerSuggestions(which, inp.value));
+        inp.addEventListener('blur', ()=>{ setTimeout(()=>{ const box = plannerPanel.querySelector('#fsp-sugg-' + which); if(box) box.hidden = true; }, 150); });
+        inp.addEventListener('keydown', (e)=>{
+          if(e.key==='Enter'){ e.preventDefault(); const first = plannerPanel.querySelector('#fsp-sugg-' + which + ' [data-sugg-index]'); if(first) first.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true})); }
+        });
+      });
+      plannerPanel.querySelectorAll('[data-act="planner-clear"]').forEach(btn=>{ btn.onclick = ()=> clearPlannerPoint(btn.getAttribute('data-which')); });
+      plannerPanel.querySelectorAll('[data-act="planner-wp-toggle"]').forEach(btn=>{ btn.onclick = ()=>{ plannerWpOpen = !plannerWpOpen; renderPlannerPanel(); }; });
       const undoBtn = plannerPanel.querySelector('[data-act="planner-undo"]');
       if(undoBtn) undoBtn.onclick = undoLastPlannerPoint;
       const endEditBtn = plannerPanel.querySelector('[data-act="planner-end-edit"]');
@@ -3557,8 +3705,13 @@ function addBaseLayerSwitcher(map){
     maxZoom: 18,
     attribution: '© MeteoSchweiz'
   });
+  // Offizielle Wanderwege (gelb / weiss-rot-weiss / weiss-blau-weiss), swisstopo swissTLM3D.
+  const wanderwegeLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swisstlm3d-wanderwege/default/current/3857/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '© swisstopo'
+  });
   streetLayer.addTo(map);
-  const overlays = { '⛷️ Skitouren': skitourenLayer, '⚠️ Hangneigung ab 30°': hangneigungLayer, '🚧 Wegsperrungen': wegsperrungenLayer, '🌡️ Temperatur (aktuell)': meteoTempLayer, '🌧️ Niederschlag (aktuell)': meteoPrecipLayer };
+  const overlays = { '🥾 Wanderwege': wanderwegeLayer, '⛷️ Skitouren': skitourenLayer, '⚠️ Hangneigung ab 30°': hangneigungLayer, '🚧 Wegsperrungen': wegsperrungenLayer, '🌡️ Temperatur (aktuell)': meteoTempLayer, '🌧️ Niederschlag (aktuell)': meteoPrecipLayer };
   // Lawinen-Gefahrenstufen nur in Firnspur/Skitour relevant (nicht bei MSL/Klettertouren auf Fels).
   // SEKTOREN_PATH ist nur in Fixseil definiert — dessen Fehlen erkennt hier zuverlässig die andere App.
   // Standardmässig ausgeschaltet: die Daten werden erst beim ersten Einschalten geladen, nicht bei
@@ -3580,7 +3733,7 @@ function addBaseLayerSwitcher(map){
     overlays,
     { position: 'bottomleft', collapsed: true }
   ).addTo(map);
-  return { streetLayer, satelliteLayer, skitourenLayer, hangneigungLayer, wegsperrungenLayer, slfDangerLayer };
+  return { streetLayer, satelliteLayer, skitourenLayer, hangneigungLayer, wegsperrungenLayer, slfDangerLayer, wanderwegeLayer };
 }
 
 // Fragt swisstopos "identify"-Dienst ab, um herauszufinden, welche eingezeichnete Skitour
@@ -5506,21 +5659,21 @@ function meteoForecastWidgetHtml(lat, lon){
       ${dbg ? `<details style="margin-top:6px; font-size:11px; color:var(--ink-faint);"><summary>Diagnose</summary>Punkt: ${esc(dbg.pointId)} / Typ ${esc(dbg.pointTypeId)}<br/>Zeilen in Prognosedatei: ${dbg.tempRowCount}, davon passend: ${dbg.tempMatches}<br/>Spalten: ${esc((dbg.tempHeader||[]).join(', '))}</details>` : ''}
     </div>`;
   }
-  return `<div class="detail-section">
-    <h4>🌤️ Wetterprognose <span style="font-weight:400; font-size:11.5px; color:var(--ink-faint);">— ${esc(entry.point.name)} (${entry.distanceKm.toFixed(1)} km entfernt)</span></h4>
-    <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:4px;">
+  // Neuer Look: ruhiger Streifen statt grosser farbiger Kacheln; antippen öffnet MeteoSchweiz.
+  return `<div class="detail-section wx-strip">
+    <h4>🌤️ Wetter <span class="wx-where">${esc(entry.point.name)} · ${entry.distanceKm.toFixed(1)} km</span></h4>
+    <div class="wx-days" role="button" tabindex="0" data-act="open-meteo" data-lat="${lat}" data-lon="${lon}" aria-label="Wetter bei MeteoSchweiz öffnen">
       ${entry.days.map(d=>{
         const lbl = meteoFormatDayLabel(d.date);
-        return `<div style="flex:none; min-width:64px; text-align:center; background:var(--ice-light); border-radius:var(--radius); padding:8px 6px;">
-          <div style="font-size:11px; font-weight:700; color:var(--ink-soft);">${lbl.weekday} ${lbl.day}.${lbl.month}.</div>
-          <div style="font-size:18px; margin-top:2px;">${meteoDayIcon(d.precipMm)}</div>
-          <div style="font-size:14px; font-weight:700; margin-top:2px;">${Math.round(d.tempMax)}°</div>
-          <div style="font-size:12px; color:var(--ink-soft);">${Math.round(d.tempMin)}°</div>
-          <div style="font-size:11px; color:var(--ice-deep); margin-top:4px;">${d.precipMm>=0.1 ? '💧'+d.precipMm.toFixed(1)+'mm' : '–'}</div>
+        return `<div class="wx-day">
+          <div class="wx-d">${lbl.weekday}</div>
+          <div class="wx-i">${meteoDayIcon(d.precipMm)}</div>
+          <div class="wx-t"><b>${Math.round(d.tempMax)}°</b> <span>${Math.round(d.tempMin)}°</span></div>
+          ${d.precipMm>=0.1 ? `<div class="wx-p">${d.precipMm.toFixed(1)} mm</div>` : ''}
         </div>`;
       }).join('')}
     </div>
-    <p style="font-size:10.5px; color:var(--ink-faint); margin:6px 0 0;">Quelle: MeteoSchweiz (Open Data) · stündliche Werte zu Tageswerten zusammengefasst</p>
+    <p class="wx-src">MeteoSchweiz (Open Data) · antippen für die Lokalprognose ↗</p>
   </div>`;
 }
 
@@ -5585,7 +5738,7 @@ function meteoCardForecastRowHtml(lat, lon){
   const result = meteoCardForecastData(lat, lon);
   const days = result.days.slice(0, 3);
   if(!days.length) return '';
-  return `<div class="weather-card-row" style="display:flex; gap:5px; margin:0 0 8px;" title="Nächste Tage bei ${esc(result.point.name)} (${result.distanceKm.toFixed(1)} km entfernt)">
+  return `<div class="weather-card-row" role="button" tabindex="0" data-act="open-meteo" data-lat="${lat}" data-lon="${lon}" style="display:flex; gap:5px; margin:0 0 8px; cursor:pointer;" title="Wetter bei MeteoSchweiz öffnen · nächste Tage bei ${esc(result.point.name)} (${result.distanceKm.toFixed(1)} km entfernt)" aria-label="Wetter bei MeteoSchweiz öffnen">
     ${days.map(d=>{
       const lbl = meteoFormatDayLabel(d.date);
       return `<span style="font-size:11px; background:var(--ice-light); border-radius:4px; padding:3px 7px; white-space:nowrap;">${lbl.weekday} ${meteoDayIcon(d.precipMm)} ${Math.round(d.tempMax)}°</span>`;
@@ -8507,6 +8660,7 @@ const FS_ICON_PATHS = {
   checkc: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM8 12.5l3 3 5-6',
   check: 'M5 12.5l4.5 4.5L19 7.5',
   flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
+  image: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 9.5a1.5 1.5 0 1 0 0-.01',
   chevdown: 'M6 9l6 6 6-6',
   plus: 'M12 5v14M5 12h14',
   calendar: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4',
@@ -8564,7 +8718,7 @@ const FS_EMOJI_ICONS = {
   '👤':['user'], '👥':['users'], '🚻':['users'], '✂':['scissors'], '📡':['offline'], '🔄':['refresh'], '🔁':['refresh'], '🔀':['refresh'],
   '🏠':['home'], '📞':['phone'], '🔗':['link'], '🆘':['sos','#B42318'], '📏':['ruler'], '⏱':['clock'], '⏰':['clock'], '⏳':['clock'],
   '⛶':['expand'], '🚧':['barrier'], '🍽':['food'], '🅿':['parking'], '❌':['x','#B42318'], '🌙':['moon'], '🎒':['pack'],
-  '🖨':['printer'], '🚁':['heli'], '👮':['shield'], '🎚':['sliders'], '🛰':['gps'], '🔒':['lock'],
+  '🖨':['printer'], '🚁':['heli'], '👮':['shield'], '🎚':['sliders'], '🛰':['gps'], '🔒':['lock'], '🖼':['image'],
   '⭐':['star','#D99A1E',true], '🔵':['dot','#2F7DB5',true], '🔴':['dot','#C0392B',true], '🟡':['dot','#E0A91B',true], '🟢':['dot','#3C8A55',true], '🔺':['tri','#C0392B',true]
 };
 const FS_EMOJI_RE = new RegExp('(' + Object.keys(FS_EMOJI_ICONS).sort((a,b)=>b.length-a.length).map(k=>k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')\\uFE0F?', 'gu');
@@ -8941,4 +9095,110 @@ document.addEventListener('keydown', (e)=>{
     e.preventDefault();
     const btn = document.querySelector('[data-act="brief-ed-pack-add"]'); if(btn) btn.click();
   }
+}, true);
+
+// Wetterzeile in einer Gebiets-Kachel antippen: MeteoSchweiz-Lokalprognose für den Ort öffnen
+// (statt die Kachel selbst zu öffnen). Das Fenster wird sofort geöffnet (sonst blockiert der
+// Browser das Pop-up) und bekommt die genaue Adresse, sobald sie ermittelt ist.
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="open-meteo"]');
+  if(!el) return;
+  e.preventDefault(); e.stopPropagation();
+  const lat = parseFloat(el.getAttribute('data-lat')), lon = parseFloat(el.getAttribute('data-lon'));
+  const win = window.open('about:blank', '_blank');
+  buildMeteoSwissLink(lat, lon).then(url=>{ if(win) win.location.href = url; else window.open(url, '_blank'); });
+}, true);
+
+/* ================= Gebiete: Filter, Merkliste, Sortierung (alle drei Teile gleich) =================
+   Gleiche Pillen-Zeile wie bei den Touren. Zustand bewusst getrennt von den Touren-Filtern, damit
+   ein Tour-Filter nicht plötzlich Gebiete ausblendet. Verdrahtet per Delegation (siehe unten), damit
+   index.html und fixseil.html nichts zusätzlich verdrahten müssen. */
+function gebietListState(){
+  if(!state._gebietList) state._gebietList = {regions:new Set(), open:false, onlyFav:false, sortBy:'name', sortDir:'asc', scanOpen:false};
+  return state._gebietList;
+}
+function applyGebietListControls(list){
+  const g = gebietListState();
+  let out = list;
+  if(g.regions.size) out = out.filter(x=> g.regions.has(x.region));
+  if(g.onlyFav) out = out.filter(x=> isFavorite(x.id));
+  const dir = g.sortDir==='desc' ? -1 : 1;
+  const key = (x)=> g.sortBy==='updated' ? (x.updatedAt||x.createdAt||'') : g.sortBy==='created' ? (x.createdAt||'') : (x.name||'');
+  return out.slice().sort((a,b)=> dir * (g.sortBy==='name' ? key(a).localeCompare(key(b),'de') : key(a).localeCompare(key(b))));
+}
+function gebietListControlsHtml(allList, opts){
+  const g = gebietListState();
+  const regions = Array.from(new Set(allList.map(x=>x.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
+  const active = g.regions.size;
+  const scan = opts && opts.scan;
+  return `<div class="toolbar toolbar-row">
+      <button type="button" class="btn secondary ${g.open?'on':''}" data-act="gebiet-filter-toggle">🔍 Filter${active ? ` (${active})` : ''}</button>
+      <button type="button" class="btn secondary ${g.onlyFav?'on':''}" data-act="gebiet-fav">⭐ Nur Merkliste</button>
+      <div class="sort-control">
+        <select data-act="gebiet-sort-by" aria-label="Gebiete sortieren nach">
+          <option value="name" ${g.sortBy==='name'?'selected':''}>A–Z</option>
+          <option value="updated" ${g.sortBy==='updated'?'selected':''}>Zuletzt bearbeitet</option>
+          <option value="created" ${g.sortBy==='created'?'selected':''}>Neu erfasst</option>
+        </select>
+        <button type="button" class="sort-dir-btn" data-act="gebiet-sort-dir" aria-label="Sortierrichtung umkehren">${g.sortDir==='asc'?'↑':'↓'}</button>
+      </div>
+      ${scan ? `<button type="button" class="btn secondary ${g.scanOpen?'on':''}" data-act="gebiet-scan-menu">📷 Scannen</button>` : ''}
+    </div>
+    ${scan && g.scanOpen ? `<div class="fs-popmenu">
+      <button type="button" data-act="gebiet-scan-pick" data-target="klettergebiet-new-scan-btn">🖼 Foto(s) wählen</button>
+      <button type="button" data-act="gebiet-scan-pick" data-target="klettergebiet-new-scan-camera-btn">📷 Direkt fotografieren</button>
+    </div>` : ''}
+    ${g.open ? `<div class="fs-filter-panel">
+      ${regions.length ? `<div class="field"><label>Region</label><div class="chips">
+        ${regions.map(r=>`<button type="button" class="chip ${g.regions.has(r)?'on':''}" style="${g.regions.has(r)?'background:var(--ice-deep)':''}" data-act="gebiet-region" data-region="${esc(r)}">${esc(r)}</button>`).join('')}
+      </div></div>` : `<p class="bf-empty">Noch keine Regionen erfasst.</p>`}
+      ${active ? `<button type="button" class="btn secondary" data-act="gebiet-filter-reset" style="min-height:38px;">Filter zurücksetzen</button>` : ''}
+    </div>` : ''}`;
+}
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act^="gebiet-"], [data-act="open-gipfel-chip"]');
+  if(!el || el.tagName==='SELECT') return;
+  const act = el.getAttribute('data-act');
+  const g = gebietListState();
+  if(act==='open-gipfel-chip'){
+    e.preventDefault(); e.stopPropagation();
+    if(typeof openGipfelDetail === 'function') openGipfelDetail(el.getAttribute('data-id'));
+    return;
+  }
+  const handled = {
+    'gebiet-filter-toggle': ()=>{ g.open = !g.open; },
+    'gebiet-fav': ()=>{ g.onlyFav = !g.onlyFav; },
+    'gebiet-sort-dir': ()=>{ g.sortDir = g.sortDir==='asc' ? 'desc' : 'asc'; },
+    'gebiet-region': ()=>{ const r = el.getAttribute('data-region'); if(g.regions.has(r)) g.regions.delete(r); else g.regions.add(r); },
+    'gebiet-filter-reset': ()=>{ g.regions.clear(); },
+    'gebiet-scan-menu': ()=>{ g.scanOpen = !g.scanOpen; },
+    'gebiet-scan-pick': ()=>{ g.scanOpen = false; const b = document.getElementById(el.getAttribute('data-target')); if(b) b.click(); }
+  }[act];
+  if(!handled) return;
+  e.preventDefault(); e.stopPropagation();
+  handled();
+  // Beim Scannen nicht neu rendern: sonst verschwände das versteckte Datei-Feld, bevor die
+  // Foto-Auswahl zurückkommt. Das Menü wird nur ausgeblendet.
+  if(act==='gebiet-scan-pick'){
+    const menu = document.querySelector('.fs-popmenu'); if(menu) menu.remove();
+    const pill = document.querySelector('[data-act="gebiet-scan-menu"]'); if(pill) pill.classList.remove('on');
+    return;
+  }
+  render();
+}, true);
+document.addEventListener('change', (e)=>{
+  const el = e.target;
+  if(!el || !el.matches || !el.matches('select[data-act="gebiet-sort-by"]')) return;
+  const g = gebietListState();
+  g.sortBy = el.value;
+  g.sortDir = el.value==='name' ? 'asc' : 'desc';
+  render();
+}, true);
+
+// "In 3D ansehen" aus dem Tourdetail (gleiche swisstopo-3D-Ansicht wie auf der grossen Karte).
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="open-3d"]');
+  if(!el) return;
+  e.preventDefault(); e.stopPropagation();
+  open3dViewAt(parseFloat(el.getAttribute('data-lat')), parseFloat(el.getAttribute('data-lon')), 14);
 }, true);
