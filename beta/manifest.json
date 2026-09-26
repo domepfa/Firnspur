@@ -1,0 +1,40 @@
+{
+  "name": "Firnspur Beta – Skitour",
+  "short_name": "Firnspur β",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#F3F6F8",
+  "theme_color": "#F3F6F8",
+  "icons": [
+    {
+      "src": "../icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "../icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "share_target": {
+    "action": "./share-target-index.html",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "sharedFiles",
+          "accept": [
+            "image/*"
+          ]
+        }
+      ]
+    }
+  },
+  "id": "./index-beta"
+}
