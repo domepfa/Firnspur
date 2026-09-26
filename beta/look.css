@@ -633,3 +633,120 @@ main{ padding-top:6px; }
 }
 .fsp-mode button.on{ background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(15,30,39,.12); }
 .fsp-add[disabled]{ opacity:.4; }
+
+/* =====================================================================
+   Schritt 4: Tourenbriefing im Agenda-Termin
+   ===================================================================== */
+.bf-meta{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:2px 0 6px; flex-wrap:wrap; }
+.bf-date{ display:inline-flex; align-items:center; gap:7px; font-weight:700; font-size:15px; }
+.bf-date .fs-i{ color:var(--ice-deep); }
+.bf-avatars{ display:flex; }
+.bf-avatars i{
+  font-style:normal; width:32px; height:32px; border-radius:50%; margin-left:-8px; border:2px solid #fff;
+  color:#fff; font-size:12.5px; font-weight:800; display:inline-flex; align-items:center; justify-content:center;
+}
+.bf-avatars i:first-child{ margin-left:0; }
+.bf-status{ margin:6px 0 12px; }
+.bf-status select{ min-height:40px; border-radius:999px !important; padding:0 14px !important; margin-top:0 !important; }
+.bf-tabs{ display:flex; background:#E6EBEE; border-radius:14px; padding:4px; margin:4px 0 14px; }
+.bf-tabs button{
+  flex:1; min-height:42px; border:none; border-radius:11px; background:transparent; cursor:pointer;
+  font-family:var(--font-ui); font-size:14px; font-weight:700; color:var(--ink-soft);
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+}
+.bf-tabs button.on{ background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(15,30,39,.12); }
+.bf-tabs button.on .fs-i{ color:var(--ice-deep); }
+.bf-card{ background:#F6F8F9; border-radius:20px; padding:16px; margin-bottom:12px; }
+.bf-h{ font-size:26px; line-height:1; margin:0 0 12px; }
+.bf-row{ display:flex; align-items:baseline; justify-content:space-between; }
+.bf-count{ font-weight:800; color:var(--accent-ink); font-variant-numeric:tabular-nums; }
+.bf-empty{ font-size:14px; color:var(--ink-soft); margin:0; line-height:1.5; }
+.bf-text{ font-size:15px; line-height:1.55; margin:0; white-space:pre-wrap; }
+.bf-kicker{ display:block; font-size:11.5px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-faint); }
+.bf-planb{ background:#FBF3E2; }
+.bf-planb .bf-kicker{ color:#7A4500; }
+/* Zeitachse */
+.bf-tl{ list-style:none; margin:0; padding:0; }
+.bf-tl-row{ display:grid; grid-template-columns:48px 22px minmax(0,1fr); column-gap:8px; position:relative; }
+.bf-tl-time{ font-weight:800; font-size:15px; font-variant-numeric:tabular-nums; padding-top:1px; }
+.bf-tl-dot{ position:relative; }
+.bf-tl-dot::before{ content:''; position:absolute; left:10px; top:20px; bottom:0; width:2px; background:#DDE4E9; }
+.bf-tl-row:last-child .bf-tl-dot::before{ display:none; }
+.bf-tl-dot::after{
+  content:''; position:absolute; left:4px; top:4px; width:14px; height:14px; border-radius:50%;
+  background:#fff; box-shadow:0 0 0 2px var(--ice-deep);
+}
+.bf-k-start .bf-tl-dot::after{ background:var(--ink); box-shadow:0 0 0 2px var(--ink); }
+.bf-k-gipfel .bf-tl-dot::after{ background:var(--ice-deep); }
+.bf-k-ende .bf-tl-dot::after{ box-shadow:0 0 0 2px var(--ink); }
+.bf-k-entscheid .bf-tl-dot::after{ background:#A15C00; box-shadow:0 0 0 2px #A15C00; }
+.bf-k-umkehr .bf-tl-dot::after{ background:var(--danger); box-shadow:0 0 0 2px var(--danger); }
+.bf-k-umkehr .bf-tl-time{ color:var(--danger); }
+.bf-tl-body{ padding-bottom:16px; display:flex; flex-direction:column; align-items:flex-start; gap:4px; }
+.bf-tl-label{ font-size:15px; font-weight:700; line-height:1.4; }
+.bf-tag{ display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:800; padding:3px 9px; border-radius:999px; }
+.bf-tag .fs-i{ width:13px; height:13px; }
+.bf-tag-entscheid{ background:#FBF0DC; color:#7A4500; }
+.bf-tag-umkehr{ background:#FBE7E5; color:#8F1C13; }
+/* Packliste */
+.bf-bar{ height:8px; border-radius:4px; background:#E1E7EB; overflow:hidden; margin-top:4px; }
+.bf-bar span{ display:block; height:100%; background:var(--ice-deep); border-radius:4px; transition:width .3s; }
+.bf-people{ display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+.bf-person{ display:inline-flex; align-items:center; gap:6px; background:#fff; border-radius:999px; padding:5px 10px; font-size:12.5px; font-weight:600; color:var(--ink-soft); }
+.bf-person i{ width:8px; height:8px; border-radius:50%; background:#D99A1E; }
+.bf-person i.ok{ background:var(--ok); }
+.bf-group{ margin-bottom:12px; }
+.bf-group > .bf-kicker{ padding:4px 6px 8px; }
+.bf-list{ background:#F6F8F9; border-radius:18px; overflow:hidden; }
+.bf-check{
+  width:100%; min-height:52px; display:flex; align-items:center; gap:12px; padding:0 14px;
+  border:none; border-top:1px solid #E6EBEE; background:none; text-align:left; cursor:pointer;
+  font-family:var(--font-ui);
+}
+.bf-check:first-child{ border-top:none; }
+.bf-box{
+  width:24px; height:24px; flex-shrink:0; border-radius:8px; border:2px solid #B8C3CB; background:#fff;
+  display:inline-flex; align-items:center; justify-content:center; color:#fff; box-sizing:border-box;
+}
+.bf-box .fs-i{ width:15px; height:15px; stroke-width:3; opacity:0; }
+.bf-check.on .bf-box{ background:var(--ice-deep); border-color:var(--ice-deep); }
+.bf-check.on .bf-box .fs-i{ opacity:1; }
+.bf-check-label{ flex:1; font-size:15px; font-weight:600; color:var(--ink); }
+.bf-check.on .bf-check-label{ color:var(--ink-faint); }
+.bf-must{ font-size:10.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#8F1C13; background:#FBE9E7; padding:3px 8px; border-radius:999px; }
+/* Notfall */
+.bf-sos{
+  display:flex; align-items:center; gap:14px; padding:16px 18px; border-radius:20px;
+  background:var(--danger); color:#fff; text-decoration:none; box-shadow:0 8px 20px rgba(180,35,24,.22);
+}
+.bf-sos-ic{ width:46px; height:46px; border-radius:50%; background:rgba(255,255,255,.18); display:inline-flex; align-items:center; justify-content:center; }
+.bf-sos-ic .fs-i{ width:24px; height:24px; }
+.bf-sos b{ display:block; font-size:20px; }
+.bf-sos small{ display:block; font-size:13px; opacity:.9; }
+.bf-sos-row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0 12px; }
+.bf-sos2{
+  min-height:48px; border-radius:16px; border:1.5px solid #F0C9C4; background:#fff; color:var(--danger);
+  font-weight:800; font-size:14px; text-decoration:none; display:flex; align-items:center; justify-content:center; text-align:center; padding:0 8px;
+}
+.bf-info{ padding:4px 16px; }
+.bf-info-row{ display:flex; gap:12px; padding:12px 0; border-top:1px solid #E6EBEE; align-items:flex-start; }
+.bf-info-row:first-child{ border-top:none; }
+.bf-info-ic{ color:var(--ice-deep); margin-top:2px; }
+.bf-info-ic .fs-i{ width:20px; height:20px; }
+.bf-info-v{ display:block; font-size:15px; font-weight:600; margin-top:2px; }
+/* Bearbeiten im Formular */
+.bf-editor{ background:#F6F8F9; border-radius:18px; padding:4px 14px; margin:6px 0 14px; }
+.bf-editor > summary{ cursor:pointer; list-style:none; min-height:48px; display:flex; align-items:center; gap:8px; font-weight:800; font-size:14.5px; }
+.bf-editor > summary::-webkit-details-marker{ display:none; }
+.bf-editor[open]{ padding-bottom:14px; }
+.bf-ed-h{ display:flex; align-items:center; justify-content:space-between; margin:8px 0; }
+.bf-ed-rows{ display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+.bf-ed-row{ display:grid; grid-template-columns:64px minmax(0,1fr) 40px; grid-template-areas:"t l x" "k k k"; gap:6px; background:#fff; border-radius:14px; padding:8px; }
+.bf-ed-row input, .bf-ed-row select{ min-height:42px; border:1px solid var(--line); border-radius:10px; padding:0 10px; font-size:14.5px; background:#fff; min-width:0; }
+.bf-ed-row .bf-ed-time{ grid-area:t; text-align:center; font-weight:700; }
+.bf-ed-row input:not(.bf-ed-time){ grid-area:l; }
+.bf-ed-row select{ grid-area:k; }
+.bf-ed-x{ grid-area:x; width:40px; height:42px; border:none; border-radius:10px; background:#EEF2F4; color:var(--ink-soft); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+.bf-ed-pack{ margin-bottom:8px; }
+.bf-ed-addpack{ display:flex; gap:6px; align-items:center; }
+.bf-ed-addpack input{ flex:1; min-height:40px; border:1px solid var(--line); border-radius:999px; padding:0 14px; font-size:14px; }

@@ -1104,9 +1104,14 @@ function agendaDetailHtml(id){
       </div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
-    <div class="detail-stats">
-      <div class="detail-stat"><div class="num">${dateLabel}</div><div class="lbl">Zeitraum</div></div>
+    <div class="bf-meta">
+      <span class="bf-date">${fsIconHtml('calendar')} ${dateLabel}</span>
+      <span class="bf-avatars">${(a.participants||[]).slice(0,6).map((p,i)=>`<i style="background:${['var(--ink)','var(--ice-deep)','#7D8C96','#B0875A','#5E7A3A','#6570B0'][i%6]}" title="${esc(p.by)}">${esc((p.by||'?').charAt(0).toUpperCase())}</i>`).join('')}</span>
     </div>
+    <div class="field bf-status"><label>Status</label>${agendaStatusSelectHtml(a)}</div>
+    ${briefingTabsBarHtml()}
+    ${(state._briefTab||'ablauf')==='pack' ? briefingPackHtml(a) : (state._briefTab||'ablauf')==='notfall' ? briefingNotfallHtml(a) : `
+    ${briefingAblaufExtrasHtml(a)}
     ${a.weatherSnapshot ? `<div class="detail-section" style="background:var(--ice-light);">
       <h4>📥 Für unterwegs gespeichert${a.weatherSnapshot.locationLabel ? ' — ' + esc(a.weatherSnapshot.locationLabel) : ''}</h4>
       <p style="font-size:15px; margin:0 0 4px 0;">${a.weatherSnapshot.icon||'🌡️'} ${esc(a.weatherSnapshot.label||'')}</p>
@@ -1136,13 +1141,8 @@ function agendaDetailHtml(id){
       <p style="margin:0;">${a.endOption==='huette' ? '🛖 Hütte' : '🏠 Heimweg'}${a.endNote ? ' — ' + esc(a.endNote) : ''}</p>
     </div>` : ''}
     `}
-    ${(a.plannedReturnTime || a.emergencyContact) ? `<div class="detail-section">
-      <h4>Sicherheit</h4>
-      ${a.plannedReturnTime ? `<p style="margin:0 0 4px 0;">⏰ Geplante Rückkehr: ${esc(a.plannedReturnTime)}</p>` : ''}
-      ${a.emergencyContact ? `<p style="margin:0;">📞 Notfallkontakt: ${esc(a.emergencyContact)}</p>` : ''}
-    </div>` : ''}
-    <div class="field"><label>Status</label>${agendaStatusSelectHtml(a)}</div>
     ${a.note ? `<div class="detail-section"><h4>Notiz</h4><p>${esc(a.note)}</p></div>` : ''}
+    `}
     <div class="detail-section">
       <h4>Teilnehmer (${(a.participants||[]).length})</h4>
       ${(a.participants||[]).length ? (a.participants||[]).map(p=>`<p style="margin:0 0 4px 0; font-size:14px;">✓ ${esc(p.by)}</p>`).join('') : `<p style="font-size:13.5px; color:var(--ink-soft);">Noch niemand dabei.</p>`}
@@ -1151,7 +1151,7 @@ function agendaDetailHtml(id){
     <div class="detail-actions">
       <button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>
       <button class="btn secondary" data-act="edit-agenda" data-id="${a.id}">✏️ Bearbeiten</button>
-      <button class="btn secondary" data-act="print-tourenzettel" data-id="${a.id}">📋 Tourenzettel öffnen</button>
+      <button class="btn secondary" data-act="print-tourenzettel" data-id="${a.id}">📋 Tourenzettel teilen</button>
     </div>
     <div id="delete-agenda-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
       <button type="button" id="delete-agenda-trigger" data-id="${a.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Termin löschen</button>
@@ -1209,11 +1209,25 @@ function printTourenzettel(agendaId){
     if(a.plannedReturnTime) ablaufItems.push({label:'Geplante Rückkehr', text:a.plannedReturnTime});
   }
 
+  // Tourenbriefing (Schritt 4): eigener Ablauf mit Zeiten ersetzt die abgeleitete Liste,
+  // Anreise bleibt als erste Zeile erhalten.
+  const brief = briefingOf(a);
+  if(brief.ablauf && brief.ablauf.length){
+    const keepAnreise = ablaufItems.filter(it=> it.label==='Anreise');
+    ablaufItems.length = 0;
+    keepAnreise.forEach(it=> ablaufItems.push(it));
+    brief.ablauf.forEach(r=> ablaufItems.push({
+      label: r.t || (BRIEFING_KINDS[r.kind] ? BRIEFING_KINDS[r.kind].label : 'Punkt'),
+      text: (r.kind==='entscheid' ? '⚠ Entscheidungspunkt: ' : r.kind==='umkehr' ? '⏰ Umkehrzeit: ' : '') + (r.label||'')
+    }));
+  }
+
   // Material: aus der verlinkten Tour, so vorhanden — Anzeige als Checkliste zum Abhaken.
   const materialList = [];
   if(tour && Array.isArray(tour.material)) materialList.push(...tour.material);
   if(tour && tour.quickdrawCount) materialList.push(tour.quickdrawCount + '× Expressschlingen');
   if(tour && tour.ropeType) materialList.push(tour.ropeType + (tour.ropeLength ? ' ('+tour.ropeLength+')' : ''));
+  if(brief.pack && brief.pack.length){ materialList.length = 0; brief.pack.forEach(p=> materialList.push(p.label + (p.must ? ' (Pflicht)' : ''))); }
 
   // Notfallnummern: die beiden Schweizer Rettungsnummern immer, dazu Notfallkontakt und
   // Hütten-Kontakt(e) — nur sachliche Nummern, keine Alarm-Formulierung.
@@ -1234,35 +1248,36 @@ function printTourenzettel(agendaId){
 
   const shareTextLines = [a.tourName || 'Tour', dateLabel];
   ablaufItems.forEach(it=> shareTextLines.push(`${it.label}: ${it.text}`));
+  if(brief.planB) shareTextLines.push('Plan B: ' + brief.planB);
   if(materialList.length) shareTextLines.push('Material: ' + materialList.join(', '));
   shareTextLines.push('Rettung 144 · REGA 1414' + (a.emergencyContact ? ' · Notfallkontakt: '+a.emergencyContact : ''));
   const shareText = shareTextLines.join('\n');
 
   const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Tourenzettel — ${escHtml(a.tourName||'Termin')}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  body{margin:0;background:#F6F1E4;color:#2B2118;font-family:'Archivo',system-ui,sans-serif;}
-  .serif{font-family:'Fraunces',Georgia,serif;}
+  body{margin:0;background:#F3F6F8;color:#0F1E27;font-family:'Manrope',system-ui,sans-serif;}
+  .serif{font-family:'Instrument Serif',Georgia,serif;}
   .wrap{max-width:640px;margin:0 auto;padding:36px 28px 60px;}
-  .eyebrow{font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#6B5A3E;font-weight:600;}
-  h1{font-size:32px;margin:4px 0 0 0;}
-  .routename{font-size:16px;font-style:italic;color:#4A3E2C;}
+  .eyebrow{font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#4A5A64;font-weight:600;}
+  h1{font-size:40px;font-weight:400;margin:4px 0 0 0;}
+  .routename{font-size:16px;font-style:italic;color:#4A5A64;}
   .badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
-  .badge{display:inline-flex;align-items:center;background:#fff;border:1.5px solid #2B2118;border-radius:999px;padding:5px 13px;font-size:12.5px;font-weight:600;}
+  .badge{display:inline-flex;align-items:center;background:#fff;border:1.5px solid #0F1E27;border-radius:999px;padding:5px 13px;font-size:12.5px;font-weight:600;}
   .section{margin-top:24px;}
-  .section h4{font-size:15px;margin:0 0 8px 0;}
-  .material-box{border:1.5px solid #D9CDB5;background:#FBF8F0;border-radius:12px;padding:12px 16px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13.5px;}
-  .contact-box{border:1.5px solid #D9CDB5;background:#FBF8F0;border-radius:12px;padding:10px 16px;font-size:13.5px;}
+  .section h4{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#4A5A64;margin:0 0 8px 0;}
+  .material-box{border:1.5px solid #E1E7EB;background:#FFFFFF;border-radius:12px;padding:12px 16px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13.5px;}
+  .contact-box{border:1.5px solid #E1E7EB;background:#FFFFFF;border-radius:12px;padding:10px 16px;font-size:13.5px;}
   .contact-row{display:flex;justify-content:space-between;padding:3px 0;}
   .timeline{font-size:13.5px;display:flex;flex-direction:column;gap:7px;}
-  .tl-item{padding-left:14px;border-left:2px solid #D9CDB5;}
-  .muted{color:#6B5A3E;font-size:13px;}
-  #tz-map{height:200px;border-radius:12px;border:1.5px solid #D9CDB5;margin-top:2px;}
+  .tl-item{padding-left:14px;border-left:2px solid #E1E7EB;}
+  .muted{color:#4A5A64;font-size:13px;}
+  #tz-map{height:200px;border-radius:12px;border:1.5px solid #E1E7EB;margin-top:2px;}
   .actions{margin-top:30px;display:flex;gap:10px;flex-wrap:wrap;}
-  button{font-family:inherit;font-size:13.5px;font-weight:600;padding:9px 16px;border-radius:999px;border:1.5px solid #2B2118;background:#fff;cursor:pointer;}
-  button.primary{background:#2B2118;color:#F6F1E4;}
-  .foot{margin-top:28px;font-size:11px;color:#6B5A3E;}
+  button{font-family:inherit;font-size:13.5px;font-weight:600;padding:9px 16px;border-radius:999px;border:1.5px solid #0F1E27;background:#fff;cursor:pointer;}
+  button.primary{background:#0F1E27;color:#F3F6F8;}
+  .foot{margin-top:28px;font-size:11px;color:#4A5A64;}
   @media print{ .no-print{display:none;} body{background:#fff;} }
 </style>
 </head><body>
@@ -1273,6 +1288,9 @@ function printTourenzettel(agendaId){
   <div class="badges">${badges.map(b=>`<span class="badge">${escHtml(b)}</span>`).join('')}</div>
 
   ${ablaufItems.length ? `<div class="section"><h4>📍 Ablauf</h4><div class="timeline">${ablaufItems.map(it=>`<div class="tl-item"><strong>${escHtml(it.label)}:</strong> ${escHtml(it.text)}</div>`).join('')}</div></div>` : ''}
+
+  ${brief.planB ? `<div class="section"><h4>↩️ Plan B</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.planB)}</p></div>` : ''}
+  ${brief.anforderungen ? `<div class="section"><h4>💪 Das braucht es</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.anforderungen)}</p></div>` : ''}
 
   <div class="section"><h4>🎒 Material</h4>${materialList.length ? `<div class="material-box">${materialList.map(m=>`<div>☐ ${escHtml(m)}</div>`).join('')}</div>` : `<p class="muted">Keine Material-Angaben zu dieser Tour hinterlegt.</p>`}</div>
 
@@ -1358,6 +1376,7 @@ function printTourenzettel(agendaId){
 function openAddAgenda(){
   ensureName(async ()=>{
     if(!state.otherAppTours.length) await loadOtherAppTours();
+    state._briefingDraft = null;
     state.modal = {type:'add-agenda'};
     render();
   });
@@ -1367,6 +1386,7 @@ function openAddAgenda(){
 // Zustiegs-/Abstiegs-/Wetter-Auflösung leer, weil findAgendaLinkedTour() nichts zu durchsuchen hätte.
 async function openAgendaDetail(id){
   if(!state.otherAppTours.length) await loadOtherAppTours();
+  state._briefTab = 'ablauf';
   state.modal = {type:'agenda-detail', payload:id};
   render();
 }
@@ -1381,6 +1401,7 @@ function openEditAgenda(id){
     if(!a) return;
     if(!state.otherAppTours.length) await loadOtherAppTours();
     agendaDayPlanDraft = a.days ? JSON.parse(JSON.stringify(a.days)) : null;
+    state._briefingDraft = null;
     state.modal = {type:'edit-agenda', payload:id};
     render();
   });
@@ -1449,6 +1470,7 @@ function agendaFormHtml(editId){
         <div class="field"><label>Geplante Rückkehrzeit</label><input name="plannedReturnTime" placeholder="z. B. 18:00" value="${a ? esc(a.plannedReturnTime||'') : ''}"/></div>
         <div class="field"><label>Notfallkontakt</label><input name="emergencyContact" placeholder="Name, Telefonnummer" value="${a ? esc(a.emergencyContact||'') : ''}"/></div>
       </div>
+      ${briefingEditorHtml(editId)}
       <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Ausrüstung, offene Fragen …">${a ? esc(a.note||'') : ''}</textarea></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
@@ -1966,6 +1988,15 @@ async function submitAgendaForm(form){
     endOption, endNote,
     plannedReturnTime: form.plannedReturnTime||'', emergencyContact: form.emergencyContact||'',
   };
+  // Tourenbriefing (Schritt 4) — nur übernehmen, wenn das Formular es mitgeschickt hat.
+  if(typeof form.briefing === 'string' && form.briefing){
+    try{
+      const b = JSON.parse(form.briefing);
+      b.ablauf = (b.ablauf||[]).filter(r=> (r.label||'').trim() || (r.t||'').trim());
+      editableFields.briefing = b;
+    }catch(e){}
+  }
+  state._briefingDraft = null;
   const a = existing ? {...existing, ...editableFields} : {
     id: uid('a'), createdBy: state.myName, createdAt: new Date().toISOString(),
     ...editableFields,
@@ -8474,6 +8505,8 @@ const FS_ICON_PATHS = {
   tent: 'M3 20L12 4l9 16zM9 20l3-5 3 5',
   rain: 'M7 15a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 8.5a3.5 3.5 0 0 1-1 6.5M8 18l-1 2.5M12 18l-1 2.5M16 18l-1 2.5',
   checkc: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM8 12.5l3 3 5-6',
+  check: 'M5 12.5l4.5 4.5L19 7.5',
+  flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
   chevdown: 'M6 9l6 6 6-6',
   plus: 'M12 5v14M5 12h14',
   calendar: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4',
@@ -8603,3 +8636,309 @@ function fsSkipNode(el){
   };
   if(document.body) start(); else document.addEventListener('DOMContentLoaded', start);
 })();
+
+/* ================= Tourenbriefing (Schritt 4) =================
+   Baut auf dem Agenda-Termin auf (Datum, Teilnehmer, Treffpunkt, Rückkehr, Notfallkontakt gibt es
+   dort schon). Neu pro Termin: a.briefing = {ablauf:[{t,label,kind}], planB, anforderungen,
+   pack:[{id,label,must}]} und a.packChecks = {<name-key>: [item-ids]} — damit wissen Leitung und
+   Gäste am Schluss, was passiert, was mit muss und welche Eckpunkte wann erreicht werden sollen.
+   Alte Termine ohne diese Felder funktionieren unverändert weiter (alles optional). */
+const BRIEFING_KINDS = {
+  punkt:   {label:'Punkt'},
+  start:   {label:'Start'},
+  entscheid:{label:'Entscheidungspunkt'},
+  gipfel:  {label:'Gipfel / Ziel'},
+  umkehr:  {label:'Umkehrzeit'},
+  ende:    {label:'Zurück'}
+};
+const BRIEFING_PACK_TEMPLATES = {
+  ski: [
+    ['Sicherheit', [['LVS',1],['Schaufel',1],['Sonde',1],['Erste-Hilfe-Set',0],['Handy geladen',0]]],
+    ['Ski', [['Tourenski und Schuhe',0],['Felle',0],['Harscheisen',0],['Stöcke',0]]],
+    ['Bekleidung', [['Daunenjacke',0],['Handschuhe, 2 Paar',0],['Mütze und Skibrille',0],['Sonnencreme',0]]],
+    ['Verpflegung', [['Warmes Getränk',0],['Lunch',0]]]
+  ],
+  hochtour: [
+    ['Sicherheit', [['Helm',1],['Klettergurt',1],['Steigeisen',1],['Pickel',1],['Seil',0],['Schraubkarabiner',0],['Prusik / Bandschlinge',0],['Erste-Hilfe-Set',0]]],
+    ['Ausrüstung', [['Bergschuhe, steigeisenfest',0],['Stirnlampe',0],['Stöcke',0]]],
+    ['Bekleidung', [['Hardshell',0],['Handschuhe',0],['Mütze und Sonnenbrille',0],['Sonnencreme',0]]],
+    ['Hütte und Verpflegung', [['Hüttenschlafsack',0],['Bargeld',0],['Wasser',0],['Lunch',0]]]
+  ],
+  msl: [
+    ['Sicherheit', [['Helm',1],['Klettergurt',1],['Sicherungsgerät',1],['Schraubkarabiner',0],['Erste-Hilfe-Set',0]]],
+    ['Seilschaft', [['Seil',0],['Expressschlingen',0],['Bandschlingen',0],['Friends / Keile',0]]],
+    ['Persönlich', [['Kletterfinken',0],['Zustiegsschuhe',0],['Stirnlampe',0],['Windjacke',0]]],
+    ['Verpflegung', [['Wasser',0],['Lunch',0]]]
+  ]
+};
+function briefingSlug(label){ return (label||'').toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || uid('p'); }
+function briefingPackFromTemplate(type, tour){
+  const groups = BRIEFING_PACK_TEMPLATES[type] || BRIEFING_PACK_TEMPLATES.ski;
+  const items = [];
+  groups.forEach(([group, list])=> list.forEach(([label, must])=> items.push({id: briefingSlug(label), label, must: !!must, group})));
+  // Material der verlinkten Tour (z. B. "Spaltenrettungsset") ergänzen, falls noch nicht drin.
+  const extra = [];
+  if(tour && Array.isArray(tour.material)) extra.push(...tour.material);
+  if(tour && tour.ropeType) extra.push(tour.ropeType + (tour.ropeLength ? ' ' + tour.ropeLength : ''));
+  if(tour && tour.quickdrawCount) extra.push(tour.quickdrawCount + ' Expressschlingen');
+  extra.forEach(label=>{
+    const id = briefingSlug(label);
+    if(label && !items.some(i=>i.id===id)) items.push({id, label, must:false, group:'Für diese Tour'});
+  });
+  return items;
+}
+function briefingSuggestedAblauf(a){
+  const rows = [];
+  const mp = (a.meetingPoint||'').match(/(\d{1,2}[:.]\d{2})/);
+  rows.push({t: mp ? mp[1].replace('.',':') : '', label: a.meetingPoint ? 'Treffpunkt ' + a.meetingPoint.replace(mp ? mp[1] : '', '').trim() : 'Treffpunkt', kind:'punkt'});
+  rows.push({t:'', label:'Start' + (a.tourName ? ' ' + a.tourName : ''), kind:'start'});
+  rows.push({t:'', label:'Entscheidungspunkt (Schlüsselstelle, Verhältnisse prüfen)', kind:'entscheid'});
+  rows.push({t:'', label: a.tourName ? 'Gipfel / Ziel ' + a.tourName : 'Gipfel / Ziel', kind:'gipfel'});
+  rows.push({t:'', label:'Umkehrzeit – spätestens jetzt zurück, egal wo', kind:'umkehr'});
+  const rt = (a.plannedReturnTime||'').match(/(\d{1,2}[:.]\d{2})/);
+  rows.push({t: rt ? rt[1].replace('.',':') : '', label:'Zurück', kind:'ende'});
+  return rows;
+}
+function briefingOf(a){ return (a && a.briefing) || {ablauf:[], planB:'', anforderungen:'', pack:[]}; }
+function briefingMyChecks(a){
+  const key = sanitizeNameKey(state.myName||'');
+  return new Set(((a.packChecks||{})[key]) || []);
+}
+
+// ---------- Anzeige im Termin ----------
+function briefingTimelineHtml(a){
+  const b = briefingOf(a);
+  const rows = (b.ablauf && b.ablauf.length) ? b.ablauf : null;
+  if(!rows) return `<div class="bf-card"><h3 class="bf-h">Ablauf</h3>
+    <p class="bf-empty">Noch kein Ablauf festgelegt. Unter „Bearbeiten“ kannst du Zeiten, Entscheidungspunkte und die Umkehrzeit eintragen.</p></div>`;
+  return `<div class="bf-card"><h3 class="bf-h">Ablauf</h3>
+    <ol class="bf-tl">
+      ${rows.map(r=>`<li class="bf-tl-row bf-k-${esc(r.kind||'punkt')}">
+        <span class="bf-tl-time">${esc(r.t||'')}</span>
+        <span class="bf-tl-dot" aria-hidden="true"></span>
+        <span class="bf-tl-body">
+          ${r.kind==='entscheid' ? `<span class="bf-tag bf-tag-entscheid">⚠ Entscheidungspunkt</span>` : ''}
+          ${r.kind==='umkehr' ? `<span class="bf-tag bf-tag-umkehr">⏰ Umkehrzeit</span>` : ''}
+          <span class="bf-tl-label">${esc(r.label||BRIEFING_KINDS[r.kind||'punkt'].label)}</span>
+        </span>
+      </li>`).join('')}
+    </ol>
+  </div>`;
+}
+function briefingPackHtml(a){
+  const b = briefingOf(a);
+  const pack = b.pack || [];
+  if(!pack.length) return `<div class="bf-card"><h3 class="bf-h">Packliste</h3>
+    <p class="bf-empty">Noch keine Packliste. Unter „Bearbeiten“ lässt sie sich aus einer Vorlage für ${esc(agendaTypeLabel(a.type).replace(/^\S+\s/,''))} übernehmen.</p></div>`;
+  const mine = briefingMyChecks(a);
+  const done = pack.filter(p=>mine.has(p.id)).length;
+  const pct = Math.round(done / pack.length * 100);
+  const others = (a.participants||[]).map(p=>p.by).filter(n=> n && n!==state.myName).map(n=>{
+    const c = new Set(((a.packChecks||{})[sanitizeNameKey(n)]) || []);
+    const cnt = pack.filter(p=>c.has(p.id)).length;
+    return {n, cnt, all: cnt===pack.length};
+  });
+  const groups = [];
+  pack.forEach(p=>{ const g = p.group || 'Material'; let e = groups.find(x=>x.g===g); if(!e){ e = {g, items:[]}; groups.push(e); } e.items.push(p); });
+  return `<div class="bf-card">
+      <div class="bf-row"><h3 class="bf-h">Packliste</h3><span class="bf-count">${state.myName ? `${done} von ${pack.length}` : ''}</span></div>
+      ${state.myName ? `<div class="bf-bar"><span style="width:${pct}%"></span></div>` : `<p class="bf-empty">Setze deinen Namen, um abzuhaken.</p>`}
+      ${others.length ? `<div class="bf-people">${others.map(o=>`<span class="bf-person"><i class="${o.all?'ok':''}"></i>${esc(o.n)} · ${o.all ? 'komplett' : o.cnt + ' von ' + pack.length}</span>`).join('')}</div>` : ''}
+    </div>
+    ${groups.map(g=>`<div class="bf-group">
+      <div class="bf-kicker">${esc(g.g)}</div>
+      <div class="bf-list">
+        ${g.items.map(p=>{ const on = mine.has(p.id); return `<button type="button" class="bf-check ${on?'on':''}" data-act="brief-pack" data-id="${esc(a.id)}" data-item="${esc(p.id)}" aria-pressed="${on}">
+          <span class="bf-box" aria-hidden="true">${fsIconHtml('check')}</span>
+          <span class="bf-check-label">${esc(p.label)}</span>
+          ${p.must ? `<span class="bf-must">Pflicht</span>` : ''}
+        </button>`; }).join('')}
+      </div>
+    </div>`).join('')}`;
+}
+function briefingNotfallHtml(a){
+  const b = briefingOf(a);
+  const tour = findAgendaLinkedTour(a.tourRef);
+  const pt = tour ? tourMapPoint(tour) : null;
+  const telOf = (s)=>{ const m = (s||'').match(/\+?[\d][\d\s\/-]{6,}/); return m ? m[0].replace(/[\s\/-]/g,'') : ''; };
+  const contactTel = telOf(a.emergencyContact);
+  const rows = [
+    pt ? ['pin','Koordinaten Ziel', pt.lat.toFixed(4) + '° N · ' + pt.lon.toFixed(4) + '° E'] : null,
+    b.planB ? ['flag','Plan B', b.planB] : null,
+    a.plannedReturnTime ? ['clock','Geplante Rückkehr', a.plannedReturnTime] : null,
+    a.emergencyContact ? ['users','Notfallkontakt', a.emergencyContact] : null
+  ].filter(Boolean);
+  return `<a class="bf-sos" href="tel:1414">
+      <span class="bf-sos-ic">${fsIconHtml('phone')}</span>
+      <span><b>Rega 1414</b><small>Rettungshelikopter · Schweiz</small></span>
+    </a>
+    <div class="bf-sos-row">
+      <a class="bf-sos2" href="tel:112">112 · Euronotruf</a>
+      ${contactTel ? `<a class="bf-sos2" href="tel:${esc(contactTel)}">Notfallkontakt anrufen</a>` : `<a class="bf-sos2" href="tel:117">117 · Polizei</a>`}
+    </div>
+    <div class="bf-card bf-info">
+      ${rows.length ? rows.map(r=>`<div class="bf-info-row"><span class="bf-info-ic">${fsIconHtml(r[0])}</span><span><span class="bf-kicker">${esc(r[1])}</span><span class="bf-info-v">${esc(r[2])}</span></span></div>`).join('')
+        : `<p class="bf-empty">Noch keine Angaben. Unter „Bearbeiten“: Notfallkontakt, geplante Rückkehr und Plan B.</p>`}
+    </div>
+    <button type="button" class="btn secondary" data-act="brief-open-emergency" style="width:100%;">🆘 Notfallkarte mit den 5 W und Standort</button>`;
+}
+function briefingTabsBarHtml(){
+  const tab = state._briefTab || 'ablauf';
+  const tabs = [['ablauf','Ablauf','clock'],['pack','Packliste','pack'],['notfall','Notfall','sos']];
+  return `<div class="bf-tabs" role="tablist">
+      ${tabs.map(t=>`<button type="button" role="tab" data-act="brief-tab" data-tab="${t[0]}" aria-selected="${tab===t[0]}" class="${tab===t[0]?'on':''}">${fsIconHtml(t[2])}${t[1]}</button>`).join('')}
+    </div>`;
+}
+function briefingAblaufExtrasHtml(a){
+  const b = briefingOf(a);
+  return `${briefingTimelineHtml(a)}
+    ${b.anforderungen ? `<div class="bf-card"><h3 class="bf-h">Das braucht es</h3><p class="bf-text">${esc(b.anforderungen)}</p></div>` : ''}
+    ${b.planB ? `<div class="bf-card bf-planb"><div class="bf-kicker">Plan B</div><p class="bf-text">${esc(b.planB)}</p></div>` : ''}`;
+}
+function briefingTabsHtml(a){
+  const tab = state._briefTab || 'ablauf';
+  const b = briefingOf(a);
+  const tabs = [['ablauf','Ablauf','clock'],['pack','Packliste','pack'],['notfall','Notfall','sos']];
+  return `<div class="bf-tabs" role="tablist">
+      ${tabs.map(t=>`<button type="button" role="tab" data-act="brief-tab" data-tab="${t[0]}" aria-selected="${tab===t[0]}" class="${tab===t[0]?'on':''}">${fsIconHtml(t[2])}${t[1]}</button>`).join('')}
+    </div>
+    <div class="bf-panel">
+      ${tab==='ablauf' ? `
+        ${briefingTimelineHtml(a)}
+        ${b.anforderungen ? `<div class="bf-card"><h3 class="bf-h">Das braucht es</h3><p class="bf-text">${esc(b.anforderungen)}</p></div>` : ''}
+        ${b.planB ? `<div class="bf-card bf-planb"><div class="bf-kicker">Plan B</div><p class="bf-text">${esc(b.planB)}</p></div>` : ''}
+      ` : tab==='pack' ? briefingPackHtml(a) : briefingNotfallHtml(a)}
+    </div>`;
+}
+
+// ---------- Bearbeiten im Termin-Formular ----------
+function briefingDraftFor(editId){
+  const key = editId || 'new';
+  if(state._briefingDraft && state._briefingDraft.key===key) return state._briefingDraft.data;
+  const a = editId ? state.agenda.find(x=>x.id===editId) : null;
+  const b = a && a.briefing ? JSON.parse(JSON.stringify(a.briefing)) : {ablauf:[], planB:'', anforderungen:'', pack:[]};
+  b.ablauf = Array.isArray(b.ablauf) ? b.ablauf : []; b.pack = Array.isArray(b.pack) ? b.pack : [];
+  state._briefingDraft = {key, data:b};
+  return b;
+}
+function briefingEditorInnerHtml(d){
+  return `
+    <div class="bf-ed-h"><span class="bf-kicker">Ablauf</span>
+      ${d.ablauf.length ? '' : `<button type="button" class="chip" data-act="brief-ed-suggest">Vorschlag einfügen</button>`}</div>
+    <div class="bf-ed-rows">
+      ${d.ablauf.map((r,i)=>`<div class="bf-ed-row">
+        <input type="text" inputmode="numeric" placeholder="06:30" value="${esc(r.t||'')}" data-bf-field="t" data-i="${i}" aria-label="Zeit" class="bf-ed-time"/>
+        <input type="text" placeholder="Was passiert hier?" value="${esc(r.label||'')}" data-bf-field="label" data-i="${i}" aria-label="Beschreibung"/>
+        <select data-bf-field="kind" data-i="${i}" aria-label="Art">
+          ${Object.entries(BRIEFING_KINDS).map(([k,v])=>`<option value="${k}" ${r.kind===k?'selected':''}>${v.label}</option>`).join('')}
+        </select>
+        <button type="button" class="bf-ed-x" data-act="brief-ed-remove" data-i="${i}" aria-label="Zeile entfernen">${fsIconHtml('x')}</button>
+      </div>`).join('')}
+    </div>
+    <button type="button" class="chip" data-act="brief-ed-add">➕ Zeile</button>
+    <div class="field" style="margin-top:14px;"><label>Plan B</label><textarea data-bf-field="planB" placeholder="z. B. bei Triebschnee Umkehr über die Aufstiegsspur">${esc(d.planB||'')}</textarea></div>
+    <div class="field"><label>Das braucht es (Kondition, Technik)</label><textarea data-bf-field="anforderungen" placeholder="z. B. 1200 Hm in 4½ h, Spitzkehren sicher">${esc(d.anforderungen||'')}</textarea></div>
+    <div class="bf-ed-h"><span class="bf-kicker">Packliste${d.pack.length ? ' (' + d.pack.length + ')' : ''}</span>
+      <button type="button" class="chip" data-act="brief-ed-template">${d.pack.length ? 'Vorlage neu laden' : 'Vorlage übernehmen'}</button></div>
+    ${d.pack.length ? `<div class="chips bf-ed-pack">${d.pack.map((p,i)=>`<button type="button" class="chip on" data-act="brief-ed-pack-remove" data-i="${i}" title="Entfernen" style="background:var(--ice-deep)">${esc(p.label)}${p.must?' ·&nbsp;Pflicht':''} ✕</button>`).join('')}</div>` : ''}
+    <div class="bf-ed-addpack"><input type="text" placeholder="Eigener Gegenstand" data-bf-newpack aria-label="Eigener Gegenstand"/><button type="button" class="chip" data-act="brief-ed-pack-add">➕</button></div>
+  `;
+}
+function briefingEditorHtml(editId){
+  const d = briefingDraftFor(editId);
+  return `<details class="bf-editor" ${d.ablauf.length || d.pack.length || d.planB ? 'open' : ''}>
+    <summary>📋 Tourenbriefing: Ablauf, Plan B, Packliste</summary>
+    <input type="hidden" name="briefing" id="agenda-briefing-json" value="${esc(JSON.stringify(d))}"/>
+    <div id="agenda-briefing-editor">${briefingEditorInnerHtml(d)}</div>
+  </details>`;
+}
+function briefingEditorSync(rerender){
+  const d = state._briefingDraft && state._briefingDraft.data;
+  if(!d) return;
+  const hidden = document.getElementById('agenda-briefing-json');
+  if(hidden) hidden.value = JSON.stringify(d);
+  if(rerender){
+    const box = document.getElementById('agenda-briefing-editor');
+    if(box) box.innerHTML = briefingEditorInnerHtml(d);
+  }
+  if(typeof markModalDirty === 'function') markModalDirty();
+}
+function briefingFormValues(){
+  const f = document.getElementById('agenda-form');
+  const get = (n)=>{ const el = f && f.querySelector('[name="'+n+'"]'); return el ? el.value : ''; };
+  const sel = f && f.querySelector('select[name="tourChoice"]');
+  let tour = null;
+  if(sel && sel.value && sel.value!=='custom'){
+    const [src, refId] = sel.value.split(':');
+    tour = (src==='own' ? state.tours : state.otherAppTours).find(t=>t.id===refId) || null;
+  }
+  return {type:get('type')||'ski', meetingPoint:get('meetingPoint'), plannedReturnTime:get('plannedReturnTime'),
+    tourName: tour ? tour.name : get('customName'), tour};
+}
+
+// Ein zentraler Klick-/Eingabe-Handler (Delegation, in der Capture-Phase, weil Dialoge Klicks
+// per stopPropagation abfangen), damit index.html und fixseil.html nichts zusätzlich verdrahten müssen.
+document.addEventListener('click', async (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act^="brief-"]');
+  if(!el) return;
+  const act = el.getAttribute('data-act');
+  if(act==='brief-tab'){ state._briefTab = el.getAttribute('data-tab'); render(); return; }
+  if(act==='brief-open-emergency'){
+    if(typeof navigateToModal === 'function') navigateToModal({type:'emergency'});
+    else{ state.modal = {type:'emergency'}; render(); }
+    return;
+  }
+  if(act==='brief-pack'){
+    ensureName(async ()=>{
+      const a = state.agenda.find(x=>x.id===el.getAttribute('data-id'));
+      if(!a) return;
+      const key = sanitizeNameKey(state.myName);
+      a.packChecks = a.packChecks || {};
+      const set = new Set(a.packChecks[key] || []);
+      const item = el.getAttribute('data-item');
+      if(set.has(item)) set.delete(item); else set.add(item);
+      a.packChecks[key] = Array.from(set);
+      render();
+      const ok = await saveAgendaCloud(a).catch(()=>false);
+      a._unsynced = !ok; if(!ok) markUnsaved();
+    });
+    return;
+  }
+  const d = state._briefingDraft && state._briefingDraft.data;
+  if(!d) return;
+  const i = parseInt(el.getAttribute('data-i'), 10);
+  if(act==='brief-ed-add'){ d.ablauf.push({t:'', label:'', kind:'punkt'}); briefingEditorSync(true); }
+  else if(act==='brief-ed-remove'){ d.ablauf.splice(i,1); briefingEditorSync(true); }
+  else if(act==='brief-ed-suggest'){ d.ablauf = briefingSuggestedAblauf(briefingFormValues()); briefingEditorSync(true); }
+  else if(act==='brief-ed-template'){ const v = briefingFormValues(); d.pack = briefingPackFromTemplate(v.type, v.tour); briefingEditorSync(true); }
+  else if(act==='brief-ed-pack-remove'){ d.pack.splice(i,1); briefingEditorSync(true); }
+  else if(act==='brief-ed-pack-add'){
+    const inp = document.querySelector('[data-bf-newpack]');
+    const label = inp && inp.value.trim();
+    if(label && !d.pack.some(p=>p.id===briefingSlug(label))){ d.pack.push({id:briefingSlug(label), label, must:false, group:'Eigenes'}); briefingEditorSync(true); }
+  }
+}, true);
+document.addEventListener('input', (e)=>{
+  const el = e.target;
+  if(!el || !el.getAttribute) return;
+  const field = el.getAttribute('data-bf-field');
+  const d = state._briefingDraft && state._briefingDraft.data;
+  if(!field || !d) return;
+  if(field==='planB' || field==='anforderungen') d[field] = el.value;
+  else{ const i = parseInt(el.getAttribute('data-i'), 10); if(d.ablauf[i]) d.ablauf[i][field] = el.value; }
+  briefingEditorSync(false);
+}, true);
+document.addEventListener('change', (e)=>{
+  const el = e.target;
+  if(el && el.getAttribute && el.getAttribute('data-bf-field')==='kind'){
+    const d = state._briefingDraft && state._briefingDraft.data;
+    const i = parseInt(el.getAttribute('data-i'), 10);
+    if(d && d.ablauf[i]){ d.ablauf[i].kind = el.value; briefingEditorSync(false); }
+  }
+}, true);
+document.addEventListener('keydown', (e)=>{
+  if(e.key==='Enter' && e.target && e.target.hasAttribute && e.target.hasAttribute('data-bf-newpack')){
+    e.preventDefault();
+    const btn = document.querySelector('[data-act="brief-ed-pack-add"]'); if(btn) btn.click();
+  }
+}, true);
