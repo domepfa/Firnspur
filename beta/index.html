@@ -2064,13 +2064,13 @@ function tourFormHtml(existing){
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(t.manualTrack || []))}'/>
       </div>
       <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abfahrtsroute, Varianten …">${esc(t.descent||'')}</textarea></div>
-      <div class=”field”><label>Verknüpfte Hütte</label>
-        <select name=”hutId”><option value=””>— keine —</option>${hutOptions}</select>
-        <div class=”hint”>Fehlt die Hütte? Erst unter „Hütten” anlegen, dann hier verlinken.</div>
+      <div class="field"><label>Verknüpfte Hütte</label>
+        <select name="hutId"><option value="">— keine —</option>${hutOptions}</select>
+        <div class="hint">Fehlt die Hütte? Erst unter „Hütten“ anlegen, dann hier verlinken.</div>
       </div>
-      <div class=”field”><label>Gebiet (optional)</label>
-        <select name=”gebietId”><option value=””>— keins —</option>${state.gebiete.map(g=>`<option value=”${g.id}” ${t.gebietId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select>
-        <div class=”hint”>Fasst Touren &amp; Hütten derselben Region zusammen. Fehlt das Gebiet? Erst unter „Gebiete” anlegen.</div>
+      <div class="field"><label>Gebiet (optional)</label>
+        <select name="gebietId"><option value="">— keins —</option>${state.gebiete.map(g=>`<option value="${g.id}" ${t.gebietId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select>
+        <div class="hint">Fasst Touren &amp; Hütten derselben Region zusammen. Fehlt das Gebiet? Erst unter „Gebiete“ anlegen.</div>
       </div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>

@@ -3833,9 +3833,7 @@ function klettergebietCardHtml(geb){
   // öffnet die Topo-Galerie (siehe klettergebietTopoGalleryEntries), daher kein separater Chip.
   const topoEntries = klettergebietTopoGalleryEntries(geb);
   const cardThumb = (geb.topoImages && geb.topoImages.length) ? geb.topoImages[0] : (topoEntries[0] || null);
-  const thumbHtml = cardThumb ? (cardThumb.cropRect
-    ? `<div data-act="show-klettergebiet-topo-gallery" data-id="${geb.id}" style="width:122px; height:122px; flex-shrink:0; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; background-image:url('${esc(cardThumb.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(cardThumb.cropRect)}"></div>`
-    : `<img src="${esc(cardThumb.url)}" data-act="show-klettergebiet-topo-gallery" data-id="${geb.id}" style="width:122px; height:122px; flex-shrink:0; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; transform:rotate(${cardThumb.rotation||0}deg);"/>`) : '';
+  const thumbHtml = cardThumb ? topoImageBoxHtml(cardThumb, 122, 122, `data-act="show-klettergebiet-topo-gallery" data-id="${geb.id}"`, 'border-radius:var(--radius); border:1px solid var(--line); cursor:pointer;') : '';
   return `
   <div class="card" data-act="open-klettergebiet" data-id="${geb.id}" tabindex="0" role="button" style="gap:6px;">
     <div>${favoriteToggleButtonHtml(geb.id)}</div>
@@ -3880,9 +3878,7 @@ function sektorCardHtml(sek){
   const topoThumb = (sek.topoImages && sek.topoImages.length) ? sek.topoImages[0] : null;
   return `
   <div class="card" data-act="open-sektor" data-id="${sek.id}" tabindex="0" role="button" style="${topoThumb ? 'display:flex; gap:12px; align-items:flex-start;' : ''}">
-    ${topoThumb ? (topoThumb.cropRect
-      ? `<div style="width:60px; height:60px; border-radius:var(--radius); border:1px solid var(--line); flex-shrink:0; background-image:url('${esc(topoThumb.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(topoThumb.cropRect)} transform:rotate(${topoThumb.rotation||0}deg);"></div>`
-      : `<img src="${esc(topoThumb.url)}" style="width:60px; height:60px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); flex-shrink:0; transform:rotate(${topoThumb.rotation||0}deg);"/>`) : ''}
+    ${topoThumb ? topoImageBoxHtml(topoThumb, 60, 60, '', 'border-radius:var(--radius); border:1px solid var(--line);') : ''}
     <div style="flex:1; min-width:0;">
       <div class="card-top">
         <h3 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h3>
