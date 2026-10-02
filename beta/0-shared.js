@@ -2612,9 +2612,11 @@ function renderStandaloneMap(containerId){
       if(onEdit){
         const editBtn = document.createElement('button');
         editBtn.type = 'button';
-        editBtn.title = 'Bearbeiten';
+        editBtn.title = 'Bearbeiten (gedrückt halten)';
+        editBtn.setAttribute('aria-label', 'Bearbeiten, gedrückt halten');
+        editBtn.dataset.act = 'edit-from-map';
         editBtn.textContent = '✏️';
-        editBtn.style.cssText = 'flex:none; background:none; border:none; padding:0 0 0 4px; font-size:14px; line-height:1; cursor:pointer;';
+        editBtn.style.cssText = 'flex:none; position:relative; overflow:hidden; background:none; border:none; min-width:36px; min-height:36px; padding:0 0 0 4px; font-size:14px; line-height:1; cursor:pointer;';
         editBtn.addEventListener('click', onEdit);
         titleRow.appendChild(editBtn);
       }
@@ -3822,7 +3824,12 @@ function geojsonToLatLngs(geometry){
 
 // Popup-Inhalt für eine per identifySkitourAt() gefundene Skitour — Name (falls bekannt)
 // plus GPX-Download. Geteilt zwischen der Standalone-Karte und dem Punkte/Linie-Editor.
-function buildSkitourPopupContent(feature){
+// opts.allowAttach (Standard true): "Zu Tour hinzufügen" anbieten. In einer Bearbeiten-Karte
+// (renderPointsEditorMap) bewusst aus — dort wird genau EINE Tour bearbeitet, eine Auswahlliste
+// aller Touren führte dazu, dass versehentlich eine andere Tour verändert wurde. Übernehmen
+// geht nur auf der grossen Karte.
+function buildSkitourPopupContent(feature, opts){
+  const allowAttach = !opts || opts.allowAttach !== false;
   const wrap = document.createElement('div');
   wrap.style.minWidth = '190px';
   // Je nach angeforderter Geometrie-Form liefert swisstopo die Sachdaten mal unter
@@ -3856,7 +3863,12 @@ function buildSkitourPopupContent(feature){
     // Direkt einer bestehenden Tour zuweisen, statt den Umweg über Herunterladen und
     // anschliessendes manuelles Hochladen im Formular zu gehen — die Koordinaten liegen ja
     // schon hier vor. Nur sinnvoll, wenn es überhaupt eigene Touren gibt.
-    if(Array.isArray(state.tours) && state.tours.length){
+    if(!allowAttach){
+      const note = document.createElement('p');
+      note.style.cssText = 'margin:8px 0 0 0; font-size:11.5px; color:#6B7682;';
+      note.textContent = 'Zu einer Tour übernehmen: auf der grossen Karte antippen.';
+      wrap.appendChild(note);
+    }else if(Array.isArray(state.tours) && state.tours.length){
       const attachWrap = document.createElement('div');
       attachWrap.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid #eee;';
       const select = document.createElement('select');
@@ -4793,7 +4805,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         // angetippten Route, statt einen Punkt zu setzen (das geht per langem Drücken, s. u.).
         const feature = await identifySkitourAt(map, e.latlng);
         if(feature){
-          L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature)).openOn(map);
+          L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature, {allowAttach:false})).openOn(map);
         }
       }
     });
@@ -5745,6 +5757,7 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, 
   const list = kind==='tour' ? state.tours : state.huts;
   const item = list.find(x=>x.id===id);
   if(!item) return;
+  const undoPrev = snapshotForUndo(item);
   item.points = points;
   item.manualTrack = manualTrack;
   // Nur bei Touren: der eigene GPX-Track ist im Schnell-Bearbeiten-Modus (wie im vollen
@@ -5760,10 +5773,14 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, 
   const saveFn = kind==='tour' ? saveTourCloud : saveHutCloud;
   const ok = await saveFn(item).catch(()=>false);
   item._unsynced = !ok;
-  closeModal();
+  // Gespeichert = wieder gesperrt: Bearbeiten-Karte zu, kein "ungespeichert" mehr.
+  state.quickEditOpenId = null;
+  resetModalDirty();
+  closeModal(false, true);
   state.modal = {type: kind==='tour' ? 'tour-detail' : 'hut-detail', payload:id};
   render();
-  showToast(ok ? 'Punkte/Linie gespeichert.' : 'Lokal gespeichert, aber nicht synchronisiert.', !ok);
+  if(ok) offerUndoAfterSave('Karte gespeichert · wieder gesperrt.', list, undoPrev, saveFn);
+  else showToast('Lokal gespeichert, aber nicht synchronisiert.', true);
 }
 /* ================= Login (Firebase Authentication, einmalig pro Gerät) ================= */
 const FIREBASE_API_KEY = 'AIzaSyDKHMUoOL5aosFU7OhCt22REbyOvXqAXmU';
@@ -5958,17 +5975,164 @@ function closeTopOverlayLayer(){
   consumeHistoryEntry();
 }
 
+/* ================= Erkunden / Bearbeiten: "Gedrückt halten zum Bearbeiten" =================
+   Im Gelände (nasses Display, Handschuhe) soll ein versehentlicher Tipp nie etwas verändern.
+   Darum lösen alle Knöpfe, die Daten ändern (Bearbeiten, Löschen, Status, Karte bearbeiten …),
+   erst nach 1 Sekunde Gedrückthalten aus. Ein kurzer Tipp zeigt nur den Hinweis. Umgesetzt
+   zentral über die data-act-Namen: ein Capture-Listener fängt den normalen Klick ab, bevor die
+   eigentlichen Handler (egal ob delegiert oder direkt am Knopf) ihn sehen. Nach dem Halten wird
+   der Knopf einmal programmatisch geklickt — dieser eine Klick darf durch. Tastatur-Klicks
+   (detail===0) gehen direkt durch, die passieren nicht aus Versehen im Schnee. */
+const HOLD_TO_EDIT_ACTS = new Set([
+  'edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-klettergebiet','edit-gipfel','edit-agenda',
+  'edit-access-route','edit-tour-route','edit-sektor-route','edit-sektor-topo-routen',
+  'edit-from-map',
+  'delete-access-route','delete-tour-route','delete-sektor-route','delete-calculated-route',
+  'remove-completion','remove-alt-track',
+  'quick-edit-toggle','toggle-tour-status','toggle-hut-status',
+  'open-complete-tour','open-complete-hut','mark-done',
+  'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet'
+]);
+const HOLD_TO_EDIT_MS = 1000;
+// Optik aus derselben Liste erzeugt (kein zweiter Ort, der auseinanderlaufen kann):
+// kleines Schloss vor der Beschriftung, Füllbalken unten während des Haltens.
+(function injectHoldToEditCss(){
+  const sel = Array.from(HOLD_TO_EDIT_ACTS).map(a=>`[data-act="${a}"]`).join(',');
+  const lock = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E\")";
+  const style = document.createElement('style');
+  style.textContent = `
+:where(${sel}){ position:relative; overflow:hidden; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; touch-action:manipulation; }
+:where(${sel})::after{ content:''; position:absolute; left:0; bottom:0; height:4px; width:0; background:var(--fs-edit, #6741D9); pointer-events:none; }
+.fs-hold-arming::after{ width:100% !important; transition:width ${HOLD_TO_EDIT_MS}ms linear; }
+.fs-hold-arming{ filter:brightness(0.96); }
+.btn:where(${sel})::before{ content:''; display:inline-block; width:13px; height:13px; margin-right:6px; vertical-align:-1px; background:currentColor; opacity:.65;
+  -webkit-mask:${lock} center/contain no-repeat; mask:${lock} center/contain no-repeat; }
+.fs-hold-hint{ position:fixed; left:50%; top:calc(18px + env(safe-area-inset-top, 0px)); transform:translate(-50%, -12px); z-index:400;
+  background:#1C2128; color:#fff; font-weight:700; font-size:14px; padding:11px 16px; border-radius:14px;
+  box-shadow:0 8px 24px rgba(0,0,0,.25); opacity:0; pointer-events:none; transition:opacity .18s, transform .18s; white-space:nowrap; }
+.fs-hold-hint.on{ opacity:1; transform:translate(-50%, 0); }
+.fs-undo-toast{ display:flex; align-items:center; gap:10px; }
+.fs-undo-toast button{ background:none; border:none; color:#8AB8F2; font-weight:800; font-size:14px; padding:8px 4px; min-height:40px; cursor:pointer; }
+`;
+  document.head.appendChild(style);
+})();
+let holdArmTimer = null, holdArmEl = null, holdSwallowClickUntil = 0;
+function holdTargetFrom(node){
+  const el = node && node.closest ? node.closest('[data-act]') : null;
+  return (el && HOLD_TO_EDIT_ACTS.has(el.getAttribute('data-act')) && !el.disabled) ? el : null;
+}
+function cancelHoldArm(){
+  if(holdArmTimer){ clearTimeout(holdArmTimer); holdArmTimer = null; }
+  if(holdArmEl){ holdArmEl.classList.remove('fs-hold-arming'); holdArmEl = null; }
+}
+let holdHintTimer = null;
+function showHoldHint(){
+  let el = document.getElementById('fs-hold-hint');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'fs-hold-hint';
+    el.className = 'fs-hold-hint';
+    el.setAttribute('role', 'status');
+    el.textContent = 'Gedrückt halten zum Bearbeiten';
+    document.body.appendChild(el);
+  }
+  el.classList.add('on');
+  clearTimeout(holdHintTimer);
+  holdHintTimer = setTimeout(()=> el.classList.remove('on'), 1800);
+}
+document.addEventListener('pointerdown', (e)=>{
+  if(e.button !== undefined && e.button !== 0) return;
+  const el = holdTargetFrom(e.target);
+  if(!el) return;
+  cancelHoldArm();
+  holdArmEl = el;
+  // Neustart der CSS-Animation (Füllbalken) erzwingen
+  el.classList.remove('fs-hold-arming'); void el.offsetWidth; el.classList.add('fs-hold-arming');
+  holdArmTimer = setTimeout(()=>{
+    holdArmTimer = null;
+    el.classList.remove('fs-hold-arming');
+    holdArmEl = null;
+    if(navigator.vibrate){ try{ navigator.vibrate(25); }catch(err){} }
+    // Den gleich folgenden "echten" Klick beim Loslassen schlucken, dann einmal freigeben.
+    holdSwallowClickUntil = Date.now() + 1500;
+    el._fsHoldOk = true;
+    try{ el.click(); }finally{ el._fsHoldOk = false; }
+  }, HOLD_TO_EDIT_MS);
+}, true);
+['pointerup','pointercancel'].forEach(type=> document.addEventListener(type, ()=>{ if(holdArmTimer) cancelHoldArm(); }, true));
+document.addEventListener('pointermove', (e)=>{
+  // Wer beim Halten zu scrollen beginnt (Finger verlässt den Knopf), bricht ab.
+  if(holdArmEl && !holdArmEl.contains(document.elementFromPoint(e.clientX, e.clientY))) cancelHoldArm();
+}, true);
+document.addEventListener('contextmenu', (e)=>{ if(holdTargetFrom(e.target)) e.preventDefault(); }, true);
+document.addEventListener('click', (e)=>{
+  const el = holdTargetFrom(e.target);
+  if(!el) return;
+  // detail===0: der eine freigegebene Klick nach dem Halten, Klicks aus dem Code selbst und
+  // Tastatur (Enter/Leertaste) — die passieren nicht versehentlich im Schnee.
+  if(el._fsHoldOk || e.detail === 0) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if(Date.now() < holdSwallowClickUntil){ holdSwallowClickUntil = 0; return; }
+  showHoldHint();
+}, true);
+
+/* ================= Rückgängig nach dem Speichern =================
+   Hinweis unten mit "Rückgängig"-Knopf, 10 Sekunden lang. undoFn stellt den vorherigen Stand
+   wieder her (lokal + Cloud). */
+function showUndoToast(message, undoFn){
+  const old = document.querySelector('.toast');
+  if(old) old.remove();
+  const el = document.createElement('div');
+  el.className = 'toast fs-undo-toast';
+  const span = document.createElement('span');
+  span.textContent = message;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = 'Rückgängig';
+  btn.addEventListener('click', async ()=>{
+    el.remove();
+    try{ await undoFn(); showToast('Rückgängig gemacht.'); }
+    catch(err){ showToast('Rückgängig fehlgeschlagen: ' + (err && err.message ? err.message : err), true); }
+  });
+  el.appendChild(span); el.appendChild(btn);
+  document.body.appendChild(el);
+  setTimeout(()=>{ el.remove(); }, 10000);
+}
+// Bietet nach dem Speichern eines BESTEHENDEN Eintrags "Rückgängig" an: prev = Stand vor dem
+// Speichern (tiefe Kopie), list = state-Array, saveFn = Cloud-Speicherfunktion des Typs.
+function offerUndoAfterSave(message, list, prev, saveFn){
+  if(!prev){ showToast(message); return; }
+  showUndoToast(message, async ()=>{
+    const i = list.findIndex(x=>x.id===prev.id);
+    if(i>=0) list[i] = prev;
+    const ok = await saveFn(prev).catch(()=>false);
+    prev._unsynced = !ok;
+    if(typeof render === 'function') render();
+  });
+}
+function snapshotForUndo(existing){
+  if(!existing || !existing.id) return null;
+  try{ const c = JSON.parse(JSON.stringify(existing)); delete c._unsynced; return c; }catch(e){ return null; }
+}
+
 /* ================= "Ungespeicherte Änderungen"-Warnung beim Verlassen einer Bearbeiten-Maske =====
    Frühere Idee war, beim Verlassen (X, Klick daneben, Zurück-Taste) automatisch zu speichern —
    das führte aber dazu, dass auch versehentliche Änderungen unbemerkt übernommen wurden. Jetzt
    wird stattdessen nur noch nachgefragt: hat sich seit dem Öffnen der Maske etwas geändert,
    fragt closeModal() vor dem Verwerfen einmal nach ("Ungespeicherte Änderungen verwerfen?").
    Speichern und Löschen laufen unverändert direkt durch (skipDirtyCheck-Parameter). */
-const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-sektor','edit-klettergebiet','edit-gipfel','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda','edit-agenda'];
+const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-sektor-topo-routen','edit-klettergebiet','edit-gipfel','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda','edit-agenda'];
 let modalIsDirty = false;
 let lastDirtyTrackedModalKey = null;
 function modalDirtyTrackingKey(){
-  if(!state.modal || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return null;
+  if(!state.modal) return null;
+  // Karte direkt in der Detailansicht bearbeiten (hinter dem Schloss) zählt wie eine Maske:
+  // Verlassen mit ungespeicherten Punkten/Linien fragt nach.
+  if((state.modal.type==='tour-detail' || state.modal.type==='hut-detail') && state.quickEditOpenId && state.quickEditOpenId===state.modal.payload){
+    return state.modal.type + '|quick|' + state.modal.payload;
+  }
+  if(DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return null;
   const p = state.modal.payload;
   const entityId = p && (p.id || (p.route && p.route.id));
   return state.modal.type + '|' + (entityId || 'new');
@@ -5983,15 +6147,21 @@ function syncModalDirtyTracking(){
     lastDirtyTrackedModalKey = key;
     lastPointsEditorMapView = null;
   }
+  setTimeout(paintModalDirty, 0);
 }
-function markModalDirty(){ modalIsDirty = true; }
+function markModalDirty(){ modalIsDirty = true; paintModalDirty(); }
+// Zeigt "Nicht gespeichert" in der festen Leiste der Maske (CSS-Klasse fs-dirty am .modal).
+function paintModalDirty(){
+  const on = modalIsDirty && !!modalDirtyTrackingKey();
+  document.querySelectorAll('.overlay .modal').forEach(m=> m.classList.toggle('fs-dirty', on));
+}
 // Gegenstück zu markModalDirty() — gebraucht nach dem programmatischen Vorbefüllen einer
 // Bearbeiten-Maske (applyAgendaEditPrefill simuliert Klicks/Change-Events, die sonst fälschlich
 // "ungespeicherte Änderungen" auslösen würden, obwohl der Nutzer noch gar nichts angefasst hat).
-function resetModalDirty(){ modalIsDirty = false; }
+function resetModalDirty(){ modalIsDirty = false; paintModalDirty(); }
 // true = Schliessen darf weitergehen; false = Nutzer hat abgebrochen (Maske bleibt offen).
 function confirmDiscardIfDirty(){
-  if(!modalIsDirty || !state.modal || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return true;
+  if(!modalIsDirty || !modalDirtyTrackingKey()) return true;
   const ok = confirm('Ungespeicherte Änderungen verwerfen?');
   if(ok) modalIsDirty = false;
   return ok;
