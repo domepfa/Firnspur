@@ -1444,7 +1444,14 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   // Schliessen zurück zur jeweiligen Detailansicht statt ganz zur Übersicht, damit
   // man nicht jedes Mal neu hinein navigieren muss. Ein Klick auf X/Zurück (oder die
   // Hardware-Zurück-Taste) schliesst dadurch immer nur die zuoberst offene Ebene.
-  if(state.modal && (state.modal.type==='access-route-detail' || state.modal.type==='edit-access-route') && state.modal.payload && state.modal.payload.hutId){
+  // Zurück führt IMMER dorthin, wo man vorher war (Verlauf aus navigateToModal) — erst wenn es
+  // keinen Verlauf gibt (z. B. direkt von der grossen Karte geöffnet), greifen die festen
+  // Rückfall-Ziele darunter.
+  const backTop = (state.modalBackStack && state.modalBackStack.length) ? state.modalBackStack[state.modalBackStack.length-1] : null;
+  if(backTop && state.modal && backTop.forType === state.modal.type){
+    state.modalBackStack.pop();
+    state.modal = backTop.modal;
+  }else if(state.modal && (state.modal.type==='access-route-detail' || state.modal.type==='edit-access-route') && state.modal.payload && state.modal.payload.hutId){
     state.modal = {type:'hut-detail', payload: state.modal.payload.hutId};
   }else if(state.modal && (state.modal.type==='tour-route-detail' || state.modal.type==='edit-tour-route') && state.modal.payload && state.modal.payload.tourId){
     state.modal = {type:'tour-detail', payload: state.modal.payload.tourId};
@@ -1698,7 +1705,7 @@ async function submitAccessRouteForm(form){
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
   closeModal(false, true, true);
-  state.modal = {type:'hut-detail', payload:hut.id};
+  returnAfterRouteChange('access-route-detail', routeData.id, {hutId:hut.id, route:routeData}, {type:'hut-detail', payload:hut.id});
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);
   hut._unsynced = !ok;
@@ -1714,7 +1721,7 @@ async function deleteAccessRoute(hutId, routeId){
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
   closeModal(false, true, true);
-  state.modal = {type:'hut-detail', payload:hutId};
+  returnAfterRouteChange('access-route-detail', routeId, null, {type:'hut-detail', payload:hutId});
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);
   hut._unsynced = !ok;
@@ -1854,7 +1861,7 @@ async function submitTourRouteForm(form){
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
   closeModal(false, true, true);
-  state.modal = {type:'tour-detail', payload:t.id};
+  returnAfterRouteChange('tour-route-detail', routeData.id, {tourId:t.id, kind, route:routeData}, {type:'tour-detail', payload:t.id});
   render();
   const ok = await saveTourCloud(t).catch(()=>false);
   t._unsynced = !ok;
@@ -1871,7 +1878,7 @@ async function deleteTourRoute(tourId, kind, routeId){
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
   closeModal(false, true, true);
-  state.modal = {type:'tour-detail', payload:tourId};
+  returnAfterRouteChange('tour-route-detail', routeId, null, {type:'tour-detail', payload:tourId});
   render();
   const ok = await saveTourCloud(t).catch(()=>false);
   t._unsynced = !ok;
@@ -2963,7 +2970,7 @@ async function submitSektorRouteForm(form){
   sek.updatedAt = new Date().toISOString();
   sek.updatedBy = state.myName;
   closeModal(false, true, true);
-  state.modal = {type:'sektor-detail', payload:sek.id};
+  returnAfterRouteChange('sektor-route-detail', routeData.id, {sektorId:sek.id, kind, route:routeData}, {type:'sektor-detail', payload:sek.id});
   render();
   const ok = await saveSektorCloud(sek).catch(()=>false);
   sek._unsynced = !ok;
@@ -2980,7 +2987,7 @@ async function deleteSektorRoute(sektorId, kind, routeId){
   sek.updatedAt = new Date().toISOString();
   sek.updatedBy = state.myName;
   closeModal(false, true, true);
-  state.modal = {type:'sektor-detail', payload:sektorId};
+  returnAfterRouteChange('sektor-route-detail', routeId, null, {type:'sektor-detail', payload:sektorId});
   render();
   const ok = await saveSektorCloud(sek).catch(()=>false);
   sek._unsynced = !ok;
@@ -5887,7 +5894,7 @@ function wireModalHandlers(){
       try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
       try{ manualTrack = JSON.parse(btn.getAttribute('data-manual-track') || '[]'); }catch(e){ manualTrack = []; }
       renderHutAccessRoutesMap(target, pts, routes, manualTrack, (route)=>{
-        state.modal = {type:'access-route-detail', payload:{hutId, route}};
+        navigateToModal({type:'access-route-detail', payload:{hutId, route}});
         render();
       });
     });
@@ -5902,7 +5909,7 @@ function wireModalHandlers(){
       try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
       try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
       renderHutAccessRoutesMap(target, pts, routes, [], (route)=>{
-        state.modal = {type:'tour-route-detail', payload:{tourId, kind, route}};
+        navigateToModal({type:'tour-route-detail', payload:{tourId, kind, route}});
         render();
       });
     });
@@ -6116,7 +6123,7 @@ function wireModalHandlers(){
   });
 
   root.querySelectorAll('[data-act="add-access-route"]').forEach(el=> el.onclick = ()=>{
-    state.modal = {type:'edit-access-route', payload:{hutId: el.getAttribute('data-hut-id'), route:null}};
+    navigateToModal({type:'edit-access-route', payload:{hutId: el.getAttribute('data-hut-id'), route:null}});
     render();
   });
   root.querySelectorAll('[data-act="open-access-route"]').forEach(el=> el.onclick = ()=>{
@@ -6125,7 +6132,7 @@ function wireModalHandlers(){
     const hut = state.huts.find(h=>h.id===hutId);
     const route = hut && hut.accessRoutes ? hut.accessRoutes.find(r=>r.id===routeId) : null;
     if(!route) return;
-    state.modal = {type:'access-route-detail', payload:{hutId, route}};
+    navigateToModal({type:'access-route-detail', payload:{hutId, route}});
     render();
   });
   root.querySelectorAll('[data-act="edit-access-route"]').forEach(el=> el.onclick = ()=>{
@@ -6134,7 +6141,7 @@ function wireModalHandlers(){
     const hut = state.huts.find(h=>h.id===hutId);
     const route = hut && hut.accessRoutes ? hut.accessRoutes.find(r=>r.id===routeId) : null;
     if(!route) return;
-    state.modal = {type:'edit-access-route', payload:{hutId, route}};
+    navigateToModal({type:'edit-access-route', payload:{hutId, route}});
     render();
   });
   root.querySelectorAll('[data-act="show-access-route-map"]').forEach(btn=>{
@@ -6148,7 +6155,7 @@ function wireModalHandlers(){
   });
 
   root.querySelectorAll('[data-act="add-tour-route"]').forEach(el=> el.onclick = ()=>{
-    state.modal = {type:'edit-tour-route', payload:{tourId: el.getAttribute('data-tour-id'), kind: el.getAttribute('data-kind'), route:null}};
+    navigateToModal({type:'edit-tour-route', payload:{tourId: el.getAttribute('data-tour-id'), kind: el.getAttribute('data-kind'), route:null}});
     render();
   });
   root.querySelectorAll('[data-act="open-tour-route"]').forEach(el=> el.onclick = ()=>{
@@ -6159,7 +6166,7 @@ function wireModalHandlers(){
     const field = tourRouteFieldName(kind);
     const route = t && t[field] ? t[field].find(r=>r.id===routeId) : null;
     if(!route) return;
-    state.modal = {type:'tour-route-detail', payload:{tourId, kind, route}};
+    navigateToModal({type:'tour-route-detail', payload:{tourId, kind, route}});
     render();
   });
   root.querySelectorAll('[data-act="edit-tour-route"]').forEach(el=> el.onclick = ()=>{
@@ -6170,12 +6177,12 @@ function wireModalHandlers(){
     const field = tourRouteFieldName(kind);
     const route = t && t[field] ? t[field].find(r=>r.id===routeId) : null;
     if(!route) return;
-    state.modal = {type:'edit-tour-route', payload:{tourId, kind, route}};
+    navigateToModal({type:'edit-tour-route', payload:{tourId, kind, route}});
     render();
   });
 
   root.querySelectorAll('[data-act="add-sektor-route"]').forEach(el=> el.onclick = ()=>{
-    state.modal = {type:'edit-sektor-route', payload:{sektorId: el.getAttribute('data-sektor-id'), kind: el.getAttribute('data-kind'), route:null}};
+    navigateToModal({type:'edit-sektor-route', payload:{sektorId: el.getAttribute('data-sektor-id'), kind: el.getAttribute('data-kind'), route:null}});
     render();
   });
   root.querySelectorAll('[data-act="open-sektor-route"]').forEach(el=> el.onclick = ()=>{
@@ -6186,7 +6193,7 @@ function wireModalHandlers(){
     const field = sektorRouteFieldName(kind);
     const route = sek && sek[field] ? sek[field].find(r=>r.id===routeId) : null;
     if(!route) return;
-    state.modal = {type:'sektor-route-detail', payload:{sektorId, kind, route}};
+    navigateToModal({type:'sektor-route-detail', payload:{sektorId, kind, route}});
     render();
   });
   root.querySelectorAll('[data-act="edit-sektor-route"]').forEach(el=> el.onclick = ()=>{
@@ -6197,7 +6204,7 @@ function wireModalHandlers(){
     const field = sektorRouteFieldName(kind);
     const route = sek && sek[field] ? sek[field].find(r=>r.id===routeId) : null;
     if(!route) return;
-    state.modal = {type:'edit-sektor-route', payload:{sektorId, kind, route}};
+    navigateToModal({type:'edit-sektor-route', payload:{sektorId, kind, route}});
     render();
   });
   root.querySelectorAll('[data-act="show-sektor-routes-map"]').forEach(btn=>{
@@ -6209,7 +6216,7 @@ function wireModalHandlers(){
       try{ pts = JSON.parse(btn.getAttribute('data-points') || '[]'); }catch(e){ pts = []; }
       try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
       renderHutAccessRoutesMap(target, pts, routes, [], (route)=>{
-        state.modal = {type:'sektor-route-detail', payload:{sektorId, kind, route}};
+        navigateToModal({type:'sektor-route-detail', payload:{sektorId, kind, route}});
         render();
       });
     });
