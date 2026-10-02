@@ -8785,6 +8785,7 @@ function fsSheetHeightPx(detent){
 }
 function fsSetSheetDetent(detent){
   fsSheetDetent = detent;
+  document.documentElement.dataset.fsDetent = detent;
   document.documentElement.style.setProperty('--fs-sheet-h', fsSheetHeightPx(detent) + 'px');
   const modal = document.querySelector('.overlay.fs-sheet-mode > .modal.td');
   if(modal){
@@ -8833,6 +8834,7 @@ function fsApplyTourSheetMode(){
   const html = document.documentElement;
   if(!modal){
     html.classList.remove('fs-sheet-open');
+    delete html.dataset.fsDetent;
     document.querySelectorAll('.map-strip-dot.fs-sel').forEach(d=> d.classList.remove('fs-sel'));
     // Ganz geschlossen (kein Dialog mehr): Liste wieder dort, wo man war.
     if(!overlay && fsSheetSavedScroll !== null){ window.scrollTo(0, fsSheetSavedScroll); fsSheetSavedScroll = null; }
@@ -8855,6 +8857,23 @@ function fsApplyTourSheetMode(){
   modal.addEventListener('scroll', ()=>{
     if(fsSheetDetent !== 'full' && modal.scrollTop > 24) fsSetSheetDetent('full');
   }, {passive:true});
+  // Wie bei Apple: Inhalt ganz oben und weiter nach unten ziehen = Blatt eine Stufe kleiner
+  // (auch ohne den Griff zu treffen).
+  let pullStartY = null, pullArmed = false;
+  modal.addEventListener('touchstart', (e)=>{
+    pullStartY = e.touches[0].clientY;
+    // Gesten am Griff behandelt der Griff selbst (sonst springt das Blatt zwei Stufen)
+    pullArmed = modal.scrollTop <= 0 && !(e.target.closest && e.target.closest('.fs-grabber'));
+  }, {passive:true});
+  modal.addEventListener('touchmove', (e)=>{
+    if(!pullArmed || pullStartY === null) return;
+    const dy = e.touches[0].clientY - pullStartY;
+    if(dy > 70){
+      pullArmed = false;
+      fsSetSheetDetent(fsSheetDetent === 'full' ? 'half' : 'peek');
+    }
+  }, {passive:true});
+  modal.addEventListener('touchend', ()=>{ pullStartY = null; pullArmed = false; }, {passive:true});
   fsSetSheetDetent(fsSheetDetent);
   // Punkt der offenen Tour auf der Karte hervorheben (nach dem Rendern der Karte)
   setTimeout(()=> document.querySelectorAll('.map-strip-dot').forEach(d=> d.classList.toggle('fs-sel', d.getAttribute('data-id') === tourId)), 0);

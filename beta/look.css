@@ -1008,7 +1008,7 @@ html.fs-sheet-open body{ overflow:hidden; }
 html.fs-sheet-dragging .overlay.fs-sheet-mode > .modal.td{ transition:none; }
 /* Griff oben im Blatt: bleibt beim Scrollen stehen */
 .fs-grabber{
-  position:sticky; top:0; z-index:8; display:block; width:auto; height:28px;
+  position:sticky; top:0; z-index:8; display:block; width:calc(100% + 36px); max-width:none; box-sizing:border-box; height:32px;
   margin:0 -18px 2px; padding:0; border:none; background:var(--paper); cursor:grab; touch-action:none;
 }
 .fs-grabber::after{
@@ -1029,3 +1029,8 @@ html.fs-sheet-open .fs-fab, html.fs-sheet-open .agenda-tab{ display:none !import
 
 /* Blatt: kein seitliches Verrutschen/Scrollbalken */
 .overlay.fs-sheet-mode > .modal.td{ overflow-x:hidden; }
+/* Kein sichtbarer Scrollbalken am Blattrand (war der graue Streifen rechts) */
+.overlay.fs-sheet-mode > .modal.td{ scrollbar-width:none; }
+.overlay.fs-sheet-mode > .modal.td::-webkit-scrollbar{ display:none; }
+/* Ganz offenes Blatt: SOS unten links über dem Inhalt statt oben in der Leiste */
+html[data-fs-detent="full"].fs-sheet-open .emergency-tab{ bottom:calc(18px + env(safe-area-inset-bottom, 0px)) !important; }
