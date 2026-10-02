@@ -4364,7 +4364,6 @@ function tourDetailHtml(id){
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${(sektorForPager && sektorTouren.length>1) ? `<p style="color:var(--ink-faint); font-size:11px; margin:0 0 6px 0;">↔ ${esc(sektorForPager.name)} · Tour ${sektorTourIdx+1}/${sektorTouren.length} — wischen zum Wechseln</p>` : ''}
     <p class="fs-status-line" style="font-size:13px; color:var(--ink-soft); margin:0 0 10px 0;">${tourStatusLabel(t)}</p>
-    ${(t.topoImages && t.topoImages.length) ? `<div class="detail-section" style="margin-bottom:14px;"><h4>Topo</h4>${topoImagesGalleryHtml(t.topoImages)}</div>` : ''}
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
@@ -4380,6 +4379,7 @@ function tourDetailHtml(id){
       fsMenuItemHtml('check', 'Als erledigt markieren', `data-act="mark-done" data-kind="tour" data-id="${t.id}"`),
       (isMsl && t.sektorId) ? fsMenuItemHtml('refresh', 'In Klettergarten-Route umwandeln', `data-act="convert-msl-to-klettergarten" data-id="${t.id}"`) : ''
     ])}
+    ${(t.topoImages && t.topoImages.length) ? `<div class="detail-section" style="margin-bottom:14px;"><h4>Topo</h4>${topoImagesGalleryHtml(t.topoImages)}</div>` : ''}
     ${summitChipsForCardHtml(t)}
     ${tourGlanceHtml(t.crux, [
       ['Gefahren', (t.gefahren||[]).join(', ')],

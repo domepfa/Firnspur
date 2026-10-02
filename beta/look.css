@@ -988,3 +988,41 @@ body:has(.modal.fs-onroute) .emergency-tab{ display:inline-flex !important; z-in
 .fs-facts dt{ color:var(--ink-faint); font-weight:700; }
 .fs-facts dd{ margin:0; color:var(--ink); }
 .fs-links{ display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 4px; }
+
+/* =====================================================================
+   Phase 2c: Tour als Blatt über der Karte
+   ===================================================================== */
+html.fs-sheet-open body{ overflow:hidden; }
+.overlay.fs-sheet-mode{
+  background:transparent; pointer-events:none; padding:0; overflow:visible;
+  align-items:flex-end;
+}
+.overlay.fs-sheet-mode > .modal.td{
+  pointer-events:auto;
+  position:fixed; left:0; right:0; bottom:0; margin:0 auto; width:100%; max-width:620px;
+  height:var(--fs-sheet-h, 56vh); overflow-y:auto; overscroll-behavior:contain;
+  border-radius:26px 26px 0 0; padding-top:0;
+  box-shadow:0 -8px 30px rgba(15,30,39,.20);
+  transition:height .32s cubic-bezier(.2,.8,.2,1);
+}
+html.fs-sheet-dragging .overlay.fs-sheet-mode > .modal.td{ transition:none; }
+/* Griff oben im Blatt: bleibt beim Scrollen stehen */
+.fs-grabber{
+  position:sticky; top:0; z-index:8; display:block; width:calc(100% + 36px); height:28px;
+  margin:0 -18px 2px; padding:0; border:none; background:var(--paper); cursor:grab; touch-action:none;
+}
+.fs-grabber::after{
+  content:''; position:absolute; left:50%; top:10px; transform:translateX(-50%);
+  width:42px; height:5px; border-radius:3px; background:#C9D2D8;
+}
+/* Kleine Stufe: nur Kopf zeigen, Rest abschneiden */
+.modal.td[data-detent="peek"]{ overflow:hidden; }
+/* SOS über dem Blatt statt darin */
+html.fs-sheet-open .emergency-tab{ bottom:calc(var(--fs-sheet-h, 56vh) + 12px) !important; transition:bottom .32s cubic-bezier(.2,.8,.2,1); }
+/* Offene Tour auf der Karte hervorheben */
+.map-strip-dot.fs-sel{ background:var(--signal-deep, #C99400); transform:scale(1.35); box-shadow:0 0 0 4px rgba(255,255,255,.7), 0 2px 8px rgba(15,30,39,.4); }
+/* Bei offener Tour: Karte direkt unter der oberen Leiste, Titelbild und Liste ausgeblendet
+   (sonst schauen zwei Blätter übereinander durch) */
+html.fs-sheet-open .hero{ display:none; }
+html.fs-sheet-open .fs-sheet{ visibility:hidden; }
+html.fs-sheet-open .fs-fab, html.fs-sheet-open .agenda-tab{ display:none !important; }
