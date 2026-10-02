@@ -4356,6 +4356,7 @@ function tourDetailHtml(id){
       </div>
       <div style="display:flex; align-items:flex-start; gap:4px;">
         ${favoriteToggleButtonHtml(t.id)}
+        ${editIconButtonHtml('edit-tour', t.id)}
         <button class="x-btn" data-act="close-modal">×</button>
       </div>
     </div>
@@ -4371,22 +4372,29 @@ function tourDetailHtml(id){
       ${t.pitchCount ? `<div class="detail-stat"><div class="num">${esc(t.pitchCount)}</div><div class="lbl">Seillängen</div></div>` : ''}
       ${t.longestPitch ? `<div class="detail-stat"><div class="num">${esc(t.longestPitch)}</div><div class="lbl">Längste SL</div></div>` : ''}
     </div>
+    ${tourActionsHtml(t, [
+      t.trackSimplified ? fsMenuItemHtml('download', 'GPX herunterladen', `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}"`) : '',
+      (!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? fsMenuItemHtml('download', 'Route als GPX', `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}"`) : '',
+      fsMenuItemHtml('upload', 'Exportieren / teilen', `data-act="export-tour" data-id="${t.id}"`),
+      t.tourLink ? fsMenuItemHtml('link', 'Link zur Tour öffnen', '', t.tourLink) : '',
+      fsMenuItemHtml('check', 'Als erledigt markieren', `data-act="mark-done" data-kind="tour" data-id="${t.id}"`),
+      (isMsl && t.sektorId) ? fsMenuItemHtml('refresh', 'In Klettergarten-Route umwandeln', `data-act="convert-msl-to-klettergarten" data-id="${t.id}"`) : ''
+    ])}
     ${summitChipsForCardHtml(t)}
-    ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button>` : ''}
-    ${tourMapPoint(t) ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-3d" data-lat="${tourMapPoint(t).lat}" data-lon="${tourMapPoint(t).lon}">⛰️ In 3D ansehen</button>` : ''}
-    ${(t.points && t.points.length) ? meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon) : ''}
-
-    ${!isMsl && (t.glacier==='ja' || t.crevasseRisk!=='nein') ? `<div class="detail-section"><h4>Gletscher &amp; Spalten</h4><p>${t.glacier==='ja'?'Gletscher: Ja':''}${t.glacier==='ja' && t.crevasseRisk && t.crevasseRisk!=='nein' ? ' · ' : ''}${t.crevasseRisk==='moeglich'?'Spaltenrisiko: möglich':t.crevasseRisk==='ausgepraegt'?'Spaltenrisiko: ausgeprägt':''}</p></div>` : ''}
-    ${isMsl && protectionInfo ? `<div class="detail-section"><h4>Absicherung</h4><p>${protectionInfo.label} — ${protectionInfo.desc}</p></div>` : ''}
-    ${t.descentType ? `<div class="detail-section"><h4>Abstiegsart</h4><p>${esc(t.descentType)}</p></div>` : ''}
-    ${(t.exposition && t.exposition.length) ? `<div class="detail-section"><h4>Exposition</h4><p>${t.exposition.map(esc).join(', ')}</p></div>` : ''}
-    ${(t.gefahren && t.gefahren.length) ? `<div class="detail-section"><h4>Gefahren</h4><p>${t.gefahren.map(esc).join(', ')}</p></div>` : ''}
-    ${(t.material && t.material.length) || t.quickdrawCount ? `<div class="detail-section"><h4>Material</h4><p>${[...(t.material||[]), t.quickdrawCount ? `${t.quickdrawCount}× Expressschlingen` : ''].filter(Boolean).map(esc).join(', ')}</p></div>` : ''}
-    ${(t.ropeType || t.ropeLength) ? `<div class="detail-section"><h4>Seil</h4><p>${[t.ropeType, t.ropeLength].filter(Boolean).map(esc).join(' · ')}</p></div>` : ''}
-    ${t.tourLink ? `<div class="detail-section"><h4>Link zur Tour</h4><p><a href="${esc(t.tourLink)}" target="_blank" rel="noopener noreferrer">${esc(t.tourLink)}</a></p></div>` : ''}
-    ${t.crux ? `<div class="detail-section"><h4>Schlüsselstelle</h4><div class="conditions-note" style="font-size:14px;">⚠ ${esc(t.crux)}</div></div>` : ''}
+    ${tourGlanceHtml(t.crux, [
+      ['Gefahren', (t.gefahren||[]).join(', ')],
+      ['Exposition', (t.exposition||[]).join(', ')],
+      ['Gletscher', !isMsl ? [t.glacier==='ja' ? 'Ja' : '', t.crevasseRisk==='moeglich' ? 'Spaltenrisiko möglich' : t.crevasseRisk==='ausgepraegt' ? 'Spaltenrisiko ausgeprägt' : ''].filter(Boolean).join(' · ') : ''],
+      ['Absicherung', (isMsl && protectionInfo) ? protectionInfo.label + ' — ' + protectionInfo.desc : ''],
+      ['Abstiegsart', t.descentType || ''],
+      ['Material', [...(t.material||[]), t.quickdrawCount ? `${t.quickdrawCount}× Expressschlingen` : ''].filter(Boolean).join(', ')],
+      ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')]
+    ])}
+    ${hut ? `<div class="fs-links"><button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button></div>` : ''}
+    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon)}</div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
+    ${!isMsl && t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
       ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length)) ? `<div class="chips" style="margin-bottom:8px;">
@@ -4395,7 +4403,7 @@ function tourDetailHtml(id){
       </div>` : ''}
       ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
     </div>` : ''}
-    <div class="detail-section">
+    <div class="detail-section" id="tour-map-section-${t.id}">
       <h4>Standort${t.points && t.points.length>1?'e':''}${(t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? ' & Track' : ''}</h4>
       ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${t.trackSimplified ? `<span class="hint">🔴 Rot: aufgezeichneter GPX-Track</span><br/>` : ''}
@@ -4455,19 +4463,15 @@ function tourDetailHtml(id){
         <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-tour-route" data-tour-id="${t.id}" data-kind="descent">+ Abstieg hinzufügen</button>
       </div>`;
     })()}
-    ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.topoImages && t.topoImages.length)) ? offlineSectionHtml(t.id) : ''}
-    ${(t.gpxLink || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<div class="detail-section">
+    ${(t.gpxLink || (t.altTracks && t.altTracks.length)) ? `<div class="detail-section">
       <h4>GPX-Track</h4>
       ${t.gpxLink ? `<p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>` : ''}
-      ${t.trackSimplified ? `<button type="button" class="btn secondary" data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}">📥 GPX herunterladen (Originaldatei)</button>` : ''}
-      ${(!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? `<button type="button" class="btn secondary" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}">📥 Route als GPX exportieren</button>` : ''}
       ${altTracksListHtml(t)}
     </div>` : ''}
     ${(() => { const related = findToursSharingPoints(t, state.tours, 300); return related.length ? `<div class="detail-section">
       <h4>Weitere Touren ab hier (${related.length})</h4>
       <div class="grid" style="margin-top:6px;">${related.map(tourCardHtml).join('')}</div>
     </div>` : ''; })()}
-    ${!isMsl && t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
 
     <div class="detail-section">
       <h4>Erledigt (${(t.completions||[]).length})</h4>
@@ -4476,12 +4480,6 @@ function tourDetailHtml(id){
 
     <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}${t.updatedAt && t.updatedAt!==t.createdAt ? ` · zuletzt bearbeitet von ${esc(t.updatedBy||'?')} · ${fmtDate(t.updatedAt)}` : ''}</div>
 
-    <div class="detail-actions">
-      <button class="btn secondary" data-act="mark-done" data-kind="tour" data-id="${t.id}">✓ Als erledigt markieren</button>
-      <button class="btn secondary" data-act="edit-tour" data-id="${t.id}">Bearbeiten</button>
-      <button class="btn secondary" data-act="export-tour" data-id="${t.id}">📤 Exportieren</button>
-      ${isMsl && t.sektorId ? `<button class="btn secondary" data-act="convert-msl-to-klettergarten" data-id="${t.id}">🏕️ In Klettergarten-Route umwandeln</button>` : ''}
-    </div>
   </div>`;
 }
 

@@ -927,3 +927,64 @@ body:has(.modal.fs-onroute) .emergency-tab{ display:inline-flex !important; z-in
 /* Die stehende Karte als eigene Grafik-Ebene: die Liste gleitet darüber, ohne dass die Karte
    bei jedem Scroll-Bild neu gezeichnet wird. */
 .fs-stage{ will-change:transform; }
+
+/* =====================================================================
+   Phase 2a: Punkte auf der Übersichtskarte leichter treffen
+   ===================================================================== */
+/* Unsichtbare Trefferfläche um den kleinen Punkt (ca. 44 px) */
+.map-strip-dot{ position:relative; }
+.map-strip-dot::before{ content:''; position:absolute; inset:-15px; border-radius:50%; }
+/* Auch der Name unter dem Punkt öffnet die Tour */
+.map-strip-nlabel{ pointer-events:auto; cursor:pointer; padding:4px 10px; }
+
+/* =====================================================================
+   Phase 2b: Tour-Ansicht aufgeräumt
+   ===================================================================== */
+/* Stift im Kopf (gedrückt halten), gleiche Grösse wie der Merken-Stern */
+.fs-icon-btn{
+  width:44px; height:44px; padding:0; border:0; border-radius:50%; background:none; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center; color:#5B6B73;
+}
+.fs-icon-btn .fs-i{ width:22px; height:22px; }
+.fs-icon-btn.fs-hold-arming{ box-shadow:inset 0 0 0 3px var(--fs-edit); color:var(--fs-edit); }
+
+/* Eine Hauptaktion + Kacheln */
+.fs-actions{ margin:14px 0 6px; display:flex; flex-direction:column; gap:10px; }
+.fs-primary .detail-section{ margin:0; padding:0; border:0; background:none; }
+.fs-primary h4{ display:none; }
+.fs-primary [data-act="download-offline"]{
+  width:100%; min-height:52px; border-radius:15px; border:none;
+  background:var(--ice-deep); color:#fff; font-size:16px; font-weight:800;
+}
+.fs-tiles{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }
+.fs-tile{
+  min-height:60px; width:100%; border:none; border-radius:15px; background:var(--ice-light);
+  color:var(--ice-deep); font:inherit; font-size:12.5px; font-weight:700; cursor:pointer;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+  list-style:none;
+}
+.fs-tile::-webkit-details-marker{ display:none; }
+.fs-tile .fs-i{ width:22px; height:22px; }
+.fs-more{ position:relative; }
+.fs-more[open] > .fs-tile{ background:var(--ice-deep); color:#fff; }
+.fs-more-menu{
+  position:absolute; right:0; top:calc(100% + 6px); z-index:20; width:250px; max-width:80vw;
+  background:var(--paper); border-radius:16px; padding:6px; box-shadow:var(--shadow-lg);
+  display:flex; flex-direction:column;
+}
+.fs-more-item{
+  display:flex; align-items:center; gap:10px; min-height:48px; padding:0 12px; border:none; border-radius:11px;
+  background:none; color:var(--ink); font:inherit; font-size:15px; font-weight:600; text-align:left; text-decoration:none; cursor:pointer;
+}
+.fs-more-item:hover{ background:#F1F4F6; }
+.fs-more-item .fs-i{ width:20px; height:20px; color:var(--ice-deep); flex-shrink:0; }
+/* Im Menü kein zusätzliches Schloss vor der Beschriftung, der Füllbalken reicht */
+.fs-more-item::before{ content:none !important; }
+
+/* Auf einen Blick */
+.fs-glance .fs-crux{ font-size:14.5px; line-height:1.45; margin-bottom:10px; }
+.fs-glance .fs-crux strong{ display:block; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; margin-bottom:2px; }
+.fs-facts{ display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:0; font-size:14px; }
+.fs-facts dt{ color:var(--ink-faint); font-weight:700; }
+.fs-facts dd{ margin:0; color:var(--ink); }
+.fs-links{ display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 4px; }

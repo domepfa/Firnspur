@@ -421,7 +421,7 @@ function mapStripHtml(opts){
                     <div class="map-strip-popup map-strip-popup-list">
                       ${c.points.map(p=>`<button type="button" data-act="${openAct}" data-id="${esc(p.id)}">${esc(p.label)}</button>`).join('')}
                     </div>
-                  ` : `<div class="map-strip-nlabel">${esc(clusterLabel)}</div>`}
+                  ` : `<div class="map-strip-nlabel" data-act="map-strip-cluster" data-kind="${kind}" data-id="${esc(c.id)}" data-cx="${c.xPct}" data-cy="${c.yPct}" aria-hidden="true">${esc(clusterLabel)}</div>`}
                 </div>`;
             }
             const p = c;
@@ -433,7 +433,7 @@ function mapStripHtml(opts){
                     <strong>${esc(p.label)}</strong>
                     <button type="button" data-act="${openAct}" data-id="${esc(p.id)}">${linkLabel} →</button>
                   </div>
-                ` : `<div class="map-strip-nlabel">${esc(p.label)}</div>`}
+                ` : `<div class="map-strip-nlabel" data-act="map-strip-toggle" data-id="${esc(p.id)}" aria-hidden="true">${esc(p.label)}</div>`}
               </div>`;
           }).join('')}
         </div>
@@ -2667,11 +2667,16 @@ function renderStandaloneMap(containerId){
       }
       (points||[]).forEach(p=>{
         try{
+          // Wie bei den Linien: grosse, unsichtbare Trefferfläche (ca. 44 px) unter dem kleinen
+          // sichtbaren Punkt, damit man ihn mit dem Finger (oder Handschuh) sicher trifft.
+          const hit = L.circleMarker([p.lat, p.lon], {radius:22, stroke:false, fill:true, fillColor:'#000', fillOpacity:0}).addTo(layer);
           const m = L.circleMarker([p.lat, p.lon], {radius:radiusForZoom(map.getZoom()), color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
-          m.on('click', (e)=>{
+          const openPopup = (e)=>{
             L.DomEvent.stopPropagation(e);
-            L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
-          });
+            L.popup().setLatLng([p.lat, p.lon]).setContent(popupContentFn()).openOn(map);
+          };
+          hit.on('click', openPopup);
+          m.on('click', openPopup);
           allBoundsItems.push(m);
           pointMarkers.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
@@ -5991,7 +5996,8 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'remove-completion','remove-alt-track',
   'quick-edit-toggle','toggle-tour-status','toggle-hut-status',
   'open-complete-tour','open-complete-hut','mark-done',
-  'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet'
+  'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
+  'convert-msl-to-klettergarten'
 ]);
 const HOLD_TO_EDIT_MS = 1000;
 // Optik aus derselben Liste erzeugt (kein zweiter Ort, der auseinanderlaufen kann):
@@ -8678,6 +8684,78 @@ function offlineSectionHtml(offlineId){
   </div>`;
 }
 
+/* ================= Tour-Ansicht: eine Hauptaktion, Kacheln, "Mehr" (Phase 2b) =================
+   Statt rund zehn gleichwertiger Knöpfe untereinander: oben EINE Hauptaktion (für unterwegs
+   laden), darunter vier Kacheln (Karte, Wetter, 3D, Mehr). Selten Gebrauchtes (GPX, Export,
+   Abgeschlossen markieren …) liegt im "Mehr"-Menü. Geteilt von Firnspur und Fixseil. */
+function fsTileHtml(icon, label, attrs){
+  return `<button type="button" class="fs-tile" ${attrs}>${fsIconHtml(icon)}<span>${label}</span></button>`;
+}
+// Ein Eintrag im "Mehr"-Menü. href gesetzt = externer Link statt Knopf.
+function fsMenuItemHtml(icon, label, attrs, href){
+  if(href) return `<a class="fs-more-item" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${fsIconHtml(icon)}<span>${label}</span></a>`;
+  return `<button type="button" class="fs-more-item" ${attrs}>${fsIconHtml(icon)}<span>${label}</span></button>`;
+}
+function tourHasMapData(t){
+  return !!((t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length));
+}
+function tourActionsHtml(t, moreItems){
+  const mp = tourMapPoint(t);
+  const hasOffline = tourHasMapData(t) || (t.topoImages && t.topoImages.length);
+  const items = (moreItems || []).filter(Boolean);
+  return `<div class="fs-actions">
+    ${hasOffline ? `<div class="fs-primary">${offlineSectionHtml(t.id)}</div>` : ''}
+    <div class="fs-tiles">
+      ${tourHasMapData(t) ? fsTileHtml('map', 'Karte', `data-act="fs-goto-map" data-id="${t.id}"`) : ''}
+      ${(t.points && t.points.length) ? fsTileHtml('partly', 'Wetter', `data-act="fs-goto" data-target="tour-meteo-${t.id}"`) : ''}
+      ${mp ? fsTileHtml('mountain', '3D', `data-act="open-3d" data-lat="${mp.lat}" data-lon="${mp.lon}"`) : ''}
+      ${items.length ? `<details class="fs-more">
+        <summary class="fs-tile">${fsIconHtml('more')}<span>Mehr</span></summary>
+        <div class="fs-more-menu">${items.join('')}</div>
+      </details>` : ''}
+    </div>
+  </div>`;
+}
+// "Auf einen Blick": Schlüsselstelle zuerst (das Wichtigste für die Entscheidung im Gelände),
+// dann die Fakten als ruhige Zeilen statt je eines eigenen Abschnitts. rows: [[Label, Text]].
+function tourGlanceHtml(crux, rows){
+  const r = (rows || []).filter(x=> x && x[1]);
+  if(!crux && !r.length) return '';
+  return `<div class="detail-section fs-glance">
+    <h4>Auf einen Blick</h4>
+    ${crux ? `<div class="conditions-note fs-crux"><strong>Schlüsselstelle</strong>${esc(crux)}</div>` : ''}
+    ${r.length ? `<dl class="fs-facts">${r.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
+  </div>`;
+}
+// Kopf-Knopf "Bearbeiten" als Stift-Symbol (gedrückt halten, siehe HOLD_TO_EDIT_ACTS).
+function editIconButtonHtml(act, id){
+  return `<button type="button" class="fs-icon-btn" data-act="${act}" data-id="${id}" title="Bearbeiten (gedrückt halten)" aria-label="Bearbeiten, gedrückt halten">${fsIconHtml('edit')}</button>`;
+}
+// Kacheln "Karte"/"Wetter": zum Abschnitt springen; bei "Karte" die Karte gleich anzeigen.
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="fs-goto"],[data-act="fs-goto-map"]');
+  if(!el) return;
+  if(el.getAttribute('data-act') === 'fs-goto-map'){
+    const id = el.getAttribute('data-id');
+    const sec = document.getElementById('tour-map-section-' + id);
+    if(!sec) return;
+    sec.scrollIntoView({behavior:'smooth', block:'start'});
+    const mapDiv = document.getElementById('map-tour-' + id);
+    const showBtn = sec.querySelector('[data-act="show-map"]');
+    if(mapDiv && !mapDiv.children.length && showBtn) showBtn.click();
+  }else{
+    const target = document.getElementById(el.getAttribute('data-target'));
+    if(target) target.scrollIntoView({behavior:'smooth', block:'start'});
+  }
+}, true); // Capture: Dialoge stoppen Klicks mit data-stop, bevor sie hier unten ankämen
+// "Mehr"-Menü schliessen: nach einer Auswahl oder beim Tippen daneben.
+document.addEventListener('click', (e)=>{
+  document.querySelectorAll('details.fs-more[open]').forEach(d=>{
+    const inMenu = d.querySelector('.fs-more-menu').contains(e.target);
+    if(inMenu || !d.contains(e.target)) d.removeAttribute('open');
+  });
+}, true);
+
 async function refreshOfflineSectionUI(offlineId){
   const bodyEl = document.getElementById('offline-body-' + offlineId);
   if(!bodyEl) return;
@@ -8844,6 +8922,7 @@ async function submitShareImportGpxLink(tourId, link){
    Emoji in Textknoten durch schlichte Strich-Icons im gleichen Stil. Eingabefelder, Textareas und
    Attribute bleiben unangetastet; in <option> (kann kein SVG) wird das Emoji einfach weggelassen. */
 const FS_ICON_PATHS = {
+  more: 'M5 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM12 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM19 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
   hut: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5',
   climb: 'M9 3h5a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8a5 5 0 0 1 5-5zM8 8v8',
@@ -8924,7 +9003,7 @@ const FS_EMOJI_ICONS = {
   '👤':['user'], '👥':['users'], '🚻':['users'], '✂':['scissors'], '📡':['offline'], '🔄':['refresh'], '🔁':['refresh'], '🔀':['refresh'],
   '🏠':['home'], '📞':['phone'], '🔗':['link'], '🆘':['sos','#B42318'], '📏':['ruler'], '⏱':['clock'], '⏰':['clock'], '⏳':['clock'],
   '⛶':['expand'], '🚧':['barrier'], '🍽':['food'], '🅿':['parking'], '❌':['x','#B42318'], '🌙':['moon'], '🎒':['pack'],
-  '🖨':['printer'], '🚁':['heli'], '👮':['shield'], '🎚':['sliders'], '🛰':['gps'], '🔒':['lock'], '🖼':['image'],
+  '🖨':['printer'], '🚁':['heli'], '👮':['shield'], '🎚':['sliders'], '🛰':['gps'], '🔒':['lock'], '💪':['check'], '🖼':['image'],
   '⭐':['star','#D99A1E',true], '🔵':['dot','#2F7DB5',true], '🔴':['dot','#C0392B',true], '🟡':['dot','#E0A91B',true], '🟢':['dot','#3C8A55',true], '🔺':['tri','#C0392B',true]
 };
 const FS_EMOJI_RE = new RegExp('(' + Object.keys(FS_EMOJI_ICONS).sort((a,b)=>b.length-a.length).map(k=>k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')\\uFE0F?', 'gu');
