@@ -2593,16 +2593,7 @@ function renderStandaloneMap(containerId){
         const thumb = document.createElement('div');
         thumb.title = 'Topo ansehen';
         thumb.style.cssText = 'flex:none; width:44px; height:44px; border-radius:4px; overflow:hidden; border:1px solid #DED0B8; cursor:pointer; position:relative;';
-        if(topoImages[0].cropRect){
-          const cropDiv = document.createElement('div');
-          cropDiv.style.cssText = 'width:100%; height:100%; background-image:url(\'' + topoImages[0].url + '\'); background-repeat:no-repeat; ' + topoCropBackgroundCss(topoImages[0].cropRect) + (topoImages[0].rotation ? ' transform:rotate('+topoImages[0].rotation+'deg);' : '');
-          thumb.appendChild(cropDiv);
-        }else{
-          const img = document.createElement('img');
-          img.src = topoImages[0].url;
-          img.style.cssText = 'width:100%; height:100%; object-fit:cover; display:block;' + (topoImages[0].rotation ? ' transform:rotate('+topoImages[0].rotation+'deg);' : '');
-          thumb.appendChild(img);
-        }
+        thumb.innerHTML = topoImageBoxHtml(topoImages[0], 44, 44, '', 'display:block;');
         const badge = document.createElement('div');
         badge.textContent = '🔍';
         badge.style.cssText = 'position:absolute; bottom:1px; right:1px; background:rgba(43,32,25,0.75); color:#fff; font-size:9px; padding:1px 3px; border-radius:2px; line-height:1;';
@@ -2621,9 +2612,11 @@ function renderStandaloneMap(containerId){
       if(onEdit){
         const editBtn = document.createElement('button');
         editBtn.type = 'button';
-        editBtn.title = 'Bearbeiten';
+        editBtn.title = 'Bearbeiten (gedrückt halten)';
+        editBtn.setAttribute('aria-label', 'Bearbeiten, gedrückt halten');
+        editBtn.dataset.act = 'edit-from-map';
         editBtn.textContent = '✏️';
-        editBtn.style.cssText = 'flex:none; background:none; border:none; padding:0 0 0 4px; font-size:14px; line-height:1; cursor:pointer;';
+        editBtn.style.cssText = 'flex:none; position:relative; overflow:hidden; background:none; border:none; min-width:36px; min-height:36px; padding:0 0 0 4px; font-size:14px; line-height:1; cursor:pointer;';
         editBtn.addEventListener('click', onEdit);
         titleRow.appendChild(editBtn);
       }
@@ -3831,7 +3824,12 @@ function geojsonToLatLngs(geometry){
 
 // Popup-Inhalt für eine per identifySkitourAt() gefundene Skitour — Name (falls bekannt)
 // plus GPX-Download. Geteilt zwischen der Standalone-Karte und dem Punkte/Linie-Editor.
-function buildSkitourPopupContent(feature){
+// opts.allowAttach (Standard true): "Zu Tour hinzufügen" anbieten. In einer Bearbeiten-Karte
+// (renderPointsEditorMap) bewusst aus — dort wird genau EINE Tour bearbeitet, eine Auswahlliste
+// aller Touren führte dazu, dass versehentlich eine andere Tour verändert wurde. Übernehmen
+// geht nur auf der grossen Karte.
+function buildSkitourPopupContent(feature, opts){
+  const allowAttach = !opts || opts.allowAttach !== false;
   const wrap = document.createElement('div');
   wrap.style.minWidth = '190px';
   // Je nach angeforderter Geometrie-Form liefert swisstopo die Sachdaten mal unter
@@ -3865,7 +3863,12 @@ function buildSkitourPopupContent(feature){
     // Direkt einer bestehenden Tour zuweisen, statt den Umweg über Herunterladen und
     // anschliessendes manuelles Hochladen im Formular zu gehen — die Koordinaten liegen ja
     // schon hier vor. Nur sinnvoll, wenn es überhaupt eigene Touren gibt.
-    if(Array.isArray(state.tours) && state.tours.length){
+    if(!allowAttach){
+      const note = document.createElement('p');
+      note.style.cssText = 'margin:8px 0 0 0; font-size:11.5px; color:#6B7682;';
+      note.textContent = 'Zu einer Tour übernehmen: auf der grossen Karte antippen.';
+      wrap.appendChild(note);
+    }else if(Array.isArray(state.tours) && state.tours.length){
       const attachWrap = document.createElement('div');
       attachWrap.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid #eee;';
       const select = document.createElement('select');
@@ -4802,7 +4805,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         // angetippten Route, statt einen Punkt zu setzen (das geht per langem Drücken, s. u.).
         const feature = await identifySkitourAt(map, e.latlng);
         if(feature){
-          L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature)).openOn(map);
+          L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature, {allowAttach:false})).openOn(map);
         }
       }
     });
@@ -5754,6 +5757,7 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, 
   const list = kind==='tour' ? state.tours : state.huts;
   const item = list.find(x=>x.id===id);
   if(!item) return;
+  const undoPrev = snapshotForUndo(item);
   item.points = points;
   item.manualTrack = manualTrack;
   // Nur bei Touren: der eigene GPX-Track ist im Schnell-Bearbeiten-Modus (wie im vollen
@@ -5769,10 +5773,14 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, 
   const saveFn = kind==='tour' ? saveTourCloud : saveHutCloud;
   const ok = await saveFn(item).catch(()=>false);
   item._unsynced = !ok;
-  closeModal();
+  // Gespeichert = wieder gesperrt: Bearbeiten-Karte zu, kein "ungespeichert" mehr.
+  state.quickEditOpenId = null;
+  resetModalDirty();
+  closeModal(false, true);
   state.modal = {type: kind==='tour' ? 'tour-detail' : 'hut-detail', payload:id};
   render();
-  showToast(ok ? 'Punkte/Linie gespeichert.' : 'Lokal gespeichert, aber nicht synchronisiert.', !ok);
+  if(ok) offerUndoAfterSave('Karte gespeichert · wieder gesperrt.', list, undoPrev, saveFn);
+  else showToast('Lokal gespeichert, aber nicht synchronisiert.', true);
 }
 /* ================= Login (Firebase Authentication, einmalig pro Gerät) ================= */
 const FIREBASE_API_KEY = 'AIzaSyDKHMUoOL5aosFU7OhCt22REbyOvXqAXmU';
@@ -5967,17 +5975,164 @@ function closeTopOverlayLayer(){
   consumeHistoryEntry();
 }
 
+/* ================= Erkunden / Bearbeiten: "Gedrückt halten zum Bearbeiten" =================
+   Im Gelände (nasses Display, Handschuhe) soll ein versehentlicher Tipp nie etwas verändern.
+   Darum lösen alle Knöpfe, die Daten ändern (Bearbeiten, Löschen, Status, Karte bearbeiten …),
+   erst nach 1 Sekunde Gedrückthalten aus. Ein kurzer Tipp zeigt nur den Hinweis. Umgesetzt
+   zentral über die data-act-Namen: ein Capture-Listener fängt den normalen Klick ab, bevor die
+   eigentlichen Handler (egal ob delegiert oder direkt am Knopf) ihn sehen. Nach dem Halten wird
+   der Knopf einmal programmatisch geklickt — dieser eine Klick darf durch. Tastatur-Klicks
+   (detail===0) gehen direkt durch, die passieren nicht aus Versehen im Schnee. */
+const HOLD_TO_EDIT_ACTS = new Set([
+  'edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-klettergebiet','edit-gipfel','edit-agenda',
+  'edit-access-route','edit-tour-route','edit-sektor-route','edit-sektor-topo-routen',
+  'edit-from-map',
+  'delete-access-route','delete-tour-route','delete-sektor-route','delete-calculated-route',
+  'remove-completion','remove-alt-track',
+  'quick-edit-toggle','toggle-tour-status','toggle-hut-status',
+  'open-complete-tour','open-complete-hut','mark-done',
+  'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet'
+]);
+const HOLD_TO_EDIT_MS = 1000;
+// Optik aus derselben Liste erzeugt (kein zweiter Ort, der auseinanderlaufen kann):
+// kleines Schloss vor der Beschriftung, Füllbalken unten während des Haltens.
+(function injectHoldToEditCss(){
+  const sel = Array.from(HOLD_TO_EDIT_ACTS).map(a=>`[data-act="${a}"]`).join(',');
+  const lock = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E\")";
+  const style = document.createElement('style');
+  style.textContent = `
+:where(${sel}){ position:relative; overflow:hidden; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; touch-action:manipulation; }
+:where(${sel})::after{ content:''; position:absolute; left:0; bottom:0; height:4px; width:0; background:var(--fs-edit, #6741D9); pointer-events:none; }
+.fs-hold-arming::after{ width:100% !important; transition:width ${HOLD_TO_EDIT_MS}ms linear; }
+.fs-hold-arming{ filter:brightness(0.96); }
+.btn:where(${sel})::before{ content:''; display:inline-block; width:13px; height:13px; margin-right:6px; vertical-align:-1px; background:currentColor; opacity:.65;
+  -webkit-mask:${lock} center/contain no-repeat; mask:${lock} center/contain no-repeat; }
+.fs-hold-hint{ position:fixed; left:50%; top:calc(18px + env(safe-area-inset-top, 0px)); transform:translate(-50%, -12px); z-index:400;
+  background:#1C2128; color:#fff; font-weight:700; font-size:14px; padding:11px 16px; border-radius:14px;
+  box-shadow:0 8px 24px rgba(0,0,0,.25); opacity:0; pointer-events:none; transition:opacity .18s, transform .18s; white-space:nowrap; }
+.fs-hold-hint.on{ opacity:1; transform:translate(-50%, 0); }
+.fs-undo-toast{ display:flex; align-items:center; gap:10px; }
+.fs-undo-toast button{ background:none; border:none; color:#8AB8F2; font-weight:800; font-size:14px; padding:8px 4px; min-height:40px; cursor:pointer; }
+`;
+  document.head.appendChild(style);
+})();
+let holdArmTimer = null, holdArmEl = null, holdSwallowClickUntil = 0;
+function holdTargetFrom(node){
+  const el = node && node.closest ? node.closest('[data-act]') : null;
+  return (el && HOLD_TO_EDIT_ACTS.has(el.getAttribute('data-act')) && !el.disabled) ? el : null;
+}
+function cancelHoldArm(){
+  if(holdArmTimer){ clearTimeout(holdArmTimer); holdArmTimer = null; }
+  if(holdArmEl){ holdArmEl.classList.remove('fs-hold-arming'); holdArmEl = null; }
+}
+let holdHintTimer = null;
+function showHoldHint(){
+  let el = document.getElementById('fs-hold-hint');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'fs-hold-hint';
+    el.className = 'fs-hold-hint';
+    el.setAttribute('role', 'status');
+    el.textContent = 'Gedrückt halten zum Bearbeiten';
+    document.body.appendChild(el);
+  }
+  el.classList.add('on');
+  clearTimeout(holdHintTimer);
+  holdHintTimer = setTimeout(()=> el.classList.remove('on'), 1800);
+}
+document.addEventListener('pointerdown', (e)=>{
+  if(e.button !== undefined && e.button !== 0) return;
+  const el = holdTargetFrom(e.target);
+  if(!el) return;
+  cancelHoldArm();
+  holdArmEl = el;
+  // Neustart der CSS-Animation (Füllbalken) erzwingen
+  el.classList.remove('fs-hold-arming'); void el.offsetWidth; el.classList.add('fs-hold-arming');
+  holdArmTimer = setTimeout(()=>{
+    holdArmTimer = null;
+    el.classList.remove('fs-hold-arming');
+    holdArmEl = null;
+    if(navigator.vibrate){ try{ navigator.vibrate(25); }catch(err){} }
+    // Den gleich folgenden "echten" Klick beim Loslassen schlucken, dann einmal freigeben.
+    holdSwallowClickUntil = Date.now() + 1500;
+    el._fsHoldOk = true;
+    try{ el.click(); }finally{ el._fsHoldOk = false; }
+  }, HOLD_TO_EDIT_MS);
+}, true);
+['pointerup','pointercancel'].forEach(type=> document.addEventListener(type, ()=>{ if(holdArmTimer) cancelHoldArm(); }, true));
+document.addEventListener('pointermove', (e)=>{
+  // Wer beim Halten zu scrollen beginnt (Finger verlässt den Knopf), bricht ab.
+  if(holdArmEl && !holdArmEl.contains(document.elementFromPoint(e.clientX, e.clientY))) cancelHoldArm();
+}, true);
+document.addEventListener('contextmenu', (e)=>{ if(holdTargetFrom(e.target)) e.preventDefault(); }, true);
+document.addEventListener('click', (e)=>{
+  const el = holdTargetFrom(e.target);
+  if(!el) return;
+  // detail===0: der eine freigegebene Klick nach dem Halten, Klicks aus dem Code selbst und
+  // Tastatur (Enter/Leertaste) — die passieren nicht versehentlich im Schnee.
+  if(el._fsHoldOk || e.detail === 0) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if(Date.now() < holdSwallowClickUntil){ holdSwallowClickUntil = 0; return; }
+  showHoldHint();
+}, true);
+
+/* ================= Rückgängig nach dem Speichern =================
+   Hinweis unten mit "Rückgängig"-Knopf, 10 Sekunden lang. undoFn stellt den vorherigen Stand
+   wieder her (lokal + Cloud). */
+function showUndoToast(message, undoFn){
+  const old = document.querySelector('.toast');
+  if(old) old.remove();
+  const el = document.createElement('div');
+  el.className = 'toast fs-undo-toast';
+  const span = document.createElement('span');
+  span.textContent = message;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = 'Rückgängig';
+  btn.addEventListener('click', async ()=>{
+    el.remove();
+    try{ await undoFn(); showToast('Rückgängig gemacht.'); }
+    catch(err){ showToast('Rückgängig fehlgeschlagen: ' + (err && err.message ? err.message : err), true); }
+  });
+  el.appendChild(span); el.appendChild(btn);
+  document.body.appendChild(el);
+  setTimeout(()=>{ el.remove(); }, 10000);
+}
+// Bietet nach dem Speichern eines BESTEHENDEN Eintrags "Rückgängig" an: prev = Stand vor dem
+// Speichern (tiefe Kopie), list = state-Array, saveFn = Cloud-Speicherfunktion des Typs.
+function offerUndoAfterSave(message, list, prev, saveFn){
+  if(!prev){ showToast(message); return; }
+  showUndoToast(message, async ()=>{
+    const i = list.findIndex(x=>x.id===prev.id);
+    if(i>=0) list[i] = prev;
+    const ok = await saveFn(prev).catch(()=>false);
+    prev._unsynced = !ok;
+    if(typeof render === 'function') render();
+  });
+}
+function snapshotForUndo(existing){
+  if(!existing || !existing.id) return null;
+  try{ const c = JSON.parse(JSON.stringify(existing)); delete c._unsynced; return c; }catch(e){ return null; }
+}
+
 /* ================= "Ungespeicherte Änderungen"-Warnung beim Verlassen einer Bearbeiten-Maske =====
    Frühere Idee war, beim Verlassen (X, Klick daneben, Zurück-Taste) automatisch zu speichern —
    das führte aber dazu, dass auch versehentliche Änderungen unbemerkt übernommen wurden. Jetzt
    wird stattdessen nur noch nachgefragt: hat sich seit dem Öffnen der Maske etwas geändert,
    fragt closeModal() vor dem Verwerfen einmal nach ("Ungespeicherte Änderungen verwerfen?").
    Speichern und Löschen laufen unverändert direkt durch (skipDirtyCheck-Parameter). */
-const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-sektor','edit-klettergebiet','edit-gipfel','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda','edit-agenda'];
+const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-sektor-topo-routen','edit-klettergebiet','edit-gipfel','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda','edit-agenda'];
 let modalIsDirty = false;
 let lastDirtyTrackedModalKey = null;
 function modalDirtyTrackingKey(){
-  if(!state.modal || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return null;
+  if(!state.modal) return null;
+  // Karte direkt in der Detailansicht bearbeiten (hinter dem Schloss) zählt wie eine Maske:
+  // Verlassen mit ungespeicherten Punkten/Linien fragt nach.
+  if((state.modal.type==='tour-detail' || state.modal.type==='hut-detail') && state.quickEditOpenId && state.quickEditOpenId===state.modal.payload){
+    return state.modal.type + '|quick|' + state.modal.payload;
+  }
+  if(DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return null;
   const p = state.modal.payload;
   const entityId = p && (p.id || (p.route && p.route.id));
   return state.modal.type + '|' + (entityId || 'new');
@@ -5992,15 +6147,21 @@ function syncModalDirtyTracking(){
     lastDirtyTrackedModalKey = key;
     lastPointsEditorMapView = null;
   }
+  setTimeout(paintModalDirty, 0);
 }
-function markModalDirty(){ modalIsDirty = true; }
+function markModalDirty(){ modalIsDirty = true; paintModalDirty(); }
+// Zeigt "Nicht gespeichert" in der festen Leiste der Maske (CSS-Klasse fs-dirty am .modal).
+function paintModalDirty(){
+  const on = modalIsDirty && !!modalDirtyTrackingKey();
+  document.querySelectorAll('.overlay .modal').forEach(m=> m.classList.toggle('fs-dirty', on));
+}
 // Gegenstück zu markModalDirty() — gebraucht nach dem programmatischen Vorbefüllen einer
 // Bearbeiten-Maske (applyAgendaEditPrefill simuliert Klicks/Change-Events, die sonst fälschlich
 // "ungespeicherte Änderungen" auslösen würden, obwohl der Nutzer noch gar nichts angefasst hat).
-function resetModalDirty(){ modalIsDirty = false; }
+function resetModalDirty(){ modalIsDirty = false; paintModalDirty(); }
 // true = Schliessen darf weitergehen; false = Nutzer hat abgebrochen (Maske bleibt offen).
 function confirmDiscardIfDirty(){
-  if(!modalIsDirty || !state.modal || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return true;
+  if(!modalIsDirty || !modalDirtyTrackingKey()) return true;
   const ok = confirm('Ungespeicherte Änderungen verwerfen?');
   if(ok) modalIsDirty = false;
   return ok;
@@ -6894,31 +7055,46 @@ async function deleteTopoImageFile(storagePath){
   }catch(e){ return false; }
 }
 
-// Ausschnitt (cropRect: {x,y,w,h,naturalW,naturalH}, alle Brüche 0..1 relativ zum
-// UNROTIERTEN Originalbild) als CSS background-size/-position umrechnen — funktioniert
-// unabhängig von der tatsächlichen Bildgrösse dank der nativen Prozent-Semantik von
-// background-size/-position (der Browser bezieht sich dabei immer auf die echten Bild-Pixel,
-// nicht auf das Element). Das Originalbild bleibt dabei in Storage unverändert; ein entfernter
-// cropRect zeigt sofort wieder das ganze Bild.
-function topoCropBackgroundCss(cropRect){
-  if(!cropRect) return '';
-  const w = Math.min(1, Math.max(0.05, cropRect.w));
-  const h = Math.min(1, Math.max(0.05, cropRect.h));
-  const x = Math.min(1 - w, Math.max(0, cropRect.x));
-  const y = Math.min(1 - h, Math.max(0, cropRect.y));
-  const sizeX = 100 / w, sizeY = 100 / h;
-  const posX = w >= 0.9999 ? 0 : (x / (1 - w) * 100);
-  const posY = h >= 0.9999 ? 0 : (y / (1 - h) * 100);
-  return `background-size:${sizeX.toFixed(2)}% ${sizeY.toFixed(2)}%; background-position:${posX.toFixed(2)}% ${posY.toFixed(2)}%;`;
+// cropRect: {x,y,w,h,naturalW,naturalH} — x..h als Brüche 0..1 relativ zum UNROTIERTEN
+// Originalbild; das Original bleibt in Storage unverändert.
+// Ein Baustein für alle Stellen, die ein Topo-Bild mit Ausschnitt zeigen (Miniaturen, Galerie,
+// Karten-Popup, Vollbild): Ausschnitt UND Drehung werden gemeinsam berücksichtigt, und der
+// Ausschnitt wird nie verzerrt. Rechnet in echten Pixeln (naturalW/H aus dem Zuschneiden):
+// ein Fenster in der Grösse des Ausschnitts (gedreht), darin das ganze Bild verschoben.
+// fit: 'cover' füllt die Box (z. B. quadratische Miniatur), 'contain' zeigt den ganzen Ausschnitt.
+function topoCropGeometry(img, boxW, boxH, fit){
+  const c = img.cropRect;
+  const rot = ((img.rotation||0) % 360 + 360) % 360;
+  const swapped = rot===90 || rot===270;
+  const cw = c.w * c.naturalW, ch = c.h * c.naturalH;
+  const dw = swapped ? ch : cw, dh = swapped ? cw : ch;
+  if(!boxH) boxH = boxW * dh / dw;
+  const s = fit==='contain' ? Math.min(boxW/dw, boxH/dh) : Math.max(boxW/dw, boxH/dh);
+  return { boxW, boxH, rot, swapped, frameW: cw*s, frameH: ch*s,
+    imgW: c.naturalW*s, imgH: c.naturalH*s, imgX: -c.x*c.naturalW*s, imgY: -c.y*c.naturalH*s };
 }
-// Seitenverhältnis des Ausschnitts in echten Pixeln (aus den beim Zuschneiden gemerkten
-// Originalmassen) — damit der Ausschnitt in der grossen Galerie sein eigenes Format behält,
-// statt in ein festes Quadrat gepresst zu werden.
-function topoCropAspectCss(cropRect){
-  if(!cropRect || !cropRect.naturalW || !cropRect.naturalH) return '';
-  const w = Math.round(cropRect.w * cropRect.naturalW) || 1;
-  const h = Math.round(cropRect.h * cropRect.naturalH) || 1;
-  return `aspect-ratio:${w}/${h};`;
+function topoCropInnerHtml(img, g){
+  return `<div style="position:absolute; left:50%; top:50%; width:${g.frameW.toFixed(1)}px; height:${g.frameH.toFixed(1)}px; overflow:hidden; transform:translate(-50%,-50%) rotate(${g.rot}deg);"><img src="${esc(img.url)}" alt="" draggable="false" style="position:absolute; left:${g.imgX.toFixed(1)}px; top:${g.imgY.toFixed(1)}px; width:${g.imgW.toFixed(1)}px; height:${g.imgH.toFixed(1)}px; max-width:none; max-height:none;"/></div>`;
+}
+function hasUsableCrop(img){
+  return !!(img && img.cropRect && img.cropRect.naturalW && img.cropRect.naturalH);
+}
+// Topo-Bild in einer Box: boxW×boxH (beide gesetzt) = gefüllte Box; boxH leer = Höhe aus dem
+// Ausschnitt (eigenes Seitenverhältnis), dabei höchstens maxH hoch.
+function topoImageBoxHtml(img, boxW, boxH, attrs, extraStyle, maxH){
+  attrs = attrs || ''; extraStyle = extraStyle || '';
+  if(hasUsableCrop(img)){
+    let g = topoCropGeometry(img, boxW, boxH, 'cover');
+    if(!boxH && maxH && g.boxH > maxH) g = topoCropGeometry(img, maxH * boxW / g.boxH, maxH, 'cover');
+    return `<div ${attrs} style="position:relative; overflow:hidden; flex-shrink:0; width:${g.boxW.toFixed(1)}px; height:${g.boxH.toFixed(1)}px; ${extraStyle}">${topoCropInnerHtml(img, g)}</div>`;
+  }
+  const rot = img.rotation ? ` transform:rotate(${img.rotation}deg);` : '';
+  if(boxH) return `<img src="${esc(img.url)}" ${attrs} style="width:${boxW}px; height:${boxH}px; object-fit:cover; flex-shrink:0;${rot} ${extraStyle}"/>`;
+  return `<img src="${esc(img.url)}" ${attrs} style="max-width:${boxW}px; max-height:${maxH||230}px; object-fit:contain;${rot} ${extraStyle}"/>`;
+}
+// Für data-images (Vollbild): Ausschnitt mitgeben, sonst zeigt das Vollbild immer das Original.
+function topoImagesJsonForViewer(images){
+  return esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url, rotation:img.rotation||0, cropRect:img.cropRect||null}))));
 }
 
 // images wird explizit übergeben (statt aus dem hiddenListId-Feld gelesen): beim allerersten
@@ -6927,12 +7103,10 @@ function topoCropAspectCss(cropRect){
 // leer, und die Miniaturansicht (samt Dreh-/Entfernen-Buttons) würde beim Öffnen fehlen.
 function topoImageThumbsHtml(images, hiddenListId){
   if(!images || !images.length) return '';
-  const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url, rotation:img.rotation||0}))));
+  const imagesJson = topoImagesJsonForViewer(images);
   return `<div class="chips" style="margin-top:8px;">${images.map((img,i)=>
     `<span class="chip" style="background:var(--ice-light); border-color:transparent; padding:3px 8px 3px 3px; display:inline-flex; align-items:center; gap:6px;">
-      ${img.cropRect
-        ? `<div data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:32px; height:32px; border-radius:2px; cursor:pointer; background-image:url('${esc(img.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(img.cropRect)} transform:rotate(${img.rotation||0}deg);"></div>`
-        : `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:32px; height:32px; object-fit:cover; border-radius:2px; cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>`}
+      ${topoImageBoxHtml(img, 32, 32, `data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}"`, 'border-radius:2px; cursor:pointer;')}
       Bild ${i+1}${img.cropRect ? ' · ✂️' : ''}
       <button type="button" data-act="crop-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="Ausschnitt festlegen — nur dieser Teil wird in Listen/Details gezeigt, das Originalbild bleibt erhalten" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">✂️</button>
       <button type="button" data-act="rotate-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="90° drehen — z. B. wenn quer statt hoch hochgeladen" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">🔄</button>
@@ -7029,7 +7203,7 @@ function openTopoCropEditor(hiddenListId, imageId){
   overlay.appendChild(stageOuter);
 
   const hint = document.createElement('p');
-  hint.textContent = 'Ecke/Rand ziehen zum Anpassen · Original bleibt immer erhalten';
+  hint.textContent = 'Rahmen verschieben oder an Ecken/Kanten ziehen · Original bleibt immer erhalten';
   hint.style.cssText = 'margin:0; padding:10px 16px 4px; text-align:center; font-size:12px; color:rgba(255,255,255,0.75);';
   overlay.appendChild(hint);
 
@@ -7056,7 +7230,7 @@ function openTopoCropEditor(hiddenListId, imageId){
 
     const stage = document.createElement('div');
     stage.dataset.cropStage = '1';
-    stage.style.cssText = `position:relative; width:${stageW}px; height:${stageH}px; overflow:hidden; background:#F7F3EA;`;
+    stage.style.cssText = `position:relative; width:${stageW}px; height:${stageH}px; overflow:visible; background:#F7F3EA; touch-action:none;`;
     const innerImg = document.createElement('img');
     innerImg.src = imgData.url;
     innerImg.style.cssText = `position:absolute; top:50%; left:50%; width:${naturalW*scale}px; height:${naturalH*scale}px; transform:translate(-50%,-50%) rotate(${rotation}deg); max-width:none; max-height:none;`;
@@ -7073,25 +7247,39 @@ function openTopoCropEditor(hiddenListId, imageId){
     }
     let sel = imgData.cropRect ? originalToDisplayRect(imgData.cropRect) : { x:0, y:0, w:1, h:1 };
 
+    // Rahmen mit 8 Griffen (Ecken + Kanten). Jeder Griff hat eine grosse, unsichtbare
+    // Trefferfläche (44 px, auch mit nassen Handschuh-Fingern treffbar), sichtbar ist nur der Punkt.
+    // In den Rahmen tippen und ziehen = Rahmen verschieben; ausserhalb tippen = nichts (früher
+    // startete das eine neue Auswahl — der Rahmen "sprang" ständig).
     const selEl = document.createElement('div');
-    selEl.style.cssText = 'position:absolute; border:2.5px solid var(--signal); box-shadow:0 0 0 4000px rgba(0,0,0,0.55);';
+    selEl.style.cssText = 'position:absolute; border:2.5px solid var(--signal); box-sizing:border-box; box-shadow:0 0 0 4000px rgba(0,0,0,0.55); touch-action:none; cursor:move;';
     stage.appendChild(selEl);
-    ['tl','tr','bl','br'].forEach(pos=>{
+    const HANDLES = ['nw','n','ne','e','se','s','sw','w'];
+    const HIT = 44;
+    HANDLES.forEach(pos=>{
       const handle = document.createElement('div');
       handle.dataset.handle = pos;
-      handle.style.cssText = `position:absolute; width:22px; height:22px; border-radius:50%; background:var(--signal); border:2px solid #fff; touch-action:none;`;
+      handle.style.cssText = `position:absolute; width:${HIT}px; height:${HIT}px; touch-action:none; display:flex; align-items:center; justify-content:center; cursor:${pos}-resize;`;
+      const dot = document.createElement('div');
+      dot.style.cssText = pos.length===2
+        ? 'width:22px; height:22px; border-radius:50%; background:var(--signal); border:2px solid #fff; pointer-events:none;'
+        : `${pos==='n'||pos==='s' ? 'width:28px; height:8px;' : 'width:8px; height:28px;'} border-radius:4px; background:var(--signal); border:2px solid #fff; pointer-events:none;`;
+      handle.appendChild(dot);
       selEl.appendChild(handle);
     });
 
     function paintSel(){
+      const W = sel.w*stageW, H = sel.h*stageH;
       selEl.style.left = (sel.x*stageW) + 'px';
       selEl.style.top = (sel.y*stageH) + 'px';
-      selEl.style.width = (sel.w*stageW) + 'px';
-      selEl.style.height = (sel.h*stageH) + 'px';
-      selEl.querySelectorAll('div').forEach(h=>{
+      selEl.style.width = W + 'px';
+      selEl.style.height = H + 'px';
+      selEl.querySelectorAll('[data-handle]').forEach(h=>{
         const pos = h.dataset.handle;
-        h.style.top = (pos[0]==='t' ? -11 : sel.h*stageH-11) + 'px';
-        h.style.left = (pos[1]==='l' ? -11 : sel.w*stageW-11) + 'px';
+        const cx = pos.includes('w') ? 0 : pos.includes('e') ? W : W/2;
+        const cy = pos.includes('n') ? 0 : pos.includes('s') ? H : H/2;
+        h.style.left = (cx - HIT/2) + 'px';
+        h.style.top = (cy - HIT/2) + 'px';
       });
     }
     paintSel();
@@ -7104,55 +7292,41 @@ function openTopoCropEditor(hiddenListId, imageId){
       sel.y = Math.max(0, Math.min(1 - sel.h, sel.y));
     }
 
-    function pointerXY(e){
-      const t = e.touches && e.touches.length ? e.touches[0] : e;
-      const rect = stage.getBoundingClientRect();
-      return { x: (t.clientX - rect.left) / stageW, y: (t.clientY - rect.top) / stageH };
-    }
-
-    // Ecke ziehen = bestehende Auswahl in dieser Ecke resizen; irgendwo sonst ziehen = neue
-    // Auswahl von Grund auf aufziehen.
-    let dragMode = null, dragAnchor = null;
-    function onDown(e){
-      e.preventDefault();
-      const handle = e.target.closest && e.target.closest('[data-handle]');
-      if(handle){
-        dragMode = 'resize';
-        dragAnchor = handle.dataset.handle;
+    let dragMode = null, startSel = null, startX = 0, startY = 0;
+    function onPointerMove(ev){
+      if(!dragMode) return;
+      ev.preventDefault();
+      const dx = (ev.clientX - startX) / stageW, dy = (ev.clientY - startY) / stageH;
+      if(dragMode==='move'){
+        sel = { ...startSel, x: Math.max(0, Math.min(1 - startSel.w, startSel.x + dx)), y: Math.max(0, Math.min(1 - startSel.h, startSel.y + dy)) };
       }else{
-        dragMode = 'draw';
-        const p = pointerXY(e);
-        dragAnchor = { x: p.x, y: p.y };
-        sel = { x:p.x, y:p.y, w:0.001, h:0.001 };
+        // Gegenüberliegende Kante bleibt fest; die gezogene Kante darf nicht über sie hinaus.
+        let left = startSel.x, top = startSel.y, right = startSel.x + startSel.w, bottom = startSel.y + startSel.h;
+        if(dragMode.includes('w')) left = Math.max(0, Math.min(right - MIN_FRAC, left + dx));
+        if(dragMode.includes('e')) right = Math.min(1, Math.max(left + MIN_FRAC, right + dx));
+        if(dragMode.includes('n')) top = Math.max(0, Math.min(bottom - MIN_FRAC, top + dy));
+        if(dragMode.includes('s')) bottom = Math.min(1, Math.max(top + MIN_FRAC, bottom + dy));
+        sel = { x:left, y:top, w:right-left, h:bottom-top };
       }
-      const onMove = (ev)=>{
-        ev.preventDefault();
-        const p = pointerXY(ev);
-        if(dragMode==='draw'){
-          const x0 = dragAnchor.x, y0 = dragAnchor.y;
-          sel = { x: Math.min(x0,p.x), y: Math.min(y0,p.y), w: Math.abs(p.x-x0), h: Math.abs(p.y-y0) };
-        }else{
-          const fixedX = dragAnchor.includes('l') ? sel.x+sel.w : sel.x;
-          const fixedY = dragAnchor.includes('t') ? sel.y+sel.h : sel.y;
-          sel = { x: Math.min(fixedX,p.x), y: Math.min(fixedY,p.y), w: Math.abs(p.x-fixedX), h: Math.abs(p.y-fixedY) };
-        }
-        clampSel();
-        paintSel();
-      };
-      const onUp = ()=>{
-        clampSel(); paintSel();
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-        window.removeEventListener('touchmove', onMove);
-        window.removeEventListener('touchend', onUp);
-      };
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
-      window.addEventListener('touchmove', onMove, { passive:false });
-      window.addEventListener('touchend', onUp);
+      paintSel();
     }
-    stage.addEventListener('mousedown', onDown);
-    stage.addEventListener('touchstart', onDown, { passive:false });
+    function onPointerUp(){
+      dragMode = null;
+      clampSel(); paintSel();
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    }
+    selEl.addEventListener('pointerdown', (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+      const handle = e.target.closest('[data-handle]');
+      dragMode = handle ? handle.dataset.handle : 'move';
+      startSel = { ...sel }; startX = e.clientX; startY = e.clientY;
+      window.addEventListener('pointermove', onPointerMove, { passive:false });
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerUp);
+    });
 
     resetBtn.onclick = ()=>{
       setTopoImageCropLocal(hiddenListId, imageId, null);
@@ -7222,17 +7396,11 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
 
 function topoImagesGalleryHtml(images){
   if(!images || !images.length) return '';
-  const imagesJson = esc(JSON.stringify(images.map(img=>({id:img.id, url:img.url, rotation:img.rotation||0}))));
-  // Kein width/height, sondern max-width/max-height: zeigt das ganze Foto in seinem eigenen
-  // Seitenverhältnis (typischerweise ein hochformatiges Führerbuch-Foto) statt es auf ein Quadrat
-  // zuzuschneiden — dieselbe schon geladene Bilddatei wird nur grösser dargestellt, das kostet
-  // keinen zusätzlichen Datentraffic. Ist ein Ausschnitt (cropRect) gesetzt, wird stattdessen nur
-  // dieser Teil gezeigt (per background-position/-size), im eigenen Seitenverhältnis des
-  // Ausschnitts — ebenfalls dieselbe Datei, kein Zusatz-Traffic.
+  const imagesJson = topoImagesJsonForViewer(images);
+  // Ganzes Foto (bzw. ganzer Ausschnitt) im eigenen Seitenverhältnis statt in ein Quadrat
+  // gepresst — dieselbe schon geladene Bilddatei, kein zusätzlicher Datentraffic.
   return `<div class="chips topo-gallery" style="margin-top:6px;">${images.map((img,i)=>
-    img.cropRect
-      ? `<div data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="width:170px; ${topoCropAspectCss(img.cropRect)} border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; background-image:url('${esc(img.url)}'); background-repeat:no-repeat; ${topoCropBackgroundCss(img.cropRect)}"></div>`
-      : `<img src="${esc(img.url)}" data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}" style="max-width:170px; max-height:230px; object-fit:contain; border-radius:var(--radius); border:1px solid var(--line); cursor:pointer; transform:rotate(${img.rotation||0}deg);"/>`
+    topoImageBoxHtml(img, 170, null, `data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}"`, 'border-radius:var(--radius); border:1px solid var(--line); cursor:pointer;', 230)
   ).join('')}</div>`;
 }
 
@@ -7242,22 +7410,34 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; touch-action:pan-y;';
 
+  const IMG_CSS = 'max-width:100%; max-height:100%; object-fit:contain; border-radius:4px; touch-action:none; transform-origin:center center;';
   const imgEl = document.createElement('img');
-  imgEl.style.cssText = 'max-width:100%; max-height:100%; object-fit:contain; border-radius:4px; touch-action:none; transform-origin:center center;';
+  imgEl.style.cssText = IMG_CSS;
   overlay.appendChild(imgEl);
+  // Ausschnitt-Ansicht: ein Fenster in Ausschnitt-Grösse (gedreht), darin dasselbe <img> verschoben
+  // (siehe topoCropGeometry). Gezoomt/verschoben wird dann dieses Fenster statt des Bilds.
+  const cropBox = document.createElement('div');
+  cropBox.style.cssText = 'position:relative; display:none; flex:none; touch-action:none; transform-origin:center center;';
+  const cropFrame = document.createElement('div');
+  cropFrame.style.cssText = 'position:absolute; left:50%; top:50%; overflow:hidden; border-radius:4px;';
+  cropBox.appendChild(cropFrame);
+  overlay.appendChild(cropBox);
+  let zoomEl = imgEl, showCrop = true;
 
   // ===== Zoom (Pinch, Doppeltipp, Mausrad) & Verschieben im gezoomten Zustand =====
   const ZOOM_MIN = 1, ZOOM_MAX = 4;
   let scale = 1, panX = 0, panY = 0, currentRotation = 0;
   function applyTransform(withTransition){
     imgEl.style.transition = withTransition ? 'transform 0.18s ease-out' : 'none';
-    imgEl.style.transform = `rotate(${currentRotation}deg) translate(${panX}px, ${panY}px) scale(${scale})`;
+    // Im Ausschnitt-Modus steckt die Drehung schon im Fenster (cropFrame).
+    zoomEl.style.transition = imgEl.style.transition;
+    zoomEl.style.transform = (zoomEl===imgEl ? `rotate(${currentRotation}deg) ` : '') + `translate(${panX}px, ${panY}px) scale(${scale})`;
   }
   function clampPan(){
     // Grobe Begrenzung, damit das Bild beim Verschieben nicht zu weit aus dem Bild verschwindet.
-    const maxOffset = (scale - 1) * (imgEl.clientWidth || overlay.clientWidth) * 0.6;
+    const maxOffset = (scale - 1) * (zoomEl.clientWidth || overlay.clientWidth) * 0.6;
     panX = Math.max(-maxOffset, Math.min(maxOffset, panX));
-    const maxOffsetY = (scale - 1) * (imgEl.clientHeight || overlay.clientHeight) * 0.6;
+    const maxOffsetY = (scale - 1) * (zoomEl.clientHeight || overlay.clientHeight) * 0.6;
     panY = Math.max(-maxOffsetY, Math.min(maxOffsetY, panY));
   }
   function resetZoom(withTransition){
@@ -7272,6 +7452,14 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   closeBtn.style.cssText = 'position:absolute; top:16px; right:16px; background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:22px; line-height:1;';
   closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); closeTopOverlayLayer(); });
   overlay.appendChild(closeBtn);
+
+  // Ist ein Ausschnitt gesetzt, zeigt das Vollbild zuerst ihn — mit diesem Knopf jederzeit das
+  // ganze Originalbild (z. B. um im Gelände den Rest des Topos anzuschauen).
+  const cropToggleBtn = document.createElement('button');
+  cropToggleBtn.type = 'button';
+  cropToggleBtn.style.cssText = 'position:absolute; top:16px; left:16px; background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:20px; padding:0 14px; height:40px; font-size:13px; font-weight:600; display:none;';
+  cropToggleBtn.addEventListener('click', (e)=>{ e.stopPropagation(); showCrop = !showCrop; resetZoom(false); updateImage(); });
+  overlay.appendChild(cropToggleBtn);
 
   let counterEl = null;
   function goTo(n){ idx = (n + images.length) % images.length; resetZoom(false); updateImage(); }
@@ -7316,12 +7504,30 @@ function showTopoImageLightbox(images, startIndex, offlineId){
     // Bei um 90°/270° gedrehten Bildern vertauschen sich Breite/Höhe der sichtbaren Fläche —
     // sonst würde das gedrehte Bild über den Bildschirmrand hinausragen bzw. winzig erscheinen.
     currentRotation = item.rotation || 0;
-    if(currentRotation===90 || currentRotation===270){
-      imgEl.style.maxWidth = 'calc(100vh - 40px)';
-      imgEl.style.maxHeight = 'calc(100vw - 40px)';
+    const useCrop = showCrop && hasUsableCrop(item);
+    cropToggleBtn.style.display = hasUsableCrop(item) ? '' : 'none';
+    cropToggleBtn.textContent = showCrop ? '⤢ Ganzes Bild' : '✂️ Ausschnitt';
+    if(useCrop){
+      const g = topoCropGeometry(item, window.innerWidth - 40, window.innerHeight - 40, 'contain');
+      cropBox.style.width = (g.swapped ? g.frameH : g.frameW) + 'px';
+      cropBox.style.height = (g.swapped ? g.frameW : g.frameH) + 'px';
+      cropFrame.style.width = g.frameW + 'px';
+      cropFrame.style.height = g.frameH + 'px';
+      cropFrame.style.transform = `translate(-50%,-50%) rotate(${g.rot}deg)`;
+      imgEl.style.cssText = `position:absolute; left:${g.imgX}px; top:${g.imgY}px; width:${g.imgW}px; height:${g.imgH}px; max-width:none; max-height:none; touch-action:none;`;
+      if(imgEl.parentNode !== cropFrame) cropFrame.appendChild(imgEl);
+      cropBox.style.display = '';
+      zoomEl = cropBox;
     }else{
-      imgEl.style.maxWidth = '100%';
-      imgEl.style.maxHeight = '100%';
+      imgEl.style.cssText = IMG_CSS;
+      if(imgEl.parentNode !== overlay) overlay.insertBefore(imgEl, cropBox);
+      cropBox.style.display = 'none';
+      cropBox.style.transform = '';
+      zoomEl = imgEl;
+      if(currentRotation===90 || currentRotation===270){
+        imgEl.style.maxWidth = 'calc(100vh - 40px)';
+        imgEl.style.maxHeight = 'calc(100vw - 40px)';
+      }
     }
     applyTransform(false);
     // Bild sofort anzeigen — nicht auf die Offline-Prüfung warten, damit im

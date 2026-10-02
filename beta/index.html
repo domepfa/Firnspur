@@ -891,32 +891,6 @@ function openHutDetail(id){ navigateToModal({type:'hut-detail', payload:id}); }
 function openAddGebiet(){ ensureName(()=>{ state.modal = {type:'edit-gebiet', payload:null}; render(); }); }
 function openEditGebiet(id){ ensureName(()=>{ const g = state.gebiete.find(x=>x.id===id); navigateToModal({type:'edit-gebiet', payload:g}); }); }
 function openGebietDetail(id){ navigateToModal({type:'gebiet-detail', payload:id}); }
-async function assignTourToGebiet(tourId, gebId){
-  const t = state.tours.find(x=>x.id===tourId);
-  if(!t) return;
-  t.gebietId = gebId || '';
-  t.updatedAt = new Date().toISOString();
-  t.updatedBy = state.myName;
-  render();
-  const ok = await saveTourCloud(t).catch(()=>false);
-  t._unsynced = !ok;
-  if(!ok) markUnsaved();
-  showToast(ok ? 'Tour zugeordnet.' : 'Tour lokal zugeordnet, aber nicht synchronisiert.', !ok);
-  render();
-}
-async function assignHutToGebiet(hutId, gebId){
-  const h = state.huts.find(x=>x.id===hutId);
-  if(!h) return;
-  h.gebietId = gebId || '';
-  h.updatedAt = new Date().toISOString();
-  h.updatedBy = state.myName;
-  render();
-  const ok = await saveHutCloud(h).catch(()=>false);
-  h._unsynced = !ok;
-  if(!ok) markUnsaved();
-  showToast(ok ? 'Hütte zugeordnet.' : 'Hütte lokal zugeordnet, aber nicht synchronisiert.', !ok);
-  render();
-}
 function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(!skipDirtyCheck && !confirmDiscardIfDirty()){
     // Nutzer will weiter bearbeiten — nichts schliessen, und explizit NICHT render() aufrufen:
@@ -927,6 +901,8 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     if(fromPopstate) pushModalHistoryIfNeeded();
     return;
   }
+  // Verlassen = wieder gesperrt (Karte in der Detailansicht nicht mehr im Bearbeiten-Modus).
+  state.quickEditOpenId = null;
   stopLiveGpsOnMap();
   // Zustiege sind "verschachtelt" unter einer Hütte — beim Schliessen zurück zur
   // Hütten-Detailansicht statt ganz zur Übersicht, damit man nicht jedes Mal neu
@@ -1015,6 +991,8 @@ function mergeImportedData(json){
 }
 
 async function submitTourForm(form, existing){
+  // Stand vor dem Speichern — für "Rückgängig" im Hinweis danach.
+  const undoPrev = snapshotForUndo(existing && existing.id ? state.tours.find(x=>x.id===existing.id) : null);
   const t = (existing && existing.id) ? {...existing} : {id: (form.tourIdForTrack || uid('t')), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null, status:'entwurf'};
   t.name = form.name.trim();
   t.routeName = form.routeName || '';
@@ -1045,6 +1023,7 @@ async function submitTourForm(form, existing){
   try{ t.points = form.points ? JSON.parse(form.points) : []; }catch(e){ t.points = []; }
   t.ascent = form.ascent;
   t.descent = form.descent;
+  if(form.status==='entwurf' || form.status==='vollstaendig') t.status = form.status;
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
 
@@ -1060,12 +1039,14 @@ async function submitTourForm(form, existing){
     markUnsaved();
     showToast('Tour ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
   }else{
-    showToast('Tour gespeichert und synchronisiert.');
+    offerUndoAfterSave('Tour gespeichert.', state.tours, undoPrev, saveTourCloud);
   }
   render();
 }
 
 async function submitHutForm(form, existing){
+  // Stand vor dem Speichern — für "Rückgängig" im Hinweis danach.
+  const undoPrev = snapshotForUndo(existing && existing.id ? state.huts.find(x=>x.id===existing.id) : null);
   const h = (existing && existing.id) ? {...existing} : {id: (form.hutIdForTrack || uid('h')), createdBy: state.myName, createdAt: new Date().toISOString(), status:'entwurf'};
   h.name = form.name.trim();
   h.region = form.region;
@@ -1088,6 +1069,7 @@ async function submitHutForm(form, existing){
   migrateHutAccessRoutes(h);
   h.contact = form.contact;
   h.notes = form.notes;
+  if(form.status==='entwurf' || form.status==='vollstaendig') h.status = form.status;
   h.updatedAt = new Date().toISOString();
   h.updatedBy = state.myName;
 
@@ -1103,12 +1085,14 @@ async function submitHutForm(form, existing){
     markUnsaved();
     showToast('Hütte ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
   }else{
-    showToast('Hütte gespeichert und synchronisiert.');
+    offerUndoAfterSave('Hütte gespeichert.', state.huts, undoPrev, saveHutCloud);
   }
   render();
 }
 
 async function submitGebietForm(form, existing){
+  // Stand vor dem Speichern — für "Rückgängig" im Hinweis danach.
+  const undoPrev = snapshotForUndo(existing && existing.id ? state.gebiete.find(x=>x.id===existing.id) : null);
   const g = (existing && existing.id) ? {...existing} : {id: (form.gebietIdForTrack || uid('geb')), createdBy: state.myName, createdAt: new Date().toISOString()};
   g.name = form.name.trim();
   g.region = form.region || '';
@@ -1131,7 +1115,7 @@ async function submitGebietForm(form, existing){
     markUnsaved();
     showToast('Gebiet ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
   }else{
-    showToast('Gebiet gespeichert und synchronisiert.');
+    offerUndoAfterSave('Gebiet gespeichert.', state.gebiete, undoPrev, saveGebietCloud);
   }
   render();
 }
@@ -1772,8 +1756,6 @@ function gebietDetailHtml(id){
   if(!geb) return `<div class="modal" data-stop="1"><p>Gebiet nicht gefunden.</p></div>`;
   const touren = gebietTouren(geb);
   const huetten = gebietHuetten(geb);
-  const unlinkedTouren = state.tours.filter(t=>!t.gebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
-  const unlinkedHuetten = state.huts.filter(h=>!h.gebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   const hasMapData = (geb.points && geb.points.length) || huetten.some(h=>h.points && h.points.length) || touren.some(t=> (t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length));
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
@@ -1789,24 +1771,11 @@ function gebietDetailHtml(id){
     <div class="detail-section">
       <h4>🎿 Touren (${touren.length})</h4>
       ${touren.length ? `<div class="grid" style="margin-top:6px;">${touren.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour in diesem Gebiet.</p>`}
-      ${unlinkedTouren.length ? `<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
-        <select id="gebiet-assign-tour-select-${geb.id}">
-          <option value="">— Tour auswählen —</option>
-          ${unlinkedTouren.map(t=>`<option value="${t.id}">${esc(t.name)}${t.routeName ? ' – '+esc(t.routeName) : ''}</option>`).join('')}
-        </select>
-        <button type="button" class="btn secondary" data-act="assign-tour-to-gebiet" data-gebiet-id="${geb.id}">+ Tour zuordnen</button>
-      </div>` : ''}
     </div>
     <div class="detail-section">
       <h4>🛖 Hütten (${huetten.length})</h4>
       ${huetten.length ? `<div class="grid" style="margin-top:6px;">${huetten.map(hutCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hütte in diesem Gebiet.</p>`}
-      ${unlinkedHuetten.length ? `<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
-        <select id="gebiet-assign-hut-select-${geb.id}">
-          <option value="">— Hütte auswählen —</option>
-          ${unlinkedHuetten.map(h=>`<option value="${h.id}">${esc(h.name)}</option>`).join('')}
-        </select>
-        <button type="button" class="btn secondary" data-act="assign-hut-to-gebiet" data-gebiet-id="${geb.id}">+ Hütte zuordnen</button>
-      </div>` : ''}
+      <p class="hint" style="font-size:12.5px; color:var(--ink-faint); margin:10px 0 0 0;">Touren und Hütten ordnest du in der jeweiligen Tour/Hütte unter Bearbeiten → Gebiet zu.</p>
     </div>
     <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(geb.createdBy||'?')} · ${fmtDate(geb.createdAt)}${geb.updatedAt && geb.updatedAt!==geb.createdAt ? ` · zuletzt bearbeitet von ${esc(geb.updatedBy||'?')} · ${fmtDate(geb.updatedAt)}` : ''}</div>
     <div class="detail-actions">
@@ -2064,13 +2033,19 @@ function tourFormHtml(existing){
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(t.manualTrack || []))}'/>
       </div>
       <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abfahrtsroute, Varianten …">${esc(t.descent||'')}</textarea></div>
-      <div class=”field”><label>Verknüpfte Hütte</label>
-        <select name=”hutId”><option value=””>— keine —</option>${hutOptions}</select>
-        <div class=”hint”>Fehlt die Hütte? Erst unter „Hütten” anlegen, dann hier verlinken.</div>
+      <div class="field"><label>Verknüpfte Hütte</label>
+        <select name="hutId"><option value="">— keine —</option>${hutOptions}</select>
+        <div class="hint">Fehlt die Hütte? Erst unter „Hütten“ anlegen, dann hier verlinken.</div>
       </div>
-      <div class=”field”><label>Gebiet (optional)</label>
-        <select name=”gebietId”><option value=””>— keins —</option>${state.gebiete.map(g=>`<option value=”${g.id}” ${t.gebietId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select>
-        <div class=”hint”>Fasst Touren &amp; Hütten derselben Region zusammen. Fehlt das Gebiet? Erst unter „Gebiete” anlegen.</div>
+      <div class="field"><label>Gebiet (optional)</label>
+        <select name="gebietId"><option value="">— keins —</option>${state.gebiete.map(g=>`<option value="${g.id}" ${t.gebietId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select>
+        <div class="hint">Fasst Touren &amp; Hütten derselben Region zusammen. Fehlt das Gebiet? Erst unter „Gebiete“ anlegen.</div>
+      </div>
+      <div class="field"><label>Status</label>
+        <select name="status">
+          <option value="entwurf" ${(!t.status || t.status==='entwurf')?'selected':''}>📝 Entwurf</option>
+          <option value="vollstaendig" ${t.status==='vollstaendig'?'selected':''}>✅ Vollständig</option>
+        </select>
       </div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
@@ -2169,7 +2144,7 @@ function tourDetailHtml(id){
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   const gebiet = t.gebietId ? state.gebiete.find(g=>g.id===t.gebietId) : null;
-  return `<div class="modal td" data-stop="1">
+  return `<div class="modal td fs-onroute" data-stop="1">
     <div class="modal-head">
       <div>
         <div class="detail-badge-row">
@@ -2185,7 +2160,7 @@ function tourDetailHtml(id){
     </div>
     ${t.routeName ? `<h2 style="margin:0 0 6px 0; color:var(--ink-soft);">${esc(t.routeName)}</h2>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
-    <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-tour-status" data-id="${t.id}">${tourStatusLabel(t)} — antippen zum Ändern</button>
+    <p class="fs-status-line" style="font-size:13px; color:var(--ink-soft); margin:0 0 10px 0;">${tourStatusLabel(t)}</p>
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abfahrt</div></div>` : ''}
@@ -2221,12 +2196,15 @@ function tourDetailHtml(id){
       ${(t.altTracks && t.altTracks.length) ? `<span class="hint">┄ gestrichelt: Alternativrouten</span><br/>` : ''}
       ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
-      <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${t.id}" data-act="quick-edit-toggle" data-id="${t.id}" data-kind="tour">✏️ Punkte/Linie direkt bearbeiten</button>
+      <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${t.id}" data-act="quick-edit-toggle" data-id="${t.id}" data-kind="tour" title="Gedrückt halten, um die Karte zu bearbeiten">Karte bearbeiten</button>
       <div id="quick-edit-list-${t.id}"></div>
       <input type="hidden" id="quick-points-hidden-${t.id}" value='${esc(JSON.stringify(t.points||[]))}'/>
       <input type="hidden" id="quick-manual-track-hidden-${t.id}" value='${esc(JSON.stringify(t.manualTrack||[]))}'/>
       <input type="hidden" id="quick-track-simplified-hidden-${t.id}" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
-      <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${t.id}" data-act="quick-save" data-id="${t.id}" data-kind="tour">💾 Änderungen speichern</button>
+      <div class="fs-quick-bar" style="display:none;" id="quick-save-btn-${t.id}">
+        <button type="button" class="btn secondary" data-act="quick-discard" data-id="${t.id}">Verwerfen</button>
+        <button type="button" class="btn" data-act="quick-save" data-id="${t.id}" data-kind="tour">Speichern</button>
+      </div>
     </div>
     ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.topoImages && t.topoImages.length)) ? offlineSectionHtml(t.id) : ''}
     ${(t.gpxLink || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<div class="detail-section">
@@ -2338,6 +2316,12 @@ function hutFormHtml(existing){
       <div class="field" style="margin-top:16px;"><label>Link zur Hütte</label><input type="url" name="hutLink" value="${esc(h.hutLink||'')}"/></div>
       <div class="field"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, SAC-Sektion …"/></div>
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
+      <div class="field"><label>Status</label>
+        <select name="status">
+          <option value="entwurf" ${(!h.status || h.status==='entwurf')?'selected':''}>📝 Entwurf</option>
+          <option value="vollstaendig" ${h.status==='vollstaendig'?'selected':''}>✅ Vollständig</option>
+        </select>
+      </div>
       <div class="form-actions">
         <button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button>
         <button type="button" id="hut-save-btn" class="btn">${isEditing?'Speichern':'Hütte anlegen'}</button>
@@ -2366,12 +2350,12 @@ function hutDetailHtml(id){
   const rangeText = accessRouteDifficultyRangeHtml(routes);
   const legend = accessRouteLegendHtml(routes);
   const hasMapData = (h.points && h.points.length) || (h.manualTrack && h.manualTrack.length) || routes.length;
-  return `<div class="modal" data-stop="1">
+  return `<div class="modal fs-onroute" data-stop="1">
     <div class="modal-head">
       <div><h2>🛖 ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(h.region)}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
-    <button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px; margin-bottom:10px;" data-act="toggle-hut-status" data-id="${h.id}">${hutStatusLabel(h)} — antippen zum Ändern</button>
+    <p class="fs-status-line" style="font-size:13px; color:var(--ink-soft); margin:0 0 10px 0;">${hutStatusLabel(h)}</p>
     ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">⛰️ Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
     <div class="detail-stats">
       ${h.altitude ? `<div class="detail-stat"><div class="num">${esc(h.altitude)}</div><div class="lbl">m ü. M.</div></div>` : ''}
@@ -2401,12 +2385,15 @@ function hutDetailHtml(id){
       ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${(h.manualTrack && h.manualTrack.length) ? `<span class="hint">🔴 Rot: selbst eingezeichnet</span>` : ''}
       ${(h.manualTrack && h.manualTrack.length) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(h.manualTrack))}' data-name="${esc(h.name)}">📥 Route als GPX exportieren</button>` : ''}
-      <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${h.id}" data-act="quick-edit-toggle" data-id="${h.id}" data-kind="hut">✏️ Punkte/Linie direkt bearbeiten</button>
+      <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${h.id}" data-act="quick-edit-toggle" data-id="${h.id}" data-kind="hut" title="Gedrückt halten, um die Karte zu bearbeiten">Karte bearbeiten</button>
       <div id="quick-edit-map-${h.id}" style="margin-top:10px; display:none;"></div>
       <div id="quick-edit-list-${h.id}"></div>
       <input type="hidden" id="quick-points-hidden-${h.id}" value='${esc(JSON.stringify(h.points||[]))}'/>
       <input type="hidden" id="quick-manual-track-hidden-${h.id}" value='${esc(JSON.stringify(h.manualTrack||[]))}'/>
-      <button type="button" class="btn" style="margin-top:10px; display:none;" id="quick-save-btn-${h.id}" data-act="quick-save" data-id="${h.id}" data-kind="hut">💾 Änderungen speichern</button>
+      <div class="fs-quick-bar" style="display:none;" id="quick-save-btn-${h.id}">
+        <button type="button" class="btn secondary" data-act="quick-discard" data-id="${h.id}">Verwerfen</button>
+        <button type="button" class="btn" data-act="quick-save" data-id="${h.id}" data-kind="hut">Speichern</button>
+      </div>
     </div>` : ''}
 
     ${hasMapData ? `<div class="detail-section">
@@ -2893,6 +2880,10 @@ function wireModalHandlers(){
     btn.addEventListener('click', ()=>{
       const id = btn.getAttribute('data-id');
       const kind = btn.getAttribute('data-kind');
+      // Ab hier "entsperrt": Verlassen ohne Speichern fragt nach (siehe modalDirtyTrackingKey).
+      state.quickEditOpenId = id;
+      syncModalDirtyTracking();
+      btn.style.display = 'none';
       // Bei Touren denselben Kartenbereich wiederverwenden, den auch "🗺️ Karte anzeigen" nutzt
       // (map-tour-<id>) — sonst würde eine zweite, redundante Karte für dieselbe Tour aufgehen.
       // Bei Hütten bleibt es beim eigenen Bereich, da "Karte anzeigen" dort etwas anderes zeigt
@@ -2918,6 +2909,14 @@ function wireModalHandlers(){
     });
   });
 
+  root.querySelectorAll('[data-act="quick-discard"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(modalIsDirty && !confirm('Änderungen an Punkten/Linie verwerfen?')) return;
+      state.quickEditOpenId = null;
+      resetModalDirty();
+      render();
+    });
+  });
   root.querySelectorAll('[data-act="quick-save"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const id = btn.getAttribute('data-id');
@@ -3318,22 +3317,6 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="show-gebiet-overview-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       renderGebietOverviewMap(btn.getAttribute('data-target'), btn.getAttribute('data-gebiet-id'));
-    });
-  });
-  root.querySelectorAll('[data-act="assign-tour-to-gebiet"]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const gebId = btn.getAttribute('data-gebiet-id');
-      const sel = document.getElementById('gebiet-assign-tour-select-'+gebId);
-      if(!sel || !sel.value) return;
-      assignTourToGebiet(sel.value, gebId);
-    });
-  });
-  root.querySelectorAll('[data-act="assign-hut-to-gebiet"]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const gebId = btn.getAttribute('data-gebiet-id');
-      const sel = document.getElementById('gebiet-assign-hut-select-'+gebId);
-      if(!sel || !sel.value) return;
-      assignHutToGebiet(sel.value, gebId);
     });
   });
   root.querySelectorAll('[data-act="edit-gebiet"]').forEach(el=> el.onclick = ()=>openEditGebiet(el.getAttribute('data-id')));
