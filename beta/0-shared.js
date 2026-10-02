@@ -421,7 +421,7 @@ function mapStripHtml(opts){
                     <div class="map-strip-popup map-strip-popup-list">
                       ${c.points.map(p=>`<button type="button" data-act="${openAct}" data-id="${esc(p.id)}">${esc(p.label)}</button>`).join('')}
                     </div>
-                  ` : `<div class="map-strip-nlabel">${esc(clusterLabel)}</div>`}
+                  ` : `<div class="map-strip-nlabel" data-act="map-strip-cluster" data-kind="${kind}" data-id="${esc(c.id)}" data-cx="${c.xPct}" data-cy="${c.yPct}" aria-hidden="true">${esc(clusterLabel)}</div>`}
                 </div>`;
             }
             const p = c;
@@ -433,7 +433,7 @@ function mapStripHtml(opts){
                     <strong>${esc(p.label)}</strong>
                     <button type="button" data-act="${openAct}" data-id="${esc(p.id)}">${linkLabel} →</button>
                   </div>
-                ` : `<div class="map-strip-nlabel">${esc(p.label)}</div>`}
+                ` : `<div class="map-strip-nlabel" data-act="map-strip-toggle" data-id="${esc(p.id)}" aria-hidden="true">${esc(p.label)}</div>`}
               </div>`;
           }).join('')}
         </div>
@@ -2667,11 +2667,16 @@ function renderStandaloneMap(containerId){
       }
       (points||[]).forEach(p=>{
         try{
+          // Wie bei den Linien: grosse, unsichtbare Trefferfläche (ca. 44 px) unter dem kleinen
+          // sichtbaren Punkt, damit man ihn mit dem Finger (oder Handschuh) sicher trifft.
+          const hit = L.circleMarker([p.lat, p.lon], {radius:22, stroke:false, fill:true, fillColor:'#000', fillOpacity:0}).addTo(layer);
           const m = L.circleMarker([p.lat, p.lon], {radius:radiusForZoom(map.getZoom()), color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
-          m.on('click', (e)=>{
+          const openPopup = (e)=>{
             L.DomEvent.stopPropagation(e);
-            L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
-          });
+            L.popup().setLatLng([p.lat, p.lon]).setContent(popupContentFn()).openOn(map);
+          };
+          hit.on('click', openPopup);
+          m.on('click', openPopup);
           allBoundsItems.push(m);
           pointMarkers.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
@@ -8924,7 +8929,7 @@ const FS_EMOJI_ICONS = {
   '👤':['user'], '👥':['users'], '🚻':['users'], '✂':['scissors'], '📡':['offline'], '🔄':['refresh'], '🔁':['refresh'], '🔀':['refresh'],
   '🏠':['home'], '📞':['phone'], '🔗':['link'], '🆘':['sos','#B42318'], '📏':['ruler'], '⏱':['clock'], '⏰':['clock'], '⏳':['clock'],
   '⛶':['expand'], '🚧':['barrier'], '🍽':['food'], '🅿':['parking'], '❌':['x','#B42318'], '🌙':['moon'], '🎒':['pack'],
-  '🖨':['printer'], '🚁':['heli'], '👮':['shield'], '🎚':['sliders'], '🛰':['gps'], '🔒':['lock'], '🖼':['image'],
+  '🖨':['printer'], '🚁':['heli'], '👮':['shield'], '🎚':['sliders'], '🛰':['gps'], '🔒':['lock'], '💪':['check'], '🖼':['image'],
   '⭐':['star','#D99A1E',true], '🔵':['dot','#2F7DB5',true], '🔴':['dot','#C0392B',true], '🟡':['dot','#E0A91B',true], '🟢':['dot','#3C8A55',true], '🔺':['tri','#C0392B',true]
 };
 const FS_EMOJI_RE = new RegExp('(' + Object.keys(FS_EMOJI_ICONS).sort((a,b)=>b.length-a.length).map(k=>k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')\\uFE0F?', 'gu');

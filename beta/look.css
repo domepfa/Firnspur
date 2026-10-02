@@ -927,3 +927,12 @@ body:has(.modal.fs-onroute) .emergency-tab{ display:inline-flex !important; z-in
 /* Die stehende Karte als eigene Grafik-Ebene: die Liste gleitet darüber, ohne dass die Karte
    bei jedem Scroll-Bild neu gezeichnet wird. */
 .fs-stage{ will-change:transform; }
+
+/* =====================================================================
+   Phase 2a: Punkte auf der Übersichtskarte leichter treffen
+   ===================================================================== */
+/* Unsichtbare Trefferfläche um den kleinen Punkt (ca. 44 px) */
+.map-strip-dot{ position:relative; }
+.map-strip-dot::before{ content:''; position:absolute; inset:-15px; border-radius:50%; }
+/* Auch der Name unter dem Punkt öffnet die Tour */
+.map-strip-nlabel{ pointer-events:auto; cursor:pointer; padding:4px 10px; }
