@@ -913,3 +913,17 @@ body:has(.modal.fs-onroute) .emergency-tab{ display:inline-flex !important; z-in
 /* Grössere Tippflächen (Handschuhe) */
 .btn{ min-height:44px; }
 .x-btn{ min-width:44px; min-height:44px; }
+
+/* =====================================================================
+   Flüssiges Scrollen (v. a. Android): kein Milchglas auf Elementen, die
+   beim Scrollen über bewegtem Inhalt liegen — dort müsste der Browser die
+   Unschärfe bei jedem Bild neu berechnen. Stattdessen fast deckende Flächen.
+   Milchglas bleibt nur auf kleinen Knöpfen über der stehenden Karte.
+   ===================================================================== */
+.app-switch-bar{ -webkit-backdrop-filter:none; backdrop-filter:none; background:rgba(243,246,248,.97); }
+.agenda-tab{ -webkit-backdrop-filter:none; backdrop-filter:none; background:#fff; }
+.overlay{ -webkit-backdrop-filter:none; backdrop-filter:none; background:rgba(15,30,39,.55); overscroll-behavior:contain; }
+.modal form .form-actions{ box-shadow:none; }
+/* Die stehende Karte als eigene Grafik-Ebene: die Liste gleitet darüber, ohne dass die Karte
+   bei jedem Scroll-Bild neu gezeichnet wird. */
+.fs-stage{ will-change:transform; }
