@@ -8756,6 +8756,112 @@ document.addEventListener('click', (e)=>{
   });
 }, true);
 
+/* ================= Tour als Blatt über der Karte (Phase 2c) =================
+   Wie bei Apple Karten: eine geöffnete Tour liegt als Blatt unten, die Übersichtskarte bleibt
+   oben sichtbar und bedienbar. Drei Stufen: klein (Name + Chips), halb (Standard), ganz.
+   Griff antippen = nächste Stufe, Griff ziehen = hoch/runter, ganz unten weiterziehen schliesst.
+   Im Inhalt nach oben scrollen öffnet das Blatt automatisch ganz.
+   Umgesetzt über einen MutationObserver auf #modal-root, damit beide Apps (Firnspur/Fixseil)
+   ohne eigene Anpassung mitmachen — alle anderen Dialoge bleiben normale Vollbild-Masken. */
+let fsSheetDetent = 'half', fsSheetTourId = null, fsSheetSavedScroll = null;
+function fsSheetHeightPx(detent){
+  const vh = window.innerHeight;
+  if(detent === 'peek') return 196;
+  if(detent === 'full') return Math.round(vh - Math.min(64, vh * 0.08));
+  return Math.round(vh * 0.56);
+}
+function fsSetSheetDetent(detent){
+  fsSheetDetent = detent;
+  document.documentElement.style.setProperty('--fs-sheet-h', fsSheetHeightPx(detent) + 'px');
+  const modal = document.querySelector('.overlay.fs-sheet-mode > .modal.td');
+  if(modal){
+    modal.dataset.detent = detent;
+    if(detent !== 'full') modal.scrollTop = 0;
+  }
+}
+function fsWireSheetGrabber(grabber, modal){
+  let startY = null, startH = 0, moved = 0;
+  grabber.addEventListener('pointerdown', (e)=>{
+    startY = e.clientY; startH = modal.getBoundingClientRect().height; moved = 0;
+    try{ grabber.setPointerCapture(e.pointerId); }catch(err){}
+    document.documentElement.classList.add('fs-sheet-dragging');
+  });
+  grabber.addEventListener('pointermove', (e)=>{
+    if(startY === null) return;
+    moved = e.clientY - startY;
+    const h = Math.max(120, Math.min(fsSheetHeightPx('full'), startH - moved));
+    document.documentElement.style.setProperty('--fs-sheet-h', h + 'px');
+  });
+  const end = ()=>{
+    if(startY === null) return;
+    startY = null;
+    document.documentElement.classList.remove('fs-sheet-dragging');
+    const i = ['peek','half','full'].indexOf(fsSheetDetent);
+    if(Math.abs(moved) < 6){
+      // Antippen: klein → halb → ganz → halb
+      fsSetSheetDetent(fsSheetDetent === 'peek' ? 'half' : fsSheetDetent === 'half' ? 'full' : 'half');
+    }else if(moved < -40){
+      fsSetSheetDetent(['peek','half','full'][Math.min(2, i + 1)]);
+    }else if(moved > 40){
+      if(fsSheetDetent === 'peek' && typeof closeModal === 'function'){ fsSetSheetDetent('peek'); closeModal(); }
+      else fsSetSheetDetent(['peek','half','full'][Math.max(0, i - 1)]);
+    }else{
+      fsSetSheetDetent(fsSheetDetent);
+    }
+  };
+  grabber.addEventListener('pointerup', end);
+  grabber.addEventListener('pointercancel', end);
+}
+function fsApplyTourSheetMode(){
+  const root = document.getElementById('modal-root');
+  if(!root) return;
+  const overlay = root.querySelector(':scope > .overlay');
+  const modal = overlay ? overlay.querySelector(':scope > .modal.td') : null;
+  const html = document.documentElement;
+  if(!modal){
+    html.classList.remove('fs-sheet-open');
+    document.querySelectorAll('.map-strip-dot.fs-sel').forEach(d=> d.classList.remove('fs-sel'));
+    // Ganz geschlossen (kein Dialog mehr): Liste wieder dort, wo man war.
+    if(!overlay && fsSheetSavedScroll !== null){ window.scrollTo(0, fsSheetSavedScroll); fsSheetSavedScroll = null; }
+    if(!overlay) fsSheetTourId = null;
+    return;
+  }
+  if(overlay.classList.contains('fs-sheet-mode') && modal.querySelector(':scope > .fs-grabber')) return;
+  if(fsSheetSavedScroll === null) fsSheetSavedScroll = window.scrollY;
+  window.scrollTo(0, 0); // Karte oben sichtbar
+  html.classList.add('fs-sheet-open');
+  overlay.classList.add('fs-sheet-mode');
+  const tourId = (typeof state !== 'undefined' && state.modal) ? String(state.modal.payload) : null;
+  if(tourId !== fsSheetTourId){ fsSheetTourId = tourId; fsSheetDetent = 'half'; }
+  const grabber = document.createElement('button');
+  grabber.type = 'button';
+  grabber.className = 'fs-grabber';
+  grabber.setAttribute('aria-label', 'Blatt grösser oder kleiner');
+  modal.insertBefore(grabber, modal.firstChild);
+  fsWireSheetGrabber(grabber, modal);
+  modal.addEventListener('scroll', ()=>{
+    if(fsSheetDetent !== 'full' && modal.scrollTop > 24) fsSetSheetDetent('full');
+  }, {passive:true});
+  fsSetSheetDetent(fsSheetDetent);
+  // Punkt der offenen Tour auf der Karte hervorheben (nach dem Rendern der Karte)
+  setTimeout(()=> document.querySelectorAll('.map-strip-dot').forEach(d=> d.classList.toggle('fs-sel', d.getAttribute('data-id') === tourId)), 0);
+}
+window.addEventListener('resize', ()=>{ if(document.documentElement.classList.contains('fs-sheet-open')) fsSetSheetDetent(fsSheetDetent); });
+(function fsWatchModalRoot(){
+  // Ganze Seite beobachten (die Apps bauen #modal-root beim Rendern teils neu auf), aber die
+  // Prüfung höchstens einmal pro Bild ausführen.
+  let queued = false;
+  const start = ()=>{
+    new MutationObserver(()=>{
+      if(queued) return;
+      queued = true;
+      requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); });
+    }).observe(document.body, {childList:true, subtree:true});
+    fsApplyTourSheetMode();
+  };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})();
+
 async function refreshOfflineSectionUI(offlineId){
   const bodyEl = document.getElementById('offline-body-' + offlineId);
   if(!bodyEl) return;
