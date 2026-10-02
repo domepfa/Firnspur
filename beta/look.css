@@ -1008,7 +1008,7 @@ html.fs-sheet-open body{ overflow:hidden; }
 html.fs-sheet-dragging .overlay.fs-sheet-mode > .modal.td{ transition:none; }
 /* Griff oben im Blatt: bleibt beim Scrollen stehen */
 .fs-grabber{
-  position:sticky; top:0; z-index:8; display:block; width:calc(100% + 36px); height:28px;
+  position:sticky; top:0; z-index:8; display:block; width:auto; height:28px;
   margin:0 -18px 2px; padding:0; border:none; background:var(--paper); cursor:grab; touch-action:none;
 }
 .fs-grabber::after{
@@ -1026,3 +1026,6 @@ html.fs-sheet-open .emergency-tab{ bottom:calc(var(--fs-sheet-h, 56vh) + 12px) !
 html.fs-sheet-open .hero{ display:none; }
 html.fs-sheet-open .fs-sheet{ visibility:hidden; }
 html.fs-sheet-open .fs-fab, html.fs-sheet-open .agenda-tab{ display:none !important; }
+
+/* Blatt: kein seitliches Verrutschen/Scrollbalken */
+.overlay.fs-sheet-mode > .modal.td{ overflow-x:hidden; }

@@ -908,7 +908,14 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   // Hütten-Detailansicht statt ganz zur Übersicht, damit man nicht jedes Mal neu
   // hinein navigieren muss. Ein Klick auf X/Zurück (oder die Hardware-Zurück-Taste)
   // schliesst dadurch immer nur die zuoberst offene Ebene.
-  if(state.modal && (state.modal.type==='access-route-detail' || state.modal.type==='edit-access-route') && state.modal.payload && state.modal.payload.hutId){
+  // Zurück führt IMMER dorthin, wo man vorher war (Verlauf aus navigateToModal) — erst wenn es
+  // keinen Verlauf gibt (z. B. direkt von der grossen Karte geöffnet), greifen die festen
+  // Rückfall-Ziele darunter.
+  const backTop = (state.modalBackStack && state.modalBackStack.length) ? state.modalBackStack[state.modalBackStack.length-1] : null;
+  if(backTop && state.modal && backTop.forType === state.modal.type){
+    state.modalBackStack.pop();
+    state.modal = backTop.modal;
+  }else if(state.modal && (state.modal.type==='access-route-detail' || state.modal.type==='edit-access-route') && state.modal.payload && state.modal.payload.hutId){
     state.modal = {type:'hut-detail', payload: state.modal.payload.hutId};
   }else{
     // Wurde die aktuelle Ansicht per Cross-Link aus einer anderen Detailansicht heraus geöffnet
@@ -1146,7 +1153,7 @@ async function submitAccessRouteForm(form){
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
   closeModal(false, true, true);
-  state.modal = {type:'hut-detail', payload:hut.id};
+  returnAfterRouteChange('access-route-detail', routeData.id, {hutId:hut.id, route:routeData}, {type:'hut-detail', payload:hut.id});
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);
   hut._unsynced = !ok;
@@ -1162,7 +1169,7 @@ async function deleteAccessRoute(hutId, routeId){
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
   closeModal(false, true, true);
-  state.modal = {type:'hut-detail', payload:hutId};
+  returnAfterRouteChange('access-route-detail', routeId, null, {type:'hut-detail', payload:hutId});
   render();
   const ok = await saveHutCloud(hut).catch(()=>false);
   hut._unsynced = !ok;
@@ -3308,7 +3315,7 @@ function wireModalHandlers(){
       try{ routes = JSON.parse(btn.getAttribute('data-routes') || '[]'); }catch(e){ routes = []; }
       try{ manualTrack = JSON.parse(btn.getAttribute('data-manual-track') || '[]'); }catch(e){ manualTrack = []; }
       renderHutAccessRoutesMap(target, pts, routes, manualTrack, (route)=>{
-        state.modal = {type:'access-route-detail', payload:{hutId, route}};
+        navigateToModal({type:'access-route-detail', payload:{hutId, route}});
         render();
       });
     });
@@ -3532,7 +3539,7 @@ function wireModalHandlers(){
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
 
   root.querySelectorAll('[data-act="add-access-route"]').forEach(el=> el.onclick = ()=>{
-    state.modal = {type:'edit-access-route', payload:{hutId: el.getAttribute('data-hut-id'), route:null}};
+    navigateToModal({type:'edit-access-route', payload:{hutId: el.getAttribute('data-hut-id'), route:null}});
     render();
   });
   root.querySelectorAll('[data-act="open-access-route"]').forEach(el=> el.onclick = ()=>{
@@ -3541,7 +3548,7 @@ function wireModalHandlers(){
     const hut = state.huts.find(h=>h.id===hutId);
     const route = hut && hut.accessRoutes ? hut.accessRoutes.find(r=>r.id===routeId) : null;
     if(!route) return;
-    state.modal = {type:'access-route-detail', payload:{hutId, route}};
+    navigateToModal({type:'access-route-detail', payload:{hutId, route}});
     render();
   });
   root.querySelectorAll('[data-act="edit-access-route"]').forEach(el=> el.onclick = ()=>{
@@ -3550,7 +3557,7 @@ function wireModalHandlers(){
     const hut = state.huts.find(h=>h.id===hutId);
     const route = hut && hut.accessRoutes ? hut.accessRoutes.find(r=>r.id===routeId) : null;
     if(!route) return;
-    state.modal = {type:'edit-access-route', payload:{hutId, route}};
+    navigateToModal({type:'edit-access-route', payload:{hutId, route}});
     render();
   });
   root.querySelectorAll('[data-act="show-access-route-map"]').forEach(btn=>{

@@ -6083,6 +6083,19 @@ document.addEventListener('click', (e)=>{
   showHoldHint();
 }, true);
 
+/* ================= Nach Speichern/Löschen eines Zustiegs/Abstiegs =================
+   closeModal() hat bereits eine Ebene zurückgeführt (Verlauf). Steht man jetzt auf der
+   Detailansicht genau dieser Route, wird sie mit den neuen Daten aufgefrischt (gespeichert)
+   bzw. ebenfalls geschlossen (gelöscht). Nur ohne Verlauf gilt das feste Rückfall-Ziel. */
+function returnAfterRouteChange(detailType, routeId, freshPayload, fallback){
+  const m = state.modal;
+  if(m && m.type === detailType && m.payload && m.payload.route && m.payload.route.id === routeId){
+    if(freshPayload) state.modal = {type:detailType, payload:freshPayload};
+    else closeModal(false, true, true);
+  }
+  if(!state.modal) state.modal = fallback;
+}
+
 /* ================= Rückgängig nach dem Speichern =================
    Hinweis unten mit "Rückgängig"-Knopf, 10 Sekunden lang. undoFn stellt den vorherigen Stand
    wieder her (lokal + Cloud). */
