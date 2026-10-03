@@ -906,9 +906,9 @@ main{ padding-top:6px; }
 .fs-quick-bar{ display:flex; gap:10px; margin-top:10px; }
 .fs-quick-bar .btn{ flex:1 1 0; min-height:48px; }
 
-/* SOS nur unterwegs: wenn eine Tour/Hütte/ein Sektor offen ist, nicht beim Planen in der Übersicht */
+/* SOS nur unterwegs: erst nach "Tour starten" (Phase 2e), nicht beim Planen zuhause */
 .emergency-tab{ display:none !important; }
-body:has(.modal.fs-onroute) .emergency-tab{ display:inline-flex !important; z-index:60; }
+html.fs-on-tour .emergency-tab{ display:inline-flex !important; z-index:60; }
 
 /* Grössere Tippflächen (Handschuhe) */
 .btn{ min-height:44px; }
@@ -953,8 +953,8 @@ body:has(.modal.fs-onroute) .emergency-tab{ display:inline-flex !important; z-in
 .fs-primary .detail-section{ margin:0; padding:0; border:0; background:none; }
 .fs-primary h4{ display:none; }
 .fs-primary .btn[data-act="download-offline"]{
-  width:100%; min-height:52px; border-radius:15px; border:none;
-  background:var(--ice-deep) !important; color:#fff !important; font-size:16px; font-weight:800;
+  width:100%; min-height:48px; border-radius:15px; border:none;
+  background:var(--ice-light) !important; color:var(--ice-deep) !important; font-size:15px; font-weight:800;
 }
 .fs-tiles{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }
 .fs-tile{
@@ -1133,3 +1133,28 @@ html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-access-routes-map"]{ disp
 .fs-ctxm-item:first-child{ border-top:none; }
 .fs-ctxm-item .fs-i{ width:20px; height:20px; color:var(--ice-deep); flex-shrink:0; }
 .fs-ctxm-note{ margin:0; color:#fff; font-size:12.5px; opacity:.9; }
+
+/* =====================================================================
+   Phase 2e: Unterwegs-Modus
+   ===================================================================== */
+.fs-start-btn{
+  width:100%; min-height:54px; border:none; border-radius:15px; background:var(--ice-deep); color:#fff;
+  font:inherit; font-size:16px; font-weight:800; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;
+}
+.fs-start-btn .fs-i{ width:22px; height:22px; }
+.fs-start-btn.on{ background:#1F6B45; }
+.fs-ontour-pill{
+  position:fixed; left:12px; right:12px; top:62px; z-index:55; display:flex; gap:8px; align-items:center;
+  padding:6px 6px 6px 8px; border-radius:16px; background:#1F6B45; color:#fff; box-shadow:0 6px 18px rgba(15,30,39,.25);
+  max-width:600px; margin:0 auto;
+}
+.fs-ontour-open{ flex:1; min-width:0; min-height:40px; display:flex; align-items:center; gap:10px; border:none; background:none; color:#fff; font:inherit; font-size:14.5px; font-weight:800; text-align:left; cursor:pointer; }
+.fs-ontour-open .t{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fs-ontour-open .dot{ width:10px; height:10px; border-radius:50%; background:#8FE0A8; box-shadow:0 0 0 4px rgba(143,224,168,.3); flex:none; animation:fsPulse 1.8s ease-in-out infinite; }
+@keyframes fsPulse{ 50%{ box-shadow:0 0 0 7px rgba(143,224,168,.08); } }
+.fs-ontour-end{ flex:none; min-height:40px; padding:0 14px; border:none; border-radius:11px; background:rgba(255,255,255,.2); color:#fff; font:inherit; font-size:13.5px; font-weight:800; cursor:pointer; }
+/* Bei einer Vollbild-Maske (Bearbeiten, Formulare) ausblenden; Legende der Tourenkarte darunter */
+body:has(#modal-root .overlay:not(.fs-sheet-mode)) .fs-ontour-pill{ display:none; }
+html.fs-on-tour .fs-ctx-legend{ top:66px; }
+/* In der Liste: unten über den Knöpfen statt oben über Titel und Profil */
+html:not(.fs-sheet-open) .fs-ontour-pill{ top:auto; bottom:calc(84px + env(safe-area-inset-bottom, 0px)); }
