@@ -1304,3 +1304,19 @@ html.fs-dark .fs-ctx-3d{ background:#2A3640; color:#E6EDF2; }
 }
 .fs-3d-hint p{ margin:0 0 8px; }
 .fs-3d-hint button{ width:100%; margin-top:8px; min-height:44px; border:none; border-radius:12px; background:#fff; color:#0F1E27; font:inherit; font-weight:800; cursor:pointer; }
+
+/* =====================================================================
+   Phase 3: Routen mit Name und Art
+   ===================================================================== */
+.fs-route-sw{ flex:none; width:22px; height:5px; border-radius:3px; background:var(--c); }
+.fs-route-sw.dash{ background:repeating-linear-gradient(90deg, var(--c) 0 6px, transparent 6px 10px); }
+.fs-routes{ display:flex; flex-direction:column; margin:0 0 10px; }
+.fs-route-row{ display:flex; align-items:center; gap:12px; min-height:48px; border-top:1px solid var(--line); }
+.fs-route-row:first-child{ border-top:none; }
+.fs-route-txt{ flex:1; min-width:0; display:flex; flex-direction:column; }
+.fs-route-txt strong{ font-size:14.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fs-route-txt span{ font-size:12.5px; color:var(--ink-soft); }
+.fs-route-edit{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.fs-route-edit .fs-route-name{ flex:1; min-width:0; }
+.fs-route-edit .fs-route-type{ flex:none; width:auto; max-width:46%; }
+.fs-route-add{ margin:2px 0 6px; }
