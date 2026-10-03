@@ -2323,6 +2323,7 @@ function fsOpen3d(opts){
       <div class="fs-3d-seg"><button type="button" class="on" data-3d="img-luft">Luftbild</button><button type="button" data-3d="img-karte">Karte</button></div>
       <button type="button" class="fs-3d-chip" data-3d="slope">Hangneigung &gt;30°</button>
       <button type="button" class="fs-3d-chip" data-3d="ski">SAC-Skitouren</button>
+      <button type="button" class="fs-3d-chip" data-3d="walk">Wanderwege</button>
     </div>
     <div class="fs-3d-loading" id="fs-3d-loading">3D wird geladen …</div>`;
   document.body.appendChild(wrap);
@@ -2347,6 +2348,7 @@ function fsOpen3d(opts){
     const imgKarte = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo.pixelkarte-farbe', 'jpeg')); imgKarte.show = false;
     const slope = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo.hangneigung-ueber_30', 'png')); slope.show = false; slope.alpha = 0.6;
     const ski = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo-karto.skitouren', 'png')); ski.show = false;
+    const walk = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo.swisstlm3d-wanderwege', 'png')); walk.show = false;
     const rerender = ()=> viewer.scene.requestRender();
     wrap.querySelectorAll('[data-3d^="img-"]').forEach(b=> b.addEventListener('click', ()=>{
       const karte = b.getAttribute('data-3d') === 'img-karte';
@@ -2356,6 +2358,7 @@ function fsOpen3d(opts){
     }));
     wrap.querySelector('[data-3d="slope"]').addEventListener('click', (e)=>{ slope.show = !slope.show; e.currentTarget.classList.toggle('on', slope.show); rerender(); });
     wrap.querySelector('[data-3d="ski"]').addEventListener('click', (e)=>{ ski.show = !ski.show; e.currentTarget.classList.toggle('on', ski.show); rerender(); });
+    wrap.querySelector('[data-3d="walk"]').addEventListener('click', (e)=>{ walk.show = !walk.show; e.currentTarget.classList.toggle('on', walk.show); rerender(); });
     // Eigene Linien leicht über dem Gelände (Höhen aus dem Modell), damit sie durchgehend sichtbar sind
     const lines = fs3dTourLines(t);
     const allPts = [];

@@ -1320,3 +1320,4 @@ html.fs-dark .fs-ctx-3d{ background:#2A3640; color:#E6EDF2; }
 .fs-route-edit .fs-route-name{ flex:1; min-width:0; }
 .fs-route-edit .fs-route-type{ flex:none; width:auto; max-width:46%; }
 .fs-route-add{ margin:2px 0 6px; }
+.fs-3d-chip[data-3d="walk"].on{ background:#C9A227; color:#2B2019; }
