@@ -9076,6 +9076,42 @@ document.addEventListener('click', (e)=>{
   });
 }, true);
 
+/* ================= Darstellung: Dunkelmodus & hoher Kontrast (Phase 2e) =================
+   Standard bleibt hell (auch wenn das Handy dunkel eingestellt ist — die Karte ist hell besser
+   lesbar). Beides nur per Schalter im Profil-Menü, gespeichert auf dem Gerät. */
+function fsThemePrefs(){
+  try{ return JSON.parse(localStorage.getItem('fs-theme') || '{}') || {}; }catch(e){ return {}; }
+}
+function fsApplyThemeClasses(){
+  const p = fsThemePrefs();
+  document.documentElement.classList.toggle('fs-dark', !!p.dark);
+  document.documentElement.classList.toggle('fs-contrast', !!p.contrast);
+}
+fsApplyThemeClasses(); // so früh wie möglich, damit nichts hell aufblitzt
+function fsEnsureThemeToggles(){
+  document.querySelectorAll('.who-menu .who-row').forEach(row=>{
+    if(row.querySelector('.fs-theme-toggle')) return;
+    [['dark','Dunkelmodus'],['contrast','Hoher Kontrast (Sonne)']].forEach(([key, label])=>{
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'fs-theme-toggle';
+      b.setAttribute('role', 'switch');
+      const on = !!fsThemePrefs()[key];
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.innerHTML = `<span>${label}</span><span class="fs-switch" aria-hidden="true"><span></span></span>`;
+      b.addEventListener('click', (e)=>{
+        e.preventDefault(); e.stopPropagation();
+        const prefs = fsThemePrefs();
+        prefs[key] = !prefs[key];
+        try{ localStorage.setItem('fs-theme', JSON.stringify(prefs)); }catch(err){}
+        b.setAttribute('aria-checked', prefs[key] ? 'true' : 'false');
+        fsApplyThemeClasses();
+      });
+      row.appendChild(b);
+    });
+  });
+}
+
 /* ================= Unterwegs-Modus (Phase 2e) =================
    "Tour starten" merkt sich die Tour (auch nach Neuladen, pro App). Erst dann erscheint SOS
    (beim Planen zuhause braucht es den nicht), oben steht "Unterwegs · Tourname" — ein Tipp
@@ -9409,11 +9445,12 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
       if(ctx && muts.every(m=> ctx.contains(m.target))) return;
       if(queued) return;
       queued = true;
-      requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); });
+      requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); });
     }).observe(document.body, {childList:true, subtree:true});
     fsApplyTourSheetMode();
     fsApplyEditMode();
     fsApplyOnTour();
+    fsEnsureThemeToggles();
   };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
