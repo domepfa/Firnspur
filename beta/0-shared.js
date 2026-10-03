@@ -6000,6 +6000,8 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'convert-msl-to-klettergarten'
 ]);
 const HOLD_TO_EDIT_MS = 1000;
+// Stifte, die einen Eintrag öffnen (bleiben im Lesemodus sichtbar; siehe Lesen/Bearbeiten weiter unten)
+const FS_ENTRY_EDIT_ACTS = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-klettergebiet','edit-gipfel','edit-agenda','edit-access-route','edit-tour-route','edit-sektor-route','edit-sektor-topo-routen','edit-from-map'];
 // Optik aus derselben Liste erzeugt (kein zweiter Ort, der auseinanderlaufen kann):
 // kleines Schloss vor der Beschriftung, Füllbalken unten während des Haltens.
 (function injectHoldToEditCss(){
@@ -6018,6 +6020,7 @@ const HOLD_TO_EDIT_MS = 1000;
   box-shadow:0 8px 24px rgba(0,0,0,.25); opacity:0; pointer-events:none; transition:opacity .18s, transform .18s; white-space:nowrap; }
 .fs-hold-hint.on{ opacity:1; transform:translate(-50%, 0); }
 .fs-undo-toast{ display:flex; align-items:center; gap:10px; }
+.modal.fs-detail:not(.fs-editing) :is(${Array.from(HOLD_TO_EDIT_ACTS).filter(a=> FS_ENTRY_EDIT_ACTS.indexOf(a) === -1).map(a=>`[data-act="${a}"]`).join(',')}){ display:none !important; }
 .fs-undo-toast button{ background:none; border:none; color:#8AB8F2; font-weight:800; font-size:14px; padding:8px 4px; min-height:40px; cursor:pointer; }
 `;
   document.head.appendChild(style);
@@ -6050,6 +6053,7 @@ document.addEventListener('pointerdown', (e)=>{
   if(e.button !== undefined && e.button !== 0) return;
   const el = holdTargetFrom(e.target);
   if(!el) return;
+  if(el.closest('.modal.fs-editing')) return; // Bearbeiten-Modus: sofort, ohne Halten
   cancelHoldArm();
   holdArmEl = el;
   // Neustart der CSS-Animation (Füllbalken) erzwingen
@@ -6061,6 +6065,13 @@ document.addEventListener('pointerdown', (e)=>{
     if(navigator.vibrate){ try{ navigator.vibrate(25); }catch(err){} }
     // Den gleich folgenden "echten" Klick beim Loslassen schlucken, dann einmal freigeben.
     holdSwallowClickUntil = Date.now() + 1500;
+    // In einer Detailansicht (Tour, Hütte, Gebiet, Sektor, Zustieg …) öffnet das Halten den
+    // Bearbeiten-Modus dieses Eintrags, statt direkt eine Aktion auszulösen.
+    const detailModal = el.closest('#modal-root .overlay > .modal');
+    if(detailModal && fsIsDetailModal() && !fsEditingActive() && fsHasHiddenEditActions(detailModal)){
+      fsEnterEditMode();
+      return;
+    }
     el._fsHoldOk = true;
     try{ el.click(); }finally{ el._fsHoldOk = false; }
   }, HOLD_TO_EDIT_MS);
@@ -6077,6 +6088,7 @@ document.addEventListener('click', (e)=>{
   // detail===0: der eine freigegebene Klick nach dem Halten, Klicks aus dem Code selbst und
   // Tastatur (Enter/Leertaste) — die passieren nicht versehentlich im Schnee.
   if(el._fsHoldOk || e.detail === 0) return;
+  if(el.closest('.modal.fs-editing')) return; // Bearbeiten-Modus: sofort, ohne Halten
   e.preventDefault();
   e.stopImmediatePropagation();
   if(Date.now() < holdSwallowClickUntil){ holdSwallowClickUntil = 0; return; }
@@ -6094,6 +6106,71 @@ function returnAfterRouteChange(detailType, routeId, freshPayload, fallback){
     else closeModal(false, true, true);
   }
   if(!state.modal) state.modal = fallback;
+}
+
+/* ================= Lesen / Bearbeiten pro Eintrag =================
+   Lesen (Standard): man sieht nur, was erfasst ist — keine Hinzufügen-/Löschen-/Status-Knöpfe,
+   keine leeren "Noch kein …"-Abschnitte. Bearbeiten: Stift 1 s halten → derselbe Eintrag
+   zeigt oben eine magentafarbene Leiste "Bearbeiten · Fertig", und erst jetzt erscheinen alle
+   Möglichkeiten (wirken dann sofort, ohne Halten). "Fertig" oder ganz schliessen = wieder Lesen.
+   Unterseiten (z. B. Zustieg-Formular) unterbrechen den Modus nicht: zurück im Eintrag ist man
+   weiter im Bearbeiten-Modus. */
+let fsEditingKey = null;
+function fsModalKey(){
+  if(typeof state === 'undefined' || !state.modal) return null;
+  const p = state.modal.payload;
+  const id = p && typeof p === 'object' ? (p.id || (p.route && p.route.id) || JSON.stringify(p)) : p;
+  return state.modal.type + '|' + id;
+}
+function fsIsDetailModal(){
+  return typeof state !== 'undefined' && !!state.modal && /-detail$/.test(state.modal.type);
+}
+function fsEditingActive(){ return !!fsEditingKey && fsEditingKey === fsModalKey(); }
+// Gibt es in dieser Ansicht überhaupt etwas, das erst im Bearbeiten-Modus erscheint? Wenn
+// nicht (z. B. einzelner Zustieg: nur der Stift), öffnet das Halten direkt das Formular.
+function fsHasHiddenEditActions(modal){
+  const sel = Array.from(HOLD_TO_EDIT_ACTS).filter(a=> FS_ENTRY_EDIT_ACTS.indexOf(a) === -1).map(a=>`[data-act="${a}"]`).join(',');
+  return !!modal.querySelector(sel) || !!modal.querySelector('.fs-empty');
+}
+function fsEnterEditMode(){
+  fsEditingKey = fsModalKey();
+  fsApplyEditMode();
+}
+function fsLeaveEditMode(){
+  if(state.quickEditOpenId && modalIsDirty && !confirm('Änderungen an Punkten/Linie verwerfen?')) return;
+  state.quickEditOpenId = null;
+  resetModalDirty();
+  fsEditingKey = null;
+  if(typeof render === 'function') render();
+  showToast('Fertig — wieder gesperrt.');
+}
+function fsApplyEditMode(){
+  if(typeof state === 'undefined') return;
+  if(!state.modal){ fsEditingKey = null; return; }
+  const modal = document.querySelector('#modal-root .overlay > .modal');
+  if(!modal) return;
+  const isDetail = fsIsDetailModal();
+  const on = isDetail && fsEditingActive();
+  modal.classList.toggle('fs-detail', isDetail);
+  modal.classList.toggle('fs-editing', on);
+  let bar = modal.querySelector(':scope > .fs-edit-bar');
+  if(on && !bar){
+    const title = (modal.querySelector('.modal-head h2') || {}).textContent || '';
+    bar = document.createElement('div');
+    bar.className = 'fs-edit-bar';
+    bar.innerHTML = `<div class="fs-edit-bar-t"><span>Bearbeiten</span><strong>${esc(title.trim())}</strong></div>
+      <button type="button" class="fs-edit-bar-btn" data-fs-edit="fields">${fsIconHtml('edit')}<span>Angaben</span></button>
+      <button type="button" class="fs-edit-bar-btn done" data-fs-edit="done">Fertig</button>`;
+    const grabber = modal.querySelector(':scope > .fs-grabber');
+    modal.insertBefore(bar, grabber ? grabber.nextSibling : modal.firstChild);
+    bar.querySelector('[data-fs-edit="done"]').addEventListener('click', (e)=>{ e.stopPropagation(); fsLeaveEditMode(); });
+    const fieldsBtn = bar.querySelector('[data-fs-edit="fields"]');
+    const entryEdit = modal.querySelector(FS_ENTRY_EDIT_ACTS.map(a=>`[data-act="${a}"]`).join(','));
+    if(entryEdit) fieldsBtn.addEventListener('click', (e)=>{ e.stopPropagation(); entryEdit.click(); });
+    else fieldsBtn.remove();
+  }else if(!on && bar){
+    bar.remove();
+  }
 }
 
 /* ================= Rückgängig nach dem Speichern =================
@@ -9048,9 +9125,10 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
       if(ctx && muts.every(m=> ctx.contains(m.target))) return;
       if(queued) return;
       queued = true;
-      requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); });
+      requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); fsApplyEditMode(); });
     }).observe(document.body, {childList:true, subtree:true});
     fsApplyTourSheetMode();
+    fsApplyEditMode();
   };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
