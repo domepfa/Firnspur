@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="de" data-disc="ski">
+<html lang="de" data-disc="wand">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Firnspur — Skitour · Beta</title>
+<title>Firnspur — Wandern · Beta</title>
 <meta name="apple-mobile-web-app-title" content="Firnspur β">
 <meta name="application-name" content="Firnspur β">
-<link rel="manifest" href="./manifest.json">
+<link rel="manifest" href="./manifest-wandern.json">
 <link rel="icon" href="../icon-512.png">
 <link rel="apple-touch-icon" href="../icon-512.png">
 <meta name="theme-color" content="#F3F6F8">
@@ -83,7 +83,7 @@
   .hero::before{
     content:'';
     position:absolute; inset:0;
-    background-image: url('../20260114_145500.jpg');
+    background-image: url('../wandern-hero.jpg');
     background-size: 115%;
     background-position: center 55%;
     filter: brightness(1.25) contrast(1.05);
@@ -391,10 +391,10 @@
 </head>
 <body>
 <div class="app-switch-bar">
-  <a href="./index.html" class="active">🎿 Skitour</a>
+  <a href="./index.html">🎿 Skitour</a>
   <a href="./fixseil.html">🏔️ Hochtour</a>
   <a href="./fixseil.html?view=msl">🧗 Klettern</a>
-  <a href="./wandern.html">🥾 Wandern</a>
+  <a href="./wandern.html" class="active">🥾 Wandern</a>
 </div>
 <div id="app"></div>
 <button class="emergency-tab" id="emergency-btn">SOS</button>
@@ -410,61 +410,53 @@ const TOUR_VORLAGE_JSON = `{
   "tours": [
     {
       "id": "t_beispiel001",
-      "name": "Titlis",
-      "routeName": "von Engstlenalp",
-      "difficulty": "WS",
-      "targetAltitude": "3020",
-      "elevationGain": "1200",
-      "elevationLoss": "1600",
-      "duration": "4-5",
-      "region": "Zentralschweiz",
-      "subregion": "Urner Alpen",
-      "material": [
-        "Steigeisen",
-        "Pickel"
-      ],
-      "exposition": [
-        "N",
-        "NE"
+      "tourCategory": "wanderung",
+      "name": "Hohtürli",
+      "routeName": "von Kandersteg über den Oeschinensee",
+      "difficulty": "T3",
+      "targetAltitude": "2778",
+      "distance": "14",
+      "elevationGain": "1600",
+      "elevationLoss": "900",
+      "duration": "6-7",
+      "tourShape": "strecke",
+      "dog": "bedingt",
+      "region": "Berner Oberland",
+      "subregion": "",
+      "bestMonths": [
+        "jul",
+        "aug",
+        "sep"
       ],
       "gefahren": [
-        "Lawinenhang",
-        "Steilhänge über 40°"
+        "Ketten/Leitern",
+        "Steile Geröllhalden"
       ],
-      "glacier": "ja",
-      "ropeType": "Gletscherseil",
-      "ropeLength": "30m",
       "approachTypes": [
-        "auto",
-        "zufuss"
+        "oev",
+        "seilbahn"
       ],
       "stayTypes": [
-        "tagestour"
+        "huette"
       ],
       "points": [
         {
-          "label": "Parkplatz Engstlenalp",
-          "lat": 46.7423,
-          "lon": 8.2661,
-          "category": "parkplatz"
-        },
-        {
-          "label": "Bushaltestelle",
-          "lat": 46.7419,
-          "lon": 8.2655,
+          "label": "Bahnhof Kandersteg",
+          "lat": 46.4949,
+          "lon": 7.6745,
           "category": "haltestelle"
         }
       ],
       "manualTrack": [],
       "hutId": "",
       "gebietId": "",
-      "tourLink": "https://www.sac-cas.ch/...",
+      "tourLink": "https://www.schweizmobil.ch/...",
       "gpxLink": "",
-      "crux": "Kurze steile Rinne kurz unter dem Gipfel.",
-      "special": "Beste Bedingungen im Frühwinter.",
-      "approach": "Anfahrt bis Engstlenalp, Parkplatz vorhanden.",
-      "ascent": "Beschreibung der Aufstiegsroute.",
-      "descent": "Beschreibung der Abfahrt.",
+      "crux": "Steile Treppen und Ketten kurz vor dem Pass.",
+      "special": "Hund: Ketten-Abschnitt ist für grosse Hunde schwierig.",
+      "approach": "Mit dem Zug nach Kandersteg, Gondel zum Oeschinensee.",
+      "ascent": "Beschreibung des Aufstiegs.",
+      "descent": "Beschreibung des Abstiegs.",
       "status": "entwurf",
       "conditions": null,
       "completions": [],
@@ -563,7 +555,7 @@ const TOUR_VORLAGE_JSON = `{
     }
   ]
 }`;
-const APP_VERSION = 'v203-filter-panel-fix';
+const APP_VERSION = 'v1-wandern';
 
 /* =================================================================
    Speicherung: Diese Version läuft als eigenständige Webseite (nicht
@@ -573,19 +565,23 @@ const APP_VERSION = 'v203-filter-panel-fix';
    Als Sicherheitsnetz bei fehlender Internetverbindung bleibt der
    Export/Import weiterhin verfügbar.
    ================================================================= */
-/* Agenda ist app-übergreifend geteilt zwischen Firnspur und Fixseil. */
-const OWN_TOURS_PATH = 'tours';
-const GPX_TRACKS_PATH = 'gpxTracks'; // eigener, separater Pfad — wird NIE beim normalen Laden aller Touren mitgeladen
+/* Wandern ist eine eigene App mit eigenen Touren und Gebieten (unter wandern/…). Hütten, Agenda
+   und Namen sind app-übergreifend geteilt mit Firnspur und Fixseil. */
+const APP_KEY = 'wandern';
+const OWN_TOURS_PATH = 'wandern/tours';
+const GEBIETE_PATH = 'wandern/gebiete';
+const GPX_TRACKS_PATH = 'wandern/gpxTracks'; // eigener, separater Pfad — wird NIE beim normalen Laden aller Touren mitgeladen
 const HUT_GPX_SUMMER_PATH = 'hutGpxTracksSummer';
 const HUT_GPX_WINTER_PATH = 'hutGpxTracksWinter';
 const ACCESS_ROUTE_GPX_PATH = 'hutAccessRouteGpxTracks'; // appübergreifend geteilt, wie die Hütten selbst
-const OTHER_TOURS_PATH = 'fixseil/tours';
-const OWN_APP_LABEL = '🎿 Skitour';
-const OTHER_APP_LABEL = '🧗 Hochtour';
+// Für die Agenda: Touren der beiden anderen Apps (Skitour und Hochtour/Klettern).
+const OTHER_TOURS_PATHS = ['tours', 'fixseil/tours'];
+const OWN_APP_LABEL = '🥾 Wandern';
 const USERS_PATH = 'users'; // appübergreifend geteilt (Namen-Passwortschutz + Merkliste)
 
 
 /* ================= Domain meta ================= */
+// DIFF (SAC-Skala) wird weiterhin für die geteilten Hütten-Zustiege gebraucht.
 const DIFF = {
   'L':   {label:'Leicht',  color:'var(--d-L)',  desc:'Mässig steiles Gelände, keine Spitzkehren nötig.'},
   'WS-': {label:'Wenig schwierig −', color:'var(--d-WS)', desc:'Mässig steil, einfache Spitzkehren.'},
@@ -600,10 +596,11 @@ const DIFF = {
   'SS':  {label:'Sehr schwierig', color:'var(--d-SS)', desc:'Durchgehend sehr steil, kurze Extrempassagen.'}
 };
 const DIFF_ORDER = ['L','WS-','WS','WS+','ZS-','ZS','ZS+','S-','S','S+','SS'];
-const GEFAHREN_SKI = ['Lawinenhang','Triebschnee','Steilhänge über 40°','Absturzgelände','Engpass','vereiste Passage','Gletscher/Spalten','schwierige Orientierung','Waldpassagen','Wechten'];
-const MATERIAL_SKI = ['Steigeisen','Pickel','Gurt','Spaltenrettungsset'];
-const ROPE_TYPES_SKI = ['Gletscherseil','Einfachseil','Halbseilstrang','Zwillingsseil'];
-const ROPE_LENGTHS_SKI = ['30m','40m','50m','60m','70m'];
+// Touren selbst: Wanderskala T1–T6 (HIKE_SCALE aus 0-shared.js).
+const GEFAHREN_WANDERN = ['Exponierte Stellen','Ketten/Leitern','Steile Geröllhalden','Blockgelände','Schneefelder','Bachquerung','Mutterkühe/Weidevieh','Herdenschutzhunde','schwierige Orientierung','Steinschlag'];
+const DOG_LABELS = { ja:'Ja', bedingt:'Bedingt', nein:'Nein' };
+const TOUR_SHAPES = { rund:'Rundtour', strecke:'Streckenwanderung', hinzurueck:'Hin und zurück' };
+const DURATION_FILTERS = { kurz:'bis 3 h', mittel:'3–6 h', lang:'über 6 h' };
 
 /* ================= State ================= */
 let state = {
@@ -629,7 +626,8 @@ let state = {
   activeApproachTypeFilters: new Set(),
   activeStayTypeFilters: new Set(),
   activeStatusFilters: new Set(),
-  activeGlacierFilter: '',
+  activeDogFilter: false,
+  activeDurationFilters: new Set(),
   activeHutRegionFilters: new Set(),
   activeHutDiffFilters: new Set(),
   activeHutApproachTypeFilters: new Set(),
@@ -658,7 +656,7 @@ let state = {
 /* ================= Lokaler Offline-Cache ================= */
 function cacheLocalSnapshot(){
   try{
-    localStorage.setItem('firnspurbeta-cache', JSON.stringify({
+    localStorage.setItem('wandernbeta-cache', JSON.stringify({
       tours: state.tours, huts: state.huts, gebiete: state.gebiete,
       trashedTours: state.trashedTours, trashedHuts: state.trashedHuts, trashedGebiete: state.trashedGebiete,
       agenda: state.agenda, cachedAt: new Date().toISOString()
@@ -667,7 +665,7 @@ function cacheLocalSnapshot(){
 }
 function loadLocalSnapshot(){
   try{
-    const raw = localStorage.getItem('firnspurbeta-cache');
+    const raw = localStorage.getItem('wandernbeta-cache');
     return raw ? JSON.parse(raw) : null;
   }catch(e){ return null; }
 }
@@ -683,7 +681,7 @@ function migrateCompletions(item){
 
 async function loadAll(){
   state.loading = true; render();
-  const [toursObj, hutsObj, gebieteObj, agendaObj] = await Promise.all([ fbGet('tours'), fbGet('huts'), fbGet('gebiete'), fbGet(AGENDA_PATH) ]);
+  const [toursObj, hutsObj, gebieteObj, agendaObj] = await Promise.all([ fbGet(OWN_TOURS_PATH), fbGet('huts'), fbGet(GEBIETE_PATH), fbGet(AGENDA_PATH) ]);
   const cached = loadLocalSnapshot();
 
   if(!toursObj && !hutsObj && !gebieteObj && !agendaObj){
@@ -754,9 +752,9 @@ async function loadAll(){
   state.offlineMode = false;
   // Einmal pro Ladevorgang: Papierkorb-Einträge, deren Aufbewahrungsfrist abgelaufen ist, endgültig
   // entfernen (siehe TRASH_RETENTION_DAYS in 0-shared.js).
-  purgeExpiredTrash(state.trashedTours, 'tours');
+  purgeExpiredTrash(state.trashedTours, OWN_TOURS_PATH);
   purgeExpiredTrash(state.trashedHuts, 'huts');
-  purgeExpiredTrash(state.trashedGebiete, 'gebiete');
+  purgeExpiredTrash(state.trashedGebiete, GEBIETE_PATH);
   render();
   checkSharedContent().then(shared=>{ if(shared) openShareImportModal(shared); });
 
@@ -784,14 +782,13 @@ async function loadAll(){
   });
 }
 
-async function saveTourCloud(tour){ return await fbSet('tours/'+tour.id, tour); }
-async function saveGebietCloud(geb){ return await fbSet('gebiete/'+geb.id, geb); }
+async function saveTourCloud(tour){ return await fbSet(OWN_TOURS_PATH+'/'+tour.id, tour); }
+async function saveGebietCloud(geb){ return await fbSet(GEBIETE_PATH+'/'+geb.id, geb); }
 async function saveHutCloud(hut){ return await fbSet('huts/'+hut.id, hut); }
 
 async function loadOtherAppTours(){
-  // Für die Agenda: Touren der anderen App plus die Wanderungen (wandern.html).
-  const [obj, wandernObj] = await Promise.all([ fbGet(OTHER_TOURS_PATH), fbGet('wandern/tours') ]);
-  state.otherAppTours = [...(obj ? Object.values(obj) : []), ...(wandernObj ? Object.values(wandernObj) : [])];
+  const objs = await Promise.all(OTHER_TOURS_PATHS.map(p=> fbGet(p)));
+  state.otherAppTours = objs.flatMap(obj=> obj ? Object.values(obj) : []);
   return state.otherAppTours;
 }
 
@@ -808,7 +805,7 @@ function removeGebiet(id){
 /* ================= Papierkorb ================= */
 function papierkorbGroups(){
   return [
-    { kind:'tour', icon:'🎿', label:'Touren', trashedList: state.trashedTours },
+    { kind:'tour', icon:'🥾', label:'Touren', trashedList: state.trashedTours },
     { kind:'hut', icon:'🛖', label:'Hütten', trashedList: state.trashedHuts },
     { kind:'gebiet', icon:'⛰️', label:'Gebiete', trashedList: state.trashedGebiete },
   ];
@@ -816,9 +813,9 @@ function papierkorbGroups(){
 function papierkorbTrashCount(){ return trashCountTotal(papierkorbGroups()); }
 function papierkorbPageHtml(){ return papierkorbViewHtml(papierkorbGroups()); }
 const PAPIERKORB_ENTITY_MAP = {
-  tour: { active: ()=>state.tours, trashed: ()=>state.trashedTours, save: saveTourCloud, path: 'tours' },
+  tour: { active: ()=>state.tours, trashed: ()=>state.trashedTours, save: saveTourCloud, path: OWN_TOURS_PATH },
   hut: { active: ()=>state.huts, trashed: ()=>state.trashedHuts, save: saveHutCloud, path: 'huts' },
-  gebiet: { active: ()=>state.gebiete, trashed: ()=>state.trashedGebiete, save: saveGebietCloud, path: 'gebiete' },
+  gebiet: { active: ()=>state.gebiete, trashed: ()=>state.trashedGebiete, save: saveGebietCloud, path: GEBIETE_PATH },
 };
 function restoreTrashItem(kind, id){
   const m = PAPIERKORB_ENTITY_MAP[kind];
@@ -978,6 +975,7 @@ function mergeImportedData(json){
   importedTours.forEach(t=>{
     if(!t || !t.id || !t.name) return;
     migrateCompletions(t);
+    t.tourCategory = 'wanderung';
     const idx = state.tours.findIndex(x=>x.id===t.id);
     if(idx>=0){ state.tours[idx] = t; updatedTours++; }
     else { state.tours.unshift(t); addedTours++; }
@@ -1006,21 +1004,21 @@ async function submitTourForm(form, existing){
   // Stand vor dem Speichern — für "Rückgängig" im Hinweis danach.
   const undoPrev = snapshotForUndo(existing && existing.id ? state.tours.find(x=>x.id===existing.id) : null);
   const t = (existing && existing.id) ? {...existing} : {id: (form.tourIdForTrack || uid('t')), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null, status:'entwurf'};
+  t.tourCategory = 'wanderung';
   t.name = form.name.trim();
   t.routeName = form.routeName || '';
   t.difficulty = form.difficulty;
   t.targetAltitude = form.targetAltitude;
+  t.distance = form.distance || '';
   t.elevationGain = form.elevationGain;
   t.elevationLoss = form.elevationLoss;
   t.duration = form.duration;
+  t.tourShape = form.tourShape || '';
+  t.dog = form.dog || '';
   t.region = form.region;
   t.subregion = form.subregion || '';
-  t.material = form.material || [];
-  t.exposition = form.exposition || [];
+  t.bestMonths = Array.isArray(form.bestMonths) ? form.bestMonths : [];
   t.gefahren = form.gefahren || [];
-  t.ropeType = form.ropeType || '';
-  t.glacier = form.glacier || 'nein';
-  t.ropeLength = form.ropeLength || '';
   t.hutId = form.hutId || '';
   t.gebietId = form.gebietId || '';
   t.tourLink = form.tourLink;
@@ -1242,9 +1240,20 @@ function toggleStatusFilter(v){
   else state.activeStatusFilters.add(v);
   render();
 }
-function toggleGlacierFilter(v){
-  state.activeGlacierFilter = (state.activeGlacierFilter === v) ? '' : v;
+function toggleDogFilter(){
+  state.activeDogFilter = !state.activeDogFilter;
   render();
+}
+function toggleDurationFilter(v){
+  if(state.activeDurationFilters.has(v)) state.activeDurationFilters.delete(v);
+  else state.activeDurationFilters.add(v);
+  render();
+}
+// Ordnet den Zeitbedarf (z. B. "4–5") einer der Dauer-Stufen zu — massgebend ist die erste Zahl.
+function tourDurationBucket(t){
+  const h = parseDurationHours(t.duration);
+  if(h===null || h===undefined || isNaN(h)) return '';
+  return h <= 3 ? 'kurz' : (h <= 6 ? 'mittel' : 'lang');
 }
 function resetTourFilters(){
   state.activeDiffFilters.clear();
@@ -1252,7 +1261,8 @@ function resetTourFilters(){
   state.activeApproachTypeFilters.clear();
   state.activeStayTypeFilters.clear();
   state.activeStatusFilters.clear();
-  state.activeGlacierFilter = '';
+  state.activeDogFilter = false;
+  state.activeDurationFilters.clear();
   render();
 }
 function toggleHutRegionFilter(region){
@@ -1321,7 +1331,7 @@ function shellHtml(){
   <div class="hero">
     <div class="hero-top">
       <div class="brand">
-        <h1>Skitour</h1>
+        <h1>Wandern</h1>
       </div>
       <details class="who who-menu">
         <summary aria-label="Konto und Daten">${state.myName ? esc(state.myName.trim().charAt(0).toUpperCase()) : '?'}</summary>
@@ -1335,7 +1345,7 @@ function shellHtml(){
     </div>
     <div class="tabs"><div class="tabs-inner">
       <button class="tab ${state.view==='gebiete'?'active':''}" data-act="view-gebiete">⛰️ Gebiete</button>
-      <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">🎿 Touren</button>
+      <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">🥾 Touren</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
       <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
     </div></div>
@@ -1366,8 +1376,11 @@ function filteredTours(){
   if(state.activeStatusFilters.size){
     list = list.filter(t=>state.activeStatusFilters.has(t.status||'entwurf'));
   }
-  if(state.activeGlacierFilter){
-    list = list.filter(t=>t.glacier===state.activeGlacierFilter);
+  if(state.activeDogFilter){
+    list = list.filter(t=>t.dog==='ja' || t.dog==='bedingt');
+  }
+  if(state.activeDurationFilters.size){
+    list = list.filter(t=>state.activeDurationFilters.has(tourDurationBucket(t)));
   }
   if(state.search.trim()){
     const q = state.search.trim().toLowerCase();
@@ -1378,7 +1391,7 @@ function filteredTours(){
 
 function tourenViewHtml(){
   const list = filteredTours();
-  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeGlacierFilter ? 1 : 0);
+  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeDogFilter ? 1 : 0) + state.activeDurationFilters.size;
   const usedRegions = Array.from(new Set(state.tours.map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   return stageLayoutHtml(mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.map(t=>{ const p = tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
@@ -1392,9 +1405,19 @@ function tourenViewHtml(){
       ${sortControlHtml('tour', TOUR_SORT_OPTIONS, state.tourSortBy, state.tourSortDir)}
     </div>
     <div id="tour-filter-panel" style="display:${state.tourFilterPanelOpen ? '' : 'none'}; margin-bottom:14px;">
-      <div class="field"><label>Schwierigkeit</label>
+      <div class="field"><label>Schwierigkeit (Wanderskala)</label>
         <div class="chips">
-          ${DIFF_ORDER.map(c=>`<button class="chip ${state.activeDiffFilters.has(c)?'on':''}" style="${state.activeDiffFilters.has(c)?`background:${DIFF[c].color}`:''}" title="${esc(DIFF[c].desc)}" data-act="filter-diff" data-code="${c}"><span class="dot" style="background:${state.activeDiffFilters.has(c)?'#fff':DIFF[c].color}"></span>${c}</button>`).join('')}
+          ${HIKE_SCALE_ORDER.map(c=>`<button class="chip ${state.activeDiffFilters.has(c)?'on':''}" style="${state.activeDiffFilters.has(c)?`background:${HIKE_SCALE[c].color}`:''}" title="${esc(HIKE_SCALE[c].desc)}" data-act="filter-diff" data-code="${c}"><span class="dot" style="background:${state.activeDiffFilters.has(c)?'#fff':HIKE_SCALE[c].color}"></span>${c}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Hund</label>
+        <div class="chips">
+          <button class="chip ${state.activeDogFilter?'on':''}" style="${state.activeDogFilter?'background:var(--ice-deep)':''}" data-act="filter-dog">Mit Hund geeignet</button>
+        </div>
+      </div>
+      <div class="field"><label>Zeitbedarf</label>
+        <div class="chips">
+          ${Object.keys(DURATION_FILTERS).map(v=>`<button class="chip ${state.activeDurationFilters.has(v)?'on':''}" style="${state.activeDurationFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-duration" data-value="${v}">${DURATION_FILTERS[v]}</button>`).join('')}
         </div>
       </div>
       ${usedRegions.length ? `<div class="field"><label>Region</label>
@@ -1418,12 +1441,6 @@ function tourenViewHtml(){
           <button class="chip ${state.activeStatusFilters.has('vollstaendig')?'on':''}" style="${state.activeStatusFilters.has('vollstaendig')?'background:var(--ice-deep)':''}" data-act="filter-status" data-value="vollstaendig">✅ Vollständig</button>
         </div>
       </div>
-      <div class="field"><label>Gletscher</label>
-        <div class="chips">
-          <button class="chip ${state.activeGlacierFilter==='ja'?'on':''}" style="${state.activeGlacierFilter==='ja'?'background:var(--ice-deep)':''}" data-act="filter-glacier" data-value="ja">Ja</button>
-          <button class="chip ${state.activeGlacierFilter==='nein'?'on':''}" style="${state.activeGlacierFilter==='nein'?'background:var(--ice-deep)':''}" data-act="filter-glacier" data-value="nein">Nein</button>
-        </div>
-      </div>
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
     </div>
     ${list.length ? `<div class="grid">${list.map(tourCardHtml).join('')}</div>` : emptyTouren()}
@@ -1434,13 +1451,13 @@ function emptyTouren(){
   const hasAny = state.tours.length>0;
   return `<div class="empty">
     <h3>${hasAny ? 'Keine Tour passt zu diesem Filter' : 'Noch keine Tour erfasst'}</h3>
-    <p>${hasAny ? 'Filter anpassen oder eine neue Tour hinzufügen.' : 'Trag die erste Skitour ein — Name, Schwierigkeit, Höhenmeter und ein paar Zeilen zu Anfahrt, Auf- und Abstieg reichen.'}</p>
+    <p>${hasAny ? 'Filter anpassen oder eine neue Tour hinzufügen.' : 'Trag die erste Wanderung ein — Ziel, Wanderskala, Zeitbedarf und ein paar Zeilen zu Anreise und Route reichen.'}</p>
     <button class="btn" data-act="add-tour">+ Neue Tour</button>
   </div>`;
 }
 
 function tourCardHtml(t){
-  const d = t.difficulty ? DIFF[t.difficulty] : null;
+  const d = t.difficulty ? HIKE_SCALE[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   const gebiet = t.gebietId ? state.gebiete.find(g=>g.id===t.gebietId) : null;
   return `
@@ -1457,6 +1474,7 @@ function tourCardHtml(t){
     </div>
     ${t.routeName ? `<h3 style="margin:-4px 0 0 0; color:var(--ink-soft);">${esc(t.routeName)}</h3>` : ''}
     <div class="stat-row">
+      ${t.distance ? `<span><span class="mono">${esc(t.distance)}</span> km</span>` : ''}
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
       ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span></span>` : ''}
@@ -1628,7 +1646,7 @@ function gebietCardHtml(geb){
     </div>
     ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
     <div class="stat-row">
-      <span>🎿 ${touren.length} Tour${touren.length===1?'':'en'}</span>
+      <span>🥾 ${touren.length} Tour${touren.length===1?'':'en'}</span>
       <span>🛖 ${huetten.length} Hütte${huetten.length===1?'':'n'}</span>
     </div>
     ${(geb.points && geb.points.length) ? meteoCardForecastRowHtml(geb.points[0].lat, geb.points[0].lon) : ''}
@@ -1727,7 +1745,7 @@ function gebietFormHtml(existing){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${isEditing?'Gebiet bearbeiten':'Neues Gebiet'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="gebiet-form" novalidate>
-      <div class="field"><label>Name *</label><input required name="name" value="${esc(g.name||'')}" placeholder="z. B. Engelberger Tal"/></div>
+      <div class="field"><label>Name *</label><input required name="name" value="${esc(g.name||'')}" placeholder="z. B. Kandertal"/></div>
       <div class="field"><label>Region</label>
         <div class="chips" id="region-chips">
           ${REGIONS.map(r=>`<button type="button" class="chip region-chip ${g.region===r?'on':''}" style="${g.region===r?'background:var(--ice-deep)':''}" data-region="${r}">${r}</button>`).join('')}
@@ -1787,7 +1805,7 @@ function gebietDetailHtml(id){
       <div id="map-gebiet-${geb.id}"></div>
     </div>` : ''}
     <div class="detail-section">
-      <h4>🎿 Touren (${touren.length})</h4>
+      <h4>🥾 Touren (${touren.length})</h4>
       ${touren.length ? `<div class="grid" style="margin-top:6px;">${touren.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour in diesem Gebiet.</p>`}
     </div>
     <div class="detail-section">
@@ -1937,21 +1955,19 @@ function tourFormHtml(existing){
   const isEditing = !!(existing && existing.id);
   const hutOptions = state.huts.map(h=>`<option value="${h.id}" ${t.hutId===h.id?'selected':''}>${esc(h.name)}</option>`).join('');
   const isKnownRegion = REGIONS.includes(t.region);
-  const MATERIAL = MATERIAL_SKI;
-  const selectedMaterial = Array.isArray(t.material) ? t.material : [];
-  const selectedExposition = Array.isArray(t.exposition) ? t.exposition : [];
   const selectedGefahren = Array.isArray(t.gefahren) ? t.gefahren : [];
+  const selectedMonths = Array.isArray(t.bestMonths) ? t.bestMonths : [];
   return `<div class="modal" data-stop="1">
-    <div class="modal-head"><h2>${isEditing?'Tour bearbeiten':'Neue Skitour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div class="modal-head"><h2>${isEditing?'Tour bearbeiten':'Neue Wanderung'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="tour-form" novalidate>
       <div class="row2">
-        <div class="field"><label>Gipfel / Bergmassiv *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Titlis"/></div>
-        <div class="field"><label>Route</label><input name="routeName" value="${esc(t.routeName||'')}" placeholder="z. B. von Engstlenalp"/></div>
+        <div class="field"><label>Ziel / Wanderung *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Hohtürli"/></div>
+        <div class="field"><label>Route</label><input name="routeName" value="${esc(t.routeName||'')}" placeholder="z. B. von Kandersteg"/></div>
       </div>
-      <div class="field"><label>Schwierigkeit (SAC)</label>
+      <div class="field"><label>Schwierigkeit (Wanderskala)</label>
         <select name="difficulty">
           <option value="" ${!t.difficulty?'selected':''}>— keine Angabe —</option>
-          ${DIFF_ORDER.map(c=>`<option value="${c}" ${t.difficulty===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
+          ${HIKE_SCALE_ORDER.map(c=>`<option value="${c}" ${t.difficulty===c?'selected':''}>${c} — ${HIKE_SCALE[c].label}</option>`).join('')}
         </select>
       </div>
       <div class="field"><label>Region</label>
@@ -1967,48 +1983,38 @@ function tourFormHtml(existing){
         <div class="chips" id="subregion-chips">${renderSubregionChipsHtml(t.region, t.subregion)}</div>
         <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(t.subregion||'')}"/>
       </div>
-      <div class="field"><label>Gletscher</label>
+      <div class="field"><label>Mit Hund geeignet</label>
         <div class="chips">
-          <button type="button" class="chip glacier-chip ${t.glacier==='ja'?'on':''}" style="${t.glacier==='ja'?'background:var(--ice-deep)':''}" data-value="ja">Ja</button>
-          <button type="button" class="chip glacier-chip ${(t.glacier||'nein')==='nein'?'on':''}" style="${(t.glacier||'nein')==='nein'?'background:var(--ice-deep)':''}" data-value="nein">Nein</button>
+          ${Object.keys(DOG_LABELS).map(v=>`<button type="button" class="chip dog-chip ${t.dog===v?'on':''}" style="${t.dog===v?'background:var(--ice-deep)':''}" data-value="${v}">${DOG_LABELS[v]}</button>`).join('')}
         </div>
-        <input type="hidden" name="glacier" id="glacier-hidden" value="${esc(t.glacier||'nein')}"/>
+        <input type="hidden" name="dog" id="dog-hidden" value="${esc(t.dog||'')}"/>
+        <div class="hint">Was genau zu beachten ist (Leitern, Weidevieh, Leinenpflicht …), gehört unter „Spezielles“.</div>
       </div>
-      <div class="field"><label>Exposition</label>
+      <div class="field"><label>Tourenform</label>
         <div class="chips">
-          ${EXPOSITIONS.map(x=>`<button type="button" class="chip exposition-chip ${selectedExposition.includes(x)?'on':''}" style="${selectedExposition.includes(x)?'background:var(--ice-deep)':''}" data-value="${x}">${x}</button>`).join('')}
+          ${Object.keys(TOUR_SHAPES).map(v=>`<button type="button" class="chip shape-chip ${t.tourShape===v?'on':''}" style="${t.tourShape===v?'background:var(--ice-deep)':''}" data-value="${v}">${TOUR_SHAPES[v]}</button>`).join('')}
         </div>
+        <input type="hidden" name="tourShape" id="shape-hidden" value="${esc(t.tourShape||'')}"/>
       </div>
       <div class="field"><label>Gefahren</label>
         <div class="chips">
-          ${GEFAHREN_SKI.map(g=>`<button type="button" class="chip gefahren-chip ${selectedGefahren.includes(g)?'on':''}" style="${selectedGefahren.includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
+          ${GEFAHREN_WANDERN.map(g=>`<button type="button" class="chip gefahren-chip ${selectedGefahren.includes(g)?'on':''}" style="${selectedGefahren.includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
         </div>
       </div>
-      <div class="field"><label>Material</label>
+      <div class="field"><label>Beste Monate</label>
         <div class="chips">
-          ${MATERIAL.map(m=>`<button type="button" class="chip material-chip ${selectedMaterial.includes(m)?'on':''}" style="${selectedMaterial.includes(m)?'background:var(--ice-deep)':''}" data-value="${m}">${m}</button>`).join('')}
+          ${MONTHS.map(m=>`<button type="button" class="chip month-chip ${selectedMonths.includes(m.key)?'on':''}" style="${selectedMonths.includes(m.key)?'background:var(--ice-deep)':''}" data-value="${m.key}">${m.label}</button>`).join('')}
         </div>
-      </div>
-      <div class="field"><label>Seil – Typ</label>
-        <div class="chips" id="rope-type-chips">
-          ${ROPE_TYPES_SKI.map(r=>`<button type="button" class="chip rope-type-chip ${t.ropeType===r?'on':''}" style="${t.ropeType===r?'background:var(--ice-deep)':''}" data-rope-type="${r}">${r}</button>`).join('')}
-        </div>
-        <input type="hidden" name="ropeType" id="rope-type-hidden" value="${esc(t.ropeType||'')}"/>
-      </div>
-      <div class="field"><label>Seil – Länge</label>
-        <div class="chips" id="rope-length-chips">
-          ${ROPE_LENGTHS_SKI.map(r=>`<button type="button" class="chip rope-length-chip ${t.ropeLength===r?'on':''}" style="${t.ropeLength===r?'background:var(--ice-deep)':''}" data-rope-length="${r}">${r}</button>`).join('')}
-        </div>
-        <input type="hidden" name="ropeLength" id="rope-length-hidden" value="${esc(t.ropeLength||'')}"/>
       </div>
       <div class="row2">
-        <div class="field"><label>Ziel – Gipfelhöhe (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 3020"/></div>
-        <div class="field"><label>Zeitbedarf (h)</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 4–5"/></div>
+        <div class="field"><label>Höchster Punkt (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 2778"/></div>
+        <div class="field"><label>Distanz (km)</label><input name="distance" value="${esc(t.distance||'')}" placeholder="z. B. 14"/></div>
       </div>
       <div class="row2">
-        <div class="field"><label>Aufstieg (Hm)</label><input name="elevationGain" value="${esc(t.elevationGain||'')}" placeholder="z. B. 1200"/></div>
-        <div class="field"><label>Abfahrt (Hm, falls abweichend)</label><input name="elevationLoss" value="${esc(t.elevationLoss||'')}" placeholder="z. B. 1600"/></div>
+        <div class="field"><label>Aufstieg (Hm)</label><input name="elevationGain" value="${esc(t.elevationGain||'')}" placeholder="z. B. 1600"/></div>
+        <div class="field"><label>Abstieg (Hm)</label><input name="elevationLoss" value="${esc(t.elevationLoss||'')}" placeholder="z. B. 900"/></div>
       </div>
+      <div class="field"><label>Zeitbedarf (h)</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 6–7"/></div>
       <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" id="tour-link-input" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/>
         <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">🔍 Auf Camptocamp.org suchen</button>
         <div id="camptocamp-search-box" style="margin-top:10px; display:none;"></div>
@@ -2022,8 +2028,8 @@ function tourFormHtml(existing){
         <input type="hidden" name="trackSimplified" id="track-simplified-hidden" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
         <input type="hidden" name="tourIdForTrack" id="tour-id-for-track" value="${esc(t.id||'')}"/>
       </div>
-      <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. steile Rinne kurz vor dem Gipfel, ausgesetzte Querung …">${esc(t.crux||'')}</textarea></div>
-      <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Lawinenhänge, Gletscherspalten, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
+      <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. Kettenstelle kurz vor dem Pass, ausgesetzte Querung …">${esc(t.crux||'')}</textarea></div>
+      <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Hund, Einkehr, Brunnen, Badestellen, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
       <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
@@ -2051,7 +2057,7 @@ function tourFormHtml(existing){
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(t.manualTrack || []))}'/>
       </div>
       ${fsRoutesEditorHtml(t)}
-      <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abfahrtsroute, Varianten …">${esc(t.descent||'')}</textarea></div>
+      <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abstiegsroute, Varianten …">${esc(t.descent||'')}</textarea></div>
       <div class="field"><label>Verknüpfte Hütte</label>
         <select name="hutId"><option value="">— keine —</option>${hutOptions}</select>
         <div class="hint">Fehlt die Hütte? Erst unter „Hütten“ anlegen, dann hier verlinken.</div>
@@ -2084,7 +2090,7 @@ function tourFormHtml(existing){
   </div>`;
 }
 
-// "Gipfelziel" gibt es in der Skitour-App nicht als eigene Entität wie bei Hochtour/MSL —
+// "Gipfelziel" gibt es in der Wander-App (wie in der Skitour-App) nicht als eigene Entität wie bei Hochtour/MSL —
 // das Feld "Gipfel / Bergmassiv" (t.name) übernimmt diese Rolle direkt. Touren mit demselben
 // Namen (trim/ohne Grossschreibung) werden als Routen zum selben Gipfel behandelt.
 function gipfelzielKey(name){ return (name||'').trim().toLowerCase(); }
@@ -2159,7 +2165,7 @@ function renderGipfelzielOverviewMap(containerId, gipfelName){
 function tourDetailHtml(id){
   const t = state.tours.find(x=>x.id===id);
   if(!t) return `<div class="modal" data-stop="1"><p>Tour nicht gefunden.</p></div>`;
-  const d = t.difficulty ? DIFF[t.difficulty] : null;
+  const d = t.difficulty ? HIKE_SCALE[t.difficulty] : null;
   const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
   const gebiet = t.gebietId ? state.gebiete.find(g=>g.id===t.gebietId) : null;
   return `<div class="modal td fs-onroute" data-stop="1">
@@ -2181,16 +2187,16 @@ function tourDetailHtml(id){
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     <p class="fs-status-line" style="font-size:13px; color:var(--ink-soft); margin:0 0 10px 0;">${tourStatusLabel(t)}</p>
     <div class="detail-stats">
+      ${t.distance ? `<div class="detail-stat"><div class="num">${esc(t.distance)} km</div><div class="lbl">Distanz</div></div>` : ''}
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
-      ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abfahrt</div></div>` : ''}
+      ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
       ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>
     ${tourGlanceHtml(t.crux, [
       ['Gefahren', (t.gefahren||[]).join(', ')],
-      ['Exposition', (t.exposition||[]).join(', ')],
-      ['Gletscher', t.glacier==='ja' ? 'Ja' : ''],
-      ['Material', (t.material||[]).join(', ')],
-      ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')]
+      ['Tourenform', TOUR_SHAPES[t.tourShape] || ''],
+      ['Mit Hund', DOG_LABELS[t.dog] || ''],
+      ['Beste Monate', MONTHS.filter(m=>(t.bestMonths||[]).includes(m.key)).map(m=>m.label).join(', ')]
     ])}
     ${(hut || gebiet) ? `<div class="fs-links">
       ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
@@ -2199,7 +2205,7 @@ function tourDetailHtml(id){
     ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon)}</div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
-    ${t.descent ? `<div class="detail-section"><h4>Abfahrt</h4><p>${esc(t.descent)}</p></div>` : ''}
+    ${t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
       ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length)) ? `<div class="chips" style="margin-bottom:8px;">
@@ -2619,7 +2625,8 @@ function wireGlobalHandlers(){
     else if(act==='filter-approach-type') el.onclick = ()=>toggleApproachTypeFilter(el.getAttribute('data-value'));
     else if(act==='filter-stay-type') el.onclick = ()=>toggleStayTypeFilter(el.getAttribute('data-value'));
     else if(act==='filter-status') el.onclick = ()=>toggleStatusFilter(el.getAttribute('data-value'));
-    else if(act==='filter-glacier') el.onclick = ()=>toggleGlacierFilter(el.getAttribute('data-value'));
+    else if(act==='filter-dog') el.onclick = ()=>toggleDogFilter();
+    else if(act==='filter-duration') el.onclick = ()=>toggleDurationFilter(el.getAttribute('data-value'));
     else if(act==='toggle-favorite') el.onclick = (e)=>{ e.stopPropagation(); toggleFavorite(el.getAttribute('data-id')); };
     else if(act==='toggle-only-favorites') el.onclick = ()=>{ state.onlyFavorites = !state.onlyFavorites; render(); };
     else if(act==='filter-hut-region') el.onclick = ()=>toggleHutRegionFilter(el.getAttribute('data-region'));
@@ -3048,7 +3055,7 @@ function wireModalHandlers(){
       const a = document.createElement('a');
       const stamp = new Date().toISOString().slice(0,10);
       a.href = url;
-      a.download = `firnspur-${stamp}.json`;
+      a.download = `wandern-${stamp}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -3099,35 +3106,7 @@ function wireModalHandlers(){
   const tourForm = document.getElementById('tour-form');
   dlog('tour-form im DOM gefunden: ' + !!tourForm);
   if(tourForm){
-    // Gletscher-Chips + automatisches Anhaken von Spaltenrettungsset bei "Ja"
-    const glacierHidden = document.getElementById('glacier-hidden');
-    const glacierButtons = tourForm.querySelectorAll('.glacier-chip');
-    function checkMaterialCheckbox(name){
-      const btn = Array.from(tourForm.querySelectorAll('.material-chip')).find(b=>b.getAttribute('data-value')===name);
-      if(!btn || btn.classList.contains('on')) return;
-      btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
-    }
-    function uncheckMaterialCheckbox(name){
-      const btn = Array.from(tourForm.querySelectorAll('.material-chip')).find(b=>b.getAttribute('data-value')===name);
-      if(!btn || !btn.classList.contains('on')) return;
-      btn.classList.remove('on'); btn.style.background = '';
-    }
-    glacierButtons.forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        const wasOn = btn.classList.contains('on');
-        glacierButtons.forEach(b=>{ b.classList.remove('on'); b.style.background=''; });
-        if(wasOn){
-          if(glacierHidden) glacierHidden.value = '';
-          uncheckMaterialCheckbox('Spaltenrettungsset');
-        }else{
-          btn.classList.add('on'); btn.style.background = 'var(--ice-deep)';
-          if(glacierHidden) glacierHidden.value = btn.getAttribute('data-value');
-          if(btn.getAttribute('data-value')==='ja') checkMaterialCheckbox('Spaltenrettungsset');
-          else uncheckMaterialCheckbox('Spaltenrettungsset');
-        }
-      });
-    });
-    // Mehrfachauswahl-Chips (Material, Exposition, Gefahren) — Klick schaltet "on" um
+    // Mehrfachauswahl-Chips (Gefahren, Monate, Anreise) — Klick schaltet "on" um
     function wireMultiToggleChips(className){
       tourForm.querySelectorAll('.'+className).forEach(btn=>{
         btn.addEventListener('click', ()=>{
@@ -3136,9 +3115,8 @@ function wireModalHandlers(){
         });
       });
     }
-    wireMultiToggleChips('material-chip');
-    wireMultiToggleChips('exposition-chip');
     wireMultiToggleChips('gefahren-chip');
+    wireMultiToggleChips('month-chip');
     wireMultiToggleChips('approach-type-chip');
     wireMultiToggleChips('stay-type-chip');
     // Region-Chips
@@ -3195,8 +3173,6 @@ function wireModalHandlers(){
         subregionHidden.value = btn.getAttribute('data-subregion');
       });
     }
-    // Seil-Chips
-    const ropeTypeHidden = document.getElementById('rope-type-hidden');
     // Generische Einzelauswahl-Chips: Klick wählt aus, erneuter Klick auf denselben Chip wählt wieder ab
     function wireToggleableSingleSelect(selector, hiddenInput, dataAttr){
       tourForm.querySelectorAll(selector).forEach(chip=>{
@@ -3212,9 +3188,8 @@ function wireModalHandlers(){
         });
       });
     }
-    wireToggleableSingleSelect('.rope-type-chip', ropeTypeHidden, 'data-rope-type');
-    const ropeLengthHidden = document.getElementById('rope-length-hidden');
-    wireToggleableSingleSelect('.rope-length-chip', ropeLengthHidden, 'data-rope-length');
+    wireToggleableSingleSelect('.dog-chip', document.getElementById('dog-hidden'), 'data-value');
+    wireToggleableSingleSelect('.shape-chip', document.getElementById('shape-hidden'), 'data-value');
 
     const tourSaveBtn = document.getElementById('tour-save-btn');
     if(tourSaveBtn){
@@ -3224,8 +3199,7 @@ function wireModalHandlers(){
         try{
           const fd = new FormData(tourForm);
           const data = Object.fromEntries(fd.entries());
-          data.material = Array.from(tourForm.querySelectorAll('.material-chip.on')).map(b=>b.getAttribute('data-value'));
-          data.exposition = Array.from(tourForm.querySelectorAll('.exposition-chip.on')).map(b=>b.getAttribute('data-value'));
+          data.bestMonths = Array.from(tourForm.querySelectorAll('.month-chip.on')).map(b=>b.getAttribute('data-value'));
           data.gefahren = Array.from(tourForm.querySelectorAll('.gefahren-chip.on')).map(b=>b.getAttribute('data-value'));
           data.approachTypes = Array.from(tourForm.querySelectorAll('.approach-type-chip.on')).map(b=>b.getAttribute('data-value'));
           data.stayTypes = Array.from(tourForm.querySelectorAll('.stay-type-chip.on')).map(b=>b.getAttribute('data-value'));
@@ -3604,7 +3578,7 @@ try{
 }catch(e){}
 loadAuthFromStorage();
 cleanupExpiredOfflineDownloads();
-wireAppSwitchSwipe('./fixseil.html');
+wireAppSwitchSwipe('./index.html');
 function toggleEmergencyCard(){
   if(state.modal && state.modal.type==='emergency'){ closeModal(); }
   else{ state.modal = {type:'emergency'}; render(); }

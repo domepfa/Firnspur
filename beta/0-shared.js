@@ -320,8 +320,7 @@ function mapStripClusterPoints(positioned, zoom){
 // bei jedem render() die ~30 KB Pfad-Strings neu zusammenzusetzen.
 let _mapStripBgSvgCache = {};
 function mapStripBackgroundSvg(){
-  const isFixseilApp = typeof SEKTOREN_PATH !== 'undefined';
-  const key = isFixseilApp ? 'fixseil' : 'firnspur';
+  const key = fsAppKey();
   if(_mapStripBgSvgCache[key]) return _mapStripBgSvgCache[key];
   const vb = GEO_CH_VIEWBOX, hs = GEO_CH_HILLSHADE;
   const cantonPaths = Object.values(GEO_CH_CANTON_PATHS).map(d=>`<path d="${d}"/>`).join('');
@@ -690,7 +689,7 @@ function tourSortKey(t, by){
   if(by==='date') return t.createdAt || '';
   if(by==='name') return (t.name||'').toLowerCase();
   if(by==='region') return (t.region||'').toLowerCase();
-  if(by==='difficulty'){ const i = t.difficulty ? DIFF_ORDER.indexOf(t.difficulty) : -1; return i>=0 ? i : null; }
+  if(by==='difficulty'){ let i = t.difficulty ? DIFF_ORDER.indexOf(t.difficulty) : -1; if(i<0 && t.difficulty) i = HIKE_SCALE_ORDER.indexOf(t.difficulty); return i>=0 ? i : null; }
   if(by==='crux'){ const i = t.cruxDifficulty ? CLIMB_ORDER.indexOf(t.cruxDifficulty) : -1; return i>=0 ? i : null; }
   if(by==='elevation'){ const n = parseFloat(t.elevationGain); return isNaN(n) ? null : n; }
   if(by==='duration') return parseDurationHours(t.duration);
@@ -753,6 +752,7 @@ function removeAgendaItem(id){
   fbDelete(AGENDA_PATH+'/'+id).catch(()=>{});
 }
 function agendaTypeLabel(type){
+  if(type==='wandern') return '🥾 Wandern';
   if(type==='hochtour') return '🏔️ Hochtour';
   if(type==='msl') return '🧗 Klettern';
   return '🎿 Skitour';
@@ -761,6 +761,7 @@ function agendaTypeLabel(type){
 // Markenthema (blau in Firnspur, braun in Fixseil) — ein Termin muss aber unabhängig davon,
 // in welcher App man ihn gerade öffnet, immer dieselbe Farbe für seine Art zeigen.
 function agendaTypeColor(type){
+  if(type==='wandern') return '#3D7A4E';
   if(type==='hochtour') return '#4A3524';
   if(type==='msl') return '#A87A1F';
   return '#2E6E8E';
@@ -1450,7 +1451,7 @@ function applyAgendaEditPrefill(agendaForm, a){
 function agendaFormHtml(editId){
   const a = editId ? state.agenda.find(x=>x.id===editId) : null;
   const today = todayStr();
-  const typeOpt = (val, label) => `<option value="${val}" ${a && a.type===val ? 'selected' : ''}>${label}</option>`;
+  const typeOpt = (val, label) => `<option value="${val}" ${(a ? a.type===val : val===fsDefaultAgendaType()) ? 'selected' : ''}>${label}</option>`;
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${a ? 'Termin bearbeiten' : 'Neuer Termin'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="agenda-form" novalidate>
@@ -1464,6 +1465,7 @@ function agendaFormHtml(editId){
           ${typeOpt('ski','🎿 Skitour')}
           ${typeOpt('hochtour','🏔️ Hochtour')}
           ${typeOpt('msl','🧗 Klettern')}
+          ${typeOpt('wandern','🥾 Wandern')}
         </select>
       </div>
       <div id="agenda-day-plan-container"></div>
@@ -1486,7 +1488,12 @@ function agendaFormHtml(editId){
 // Fixseil) immer. Grundlage für die Filterung der Tour-Dropdowns nach gewählter Art.
 function tourAgendaType(t){
   if(!t || !t.tourCategory) return 'ski';
+  if(t.tourCategory==='wanderung') return 'wandern';
   return t.tourCategory==='msl' ? 'msl' : 'hochtour';
+}
+// Vorauswahl der Art bei einem neuen Termin: passend zur App, in der man ihn anlegt.
+function fsDefaultAgendaType(){
+  return fsAppKey() === 'wandern' ? 'wandern' : 'ski';
 }
 // Baut die <option>-Liste für ein Tour-Dropdown, gefiltert auf eine Art (ski/hochtour/msl) — eigene
 // und andere-App-Touren zusammen, geteilt zwischen Einzeltag- und Mehrtages-Feldern.
@@ -1494,7 +1501,7 @@ function agendaTourOptionsHtml(type, selectedValue){
   const own = state.tours.filter(t=>tourAgendaType(t)===type)
     .map(t=>`<option value="own:${t.id}" ${selectedValue==='own:'+t.id?'selected':''}>${OWN_APP_LABEL} — ${esc(t.name)}</option>`).join('');
   const other = state.otherAppTours.filter(t=>tourAgendaType(t)===type)
-    .map(t=>`<option value="other:${t.id}" ${selectedValue==='other:'+t.id?'selected':''}>${OTHER_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+    .map(t=>`<option value="other:${t.id}" ${selectedValue==='other:'+t.id?'selected':''}>${agendaTypeLabel(tourAgendaType(t))} — ${esc(t.name)}</option>`).join('');
   return own + other;
 }
 function agendaTourChoiceMatchesType(choiceVal, type){
@@ -1813,7 +1820,7 @@ function wireAgendaSingleDayFieldHandlers(agendaForm){
     // Nur Hochtour/MSL-Touren tragen ein tourCategory-Feld (Skitouren nie, unabhängig davon, ob
     // das in dieser App die "eigenen" oder die "anderen" Touren sind) — app-unabhängig also anhand
     // dieses Felds entscheiden statt anhand von src (das würde je nach App das Gegenteil bedeuten).
-    typeSelect.value = ref.tourCategory ? (ref.tourCategory==='msl' ? 'msl' : 'hochtour') : 'ski';
+    typeSelect.value = tourAgendaType(ref);
   }
   function syncRouteFieldsFromTourChoice(){
     if(!tourSelect || !routeFieldsWrap) return;
@@ -2313,7 +2320,7 @@ function fs3dTourLines(t){
   (t.descentRoutes||[]).forEach(r=>{ const c = fsRouteCoords(r); if(c) out.push({coords:c, color:FS_CTX_COLORS.descent}); });
   const hut = fsTourHut(t);
   if(hut){
-    const pref = (typeof SEKTOREN_PATH !== 'undefined') ? 'sommer' : 'winter';
+    const pref = (fsAppKey() === 'firnspur') ? 'winter' : 'sommer';
     (hut.accessRoutes||[]).forEach(r=>{ const c = fsRouteCoords(r); if(c && (!r.season || r.season === pref)) out.push({coords:c, color:FS_CTX_COLORS.hutRoute}); });
   }
   return out;
@@ -2574,6 +2581,7 @@ function renderStandaloneMap(containerId){
       hochtour: { label: '🏔️ Hochtour', color: '#4E5A9C' },
       msl: { label: '🧗 MSL', color: '#9A5418' },
       skitour: { label: '🎿 Skitour', color: '#1E6AA0' },
+      wanderung: { label: '🥾 Wanderung', color: '#3D7A4E' },
       huette: { label: '🛖 Hütten', color: '#33434D' },
       sektor: { label: '⛺ Sektoren', color: '#5E7A3A' },
       klettergebiet: { label: '⛰️ Klettergebiete', color: '#B06A2A' },
@@ -2590,6 +2598,7 @@ function renderStandaloneMap(containerId){
     // ein Hochtour-Chip auftauchen bzw. in der Hochtour/MSL-App ein Skitour-Chip.
     const isFixseilApp = typeof SEKTOREN_PATH !== 'undefined';
     function tourCategoryKey(t){
+      if(fsAppKey() === 'wandern') return 'wanderung';
       if(!isFixseilApp) return 'skitour'; // Skitour-App: nur diese eine Tourenart möglich
       return t.tourCategory === 'msl' ? 'msl' : 'hochtour'; // Hochtour/MSL-App: 'hochtour' auch als Fallback für alte Touren ohne das Feld
     }
@@ -3477,6 +3486,10 @@ function renderStandaloneMap(containerId){
           createdBy: state.myName, createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(), updatedBy: state.myName
         };
+        if(fsAppKey() === 'wandern'){
+          t.tourCategory = 'wanderung';
+          t.dog = ''; t.tourShape = '';
+        }
         if(isFixseilAppNow){
           t.tourCategory = 'hochtour';
           t.climbGrade = ''; t.crevasseRisk = 'nein';
@@ -3882,7 +3895,7 @@ function fsmPrefs(){
   return Object.assign({base:'karte', on:[]}, p || {});
 }
 function fsmSavePrefs(p){ try{ localStorage.setItem('fs-map-layers', JSON.stringify(p)); }catch(e){} }
-function fsmOverlaysForApp(){ return FSM_OVERLAYS.filter(o=> !o.skitourOnly || typeof SEKTOREN_PATH === 'undefined'); }
+function fsmOverlaysForApp(){ return FSM_OVERLAYS.filter(o=> !o.skitourOnly || fsAppKey() === 'firnspur'); }
 // Leerer Grundstil: Grundkarten als Raster, zwei unsichtbare "Anker" für die Reihenfolge
 // (Ebenen < Namen < eigene Linien/Punkte).
 function fsmBaseStyle(){
@@ -4747,7 +4760,7 @@ function buildSkitourPopupContent(featureOrList, opts){
     btn.textContent = 'GPX herunterladen';
     wrap.appendChild(btn);
     // Nur Skitour-App: daraus direkt eine neue Tour anlegen (Formular vorbefüllt)
-    if(allowAttach && typeof SEKTOREN_PATH === 'undefined'){
+    if(allowAttach && fsAppKey() === 'firnspur'){
       const nb = document.createElement('button');
       nb.type = 'button';
       nb.className = 'fs-sac-sec';
@@ -4937,7 +4950,7 @@ const FS_ROUTE_TYPES = {
   zustieg:  {label:'Zustieg', color:'#2F7D4A'}
 };
 const FS_ROUTE_TYPE_ORDER = ['aufstieg','aufab','abfahrt','variante','zustieg'];
-function fsRouteTypesOn(){ return typeof SEKTOREN_PATH === 'undefined'; }
+function fsRouteTypesOn(){ return fsAppKey() === 'firnspur'; }
 function fsTourRoutes(t){
   const out = [];
   if(!t) return out;
@@ -7583,6 +7596,24 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   und \`altTracks\` NICHT setzen — Linien, ihre Namen und ihre Art (Aufstieg,
   Abfahrt, Variante …) werden ausschliesslich in der App erfasst
 
+## Felder-Erklärung (Wandern) — anstelle der Skitour-Felder
+
+- \`tourCategory\`: immer "wanderung"
+- \`difficulty\`: Wanderskala "T1" bis "T6" (nicht SAC-Skitourenskala)
+- \`targetAltitude\`: höchster Punkt der Wanderung in m ü. M.
+- \`distance\`: Distanz in km, z. B. "14"
+- \`elevationGain\` / \`elevationLoss\`: Auf- bzw. Abstieg in Hm
+- \`duration\`: Zeitbedarf in Stunden, z. B. "6-7"
+- \`tourShape\`: "rund" (Rundtour), "strecke" (Streckenwanderung) oder "hinzurueck" (Hin und zurück)
+- \`dog\`: mit Hund geeignet — "ja", "bedingt" oder "nein"; Details (Leitern, Weidevieh,
+  Leinenpflicht …) gehören in \`special\`
+- \`bestMonths\`: Liste der besten Monate ("jan", "feb", "maer", "apr", "mai", "jun", "jul",
+  "aug", "sep", "okt", "nov", "dez")
+- \`gefahren\`: Liste, z. B. "Exponierte Stellen", "Ketten/Leitern", "Steile Geröllhalden",
+  "Blockgelände", "Schneefelder", "Bachquerung", "Mutterkühe/Weidevieh", "Herdenschutzhunde",
+  "schwierige Orientierung", "Steinschlag"
+- Nicht verwenden: \`glacier\`, \`material\`, \`exposition\`, \`ropeType\`, \`ropeLength\`
+
 ## Felder-Erklärung (Fixseil = Hochtour/Klettern-MSL) — zusätzlich zu obigem
 
 - \`region\`/\`subregion\`/\`points\`: identisch zu Firnspur
@@ -10035,7 +10066,12 @@ function fsEnsureThemeToggles(){
    "Tour starten" merkt sich die Tour (auch nach Neuladen, pro App). Erst dann erscheint SOS
    (beim Planen zuhause braucht es den nicht), oben steht "Unterwegs · Tourname" — ein Tipp
    öffnet die Tour, "Beenden" schliesst den Modus. */
-function fsAppKey(){ return (typeof SEKTOREN_PATH !== 'undefined') ? 'fixseil' : 'firnspur'; }
+// Welche App gerade läuft: wandern.html setzt APP_KEY selbst, Firnspur/Fixseil erkennt man wie
+// bisher an SEKTOREN_PATH (gibt es nur in Fixseil).
+function fsAppKey(){
+  if(typeof APP_KEY !== 'undefined') return APP_KEY;
+  return (typeof SEKTOREN_PATH !== 'undefined') ? 'fixseil' : 'firnspur';
+}
 function fsGetOnTour(){
   try{
     const v = JSON.parse(localStorage.getItem('fs-on-tour') || 'null');
@@ -10330,7 +10366,7 @@ function fsShowContextMap(t){
       // Hütte + deren Zustiege (Saison passend zur App zuerst)
       const hut = fsTourHut(t);
       if(hut){
-        const prefSeason = (typeof SEKTOREN_PATH !== 'undefined') ? 'sommer' : 'winter';
+        const prefSeason = (fsAppKey() === 'firnspur') ? 'winter' : 'sommer';
         const hutRoutes = (hut.accessRoutes||[]).filter(fsRouteCoords);
         const main = hutRoutes.filter(r=> !r.season || r.season === prefSeason);
         const other = hutRoutes.filter(r=> r.season && r.season !== prefSeason);
@@ -10740,6 +10776,12 @@ const BRIEFING_PACK_TEMPLATES = {
     ['Ausrüstung', [['Bergschuhe, steigeisenfest',0],['Stirnlampe',0],['Stöcke',0]]],
     ['Bekleidung', [['Hardshell',0],['Handschuhe',0],['Mütze und Sonnenbrille',0],['Sonnencreme',0]]],
     ['Hütte und Verpflegung', [['Hüttenschlafsack',0],['Bargeld',0],['Wasser',0],['Lunch',0]]]
+  ],
+  wandern: [
+    ['Sicherheit', [['Erste-Hilfe-Set',1],['Handy geladen',1],['Rettungsdecke',0]]],
+    ['Ausrüstung', [['Wanderschuhe',0],['Stöcke',0],['Karte / Offline-Karte',0]]],
+    ['Bekleidung', [['Regenjacke',0],['Warme Schicht',0],['Sonnenhut und Sonnenbrille',0],['Sonnencreme',0]]],
+    ['Verpflegung', [['Wasser',0],['Lunch',0]]]
   ],
   msl: [
     ['Sicherheit', [['Helm',1],['Klettergurt',1],['Sicherungsgerät',1],['Schraubkarabiner',0],['Erste-Hilfe-Set',0]]],

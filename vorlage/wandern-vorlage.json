@@ -1,0 +1,61 @@
+{
+  "tours": [
+    {
+      "id": "t_beispiel001",
+      "tourCategory": "wanderung",
+      "name": "Hohtürli",
+      "routeName": "von Kandersteg über den Oeschinensee",
+      "difficulty": "T3",
+      "targetAltitude": "2778",
+      "distance": "14",
+      "elevationGain": "1600",
+      "elevationLoss": "900",
+      "duration": "6-7",
+      "tourShape": "strecke",
+      "dog": "bedingt",
+      "region": "Berner Oberland",
+      "subregion": "",
+      "bestMonths": [
+        "jul",
+        "aug",
+        "sep"
+      ],
+      "gefahren": [
+        "Ketten/Leitern",
+        "Steile Geröllhalden"
+      ],
+      "approachTypes": [
+        "oev",
+        "seilbahn"
+      ],
+      "stayTypes": [
+        "huette"
+      ],
+      "points": [
+        {
+          "label": "Bahnhof Kandersteg",
+          "lat": 46.4949,
+          "lon": 7.6745,
+          "category": "haltestelle"
+        }
+      ],
+      "manualTrack": [],
+      "hutId": "",
+      "gebietId": "",
+      "tourLink": "https://www.schweizmobil.ch/...",
+      "gpxLink": "",
+      "crux": "Steile Treppen und Ketten kurz vor dem Pass.",
+      "special": "Hund: Ketten-Abschnitt ist für grosse Hunde schwierig.",
+      "approach": "Mit dem Zug nach Kandersteg, Gondel zum Oeschinensee.",
+      "ascent": "Beschreibung des Aufstiegs.",
+      "descent": "Beschreibung des Abstiegs.",
+      "status": "entwurf",
+      "conditions": null,
+      "completions": [],
+      "createdBy": "Name",
+      "createdAt": "2026-08-30T00:00:00.000Z",
+      "updatedAt": "2026-08-30T00:00:00.000Z",
+      "updatedBy": "Name"
+    }
+  ]
+}
