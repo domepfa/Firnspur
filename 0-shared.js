@@ -7539,9 +7539,10 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - \`region\`: Wallis, Berner Oberland, Simmental, Graubünden, Tessin,
   Zentralschweiz, Jura, Freiburger Alpen, Waadtländer Alpen (oder eigener Text)
 - \`subregion\`: Teilgebiet/Pass innerhalb der Region (optional). Gültige Werte:
-  - **Wallis**: Nikolaital/Zermatt, Saastal, Val d'Anniviers, Lötschental, Goms,
-    Unterwallis, Nufenenpass, Grimselpass, Furkapass, Simplonpass,
-    Grosser St. Bernhard
+  - **Wallis**: Nikolaital/Zermatt, Saastal, Val d'Anniviers, Val d'Hérens,
+    Val de Bagnes, Turtmanntal, Lötschental, Leukerbad/Gemmi, Aletsch/Brig,
+    Wildstrubel/Crans-Montana, Goms, Unterwallis, Nufenenpass, Grimselpass,
+    Furkapass, Simplonpass, Grosser St. Bernhard
   - **Berner Oberland**: Lauterbrunnental, Haslital, Kandertal, Simmental,
     Diemtigtal, Justistal, Saanenland/Gstaad, Grimselpass, Sustenpass,
     Jochpass, Grosse Scheidegg
@@ -7549,8 +7550,10 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
     (auch wenn "Simmental" gleichzeitig als Teilgebiet von Berner Oberland
     existiert — beide Einträge sind unabhängig voneinander, so wie es die App
     aktuell vorsieht)
-  - **Graubünden**: Engadin, Prättigau, Albula, Surselva, Bergell, Puschlav,
-    Julierpass, Albulapass, Flüelapass, Ofenpass, Splügenpass, Berninapass
+  - **Graubünden**: Oberengadin, Unterengadin, Davos, Arosa/Schanfigg,
+    Prättigau, Albula, Surselva, Safiental, Rheinwald, Avers, Bergell,
+    Puschlav, Val Müstair, Misox, Julierpass, Albulapass, Flüelapass,
+    Ofenpass, Splügenpass, Berninapass
   - **Tessin**: Bedretto, Maggiatal, Blenio, Leventina, San Bernardino,
     Nufenenpass, Gotthardpass, Lukmanierpass
   - **Zentralschweiz**: Urner Alpen, Glarner Alpen, Nidwalden, Schwyz,
@@ -7558,8 +7561,8 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - **Jura**: Solothurner Jura, Waadtländer Jura, Baselbieter Jura,
     Neuenburger Jura, Passwang, Col de Pierre Pertuis, Balmberg
   - **Freiburger Alpen**: Gantrischgebiet, Vanil-Noir-Gebiet, Jaunpass
-  - **Waadtländer Alpen**: Diablerets-Gebiet, Villars/Leysin-Gebiet,
-    Col des Mosses, Col du Pillon, Col de la Croix
+  - **Waadtländer Alpen**: Diablerets-Gebiet, Villars/Leysin-Gebiet, Col des
+    Mosses, Col du Pillon, Col de la Croix
 
   Bei eigener/anderer region bleibt subregion leer.
 - \`material\`: Liste aus: Steigeisen, Pickel, Gurt, Spaltenrettungsset
@@ -7575,6 +7578,10 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - \`gpxLink\`: Link zu einer externen GPX-Datei (falls vorhanden), sonst leer
 - \`approachTypes\`: Liste (mehrere möglich) aus: "auto", "oev", "seilbahn", "zufuss"
 - \`stayTypes\`: Liste (mehrere möglich) aus: "tagestour", "huette", "biwak", "zelt"
+- \`gebietId\`: immer \`""\` (das Gebiet wird in der App zugeordnet)
+- Routen-Felder \`manualTrackName\`, \`manualTrackType\`, \`trackName\`, \`trackType\`
+  und \`altTracks\` NICHT setzen — Linien, ihre Namen und ihre Art (Aufstieg,
+  Abfahrt, Variante …) werden ausschliesslich in der App erfasst
 
 ## Felder-Erklärung (Fixseil = Hochtour/Klettern-MSL) — zusätzlich zu obigem
 
