@@ -2304,8 +2304,13 @@ function fsOpen3d(opts){
     <div class="fs-3d-top">
       <button type="button" class="fs-3d-btn" data-3d="close" aria-label="Zurück">‹ Zurück</button>
       <div class="fs-3d-title">${esc(t ? t.name : '3D-Ansicht')}</div>
-      <button type="button" class="fs-3d-btn" data-3d="north" aria-label="Nach Norden ausrichten">N</button>
+      <button type="button" class="fs-3d-btn fs-3d-compass" data-3d="north" aria-label="Nach Norden ausrichten"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><g class="fs-3d-needle"><path d="M12 2.5 15.2 12H8.8Z" fill="#E03131"/><path d="M12 21.5 8.8 12h6.4Z" fill="#9AA5AD"/><text x="12" y="11" text-anchor="middle" font-size="5.5" font-weight="800" fill="#fff" font-family="sans-serif">N</text></g></svg></button>
     </div>
+    <div class="fs-3d-rot">
+      <button type="button" class="fs-3d-rbtn" data-3d="rot-l" aria-label="Nach links drehen">⟲</button>
+      <button type="button" class="fs-3d-rbtn" data-3d="rot-r" aria-label="Nach rechts drehen">⟳</button>
+    </div>
+    <div class="fs-3d-panel" id="fs-3d-panel" hidden></div>
     <div class="fs-3d-chips">
       <div class="fs-3d-seg"><button type="button" class="on" data-3d="img-luft">Luftbild</button><button type="button" data-3d="img-karte">Karte</button></div>
       <button type="button" class="fs-3d-chip" data-3d="slope">Hangneigung &gt;30°</button>
@@ -2372,13 +2377,73 @@ function fsOpen3d(opts){
       const center = Cesium.Cartesian3.fromDegrees(opts.lon, opts.lat, 2500);
       viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(center, 1500), {duration:0, offset:new Cesium.HeadingPitchRange(0, pitch, 6000)});
     }
-    wrap.querySelector('[data-3d="north"]').addEventListener('click', ()=>{
+    // Drehen um den Punkt in der Bildmitte (Kompass = Norden, ⟲ ⟳ = je 45°)
+    const orbitTo = (heading)=>{
       const c = viewer.camera, ray = c.getPickRay(new Cesium.Cartesian2(viewer.canvas.clientWidth/2, viewer.canvas.clientHeight/2));
       const target = viewer.scene.globe.pick(ray, viewer.scene);
-      if(!target){ c.setView({orientation:{heading:0, pitch:c.pitch, roll:0}}); rerender(); return; }
+      if(!target){ c.setView({orientation:{heading, pitch:c.pitch, roll:0}}); rerender(); return; }
       const range = Cesium.Cartesian3.distance(c.positionWC, target);
-      c.flyToBoundingSphere(new Cesium.BoundingSphere(target, 1), {duration:0.6, offset:new Cesium.HeadingPitchRange(0, c.pitch, range)});
+      c.flyToBoundingSphere(new Cesium.BoundingSphere(target, 1), {duration:0.6, offset:new Cesium.HeadingPitchRange(heading, c.pitch, range)});
+    };
+    const step = Math.PI / 4;
+    wrap.querySelector('[data-3d="north"]').addEventListener('click', ()=> orbitTo(0));
+    wrap.querySelector('[data-3d="rot-l"]').addEventListener('click', ()=> orbitTo(viewer.camera.heading - step));
+    wrap.querySelector('[data-3d="rot-r"]').addEventListener('click', ()=> orbitTo(viewer.camera.heading + step));
+    const needle = wrap.querySelector('.fs-3d-needle');
+    let lastHeading = null;
+    viewer.scene.postRender.addEventListener(()=>{
+      const h = Math.round(Cesium.Math.toDegrees(viewer.camera.heading));
+      if(h === lastHeading) return;
+      lastHeading = h;
+      needle.setAttribute('transform', 'rotate(' + (-h) + ' 12 12)');
     });
+    // SAC-Skitouren antippen: gleiches Fenster wie auf der 2D-Karte, Route leuchtet auf dem Gelände
+    const panel = document.getElementById('fs-3d-panel');
+    const hl = new Cesium.CustomDataSource('sac'); viewer.dataSources.add(hl);
+    const highlight = (list)=>{
+      hl.entities.removeAll();
+      list.forEach(f=>{
+        const g = f && f.geometry;
+        const parts = !g ? [] : g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
+        parts.forEach(cs=>{ if(cs.length > 1) hl.entities.add({polyline:{positions: Cesium.Cartesian3.fromDegreesArray(cs.flatMap(c=>[c[0], c[1]])), width:12, clampToGround:true,
+          material: new Cesium.PolylineOutlineMaterialProperty({color: Cesium.Color.fromCssColorString('#FFD43B'), outlineColor: Cesium.Color.fromCssColorString('#C2255C'), outlineWidth:2})}}); });
+      });
+      rerender();
+    };
+    const closePanel = ()=>{ panel.hidden = true; panel.innerHTML = ''; hl.entities.removeAll(); rerender(); };
+    const showPanel = (node)=>{
+      panel.innerHTML = '<button type="button" class="fs-3d-pclose" aria-label="Schliessen">✕</button>';
+      panel.querySelector('.fs-3d-pclose').addEventListener('click', closePanel);
+      panel.appendChild(node);
+      panel.hidden = false;
+    };
+    const fakePopup = { setContent: (node)=>{ const old = panel.querySelector('.fs-sac-pop'); if(old) old.replaceWith(node); } };
+    new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas).setInputAction(async (ev)=>{
+      if(!ski.show){ return; }
+      const ray = viewer.camera.getPickRay(ev.position);
+      const pos = ray && viewer.scene.globe.pick(ray, viewer.scene);
+      if(!pos){ closePanel(); return; }
+      const cg = Cesium.Cartographic.fromCartesian(pos);
+      const lat = Cesium.Math.toDegrees(cg.latitude), lon = Cesium.Math.toDegrees(cg.longitude);
+      // Ausschnitt so wählen, dass 8 Pixel Toleranz etwa dem Massstab an dieser Stelle entsprechen
+      const w = viewer.canvas.clientWidth, h = viewer.canvas.clientHeight;
+      const dist = Cesium.Cartesian3.distance(viewer.camera.positionWC, pos);
+      const mpp = Math.max(0.5, 2 * dist * Math.tan(viewer.camera.frustum.fovy / 2) / h);
+      const dLat = (h / 2) * mpp / 111320, dLon = (w / 2) * mpp / (111320 * Math.cos(cg.latitude));
+      const res = await identifySkitourAt(null, {lat, lng:lon}, {extent:[lon - dLon, lat - dLat, lon + dLon, lat + dLat], size:[w, h]});
+      if(!res || !document.getElementById('fs-3d-panel')){ closePanel(); return; }
+      showPanel(buildSkitourPopupContent(res, {popup: fakePopup, allowAttach:false, onShow: highlight}));
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    wrap.querySelector('[data-3d="ski"]').addEventListener('click', ()=>{ if(!ski.show) closePanel(); });
+    // Einmaliger Hinweis zur Bedienung
+    let seen = false; try{ seen = localStorage.getItem('fs-3d-hint') === '1'; }catch(e){}
+    if(!seen){
+      const hint = document.createElement('div');
+      hint.className = 'fs-3d-hint';
+      hint.innerHTML = `<p><b>1 Finger</b> verschieben</p><p><b>2 Finger auseinander</b> zoomen</p><p><b>2 Finger hoch/runter</b> kippen</p><p><b>2 Finger drehen</b> oder ⟲ ⟳ drehen</p><p><b>Kompass</b> antippen = Norden oben</p><button type="button">Verstanden</button>`;
+      hint.querySelector('button').addEventListener('click', ()=>{ hint.remove(); try{ localStorage.setItem('fs-3d-hint', '1'); }catch(e){} });
+      wrap.appendChild(hint);
+    }
     const loading = document.getElementById('fs-3d-loading');
     const check = ()=>{ if(!fs3dViewer) return; if(viewer.scene.globe.tilesLoaded){ if(loading) loading.remove(); } else setTimeout(check, 400); };
     check();
@@ -3801,7 +3866,7 @@ async function loadSlfDangerLayer(layerGroup){
 }
 
 /* ================= Kartenebenen: Landeskarte + Satellit (zum Wechseln) ================= */
-function addBaseLayerSwitcher(map){
+function addBaseLayerSwitcher(map, opts){
   const streetLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
     maxZoom: 18,
     attribution: '© swisstopo'
@@ -3872,7 +3937,7 @@ function addBaseLayerSwitcher(map){
   L.control.layers(
     { '🗺️ Karte': streetLayer, '🛰️ Satellit': satelliteLayer },
     overlays,
-    { position: 'bottomleft', collapsed: true }
+    { position: (opts && opts.position) || 'bottomleft', collapsed: true }
   ).addTo(map);
   return { streetLayer, satelliteLayer, skitourenLayer, hangneigungLayer, wegsperrungenLayer, slfDangerLayer, wanderwegeLayer };
 }
@@ -3880,17 +3945,18 @@ function addBaseLayerSwitcher(map){
 // Fragt swisstopos "identify"-Dienst ab, um herauszufinden, welche eingezeichnete Skitour
 // (falls überhaupt eine) sich an einer angetippten Stelle befindet — inkl. Name & Geometrie,
 // damit sie als Info angezeigt und als GPX exportiert werden kann.
-async function identifySkitourAt(map, latlng){
+// view (optional, für die 3D-Ansicht ohne Leaflet-Karte): {extent:[W,S,E,N], size:[x,y]}
+async function identifySkitourAt(map, latlng, view){
   try{
-    const b = map.getBounds();
-    const size = map.getSize();
+    const b = view ? null : map.getBounds();
+    const size = view ? {x:view.size[0], y:view.size[1]} : map.getSize();
     const params = new URLSearchParams({
       geometryType: 'esriGeometryPoint',
       geometry: latlng.lng + ',' + latlng.lat,
       geometryFormat: 'geojson',
       layers: 'all:ch.swisstopo-karto.skitouren',
       tolerance: '8',
-      mapExtent: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(','),
+      mapExtent: (view ? view.extent : [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]).join(','),
       imageDisplay: size.x + ',' + size.y + ',96',
       sr: '4326',
       returnGeometry: 'true'
@@ -4007,6 +4073,8 @@ function geojsonToLatLngs(geometry){
 // geht nur auf der grossen Karte.
 function buildSkitourPopupContent(featureOrList, opts){
   const list = Array.isArray(featureOrList) ? featureOrList : [featureOrList];
+  // opts.onShow: meldet, welche Route(n) gerade gezeigt werden (3D hebt sie auf dem Gelände hervor)
+  if(opts && opts.onShow) opts.onShow(list);
   // Inhalt wechseln (Liste ↔ Route): über Leaflet, damit die Karte nachschwenkt und das
   // (grösser gewordene) Popup sichtbar bleibt; ohne Popup-Bezug einfach im DOM ersetzen.
   const swap = (oldNode, newNode)=>{ if(opts && opts.popup) opts.popup.setContent(newNode); else oldNode.replaceWith(newNode); };
@@ -9156,7 +9224,6 @@ function tourHasMapData(t){
   return !!((t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length));
 }
 function tourActionsHtml(t, moreItems){
-  const mp = tourMapPoint(t);
   const hasOffline = tourHasMapData(t) || (t.topoImages && t.topoImages.length);
   const items = (moreItems || []).filter(Boolean);
   const onTour = fsGetOnTour();
@@ -9168,7 +9235,6 @@ function tourActionsHtml(t, moreItems){
     <div class="fs-tiles">
       ${tourHasMapData(t) ? fsTileHtml('map', 'Karte', `data-act="fs-goto-map" data-id="${t.id}"`) : ''}
       ${(t.points && t.points.length) ? fsTileHtml('partly', 'Wetter', `data-act="fs-goto" data-target="tour-meteo-${t.id}"`) : ''}
-      ${mp ? fsTileHtml('mountain', '3D', `data-act="open-3d" data-lat="${mp.lat}" data-lon="${mp.lon}" data-tour-id="${t.id}"`) : ''}
       ${items.length ? `<details class="fs-more">
         <summary class="fs-tile">${fsIconHtml('more')}<span>Mehr</span></summary>
         <div class="fs-more-menu">${items.join('')}</div>
@@ -9492,7 +9558,39 @@ function fsShowContextMap(t){
     if(fsCtxKey !== key || !document.getElementById('fs-tour-map-inner')) return;
     const map = L.map('fs-tour-map-inner', {zoomControl:false, attributionControl:false});
     fsCtxMap = map;
-    addBaseLayerSwitcher(map);
+    // Ebenen (Luftbild/Karte, Lawinen, Sperrungen …) und 3D oben rechts — unten liegt das Blatt
+    const { skitourenLayer, wegsperrungenLayer } = addBaseLayerSwitcher(map, {position:'topright'});
+    const Ctx3d = L.Control.extend({
+      options: { position: 'topright' },
+      onAdd: function(){
+        const btn = L.DomUtil.create('button', 'fs-ctx-3d');
+        btn.type = 'button';
+        btn.textContent = '3D';
+        btn.setAttribute('aria-label', 'Tour in 3D ansehen');
+        L.DomEvent.disableClickPropagation(btn);
+        btn.addEventListener('click', ()=>{
+          const mp = tourMapPoint(t) || (()=>{ const c = map.getCenter(); return {lat:c.lat, lon:c.lng}; })();
+          open3dViewAt(mp.lat, mp.lon, 14, t);
+        });
+        return btn;
+      }
+    });
+    map.addControl(new Ctx3d());
+    // Wie auf der grossen Karte: SAC-Skitour bzw. Wegsperrung antippen zeigt die Infos
+    map.on('click', async (e)=>{
+      if(skitourenLayer && map.hasLayer(skitourenLayer)){
+        const feature = await identifySkitourAt(map, e.latlng);
+        if(feature){
+          const pop = L.popup({maxWidth:280}).setLatLng(e.latlng);
+          pop.setContent(buildSkitourPopupContent(feature, {popup: pop, allowAttach:false})).openOn(map);
+          return;
+        }
+      }
+      if(wegsperrungenLayer && map.hasLayer(wegsperrungenLayer)){
+        const f = await identifyWegsperrungAt(map, e.latlng);
+        if(f) L.popup({maxWidth:280}).setLatLng(e.latlng).setContent(buildWegsperrungPopupContent(f)).openOn(map);
+      }
+    });
     if(typeof gpsActiveOfflineId !== 'undefined' && gpsActiveOfflineId === t.id) startLiveGpsOnMap(map, t.id);
     const all = [];
     const groups = [];
