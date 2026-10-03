@@ -8717,6 +8717,7 @@ function tourActionsHtml(t, moreItems){
   const hasOffline = tourHasMapData(t) || (t.topoImages && t.topoImages.length);
   const items = (moreItems || []).filter(Boolean);
   return `<div class="fs-actions">
+    ${!fsTourHasContextData(t) ? `<p class="fs-nomap-hint">Noch nichts auf der Karte — Stift gedrückt halten, um Punkte oder eine Route zu setzen.</p>` : ''}
     ${hasOffline ? `<div class="fs-primary">${offlineSectionHtml(t.id)}</div>` : ''}
     <div class="fs-tiles">
       ${tourHasMapData(t) ? fsTileHtml('map', 'Karte', `data-act="fs-goto-map" data-id="${t.id}"`) : ''}
@@ -8750,6 +8751,8 @@ document.addEventListener('click', (e)=>{
   if(!el) return;
   if(el.getAttribute('data-act') === 'fs-goto-map'){
     const id = el.getAttribute('data-id');
+    // Tourenkarte liegt hinter dem Blatt: Blatt klein machen = Karte sehen.
+    if(document.documentElement.classList.contains('fs-ctx-map')){ fsSetSheetDetent('peek'); return; }
     const sec = document.getElementById('tour-map-section-' + id);
     if(!sec) return;
     sec.scrollIntoView({behavior:'smooth', block:'start'});
@@ -8835,13 +8838,20 @@ function fsApplyTourSheetMode(){
   if(!modal){
     html.classList.remove('fs-sheet-open');
     delete html.dataset.fsDetent;
+    // Andere Maske darüber (z. B. Bearbeiten): Karte nur verstecken; ganz zu: weg damit.
+    if(overlay) fsHideContextMap(); else fsDestroyContextMap();
     document.querySelectorAll('.map-strip-dot.fs-sel').forEach(d=> d.classList.remove('fs-sel'));
     // Ganz geschlossen (kein Dialog mehr): Liste wieder dort, wo man war.
     if(!overlay && fsSheetSavedScroll !== null){ window.scrollTo(0, fsSheetSavedScroll); fsSheetSavedScroll = null; }
     if(!overlay) fsSheetTourId = null;
     return;
   }
-  if(overlay.classList.contains('fs-sheet-mode') && modal.querySelector(':scope > .fs-grabber')) return;
+  if(overlay.classList.contains('fs-sheet-mode') && modal.querySelector(':scope > .fs-grabber')){
+    // Gleiches Blatt neu gezeichnet ohne neue Daten: nichts zu tun. Sonst Karte auffrischen.
+    const cur = (typeof state !== 'undefined' && state.modal && state.tours) ? state.tours.find(x=> String(x.id) === String(state.modal.payload)) : null;
+    if(cur) fsShowContextMap(cur);
+    return;
+  }
   if(fsSheetSavedScroll === null) fsSheetSavedScroll = window.scrollY;
   window.scrollTo(0, 0); // Karte oben sichtbar
   html.classList.add('fs-sheet-open');
@@ -8875,16 +8885,167 @@ function fsApplyTourSheetMode(){
   }, {passive:true});
   modal.addEventListener('touchend', ()=>{ pullStartY = null; pullArmed = false; }, {passive:true});
   fsSetSheetDetent(fsSheetDetent);
+  const tourObj = (state.tours || []).find(x=> String(x.id) === tourId);
+  if(tourObj) fsShowContextMap(tourObj);
   // Punkt der offenen Tour auf der Karte hervorheben (nach dem Rendern der Karte)
   setTimeout(()=> document.querySelectorAll('.map-strip-dot').forEach(d=> d.classList.toggle('fs-sel', d.getAttribute('data-id') === tourId)), 0);
 }
+/* ================= Eine Tourenkarte hinter dem Blatt (Phase 2, Schritt 3) =================
+   Statt mehrerer einzelner Karten (Karte anzeigen, Zustieg, Abstieg, Hütte …) liegt hinter dem
+   Tour-Blatt EINE bildschirmfüllende Karte mit allem, was zur Tour gehört: Punkte, GPX-Track,
+   geplante Linie, Alternativrouten, eigener Zustieg/Abstieg, die verknüpfte Hütte und deren
+   Zustiege. Jede Ebene lässt sich über die Legende oben ein-/ausblenden. Hütten-Zustiege:
+   Skitour zeigt zuerst die Winter-, Hochtour die Sommerwege (der andere ist zuschaltbar).
+   Der Ausschnitt passt sich so an, dass alles sichtbar ist — nicht näher als Zoom 14. */
+const FS_CTX_COLORS = { track:'#E8384F', manual:'#1565C0', access:'#2F7D4A', descent:'#D9730D', hutRoute:'#2F7D4A', hutRouteOther:'#7A8B95' };
+let fsCtxMap = null, fsCtxKey = null;
+function fsRouteCoords(r){
+  return (r && r.trackSimplified && r.trackSimplified.length) ? r.trackSimplified : ((r && r.manualTrack && r.manualTrack.length) ? r.manualTrack : null);
+}
+function fsTourHut(t){
+  return (t && t.hutId && typeof state !== 'undefined' && state.huts) ? state.huts.find(h=>h.id===t.hutId) : null;
+}
+function fsTourHasContextData(t){
+  if(!t) return false;
+  if(tourHasMapData(t)) return true;
+  if([...(t.accessRoutes||[]), ...(t.descentRoutes||[])].some(fsRouteCoords)) return true;
+  const hut = fsTourHut(t);
+  return !!(hut && ((hut.points && hut.points.length) || (hut.accessRoutes||[]).some(fsRouteCoords)));
+}
+function fsDestroyContextMap(){
+  if(fsCtxMap){ try{ fsCtxMap.remove(); }catch(e){} fsCtxMap = null; }
+  fsCtxKey = null;
+  const el = document.getElementById('fs-tour-map');
+  if(el) el.remove();
+  document.documentElement.classList.remove('fs-ctx-map');
+}
+function fsHideContextMap(){
+  const el = document.getElementById('fs-tour-map');
+  if(el) el.style.display = 'none';
+  document.documentElement.classList.remove('fs-ctx-map');
+}
+function fsFitContextMap(){
+  if(!fsCtxMap || !fsCtxMap._fsBounds) return;
+  const bottom = fsSheetHeightPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent);
+  fsCtxMap.fitBounds(fsCtxMap._fsBounds, {paddingTopLeft:[30, 70], paddingBottomRight:[30, bottom + 20], maxZoom:14});
+}
+function fsShowContextMap(t){
+  if(!fsTourHasContextData(t)){ fsDestroyContextMap(); return; }
+  const key = t.id + '|' + (t.updatedAt || '') + '|' + (fsTourHut(t) ? (fsTourHut(t).updatedAt || '') : '');
+  let el = document.getElementById('fs-tour-map');
+  if(el && fsCtxKey === key){
+    if(el.style.display === 'none'){
+      el.style.display = '';
+      document.documentElement.classList.add('fs-ctx-map');
+      if(fsCtxMap) setTimeout(()=> fsCtxMap.invalidateSize(), 0);
+    }
+    return;
+  }
+  fsDestroyContextMap();
+  fsCtxKey = key;
+  el = document.createElement('div');
+  el.id = 'fs-tour-map';
+  el.className = 'fs-tour-map';
+  el.innerHTML = '<div class="fs-tour-map-inner" id="fs-tour-map-inner"></div><div class="fs-ctx-legend" id="fs-ctx-legend"></div>';
+  document.body.appendChild(el);
+  document.documentElement.classList.add('fs-ctx-map');
+  ensureLeafletLoaded().then(()=>{
+    if(fsCtxKey !== key || !document.getElementById('fs-tour-map-inner')) return;
+    const map = L.map('fs-tour-map-inner', {zoomControl:false, attributionControl:false});
+    fsCtxMap = map;
+    addBaseLayerSwitcher(map);
+    if(typeof gpsActiveOfflineId !== 'undefined' && gpsActiveOfflineId === t.id) startLiveGpsOnMap(map, t.id);
+    const all = [];
+    const groups = [];
+    function line(coords, color, opts){
+      L.polyline(coords, {color:'#ffffff', weight:(opts && opts.dash) ? 6 : 7, opacity:0.7, interactive:false}).addTo(opts.layer);
+      const l = L.polyline(coords, {color, weight:4, opacity:1, dashArray:(opts && opts.dash) ? '7,6' : null}).addTo(opts.layer);
+      if(opts.label) l.bindPopup(esc(opts.label));
+      all.push(l);
+    }
+    function group(label, color, on, dash){
+      const layer = L.layerGroup();
+      if(on) layer.addTo(map);
+      groups.push({label, color, layer, on, dash});
+      return layer;
+    }
+    // Tour selbst
+    const tourLayer = group('Tour', FS_CTX_COLORS.track, true);
+    if(t.trackSimplified && t.trackSimplified.length) line(t.trackSimplified, FS_CTX_COLORS.track, {layer:tourLayer, label:'GPX-Track'});
+    if(t.manualTrack && t.manualTrack.length) line(t.manualTrack, FS_CTX_COLORS.manual, {layer:tourLayer, label:'Geplante Linie'});
+    (t.points||[]).forEach(p=>{
+      const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(tourLayer).bindPopup(esc(p.label || t.name));
+      all.push(m);
+    });
+    const alts = (t.altTracks||[]).filter(a=> a.trackSimplified && a.trackSimplified.length);
+    if(alts.length){
+      const altLayer = group('Varianten', ALT_TRACK_COLORS[0], true, true);
+      alts.forEach((a,i)=> line(a.trackSimplified, ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length], {layer:altLayer, dash:true, label:a.name || 'Alternativroute'}));
+    }
+    const acc = (t.accessRoutes||[]).filter(fsRouteCoords);
+    if(acc.length){
+      const l = group('Zustieg', FS_CTX_COLORS.access, true);
+      acc.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.access, {layer:l, label:'Zustieg: ' + (r.name || '')}));
+    }
+    const desc = (t.descentRoutes||[]).filter(fsRouteCoords);
+    if(desc.length){
+      const l = group('Abstieg', FS_CTX_COLORS.descent, true);
+      desc.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.descent, {layer:l, label:'Abstieg: ' + (r.name || '')}));
+    }
+    // Hütte + deren Zustiege (Saison passend zur App zuerst)
+    const hut = fsTourHut(t);
+    if(hut){
+      const prefSeason = (typeof SEKTOREN_PATH !== 'undefined') ? 'sommer' : 'winter';
+      const hutRoutes = (hut.accessRoutes||[]).filter(fsRouteCoords);
+      const main = hutRoutes.filter(r=> !r.season || r.season === prefSeason);
+      const other = hutRoutes.filter(r=> r.season && r.season !== prefSeason);
+      const hutLayer = ((hut.points && hut.points.length) || main.length) ? group('Hütte', FS_CTX_COLORS.hutRoute, true) : L.layerGroup();
+      (hut.points||[]).slice(0,1).forEach(p=>{
+        const icon = L.divIcon({className:'fs-hut-marker', html:fsIconHtml('hut'), iconSize:[30,30], iconAnchor:[15,15]});
+        all.push(L.marker([p.lat, p.lon], {icon}).addTo(hutLayer).bindPopup(esc(hut.name)));
+      });
+      main.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.hutRoute, {layer:hutLayer, label:'Hüttenzustieg: ' + (r.name || '')}));
+      if(other.length){
+        const l = group(prefSeason === 'winter' ? 'Sommerweg' : 'Winterweg', FS_CTX_COLORS.hutRouteOther, false, true);
+        other.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.hutRouteOther, {layer:l, dash:true, label:'Hüttenzustieg: ' + (r.name || '')}));
+      }
+    }
+    // Legende (nur wenn es mehr als eine Ebene gibt)
+    const legend = document.getElementById('fs-ctx-legend');
+    if(legend && groups.length > 1){
+      groups.forEach(g=>{
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'fs-ctx-chip' + (g.on ? ' on' : '');
+        b.innerHTML = `<span class="sw${g.dash ? ' dash' : ''}" style="--c:${g.color}"></span>${esc(g.label)}`;
+        b.addEventListener('click', ()=>{
+          g.on = !g.on;
+          b.classList.toggle('on', g.on);
+          if(g.on) g.layer.addTo(map); else map.removeLayer(g.layer);
+        });
+        legend.appendChild(b);
+      });
+    }
+    if(all.length){
+      map._fsBounds = L.featureGroup(all).getBounds();
+      fsFitContextMap();
+    }
+  }).catch(()=>{
+    const inner = document.getElementById('fs-tour-map-inner');
+    if(inner) inner.innerHTML = '<p class="fs-ctx-offline">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
 window.addEventListener('resize', ()=>{ if(document.documentElement.classList.contains('fs-sheet-open')) fsSetSheetDetent(fsSheetDetent); });
 (function fsWatchModalRoot(){
   // Ganze Seite beobachten (die Apps bauen #modal-root beim Rendern teils neu auf), aber die
   // Prüfung höchstens einmal pro Bild ausführen.
   let queued = false;
   const start = ()=>{
-    new MutationObserver(()=>{
+    new MutationObserver((muts)=>{
+      // Änderungen innerhalb der Tourenkarte selbst (Kacheln laden) ignorieren
+      const ctx = document.getElementById('fs-tour-map');
+      if(ctx && muts.every(m=> ctx.contains(m.target))) return;
       if(queued) return;
       queued = true;
       requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); });
