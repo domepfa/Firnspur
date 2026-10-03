@@ -3953,6 +3953,11 @@ function addBaseLayerSwitcher(map, opts){
 // Fragt swisstopos "identify"-Dienst ab, um herauszufinden, welche eingezeichnete Skitour
 // (falls überhaupt eine) sich an einer angetippten Stelle befindet — inkl. Name & Geometrie,
 // damit sie als Info angezeigt und als GPX exportiert werden kann.
+// Wie weit neben einer Linie ein Tipp noch zählt (Bildschirm-Pixel): am Handy etwa eine
+// Fingerkuppe, mit Maus enger, damit dicht beieinander liegende Routen unterscheidbar bleiben.
+function fsTapTolerancePx(){
+  try{ return window.matchMedia('(pointer:coarse)').matches ? 24 : 10; }catch(e){ return 10; }
+}
 // view (optional, für die 3D-Ansicht ohne Leaflet-Karte): {extent:[W,S,E,N], size:[x,y]}
 async function identifySkitourAt(map, latlng, view){
   try{
@@ -3963,7 +3968,7 @@ async function identifySkitourAt(map, latlng, view){
       geometry: latlng.lng + ',' + latlng.lat,
       geometryFormat: 'geojson',
       layers: 'all:ch.swisstopo-karto.skitouren',
-      tolerance: '8',
+      tolerance: String(fsTapTolerancePx()),
       mapExtent: (view ? view.extent : [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]).join(','),
       imageDisplay: size.x + ',' + size.y + ',96',
       sr: '4326',
@@ -4016,7 +4021,7 @@ async function identifyWegsperrungAt(map, latlng){
       geometry: latlng.lng + ',' + latlng.lat,
       geometryFormat: 'geojson',
       layers: 'all:ch.astra.wanderland-sperrungen_umleitungen',
-      tolerance: '8',
+      tolerance: String(fsTapTolerancePx()),
       mapExtent: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(','),
       imageDisplay: size.x + ',' + size.y + ',96',
       sr: '4326',
