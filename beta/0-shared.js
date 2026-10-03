@@ -4088,14 +4088,36 @@ function fsmAddMarker(map, lat, lon, html, opts){
 }
 function fsmPopup(map, lngLat, content, offset){
   if(map._fsm.popup) map._fsm.popup.remove();
-  const p = new maplibregl.Popup({maxWidth:'300px', offset: offset || 8, className:'fsm-popup'}).setLngLat(lngLat);
+  const p = new maplibregl.Popup({maxWidth: fsmPopupMaxWidth(map), offset: offset || 8, className:'fsm-popup'}).setLngLat(lngLat);
   if(typeof content === 'string') p.setHTML(content); else p.setDOMContent(content);
   p.addTo(map);
+  fsmPopupStopEvents(p);
+  fsmPopupAutoPan(map, p);
   map._fsm.popup = p;
   // Wie Leaflet-Popups: setContent(node) für Inhaltswechsel (z. B. SAC-Liste ↔ Route)
   p.setContent = (node)=>{ p.setDOMContent(node); return p; };
   return p;
 }
+// Wie Leaflets autoPan: Karte so verschieben, dass ein Fenster ganz sichtbar ist (v. a. auf den
+// kleinen Karten im Formular, wo es sonst links/oben abgeschnitten wird).
+function fsmPopupAutoPan(ml, popup){
+  requestAnimationFrame(()=>{
+    const el = popup.getElement && popup.getElement();
+    if(!el) return;
+    const r = el.getBoundingClientRect(), c = ml.getContainer().getBoundingClientRect(), m = 10;
+    let dx = 0, dy = 0;
+    if(r.left < c.left + m) dx = r.left - c.left - m; else if(r.right > c.right - m) dx = r.right - c.right + m;
+    if(r.top < c.top + m) dy = r.top - c.top - m; else if(r.bottom > c.bottom - m) dy = Math.min(r.bottom - c.bottom + m, r.top - c.top - m);
+    if(dx || dy) ml.panBy([dx, dy], {duration: 250});
+  });
+}
+// Klicks im Fenster nicht an die Karte weitergeben (wie bei Leaflet) — sonst schliesst die Karte
+// ein Fenster, das gerade durch einen Knopf im vorherigen Fenster geöffnet wurde.
+function fsmPopupStopEvents(popup){
+  const el = popup.getElement && popup.getElement();
+  if(el && !el._fsmStop){ el._fsmStop = true; ['click','dblclick','mousedown','pointerdown','touchstart','wheel','contextmenu'].forEach(t=> el.addEventListener(t, (e)=> e.stopPropagation())); }
+}
+function fsmPopupMaxWidth(ml){ return Math.max(180, Math.min(300, ml.getContainer().clientWidth - 24)) + 'px'; }
 function fsmCategoryMarkerHtml(category){
   const meta = MAP_POINT_CATEGORIES[category] || MAP_POINT_CATEGORIES[''];
   return `<div class="fsm-pin" style="background:${meta.color}"><span>${meta.icon}</span></div>`;
@@ -4360,16 +4382,18 @@ const FL = (function(){
   Popup.prototype.getLatLng = function(){ return this._ll; };
   Popup.prototype.setContent = function(c){
     this._content = c;
-    if(this._p){ if(typeof c === 'string') this._p.setHTML(c); else this._p.setDOMContent(c); }
+    if(this._p){ if(typeof c === 'string') this._p.setHTML(c); else this._p.setDOMContent(c); fsmPopupAutoPan(this._p._map, this._p); }
     return this;
   };
   Popup.prototype.openOn = function(fm){
     fm.closePopup();
-    const maxW = this.options.maxWidth ? this.options.maxWidth + 'px' : '300px';
+    const maxW = this.options.maxWidth ? Math.min(this.options.maxWidth, parseInt(fsmPopupMaxWidth(fm._ml), 10)) + 'px' : fsmPopupMaxWidth(fm._ml);
     const off = this.options._off != null ? this.options._off : (this.options.offset && this.options.offset[1] ? Math.abs(this.options.offset[1]) : 10);
     this._p = new maplibregl.Popup({maxWidth:maxW, offset:off, className:'fsm-popup', closeOnClick:true}).setLngLat([this._ll.lng, this._ll.lat]);
     if(typeof this._content === 'string') this._p.setHTML(this._content); else if(this._content) this._p.setDOMContent(this._content);
     this._p.addTo(fm._ml);
+    fsmPopupStopEvents(this._p);
+    fsmPopupAutoPan(fm._ml, this._p);
     fm._popup = this;
     this._p.on('close', ()=>{ if(fm._popup === this) fm._popup = null; });
     return this;
@@ -5822,24 +5846,31 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         routeStatus.textContent = '';
         setMode('point');
         renderRouteStatCards(routeStatsEl, calculated, clearCalculatedRoute, editCalculatedRoute);
-        const filledLabels = [];
-        if(autofillFields){
-          if(autofillFields.ascent && typeof calculated.ascentM==='number'){
-            autofillFields.ascent.value = String(Math.round(calculated.ascentM));
-            flashFilledField(autofillFields.ascent);
-            filledLabels.push('Aufstieg');
-          }
-          if(autofillFields.descent && typeof calculated.descentM==='number'){
-            autofillFields.descent.value = String(Math.round(calculated.descentM));
-            filledLabels.push('Abstieg');
-          }
-          if(autofillFields.duration && typeof calculated.durationS==='number'){
-            autofillFields.duration.value = formatDurationShort(calculated.durationS);
-            filledLabels.push('Zeitbedarf');
-          }
+        // Werte NICHT mehr automatisch ins Formular schreiben: Die Route ist oft nur ein Zustieg,
+        // und die Kopfdaten der Tour (z. B. einer Kletterei) wurden dadurch überschrieben.
+        // Stattdessen ein Knopf zum bewussten Übernehmen, mit Rückfrage vor dem Überschreiben.
+        if(autofillFields && (autofillFields.ascent || autofillFields.descent || autofillFields.duration)){
+          const applyBtn = document.createElement('button');
+          applyBtn.type = 'button';
+          applyBtn.className = 'btn secondary';
+          applyBtn.style.cssText = 'width:100%; margin-top:6px;';
+          applyBtn.textContent = 'Werte in die Tour übernehmen (Hm, Zeit)';
+          applyBtn.addEventListener('click', ()=>{
+            const plan = [];
+            if(autofillFields.ascent && typeof calculated.ascentM==='number') plan.push([autofillFields.ascent, String(Math.round(calculated.ascentM)), 'Aufstieg']);
+            if(autofillFields.descent && typeof calculated.descentM==='number') plan.push([autofillFields.descent, String(Math.round(calculated.descentM)), 'Abstieg']);
+            if(autofillFields.duration && typeof calculated.durationS==='number') plan.push([autofillFields.duration, formatDurationShort(calculated.durationS), 'Zeitbedarf']);
+            const overwrite = plan.filter(([f, v])=> f.value && f.value.trim() && f.value.trim() !== v);
+            if(overwrite.length && !confirm('Bestehende Angaben überschreiben?\n' + overwrite.map(([f, v, l])=> l + ': ' + f.value + ' → ' + v).join('\n'))) return;
+            plan.forEach(([f, v])=>{ f.value = v; flashFilledField(f); });
+            markModalDirty();
+            applyBtn.remove();
+            showToast('Übernommen: ' + plan.map(x=> x[2]).join(', ') + '.');
+          });
+          routeStatsEl.insertBefore(applyBtn, routeStatsEl.querySelector('[data-act="edit-calculated-route"]') || null);
         }
         const statsText = formatRouteStats(calculated);
-        showToast('Route berechnet' + (statsText ? ': ' + statsText : '') + (filledLabels.length ? ' — im Formular übernommen: ' + filledLabels.join(', ') + '.' : (autofillFields ? ' (keine passenden Felder automatisch befüllt.)' : '')));
+        showToast('Route berechnet' + (statsText ? ': ' + statsText : '') + '.');
       }catch(err){
         routeStatus.style.color = 'var(--danger)';
         routeStatus.textContent = '⚠ ' + (err && err.message ? err.message : 'Route konnte nicht berechnet werden.');
@@ -5890,9 +5921,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       btn.addEventListener('click', ()=>{
         pushUndo();
         points.push({ label:'', lat: e.latlng.lat, lon: e.latlng.lng, _justAdded:true });
+        map.closePopup(); // zuerst schliessen — redraw() öffnet gleich das Fenster des neuen Punkts
         redraw();
         persist();
-        map.closePopup();
       });
       wrap.appendChild(btn);
       FL.popup().setLatLng(e.latlng).setContent(wrap).openOn(map);
