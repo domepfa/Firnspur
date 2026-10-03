@@ -2239,13 +2239,155 @@ function closeFullscreenMap(){
    erreichbar über den Button "🗺️ Karte" oben in der App-Umschalt-Leiste. */
 // swisstopo-3D-Ansicht an einer Stelle öffnen. Die Kamera steht etwas südlich des Punkts und
 // schaut schräg nach Norden auf ihn — so sieht man das Gelände statt nur von oben.
-function open3dViewAt(lat, lon, zoom){
-  const height = Math.max(2500, Math.min(20000, 3200 * Math.pow(2, 13 - (zoom || 13))));
-  const back = (height * 1.3) / 111000;
-  const url = 'https://map.geo.admin.ch/#/map?lang=de&bgLayer=ch.swisstopo.pixelkarte-farbe&3d&camera='
-    + [lon.toFixed(5), (lat - back).toFixed(5), Math.round(height + 1500), -35, 0, ''].join(',');
-  window.open(url, '_blank', 'noopener');
+// 3D jetzt direkt in der App (siehe fs3d* weiter unten) statt map.geo.admin.ch im neuen Tab.
+// tour (optional): Route, Zustieg/Abstieg, Hütte werden aufs Gelände gelegt und der Blick passt sich an.
+function open3dViewAt(lat, lon, zoom, tour){
+  fsOpen3d({lat, lon, zoom: zoom || 14, tour: tour || null});
 }
+/* ================= 3D-Ansicht in der App (Cesium + offizielles swisstopo-Gelände) =================
+   Für Planung und Tourbeurteilung: echtes Höhenmodell swissALTI3D (Steilstufen, Grate, Mulden in
+   echter Form), darauf Luftbild (Standard) oder Landeskarte, zuschaltbar "Hangneigung ab 30°" und
+   die SAC-Skitouren. Eigene Route/Zustieg/Abstieg/Hütte liegen auf dem Gelände.
+   Cesium (~5 MB) wird erst beim ersten Öffnen geladen; ohne Internet gibt es keine 3D-Ansicht. */
+const FS3D_CESIUM = 'https://unpkg.com/cesium@1.121.0/Build/Cesium/';
+const FS3D_WMTS = (layer, ext)=> new Cesium.UrlTemplateImageryProvider({
+  url: 'https://wmts.geo.admin.ch/1.0.0/' + layer + '/default/current/3857/{z}/{x}/{y}.' + ext,
+  maximumLevel: 18, credit: '© swisstopo'
+});
+let fs3dLoadPromise = null, fs3dViewer = null;
+function fs3dEnsureCesium(){
+  if(window.Cesium) return Promise.resolve();
+  if(fs3dLoadPromise) return fs3dLoadPromise;
+  fs3dLoadPromise = new Promise((resolve, reject)=>{
+    window.CESIUM_BASE_URL = FS3D_CESIUM;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet'; link.href = FS3D_CESIUM + 'Widgets/widgets.css';
+    document.head.appendChild(link);
+    const sc = document.createElement('script');
+    sc.src = FS3D_CESIUM + 'Cesium.js';
+    sc.onload = ()=> resolve();
+    sc.onerror = ()=>{ fs3dLoadPromise = null; reject(new Error('3D-Bibliothek konnte nicht geladen werden.')); };
+    document.head.appendChild(sc);
+  });
+  return fs3dLoadPromise;
+}
+function fs3dClose(){
+  if(fs3dViewer){ try{ fs3dViewer.destroy(); }catch(e){} fs3dViewer = null; }
+  const el = document.getElementById('fs-3d');
+  if(el) el.remove();
+}
+// Linien aller Tour-Ebenen, wie auf der Tourenkarte (Farben siehe FS_CTX_COLORS)
+function fs3dTourLines(t){
+  const out = [];
+  if(!t) return out;
+  if(t.trackSimplified && t.trackSimplified.length) out.push({coords:t.trackSimplified, color:FS_CTX_COLORS.track});
+  if(t.manualTrack && t.manualTrack.length) out.push({coords:t.manualTrack, color:FS_CTX_COLORS.manual});
+  (t.altTracks||[]).forEach((a,i)=>{ if(a.trackSimplified && a.trackSimplified.length) out.push({coords:a.trackSimplified, color:ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length], dash:true}); });
+  (t.accessRoutes||[]).forEach(r=>{ const c = fsRouteCoords(r); if(c) out.push({coords:c, color:FS_CTX_COLORS.access}); });
+  (t.descentRoutes||[]).forEach(r=>{ const c = fsRouteCoords(r); if(c) out.push({coords:c, color:FS_CTX_COLORS.descent}); });
+  const hut = fsTourHut(t);
+  if(hut){
+    const pref = (typeof SEKTOREN_PATH !== 'undefined') ? 'sommer' : 'winter';
+    (hut.accessRoutes||[]).forEach(r=>{ const c = fsRouteCoords(r); if(c && (!r.season || r.season === pref)) out.push({coords:c, color:FS_CTX_COLORS.hutRoute}); });
+  }
+  return out;
+}
+function fsOpen3d(opts){
+  if(!navigator.onLine){ showToast('3D braucht Internet (Gelände und Luftbild werden live geladen).', true); return; }
+  fs3dClose();
+  const t = opts.tour;
+  const wrap = document.createElement('div');
+  wrap.id = 'fs-3d';
+  wrap.className = 'fs-3d';
+  wrap.innerHTML = `
+    <div class="fs-3d-map" id="fs-3d-map"></div>
+    <div class="fs-3d-top">
+      <button type="button" class="fs-3d-btn" data-3d="close" aria-label="Zurück">‹ Zurück</button>
+      <div class="fs-3d-title">${esc(t ? t.name : '3D-Ansicht')}</div>
+      <button type="button" class="fs-3d-btn" data-3d="north" aria-label="Nach Norden ausrichten">N</button>
+    </div>
+    <div class="fs-3d-chips">
+      <div class="fs-3d-seg"><button type="button" class="on" data-3d="img-luft">Luftbild</button><button type="button" data-3d="img-karte">Karte</button></div>
+      <button type="button" class="fs-3d-chip" data-3d="slope">Hangneigung &gt;30°</button>
+      <button type="button" class="fs-3d-chip" data-3d="ski">SAC-Skitouren</button>
+    </div>
+    <div class="fs-3d-loading" id="fs-3d-loading">3D wird geladen …</div>`;
+  document.body.appendChild(wrap);
+  pushOverlayLayer(fs3dClose);
+  wrap.querySelector('[data-3d="close"]').addEventListener('click', ()=> closeTopOverlayLayer());
+  fs3dEnsureCesium().then(async ()=>{
+    if(!document.getElementById('fs-3d-map')) return;
+    const terrain = await Cesium.CesiumTerrainProvider.fromUrl('https://3d.geo.admin.ch/ch.swisstopo.terrain.3d/v1/');
+    if(!document.getElementById('fs-3d-map')) return;
+    const imgLuft = new Cesium.ImageryLayer(FS3D_WMTS('ch.swisstopo.swissimage', 'jpeg'));
+    const viewer = new Cesium.Viewer('fs-3d-map', {
+      terrainProvider: terrain, baseLayer: imgLuft,
+      baseLayerPicker:false, geocoder:false, timeline:false, animation:false, homeButton:false, sceneModePicker:false,
+      navigationHelpButton:false, fullscreenButton:false, infoBox:false, selectionIndicator:false,
+      requestRenderMode:true, maximumRenderTimeChange:Infinity
+    });
+    fs3dViewer = viewer;
+    viewer.scene.globe.maximumScreenSpaceError = 2;
+    viewer.scene.screenSpaceCameraController.minimumZoomDistance = 150;
+    viewer.scene.globe.depthTestAgainstTerrain = true;
+    const layers = viewer.imageryLayers;
+    const imgKarte = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo.pixelkarte-farbe', 'jpeg')); imgKarte.show = false;
+    const slope = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo.hangneigung-ueber_30', 'png')); slope.show = false; slope.alpha = 0.6;
+    const ski = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo-karto.skitouren', 'png')); ski.show = false;
+    const rerender = ()=> viewer.scene.requestRender();
+    wrap.querySelectorAll('[data-3d^="img-"]').forEach(b=> b.addEventListener('click', ()=>{
+      const karte = b.getAttribute('data-3d') === 'img-karte';
+      imgKarte.show = karte;
+      wrap.querySelectorAll('[data-3d^="img-"]').forEach(x=> x.classList.toggle('on', x === b));
+      rerender();
+    }));
+    wrap.querySelector('[data-3d="slope"]').addEventListener('click', (e)=>{ slope.show = !slope.show; e.currentTarget.classList.toggle('on', slope.show); rerender(); });
+    wrap.querySelector('[data-3d="ski"]').addEventListener('click', (e)=>{ ski.show = !ski.show; e.currentTarget.classList.toggle('on', ski.show); rerender(); });
+    // Eigene Linien leicht über dem Gelände (Höhen aus dem Modell), damit sie durchgehend sichtbar sind
+    const lines = fs3dTourLines(t);
+    const allPts = [];
+    for(const ln of lines){
+      const carto = ln.coords.map(c=> Cesium.Cartographic.fromDegrees(c[1], c[0]));
+      let withH = carto;
+      try{ withH = await Cesium.sampleTerrainMostDetailed(terrain, carto); }catch(err){}
+      const positions = withH.map(c=> Cesium.Cartesian3.fromRadians(c.longitude, c.latitude, (c.height || 0) + 6));
+      viewer.entities.add({polyline:{positions, width:5, material: ln.dash
+        ? new Cesium.PolylineDashMaterialProperty({color: Cesium.Color.fromCssColorString(ln.color), dashLength:16})
+        : new Cesium.PolylineOutlineMaterialProperty({color: Cesium.Color.fromCssColorString(ln.color), outlineColor: Cesium.Color.WHITE, outlineWidth:1.5})}});
+      positions.forEach(p=> allPts.push(p));
+    }
+    (t && t.points || []).forEach(p=>{
+      viewer.entities.add({position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat), point:{pixelSize:12, color:Cesium.Color.fromCssColorString('#4A3524'), outlineColor:Cesium.Color.WHITE, outlineWidth:2, heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY},
+        label: p.label ? {text:p.label, font:'600 13px sans-serif', fillColor:Cesium.Color.WHITE, outlineColor:Cesium.Color.BLACK, outlineWidth:3, style:Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset:new Cesium.Cartesian2(0,-18), heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY} : undefined});
+      allPts.push(Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 3000));
+    });
+    // Blick: auf die ganze Tour, schräg von unten Richtung Ziel; sonst auf den Punkt
+    const pitch = Cesium.Math.toRadians(-32);
+    if(allPts.length > 1){
+      const sphere = Cesium.BoundingSphere.fromPoints(allPts);
+      const first = lines.length ? lines[0].coords[0] : null, last = lines.length ? lines[0].coords[lines[0].coords.length-1] : null;
+      const heading = (first && last) ? Math.atan2((last[1]-first[1]) * Math.cos(first[0]*Math.PI/180), last[0]-first[0]) : 0;
+      viewer.camera.flyToBoundingSphere(sphere, {duration:0, offset:new Cesium.HeadingPitchRange(heading, pitch, Math.max(1800, sphere.radius * 2.2))});
+    }else{
+      const center = Cesium.Cartesian3.fromDegrees(opts.lon, opts.lat, 2500);
+      viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(center, 1500), {duration:0, offset:new Cesium.HeadingPitchRange(0, pitch, 6000)});
+    }
+    wrap.querySelector('[data-3d="north"]').addEventListener('click', ()=>{
+      const c = viewer.camera, ray = c.getPickRay(new Cesium.Cartesian2(viewer.canvas.clientWidth/2, viewer.canvas.clientHeight/2));
+      const target = viewer.scene.globe.pick(ray, viewer.scene);
+      if(!target){ c.setView({orientation:{heading:0, pitch:c.pitch, roll:0}}); rerender(); return; }
+      const range = Cesium.Cartesian3.distance(c.positionWC, target);
+      c.flyToBoundingSphere(new Cesium.BoundingSphere(target, 1), {duration:0.6, offset:new Cesium.HeadingPitchRange(0, c.pitch, range)});
+    });
+    const loading = document.getElementById('fs-3d-loading');
+    const check = ()=>{ if(!fs3dViewer) return; if(viewer.scene.globe.tilesLoaded){ if(loading) loading.remove(); } else setTimeout(check, 400); };
+    check();
+  }).catch(err=>{
+    const loading = document.getElementById('fs-3d-loading');
+    if(loading) loading.textContent = '3D konnte nicht geladen werden: ' + (err && err.message ? err.message : err);
+  });
+}
+
 function openStandaloneMap(){
   openFullscreenMap(renderStandaloneMap, function(){
     const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
@@ -6330,7 +6472,7 @@ function fsOpenTourCtxMenu(card){
     (t.trackSimplified && t.trackSimplified.length) ? { icon:'download', label:'GPX herunterladen', fn: ()=> downloadFullGpx(GPX_TRACKS_PATH, t.id, t.name) }
       : (t.manualTrack && t.manualTrack.length) ? { icon:'download', label:'Route als GPX', fn: ()=> downloadTrackAsGpx(t.manualTrack, t.name) } : null,
     tourHasMapData(t) ? { icon:'map', label:'Für unterwegs laden', fn: ()=> fsDownloadTourOfflineFromMenu(t) } : null,
-    mp ? { icon:'mountain', label:'In 3D ansehen', fn: ()=> open3dViewAt(mp.lat, mp.lon, 14) } : null
+    mp ? { icon:'mountain', label:'In 3D ansehen', fn: ()=> open3dViewAt(mp.lat, mp.lon, 14, t) } : null
   ].filter(Boolean);
   items.forEach(it=>{
     const b = document.createElement('button');
@@ -9026,7 +9168,7 @@ function tourActionsHtml(t, moreItems){
     <div class="fs-tiles">
       ${tourHasMapData(t) ? fsTileHtml('map', 'Karte', `data-act="fs-goto-map" data-id="${t.id}"`) : ''}
       ${(t.points && t.points.length) ? fsTileHtml('partly', 'Wetter', `data-act="fs-goto" data-target="tour-meteo-${t.id}"`) : ''}
-      ${mp ? fsTileHtml('mountain', '3D', `data-act="open-3d" data-lat="${mp.lat}" data-lon="${mp.lon}"`) : ''}
+      ${mp ? fsTileHtml('mountain', '3D', `data-act="open-3d" data-lat="${mp.lat}" data-lon="${mp.lon}" data-tour-id="${t.id}"`) : ''}
       ${items.length ? `<details class="fs-more">
         <summary class="fs-tile">${fsIconHtml('more')}<span>Mehr</span></summary>
         <div class="fs-more-menu">${items.join('')}</div>
@@ -10184,5 +10326,7 @@ document.addEventListener('click', (e)=>{
   const el = e.target.closest && e.target.closest('[data-act="open-3d"]');
   if(!el) return;
   e.preventDefault(); e.stopPropagation();
-  open3dViewAt(parseFloat(el.getAttribute('data-lat')), parseFloat(el.getAttribute('data-lon')), 14);
+  const tid = el.getAttribute('data-tour-id');
+  const tour = tid && typeof state !== 'undefined' ? (state.tours || []).find(x=> String(x.id) === String(tid)) : null;
+  open3dViewAt(parseFloat(el.getAttribute('data-lat')), parseFloat(el.getAttribute('data-lon')), 14, tour);
 }, true);
