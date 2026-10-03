@@ -2518,13 +2518,15 @@ function openStandaloneMap(){
   openFullscreenMap(renderStandaloneMap, function(){
     const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
     if(m){ try{ m.stopLocate(); }catch(e){} }
+    // Standort-Anzeige dieser Karte beim Schliessen beenden
+    if(m && m._ml && gpsMarker && gpsMarker._fsmMap === m._ml) stopLiveGpsOnMap();
   });
 }
 
 function renderStandaloneMap(containerId){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:#fff;">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
+  fsmEnsureLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2) return;
     const mapDivId = containerId + '-inner';
@@ -2535,7 +2537,7 @@ function renderStandaloneMap(containerId){
     mapDiv.id = mapDivId;
     mapDiv.style.cssText = 'width:100%; height:100%;';
     el2.appendChild(mapDiv);
-    const map = L.map(mapDivId, {attributionControl:true});
+    const map = fsmCreateFlMap(mapDivId, {ctlTop: 70, on3d: (ml)=>{ const c = ml.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom:14, heading: ml.getBearing()}); }});
     // Markiert diese Karte als DIE Übersichtskarte (im Unterschied zu den vielen anderen, kleineren
     // Vollbild-Karten, die denselben Container über makeFullscreenButton/openFullscreenMap nutzen) —
     // ausgewertet in closeFullscreenMap(), damit der zuletzt gezeigte Ausschnitt auch dann sicher
@@ -2546,25 +2548,6 @@ function renderStandaloneMap(containerId){
     else map.setView([46.8182, 8.2275], 8);
     map.on('moveend', ()=>{ lastStandaloneMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
     registerMap(mapDivId, map);
-    const { skitourenLayer, wegsperrungenLayer, wanderwegeLayer } = addBaseLayerSwitcher(map);
-
-    // "In 3D ansehen": öffnet die offizielle swisstopo-Karte (map.geo.admin.ch) in der 3D-Ansicht
-    // am aktuellen Kartenausschnitt — kein eigener 3D-Motor nötig.
-    const View3dControl = L.Control.extend({
-      options: { position: 'topleft' },
-      onAdd: function(){
-        const btn = L.DomUtil.create('button', 'fsm-ctl fsm-3d');
-        btn.type = 'button';
-        btn.textContent = '3D';
-        btn.title = 'In 3D ansehen (swisstopo)';
-        btn.setAttribute('aria-label', 'Ausschnitt in 3D ansehen (swisstopo)');
-        L.DomEvent.disableClickPropagation(btn);
-        btn.addEventListener('click', ()=>{ const c = map.getCenter(); open3dViewAt(c.lat, c.lng, map.getZoom()); });
-        return btn;
-      }
-    });
-    map.addControl(new View3dControl());
-
     // Ist die Skitouren- oder Wegsperrungen-Ebene eingeschaltet, zeigt ein Klick Infos zur
     // angetippten Route/Sperrung — analog zum Punkte/Linie-Editor.
     map.on('click', async (e)=>{
@@ -2591,23 +2574,11 @@ function renderStandaloneMap(containerId){
       if(typeof addPointPicking !== 'undefined' && addPointPicking){
         addPointPicking = false;
         if(typeof renderAddPointBtn === 'function') renderAddPointBtn();
-        L.popup().setLatLng(e.latlng).setContent(pointPlacementPopupContent(e.latlng.lat, e.latlng.lng)).openOn(map);
+        FL.popup().setLatLng(e.latlng).setContent(pointPlacementPopupContent(e.latlng.lat, e.latlng.lng)).openOn(map);
         return;
       }
-      if(skitourenLayer && map.hasLayer(skitourenLayer)){
-        const feature = await identifySkitourAt(map, e.latlng);
-        if(feature){
-          const pop = L.popup({maxWidth:280}).setLatLng(e.latlng);
-          pop.setContent(buildSkitourPopupContent(feature, {popup: pop})).openOn(map);
-          return;
-        }
-      }
-      if(wegsperrungenLayer && map.hasLayer(wegsperrungenLayer)){
-        const feature = await identifyWegsperrungAt(map, e.latlng);
-        if(feature){
-          L.popup().setLatLng(e.latlng).setContent(buildWegsperrungPopupContent(feature)).openOn(map);
-        }
-      }
+      // SAC-Skitouren / Sperrungen / Lawinengefahr (je nach eingeschalteten Ebenen)
+      await fsmHandleInfoClick(map._ml, e.latlng);
     });
 
     // Alle eigenen Touren (Punkte & Tracks) auf der Karte anzeigen — analog zur Skitouren-Ebene,
@@ -2900,7 +2871,7 @@ function renderStandaloneMap(containerId){
       wrap.appendChild(btn);
       return wrap;
     }
-    const categoryLayers = {}; // key -> L.layerGroup()
+    const categoryLayers = {}; // key -> FL.layerGroup()
     const allBoundsItems = [];
     const pointMarkers = []; // alle Punkt-Marker (nicht Linien) -- fuer die zoomabhaengige Groesse unten
     // Feste Pixelgroesse wirkt beim Rauszoomen unuebersichtlich: nahe Punkte ruecken naeher
@@ -2919,17 +2890,17 @@ function renderStandaloneMap(containerId){
     // werden kann — und langes Drücken auf manchen Mobilgeräten (z. B. iOS Safari) beim Antippen
     // eines Kartenelements ohnehin nicht zuverlässig als contextmenu-Ereignis ankommt.
     function addMapEntity(catKey, color, track, points, popupContentFn){
-      if(!categoryLayers[catKey]) categoryLayers[catKey] = L.layerGroup();
+      if(!categoryLayers[catKey]) categoryLayers[catKey] = FL.layerGroup();
       const layer = categoryLayers[catKey];
       if(track && track.length){
         try{
           // Breite unsichtbare Klickfläche unter der sichtbaren, dünnen Linie — deutlich
           // leichter mit dem Finger zu treffen.
-          const hitLine = L.polyline(track, {color:'#000', weight:22, opacity:0}).addTo(layer);
-          const line = L.polyline(track, {color, weight:3.5, opacity:0.85}).addTo(layer);
+          const hitLine = FL.polyline(track, {color:'#000', weight:22, opacity:0}).addTo(layer);
+          const line = FL.polyline(track, {color, weight:3.5, opacity:0.85}).addTo(layer);
           hitLine.on('click', (e)=>{
-            L.DomEvent.stopPropagation(e);
-            L.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
+            FL.DomEvent.stopPropagation(e);
+            FL.popup().setLatLng(e.latlng).setContent(popupContentFn()).openOn(map);
           });
           allBoundsItems.push(line);
         }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
@@ -2938,11 +2909,11 @@ function renderStandaloneMap(containerId){
         try{
           // Wie bei den Linien: grosse, unsichtbare Trefferfläche (ca. 44 px) unter dem kleinen
           // sichtbaren Punkt, damit man ihn mit dem Finger (oder Handschuh) sicher trifft.
-          const hit = L.circleMarker([p.lat, p.lon], {radius:22, stroke:false, fill:true, fillColor:'#000', fillOpacity:0}).addTo(layer);
-          const m = L.circleMarker([p.lat, p.lon], {radius:radiusForZoom(map.getZoom()), color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
+          const hit = FL.circleMarker([p.lat, p.lon], {radius:22, stroke:false, fill:true, fillColor:'#000', fillOpacity:0}).addTo(layer);
+          const m = FL.circleMarker([p.lat, p.lon], {radius:radiusForZoom(map.getZoom()), color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(layer);
           const openPopup = (e)=>{
-            L.DomEvent.stopPropagation(e);
-            L.popup().setLatLng([p.lat, p.lon]).setContent(popupContentFn()).openOn(map);
+            FL.DomEvent.stopPropagation(e);
+            FL.popup().setLatLng([p.lat, p.lon]).setContent(popupContentFn()).openOn(map);
           };
           hit.on('click', openPopup);
           m.on('click', openPopup);
@@ -3017,7 +2988,7 @@ function renderStandaloneMap(containerId){
     const zOrderedCategories = [...presentCategories.filter(k=>k==='zustieg'), ...presentCategories.filter(k=>k!=='zustieg')];
     zOrderedCategories.forEach(key=> categoryLayers[key].addTo(map));
     if(allBoundsItems.length){
-      map.fitBounds(L.featureGroup(allBoundsItems).getBounds(), {padding:[30,30]});
+      map.fitBounds(FL.featureGroup(allBoundsItems).getBounds(), {padding:[30,30]});
     }
     map.on('zoomend', ()=>{
       const r = radiusForZoom(map.getZoom());
@@ -3033,11 +3004,11 @@ function renderStandaloneMap(containerId){
       // Leiste zuklappt und wieder öffnet.
       const filterState = {};
       presentCategories.forEach(key=> filterState[key] = true);
-      const TourFilterControl = L.Control.extend({
+      const TourFilterControl = FL.Control.extend({
         options: { position: 'topleft' },
         onAdd: function(){
-          const wrap = L.DomUtil.create('div', 'fsm-ctl fsm-filter');
-          L.DomEvent.disableClickPropagation(wrap);
+          const wrap = FL.DomUtil.create('div', 'fsm-ctl fsm-filter');
+          FL.DomEvent.disableClickPropagation(wrap);
           let expanded = false;
           function renderControl(){
             wrap.innerHTML = '';
@@ -3092,12 +3063,12 @@ function renderStandaloneMap(containerId){
     // Online-Treffer verzögert (debounced) darunter. Schlägt die Online-Suche fehl (z. B. offline),
     // bleiben die eigenen Treffer trotzdem nutzbar — nur ein Hinweistext macht das kenntlich.
     {
-      const SearchControl = L.Control.extend({
-        options: { position: 'topright' },
+      const SearchControl = FL.Control.extend({
+        options: { position: 'topleft' },
         onAdd: function(){
-          const wrap = L.DomUtil.create('div', 'fsm-ctl fsm-search');
-          L.DomEvent.disableClickPropagation(wrap);
-          L.DomEvent.disableScrollPropagation(wrap);
+          const wrap = FL.DomUtil.create('div', 'fsm-ctl fsm-search');
+          FL.DomEvent.disableClickPropagation(wrap);
+          FL.DomEvent.disableScrollPropagation(wrap);
           let expanded = false;
           let searchSeq = 0;
           let debounceTimer = null;
@@ -3107,12 +3078,12 @@ function renderStandaloneMap(containerId){
             // Vollbildkarte (position:fixed, oben rechts, z-index:100000) — sonst liegt der
             // Suchen-Button optisch exakt darunter und ist unauffindbar.
             if(!expanded){
-              wrap.style.cssText = 'margin-top:64px; background:#fff; border-radius:50%; width:40px; height:40px; box-shadow:0 2px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px;';
+              wrap.style.cssText = 'background:#fff; border-radius:50%; width:40px; height:40px; box-shadow:0 2px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px;';
               wrap.onclick = ()=>{ expanded = true; renderControl(); wrap.querySelector('input').focus(); };
               wrap.title = 'Suchen';
               wrap.textContent = '🔍';
             }else{
-              wrap.style.cssText = 'margin-top:64px; background:rgba(255,255,255,0.97); padding:8px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.35); width:240px;';
+              wrap.style.cssText = 'background:rgba(255,255,255,0.97); padding:8px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.35); width:240px;';
               wrap.onclick = null;
               const row = document.createElement('div');
               row.style.cssText = 'display:flex; gap:4px; align-items:center;';
@@ -3152,7 +3123,7 @@ function renderStandaloneMap(containerId){
               }
               function jumpTo(coords, popupContent){
                 map.setView(coords, 15);
-                L.popup().setLatLng(coords).setContent(popupContent).openOn(map);
+                FL.popup().setLatLng(coords).setContent(popupContent).openOn(map);
                 expanded = false; renderControl();
               }
               function renderResults(localMatches, onlineMatches, statusText){
@@ -3201,50 +3172,7 @@ function renderStandaloneMap(containerId){
       map.addControl(new SearchControl());
     }
 
-    // Als echtes Leaflet-Control eingebunden (statt als loses DOM-Element über der Karte) —
-    // so landet der Button garantiert in Leaflets eigener Control-Ebene, oberhalb der
-    // Kartenkacheln, statt visuell dahinter zu verschwinden.
-    const GpsControl = L.Control.extend({
-      options: { position: 'bottomright' },
-      onAdd: function(ctrlMap){
-        const btn = L.DomUtil.create('button', 'fsm-ctl fsm-gps');
-        btn.type = 'button';
-        btn.textContent = '🧭 Standort anzeigen';
-        btn.style.cssText = 'background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 16px; height:44px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.4); margin:0 10px 10px 0;';
-        L.DomEvent.disableClickPropagation(btn);
-        L.DomEvent.disableScrollPropagation(btn);
-        let gpsMarker = null;
-        let gpsActive = false;
-        btn.addEventListener('click', ()=>{
-          if(!gpsActive){
-            ctrlMap.locate({ setView:true, maxZoom:15, watch:true, enableHighAccuracy:true });
-            gpsActive = true;
-            btn.textContent = '🧭 Standort ausblenden';
-            btn.classList.add('on');
-          }else{
-            ctrlMap.stopLocate();
-            gpsActive = false;
-            btn.textContent = '🧭 Standort anzeigen';
-            btn.classList.remove('on');
-          }
-        });
-        ctrlMap.on('locationfound', (e)=>{
-          if(!gpsMarker){
-            gpsMarker = L.circleMarker(e.latlng, {radius:8, color:'#fff', weight:3, fillColor:'#1565C0', fillOpacity:1}).addTo(ctrlMap);
-          }else{
-            gpsMarker.setLatLng(e.latlng);
-          }
-        });
-        ctrlMap.on('locationerror', (err)=>{
-          showToast('Standort konnte nicht ermittelt werden: ' + (err && err.message ? err.message : ''), true);
-          gpsActive = false;
-          btn.textContent = '🧭 Standort anzeigen';
-          btn.classList.remove('on');
-        });
-        return btn;
-      }
-    });
-    map.addControl(new GpsControl());
+    // Standort: Knopf oben rechts (gemeinsam für alle Karten, siehe fsmAddControls)
 
     /* ================= Neuen Punkt direkt auf der Übersichtskarte setzen, ohne die Karte zu
        wechseln. Bewusst zweistufig wie die Wanderungsplanung unten: erst diesen Knopf antippen
@@ -3254,8 +3182,8 @@ function renderStandaloneMap(containerId){
     const addPointBtn = document.createElement('div');
     addPointBtn.id = 'add-point-toggle';
     addPointBtn.style.cssText = 'position:absolute; left:50%; bottom:76px; transform:translateX(-50%); z-index:1000; background:#fff; border-radius:50%; box-shadow:0 3px 12px rgba(0,0,0,0.4); width:52px; height:52px; display:flex; align-items:center; justify-content:center; font-size:22px; cursor:pointer;';
-    L.DomEvent.disableClickPropagation(addPointBtn);
-    L.DomEvent.disableScrollPropagation(addPointBtn);
+    FL.DomEvent.disableClickPropagation(addPointBtn);
+    FL.DomEvent.disableScrollPropagation(addPointBtn);
     el2.appendChild(addPointBtn);
     function renderAddPointBtn(){
       addPointBtn.textContent = addPointPicking ? '✕' : '➕';
@@ -3297,11 +3225,11 @@ function renderStandaloneMap(containerId){
     const plannerPanel = document.createElement('div');
     plannerPanel.id = 'planner-panel';
     plannerPanel.className = 'fsp';
-    L.DomEvent.disableClickPropagation(plannerPanel);
-    L.DomEvent.disableScrollPropagation(plannerPanel);
+    FL.DomEvent.disableClickPropagation(plannerPanel);
+    FL.DomEvent.disableScrollPropagation(plannerPanel);
     el2.appendChild(plannerPanel);
 
-    // Farbige Punkt-Icons als echte L.marker (statt L.circleMarker) — nur L.marker unterstützt
+    // Farbige Punkt-Icons als echte FL.marker (statt FL.circleMarker) — nur FL.marker unterstützt
     // in Leaflet ohne Zusatz-Plugin das Ziehen (draggable:true), was Start/Ziel/Zwischenpunkte
     // direkt auf der Karte korrigierbar macht.
     // Punkte sind fest: Karte verschieben bewegt nie einen Punkt. Verschieben erst nach langem
@@ -3355,7 +3283,7 @@ function renderStandaloneMap(containerId){
     // Nummer, Ziel = Akzentfarbe gefüllt (Farben siehe .fsp-marker in look.css).
     function makePlannerDivIcon(color, label){
       const kind = label==='S' ? 'start' : label==='Z' ? 'end' : 'via';
-      return L.divIcon({
+      return FL.divIcon({
         className: '', iconSize: [30,30], iconAnchor: [15,15],
         html: `<div class="fsp-marker fsp-marker-${kind}">${kind==='via' ? (label||'') : ''}</div>`
       });
@@ -3412,7 +3340,7 @@ function renderStandaloneMap(containerId){
         if(plannerStartMarker){
           plannerStartMarker.setLatLng([lat,lon]);
         }else{
-          plannerStartMarker = L.marker([lat,lon], {icon: makePlannerDivIcon('#2F6B44','S')}).addTo(map);
+          plannerStartMarker = FL.marker([lat,lon], {icon: makePlannerDivIcon('#2F6B44','S')}).addTo(map);
           makeLongPressDraggable(plannerStartMarker, (ll)=> setPlannerPoint('start', ll.lat, ll.lng, 'Startpunkt (verschoben)'));
         }
         plannerStartMarker.unbindTooltip().bindTooltip('Start: ' + label);
@@ -3423,7 +3351,7 @@ function renderStandaloneMap(containerId){
         if(plannerEndMarker){
           plannerEndMarker.setLatLng([lat,lon]);
         }else{
-          plannerEndMarker = L.marker([lat,lon], {icon: makePlannerDivIcon('#B0392C','Z')}).addTo(map);
+          plannerEndMarker = FL.marker([lat,lon], {icon: makePlannerDivIcon('#B0392C','Z')}).addTo(map);
           makeLongPressDraggable(plannerEndMarker, (ll)=> setPlannerPoint('end', ll.lat, ll.lng, 'Zielpunkt (verschoben)'));
         }
         plannerEndMarker.unbindTooltip().bindTooltip('Ziel: ' + label);
@@ -3439,7 +3367,7 @@ function renderStandaloneMap(containerId){
 
     function addPlannerWaypoint(lat, lon){
       const wp = {lat, lon};
-      const marker = L.marker([lat,lon], {icon: makePlannerDivIcon('#1565C0', String(plannerWaypoints.length+1))}).addTo(map);
+      const marker = FL.marker([lat,lon], {icon: makePlannerDivIcon('#1565C0', String(plannerWaypoints.length+1))}).addTo(map);
       makeLongPressDraggable(marker, (ll)=>{
         wp.lat = ll.lat; wp.lon = ll.lng;
         invalidatePlannerResult();
@@ -3506,7 +3434,7 @@ function renderStandaloneMap(containerId){
         plannerResult = result;
         if(plannerRouteLine) map.removeLayer(plannerRouteLine);
         const accent = (getComputedStyle(document.documentElement).getPropertyValue('--ice-deep') || '#1E6AA0').trim();
-        plannerRouteLine = L.polyline(result.coords, {color:accent, weight:6, opacity:0.95, lineCap:'round', lineJoin:'round'}).addTo(map);
+        plannerRouteLine = FL.polyline(result.coords, {color:accent, weight:6, opacity:0.95, lineCap:'round', lineJoin:'round'}).addTo(map);
         map.fitBounds(plannerRouteLine.getBounds(), {paddingTopLeft:[40,80], paddingBottomRight:[40, Math.round(plannerPanel.offsetHeight||0) + 30]});
       }catch(e){
         showToast('Route konnte nicht berechnet werden: ' + (e && e.message ? e.message : e), true);
@@ -3769,7 +3697,7 @@ function renderStandaloneMap(containerId){
       if(toggleBtn) toggleBtn.onclick = ()=>{
         plannerExpanded = !plannerExpanded;
         // Beim Planen die Wanderwege automatisch einblenden (bleiben danach an, bis man sie abwählt).
-        if(plannerExpanded && wanderwegeLayer && !map.hasLayer(wanderwegeLayer)) map.addLayer(wanderwegeLayer);
+        if(plannerExpanded && !fsmOverlayOn(map._ml, 'wanderwege')) fsmSetOverlay(map._ml, 'wanderwege', true);
         renderPlannerPanel();
       };
       const startGpsBtn = plannerPanel.querySelector('[data-act="planner-start-gps"]');
@@ -4027,7 +3955,7 @@ function fsmCreateMap(container, opts){
     maxPitch: 60, attributionControl: {compact: true}, dragRotate: true, touchPitch: true,
     maxBounds: [[3, 43.5], [13.5, 49.5]]
   });
-  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}};
+  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0};
   map.once('load', ()=>{ map._fsmLoaded = true; fsmApplyPrefs(map); });
   if(opts.controls !== false) fsmAddControls(map);
   return map;
@@ -4116,7 +4044,8 @@ async function fsmLoadSlf(map, lid){
 // Knöpfe oben rechts: Ebenen, Kompass (nur wenn gedreht/gekippt), 3D
 function fsmAddControls(map){
   const box = document.createElement('div');
-  box.className = 'fsm-ctl';
+  box.className = 'fsm-ctlbox';
+  if(map._fsm.ctlTop) box.style.top = map._fsm.ctlTop + 'px';
   box.innerHTML = `<button type="button" class="fsm-btn" data-fsm="layers" aria-label="Kartenebenen">${fsIconHtml('layers')}</button>
     <button type="button" class="fsm-btn" data-fsm="gps" aria-label="Mein Standort">${fsIconHtml('gps')}</button>
     <button type="button" class="fsm-btn fsm-compass" data-fsm="north" aria-label="Nach Norden ausrichten" hidden><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><g class="fsm-needle"><path d="M12 2.5 15.2 12H8.8Z" fill="#E03131"/><path d="M12 21.5 8.8 12h6.4Z" fill="#9AA5AD"/><text x="12" y="11" text-anchor="middle" font-size="5.5" font-weight="800" fill="#fff" font-family="sans-serif">N</text></g></svg></button>
@@ -4124,6 +4053,7 @@ function fsmAddControls(map){
   map.getContainer().appendChild(box);
   const panel = document.createElement('div');
   panel.className = 'fsm-panel';
+  if(map._fsm.ctlTop) panel.style.top = map._fsm.ctlTop + 'px';
   panel.hidden = true;
   map.getContainer().appendChild(panel);
   map._fsm.panel = panel;
@@ -4227,26 +4157,365 @@ function fsmIdentifyView(map){
 }
 // SAC-Skitouren / Wegsperrungen antippen (wie auf der grossen Karte)
 function fsmWireInfoClicks(map, opts){
-  map.on('click', async (e)=>{
+  map.on('click', (e)=>{
     if(e.originalEvent && e.originalEvent._fsmHandled) return;
-    const ll = {lat: e.lngLat.lat, lng: e.lngLat.lng};
-    if(fsmOverlayOn(map, 'skitouren')){
-      const res = await identifySkitourAt(null, ll, fsmIdentifyView(map));
-      if(res){
-        const pop = fsmPopup(map, e.lngLat, document.createElement('div'));
-        pop.setDOMContent(buildSkitourPopupContent(res, Object.assign({popup: pop}, opts && opts.sac)));
-        return;
-      }
-    }
-    if(fsmOverlayOn(map, 'sperrungen')){
-      const f = await identifyWegsperrungAt(null, ll, fsmIdentifyView(map));
-      if(f){ fsmPopup(map, e.lngLat, buildWegsperrungPopupContent(f)); return; }
-    }
-    if(fsmOverlayOn(map, 'slf')){
-      const hit = map.queryRenderedFeatures(e.point, {layers:['ov-slf']})[0];
-      if(hit) fsmPopup(map, e.lngLat, `<b>Lawinengefahr: Stufe ${esc(hit.properties.label)}</b><br/><a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`);
-    }
+    fsmHandleInfoClick(map, {lat: e.lngLat.lat, lng: e.lngLat.lng}, opts);
   });
+}
+// Infos zur angetippten Stelle (SAC-Skitour, Wegsperrung, Lawinengefahr), falls die Ebene an ist.
+// Gibt true zurück, wenn etwas gezeigt wurde.
+async function fsmHandleInfoClick(map, ll, opts){
+  const lngLat = {lng: ll.lng, lat: ll.lat};
+  if(fsmOverlayOn(map, 'skitouren')){
+    const res = await identifySkitourAt(null, ll, fsmIdentifyView(map));
+    if(res){
+      const pop = fsmPopup(map, lngLat, document.createElement('div'));
+      pop.setDOMContent(buildSkitourPopupContent(res, Object.assign({popup: pop}, opts && opts.sac)));
+      return true;
+    }
+  }
+  if(fsmOverlayOn(map, 'sperrungen')){
+    const f = await identifyWegsperrungAt(null, ll, fsmIdentifyView(map));
+    if(f){ fsmPopup(map, lngLat, buildWegsperrungPopupContent(f)); return true; }
+  }
+  if(fsmOverlayOn(map, 'slf')){
+    const hit = map.queryRenderedFeatures(map.project([ll.lng, ll.lat]), {layers:['ov-slf']})[0];
+    if(hit){ fsmPopup(map, lngLat, `<b>Lawinengefahr: Stufe ${esc(hit.properties.label)}</b><br/><a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`); return true; }
+  }
+  return false;
+}
+
+/* ================= FL: Leaflet-Befehle auf MapLibre =================
+   Die Karten-Logik der App (Routenplaner, Punkte setzen, Bearbeiten, Übersichten) ist mit
+   Leaflet-Befehlen geschrieben und bewährt. FL bietet dieselben Befehle (polyline, marker,
+   circleMarker, layerGroup, popup, Control …), zeichnet aber mit MapLibre — so laufen alle Karten
+   auf derselben Technik (drehen, Luftbild + Namen, offline), ohne die Logik neu zu schreiben.
+   Nur der Teil von Leaflet, den die App wirklich nutzt. Koordinaten wie bei Leaflet: [lat, lng]. */
+const FL = (function(){
+  let seq = 0;
+  const toLL = (ll)=> Array.isArray(ll) ? {lat:+ll[0], lng:+ll[1]} : {lat:+ll.lat, lng:+(ll.lng != null ? ll.lng : ll.lon)};
+  const toLngLat = (ll)=>{ const p = toLL(ll); return [p.lng, p.lat]; };
+  function evented(obj){
+    obj._ev = {};
+    obj.on = function(type, fn){ type.split(' ').forEach(t=> (this._ev[t] = this._ev[t] || []).push(fn)); return this; };
+    obj.off = function(type, fn){ type.split(' ').forEach(t=>{ this._ev[t] = (this._ev[t] || []).filter(f=> fn && f !== fn); }); return this; };
+    obj.once = function(type, fn){ const w = (e)=>{ this.off(type, w); fn(e); }; return this.on(type, w); };
+    obj.fire = function(type, e){ (this._ev[type] || []).slice().forEach(f=> f.call(this, Object.assign({target:this, type}, e || {}))); return this; };
+    obj.listens = function(type){ return !!(this._ev[type] && this._ev[type].length); };
+    return obj;
+  }
+  // ----- Grenzen -----
+  function Bounds(a, b){ this._sw = null; this._ne = null; if(a) this.extend(a); if(b) this.extend(b); }
+  Bounds.prototype.extend = function(x){
+    if(x instanceof Bounds){ if(x.isValid()){ this.extend(x._sw); this.extend(x._ne); } return this; }
+    if(Array.isArray(x) && x.length && (Array.isArray(x[0]) || (x[0] && typeof x[0] === 'object'))){ x.forEach(p=> this.extend(p)); return this; }
+    const p = toLL(x);
+    if(!this._sw){ this._sw = {lat:p.lat, lng:p.lng}; this._ne = {lat:p.lat, lng:p.lng}; }
+    else{ this._sw.lat = Math.min(this._sw.lat, p.lat); this._sw.lng = Math.min(this._sw.lng, p.lng); this._ne.lat = Math.max(this._ne.lat, p.lat); this._ne.lng = Math.max(this._ne.lng, p.lng); }
+    return this;
+  };
+  Bounds.prototype.isValid = function(){ return !!this._sw; };
+  Bounds.prototype.getSouthWest = function(){ return this._sw; };
+  Bounds.prototype.getNorthEast = function(){ return this._ne; };
+  Bounds.prototype.getWest = function(){ return this._sw.lng; };
+  Bounds.prototype.getEast = function(){ return this._ne.lng; };
+  Bounds.prototype.getSouth = function(){ return this._sw.lat; };
+  Bounds.prototype.getNorth = function(){ return this._ne.lat; };
+  Bounds.prototype.getCenter = function(){ return {lat:(this._sw.lat + this._ne.lat)/2, lng:(this._sw.lng + this._ne.lng)/2}; };
+  Bounds.prototype.contains = function(x){ const p = toLL(x); return this.isValid() && p.lat >= this._sw.lat && p.lat <= this._ne.lat && p.lng >= this._sw.lng && p.lng <= this._ne.lng; };
+  Bounds.prototype.pad = function(r){ const dl = (this._ne.lat - this._sw.lat) * r, dg = (this._ne.lng - this._sw.lng) * r; return new Bounds([this._sw.lat - dl, this._sw.lng - dg], [this._ne.lat + dl, this._ne.lng + dg]); };
+  function boundsOf(x){ if(x instanceof Bounds) return x; if(x && x.getSouthWest && x.getNorthEast && !(x instanceof Bounds)){ const sw = x.getSouthWest(), ne = x.getNorthEast(); return new Bounds([sw.lat, sw.lng], [ne.lat, ne.lng]); } return new Bounds(x); }
+
+  // ----- Basis für Ebenen -----
+  function Layer(){ evented(this); this._map = null; this._groups = []; }
+  Layer.prototype.addTo = function(t){ t.addLayer(this); return this; };
+  Layer.prototype.remove = function(){ if(this._map) this._map.removeLayer(this); this._groups.slice().forEach(g=> g.removeLayer(this)); return this; };
+  Layer.prototype.bindPopup = function(content, opts){ this._popupContent = content; this._popupOpts = opts; if(!this._popupBound){ this._popupBound = true; this.on('click', (e)=> this.openPopup(e && e.latlng)); } return this; };
+  Layer.prototype.openPopup = function(ll){
+    if(!this._map || this._popupContent == null) return this;
+    const c = typeof this._popupContent === 'function' ? this._popupContent(this) : this._popupContent;
+    new Popup(this._popupOpts).setLatLng(ll || this._anchorLatLng()).setContent(c).openOn(this._map);
+    return this;
+  };
+  Layer.prototype.bindTooltip = function(t){ this._tooltip = typeof t === 'string' ? t.replace(/<[^>]+>/g, '') : ''; this._applyTooltip && this._applyTooltip(); return this; };
+  Layer.prototype.unbindTooltip = function(){ this._tooltip = ''; this._applyTooltip && this._applyTooltip(); return this; };
+  Layer.prototype.getPopup = function(){ return null; };
+
+  // ----- Linie -----
+  function Polyline(latlngs, opts){ Layer.call(this); this._ll = (latlngs || []).map(toLL); this.options = Object.assign({color:'#3388ff', weight:3, opacity:1}, opts || {}); this._id = 'fl-' + (++seq); }
+  Polyline.prototype = Object.create(Layer.prototype);
+  Polyline.prototype._data = function(){ return {type:'Feature', properties:{}, geometry:{type:'LineString', coordinates: this._ll.map(p=> [p.lng, p.lat])}}; };
+  Polyline.prototype._paint = function(){
+    const o = this.options, p = {'line-color': o.color, 'line-width': o.weight, 'line-opacity': o.opacity == null ? 1 : o.opacity};
+    if(o.dashArray){ const d = String(o.dashArray).split(/[ ,]+/).map(Number).filter(n=> n > 0); if(d.length >= 2) p['line-dasharray'] = d.map(n=> n / Math.max(1, o.weight)); }
+    return p;
+  };
+  Polyline.prototype._onAdd = function(fm){
+    const m = fm._ml;
+    m.addSource(this._id, {type:'geojson', data: this._data()});
+    m.addLayer({id:this._id, type:'line', source:this._id, layout:{'line-cap': this.options.lineCap || 'round', 'line-join': this.options.lineJoin || 'round'}, paint:this._paint()});
+    if(this.options.interactive !== false && (this.listens('click') || this._popupBound)){
+      this._click = (e)=>{ this.fire('click', fm._evt(e)); };
+      m.on('click', this._id, this._click);
+      this._enter = ()=>{ m.getCanvas().style.cursor = 'pointer'; };
+      this._leave = ()=>{ m.getCanvas().style.cursor = ''; };
+      m.on('mouseenter', this._id, this._enter); m.on('mouseleave', this._id, this._leave);
+    }
+  };
+  Polyline.prototype._onRemove = function(fm){
+    const m = fm._ml;
+    if(this._click){ m.off('click', this._id, this._click); m.off('mouseenter', this._id, this._enter); m.off('mouseleave', this._id, this._leave); this._click = null; }
+    if(m.getLayer(this._id)) m.removeLayer(this._id);
+    if(m.getSource(this._id)) m.removeSource(this._id);
+  };
+  Polyline.prototype.setLatLngs = function(ll){ this._ll = (ll || []).map(toLL); if(this._map && this._map._ml.getSource(this._id)) this._map._ml.getSource(this._id).setData(this._data()); return this; };
+  Polyline.prototype.getLatLngs = function(){ return this._ll.slice(); };
+  Polyline.prototype.addLatLng = function(ll){ this._ll.push(toLL(ll)); return this.setLatLngs(this._ll); };
+  Polyline.prototype.getBounds = function(){ return new Bounds(this._ll.map(p=> [p.lat, p.lng])); };
+  Polyline.prototype.setStyle = function(o){ Object.assign(this.options, o); if(this._map && this._map._ml.getLayer(this._id)){ const p = this._paint(); Object.keys(p).forEach(k=> this._map._ml.setPaintProperty(this._id, k, p[k])); if(!p['line-dasharray']) this._map._ml.setPaintProperty(this._id, 'line-dasharray', undefined); } return this; };
+  Polyline.prototype.bringToFront = function(){ if(this._map && this._map._ml.getLayer(this._id)) this._map._ml.moveLayer(this._id); return this; };
+  Polyline.prototype._anchorLatLng = function(){ return this._ll[Math.floor(this._ll.length / 2)] || {lat:0, lng:0}; };
+  const _polyOn = Layer.prototype.on;
+
+  // ----- Marker (HTML) -----
+  function DivIcon(o){ this.options = Object.assign({iconSize:[12,12]}, o || {}); }
+  function Marker(ll, opts){ Layer.call(this); this._ll = toLL(ll); this.options = Object.assign({}, opts || {}); }
+  Marker.prototype = Object.create(Layer.prototype);
+  Marker.prototype._buildEl = function(){
+    const ic = this.options.icon || new DivIcon({html:'<div class="fl-default-pin"></div>', iconSize:[24,24], iconAnchor:[12,24]});
+    const o = ic.options, el = document.createElement('div');
+    el.className = 'fl-marker ' + (o.className || '');
+    const sz = o.iconSize || [12,12];
+    el.style.width = sz[0] + 'px'; el.style.height = sz[1] + 'px';
+    if(o.html instanceof Element) el.appendChild(o.html); else el.innerHTML = o.html || '';
+    const anc = o.iconAnchor || [sz[0]/2, sz[1]/2];
+    this._offset = [sz[0]/2 - anc[0], sz[1]/2 - anc[1]];
+    return el;
+  };
+  Marker.prototype._onAdd = function(fm){
+    const el = this._el = this._buildEl();
+    el.addEventListener('click', (ev)=>{ ev._fsmHandled = true; ev.stopPropagation(); this.fire('click', {latlng:this._ll, originalEvent:ev}); });
+    this._mk = new maplibregl.Marker({element: el, offset: this._offset, draggable: !!this.options.draggable}).setLngLat([this._ll.lng, this._ll.lat]).addTo(fm._ml);
+    if(this.options.draggable){
+      this._mk.on('drag', ()=>{ const p = this._mk.getLngLat(); this._ll = {lat:p.lat, lng:p.lng}; this.fire('drag', {latlng:this._ll}); });
+      this._mk.on('dragend', ()=>{ const p = this._mk.getLngLat(); this._ll = {lat:p.lat, lng:p.lng}; this.fire('dragend', {latlng:this._ll}); });
+    }
+    if(this.options.zIndexOffset) el.style.zIndex = String(1000 + this.options.zIndexOffset);
+    this._applyTooltip();
+  };
+  Marker.prototype._onRemove = function(){ if(this._mk){ this._mk.remove(); this._mk = null; } this._el = null; };
+  Marker.prototype._applyTooltip = function(){ if(this._el){ if(this._tooltip) this._el.title = this._tooltip; else this._el.removeAttribute('title'); } };
+  Marker.prototype.getElement = function(){ return this._el || null; };
+  Marker.prototype.setLatLng = function(ll){ this._ll = toLL(ll); if(this._mk) this._mk.setLngLat([this._ll.lng, this._ll.lat]); this.fire('move', {latlng:this._ll}); return this; };
+  Marker.prototype.getLatLng = function(){ return {lat:this._ll.lat, lng:this._ll.lng}; };
+  Marker.prototype.setIcon = function(ic){ this.options.icon = ic; if(this._map){ const fm = this._map; this._onRemove(fm); this._onAdd(fm); this.fire('add'); } return this; };
+  Marker.prototype.setOpacity = function(o){ if(this._el) this._el.style.opacity = o; return this; };
+  Marker.prototype.setZIndexOffset = function(z){ this.options.zIndexOffset = z; if(this._el) this._el.style.zIndex = String(1000 + z); return this; };
+  Marker.prototype._anchorLatLng = function(){ return this._ll; };
+  Object.defineProperty(Marker.prototype, 'dragging', {get(){ const self = this; return {enable(){ self.options.draggable = true; if(self._mk) self._mk.setDraggable(true); }, disable(){ self.options.draggable = false; if(self._mk) self._mk.setDraggable(false); }}; }});
+
+  // ----- Kreis-Marker (Punkt mit Rand), als HTML -----
+  function CircleMarker(ll, opts){
+    Marker.call(this, ll, {});
+    this.options = Object.assign({radius:10, color:'#3388ff', weight:3, fillColor:null, fillOpacity:0.2, stroke:true, fill:true, opacity:1}, opts || {});
+  }
+  CircleMarker.prototype = Object.create(Marker.prototype);
+  CircleMarker.prototype._buildEl = function(){
+    const el = document.createElement('div');
+    el.className = 'fl-circle';
+    this._styleEl(el);
+    this._offset = [0, 0];
+    return el;
+  };
+  CircleMarker.prototype._styleEl = function(el){
+    const o = this.options, r = o.radius, w = o.stroke === false ? 0 : (o.weight || 0);
+    el.style.width = el.style.height = (2 * r) + 'px';
+    el.style.borderRadius = '50%';
+    el.style.boxSizing = 'border-box';
+    el.style.border = w ? (w + 'px solid ' + o.color) : 'none';
+    el.style.opacity = o.opacity == null ? 1 : o.opacity;
+    const fc = o.fillColor || o.color;
+    el.style.background = o.fill === false ? 'transparent' : fc;
+    if(o.fill !== false && o.fillOpacity < 1){ el.style.background = 'transparent'; el.style.boxShadow = 'inset 0 0 0 ' + r + 'px ' + fsmAlpha(fc, o.fillOpacity); }
+    if(o.fillOpacity === 0 && !w){ el.style.background = 'transparent'; el.style.boxShadow = 'none'; }
+  };
+  CircleMarker.prototype.setRadius = function(r){ this.options.radius = r; if(this._el) this._styleEl(this._el); return this; };
+  CircleMarker.prototype.setStyle = function(o){ Object.assign(this.options, o); if(this._el) this._styleEl(this._el); return this; };
+  CircleMarker.prototype.getRadius = function(){ return this.options.radius; };
+
+  // ----- Gruppe -----
+  function LayerGroup(layers){ Layer.call(this); this._layers = []; (layers || []).forEach(l=> this.addLayer(l)); }
+  LayerGroup.prototype = Object.create(Layer.prototype);
+  LayerGroup.prototype.addLayer = function(l){ if(this._layers.includes(l)) return this; this._layers.push(l); l._groups.push(this); if(this._map) this._map.addLayer(l); return this; };
+  LayerGroup.prototype.removeLayer = function(l){ this._layers = this._layers.filter(x=> x !== l); l._groups = l._groups.filter(g=> g !== this); if(this._map && l._map === this._map) this._map.removeLayer(l); return this; };
+  LayerGroup.prototype.clearLayers = function(){ this._layers.slice().forEach(l=> this.removeLayer(l)); return this; };
+  LayerGroup.prototype.hasLayer = function(l){ return this._layers.includes(l); };
+  LayerGroup.prototype.eachLayer = function(fn){ this._layers.slice().forEach(fn); return this; };
+  LayerGroup.prototype.getLayers = function(){ return this._layers.slice(); };
+  LayerGroup.prototype._onAdd = function(fm){ this._layers.forEach(l=> fm.addLayer(l)); };
+  LayerGroup.prototype._onRemove = function(fm){ this._layers.forEach(l=>{ if(l._map === fm) fm.removeLayer(l); }); };
+  LayerGroup.prototype.getBounds = function(){ const b = new Bounds(); this._layers.forEach(l=>{ if(l.getBounds) b.extend(l.getBounds()); else if(l.getLatLng) b.extend(l.getLatLng()); }); return b; };
+  LayerGroup.prototype.bringToFront = function(){ this._layers.forEach(l=> l.bringToFront && l.bringToFront()); return this; };
+
+  // ----- Popup -----
+  function Popup(opts){ this.options = Object.assign({}, opts || {}); this._ll = null; this._content = null; }
+  Popup.prototype.setLatLng = function(ll){ this._ll = toLL(ll); if(this._p) this._p.setLngLat([this._ll.lng, this._ll.lat]); return this; };
+  Popup.prototype.getLatLng = function(){ return this._ll; };
+  Popup.prototype.setContent = function(c){
+    this._content = c;
+    if(this._p){ if(typeof c === 'string') this._p.setHTML(c); else this._p.setDOMContent(c); }
+    return this;
+  };
+  Popup.prototype.openOn = function(fm){
+    fm.closePopup();
+    const maxW = this.options.maxWidth ? this.options.maxWidth + 'px' : '300px';
+    this._p = new maplibregl.Popup({maxWidth:maxW, offset:this.options.offset ? this.options.offset[1] ? Math.abs(this.options.offset[1]) : 10 : 10, className:'fsm-popup', closeOnClick:true}).setLngLat([this._ll.lng, this._ll.lat]);
+    if(typeof this._content === 'string') this._p.setHTML(this._content); else if(this._content) this._p.setDOMContent(this._content);
+    this._p.addTo(fm._ml);
+    fm._popup = this;
+    this._p.on('close', ()=>{ if(fm._popup === this) fm._popup = null; });
+    return this;
+  };
+  Popup.prototype.remove = function(){ if(this._p){ this._p.remove(); this._p = null; } return this; };
+  Popup.prototype.isOpen = function(){ return !!(this._p && this._p.isOpen()); };
+  Popup.prototype.getElement = function(){ return this._p ? this._p.getElement() : null; };
+
+  // ----- Steuerelemente in den Ecken -----
+  function makeControl(proto){
+    function C(options){ this.options = Object.assign({position:'topright'}, proto.options || {}, options || {}); }
+    Object.assign(C.prototype, proto);
+    C.prototype.addTo = function(fm){ fm.addControl(this); return this; };
+    C.prototype.remove = function(){ if(this._container) this._container.remove(); if(this.onRemove && this._fm) this.onRemove(this._fm); return this; };
+    C.prototype.getContainer = function(){ return this._container; };
+    return C;
+  }
+  const Control = {extend: makeControl};
+
+  // ----- Karte -----
+  function FMap(ml){
+    evented(this);
+    this._ml = ml; this._layers = new Set(); this._popup = null;
+    this.options = {};
+    const corners = this._corners = {};
+    ['topleft','topright','bottomleft','bottomright'].forEach(c=>{
+      const d = document.createElement('div'); d.className = 'fl-corner fl-' + c; ml.getContainer().appendChild(d); corners[c] = d;
+    });
+    const self = this;
+    // Klicks auf die Karte erst nach den Klicks auf Linien/Marker melden — wer dort
+    // DomEvent.stopPropagation() aufruft, verhindert wie bei Leaflet den Karten-Klick.
+    ml.on('click', (e)=>{ const ev = self._evt(e); Promise.resolve().then(()=>{ if(e.originalEvent && (e.originalEvent._fsmHandled || e.originalEvent._flStopped)) return; self.fire('click', ev); }); });
+    ml.on('contextmenu', (e)=> self.fire('contextmenu', self._evt(e)));
+    ml.on('moveend', ()=> self.fire('moveend'));
+    ml.on('zoomend', ()=> self.fire('zoomend'));
+    ml.on('movestart', ()=> self.fire('movestart'));
+    ml.on('dragstart', ()=> self.fire('dragstart'));
+    ml.on('zoomstart', ()=> self.fire('zoomstart'));
+    ml.on('move', ()=> self.fire('move'));
+    this.dragging = {enable(){ ml.dragPan.enable(); }, disable(){ ml.dragPan.disable(); }, enabled(){ return ml.dragPan.isEnabled(); }};
+    this.doubleClickZoom = {enable(){ ml.doubleClickZoom.enable(); }, disable(){ ml.doubleClickZoom.disable(); }};
+    this.scrollWheelZoom = {enable(){ ml.scrollZoom.enable(); }, disable(){ ml.scrollZoom.disable(); }};
+    this.touchZoom = {enable(){ ml.touchZoomRotate.enable(); }, disable(){ ml.touchZoomRotate.disable(); }};
+  }
+  FMap.prototype._evt = function(e){ return {latlng:{lat:e.lngLat.lat, lng:e.lngLat.lng}, containerPoint:{x:e.point.x, y:e.point.y}, originalEvent:e.originalEvent, features:e.features}; };
+  FMap.prototype.whenReady = function(fn){ fsmWhenLoaded(this._ml, ()=> fn.call(this)); return this; };
+  FMap.prototype.addLayer = function(l){
+    if(l._map === this) return this;
+    l._map = this;
+    this._layers.add(l);
+    const doAdd = ()=>{ if(l._map === this){ l._onAdd(this); l.fire('add'); } };
+    if(l instanceof Marker || l instanceof LayerGroup) doAdd(); else fsmWhenLoaded(this._ml, doAdd);
+    return this;
+  };
+  FMap.prototype.removeLayer = function(l){ if(l._map !== this) return this; l._map = null; this._layers.delete(l); try{ l._onRemove(this); }catch(e){} l.fire('remove'); return this; };
+  FMap.prototype.hasLayer = function(l){ return l && l._map === this; };
+  FMap.prototype.eachLayer = function(fn){ Array.from(this._layers).forEach(fn); return this; };
+  FMap.prototype.closePopup = function(){ if(this._popup){ this._popup.remove(); this._popup = null; } return this; };
+  FMap.prototype.openPopup = function(p){ p.openOn(this); return this; };
+  FMap.prototype.addControl = function(c){
+    const el = c.onAdd(this);
+    c._container = el; c._fm = this;
+    const corner = this._corners[c.options.position] || this._corners.topright;
+    if(c.options.position && c.options.position.startsWith('bottom')) corner.insertBefore(el, corner.firstChild); else corner.appendChild(el);
+    return this;
+  };
+  FMap.prototype.removeControl = function(c){ c.remove(); return this; };
+  FMap.prototype.setView = function(ll, z, o){ const p = toLL(ll); this._ml.jumpTo({center:[p.lng, p.lat], zoom: z != null ? z - 1 : this._ml.getZoom()}); return this; };
+  FMap.prototype.flyTo = function(ll, z){ const p = toLL(ll); this._ml.flyTo({center:[p.lng, p.lat], zoom: z != null ? z - 1 : this._ml.getZoom()}); return this; };
+  FMap.prototype.panTo = function(ll){ const p = toLL(ll); this._ml.easeTo({center:[p.lng, p.lat]}); return this; };
+  FMap.prototype.setZoom = function(z){ this._ml.easeTo({zoom: z - 1}); return this; };
+  FMap.prototype.getZoom = function(){ return this._ml.getZoom() + 1; };
+  FMap.prototype.getCenter = function(){ const c = this._ml.getCenter(); return {lat:c.lat, lng:c.lng}; };
+  FMap.prototype.getBounds = function(){ const b = this._ml.getBounds(); return new Bounds([b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]); };
+  FMap.prototype.getSize = function(){ const c = this._ml.getCanvas(); return {x:c.clientWidth, y:c.clientHeight}; };
+  FMap.prototype.getContainer = function(){ return this._ml.getContainer(); };
+  FMap.prototype.invalidateSize = function(){ this._ml.resize(); return this; };
+  FMap.prototype.fitBounds = function(b, o){
+    b = boundsOf(b);
+    if(!b.isValid()) return this;
+    o = o || {};
+    const pad = {top:0, bottom:0, left:0, right:0};
+    if(o.padding){ pad.left = pad.right = o.padding[0]; pad.top = pad.bottom = o.padding[1]; }
+    if(o.paddingTopLeft){ pad.left = o.paddingTopLeft[0]; pad.top = o.paddingTopLeft[1]; }
+    if(o.paddingBottomRight){ pad.right = o.paddingBottomRight[0]; pad.bottom = o.paddingBottomRight[1]; }
+    const sz = this.getSize();
+    if(pad.left + pad.right >= sz.x - 10 || pad.top + pad.bottom >= sz.y - 10){ pad.top = pad.bottom = pad.left = pad.right = 10; }
+    const sw = b.getSouthWest(), ne = b.getNorthEast();
+    // Wie Leaflet auf ganze Zoomstufen runden (Landeskarte bleibt so gestochen scharf)
+    const doFit = ()=>{
+      const cam = this._ml.cameraForBounds([[sw.lng, sw.lat], [ne.lng, ne.lat]], {padding: pad, maxZoom: (o.maxZoom || 18) - 1});
+      if(cam) this._ml.jumpTo({center: cam.center, zoom: Math.floor(cam.zoom + 1e-6), bearing: this._ml.getBearing()});
+    };
+    if(sw.lat === ne.lat && sw.lng === ne.lng) this.setView([sw.lat, sw.lng], o.maxZoom || 15); else doFit();
+    return this;
+  };
+  FMap.prototype.latLngToContainerPoint = function(ll){ const p = toLL(ll); const pt = this._ml.project([p.lng, p.lat]); return {x:pt.x, y:pt.y}; };
+  FMap.prototype.containerPointToLatLng = function(pt){ const p = Array.isArray(pt) ? {x:pt[0], y:pt[1]} : pt; const ll = this._ml.unproject([p.x, p.y]); return {lat:ll.lat, lng:ll.lng}; };
+  FMap.prototype.mouseEventToLatLng = function(ev){ const r = this._ml.getContainer().getBoundingClientRect(); return this.containerPointToLatLng({x: ev.clientX - r.left, y: ev.clientY - r.top}); };
+  FMap.prototype.distance = function(a, b){ const p = toLL(a), q = toLL(b); return new maplibregl.LngLat(p.lng, p.lat).distanceTo(new maplibregl.LngLat(q.lng, q.lat)); };
+  FMap.prototype.locate = function(){ return this; };
+  FMap.prototype.stopLocate = function(){ return this; };
+  FMap.prototype.remove = function(){ try{ this._ml.remove(); }catch(e){} return this; };
+
+  return {
+    // Hinweis: Zoomstufen +1 gegenüber MapLibre (512-px-Kacheln), damit bestehende Werte
+    // wie setView(…, 15) denselben Massstab ergeben wie bisher mit Leaflet.
+    map: (ml)=> new FMap(ml),
+    polyline: (ll, o)=> new Polyline(ll, o),
+    marker: (ll, o)=> new Marker(ll, o),
+    circleMarker: (ll, o)=> new CircleMarker(ll, o),
+    divIcon: (o)=> new DivIcon(o),
+    layerGroup: (l)=> new LayerGroup(l),
+    featureGroup: (l)=> new LayerGroup(l),
+    popup: (o)=> new Popup(o),
+    latLngBounds: (a, b)=> new Bounds(a, b),
+    latLng: (a, b)=> b != null ? {lat:+a, lng:+b} : toLL(a),
+    Control,
+    DomUtil: { create(tag, cls, parent){ const el = document.createElement(tag); if(cls) el.className = cls; if(parent) parent.appendChild(el); return el; } },
+    DomEvent: {
+      stopPropagation(e){ const oe = e && (e.originalEvent || e); if(oe){ oe._flStopped = true; oe._fsmHandled = true; if(oe.stopPropagation && !e.latlng) oe.stopPropagation(); } },
+      preventDefault(e){ const oe = e && (e.originalEvent || e); if(oe && oe.preventDefault) oe.preventDefault(); },
+      disableClickPropagation(el){ ['click','dblclick','mousedown','pointerdown','touchstart'].forEach(t=> el.addEventListener(t, (ev)=> ev.stopPropagation())); },
+      disableScrollPropagation(el){ el.addEventListener('wheel', (ev)=> ev.stopPropagation()); }
+    },
+    Bounds, Polyline, Marker, CircleMarker, LayerGroup, Popup, FMap
+  };
+})();
+// Farbe mit Deckkraft (für halbtransparente Kreise)
+function fsmAlpha(color, a){
+  const c = String(color || '#000');
+  if(c[0] === '#' && (c.length === 7 || c.length === 4)){
+    const h = c.length === 4 ? c.slice(1).split('').map(x=> x + x).join('') : c.slice(1);
+    return 'rgba(' + parseInt(h.slice(0,2),16) + ',' + parseInt(h.slice(2,4),16) + ',' + parseInt(h.slice(4,6),16) + ',' + a + ')';
+  }
+  return c;
+}
+// Neue Karte mit Leaflet-Befehlen (FL): MapLibre-Karte + Hülle. Zoomwerte wie bisher (Leaflet-Massstab).
+function fsmCreateFlMap(container, opts){
+  opts = opts || {};
+  const ml = fsmCreateMap(container, Object.assign({}, opts, {zoom: opts.zoom != null ? opts.zoom - 1 : 7}));
+  const fm = FL.map(ml);
+  ml._fl = fm;
+  return fm;
 }
 
 /* ================= Kartenebenen: Landeskarte + Satellit (zum Wechseln) ================= */
