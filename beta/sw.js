@@ -1,5 +1,5 @@
 // Beta (siehe tools/promote-beta.sh): eigener Cache, räumt nur die eigenen alten Versionen weg.
-const CACHE_NAME = 'bergtouren-beta-shell-v1';
+const CACHE_NAME = 'bergtouren-beta-shell-v2';
 const SHELL_ASSETS = [
   './', './index.html', './fixseil.html', './0-shared.js', './look.css', '../0-geo-ch.js',
   './manifest.json', './manifest-fixseil.json',
@@ -88,7 +88,12 @@ self.addEventListener('fetch', (e) => {
   // zurückgreifen (Offline-Fallback). Verhindert, dass nach einem Update
   // noch kurzzeitig eine alte, zwischengespeicherte Version angezeigt wird.
   e.respondWith(
-    fetch(e.request)
+    // cache:'no-cache': beim Server nachfragen statt den Browser-Cache (GitHub Pages: bis
+    // 10 Min.) zu nutzen — sonst kamen kurz nach einem Update alte und neue Dateien gemischt an
+    // und die App startete nicht. Kostet bei unveränderten Dateien nur ein kurzes "304".
+    fetch(e.request.mode === 'navigate'
+        ? new Request(e.request.url, {cache: 'no-cache', credentials: 'same-origin'})
+        : new Request(e.request, {cache: 'no-cache'}))
       .then((networkResponse) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse.clone()));
         return networkResponse;
