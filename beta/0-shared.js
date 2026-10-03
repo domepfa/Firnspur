@@ -9017,7 +9017,10 @@ function tourActionsHtml(t, moreItems){
   const mp = tourMapPoint(t);
   const hasOffline = tourHasMapData(t) || (t.topoImages && t.topoImages.length);
   const items = (moreItems || []).filter(Boolean);
+  const onTour = fsGetOnTour();
+  const active = !!(onTour && String(onTour.id) === String(t.id));
   return `<div class="fs-actions">
+    <button type="button" class="fs-start-btn${active ? ' on' : ''}" data-act="${active ? 'fs-end-tour' : 'fs-start-tour'}" data-id="${t.id}">${fsIconHtml(active ? 'flag' : 'gps')}<span>${active ? 'Unterwegs · Tour beenden' : 'Tour starten'}</span></button>
     ${!fsTourHasContextData(t) ? `<p class="fs-nomap-hint">Noch nichts auf der Karte — Stift gedrückt halten, um Punkte oder eine Route zu setzen.</p>` : ''}
     ${hasOffline ? `<div class="fs-primary">${offlineSectionHtml(t.id)}</div>` : ''}
     <div class="fs-tiles">
@@ -9071,6 +9074,99 @@ document.addEventListener('click', (e)=>{
     const inMenu = d.querySelector('.fs-more-menu').contains(e.target);
     if(inMenu || !d.contains(e.target)) d.removeAttribute('open');
   });
+}, true);
+
+/* ================= Darstellung: Dunkelmodus & hoher Kontrast (Phase 2e) =================
+   Standard bleibt hell (auch wenn das Handy dunkel eingestellt ist — die Karte ist hell besser
+   lesbar). Beides nur per Schalter im Profil-Menü, gespeichert auf dem Gerät. */
+function fsThemePrefs(){
+  try{ return JSON.parse(localStorage.getItem('fs-theme') || '{}') || {}; }catch(e){ return {}; }
+}
+function fsApplyThemeClasses(){
+  const p = fsThemePrefs();
+  document.documentElement.classList.toggle('fs-dark', !!p.dark);
+  document.documentElement.classList.toggle('fs-contrast', !!p.contrast);
+}
+fsApplyThemeClasses(); // so früh wie möglich, damit nichts hell aufblitzt
+function fsEnsureThemeToggles(){
+  document.querySelectorAll('.who-menu .who-row').forEach(row=>{
+    if(row.querySelector('.fs-theme-toggle')) return;
+    [['dark','Dunkelmodus'],['contrast','Hoher Kontrast (Sonne)']].forEach(([key, label])=>{
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'fs-theme-toggle';
+      b.setAttribute('role', 'switch');
+      const on = !!fsThemePrefs()[key];
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.innerHTML = `<span>${label}</span><span class="fs-switch" aria-hidden="true"><span></span></span>`;
+      b.addEventListener('click', (e)=>{
+        e.preventDefault(); e.stopPropagation();
+        const prefs = fsThemePrefs();
+        prefs[key] = !prefs[key];
+        try{ localStorage.setItem('fs-theme', JSON.stringify(prefs)); }catch(err){}
+        b.setAttribute('aria-checked', prefs[key] ? 'true' : 'false');
+        fsApplyThemeClasses();
+      });
+      row.appendChild(b);
+    });
+  });
+}
+
+/* ================= Unterwegs-Modus (Phase 2e) =================
+   "Tour starten" merkt sich die Tour (auch nach Neuladen, pro App). Erst dann erscheint SOS
+   (beim Planen zuhause braucht es den nicht), oben steht "Unterwegs · Tourname" — ein Tipp
+   öffnet die Tour, "Beenden" schliesst den Modus. */
+function fsAppKey(){ return (typeof SEKTOREN_PATH !== 'undefined') ? 'fixseil' : 'firnspur'; }
+function fsGetOnTour(){
+  try{
+    const v = JSON.parse(localStorage.getItem('fs-on-tour') || 'null');
+    return (v && v.app === fsAppKey()) ? v : null;
+  }catch(e){ return null; }
+}
+function fsStartTour(id){
+  const t = (state.tours || []).find(x=> String(x.id) === String(id));
+  if(!t) return;
+  try{ localStorage.setItem('fs-on-tour', JSON.stringify({app: fsAppKey(), id: t.id, name: t.name, startedAt: new Date().toISOString()})); }catch(e){}
+  if(typeof render === 'function') render();
+  if(document.documentElement.classList.contains('fs-sheet-open')) fsSetSheetDetent('peek');
+  showToast('Tour gestartet — SOS ist jetzt unten links. Gute Tour!');
+}
+function fsEndTour(){
+  try{ localStorage.removeItem('fs-on-tour'); }catch(e){}
+  if(typeof render === 'function') render();
+  showToast('Tour beendet.');
+}
+function fsApplyOnTour(){
+  const on = fsGetOnTour();
+  const t = on && typeof state !== 'undefined' ? (state.tours || []).find(x=> String(x.id) === String(on.id)) : null;
+  document.documentElement.classList.toggle('fs-on-tour', !!on);
+  let pill = document.getElementById('fs-ontour-pill');
+  if(!on){ if(pill) pill.remove(); return; }
+  const name = t ? t.name : on.name;
+  if(!pill){
+    pill = document.createElement('div');
+    pill.id = 'fs-ontour-pill';
+    pill.className = 'fs-ontour-pill';
+    pill.innerHTML = `<button type="button" class="fs-ontour-open"><span class="dot"></span><span class="t"></span></button><button type="button" class="fs-ontour-end">Beenden</button>`;
+    pill.querySelector('.fs-ontour-open').addEventListener('click', ()=>{
+      const cur = fsGetOnTour();
+      if(!cur) return;
+      if(state.modal && state.modal.type === 'tour-detail' && String(state.modal.payload) === String(cur.id)){ fsSetSheetDetent('half'); return; }
+      if(typeof navigateToModal === 'function') navigateToModal({type:'tour-detail', payload: cur.id});
+    });
+    pill.querySelector('.fs-ontour-end').addEventListener('click', ()=>{ if(confirm('Tour beenden? SOS wird wieder ausgeblendet.')) fsEndTour(); });
+    document.body.appendChild(pill);
+  }
+  const tEl = pill.querySelector('.t');
+  const label = 'Unterwegs · ' + name;
+  if(tEl.textContent !== label) tEl.textContent = label;
+}
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="fs-start-tour"],[data-act="fs-end-tour"]');
+  if(!el) return;
+  e.preventDefault(); e.stopPropagation();
+  if(el.getAttribute('data-act') === 'fs-start-tour') fsStartTour(el.getAttribute('data-id'));
+  else if(confirm('Tour beenden? SOS wird wieder ausgeblendet.')) fsEndTour();
 }, true);
 
 /* ================= Tour als Blatt über der Karte (Phase 2c) =================
@@ -9349,10 +9445,12 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
       if(ctx && muts.every(m=> ctx.contains(m.target))) return;
       if(queued) return;
       queued = true;
-      requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); fsApplyEditMode(); });
+      requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); });
     }).observe(document.body, {childList:true, subtree:true});
     fsApplyTourSheetMode();
     fsApplyEditMode();
+    fsApplyOnTour();
+    fsEnsureThemeToggles();
   };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();

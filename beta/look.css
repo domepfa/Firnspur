@@ -906,9 +906,9 @@ main{ padding-top:6px; }
 .fs-quick-bar{ display:flex; gap:10px; margin-top:10px; }
 .fs-quick-bar .btn{ flex:1 1 0; min-height:48px; }
 
-/* SOS nur unterwegs: wenn eine Tour/Hütte/ein Sektor offen ist, nicht beim Planen in der Übersicht */
+/* SOS nur unterwegs: erst nach "Tour starten" (Phase 2e), nicht beim Planen zuhause */
 .emergency-tab{ display:none !important; }
-body:has(.modal.fs-onroute) .emergency-tab{ display:inline-flex !important; z-index:60; }
+html.fs-on-tour .emergency-tab{ display:inline-flex !important; z-index:60; }
 
 /* Grössere Tippflächen (Handschuhe) */
 .btn{ min-height:44px; }
@@ -953,8 +953,8 @@ body:has(.modal.fs-onroute) .emergency-tab{ display:inline-flex !important; z-in
 .fs-primary .detail-section{ margin:0; padding:0; border:0; background:none; }
 .fs-primary h4{ display:none; }
 .fs-primary .btn[data-act="download-offline"]{
-  width:100%; min-height:52px; border-radius:15px; border:none;
-  background:var(--ice-deep) !important; color:#fff !important; font-size:16px; font-weight:800;
+  width:100%; min-height:48px; border-radius:15px; border:none;
+  background:var(--ice-light) !important; color:var(--ice-deep) !important; font-size:15px; font-weight:800;
 }
 .fs-tiles{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }
 .fs-tile{
@@ -1133,3 +1133,102 @@ html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-access-routes-map"]{ disp
 .fs-ctxm-item:first-child{ border-top:none; }
 .fs-ctxm-item .fs-i{ width:20px; height:20px; color:var(--ice-deep); flex-shrink:0; }
 .fs-ctxm-note{ margin:0; color:#fff; font-size:12.5px; opacity:.9; }
+
+/* =====================================================================
+   Phase 2e: Unterwegs-Modus
+   ===================================================================== */
+.fs-start-btn{
+  width:100%; min-height:54px; border:none; border-radius:15px; background:var(--ice-deep); color:#fff;
+  font:inherit; font-size:16px; font-weight:800; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;
+}
+.fs-start-btn .fs-i{ width:22px; height:22px; }
+.fs-start-btn.on{ background:#1F6B45; }
+.fs-ontour-pill{
+  position:fixed; left:12px; right:12px; top:62px; z-index:55; display:flex; gap:8px; align-items:center;
+  padding:6px 6px 6px 8px; border-radius:16px; background:#1F6B45; color:#fff; box-shadow:0 6px 18px rgba(15,30,39,.25);
+  max-width:600px; margin:0 auto;
+}
+.fs-ontour-open{ flex:1; min-width:0; min-height:40px; display:flex; align-items:center; gap:10px; border:none; background:none; color:#fff; font:inherit; font-size:14.5px; font-weight:800; text-align:left; cursor:pointer; }
+.fs-ontour-open .t{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fs-ontour-open .dot{ width:10px; height:10px; border-radius:50%; background:#8FE0A8; box-shadow:0 0 0 4px rgba(143,224,168,.3); flex:none; animation:fsPulse 1.8s ease-in-out infinite; }
+@keyframes fsPulse{ 50%{ box-shadow:0 0 0 7px rgba(143,224,168,.08); } }
+.fs-ontour-end{ flex:none; min-height:40px; padding:0 14px; border:none; border-radius:11px; background:rgba(255,255,255,.2); color:#fff; font:inherit; font-size:13.5px; font-weight:800; cursor:pointer; }
+/* Bei einer Vollbild-Maske (Bearbeiten, Formulare) ausblenden; Legende der Tourenkarte darunter */
+body:has(#modal-root .overlay:not(.fs-sheet-mode)) .fs-ontour-pill{ display:none; }
+html.fs-on-tour .fs-ctx-legend{ top:66px; }
+/* In der Liste: unten über den Knöpfen statt oben über Titel und Profil */
+html:not(.fs-sheet-open) .fs-ontour-pill{ top:auto; bottom:calc(84px + env(safe-area-inset-bottom, 0px)); }
+
+/* =====================================================================
+   Phase 2e: Dunkelmodus (nur per Schalter) und hoher Kontrast
+   ===================================================================== */
+.fs-theme-toggle{ justify-content:space-between; }
+.fs-switch{ position:relative; width:44px; height:26px; border-radius:13px; background:var(--line); flex:none; transition:background .2s; }
+.fs-switch span{ position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.3); transition:left .2s; }
+.fs-theme-toggle[aria-checked="true"] .fs-switch{ background:#2E9E5B; }
+.fs-theme-toggle[aria-checked="true"] .fs-switch span{ left:21px; }
+
+:root.fs-dark, :root.fs-dark[data-disc]{
+  color-scheme:dark;
+  --cream:#0E1317; --paper:#182026; --paper-2:#1F2830;
+  --ink:#E8EDF0; --ink-soft:#AEB9C1; --ink-faint:#8794A0;
+  --line:#2B353E; --line-soft:#232C34;
+  --danger:#E5534B; --ok:#6CC08A;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  --shadow-lg:0 12px 36px rgba(0,0,0,.55);
+}
+html.fs-dark[data-disc="ski"]{  --ice:#5FA3D6; --ice-deep:#3B86BE; --ice-light:#1B2C3A; --accent-ink:#9CC8EC; }
+html.fs-dark[data-disc="hoch"]{ --ice:#8C96D8; --ice-deep:#6D79C4; --ice-light:#232843; --accent-ink:#BAC1F2; }
+html.fs-dark[data-disc="klet"]{ --ice:#D08A48; --ice-deep:#B86E2C; --ice-light:#33261A; --accent-ink:#EBBE8E; }
+html.fs-dark body{ background:var(--cream); color:var(--ink); }
+html.fs-dark .card, html.fs-dark .modal, html.fs-dark .fs-ctxm-menu, html.fs-dark .fs-more-menu,
+html.fs-dark .who-menu .who-row{ background:var(--paper); color:var(--ink); }
+html.fs-dark .fs-sheet{ background:var(--cream); }
+html.fs-dark .app-switch-bar{ background:rgba(14,19,23,.97); border-bottom-color:var(--line); }
+html.fs-dark .agenda-tab{ background:var(--paper); color:var(--ink); border-color:var(--line); }
+html.fs-dark body::after{ background:linear-gradient(180deg, rgba(14,19,23,0) 0%, rgba(14,19,23,.92) 70%); }
+html.fs-dark .field input, html.fs-dark .field select, html.fs-dark .field textarea,
+html.fs-dark input[type="search"], html.fs-dark input[type="text"], html.fs-dark select{
+  background:var(--paper-2); color:var(--ink); border-color:var(--line);
+}
+html.fs-dark .chip{ background:var(--paper-2); color:var(--ink); border-color:var(--line); }
+html.fs-dark .btn.secondary{ background:var(--paper-2); color:var(--ink); border-color:var(--line); }
+html.fs-dark .conditions-note{ background:#3A2C12; color:#F2CF8A; }
+html.fs-dark .detail-stats, html.fs-dark .cond-box{ background:var(--paper-2); }
+html.fs-dark .toast{ background:#2B353E; color:var(--ink); }
+html.fs-dark .fs-hold-hint{ background:#2B353E; }
+html.fs-dark .who-menu .who-row button:hover, html.fs-dark .fs-more-item:hover{ background:var(--paper-2); }
+html.fs-dark .map-strip-hint, html.fs-dark .fs-ctx-chip, html.fs-dark #fullscreen-map-close, html.fs-dark .fsm-ctl{
+  background:rgba(24,32,38,.94) !important; color:var(--ink) !important; border-color:var(--line);
+}
+html.fs-dark .map-strip-land path{ fill:#1F2830; stroke:#1F2830; }
+html.fs-dark .map-strip-cantons path{ stroke:#3E4B55; }
+html.fs-dark .map-strip-lakes path{ fill:#1E3A50; }
+html.fs-dark .map-strip-relief{ opacity:.25; mix-blend-mode:screen; }
+html.fs-dark .map-strip-nlabel{ background:rgba(24,32,38,.94); color:var(--ink); }
+html.fs-dark .fs-grabber{ background:var(--paper); }
+html.fs-dark .fs-grabber::after{ background:#4A5661; }
+html.fs-dark .fs-sac-sec, html.fs-dark .fs-sac-pick{ background:var(--paper-2); border-color:var(--line); }
+html.fs-dark .leaflet-popup-content-wrapper, html.fs-dark .leaflet-popup-tip{ background:var(--paper); color:var(--ink); }
+html.fs-dark .leaflet-tile-pane{ filter:brightness(.82) contrast(1.05); }
+html.fs-dark .fs-tour-map{ background:#1F2830; }
+/* Häufige feste Farben in den Vorlagen */
+html.fs-dark [style*="background:#fff"], html.fs-dark [style*="background: #fff"], html.fs-dark [style*="background:#FFF"],
+html.fs-dark [style*="background:white"], html.fs-dark [style*="background:#ffffff"]{ background:var(--paper) !important; }
+html.fs-dark [style*="background:#FBEAE7"]{ background:#3A1E1A !important; }
+html.fs-dark [style*="background:#EAF3EC"], html.fs-dark [style*="background:#E3EFE6"]{ background:#17301F !important; }
+html.fs-dark [style*="color:#2F6B44"]{ color:#7CC896 !important; }
+html.fs-dark [style*="color:#B0392C"]{ color:#F0857A !important; }
+html.fs-dark [style*="background:var(--ice-light)"]{ color:var(--accent-ink); }
+
+/* Hoher Kontrast (z. B. grelle Sonne auf Schnee): dunklere Schrift, kräftigere Linien */
+:root.fs-contrast, :root.fs-contrast[data-disc]{ --ink:#000; --ink-soft:#1E2830; --ink-faint:#2E3A43; --line:#8E9CA6; --line-soft:#B6C1C8; }
+:root.fs-contrast.fs-dark, :root.fs-contrast.fs-dark[data-disc]{ --ink:#FFFFFF; --ink-soft:#E3E8EB; --ink-faint:#C6CED4; --line:#5C6A75; --line-soft:#45525C; }
+html.fs-contrast body{ font-weight:500; }
+html.fs-contrast .badge, html.fs-contrast .chip{ outline:1px solid rgba(0,0,0,.25); }
+html.fs-dark .tab.active{ color:#0F1E27; }
+html.fs-dark .tab.active .fs-i{ color:#0F1E27; }
+html.fs-dark .who-menu > summary{ background:rgba(255,255,255,.2); color:#fff; }
+html.fs-dark .who-menu[open] > summary{ background:var(--paper); color:var(--ink); }
+html.fs-dark .x-btn{ background:var(--paper-2); color:var(--ink); }
+html.fs-dark .emergency-tab{ background:#C92A2A; }
