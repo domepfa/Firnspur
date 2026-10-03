@@ -2182,13 +2182,6 @@ function tourDetailHtml(id){
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abfahrt</div></div>` : ''}
       ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>
-    ${tourActionsHtml(t, [
-      t.trackSimplified ? fsMenuItemHtml('download', 'GPX herunterladen', `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}"`) : '',
-      (!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? fsMenuItemHtml('download', 'Route als GPX', `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}"`) : '',
-      fsMenuItemHtml('upload', 'Exportieren / teilen', `data-act="export-tour" data-id="${t.id}"`),
-      t.tourLink ? fsMenuItemHtml('link', 'Link zur Tour öffnen', '', t.tourLink) : '',
-      fsMenuItemHtml('check', 'Als abgeschlossen markieren', `data-act="open-complete-tour" data-id="${t.id}"`)
-    ])}
     ${tourGlanceHtml(t.crux, [
       ['Gefahren', (t.gefahren||[]).join(', ')],
       ['Exposition', (t.exposition||[]).join(', ')],
@@ -2232,6 +2225,14 @@ function tourDetailHtml(id){
       <h4>GPX-Link</h4>
       <p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>
     </div>` : ''}
+    <!-- Aktionen nach den Infos: geplant und angeschaut wird häufiger als heruntergeladen -->
+    ${tourActionsHtml(t, [
+      t.trackSimplified ? fsMenuItemHtml('download', 'GPX herunterladen', `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}"`) : '',
+      (!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? fsMenuItemHtml('download', 'Route als GPX', `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}"`) : '',
+      fsMenuItemHtml('upload', 'Exportieren / teilen', `data-act="export-tour" data-id="${t.id}"`),
+      t.tourLink ? fsMenuItemHtml('link', 'Link zur Tour öffnen', '', t.tourLink) : '',
+      fsMenuItemHtml('check', 'Als abgeschlossen markieren', `data-act="open-complete-tour" data-id="${t.id}"`)
+    ])}
     ${(() => { const related = findToursSharingPoints(t, state.tours, 300); return related.length ? `<div class="detail-section">
       <h4>Weitere Touren ab hier (${related.length})</h4>
       <div class="grid" style="margin-top:6px;">${related.map(tourCardHtml).join('')}</div>

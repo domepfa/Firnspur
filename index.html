@@ -1642,7 +1642,7 @@ function gebietCardHtml(geb){
 function renderGebietOverviewMap(containerId, gebId){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
+  fsmEnsureLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2) return;
     const geb = state.gebiete.find(x=>x.id===gebId);
@@ -1667,14 +1667,13 @@ function renderGebietOverviewMap(containerId, gebId){
     el2.appendChild(mapDiv);
     const firstHutPoint = huetten.map(h=> h.points && h.points.length ? h.points[0] : null).find(Boolean);
     const startPoint = hasOwnPoints ? geb.points[0] : firstHutPoint;
-    const map = L.map(mapDivId).setView(startPoint ? [startPoint.lat, startPoint.lon] : [46.8182, 8.2275], startPoint ? 12 : 8);
+    const map = fsmCreateFlMap(mapDivId).setView(startPoint ? [startPoint.lat, startPoint.lon] : [46.8182, 8.2275], startPoint ? 12 : 8);
     registerMap(mapDivId, map);
-    addBaseLayerSwitcher(map);
     const boundsItems = [];
     if(hasOwnPoints){
       geb.points.forEach(p=>{
         try{
-          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(geb.name)}</strong><br/>${esc(p.label||'Punkt')}`);
+          const m = FL.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(geb.name)}</strong><br/>${esc(p.label||'Punkt')}`);
           boundsItems.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
       });
@@ -1682,7 +1681,7 @@ function renderGebietOverviewMap(containerId, gebId){
     huetten.forEach(h=>{
       (h.points||[]).forEach(p=>{
         try{
-          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>🛖 ${esc(h.name)}</strong><br/>${esc(p.label||'Punkt')}`);
+          const m = FL.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>🛖 ${esc(h.name)}</strong><br/>${esc(p.label||'Punkt')}`);
           boundsItems.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
       });
@@ -1692,21 +1691,21 @@ function renderGebietOverviewMap(containerId, gebId){
       const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
       if(track){
         try{
-          L.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
-          const line = L.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
+          FL.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
+          const line = FL.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
           boundsItems.push(line);
         }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
       }
       (t.points||[]).forEach(p=>{
         try{
-          const m = L.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
+          const m = FL.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
             .bindPopup(`<strong>${esc(t.name)}</strong>${t.routeName ? ' – '+esc(t.routeName) : ''}<br/>${esc(p.label||'Punkt')}`);
           boundsItems.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
       });
     });
     if(boundsItems.length){
-      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+      map.fitBounds(FL.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderGebietOverviewMap(id, gebId); });
@@ -2102,7 +2101,7 @@ function gipfelzielLegendHtml(gipfelName){
 function renderGipfelzielOverviewMap(containerId, gipfelName){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
+  fsmEnsureLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2) return;
     const key = gipfelzielKey(gipfelName);
@@ -2124,29 +2123,28 @@ function renderGipfelzielOverviewMap(containerId, gipfelName){
       : 'height:280px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
     el2.appendChild(mapDiv);
     const firstPoint = tourEntries.map(e=> e.tour.points && e.tour.points.length ? e.tour.points[0] : null).find(Boolean);
-    const map = L.map(mapDivId).setView(firstPoint ? [firstPoint.lat, firstPoint.lon] : [46.8182, 8.2275], firstPoint ? 13 : 8);
+    const map = fsmCreateFlMap(mapDivId).setView(firstPoint ? [firstPoint.lat, firstPoint.lon] : [46.8182, 8.2275], firstPoint ? 13 : 8);
     registerMap(mapDivId, map);
-    addBaseLayerSwitcher(map);
     const boundsItems = [];
     tourEntries.forEach(({tour:t, color})=>{
       const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
       if(track){
         try{
-          L.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
-          const line = L.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
+          FL.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
+          const line = FL.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
           boundsItems.push(line);
         }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
       }
       (t.points||[]).forEach(p=>{
         try{
-          const m = L.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
+          const m = FL.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
             .bindPopup(`<strong>${esc(t.name)}</strong>${t.routeName ? ' – '+esc(t.routeName) : ''}<br/>${esc(p.label||'Punkt')}`);
           boundsItems.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
       });
     });
     if(boundsItems.length){
-      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+      map.fitBounds(FL.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderGipfelzielOverviewMap(id, gipfelName); });
@@ -2184,13 +2182,6 @@ function tourDetailHtml(id){
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abfahrt</div></div>` : ''}
       ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>
-    ${tourActionsHtml(t, [
-      t.trackSimplified ? fsMenuItemHtml('download', 'GPX herunterladen', `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}"`) : '',
-      (!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? fsMenuItemHtml('download', 'Route als GPX', `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}"`) : '',
-      fsMenuItemHtml('upload', 'Exportieren / teilen', `data-act="export-tour" data-id="${t.id}"`),
-      t.tourLink ? fsMenuItemHtml('link', 'Link zur Tour öffnen', '', t.tourLink) : '',
-      fsMenuItemHtml('check', 'Als abgeschlossen markieren', `data-act="open-complete-tour" data-id="${t.id}"`)
-    ])}
     ${tourGlanceHtml(t.crux, [
       ['Gefahren', (t.gefahren||[]).join(', ')],
       ['Exposition', (t.exposition||[]).join(', ')],
@@ -2234,6 +2225,14 @@ function tourDetailHtml(id){
       <h4>GPX-Link</h4>
       <p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>
     </div>` : ''}
+    <!-- Aktionen nach den Infos: geplant und angeschaut wird häufiger als heruntergeladen -->
+    ${tourActionsHtml(t, [
+      t.trackSimplified ? fsMenuItemHtml('download', 'GPX herunterladen', `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}"`) : '',
+      (!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? fsMenuItemHtml('download', 'Route als GPX', `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}"`) : '',
+      fsMenuItemHtml('upload', 'Exportieren / teilen', `data-act="export-tour" data-id="${t.id}"`),
+      t.tourLink ? fsMenuItemHtml('link', 'Link zur Tour öffnen', '', t.tourLink) : '',
+      fsMenuItemHtml('check', 'Als abgeschlossen markieren', `data-act="open-complete-tour" data-id="${t.id}"`)
+    ])}
     ${(() => { const related = findToursSharingPoints(t, state.tours, 300); return related.length ? `<div class="detail-section">
       <h4>Weitere Touren ab hier (${related.length})</h4>
       <div class="grid" style="margin-top:6px;">${related.map(tourCardHtml).join('')}</div>
@@ -2732,7 +2731,7 @@ function wireModalHandlers(){
     const gpsToggleBtn = e.target.closest('[data-act="toggle-live-gps"]');
     if(gpsToggleBtn){
       const offlineId = gpsToggleBtn.getAttribute('data-offline-id');
-      const mapInner = window.__activeLeafletMaps && window.__activeLeafletMaps['map-tour-' + offlineId + '-inner'];
+      const mapInner = (typeof fsCtxMap !== 'undefined' && fsCtxMap) || (window.__activeLeafletMaps && window.__activeLeafletMaps['map-tour-' + offlineId + '-inner']);
       if(!mapInner){
         showToast('Bitte zuerst "🗺️ Karte anzeigen" antippen.', true);
         return;
