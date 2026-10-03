@@ -1,5 +1,5 @@
 // Beta (siehe tools/promote-beta.sh): eigener Cache, räumt nur die eigenen alten Versionen weg.
-const CACHE_NAME = 'bergtouren-beta-shell-v2';
+const CACHE_NAME = 'bergtouren-beta-shell-v3';
 const SHELL_ASSETS = [
   './', './index.html', './fixseil.html', './0-shared.js', './look.css', '../0-geo-ch.js',
   './manifest.json', './manifest-fixseil.json',
@@ -8,7 +8,9 @@ const SHELL_ASSETS = [
   '../icon-512.png', '../msl-hero.jpg',
   '../geo-ch-hillshade-firnspur.png', '../geo-ch-hillshade-fixseil.png',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',
+  'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js'
 ];
 
 // Web Share Target ("Teilen"-Ziel): Android/Chrome schickt geteilte Fotos/Links per POST
@@ -78,7 +80,7 @@ self.addEventListener('fetch', (e) => {
 
   // Leaflet (Kartenbibliothek) ist die einzige externe Quelle, die wir dauerhaft
   // zwischenspeichern — ohne sie startet die Kartenansicht offline gar nicht erst.
-  const isLeaflet = e.request.url.startsWith('https://unpkg.com/leaflet@1.9.4/');
+  const isLeaflet = e.request.url.startsWith('https://unpkg.com/leaflet@1.9.4/') || e.request.url.startsWith('https://unpkg.com/maplibre-gl@4.7.1/');
   // Nur eigene Dateien + Leaflet cachen. Firebase-Aufrufe (andere Domain, ausser
   // Leaflet) gehen immer direkt ans Netz, damit Daten aktuell bleiben.
   if (e.request.method !== 'GET' || (url.origin !== location.origin && !isLeaflet)) return;

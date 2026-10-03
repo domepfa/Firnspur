@@ -2430,7 +2430,9 @@ function fsOpen3d(opts){
     if(allPts.length > 1){
       const sphere = Cesium.BoundingSphere.fromPoints(allPts);
       const first = lines.length ? lines[0].coords[0] : null, last = lines.length ? lines[0].coords[lines[0].coords.length-1] : null;
-      const heading = (first && last) ? Math.atan2((last[1]-first[1]) * Math.cos(first[0]*Math.PI/180), last[0]-first[0]) : 0;
+      // Blickrichtung: von der 2D-Karte übernommen, falls dort gedreht; sonst von der Route Richtung Ziel
+      const heading = (opts.heading && Math.abs(opts.heading) > 0.5) ? Cesium.Math.toRadians(opts.heading)
+        : (first && last) ? Math.atan2((last[1]-first[1]) * Math.cos(first[0]*Math.PI/180), last[0]-first[0]) : 0;
       viewer.camera.flyToBoundingSphere(sphere, {duration:0, offset:new Cesium.HeadingPitchRange(heading, pitch, Math.max(1800, sphere.radius * 2.2))});
     }else{
       const center = Cesium.Cartesian3.fromDegrees(opts.lon, opts.lat, 2500);
@@ -3924,6 +3926,329 @@ async function loadSlfDangerLayer(layerGroup){
   }
 }
 
+/* ================= Karten mit MapLibre (fsm*) =================
+   Gemeinsamer Kern für alle 2D-Karten: flüssiges Drehen/Kippen, Kompass, Grundkarten
+   (Landeskarte, Luftbild, Luftbild + Namen), zuschaltbare swisstopo-Ebenen, eigene Linien und
+   Punkte, Offline-Kacheln. Die Wahl der Ebenen gilt für alle Karten gleich (fs-map-layers).
+   MapLibre wird erst beim ersten Kartenaufruf geladen (Service Worker hält es offline bereit). */
+const FSM_LIB = 'https://unpkg.com/maplibre-gl@4.7.1/dist/';
+const FSM_WMTS = (layer, ext)=> 'https://wmts.geo.admin.ch/1.0.0/' + layer + '/default/current/3857/{z}/{x}/{y}.' + ext;
+const FSM_NAMES_STYLE = 'https://vectortiles.geo.admin.ch/styles/ch.swisstopo.imagerybasemap.vt/style.json';
+// Zuschaltbare Ebenen (Reihenfolge = Reihenfolge im Ebenen-Fenster)
+const FSM_OVERLAYS = [
+  {id:'wanderwege', label:'Wanderwege', icon:'walk', tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
+  {id:'skitouren', label:'SAC-Skitouren', icon:'snow', tiles:[FSM_WMTS('ch.swisstopo-karto.skitouren','png')]},
+  {id:'hangneigung', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
+  {id:'slf', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
+  {id:'sperrungen', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
+  {id:'temp', label:'Temperatur (aktuell)', icon:'therm', tiles:[FSM_WMTS('ch.meteoschweiz.messwerte-lufttemperatur-10min','png')]},
+  {id:'regen', label:'Niederschlag (aktuell)', icon:'drop', tiles:[FSM_WMTS('ch.meteoschweiz.messwerte-niederschlag-10min','png')]}
+];
+const FSM_BASES = [
+  {id:'karte', label:'Karte'},
+  {id:'luftbild', label:'Luftbild'},
+  {id:'hybrid', label:'Luftbild + Namen'}
+];
+let fsmLoadPromise = null;
+function fsmEnsureLoaded(){
+  if(window.maplibregl) return Promise.resolve();
+  if(fsmLoadPromise) return fsmLoadPromise;
+  fsmLoadPromise = new Promise((resolve, reject)=>{
+    const link = document.createElement('link');
+    link.rel = 'stylesheet'; link.href = FSM_LIB + 'maplibre-gl.css';
+    document.head.appendChild(link);
+    const sc = document.createElement('script');
+    sc.src = FSM_LIB + 'maplibre-gl.js';
+    sc.onload = ()=>{ fsmRegisterOfflineProtocol(); resolve(); };
+    sc.onerror = ()=>{ fsmLoadPromise = null; reject(new Error('Kartenbibliothek konnte nicht geladen werden.')); };
+    document.head.appendChild(sc);
+  });
+  return fsmLoadPromise;
+}
+// Landeskarte über "fsoff://": zuerst die für unterwegs geladenen Kacheln (IndexedDB), sonst Netz.
+// So zeigt JEDE Karte offline die Landeskarte, sobald eine Tour in dieser Gegend geladen ist.
+let fsmOfflineIds = null, fsmOfflineIdsAt = 0;
+async function fsmOfflineIdList(){
+  if(fsmOfflineIds && Date.now() - fsmOfflineIdsAt < 30000) return fsmOfflineIds;
+  try{
+    const all = await idbGetAllEntries('downloads');
+    fsmOfflineIds = all.filter(e=> e.value && e.value.expiresAt > Date.now()).map(e=> e.key);
+  }catch(e){ fsmOfflineIds = []; }
+  fsmOfflineIdsAt = Date.now();
+  return fsmOfflineIds;
+}
+function fsmRegisterOfflineProtocol(){
+  maplibregl.addProtocol('fsoff', async (params, abort)=>{
+    const [z, x, y] = params.url.replace('fsoff://karte/', '').split('/');
+    for(const id of await fsmOfflineIdList()){
+      try{
+        const blob = await idbGet('tiles', id + '_' + z + '_' + x + '_' + y);
+        if(blob) return {data: await blob.arrayBuffer()};
+      }catch(e){}
+    }
+    const res = await fetch(FSM_WMTS('ch.swisstopo.pixelkarte-farbe', 'jpeg').replace('{z}', z).replace('{x}', x).replace('{y}', y), {signal: abort.signal});
+    if(!res.ok) throw new Error('Kachel nicht verfügbar');
+    return {data: await res.arrayBuffer()};
+  });
+}
+function fsmPrefs(){
+  let p = null;
+  try{ p = JSON.parse(localStorage.getItem('fs-map-layers') || 'null'); }catch(e){}
+  return Object.assign({base:'karte', on:[]}, p || {});
+}
+function fsmSavePrefs(p){ try{ localStorage.setItem('fs-map-layers', JSON.stringify(p)); }catch(e){} }
+function fsmOverlaysForApp(){ return FSM_OVERLAYS.filter(o=> !o.skitourOnly || typeof SEKTOREN_PATH === 'undefined'); }
+// Leerer Grundstil: Grundkarten als Raster, zwei unsichtbare "Anker" für die Reihenfolge
+// (Ebenen < Namen < eigene Linien/Punkte).
+function fsmBaseStyle(){
+  const empty = {type:'geojson', data:{type:'FeatureCollection', features:[]}};
+  return {
+    version: 8,
+    sources: {
+      karte: {type:'raster', tiles:['fsoff://karte/{z}/{x}/{y}'], tileSize:256, maxzoom:18, attribution:'© swisstopo'},
+      luftbild: {type:'raster', tiles:[FSM_WMTS('ch.swisstopo.swissimage','jpeg')], tileSize:256, maxzoom:19, attribution:'© swisstopo'},
+      'fsm-anchor': empty
+    },
+    layers: [
+      {id:'bg', type:'background', paint:{'background-color':'#E7ECEF'}},
+      {id:'base-karte', type:'raster', source:'karte'},
+      {id:'base-luftbild', type:'raster', source:'luftbild', layout:{visibility:'none'}},
+      {id:'fsm-anchor-names', type:'line', source:'fsm-anchor'},
+      {id:'fsm-anchor-own', type:'line', source:'fsm-anchor'}
+    ]
+  };
+}
+// Karte erstellen. opts: {center:[lat,lon], zoom, controls:true, on3d:(map)=>{}}
+function fsmCreateMap(container, opts){
+  opts = opts || {};
+  const c = opts.center || [46.8182, 8.2275];
+  const map = new maplibregl.Map({
+    container, style: fsmBaseStyle(), center:[c[1], c[0]], zoom: opts.zoom != null ? opts.zoom : 8,
+    maxPitch: 60, attributionControl: {compact: true}, dragRotate: true, touchPitch: true,
+    maxBounds: [[3, 43.5], [13.5, 49.5]]
+  });
+  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}};
+  map.once('load', ()=>{ map._fsmLoaded = true; fsmApplyPrefs(map); });
+  if(opts.controls !== false) fsmAddControls(map);
+  return map;
+}
+function fsmWhenLoaded(map, fn){ if(map._fsmLoaded) fn(); else map.once('load', fn); }
+function fsmApplyPrefs(map){
+  const p = fsmPrefs();
+  fsmSetBase(map, p.base, true);
+  fsmOverlaysForApp().forEach(o=> fsmSetOverlay(map, o.id, p.on.includes(o.id), true));
+}
+function fsmSetBase(map, base, silent){
+  if(!map._fsmLoaded) return;
+  const luft = base === 'luftbild' || base === 'hybrid';
+  map.setLayoutProperty('base-karte', 'visibility', luft ? 'none' : 'visible');
+  map.setLayoutProperty('base-luftbild', 'visibility', luft ? 'visible' : 'none');
+  fsmSetNames(map, base === 'hybrid');
+  if(!silent){ const p = fsmPrefs(); p.base = base; fsmSavePrefs(p); }
+  fsmSyncPanel(map);
+}
+// "Luftbild + Namen": Schrift, Wege, Gewässer usw. aus dem offiziellen swisstopo-Vektorstil
+// (dessen eigenes Luftbild wird weggelassen, wir haben es schon). Nur online verfügbar.
+let fsmNamesStyleCache = null;
+async function fsmSetNames(map, on){
+  const st = map._fsm;
+  if(!on){ (st.namesLayers || []).forEach(id=>{ if(map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none'); }); return; }
+  if(st.namesLayers){ st.namesLayers.forEach(id=>{ if(map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible'); }); return; }
+  try{
+    if(!fsmNamesStyleCache) fsmNamesStyleCache = await (await fetch(FSM_NAMES_STYLE)).json();
+    const s = fsmNamesStyleCache;
+    if(!map.getStyle()) return;
+    if(s.glyphs) map.setGlyphs(s.glyphs);
+    if(s.sprite) map.setSprite(s.sprite);
+    Object.entries(s.sources).forEach(([id, src])=>{ if(src.type !== 'raster' && !map.getSource('n-' + id)) map.addSource('n-' + id, src); });
+    st.namesLayers = [];
+    s.layers.forEach(l=>{
+      if(l.type === 'background' || l.type === 'raster' || !l.source || !s.sources[l.source] || s.sources[l.source].type === 'raster') return;
+      const nl = Object.assign({}, l, {id:'n-' + l.id, source:'n-' + l.source});
+      try{ map.addLayer(nl, 'fsm-anchor-own'); st.namesLayers.push(nl.id); }catch(e){}
+    });
+    if(fsmPrefs().base !== 'hybrid') fsmSetNames(map, false);
+  }catch(e){
+    showToast('Namen über dem Luftbild brauchen Internet.', true);
+  }
+}
+function fsmSetOverlay(map, id, on, silent){
+  if(!map._fsmLoaded) return;
+  const o = FSM_OVERLAYS.find(x=> x.id === id);
+  if(!o) return;
+  const lid = 'ov-' + id;
+  if(on && !map.getLayer(lid)){
+    if(o.geojson){
+      map.addSource(lid, {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+      map.addLayer({id:lid, type:'fill', source:lid, paint:{'fill-color':['get','color'], 'fill-opacity':0.45, 'fill-outline-color':'#555'}}, 'fsm-anchor-names');
+      fsmLoadSlf(map, lid);
+    }else{
+      map.addSource(lid, {type:'raster', tiles:o.tiles, tileSize:256, maxzoom:18});
+      map.addLayer({id:lid, type:'raster', source:lid, paint:{'raster-opacity': o.opacity || 1}}, 'fsm-anchor-names');
+    }
+  }
+  if(map.getLayer(lid)) map.setLayoutProperty(lid, 'visibility', on ? 'visible' : 'none');
+  map._fsm.overlays[id] = !!on;
+  if(!silent){
+    const p = fsmPrefs();
+    p.on = p.on.filter(x=> x !== id);
+    if(on) p.on.push(id);
+    fsmSavePrefs(p);
+  }
+  fsmSyncPanel(map);
+}
+function fsmOverlayOn(map, id){ return !!(map && map._fsm && map._fsm.overlays[id]); }
+async function fsmLoadSlf(map, lid){
+  try{
+    const { features, dangerByRegion, bulletinCount } = await fetchSlfDangerRegions();
+    const out = [];
+    features.forEach(f=>{
+      const rid = slfRegionId(f);
+      const info = rid ? dangerByRegion[rid] : null;
+      if(info) out.push(Object.assign({}, f, {properties: Object.assign({}, f.properties, {color: info.color, label: info.label})}));
+    });
+    if(map.getSource(lid)) map.getSource(lid).setData({type:'FeatureCollection', features: out});
+    if(!out.length) showToast(bulletinCount === 0 ? 'Aktuell kein Lawinenbulletin veröffentlicht (ausserhalb der Wintersaison meist normal).' : 'Lawinen-Gefahrenstufen aktuell nicht zuordenbar.', true);
+  }catch(e){
+    showToast('Lawinendaten aktuell nicht verfügbar: ' + (e && e.message ? e.message : e), true);
+  }
+}
+// Knöpfe oben rechts: Ebenen, Kompass (nur wenn gedreht/gekippt), 3D
+function fsmAddControls(map){
+  const box = document.createElement('div');
+  box.className = 'fsm-ctl';
+  box.innerHTML = `<button type="button" class="fsm-btn" data-fsm="layers" aria-label="Kartenebenen">${fsIconHtml('layers')}</button>
+    <button type="button" class="fsm-btn" data-fsm="gps" aria-label="Mein Standort">${fsIconHtml('gps')}</button>
+    <button type="button" class="fsm-btn fsm-compass" data-fsm="north" aria-label="Nach Norden ausrichten" hidden><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><g class="fsm-needle"><path d="M12 2.5 15.2 12H8.8Z" fill="#E03131"/><path d="M12 21.5 8.8 12h6.4Z" fill="#9AA5AD"/><text x="12" y="11" text-anchor="middle" font-size="5.5" font-weight="800" fill="#fff" font-family="sans-serif">N</text></g></svg></button>
+    ${map._fsm.on3d ? `<button type="button" class="fsm-btn fsm-3d" data-fsm="3d" aria-label="In 3D ansehen">3D</button>` : ''}`;
+  map.getContainer().appendChild(box);
+  const panel = document.createElement('div');
+  panel.className = 'fsm-panel';
+  panel.hidden = true;
+  map.getContainer().appendChild(panel);
+  map._fsm.panel = panel;
+  ['click','pointerdown','touchstart','wheel'].forEach(ev=>{ box.addEventListener(ev, e=> e.stopPropagation()); panel.addEventListener(ev, e=> e.stopPropagation()); });
+  box.querySelector('[data-fsm="layers"]').addEventListener('click', ()=>{
+    panel.hidden = !panel.hidden;
+    // Tourenkarte: Blatt einklappen, damit das Ebenen-Fenster Platz hat
+    if(!panel.hidden && map.getContainer().closest('#fs-tour-map') && typeof fsSetSheetDetent === 'function' && fsSheetDetent !== 'peek') fsSetSheetDetent('peek');
+    fsmSyncPanel(map);
+  });
+  box.querySelector('[data-fsm="north"]').addEventListener('click', ()=> map.easeTo({bearing:0, pitch:0, duration:500}));
+  const gpsBtn = box.querySelector('[data-fsm="gps"]');
+  gpsBtn.classList.toggle('on', !!(gpsMarker && gpsMarker._fsmMap === map));
+  gpsBtn.addEventListener('click', ()=>{
+    if(gpsWatchId !== null && gpsMarker && gpsMarker._fsmMap === map){
+      // Läuft schon: erst zum Standort springen, beim zweiten Tippen ausschalten
+      const ll = gpsMarker.getLngLat();
+      const c = map.project(ll), cv = map.getCanvas();
+      if(c.x > 20 && c.y > 20 && c.x < cv.clientWidth - 20 && c.y < cv.clientHeight - 20){ stopLiveGpsOnMap(); gpsBtn.classList.remove('on'); }
+      else map.easeTo({center: ll, duration: 600});
+      return;
+    }
+    map._fsmFlyOnFix = true;
+    startLiveGpsOnMap(map, map._fsm.offlineId || gpsActiveOfflineId || null);
+    gpsBtn.classList.add('on');
+  });
+  const b3 = box.querySelector('[data-fsm="3d"]');
+  if(b3) b3.addEventListener('click', ()=> map._fsm.on3d(map));
+  const compass = box.querySelector('[data-fsm="north"]'), needle = box.querySelector('.fsm-needle');
+  const sync = ()=>{
+    const b = map.getBearing(), tilted = map.getPitch() > 1;
+    compass.hidden = Math.abs(b) < 0.5 && !tilted;
+    needle.setAttribute('transform', 'rotate(' + (-b) + ' 12 12)');
+  };
+  map.on('rotate', sync); map.on('pitch', sync);
+  map.on('click', ()=>{ panel.hidden = true; });
+}
+function fsmSyncPanel(map){
+  const panel = map._fsm && map._fsm.panel;
+  if(!panel || panel.hidden) return;
+  const p = fsmPrefs();
+  panel.innerHTML = `<div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${p.base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
+    ${fsmOverlaysForApp().map(o=>`<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`).join('')}`;
+  panel.querySelectorAll('[data-base]').forEach(b=> b.addEventListener('click', ()=> fsmSetBase(map, b.getAttribute('data-base'))));
+  panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=> fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked)));
+}
+/* --- Eigene Inhalte --- */
+// Linie mit weissem Rand. coords: [[lat,lon],…]. opts: {color, dash, width, label, onClick}
+function fsmAddLine(map, coords, opts){
+  opts = opts || {};
+  const id = 'own-' + (++map._fsm.lines);
+  map.addSource(id, {type:'geojson', data:{type:'Feature', properties:{label: opts.label || ''}, geometry:{type:'LineString', coordinates: coords.map(c=>[c[1], c[0]])}}});
+  map.addLayer({id: id + '-case', type:'line', source:id, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#ffffff', 'line-width':(opts.width || 4) + 3, 'line-opacity':0.7}});
+  map.addLayer({id, type:'line', source:id, layout:{'line-cap': opts.dash ? 'butt' : 'round', 'line-join':'round'}, paint:Object.assign({'line-color':opts.color || '#E8384F', 'line-width':opts.width || 4}, opts.dash ? {'line-dasharray':[1.8, 1.5]} : {})});
+  if(opts.label){
+    map.on('click', id, (e)=>{ e.originalEvent && (e.originalEvent._fsmHandled = true); fsmPopup(map, e.lngLat, esc(opts.label)); });
+    map.on('mouseenter', id, ()=> map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', id, ()=> map.getCanvas().style.cursor = '');
+  }
+  return {ids:[id + '-case', id], setVisible:(v)=> [id + '-case', id].forEach(l=> map.setLayoutProperty(l, 'visibility', v ? 'visible' : 'none'))};
+}
+// HTML-Marker. html: Inhalt; opts: {anchor:'bottom'|'center', popup: html-String oder DOM}
+function fsmAddMarker(map, lat, lon, html, opts){
+  opts = opts || {};
+  const el = document.createElement('div');
+  el.className = 'fsm-marker';
+  el.innerHTML = html;
+  const m = new maplibregl.Marker({element: el, anchor: opts.anchor || 'center'}).setLngLat([lon, lat]).addTo(map);
+  if(opts.popup){
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmPopup(map, {lng:lon, lat}, opts.popup, opts.anchor === 'bottom' ? 30 : 14); });
+  }
+  map._fsm.markers.push(m);
+  return m;
+}
+function fsmPopup(map, lngLat, content, offset){
+  if(map._fsm.popup) map._fsm.popup.remove();
+  const p = new maplibregl.Popup({maxWidth:'300px', offset: offset || 8, className:'fsm-popup'}).setLngLat(lngLat);
+  if(typeof content === 'string') p.setHTML(content); else p.setDOMContent(content);
+  p.addTo(map);
+  map._fsm.popup = p;
+  // Wie Leaflet-Popups: setContent(node) für Inhaltswechsel (z. B. SAC-Liste ↔ Route)
+  p.setContent = (node)=>{ p.setDOMContent(node); return p; };
+  return p;
+}
+function fsmCategoryMarkerHtml(category){
+  const meta = MAP_POINT_CATEGORIES[category] || MAP_POINT_CATEGORIES[''];
+  return `<div class="fsm-pin" style="background:${meta.color}"><span>${meta.icon}</span></div>`;
+}
+// Ausschnitt so wählen, dass alles sichtbar ist. pad: {top,bottom,left,right}
+function fsmFit(map, coords, pad, maxZoom){
+  if(!coords.length) return;
+  const b = new maplibregl.LngLatBounds();
+  coords.forEach(c=> b.extend([c[1], c[0]]));
+  map.fitBounds(b, {padding: pad || 40, maxZoom: maxZoom || 14, duration: 0});
+}
+// Für identifySkitourAt/identifyWegsperrungAt: sichtbarer Ausschnitt und Grösse
+function fsmIdentifyView(map){
+  const b = map.getBounds(), c = map.getCanvas();
+  return {extent:[b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], size:[c.clientWidth, c.clientHeight]};
+}
+// SAC-Skitouren / Wegsperrungen antippen (wie auf der grossen Karte)
+function fsmWireInfoClicks(map, opts){
+  map.on('click', async (e)=>{
+    if(e.originalEvent && e.originalEvent._fsmHandled) return;
+    const ll = {lat: e.lngLat.lat, lng: e.lngLat.lng};
+    if(fsmOverlayOn(map, 'skitouren')){
+      const res = await identifySkitourAt(null, ll, fsmIdentifyView(map));
+      if(res){
+        const pop = fsmPopup(map, e.lngLat, document.createElement('div'));
+        pop.setDOMContent(buildSkitourPopupContent(res, Object.assign({popup: pop}, opts && opts.sac)));
+        return;
+      }
+    }
+    if(fsmOverlayOn(map, 'sperrungen')){
+      const f = await identifyWegsperrungAt(null, ll, fsmIdentifyView(map));
+      if(f){ fsmPopup(map, e.lngLat, buildWegsperrungPopupContent(f)); return; }
+    }
+    if(fsmOverlayOn(map, 'slf')){
+      const hit = map.queryRenderedFeatures(e.point, {layers:['ov-slf']})[0];
+      if(hit) fsmPopup(map, e.lngLat, `<b>Lawinengefahr: Stufe ${esc(hit.properties.label)}</b><br/><a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`);
+    }
+  });
+}
+
 /* ================= Kartenebenen: Landeskarte + Satellit (zum Wechseln) ================= */
 function addBaseLayerSwitcher(map, opts){
   const streetLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
@@ -4063,17 +4388,17 @@ function skitourAttrs(feature){
 
 // Fragt dieselbe geo.admin.ch-"identify"-Schnittstelle für die Wegsperrungen-Ebene ab —
 // analog zu identifySkitourAt(), nur mit anderem Layer-Namen.
-async function identifyWegsperrungAt(map, latlng){
+async function identifyWegsperrungAt(map, latlng, view){
   try{
-    const b = map.getBounds();
-    const size = map.getSize();
+    const b = view ? null : map.getBounds();
+    const size = view ? {x:view.size[0], y:view.size[1]} : map.getSize();
     const params = new URLSearchParams({
       geometryType: 'esriGeometryPoint',
       geometry: latlng.lng + ',' + latlng.lat,
       geometryFormat: 'geojson',
       layers: 'all:ch.astra.wanderland-sperrungen_umleitungen',
       tolerance: String(fsTapTolerancePx()),
-      mapExtent: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(','),
+      mapExtent: (view ? view.extent : [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]).join(','),
       imageDisplay: size.x + ',' + size.y + ',96',
       sr: '4326',
       returnGeometry: 'true'
@@ -9404,6 +9729,13 @@ function startLiveGpsOnMap(map, offlineId){
   gpsActiveOfflineId = offlineId || null;
   gpsWatchId = navigator.geolocation.watchPosition((pos)=>{
     const latlng = [pos.coords.latitude, pos.coords.longitude];
+    if(map && map._fsm){
+      // MapLibre-Karte: blauer Punkt als HTML-Marker
+      if(!gpsMarker){ const el = document.createElement('div'); el.className = 'fsm-gps'; gpsMarker = new maplibregl.Marker({element: el}).setLngLat([latlng[1], latlng[0]]).addTo(map); gpsMarker._fsmMap = map; }
+      else gpsMarker.setLngLat([latlng[1], latlng[0]]);
+      if(map._fsmFlyOnFix){ map._fsmFlyOnFix = false; map.easeTo({center:[latlng[1], latlng[0]], zoom: Math.max(map.getZoom(), 14), duration: 800}); }
+      return;
+    }
     if(!gpsMarker){
       gpsMarker = L.circleMarker(latlng, {radius:8, color:'#fff', weight:3, fillColor:'#1565C0', fillOpacity:1, pane:'markerPane'}).addTo(map);
     }else{
@@ -9411,6 +9743,7 @@ function startLiveGpsOnMap(map, offlineId){
     }
   }, (err)=>{
     dlog('GPS-Standort nicht verfügbar: ' + (err && err.message ? err.message : err), 'err');
+    if(map && map._fsm && map._fsmFlyOnFix){ map._fsmFlyOnFix = false; showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }
   }, { enableHighAccuracy:true, maximumAge:5000 });
 }
 function stopLiveGpsOnMap(){
@@ -9749,9 +10082,9 @@ function fsHideContextMap(){
   document.documentElement.classList.remove('fs-ctx-map');
 }
 function fsFitContextMap(){
-  if(!fsCtxMap || !fsCtxMap._fsBounds) return;
+  if(!fsCtxMap || !fsCtxMap._fsCoords) return;
   const bottom = fsSheetHeightPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent);
-  fsCtxMap.fitBounds(fsCtxMap._fsBounds, {paddingTopLeft:[30, 70], paddingBottomRight:[30, bottom + 20], maxZoom:14});
+  fsmFit(fsCtxMap, fsCtxMap._fsCoords, {top:70, left:30, right:70, bottom: bottom + 20}, 14);
 }
 function fsShowContextMap(t){
   if(!fsTourHasContextData(t)){ fsDestroyContextMap(); return; }
@@ -9761,7 +10094,7 @@ function fsShowContextMap(t){
     if(el.style.display === 'none'){
       el.style.display = '';
       document.documentElement.classList.add('fs-ctx-map');
-      if(fsCtxMap) setTimeout(()=> fsCtxMap.invalidateSize(), 0);
+      if(fsCtxMap) setTimeout(()=> fsCtxMap.resize(), 0);
     }
     return;
   }
@@ -9773,131 +10106,106 @@ function fsShowContextMap(t){
   el.innerHTML = '<div class="fs-tour-map-inner" id="fs-tour-map-inner"></div><div class="fs-ctx-legend" id="fs-ctx-legend"></div>';
   document.body.appendChild(el);
   document.documentElement.classList.add('fs-ctx-map');
-  ensureLeafletLoaded().then(()=>{
+  fsmEnsureLoaded().then(()=>{
     if(fsCtxKey !== key || !document.getElementById('fs-tour-map-inner')) return;
-    const map = L.map('fs-tour-map-inner', {zoomControl:false, attributionControl:false});
+    const mp0 = tourMapPoint(t);
+    const map = fsmCreateMap('fs-tour-map-inner', {center: mp0 ? [mp0.lat, mp0.lon] : null, zoom: 12, on3d: (m)=>{
+      const c = m.getCenter();
+      fsOpen3d({lat:c.lat, lon:c.lng, zoom:14, tour:t, heading:m.getBearing()});
+    }});
     fsCtxMap = map;
-    // Ebenen (Luftbild/Karte, Lawinen, Sperrungen …) und 3D oben rechts — unten liegt das Blatt
-    const { skitourenLayer, wegsperrungenLayer } = addBaseLayerSwitcher(map, {position:'topright'});
-    const Ctx3d = L.Control.extend({
-      options: { position: 'topright' },
-      onAdd: function(){
-        const btn = L.DomUtil.create('button', 'fs-ctx-3d');
-        btn.type = 'button';
-        btn.textContent = '3D';
-        btn.setAttribute('aria-label', 'Tour in 3D ansehen');
-        L.DomEvent.disableClickPropagation(btn);
-        btn.addEventListener('click', ()=>{
-          const mp = tourMapPoint(t) || (()=>{ const c = map.getCenter(); return {lat:c.lat, lon:c.lng}; })();
-          open3dViewAt(mp.lat, mp.lon, 14, t);
-        });
-        return btn;
+    fsmWireInfoClicks(map, {sac:{allowAttach:false}});
+    fsmWhenLoaded(map, ()=>{
+      if(fsCtxMap !== map) return;
+      if(typeof gpsActiveOfflineId !== 'undefined' && gpsActiveOfflineId === t.id) startLiveGpsOnMap(map, t.id);
+      const all = [];
+      const groups = [];
+      function group(label, color, on, dash){
+        const g = {label, color, on, dash, items:[]};
+        groups.push(g);
+        return g;
       }
-    });
-    map.addControl(new Ctx3d());
-    // Wie auf der grossen Karte: SAC-Skitour bzw. Wegsperrung antippen zeigt die Infos
-    map.on('click', async (e)=>{
-      if(skitourenLayer && map.hasLayer(skitourenLayer)){
-        const feature = await identifySkitourAt(map, e.latlng);
-        if(feature){
-          const pop = L.popup({maxWidth:280}).setLatLng(e.latlng);
-          pop.setContent(buildSkitourPopupContent(feature, {popup: pop, allowAttach:false})).openOn(map);
-          return;
+      function line(coords, color, opts){
+        const l = fsmAddLine(map, coords, {color, dash: opts.dash, label: opts.label});
+        opts.group.items.push(l);
+        if(!opts.group.on) l.setVisible(false);
+        coords.forEach(c=> all.push(c));
+      }
+      function marker(lat, lon, html, popup, anchor, g){
+        const m = fsmAddMarker(map, lat, lon, html, {popup, anchor});
+        g.items.push({setVisible:(v)=>{ m.getElement().style.display = v ? '' : 'none'; }});
+        all.push([lat, lon]);
+      }
+      // Tour selbst — in Firnspur nach Art der Route (Aufstieg, Abfahrt, Variante …) gruppiert
+      const typed = fsRouteTypesOn();
+      const pointsGroup = {items:[], on:true};
+      if(typed){
+        const byType = {};
+        fsTourRoutes(t).forEach(r=>{ (byType[r.type] = byType[r.type] || []).push(r); });
+        FS_ROUTE_TYPE_ORDER.forEach(k=>{
+          if(!byType[k]) return;
+          const st = fsRouteStyle(byType[k][0]);
+          const g = group(FS_ROUTE_TYPES[k].label, st.color, true, st.dash);
+          byType[k].forEach(r=>{ const rs = fsRouteStyle(r); line(r.coords, rs.color, {group:g, dash:rs.dash, label: r.name ? r.name + ' (' + FS_ROUTE_TYPES[r.type].label + ')' : FS_ROUTE_TYPES[r.type].label}); });
+        });
+      }else{
+        const g = group('Tour', FS_CTX_COLORS.track, true);
+        if(t.trackSimplified && t.trackSimplified.length) line(t.trackSimplified, FS_CTX_COLORS.track, {group:g, label:'GPX-Track'});
+        if(t.manualTrack && t.manualTrack.length) line(t.manualTrack, FS_CTX_COLORS.manual, {group:g, label:'Geplante Linie'});
+        const alts = (t.altTracks||[]).filter(a=> a.trackSimplified && a.trackSimplified.length);
+        if(alts.length){
+          const ag = group('Varianten', ALT_TRACK_COLORS[0], true, true);
+          alts.forEach((a,i)=> line(a.trackSimplified, ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length], {group:ag, dash:true, label:a.name || 'Alternativroute'}));
         }
       }
-      if(wegsperrungenLayer && map.hasLayer(wegsperrungenLayer)){
-        const f = await identifyWegsperrungAt(map, e.latlng);
-        if(f) L.popup({maxWidth:280}).setLatLng(e.latlng).setContent(buildWegsperrungPopupContent(f)).openOn(map);
+      const acc = (t.accessRoutes||[]).filter(fsRouteCoords);
+      if(acc.length){
+        const g = group('Zustieg', FS_CTX_COLORS.access, true);
+        acc.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.access, {group:g, label:'Zustieg: ' + (r.name || '')}));
       }
-    });
-    if(typeof gpsActiveOfflineId !== 'undefined' && gpsActiveOfflineId === t.id) startLiveGpsOnMap(map, t.id);
-    const all = [];
-    const groups = [];
-    function line(coords, color, opts){
-      L.polyline(coords, {color:'#ffffff', weight:(opts && opts.dash) ? 6 : 7, opacity:0.7, interactive:false}).addTo(opts.layer);
-      const l = L.polyline(coords, {color, weight:4, opacity:1, dashArray:(opts && opts.dash) ? '7,6' : null}).addTo(opts.layer);
-      if(opts.label) l.bindPopup(esc(opts.label));
-      all.push(l);
-    }
-    function group(label, color, on, dash){
-      const layer = L.layerGroup();
-      if(on) layer.addTo(map);
-      groups.push({label, color, layer, on, dash});
-      return layer;
-    }
-    // Tour selbst — in Firnspur nach Art der Route (Aufstieg, Abfahrt, Variante …) gruppiert
-    const typed = fsRouteTypesOn();
-    const tourLayer = typed ? L.layerGroup().addTo(map) : group('Tour', FS_CTX_COLORS.track, true);
-    if(typed){
-      const byType = {};
-      fsTourRoutes(t).forEach(r=>{ (byType[r.type] = byType[r.type] || []).push(r); });
-      FS_ROUTE_TYPE_ORDER.forEach(k=>{
-        if(!byType[k]) return;
-        const st = fsRouteStyle(byType[k][0]);
-        const l = group(FS_ROUTE_TYPES[k].label, st.color, true, st.dash);
-        byType[k].forEach(r=> line(r.coords, fsRouteStyle(r).color, {layer:l, dash:fsRouteStyle(r).dash, label: r.name ? r.name + ' (' + FS_ROUTE_TYPES[r.type].label + ')' : FS_ROUTE_TYPES[r.type].label}));
-      });
-    }else{
-      if(t.trackSimplified && t.trackSimplified.length) line(t.trackSimplified, FS_CTX_COLORS.track, {layer:tourLayer, label:'GPX-Track'});
-      if(t.manualTrack && t.manualTrack.length) line(t.manualTrack, FS_CTX_COLORS.manual, {layer:tourLayer, label:'Geplante Linie'});
-    }
-    (t.points||[]).forEach(p=>{
-      const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(tourLayer).bindPopup(esc(p.label || t.name));
-      all.push(m);
-    });
-    const alts = typed ? [] : (t.altTracks||[]).filter(a=> a.trackSimplified && a.trackSimplified.length);
-    if(alts.length){
-      const altLayer = group('Varianten', ALT_TRACK_COLORS[0], true, true);
-      alts.forEach((a,i)=> line(a.trackSimplified, ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length], {layer:altLayer, dash:true, label:a.name || 'Alternativroute'}));
-    }
-    const acc = (t.accessRoutes||[]).filter(fsRouteCoords);
-    if(acc.length){
-      const l = group('Zustieg', FS_CTX_COLORS.access, true);
-      acc.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.access, {layer:l, label:'Zustieg: ' + (r.name || '')}));
-    }
-    const desc = (t.descentRoutes||[]).filter(fsRouteCoords);
-    if(desc.length){
-      const l = group('Abstieg', FS_CTX_COLORS.descent, true);
-      desc.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.descent, {layer:l, label:'Abstieg: ' + (r.name || '')}));
-    }
-    // Hütte + deren Zustiege (Saison passend zur App zuerst)
-    const hut = fsTourHut(t);
-    if(hut){
-      const prefSeason = (typeof SEKTOREN_PATH !== 'undefined') ? 'sommer' : 'winter';
-      const hutRoutes = (hut.accessRoutes||[]).filter(fsRouteCoords);
-      const main = hutRoutes.filter(r=> !r.season || r.season === prefSeason);
-      const other = hutRoutes.filter(r=> r.season && r.season !== prefSeason);
-      const hutLayer = ((hut.points && hut.points.length) || main.length) ? group('Hütte', FS_CTX_COLORS.hutRoute, true) : L.layerGroup();
-      (hut.points||[]).slice(0,1).forEach(p=>{
-        const icon = L.divIcon({className:'fs-hut-marker', html:fsIconHtml('hut'), iconSize:[30,30], iconAnchor:[15,15]});
-        all.push(L.marker([p.lat, p.lon], {icon}).addTo(hutLayer).bindPopup(esc(hut.name)));
-      });
-      main.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.hutRoute, {layer:hutLayer, label:'Hüttenzustieg: ' + (r.name || '')}));
-      if(other.length){
-        const l = group(prefSeason === 'winter' ? 'Sommerweg' : 'Winterweg', FS_CTX_COLORS.hutRouteOther, false, true);
-        other.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.hutRouteOther, {layer:l, dash:true, label:'Hüttenzustieg: ' + (r.name || '')}));
+      const desc = (t.descentRoutes||[]).filter(fsRouteCoords);
+      if(desc.length){
+        const g = group('Abstieg', FS_CTX_COLORS.descent, true);
+        desc.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.descent, {group:g, label:'Abstieg: ' + (r.name || '')}));
       }
-    }
-    // Legende (nur wenn es mehr als eine Ebene gibt)
-    const legend = document.getElementById('fs-ctx-legend');
-    if(legend && groups.length > 1){
-      groups.forEach(g=>{
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'fs-ctx-chip' + (g.on ? ' on' : '');
-        b.innerHTML = `<span class="sw${g.dash ? ' dash' : ''}" style="--c:${g.color}"></span>${esc(g.label)}`;
-        b.addEventListener('click', ()=>{
-          g.on = !g.on;
-          b.classList.toggle('on', g.on);
-          if(g.on) g.layer.addTo(map); else map.removeLayer(g.layer);
+      // Hütte + deren Zustiege (Saison passend zur App zuerst)
+      const hut = fsTourHut(t);
+      if(hut){
+        const prefSeason = (typeof SEKTOREN_PATH !== 'undefined') ? 'sommer' : 'winter';
+        const hutRoutes = (hut.accessRoutes||[]).filter(fsRouteCoords);
+        const main = hutRoutes.filter(r=> !r.season || r.season === prefSeason);
+        const other = hutRoutes.filter(r=> r.season && r.season !== prefSeason);
+        const hg = ((hut.points && hut.points.length) || main.length) ? group('Hütte', FS_CTX_COLORS.hutRoute, true) : {items:[], on:true};
+        (hut.points||[]).slice(0,1).forEach(p=> marker(p.lat, p.lon, `<div class="fs-hut-marker">${fsIconHtml('hut')}</div>`, esc(hut.name), 'center', hg));
+        main.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.hutRoute, {group:hg, label:'Hüttenzustieg: ' + (r.name || '')}));
+        if(other.length){
+          const og = group(prefSeason === 'winter' ? 'Sommerweg' : 'Winterweg', FS_CTX_COLORS.hutRouteOther, false, true);
+          other.forEach(r=> line(fsRouteCoords(r), FS_CTX_COLORS.hutRouteOther, {group:og, dash:true, label:'Hüttenzustieg: ' + (r.name || '')}));
+        }
+      }
+      // Punkte der Tour zuoberst
+      (t.points||[]).forEach(p=> marker(p.lat, p.lon, fsmCategoryMarkerHtml(p.category), esc(p.label || t.name), 'bottom', pointsGroup));
+      // Legende (nur wenn es mehr als eine Ebene gibt)
+      const legend = document.getElementById('fs-ctx-legend');
+      if(legend && groups.length > 1){
+        groups.forEach(g=>{
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'fs-ctx-chip' + (g.on ? ' on' : '');
+          b.innerHTML = `<span class="sw${g.dash ? ' dash' : ''}" style="--c:${g.color}"></span>${esc(g.label)}`;
+          b.addEventListener('click', ()=>{
+            g.on = !g.on;
+            b.classList.toggle('on', g.on);
+            g.items.forEach(it=> it.setVisible(g.on));
+          });
+          legend.appendChild(b);
         });
-        legend.appendChild(b);
-      });
-    }
-    if(all.length){
-      map._fsBounds = L.featureGroup(all).getBounds();
-      fsFitContextMap();
-    }
+      }
+      if(all.length){
+        map._fsCoords = all;
+        fsFitContextMap();
+      }
+    });
   }).catch(()=>{
     const inner = document.getElementById('fs-tour-map-inner');
     if(inner) inner.innerHTML = '<p class="fs-ctx-offline">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
@@ -10092,6 +10400,7 @@ async function submitShareImportGpxLink(tourId, link){
    Emoji in Textknoten durch schlichte Strich-Icons im gleichen Stil. Eingabefelder, Textareas und
    Attribute bleiben unangetastet; in <option> (kann kein SVG) wird das Emoji einfach weggelassen. */
 const FS_ICON_PATHS = {
+  layers: 'M12 3 2 8l10 5 10-5-10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5',
   more: 'M5 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM12 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM19 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
   hut: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5',

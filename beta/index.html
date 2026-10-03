@@ -2732,7 +2732,7 @@ function wireModalHandlers(){
     const gpsToggleBtn = e.target.closest('[data-act="toggle-live-gps"]');
     if(gpsToggleBtn){
       const offlineId = gpsToggleBtn.getAttribute('data-offline-id');
-      const mapInner = window.__activeLeafletMaps && window.__activeLeafletMaps['map-tour-' + offlineId + '-inner'];
+      const mapInner = (typeof fsCtxMap !== 'undefined' && fsCtxMap) || (window.__activeLeafletMaps && window.__activeLeafletMaps['map-tour-' + offlineId + '-inner']);
       if(!mapInner){
         showToast('Bitte zuerst "🗺️ Karte anzeigen" antippen.', true);
         return;
