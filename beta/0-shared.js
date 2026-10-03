@@ -6294,6 +6294,109 @@ function fsApplyEditMode(){
   }
 }
 
+/* ================= Kontextmenü: lange auf eine Tour-Kachel drücken (Phase 2d) =================
+   Wie bei Apple: lange drücken (bzw. Rechtsklick) auf eine Tour-Kachel zeigt die Kachel
+   hervorgehoben und ein kurzes Menü mit Dingen, die nichts verändern: Merken, Teilen, GPX,
+   Für unterwegs laden, 3D. Ändern geht weiterhin nur über den Stift. */
+const FS_CTX_LONGPRESS_MS = 500;
+let fsCtxPressTimer = null, fsCtxPressStart = null, fsCtxSuppressClickUntil = 0;
+function fsCardTourId(card){
+  return card && card.getAttribute('data-act') === 'open-tour' ? card.getAttribute('data-id') : null;
+}
+function fsCloseTourCtxMenu(){
+  const el = document.getElementById('fs-ctx-overlay');
+  if(el) el.remove();
+}
+function fsOpenTourCtxMenu(card){
+  const id = fsCardTourId(card);
+  const t = id && typeof state !== 'undefined' ? (state.tours||[]).find(x=> String(x.id) === String(id)) : null;
+  if(!t || document.getElementById('fs-ctx-overlay')) return;
+  fsCtxSuppressClickUntil = Date.now() + 800;
+  if(navigator.vibrate){ try{ navigator.vibrate(15); }catch(e){} }
+  const overlay = document.createElement('div');
+  overlay.id = 'fs-ctx-overlay';
+  overlay.className = 'fs-ctxm-overlay';
+  const preview = card.cloneNode(true);
+  preview.removeAttribute('data-act');
+  preview.classList.add('fs-ctxm-preview');
+  preview.querySelectorAll('[data-act]').forEach(e=> e.removeAttribute('data-act'));
+  overlay.appendChild(preview);
+  const menu = document.createElement('div');
+  menu.className = 'fs-ctxm-menu';
+  const mp = tourMapPoint(t);
+  const items = [
+    { icon:'star', label: isFavorite(t.id) ? 'Nicht mehr merken' : 'Merken', fn: ()=> toggleFavorite(t.id) },
+    { icon:'upload', label:'Teilen / exportieren', fn: ()=>{ if(typeof openTourExport === 'function') openTourExport(t.id); } },
+    (t.trackSimplified && t.trackSimplified.length) ? { icon:'download', label:'GPX herunterladen', fn: ()=> downloadFullGpx(GPX_TRACKS_PATH, t.id, t.name) }
+      : (t.manualTrack && t.manualTrack.length) ? { icon:'download', label:'Route als GPX', fn: ()=> downloadTrackAsGpx(t.manualTrack, t.name) } : null,
+    tourHasMapData(t) ? { icon:'map', label:'Für unterwegs laden', fn: ()=> fsDownloadTourOfflineFromMenu(t) } : null,
+    mp ? { icon:'mountain', label:'In 3D ansehen', fn: ()=> open3dViewAt(mp.lat, mp.lon, 14) } : null
+  ].filter(Boolean);
+  items.forEach(it=>{
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'fs-ctxm-item';
+    b.innerHTML = `<span>${esc(it.label)}</span>${fsIconHtml(it.icon)}`;
+    b.addEventListener('click', (e)=>{ e.stopPropagation(); closeTopOverlayLayer(); it.fn(); });
+    menu.appendChild(b);
+  });
+  overlay.appendChild(menu);
+  const note = document.createElement('p');
+  note.className = 'fs-ctxm-note';
+  note.textContent = 'Ändern geht nur über den Stift — hier kann nichts verloren gehen.';
+  overlay.appendChild(note);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay || e.target === note) closeTopOverlayLayer(); });
+  document.body.appendChild(overlay);
+  pushOverlayLayer(fsCloseTourCtxMenu); // Zurück-Taste schliesst das Menü
+}
+function fsDownloadTourOfflineFromMenu(t){
+  const coords = [];
+  (t.points||[]).forEach(p=> coords.push([p.lat, p.lon]));
+  (t.trackSimplified||[]).forEach(c=> coords.push(c));
+  (t.manualTrack||[]).forEach(c=> coords.push(c));
+  showToast('Wird für unterwegs heruntergeladen …');
+  downloadTourOffline(t.id, t.name, coords, t.topoImages||[], ()=>{})
+    .then(()=> showToast('„' + t.name + '“ ist jetzt offline verfügbar.'))
+    .catch(err=> showToast('Fehler beim Herunterladen: ' + (err && err.message ? err.message : err), true));
+}
+// Langes Drücken: eigener Timer (iPhone kennt kein contextmenu bei Berührung) …
+document.addEventListener('pointerdown', (e)=>{
+  if(e.button !== undefined && e.button !== 0) return;
+  const card = e.target.closest && e.target.closest('.card[data-act="open-tour"]');
+  if(!card || e.target.closest('button:not(.card)')) return;
+  clearTimeout(fsCtxPressTimer);
+  fsCtxPressStart = {x:e.clientX, y:e.clientY};
+  card.classList.add('fs-pressing');
+  fsCtxPressTimer = setTimeout(()=>{ card.classList.remove('fs-pressing'); fsOpenTourCtxMenu(card); }, FS_CTX_LONGPRESS_MS);
+  // Solange der Finger nach dem Öffnen noch liegt, Klicks schlucken (bis kurz nach dem Loslassen)
+  const extend = ()=>{ if(document.getElementById('fs-ctx-overlay')) fsCtxSuppressClickUntil = Date.now() + 400; document.removeEventListener('pointerup', extend, true); };
+  document.addEventListener('pointerup', extend, true);
+}, true);
+const fsCtxCancelPress = ()=>{
+  clearTimeout(fsCtxPressTimer); fsCtxPressTimer = null;
+  document.querySelectorAll('.card.fs-pressing').forEach(c=> c.classList.remove('fs-pressing'));
+};
+['pointerup','pointercancel'].forEach(t=> document.addEventListener(t, fsCtxCancelPress, true));
+document.addEventListener('pointermove', (e)=>{
+  if(fsCtxPressTimer && fsCtxPressStart && Math.hypot(e.clientX - fsCtxPressStart.x, e.clientY - fsCtxPressStart.y) > 10) fsCtxCancelPress();
+}, true);
+// … und das contextmenu-Signal (Android langes Drücken, Rechtsklick am Computer).
+document.addEventListener('contextmenu', (e)=>{
+  const card = e.target.closest && e.target.closest('.card[data-act="open-tour"]');
+  if(!card) return;
+  e.preventDefault();
+  fsCtxCancelPress();
+  fsOpenTourCtxMenu(card);
+}, true);
+// Der Klick, der nach dem langen Drücken beim Loslassen kommt, soll die Tour nicht öffnen.
+document.addEventListener('click', (e)=>{
+  // Gilt auch für das eben geöffnete Menü: es erscheint unter dem Finger, der Klick beim
+  // Loslassen darf nicht gleich den ersten Eintrag auslösen.
+  if(Date.now() < fsCtxSuppressClickUntil && e.target.closest && e.target.closest('.card[data-act="open-tour"], #fs-ctx-overlay')){
+    e.preventDefault(); e.stopImmediatePropagation();
+  }
+}, true);
+
 /* ================= Rückgängig nach dem Speichern =================
    Hinweis unten mit "Rückgängig"-Knopf, 10 Sekunden lang. undoFn stellt den vorherigen Stand
    wieder her (lokal + Cloud). */
