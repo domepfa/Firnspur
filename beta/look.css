@@ -1393,3 +1393,12 @@ html.fs-dark .fsm-row{ border-top-color:#33414C; }
 .fsm-popup .maplibregl-popup-content{ padding-right:34px; }
 .fl-circle{ display:flex; align-items:center; justify-content:center; }
 .fl-tip{ pointer-events:none; color:#fff; font-size:11px; font-weight:800; line-height:1; }
+
+/* 3D: Gipfel ringsum (Panorama vom Standort) */
+.fs-3d-chip[data-3d="pano"].on{ background:var(--ice-deep); color:#fff; }
+.fs-3d-chip[data-3d="pano-compass"].on{ background:#0F1E27; color:#fff; }
+.fs-3d-chip[hidden]{ display:none; }
+.fs-3d-pano .fs-3d-chip[data-3d="slope"],
+.fs-3d-pano .fs-3d-chip[data-3d="ski"],
+.fs-3d-pano .fs-3d-chip[data-3d="walk"]{ display:none; }
+.fs-3d-pano .fs-3d-map{ touch-action:none; }
