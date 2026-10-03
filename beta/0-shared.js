@@ -6072,7 +6072,318 @@ async function removeGpxTrack(trackPathPrefix, tourIdHiddenId, simplifiedHiddenI
    Fehlermeldung im UI, der Rest der App funktioniert unabhängig davon. */
 const OPENROUTESERVICE_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImMzNGNmZWNmY2Q3YzRjODlhNGJkNzVjOThlZjkyMjg4IiwiaCI6Im11cm11cjY0In0=';
 
+/* ================= Routen auf dem swisstopo-Wegnetz (fsr*) =================
+   Statt openrouteservice (OpenStreetMap-Wege, die in den Bergen oft neben dem Weg der Landeskarte
+   liegen) rechnet die App selbst auf dem offiziellen swisstopo-Wegnetz (swissTLM3D, aus den freien
+   Vektorkacheln von geo.admin.ch). Die Spur liegt so genau auf dem Weg der Landeskarte.
+   Ablauf: Kacheln (Zoom 14) für das Gebiet laden → Wege (Ebene "transportation") zu einem Netz
+   verbinden → kürzester "Aufwand" mit Dijkstra → Höhen aus swissALTI3D (Profil-Dienst) → Zeit nach
+   der SAC/DAV-Faustregel. Findet sich kein Weg (z. B. weglos), rechnet openrouteservice wie bisher. */
+const FSR_TILE_URL = 'https://vectortiles.geo.admin.ch/tiles/ch.swisstopo.base.vt/v1.0.0/';
+const FSR_Z = 14;
+const FSR_MAX_TILES = 90;
+const FSR_EXT = 4096; // Kachelauflösung; das Wegnetz rechnet in globalen Kachelpixeln (≈ 0,4 m)
+const fsrTileCache = new Map();
+
+// --- Minimaler Vektorkachel-Leser (Mapbox Vector Tile / Protobuf), nur was hier gebraucht wird ---
+function fsrDecodeTransport(buf){
+  const b = new Uint8Array(buf);
+  let pos = 0;
+  const varint = ()=>{ let r = 0, s = 0, x; do{ x = b[pos++]; r += (x & 0x7f) * Math.pow(2, s); s += 7; }while(x >= 0x80); return r; };
+  const skip = (wt)=>{ if(wt === 0) varint(); else if(wt === 1) pos += 8; else if(wt === 2){ const l = varint(); pos += l; } else if(wt === 5) pos += 4; };
+  const str = (end)=> new TextDecoder().decode(b.subarray(pos, end));
+  const out = {extent: 4096, features: []};
+  while(pos < b.length){
+    const tag = varint(), fn = Math.floor(tag / 8), wt = tag & 7;
+    if(fn !== 3 || wt !== 2){ skip(wt); continue; }
+    const lend = varint() + pos;
+    let name = '', keys = [], vals = [], feats = [], extent = 4096;
+    while(pos < lend){
+      const t2 = varint(), f2 = Math.floor(t2 / 8), w2 = t2 & 7;
+      if(f2 === 1 && w2 === 2){ const l = varint(); name = str(pos + l); pos += l; }
+      else if(f2 === 3 && w2 === 2){ const l = varint(); keys.push(str(pos + l)); pos += l; }
+      else if(f2 === 4 && w2 === 2){
+        const vend = varint() + pos; let v = null;
+        while(pos < vend){
+          const t3 = varint(), f3 = Math.floor(t3 / 8), w3 = t3 & 7;
+          if(f3 === 1 && w3 === 2){ const l = varint(); v = str(pos + l); pos += l; }
+          else if((f3 === 4 || f3 === 5) && w3 === 0) v = varint();
+          else if(f3 === 6 && w3 === 0){ const n = varint(); v = (n % 2) ? -(n + 1) / 2 : n / 2; }
+          else if(f3 === 7 && w3 === 0) v = !!varint();
+          else if(f3 === 2 && w3 === 5){ v = new DataView(b.buffer, b.byteOffset + pos, 4).getFloat32(0, true); pos += 4; }
+          else if(f3 === 3 && w3 === 1){ v = new DataView(b.buffer, b.byteOffset + pos, 8).getFloat64(0, true); pos += 8; }
+          else skip(w3);
+        }
+        vals.push(v);
+      }
+      else if(f2 === 5 && w2 === 0) extent = varint();
+      else if(f2 === 2 && w2 === 2){
+        const fend = varint() + pos; let tags = [], geom = [], type = 0;
+        while(pos < fend){
+          const t4 = varint(), f4 = Math.floor(t4 / 8), w4 = t4 & 7;
+          if(f4 === 2 && w4 === 2){ const e = varint() + pos; while(pos < e) tags.push(varint()); }
+          else if(f4 === 3 && w4 === 0) type = varint();
+          else if(f4 === 4 && w4 === 2){ const e = varint() + pos; while(pos < e) geom.push(varint()); }
+          else skip(w4);
+        }
+        feats.push({tags, geom, type});
+      }
+      else skip(w2);
+    }
+    if(name !== 'transportation') continue;
+    out.extent = extent;
+    feats.forEach(f=>{
+      if(f.type !== 2) return;
+      const p = {};
+      for(let i = 0; i + 1 < f.tags.length; i += 2) p[keys[f.tags[i]]] = vals[f.tags[i + 1]];
+      // Geometrie: MoveTo/LineTo mit Zickzack-Deltas
+      const lines = []; let x = 0, y = 0, i = 0, cur = null;
+      while(i < f.geom.length){
+        const ci = f.geom[i++], cmd = ci & 7, cnt = ci >> 3;
+        for(let k = 0; k < cnt; k++){
+          if(cmd === 7) break;
+          const dx = f.geom[i++], dy = f.geom[i++];
+          x += (dx % 2) ? -(dx + 1) / 2 : dx / 2; y += (dy % 2) ? -(dy + 1) / 2 : dy / 2;
+          if(cmd === 1){ cur = [[x, y]]; lines.push(cur); } else if(cur) cur.push([x, y]);
+        }
+      }
+      lines.forEach(l=>{ if(l.length > 1) out.features.push({p, line: l}); });
+    });
+  }
+  return out;
+}
+async function fsrLoadTile(x, y){
+  const key = x + '/' + y;
+  if(fsrTileCache.has(key)) return fsrTileCache.get(key);
+  const pr = fetch(FSR_TILE_URL + FSR_Z + '/' + x + '/' + y + '.pbf').then(r=>{ if(!r.ok) throw new Error('Kachel'); return r.arrayBuffer(); })
+    .then(fsrDecodeTransport).catch(e=>{ fsrTileCache.delete(key); throw e; });
+  fsrTileCache.set(key, pr);
+  return pr;
+}
+// Aufwand pro Meter je Wegart: Wege und Pfade bevorzugt, Strassen meiden, Bahnen/Lifte nie
+function fsrCostFactor(p){
+  const c = p.class || '', sc = p.subclass || '', sac = p.sac_scale || '';
+  // Exakt prüfen ("trail" enthält "rail"!): Bahnen, Seilbahnen, Fähren, Autobahnen nie
+  if(/^(rail|transit|aerialway.*|cable_car|gondola|chair_lift|ferry|motorway.*|trunk.*|pier|bus.*)$/.test(c)) return 0;
+  let f;
+  if(c === 'footway' || c === 'path') f = 1.0;
+  else if(c === 'trail') f = 1.1;
+  else if(c === 'mask_terrain') f = /rock/.test(sc) ? 1.35 : 1.2;
+  else if(c === 'track' || c === 'minor' || c === 'service') f = 1.1;
+  else if(c === 'tertiary') f = 1.4;
+  else if(c === 'secondary' || c === 'primary') f = 1.8;
+  else f = 1.5;
+  if(/demanding_alpine|difficult_alpine/.test(sac)) f *= 1.6;
+  else if(/alpine_hiking/.test(sac)) f *= 1.2;
+  if(p.is_route) f *= 0.9; // signalisierte Wanderwege leicht bevorzugen
+  return f;
+}
+// Einen Streckenzug auf das Kachelquadrat [0, ext] beschneiden (Kacheln haben einen Überstand,
+// der sonst doppelte, leicht versetzte Wege ergäbe)
+function fsrClip(line, ext){
+  const out = []; let cur = null;
+  const inside = (p)=> p[0] >= 0 && p[0] <= ext && p[1] >= 0 && p[1] <= ext;
+  for(let i = 0; i + 1 < line.length; i++){
+    let [x0, y0] = line[i], [x1, y1] = line[i + 1];
+    let t0 = 0, t1 = 1; const dx = x1 - x0, dy = y1 - y0;
+    const pq = [[-dx, x0], [dx, ext - x0], [-dy, y0], [dy, ext - y0]];
+    let ok = true;
+    for(const [p, q] of pq){
+      if(p === 0){ if(q < 0){ ok = false; break; } continue; }
+      const r = q / p;
+      if(p < 0){ if(r > t1){ ok = false; break; } if(r > t0) t0 = r; }
+      else { if(r < t0){ ok = false; break; } if(r < t1) t1 = r; }
+    }
+    if(!ok){ cur = null; continue; }
+    const a = [x0 + t0 * dx, y0 + t0 * dy], c = [x0 + t1 * dx, y0 + t1 * dy];
+    if(!cur || t0 > 0){ cur = [a]; out.push(cur); }
+    cur.push(c);
+    if(t1 < 1) cur = null;
+  }
+  return out.filter(l=> l.length > 1);
+}
+const fsrLon2X = (lon)=> (lon + 180) / 360 * Math.pow(2, FSR_Z);
+const fsrLat2Y = (lat)=>{ const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * Math.pow(2, FSR_Z); };
+const fsrX2Lon = (x)=> x / Math.pow(2, FSR_Z) * 360 - 180;
+const fsrY2Lat = (y)=>{ const n = Math.PI - 2 * Math.PI * y / Math.pow(2, FSR_Z); return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))); };
+// Kleiner Binär-Heap für Dijkstra
+function FsrHeap(){ this.a = []; }
+FsrHeap.prototype.push = function(n, d){ const a = this.a; a.push([d, n]); let i = a.length - 1; while(i > 0){ const p = (i - 1) >> 1; if(a[p][0] <= a[i][0]) break; [a[p], a[i]] = [a[i], a[p]]; i = p; } };
+FsrHeap.prototype.pop = function(){ const a = this.a, top = a[0], last = a.pop(); if(a.length){ a[0] = last; let i = 0; for(;;){ const l = 2 * i + 1, r = l + 1; let m = i; if(l < a.length && a[l][0] < a[m][0]) m = l; if(r < a.length && a[r][0] < a[m][0]) m = r; if(m === i) break; [a[m], a[i]] = [a[i], a[m]]; i = m; } } return top; };
+// Wegnetz für ein Gebiet aufbauen. Koordinaten in "Kachelpixeln" (global, Zoom 14 × 4096)
+async function fsrBuildGraph(bbox){
+  const x0 = Math.floor(fsrLon2X(bbox[1])), x1 = Math.floor(fsrLon2X(bbox[3]));
+  const y0 = Math.floor(fsrLat2Y(bbox[2])), y1 = Math.floor(fsrLat2Y(bbox[0]));
+  const tiles = [];
+  for(let x = x0; x <= x1; x++) for(let y = y0; y <= y1; y++) tiles.push([x, y]);
+  if(tiles.length > FSR_MAX_TILES) throw new Error('Gebiet zu gross für die Berechnung auf dem swisstopo-Wegnetz.');
+  const loaded = [];
+  for(let i = 0; i < tiles.length; i += 8){
+    const part = await Promise.all(tiles.slice(i, i + 8).map(([x, y])=> fsrLoadTile(x, y).then(t=> ({x, y, t}))));
+    part.forEach(p=> loaded.push(p));
+  }
+  const nodes = [], adj = [], keyIdx = new Map(), segs = [];
+  const nodeAt = (gx, gy)=>{
+    const k = Math.round(gx * 4) + ',' + Math.round(gy * 4); // auf 1/4 Kachelpixel (~10 cm) zusammenführen
+    let i = keyIdx.get(k);
+    if(i === undefined){ i = nodes.length; nodes.push([gx, gy]); adj.push([]); keyIdx.set(k, i); }
+    return i;
+  };
+  loaded.forEach(({x, y, t})=>{
+    const ext = t.extent;
+    t.features.forEach(f=>{
+      const cf = fsrCostFactor(f.p);
+      if(!cf) return;
+      fsrClip(f.line, ext).forEach(part=>{
+        let prev = null;
+        part.forEach(pt=>{
+          const n = nodeAt(x * FSR_EXT + pt[0] * FSR_EXT / ext, y * FSR_EXT + pt[1] * FSR_EXT / ext);
+          if(prev !== null && prev !== n){ segs.push([prev, n, cf, f.p]); }
+          prev = n;
+        });
+      });
+    });
+  });
+  const lat0 = (bbox[0] + bbox[2]) / 2;
+  const mPerUnit = 40075016.686 * Math.cos(lat0 * Math.PI / 180) / (Math.pow(2, FSR_Z) * FSR_EXT);
+  const dist = (a, b)=> Math.hypot(nodes[a][0] - nodes[b][0], nodes[a][1] - nodes[b][1]) * mPerUnit;
+  const addEdge = (a, b, cf)=>{ const d = dist(a, b); adj[a].push([b, d * cf, d]); adj[b].push([a, d * cf, d]); };
+  segs.forEach(([a, b, cf])=> addEdge(a, b, cf));
+  // Lücken im Netz schliessen: Im swisstopo-Wegnetz enden Wegstücke oft einige Meter vor dem
+  // anschliessenden Weg (z. B. Bergweg vor der Passstrasse, Pfad vor der Hütte). Lose Wegenden
+  // werden darum mit dem nächsten Weg bis 12 m verbunden — sonst entstehen grosse Umwege.
+  const grid = new Map(), cell = 40 / mPerUnit; // ~40 m Zellen
+  const addToGrid = (si)=>{
+    const s = segs[si], a = nodes[s[0]], b = nodes[s[1]];
+    const cx0 = Math.floor(Math.min(a[0], b[0]) / cell), cx1 = Math.floor(Math.max(a[0], b[0]) / cell);
+    const cy0 = Math.floor(Math.min(a[1], b[1]) / cell), cy1 = Math.floor(Math.max(a[1], b[1]) / cell);
+    for(let cx = cx0; cx <= cx1; cx++) for(let cy = cy0; cy <= cy1; cy++){ const k = cx + ',' + cy; if(!grid.has(k)) grid.set(k, []); grid.get(k).push(si); }
+  };
+  segs.forEach((s, si)=> addToGrid(si));
+  const near = (gx, gy)=>{ const cx = Math.floor(gx / cell), cy = Math.floor(gy / cell), out = new Set(); for(let dx = -1; dx <= 1; dx++) for(let dy = -1; dy <= 1; dy++){ const g = grid.get((cx + dx) + ',' + (cy + dy)); if(g) g.forEach(v=> out.add(v)); } return out; };
+  const proj = (p, a, b)=>{ const vx = b[0] - a[0], vy = b[1] - a[1], L2 = vx * vx + vy * vy; let t = L2 ? ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / L2 : 0; t = Math.max(0, Math.min(1, t)); return {t, x: a[0] + t * vx, y: a[1] + t * vy}; };
+  const tol = 12 / mPerUnit;
+  const ends = [];
+  for(let n = 0; n < nodes.length; n++) if(adj[n].length === 1) ends.push(n);
+  ends.forEach(n=>{
+    // Was über das Netz schon innert 25 m erreichbar ist, ausschliessen — sonst "verbindet" sich
+    // ein Weg mit sich selbst (z. B. in einer Kehre)
+    const own = new Map([[n, 0]]); let frontier = [n];
+    while(frontier.length){ const nx = []; frontier.forEach(u=> adj[u].forEach(([v, , d])=>{ const nd = own.get(u) + d; if(nd <= 25 && (!own.has(v) || own.get(v) > nd)){ own.set(v, nd); nx.push(v); } })); frontier = nx; }
+    let best = null;
+    near(nodes[n][0], nodes[n][1]).forEach(si=>{
+      const s = segs[si]; if(own.has(s[0]) && own.has(s[1])) return;
+      const q = proj(nodes[n], nodes[s[0]], nodes[s[1]]);
+      const d = Math.hypot(q.x - nodes[n][0], q.y - nodes[n][1]);
+      if(d <= tol && (!best || d < best.d)) best = {d, q, s};
+    });
+    if(!best) return;
+    let m;
+    if(best.q.t <= 0.001) m = best.s[0]; else if(best.q.t >= 0.999) m = best.s[1];
+    else { m = nodes.length; nodes.push([best.q.x, best.q.y]); adj.push([]); addEdge(best.s[0], m, best.s[2]); addEdge(m, best.s[1], best.s[2]); }
+    addEdge(n, m, 1.3);
+  });
+  return {nodes, adj, segs, mPerUnit, near, proj, nodeAt, addEdge, dist, cell};
+}
+// Punkt (lat, lon) ans Wegnetz anhängen: nächster Weg bis 400 m
+function fsrAttach(G, lat, lon){
+  const p = [fsrLon2X(lon) * FSR_EXT, fsrLat2Y(lat) * FSR_EXT];
+  let best = null;
+  // Einfach und robust: alle Segmente prüfen (einige zehntausend, schnell genug)
+  for(const s of G.segs){
+    const q = G.proj(p, G.nodes[s[0]], G.nodes[s[1]]);
+    const d = Math.hypot(q.x - p[0], q.y - p[1]);
+    if(!best || d < best.d) best = {d, q, s};
+  }
+  if(!best || best.d * G.mPerUnit > 400) return null;
+  const m = G.nodes.length; G.nodes.push([best.q.x, best.q.y]); G.adj.push([]);
+  G.addEdge(best.s[0], m, best.s[2]); G.addEdge(m, best.s[1], best.s[2]);
+  return {node: m, offM: best.d * G.mPerUnit, tap: [lat, lon]};
+}
+function fsrDijkstra(G, s, t){
+  const dist = new Float64Array(G.nodes.length).fill(Infinity), prev = new Int32Array(G.nodes.length).fill(-1);
+  const h = new FsrHeap(); dist[s] = 0; h.push(s, 0);
+  while(h.a.length){
+    const [d, u] = h.pop();
+    if(u === t) break;
+    if(d > dist[u]) continue;
+    for(const [v, w] of G.adj[u]){ const nd = d + w; if(nd < dist[v]){ dist[v] = nd; prev[v] = u; h.push(v, nd); } }
+  }
+  if(dist[t] === Infinity) return null;
+  const path = []; for(let u = t; u !== -1; u = prev[u]) path.push(u);
+  return path.reverse();
+}
+// WGS84 → LV95 (Näherungsformel swisstopo, ~1 m genau) für den Höhenprofil-Dienst
+function fsrToLv95(lat, lon){
+  const phi = (lat * 3600 - 169028.66) / 10000, lam = (lon * 3600 - 26782.5) / 10000;
+  return [2600072.37 + 211455.93 * lam - 10938.51 * lam * phi - 0.36 * lam * phi * phi - 44.54 * lam * lam * lam,
+          1200147.07 + 308807.95 * phi + 3745.25 * lam * lam + 76.63 * phi * phi - 194.56 * lam * lam * phi + 119.79 * phi * phi * phi];
+}
+async function fsrElevation(coords){
+  let pts = coords;
+  if(pts.length > 900){ const step = pts.length / 900; pts = Array.from({length: 900}, (_, i)=> coords[Math.floor(i * step)]).concat([coords[coords.length - 1]]); }
+  const geom = {type:'LineString', coordinates: pts.map(c=> fsrToLv95(c[0], c[1]).map(v=> Math.round(v * 10) / 10))};
+  const res = await fetch('https://api3.geo.admin.ch/rest/services/profile.json?sr=2056&distinct_points=true&nb_points=' + Math.min(1000, Math.max(100, pts.length * 2)), {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(geom)
+  });
+  if(!res.ok) throw new Error('Höhenprofil nicht verfügbar');
+  const prof = await res.json();
+  const profile = prof.map(p=> ({distM: p.dist, eleM: p.alts && (p.alts.DTM2 || p.alts.COMB)})).filter(p=> p.eleM != null);
+  let up = 0, down = 0, ref = profile.length ? profile[0].eleM : 0;
+  // Kleine Schwelle gegen Messrauschen
+  profile.forEach(p=>{ const d = p.eleM - ref; if(d >= 2){ up += d; ref = p.eleM; } else if(d <= -2){ down -= d; ref = p.eleM; } });
+  return {profile, up: Math.round(up), down: Math.round(down)};
+}
+// Wanderzeit nach SAC/DAV: 4 km/h horizontal, 300 Hm/h aufwärts, 500 Hm/h abwärts;
+// Gesamt = grösserer Wert + halber kleinerer Wert
+function fsrHikeSeconds(distM, up, down){
+  const h = distM / 4000, v = up / 300 + down / 500;
+  return (Math.max(h, v) + Math.min(h, v) / 2) * 3600;
+}
+async function fsrRoute(waypoints){
+  const lats = waypoints.map(w=> w[0]), lons = waypoints.map(w=> w[1]);
+  let minLat = Math.min(...lats), maxLat = Math.max(...lats), minLon = Math.min(...lons), maxLon = Math.max(...lons);
+  const spanM = Math.max((maxLat - minLat) * 111320, (maxLon - minLon) * 111320 * Math.cos(minLat * Math.PI / 180));
+  let lastErr = null;
+  for(const factor of [0.35, 0.8]){
+    const bufM = Math.max(700, spanM * factor);
+    const dLat = bufM / 111320, dLon = bufM / (111320 * Math.cos(minLat * Math.PI / 180));
+    const G = await fsrBuildGraph([minLat - dLat, minLon - dLon, maxLat + dLat, maxLon + dLon]);
+    const att = waypoints.map(w=> fsrAttach(G, w[0], w[1]));
+    if(att.some(a=> !a)){ lastErr = new Error('Ein Punkt liegt zu weit weg von einem Weg.'); break; }
+    let coords = [], ok = true;
+    if(att[0].offM > 3) coords.push(att[0].tap); // angetippter Punkt etwas neben dem Weg
+    for(let i = 0; i + 1 < att.length; i++){
+      const path = fsrDijkstra(G, att[i].node, att[i + 1].node);
+      if(!path){ ok = false; break; }
+      const seg = path.map(n=> [fsrY2Lat(G.nodes[n][1] / FSR_EXT), fsrX2Lon(G.nodes[n][0] / FSR_EXT)]);
+      coords = coords.concat(i === 0 ? seg : seg.slice(1)); // Etappen teilen sich den Zwischenpunkt
+    }
+    if(ok && att[att.length - 1].offM > 3) coords.push(att[att.length - 1].tap);
+    if(!ok){ lastErr = new Error('Kein durchgehender Weg im swisstopo-Wegnetz gefunden.'); continue; }
+    coords = coords.map(c=> [Math.round(c[0] * 1e6) / 1e6, Math.round(c[1] * 1e6) / 1e6]);
+    let distanceM = 0; for(let i = 1; i < coords.length; i++) distanceM += haversineMeters(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1]);
+    let ascentM = null, descentM = null, elevationProfile = null;
+    try{ const e = await fsrElevation(coords); ascentM = e.up; descentM = e.down; elevationProfile = e.profile; }catch(e){}
+    return {coords, distanceM, durationS: fsrHikeSeconds(distanceM, ascentM || 0, descentM || 0), ascentM, descentM, elevationProfile, source:'swisstopo'};
+  }
+  throw lastErr || new Error('Keine Route gefunden.');
+}
+
+// Route berechnen: zuerst auf dem swisstopo-Wegnetz (genau auf den Wegen der Landeskarte),
+// nur wenn dort kein Weg gefunden wird über openrouteservice (OpenStreetMap).
 async function fetchCalculatedRoute(waypoints){
+  try{
+    return await fsrRoute(waypoints);
+  }catch(e){
+    dlog('swisstopo-Routing: ' + (e && e.message ? e.message : e) + ' — weiter mit openrouteservice', 'err');
+    const r = await fetchCalculatedRouteOrs(waypoints);
+    r.source = 'ors';
+    showToast('Kein durchgehender swisstopo-Weg — Route über OpenStreetMap berechnet (kann neben dem Weg liegen).');
+    return r;
+  }
+}
+async function fetchCalculatedRouteOrs(waypoints){
   // waypoints: Array von [lat, lon], mindestens 2 Punkte.
   // Rückgabe: {coords, distanceM, durationS, ascentM, descentM} — Distanz/Zeit liefert ORS immer,
   // Höhenmeter (ascent/descent) nur, wenn elevation:true angefragt wird (Geometrie wird dann 3D).
