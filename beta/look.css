@@ -10,6 +10,7 @@
      Skitour  – Gletscherblau   (html[data-disc="ski"])
      Hochtour – Eis-Violett      (html[data-disc="hoch"])
      Klettern – Fels-Ocker       (html[data-disc="klet"])
+     Wandern  – Alpweiden-Grün   (html[data-disc="wand"])
    ===================================================================== */
 
 :root,
@@ -36,6 +37,7 @@
 :root[data-disc="ski"]{  --ice:#2F7DB5; --ice-deep:#1E6AA0; --ice-light:#E3EDF6; --accent-ink:#124E7A; }
 :root[data-disc="hoch"]{ --ice:#6570B0; --ice-deep:#4E5A9C; --ice-light:#E7E9F5; --accent-ink:#3A4580; }
 :root[data-disc="klet"]{ --ice:#B06A2A; --ice-deep:#9A5418; --ice-light:#F5EADF; --accent-ink:#7A3F0E; }
+:root[data-disc="wand"]{ --ice:#4E8A5E; --ice-deep:#3D7A4E; --ice-light:#E4F0E6; --accent-ink:#265A35; }
 
 html{ background:var(--cream); }
 body{
@@ -84,6 +86,14 @@ h1, h2, h3, .display{
 .app-switch-bar a.active{
   background:var(--ice-deep); color:#fff; border-bottom:none;
   box-shadow:0 4px 12px rgba(15,30,39,.16);
+}
+/* Vier Disziplinen auf schmalen Handys: etwas kompakter, damit alles in eine Zeile passt */
+@media (max-width:440px){
+  .app-switch-bar{ padding:8px 6px; gap:2px; }
+  .app-switch-bar a, .app-switch-bar button{ font-size:12.5px; padding:9px 4px; gap:4px; }
+}
+@media (max-width:350px){
+  .app-switch-bar a, .app-switch-bar button{ font-size:11.5px; padding:9px 2px; gap:3px; }
 }
 
 /* ===== Kopfbereich mit Foto ===== */
@@ -1180,6 +1190,7 @@ html:not(.fs-sheet-open) .fs-ontour-pill{ top:auto; bottom:calc(84px + env(safe-
 html.fs-dark[data-disc="ski"]{  --ice:#5FA3D6; --ice-deep:#3B86BE; --ice-light:#1B2C3A; --accent-ink:#9CC8EC; }
 html.fs-dark[data-disc="hoch"]{ --ice:#8C96D8; --ice-deep:#6D79C4; --ice-light:#232843; --accent-ink:#BAC1F2; }
 html.fs-dark[data-disc="klet"]{ --ice:#D08A48; --ice-deep:#B86E2C; --ice-light:#33261A; --accent-ink:#EBBE8E; }
+html.fs-dark[data-disc="wand"]{ --ice:#78B888; --ice-deep:#4F9A63; --ice-light:#1C3022; --accent-ink:#A9D9B4; }
 html.fs-dark body{ background:var(--cream); color:var(--ink); }
 html.fs-dark .card, html.fs-dark .modal, html.fs-dark .fs-ctxm-menu, html.fs-dark .fs-more-menu,
 html.fs-dark .who-menu .who-row{ background:var(--paper); color:var(--ink); }
@@ -1390,3 +1401,12 @@ html.fs-dark .fsm-row{ border-top-color:#33414C; }
 .fs-route-meta{ margin-top:10px; padding:10px 12px; border-radius:14px; background:var(--ice-light, #EEF4F8); }
 .fs-route-meta-head{ font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-soft); margin-bottom:6px; }
 .fs-route-meta .fs-route-edit{ margin-bottom:8px; }
+
+/* 3D: Gipfel ringsum (Panorama vom Standort) */
+.fs-3d-chip[data-3d="pano"].on{ background:var(--ice-deep); color:#fff; }
+.fs-3d-chip[data-3d="pano-compass"].on{ background:#0F1E27; color:#fff; }
+.fs-3d-chip[hidden]{ display:none; }
+.fs-3d-pano .fs-3d-chip[data-3d="slope"],
+.fs-3d-pano .fs-3d-chip[data-3d="ski"],
+.fs-3d-pano .fs-3d-chip[data-3d="walk"]{ display:none; }
+.fs-3d-pano .fs-3d-map{ touch-action:none; }
