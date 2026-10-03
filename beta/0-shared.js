@@ -640,7 +640,7 @@ const MAP_POINT_CATEGORIES = {
 };
 function makeCategoryIcon(category){
   const meta = MAP_POINT_CATEGORIES[category] || MAP_POINT_CATEGORIES[''];
-  return L.divIcon({
+  return FL.divIcon({
     html: `<div style="background:${meta.color}; width:30px; height:30px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); display:flex; align-items:center; justify-content:center; box-shadow:0 2px 5px rgba(0,0,0,0.4); border:2px solid white;"><span style="transform:rotate(45deg); font-size:14px;">${meta.icon}</span></div>`,
     className: '',
     iconSize: [30,30],
@@ -2175,23 +2175,7 @@ function startGpsLookup(){
 }
 
 /* ================= Karte (app-übergreifend geteilt, nur bei Bedarf geladen) ================= */
-let leafletLoadPromise = null;
-function ensureLeafletLoaded(){
-  if(window.L) return Promise.resolve();
-  if(leafletLoadPromise) return leafletLoadPromise;
-  leafletLoadPromise = new Promise((resolve, reject)=>{
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(link);
-    const script = document.createElement('script');
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Kartenbibliothek konnte nicht geladen werden.'));
-    document.head.appendChild(script);
-  });
-  return leafletLoadPromise;
-}
+
 /* ================= Vollbild-Karte (generisch, für alle Kartenansichten) ================= */
 function ensureFullscreenMapOverlay(){
   let overlay = document.getElementById('fullscreen-map-overlay');
@@ -3827,33 +3811,6 @@ function slfRegionId(feature){
   const p = feature.properties || {};
   return p.regionID || p.id || p.RegionID || p.region_id || null;
 }
-async function loadSlfDangerLayer(layerGroup){
-  try{
-    const { features, dangerByRegion, bulletinCount } = await fetchSlfDangerRegions();
-    let matched = 0;
-    features.forEach(f=>{
-      const rid = slfRegionId(f);
-      const info = rid ? dangerByRegion[rid] : null;
-      if(!info) return; // keine gemeldete Gefahrenstufe für diese Region -> nicht einfärben statt raten
-      matched++;
-      const layer = L.geoJSON(f, { style: { fillColor: info.color, fillOpacity: 0.45, color:'#555', weight:1 } });
-      layer.bindPopup(`<b>Lawinengefahr: Stufe ${esc(info.label)}</b><br/><a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`);
-      layerGroup.addLayer(layer);
-    });
-    if(!matched){
-      // Ausserhalb der Wintersaison veröffentlicht das SLF meist gar kein Bulletin (bulletinCount
-      // dann 0) — das ist der Normalfall im Sommer/Herbst, kein Fehler. Nur wenn Bulletins da
-      // sind, aber keiner Region zugeordnet werden konnte, deutet das auf ein echtes Problem hin.
-      const msg = bulletinCount===0
-        ? 'Aktuell kein Lawinenbulletin veröffentlicht (ausserhalb der Wintersaison meist normal).'
-        : 'Lawinen-Gefahrenstufen aktuell nicht zuordenbar.';
-      showToast(msg, true);
-    }
-  }catch(e){
-    showToast('Lawinendaten aktuell nicht verfügbar: ' + (e && e.message ? e.message : e), true);
-  }
-}
-
 /* ================= Karten mit MapLibre (fsm*) =================
    Gemeinsamer Kern für alle 2D-Karten: flüssiges Drehen/Kippen, Kompass, Grundkarten
    (Landeskarte, Luftbild, Luftbild + Namen), zuschaltbare swisstopo-Ebenen, eigene Linien und
@@ -4204,6 +4161,23 @@ const FL = (function(){
     obj.listens = function(type){ return !!(this._ev[type] && this._ev[type].length); };
     return obj;
   }
+  // Langes Drücken (Finger) wie ein Rechtsklick behandeln — MapLibre meldet am Handy kein
+  // "contextmenu"; Leaflet hat das intern gemacht (Punkt setzen per langem Drücken).
+  function longPress(el, cb){
+    let timer = null, start = null;
+    const cancel = ()=>{ clearTimeout(timer); timer = null; };
+    el.addEventListener('touchstart', (ev)=>{
+      if(ev.touches.length !== 1){ cancel(); return; }
+      const t = ev.touches[0]; start = {x:t.clientX, y:t.clientY};
+      cancel();
+      timer = setTimeout(()=>{ timer = null; el._flLongPressAt = Date.now(); if(navigator.vibrate) try{ navigator.vibrate(12); }catch(e){} cb({clientX:start.x, clientY:start.y, preventDefault(){}, stopPropagation(){}, _flSynthetic:true}); }, 550);
+    }, {passive:true});
+    el.addEventListener('touchmove', (ev)=>{ if(!start || !timer) return; const t = ev.touches[0]; if(ev.touches.length !== 1 || Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) cancel(); }, {passive:true});
+    el.addEventListener('touchend', cancel); el.addEventListener('touchcancel', cancel);
+    // Nach einem langen Drücken nicht zusätzlich als Antippen oder Browser-Menü werten
+    el.addEventListener('click', (ev)=>{ if(el._flLongPressAt && Date.now() - el._flLongPressAt < 700){ ev._fsmHandled = true; ev._flStopped = true; ev.stopPropagation(); ev.preventDefault(); } }, true);
+    el.addEventListener('contextmenu', (ev)=>{ if(el._flLongPressAt && Date.now() - el._flLongPressAt < 1500){ ev.preventDefault(); ev.stopPropagation(); ev._flDup = true; } }, true);
+  }
   // ----- Grenzen -----
   function Bounds(a, b){ this._sw = null; this._ne = null; if(a) this.extend(a); if(b) this.extend(b); }
   Bounds.prototype.extend = function(x){
@@ -4234,10 +4208,10 @@ const FL = (function(){
   Layer.prototype.openPopup = function(ll){
     if(!this._map || this._popupContent == null) return this;
     const c = typeof this._popupContent === 'function' ? this._popupContent(this) : this._popupContent;
-    new Popup(this._popupOpts).setLatLng(ll || this._anchorLatLng()).setContent(c).openOn(this._map);
+    new Popup(Object.assign({}, this._popupOpts, {_off: this._popupOffset ? this._popupOffset() : null})).setLatLng(ll && !this._popupOffset ? ll : this._anchorLatLng()).setContent(c).openOn(this._map);
     return this;
   };
-  Layer.prototype.bindTooltip = function(t){ this._tooltip = typeof t === 'string' ? t.replace(/<[^>]+>/g, '') : ''; this._applyTooltip && this._applyTooltip(); return this; };
+  Layer.prototype.bindTooltip = function(t, o){ this._tooltip = typeof t === 'string' ? t.replace(/<[^>]+>/g, '') : ''; this._tooltipOpts = o || {}; this._applyTooltip && this._applyTooltip(); return this; };
   Layer.prototype.unbindTooltip = function(){ this._tooltip = ''; this._applyTooltip && this._applyTooltip(); return this; };
   Layer.prototype.getPopup = function(){ return null; };
 
@@ -4254,10 +4228,11 @@ const FL = (function(){
     const m = fm._ml;
     m.addSource(this._id, {type:'geojson', data: this._data()});
     m.addLayer({id:this._id, type:'line', source:this._id, layout:{'line-cap': this.options.lineCap || 'round', 'line-join': this.options.lineJoin || 'round'}, paint:this._paint()});
-    if(this.options.interactive !== false && (this.listens('click') || this._popupBound)){
-      this._click = (e)=>{ this.fire('click', fm._evt(e)); };
+    if(this.options.interactive !== false){
+      // Immer anbinden: Klick-Handler werden oft erst nach dem Hinzufügen gesetzt
+      this._click = (e)=>{ if(this.listens('click')) this.fire('click', fm._evt(e)); };
       m.on('click', this._id, this._click);
-      this._enter = ()=>{ m.getCanvas().style.cursor = 'pointer'; };
+      this._enter = ()=>{ if(this.listens('click')) m.getCanvas().style.cursor = 'pointer'; };
       this._leave = ()=>{ m.getCanvas().style.cursor = ''; };
       m.on('mouseenter', this._id, this._enter); m.on('mouseleave', this._id, this._leave);
     }
@@ -4294,9 +4269,13 @@ const FL = (function(){
   };
   Marker.prototype._onAdd = function(fm){
     const el = this._el = this._buildEl();
-    el.addEventListener('click', (ev)=>{ ev._fsmHandled = true; ev.stopPropagation(); this.fire('click', {latlng:this._ll, originalEvent:ev}); });
+    el.addEventListener('click', (ev)=>{ if(ev._fsmHandled && ev._flStopped && el._flLongPressAt) return; ev._fsmHandled = true; ev.stopPropagation(); this.fire('click', {latlng:this._ll, originalEvent:ev}); });
+    const ctx = (ev)=>{ if(ev._flDup) return; if(!this.listens('contextmenu')) return; ev.preventDefault && ev.preventDefault(); ev.stopPropagation && ev.stopPropagation(); this.fire('contextmenu', {latlng:this._ll, originalEvent:ev}); };
+    el.addEventListener('contextmenu', ctx);
+    longPress(el, ctx);
     this._mk = new maplibregl.Marker({element: el, offset: this._offset, draggable: !!this.options.draggable}).setLngLat([this._ll.lng, this._ll.lat]).addTo(fm._ml);
     if(this.options.draggable){
+      this._mk.on('dragstart', ()=> this.fire('dragstart', {latlng:this._ll}));
       this._mk.on('drag', ()=>{ const p = this._mk.getLngLat(); this._ll = {lat:p.lat, lng:p.lng}; this.fire('drag', {latlng:this._ll}); });
       this._mk.on('dragend', ()=>{ const p = this._mk.getLngLat(); this._ll = {lat:p.lat, lng:p.lng}; this.fire('dragend', {latlng:this._ll}); });
     }
@@ -4304,7 +4283,16 @@ const FL = (function(){
     this._applyTooltip();
   };
   Marker.prototype._onRemove = function(){ if(this._mk){ this._mk.remove(); this._mk = null; } this._el = null; };
-  Marker.prototype._applyTooltip = function(){ if(this._el){ if(this._tooltip) this._el.title = this._tooltip; else this._el.removeAttribute('title'); } };
+  Marker.prototype._applyTooltip = function(){
+    if(!this._el) return;
+    const old = this._el.querySelector(':scope > .fl-tip'); if(old) old.remove();
+    if(this._tooltip && this._tooltipOpts && this._tooltipOpts.permanent){
+      // Dauerhafte Beschriftung (z. B. Nummer eines Wegpunkts) direkt im Marker
+      const tip = document.createElement('span'); tip.className = 'fl-tip ' + (this._tooltipOpts.className || ''); tip.textContent = this._tooltip;
+      this._el.appendChild(tip); this._el.removeAttribute('title');
+    }else if(this._tooltip) this._el.title = this._tooltip;
+    else this._el.removeAttribute('title');
+  };
   Marker.prototype.getElement = function(){ return this._el || null; };
   Marker.prototype.setLatLng = function(ll){ this._ll = toLL(ll); if(this._mk) this._mk.setLngLat([this._ll.lng, this._ll.lat]); this.fire('move', {latlng:this._ll}); return this; };
   Marker.prototype.getLatLng = function(){ return {lat:this._ll.lat, lng:this._ll.lng}; };
@@ -4312,6 +4300,14 @@ const FL = (function(){
   Marker.prototype.setOpacity = function(o){ if(this._el) this._el.style.opacity = o; return this; };
   Marker.prototype.setZIndexOffset = function(z){ this.options.zIndexOffset = z; if(this._el) this._el.style.zIndex = String(1000 + z); return this; };
   Marker.prototype._anchorLatLng = function(){ return this._ll; };
+  // Abstand des Fensters über dem Marker (wie popupAnchor bei Leaflet)
+  Marker.prototype._popupOffset = function(){
+    const ic = this.options.icon && this.options.icon.options;
+    if(!ic) return 26;
+    if(ic.popupAnchor) return Math.abs(ic.popupAnchor[1]);
+    const sz = ic.iconSize || [12,12], anc = ic.iconAnchor || [sz[0]/2, sz[1]/2];
+    return Math.max(6, anc[1]);
+  };
   Object.defineProperty(Marker.prototype, 'dragging', {get(){ const self = this; return {enable(){ self.options.draggable = true; if(self._mk) self._mk.setDraggable(true); }, disable(){ self.options.draggable = false; if(self._mk) self._mk.setDraggable(false); }}; }});
 
   // ----- Kreis-Marker (Punkt mit Rand), als HTML -----
@@ -4342,6 +4338,7 @@ const FL = (function(){
   CircleMarker.prototype.setRadius = function(r){ this.options.radius = r; if(this._el) this._styleEl(this._el); return this; };
   CircleMarker.prototype.setStyle = function(o){ Object.assign(this.options, o); if(this._el) this._styleEl(this._el); return this; };
   CircleMarker.prototype.getRadius = function(){ return this.options.radius; };
+  CircleMarker.prototype._popupOffset = function(){ return this.options.radius + 2; };
 
   // ----- Gruppe -----
   function LayerGroup(layers){ Layer.call(this); this._layers = []; (layers || []).forEach(l=> this.addLayer(l)); }
@@ -4369,7 +4366,8 @@ const FL = (function(){
   Popup.prototype.openOn = function(fm){
     fm.closePopup();
     const maxW = this.options.maxWidth ? this.options.maxWidth + 'px' : '300px';
-    this._p = new maplibregl.Popup({maxWidth:maxW, offset:this.options.offset ? this.options.offset[1] ? Math.abs(this.options.offset[1]) : 10 : 10, className:'fsm-popup', closeOnClick:true}).setLngLat([this._ll.lng, this._ll.lat]);
+    const off = this.options._off != null ? this.options._off : (this.options.offset && this.options.offset[1] ? Math.abs(this.options.offset[1]) : 10);
+    this._p = new maplibregl.Popup({maxWidth:maxW, offset:off, className:'fsm-popup', closeOnClick:true}).setLngLat([this._ll.lng, this._ll.lat]);
     if(typeof this._content === 'string') this._p.setHTML(this._content); else if(this._content) this._p.setDOMContent(this._content);
     this._p.addTo(fm._ml);
     fm._popup = this;
@@ -4404,7 +4402,13 @@ const FL = (function(){
     // Klicks auf die Karte erst nach den Klicks auf Linien/Marker melden — wer dort
     // DomEvent.stopPropagation() aufruft, verhindert wie bei Leaflet den Karten-Klick.
     ml.on('click', (e)=>{ const ev = self._evt(e); Promise.resolve().then(()=>{ if(e.originalEvent && (e.originalEvent._fsmHandled || e.originalEvent._flStopped)) return; self.fire('click', ev); }); });
-    ml.on('contextmenu', (e)=> self.fire('contextmenu', self._evt(e)));
+    ml.on('contextmenu', (e)=>{ if(e.originalEvent && (e.originalEvent._flDup || e.originalEvent._fsmHandled)) return; self.fire('contextmenu', self._evt(e)); });
+    longPress(ml.getCanvasContainer(), (ev)=>{
+      const r = ml.getContainer().getBoundingClientRect();
+      const pt = {x: ev.clientX - r.left, y: ev.clientY - r.top};
+      const ll = ml.unproject([pt.x, pt.y]);
+      self.fire('contextmenu', {latlng:{lat:ll.lat, lng:ll.lng}, containerPoint:pt, originalEvent:ev});
+    });
     ml.on('moveend', ()=> self.fire('moveend'));
     ml.on('zoomend', ()=> self.fire('zoomend'));
     ml.on('movestart', ()=> self.fire('movestart'));
@@ -4518,92 +4522,13 @@ function fsmCreateFlMap(container, opts){
   return fm;
 }
 
-/* ================= Kartenebenen: Landeskarte + Satellit (zum Wechseln) ================= */
-function addBaseLayerSwitcher(map, opts){
-  const streetLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
-    maxZoom: 18,
-    attribution: '© swisstopo'
-  });
-  const satelliteLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg', {
-    maxZoom: 18,
-    attribution: '© swisstopo'
-  });
-  // Zuschaltbare Overlays (zusätzlich zur Karte/Satellit-Auswahl, standardmässig aus) — offizielle
-  // swisstopo-Routen-Ebenen, gerendert als Kacheln über der jeweils gewählten Grundkarte.
-  const skitourenLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo-karto.skitouren/default/current/3857/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    attribution: '© swisstopo'
-  });
-  // Hangneigungsklassen ab 30° (SLF/SAC-Empfehlung) — essenziell für die Lawinen-Einschätzung
-  // bei der Skitourenplanung. Standardmässig etwas transparent, damit das Gelände darunter
-  // noch erkennbar bleibt (analog zur Voreinstellung auf map.geo.admin.ch).
-  const hangneigungLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.hangneigung-ueber_30/default/current/3857/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    opacity: 0.6,
-    attribution: '© swisstopo'
-  });
-  // Wegsperrungen/Umleitungen auf dem Wanderwegnetz — offizielle, offene Geodaten von ASTRA/
-  // swisstopo/Schweizer Wanderwege/SchweizMobil (opendata.swiss), stündlich bis täglich
-  // aktualisiert. Nur Sperrungen ab 1 Woche Dauer, die vor Ort signalisiert sind (keine
-  // saisonalen wie Schnee/Eis). Als WMS eingebunden (kein eigenes WMTS-Kachelschema bekannt).
-  const wegsperrungenLayer = L.tileLayer.wms('https://wms.geo.admin.ch', {
-    layers: 'ch.astra.wanderland-sperrungen_umleitungen',
-    format: 'image/png',
-    transparent: true,
-    maxZoom: 18,
-    attribution: '© ASTRA/swisstopo/SchweizMobil'
-  });
-  // Aktuelle Wetter-Messwerte (MeteoSchweiz Open Data, seit 2025) -- zeigt den IST-Zustand an
-  // den Messstationen, keine Prognose (die gibt's nur punktbezogen, siehe Tour-Detailansicht,
-  // nicht als flächendeckende Kartenebene). Gleiches WMTS-Schema wie die Ebenen oben.
-  const meteoTempLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.meteoschweiz.messwerte-lufttemperatur-10min/default/current/3857/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    attribution: '© MeteoSchweiz'
-  });
-  const meteoPrecipLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.meteoschweiz.messwerte-niederschlag-10min/default/current/3857/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    attribution: '© MeteoSchweiz'
-  });
-  // Offizielle Wanderwege (gelb / weiss-rot-weiss / weiss-blau-weiss), swisstopo swissTLM3D.
-  const wanderwegeLayer = L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swisstlm3d-wanderwege/default/current/3857/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    attribution: '© swisstopo'
-  });
-  streetLayer.addTo(map);
-  const overlays = { '🥾 Wanderwege': wanderwegeLayer, '⛷️ Skitouren': skitourenLayer, '⚠️ Hangneigung ab 30°': hangneigungLayer, '🚧 Wegsperrungen': wegsperrungenLayer, '🌡️ Temperatur (aktuell)': meteoTempLayer, '🌧️ Niederschlag (aktuell)': meteoPrecipLayer };
-  // Lawinen-Gefahrenstufen nur in Firnspur/Skitour relevant (nicht bei MSL/Klettertouren auf Fels).
-  // SEKTOREN_PATH ist nur in Fixseil definiert — dessen Fehlen erkennt hier zuverlässig die andere App.
-  // Standardmässig ausgeschaltet: die Daten werden erst beim ersten Einschalten geladen, nicht bei
-  // jedem Kartenaufruf (Traffic/Ladezeit sparen für ein Feature, das nicht immer gebraucht wird).
-  let slfDangerLayer = null;
-  if(typeof SEKTOREN_PATH === 'undefined'){
-    slfDangerLayer = L.layerGroup();
-    let slfLoaded = false;
-    map.on('overlayadd', (e)=>{
-      if(e.layer === slfDangerLayer && !slfLoaded){
-        slfLoaded = true;
-        loadSlfDangerLayer(slfDangerLayer);
-      }
-    });
-    overlays['🔺 Lawinengefahr (SLF)'] = slfDangerLayer;
-  }
-  L.control.layers(
-    { '🗺️ Karte': streetLayer, '🛰️ Satellit': satelliteLayer },
-    overlays,
-    { position: (opts && opts.position) || 'bottomleft', collapsed: true }
-  ).addTo(map);
-  return { streetLayer, satelliteLayer, skitourenLayer, hangneigungLayer, wegsperrungenLayer, slfDangerLayer, wanderwegeLayer };
-}
-
-// Fragt swisstopos "identify"-Dienst ab, um herauszufinden, welche eingezeichnete Skitour
-// (falls überhaupt eine) sich an einer angetippten Stelle befindet — inkl. Name & Geometrie,
-// damit sie als Info angezeigt und als GPX exportiert werden kann.
+/* ================= SAC-Skitouren und Wegsperrungen antippen (swisstopo identify) ================= */
 // Wie weit neben einer Linie ein Tipp noch zählt (Bildschirm-Pixel): am Handy etwa eine
 // Fingerkuppe, mit Maus enger, damit dicht beieinander liegende Routen unterscheidbar bleiben.
 function fsTapTolerancePx(){
   try{ return window.matchMedia('(pointer:coarse)').matches ? 24 : 10; }catch(e){ return 10; }
 }
-// view (optional, für die 3D-Ansicht ohne Leaflet-Karte): {extent:[W,S,E,N], size:[x,y]}
+// view: sichtbarer Ausschnitt {extent:[W,S,E,N], size:[x,y]} (siehe fsmIdentifyView); map nur noch als Fallback
 async function identifySkitourAt(map, latlng, view){
   try{
     const b = view ? null : map.getBounds();
@@ -5153,7 +5078,7 @@ function fsApplyRoutesFromForm(t, form, prev){
 function renderMiniMap(containerId, lat, lon, label){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
+  fsmEnsureLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2) return;
     const mapDivId = containerId + '-inner';
@@ -5166,10 +5091,9 @@ function renderMiniMap(containerId, lat, lon, label){
       ? 'height:100%; border-radius:0; overflow:hidden;'
       : 'height:220px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
     el2.appendChild(mapDiv);
-    const map = L.map(mapDivId, {attributionControl:true}).setView([lat, lon], isFullscreen ? 15 : 14);
+    const map = fsmCreateFlMap(mapDivId).setView([lat, lon], isFullscreen ? 15 : 14);
     registerMap(mapDivId, map);
-    addBaseLayerSwitcher(map);
-    L.marker([lat, lon]).addTo(map).bindPopup(label || '').openPopup();
+    FL.marker([lat, lon]).addTo(map).bindPopup(label || '').openPopup();
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderMiniMap(id, lat, lon, label); });
       el2.appendChild(btn);
@@ -5245,7 +5169,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
   refPoints = Array.isArray(refPoints) ? refPoints.filter(rp=>rp && typeof rp.lat==='number' && typeof rp.lon==='number') : [];
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
+  fsmEnsureLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     const hiddenInput = document.getElementById(hiddenInputId);
     const listEl = document.getElementById(listContainerId);
@@ -5474,23 +5398,22 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const center = lastPointsEditorMapView ? lastPointsEditorMapView.center
       : (points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : (firstRefPoint || [46.8182, 8.2275]))));
     const zoom = lastPointsEditorMapView ? lastPointsEditorMapView.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
-    const map = L.map(mapDivId).setView(center, zoom);
+    const map = fsmCreateFlMap(mapDivId).setView(center, zoom);
     map._isPointsEditorMap = true;
     map.on('moveend', ()=>{ lastPointsEditorMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
     registerMap(mapDivId, map);
-    const { skitourenLayer } = addBaseLayerSwitcher(map);
 
     refTracks.forEach(rt=>{
-      L.polyline(rt.coords, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
-      L.polyline(rt.coords, {color: rt.color || '#E8384F', weight:3, opacity:0.8}).addTo(map);
+      FL.polyline(rt.coords, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
+      FL.polyline(rt.coords, {color: rt.color || '#E8384F', weight:3, opacity:0.8}).addTo(map);
     });
     refPoints.forEach(rp=>{
-      L.circleMarker([rp.lat, rp.lon], {radius:6, color:'#fff', weight:2, fillColor: rp.color || '#4A3524', fillOpacity:0.9}).bindTooltip(rp.label || '').addTo(map);
+      FL.circleMarker([rp.lat, rp.lon], {radius:6, color:'#fff', weight:2, fillColor: rp.color || '#4A3524', fillOpacity:0.9}).bindTooltip(rp.label || '').addTo(map);
     });
 
-    const markerLayer = L.layerGroup().addTo(map);
-    let lineLayer = L.layerGroup().addTo(map);
-    let routeLayer = L.layerGroup().addTo(map);
+    const markerLayer = FL.layerGroup().addTo(map);
+    let lineLayer = FL.layerGroup().addTo(map);
+    let routeLayer = FL.layerGroup().addTo(map);
     let routeWaypoints = [];
     // Gesetzt durch "➕ Zwischenpunkt danach setzen" (Klick auf einen Wegpunkt) — der nächste
     // Kartenklick fügt den neuen Punkt dort ein, statt ihn ans Ende der Liste anzuhängen. So lässt
@@ -5631,7 +5554,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function redraw(){
       markerLayer.clearLayers();
       points.forEach(point=>{
-        const marker = L.marker([point.lat, point.lon], {icon: makeCategoryIcon(point.category)}).addTo(markerLayer);
+        const marker = FL.marker([point.lat, point.lon], {icon: makeCategoryIcon(point.category)}).addTo(markerLayer);
         marker.bindPopup(buildPopupContent(point));
         if(point._justAdded){ delete point._justAdded; marker.openPopup(); }
       });
@@ -5641,15 +5564,15 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(manualTrack.length){
         // Deutlich breitere, unsichtbare Klickfläche unter der sichtbaren Linie — auf einer
         // schmalen 4px-Linie mit dem Finger genau zu treffen ist auf dem Handy sehr schwierig.
-        const hitLine = L.polyline(manualTrack, {color:'#000', weight:26, opacity:0}).addTo(lineLayer);
-        L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(lineLayer);
-        L.polyline(manualTrack, {color: usingGpxTrack ? '#E8384F' : '#1565C0', weight:4, opacity:1}).addTo(lineLayer);
+        const hitLine = FL.polyline(manualTrack, {color:'#000', weight:26, opacity:0}).addTo(lineLayer);
+        FL.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(lineLayer);
+        FL.polyline(manualTrack, {color: usingGpxTrack ? '#E8384F' : '#1565C0', weight:4, opacity:1}).addTo(lineLayer);
         if(lastRouteStats){
           const statsText = formatRouteStats(lastRouteStats);
           if(statsText){
             hitLine.on('click', (e)=>{
-              L.DomEvent.stopPropagation(e);
-              L.popup().setLatLng(e.latlng).setContent('<strong>🧭 Berechnete Route</strong><br>' + statsText).openOn(map);
+              FL.DomEvent.stopPropagation(e);
+              FL.popup().setLatLng(e.latlng).setContent('<strong>🧭 Berechnete Route</strong><br>' + statsText).openOn(map);
             });
           }
         }
@@ -5661,12 +5584,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           // ein simples Verschieben/Zoomen der Karte versehentlich einen Punkt mitziehen. Bei einer
           // berechneten Route mit u. U. hunderten Geometrie-Punkten wäre das ausserdem unbrauchbar.
           manualTrack.forEach((pt, i)=>{
-            const vertexIcon = L.divIcon({
+            const vertexIcon = FL.divIcon({
               className: 'gpx-edit-vertex-icon',
               html: '<div style="width:12px; height:12px; border-radius:50%; background:#E8384F; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>',
               iconSize: [12,12], iconAnchor: [6,6]
             });
-            const marker = L.marker(pt, {icon: vertexIcon, draggable: true}).addTo(lineLayer);
+            const marker = FL.marker(pt, {icon: vertexIcon, draggable: true}).addTo(lineLayer);
             marker.on('dragstart', ()=> pushUndo());
             marker.on('dragend', ()=>{
               const ll = marker.getLatLng();
@@ -5677,10 +5600,10 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
               redrawLine();
               persistTrack();
             });
-            marker.on('click', (e)=> L.DomEvent.stopPropagation(e));
+            marker.on('click', (e)=> FL.DomEvent.stopPropagation(e));
             marker.on('contextmenu', (e)=>{
-              L.DomEvent.stopPropagation(e);
-              L.DomEvent.preventDefault(e.originalEvent);
+              FL.DomEvent.stopPropagation(e);
+              FL.DomEvent.preventDefault(e.originalEvent);
               const btn = document.createElement('button');
               btn.type = 'button';
               btn.textContent = '🗑️ Diesen Punkt entfernen';
@@ -5695,7 +5618,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
                 persistTrack();
                 map.closePopup();
               });
-              L.popup().setLatLng(pt).setContent(btn).openOn(map);
+              FL.popup().setLatLng(pt).setContent(btn).openOn(map);
             });
           });
         }
@@ -5711,12 +5634,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function redrawRoute(){
       routeLayer.clearLayers();
       routeWaypoints.forEach((wp, i)=>{
-        const marker = L.circleMarker(wp, {radius:11, color:'#fff', weight:2, fillColor:'#2F6B44', fillOpacity:1}).addTo(routeLayer)
+        const marker = FL.circleMarker(wp, {radius:11, color:'#fff', weight:2, fillColor:'#2F6B44', fillOpacity:1}).addTo(routeLayer)
           .bindTooltip(String(i+1), {permanent:true, direction:'center', className:'route-waypoint-label'});
         // Auf einen Wegpunkt tippen erlaubt gezieltes Einfügen/Entfernen an dieser Stelle — vorher
         // liess sich nur der jeweils letzte Wegpunkt entfernen bzw. nur am Ende neu anhängen.
         marker.on('click', (e)=>{
-          L.DomEvent.stopPropagation(e);
+          FL.DomEvent.stopPropagation(e);
           const wrap = document.createElement('div');
           wrap.style.minWidth = '200px';
           const insertBtn = document.createElement('button');
@@ -5742,11 +5665,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           });
           wrap.appendChild(insertBtn);
           wrap.appendChild(delWpBtn);
-          L.popup().setLatLng(wp).setContent(wrap).openOn(map);
+          FL.popup().setLatLng(wp).setContent(wrap).openOn(map);
         });
       });
       if(routeWaypoints.length > 1){
-        L.polyline(routeWaypoints, {color:'#2F6B44', weight:2, opacity:0.6, dashArray:'6,6'}).addTo(routeLayer);
+        FL.polyline(routeWaypoints, {color:'#2F6B44', weight:2, opacity:0.6, dashArray:'6,6'}).addTo(routeLayer);
       }
       updateRoutePanelState();
     }
@@ -5946,14 +5869,10 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           routeWaypoints.push([e.latlng.lat, e.latlng.lng]);
         }
         redrawRoute();
-      }else if(skitourenLayer && map.hasLayer(skitourenLayer)){
-        // Punkt-Modus + Skitouren-Ebene eingeschaltet: ein normaler Klick zeigt Infos zur
-        // angetippten Route, statt einen Punkt zu setzen (das geht per langem Drücken, s. u.).
-        const feature = await identifySkitourAt(map, e.latlng);
-        if(feature){
-          const pop = L.popup({maxWidth:280}).setLatLng(e.latlng);
-          pop.setContent(buildSkitourPopupContent(feature, {allowAttach:false, popup: pop})).openOn(map);
-        }
+      }else{
+        // Punkt-Modus: ein normaler Klick zeigt Infos zur angetippten SAC-Route/Sperrung (falls
+        // die Ebene an ist), statt einen Punkt zu setzen (das geht per langem Drücken, s. u.).
+        await fsmHandleInfoClick(map._ml, e.latlng, {sac:{allowAttach:false}});
       }
     });
 
@@ -5961,7 +5880,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // gezielten Setzen eines Punkts — ein normaler Klick setzt im Punkt-Modus keinen mehr.
     map.on('contextmenu', (e)=>{
       if(mode!=='point') return;
-      L.DomEvent.preventDefault(e.originalEvent);
+      FL.DomEvent.preventDefault(e.originalEvent);
       const wrap = document.createElement('div');
       wrap.style.minWidth = '170px';
       const btn = document.createElement('button');
@@ -5976,7 +5895,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         map.closePopup();
       });
       wrap.appendChild(btn);
-      L.popup().setLatLng(e.latlng).setContent(wrap).openOn(map);
+      FL.popup().setLatLng(e.latlng).setContent(wrap).openOn(map);
     });
 
     redraw();
@@ -5997,7 +5916,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
 function renderPointsDisplayMap(containerId, points){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
+  fsmEnsureLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2 || !points.length) return;
     const mapDivId = containerId + '-inner';
@@ -6010,16 +5929,15 @@ function renderPointsDisplayMap(containerId, points){
       ? 'height:100%; border-radius:0; overflow:hidden;'
       : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
     el2.appendChild(mapDiv);
-    const map = L.map(mapDivId).setView([points[0].lat, points[0].lon], isFullscreen ? 14 : 13);
+    const map = fsmCreateFlMap(mapDivId).setView([points[0].lat, points[0].lon], isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
-    addBaseLayerSwitcher(map);
     const group = [];
     points.forEach(p=>{
-      const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
+      const m = FL.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
       group.push(m);
     });
     if(group.length > 1){
-      map.fitBounds(L.featureGroup(group).getBounds(), {padding:[30,30]});
+      map.fitBounds(FL.featureGroup(group).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderPointsDisplayMap(id, points); });
@@ -6516,7 +6434,7 @@ async function downloadFullGpx(trackPathPrefix, tourId, tourName){
 function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoords, offlineId, altTracks){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
+  fsmEnsureLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2) return;
     const hasTrack = trackCoords && trackCoords.length;
@@ -6535,41 +6453,37 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
       : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
     el2.appendChild(mapDiv);
     const startView = hasTrack ? trackCoords[0] : (hasManualTrack ? manualTrackCoords[0] : (altList.length ? altList[0].trackSimplified[0] : [points[0].lat, points[0].lon]));
-    const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
+    const map = fsmCreateFlMap(mapDivId).setView(startView, isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
-    if(offlineId){
-      createOfflineAwareTileLayer(offlineId).addTo(map); // Offline-Kacheln nur für die Landeskarte zwischengespeichert — kein Ebenen-Wechsel hier
-    }else{
-      addBaseLayerSwitcher(map);
-    }
+    // Offline-Kacheln kommen bei allen Karten automatisch (siehe fsmRegisterOfflineProtocol)
     if(offlineId && gpsActiveOfflineId === offlineId){
       startLiveGpsOnMap(map, offlineId); // GPS lief bereits für diese Tour — auf die neue Karte (z. B. Vollbild) mitnehmen
     }
     const boundsItems = [];
     if(hasTrack){
-      L.polyline(trackCoords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
-      const line = L.polyline(trackCoords, {color:'#E8384F', weight:4, opacity:1}).addTo(map);
+      FL.polyline(trackCoords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line = FL.polyline(trackCoords, {color:'#E8384F', weight:4, opacity:1}).addTo(map);
       boundsItems.push(line);
     }
     if(hasManualTrack){
-      L.polyline(manualTrackCoords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
-      const line2 = L.polyline(manualTrackCoords, {color:'#1565C0', weight:4, opacity:1}).addTo(map);
+      FL.polyline(manualTrackCoords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line2 = FL.polyline(manualTrackCoords, {color:'#1565C0', weight:4, opacity:1}).addTo(map);
       boundsItems.push(line2);
     }
     altList.forEach((a,i)=>{
       const color = ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length];
-      L.polyline(a.trackSimplified, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
-      const line = L.polyline(a.trackSimplified, {color, weight:3.5, opacity:1, dashArray:'6,5'}).addTo(map).bindPopup(esc(a.name||'Alternativroute'));
+      FL.polyline(a.trackSimplified, {color:'#ffffff', weight:6, opacity:0.6}).addTo(map);
+      const line = FL.polyline(a.trackSimplified, {color, weight:3.5, opacity:1, dashArray:'6,5'}).addTo(map).bindPopup(esc(a.name||'Alternativroute'));
       boundsItems.push(line);
     });
     if(hasPoints){
       points.forEach(p=>{
-        const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
+        const m = FL.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
         boundsItems.push(m);
       });
     }
     if(boundsItems.length){
-      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+      map.fitBounds(FL.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderTrackDisplayMap(id, points||[], trackCoords||[], manualTrackCoords||[], offlineId, altTracks||[]); });
@@ -8154,7 +8068,7 @@ function accessRouteLegendHtml(routes){
 function renderHutAccessRoutesMap(containerId, points, routes, manualTrack, onRouteClick){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
+  fsmEnsureLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2) return;
     const tracks = (routes||[]).map((r,i)=>({
@@ -8179,9 +8093,8 @@ function renderHutAccessRoutesMap(containerId, points, routes, manualTrack, onRo
       : 'height:240px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);';
     el2.appendChild(mapDiv);
     const startView = tracks.length ? tracks[0].coords[0] : (hasManualTrack ? manualTrack[0] : [points[0].lat, points[0].lon]);
-    const map = L.map(mapDivId).setView(startView, isFullscreen ? 14 : 13);
+    const map = fsmCreateFlMap(mapDivId).setView(startView, isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
-    addBaseLayerSwitcher(map);
     // Popup mit Name + "öffnen"-Knopf fürs Antippen einer Route-Linie — bewusst als eigener,
     // kleiner Baustein hier (statt die gleichnamige Variante aus renderStandaloneMap zu teilen),
     // um die riesige, eng verzahnte Standalone-Karten-Funktion nicht anfassen zu müssen.
@@ -8198,24 +8111,24 @@ function renderHutAccessRoutesMap(containerId, points, routes, manualTrack, onRo
       btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
       btn.addEventListener('click', ()=> onRouteClick(route));
       wrap.appendChild(btn);
-      L.popup().setLatLng(latlng).setContent(wrap).openOn(map);
+      FL.popup().setLatLng(latlng).setContent(wrap).openOn(map);
     }
     const boundsItems = [];
     if(hasManualTrack){
-      L.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
-      const line = L.polyline(manualTrack, {color:'#E8384F', weight:4, opacity:1}).addTo(map);
+      FL.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+      const line = FL.polyline(manualTrack, {color:'#E8384F', weight:4, opacity:1}).addTo(map);
       boundsItems.push(line);
     }
     tracks.forEach(t=>{
       try{
         // Breite unsichtbare Klickfläche unter der sichtbaren, dünnen Linie — deutlich leichter
         // mit dem Finger zu treffen (analog zur Standalone-Übersichtskarte).
-        const hitLine = L.polyline(t.coords, {color:'#000', weight:22, opacity:0}).addTo(map);
-        L.polyline(t.coords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
-        const line = L.polyline(t.coords, {color:t.color, weight:4, opacity:1}).addTo(map);
+        const hitLine = FL.polyline(t.coords, {color:'#000', weight:22, opacity:0}).addTo(map);
+        FL.polyline(t.coords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
+        const line = FL.polyline(t.coords, {color:t.color, weight:4, opacity:1}).addTo(map);
         if(onRouteClick){
-          hitLine.on('click', (e)=>{ L.DomEvent.stopPropagation(e); openRoutePopup(e.latlng, t.route); });
-          line.on('click', (e)=>{ L.DomEvent.stopPropagation(e); openRoutePopup(e.latlng, t.route); });
+          hitLine.on('click', (e)=>{ FL.DomEvent.stopPropagation(e); openRoutePopup(e.latlng, t.route); });
+          line.on('click', (e)=>{ FL.DomEvent.stopPropagation(e); openRoutePopup(e.latlng, t.route); });
         }
         boundsItems.push(line);
       }catch(e){ /* einzelne fehlerhafte Linie überspringen, Rest der Karte trotzdem zeigen */ }
@@ -8223,13 +8136,13 @@ function renderHutAccessRoutesMap(containerId, points, routes, manualTrack, onRo
     if(hasPoints){
       points.forEach(p=>{
         try{
-          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
+          const m = FL.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(esc(p.label||'Punkt'));
           boundsItems.push(m);
         }catch(e){ /* einzelner fehlerhafter Punkt überspringen */ }
       });
     }
     if(boundsItems.length){
-      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+      map.fitBounds(FL.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderHutAccessRoutesMap(id, points||[], routes||[], manualTrack||[], onRouteClick); });
@@ -9962,38 +9875,13 @@ function formatOfflineRemaining(expiresAt){
   return `noch ${hoursLeft} Std. offline verfügbar`;
 }
 
-function createOfflineAwareTileLayer(offlineId){
-  const OfflineTileLayer = L.TileLayer.extend({
-    createTile: function(coords, done){
-      const tile = document.createElement('img');
-      const z = coords.z, x = coords.x, y = coords.y;
-      const networkUrl = `https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/${z}/${x}/${y}.jpeg`;
-      idbGet('tiles', `${offlineId}_${z}_${x}_${y}`).then(blob=>{
-        if(blob){
-          tile.src = URL.createObjectURL(blob);
-          done(null, tile);
-        }else{
-          tile.onload = ()=> done(null, tile);
-          tile.onerror = ()=> done(new Error('Kachel nicht verfügbar'), tile);
-          tile.src = networkUrl;
-        }
-      }).catch(()=>{
-        tile.onload = ()=> done(null, tile);
-        tile.onerror = ()=> done(new Error('Kachel nicht verfügbar'), tile);
-        tile.src = networkUrl;
-      });
-      return tile;
-    }
-  });
-  return new OfflineTileLayer('', { maxZoom: 18, attribution: '© swisstopo' });
-}
-
 /* ================= Live-GPS-Standort auf der Karte ================= */
 let gpsWatchId = null;
 let gpsMarker = null;
 let gpsActiveOfflineId = null; // für welche Tour GPS aktuell läuft — überlebt einen Kartenwechsel (z. B. beim Öffnen der Vollbildansicht)
 function startLiveGpsOnMap(map, offlineId){
   if(!navigator.geolocation) return;
+  if(map && map._ml) map = map._ml; // FL-Karte: die MapLibre-Karte darunter
   stopLiveGpsOnMap();
   gpsActiveOfflineId = offlineId || null;
   gpsWatchId = navigator.geolocation.watchPosition((pos)=>{
@@ -10004,11 +9892,6 @@ function startLiveGpsOnMap(map, offlineId){
       else gpsMarker.setLngLat([latlng[1], latlng[0]]);
       if(map._fsmFlyOnFix){ map._fsmFlyOnFix = false; map.easeTo({center:[latlng[1], latlng[0]], zoom: Math.max(map.getZoom(), 14), duration: 800}); }
       return;
-    }
-    if(!gpsMarker){
-      gpsMarker = L.circleMarker(latlng, {radius:8, color:'#fff', weight:3, fillColor:'#1565C0', fillOpacity:1, pane:'markerPane'}).addTo(map);
-    }else{
-      gpsMarker.setLatLng(latlng);
     }
   }, (err)=>{
     dlog('GPS-Standort nicht verfügbar: ' + (err && err.message ? err.message : err), 'err');
