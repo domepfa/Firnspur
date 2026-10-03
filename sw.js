@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bergtouren-shell-v168';
+const CACHE_NAME = 'bergtouren-shell-v169';
 const SHELL_ASSETS = [
   './', './index.html', './fixseil.html', './0-shared.js', './look.css', './0-geo-ch.js',
   './manifest.json', './manifest-fixseil.json',

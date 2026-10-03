@@ -2257,6 +2257,40 @@ const FS3D_WMTS = (layer, ext)=> new Cesium.UrlTemplateImageryProvider({
   maximumLevel: 18, credit: '© swisstopo'
 });
 let fs3dLoadPromise = null, fs3dViewer = null;
+// swisstopo-Namen (3D Tiles von 2018): Die Kacheln geben als Höhenbereich nur den tiefsten Punkt
+// an (z. B. 450 m), die Namen liegen aber bis über 4000 m. Mit diesen Angaben hielt Cesium die
+// Kacheln für weit weg/unsichtbar und lud die Namen in der Nähe nie. Daher den Höhenbereich beim
+// Laden auf das ganze Gelände erweitern.
+function fs3dLoadNames(){
+  const orig = Cesium.Cesium3DTileset.loadJson;
+  const fix = (n)=>{
+    const r = n && n.boundingVolume && n.boundingVolume.region;
+    if(r){ r[4] = Math.min(r[4], 190); r[5] = Math.max(r[5], 4800); }
+    (n.children || []).forEach(fix);
+  };
+  Cesium.Cesium3DTileset.loadJson = (res)=> orig(res).then(j=>{ if(j && j.root) fix(j.root); return j; });
+  const p = Cesium.Cesium3DTileset.fromUrl('https://vectortiles.geo.admin.ch/3d-tiles/ch.swisstopo.swissnames3d.3d/20180716/tileset.json');
+  p.finally(()=>{ Cesium.Cesium3DTileset.loadJson = orig; });
+  return p;
+}
+// Darstellung der swisstopo-Namen in 3D: Gipfel/Pässe/Hütten grösser, Gewässer blau
+const FS3D_NAMES_STYLE = {
+  labelText: '${DISPLAY_TEXT}',
+  font: {conditions: [
+    ["regExp('Gipfel|Pass|Huette|Hütte').test(${OBJEKTART})", "'700 15px sans-serif'"],
+    ['true', "'600 13px sans-serif'"]
+  ]},
+  labelColor: {conditions: [
+    ["regExp('See|Gletscher|Fliess|Bach').test(${OBJEKTART})", "color('#D0EBFF')"],
+    ['true', "color('#FFFFFF')"]
+  ]},
+  labelOutlineColor: "color('#0F1E27')",
+  labelOutlineWidth: '3',
+  labelStyle: '2',
+  heightOffset: '25',
+  disableDepthTestDistance: '1e9',
+  distanceDisplayCondition: 'vec2(0, 30000)'
+};
 function fs3dEnsureCesium(){
   if(window.Cesium) return Promise.resolve();
   if(fs3dLoadPromise) return fs3dLoadPromise;
@@ -2324,6 +2358,7 @@ function fsOpen3d(opts){
       <button type="button" class="fs-3d-chip" data-3d="slope">Hangneigung &gt;30°</button>
       <button type="button" class="fs-3d-chip" data-3d="ski">SAC-Skitouren</button>
       <button type="button" class="fs-3d-chip" data-3d="walk">Wanderwege</button>
+      <button type="button" class="fs-3d-chip on" data-3d="names">Namen</button>
     </div>
     <div class="fs-3d-loading" id="fs-3d-loading">3D wird geladen …</div>`;
   document.body.appendChild(wrap);
@@ -2358,6 +2393,19 @@ function fsOpen3d(opts){
     }));
     wrap.querySelector('[data-3d="slope"]').addEventListener('click', (e)=>{ slope.show = !slope.show; e.currentTarget.classList.toggle('on', slope.show); rerender(); });
     wrap.querySelector('[data-3d="ski"]').addEventListener('click', (e)=>{ ski.show = !ski.show; e.currentTarget.classList.toggle('on', ski.show); rerender(); });
+    // Namen (Gipfel, Pässe, Orte, Hütten, Seen) — offizielle 3D-Namensebene von swisstopo, wie in
+    // der 3D-Ansicht von map.geo.admin.ch. Standardmässig an; Fehler beim Laden blenden nur den Schalter aus.
+    let names = null;
+    const namesBtn = wrap.querySelector('[data-3d="names"]');
+    fs3dLoadNames().then(ts=>{
+      if(fs3dViewer !== viewer) return;
+      names = ts;
+      ts.style = new Cesium.Cesium3DTileStyle(FS3D_NAMES_STYLE);
+      ts.maximumScreenSpaceError = 4;
+      viewer.scene.primitives.add(ts);
+      rerender();
+    }).catch(()=>{ namesBtn.style.display = 'none'; });
+    namesBtn.addEventListener('click', ()=>{ if(!names) return; names.show = !names.show; namesBtn.classList.toggle('on', names.show); rerender(); });
     wrap.querySelector('[data-3d="walk"]').addEventListener('click', (e)=>{ walk.show = !walk.show; e.currentTarget.classList.toggle('on', walk.show); rerender(); });
     // Eigene Linien leicht über dem Gelände (Höhen aus dem Modell), damit sie durchgehend sichtbar sind
     const lines = fs3dTourLines(t);
