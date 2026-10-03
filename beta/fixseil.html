@@ -2398,7 +2398,7 @@ function gipfelFormHtml(existing){
 function renderKlettergebietOverviewMap(containerId, gebId){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
+  fsmEnsureLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2) return;
     const geb = state.klettergebiete.find(x=>x.id===gebId);
@@ -2425,14 +2425,13 @@ function renderKlettergebietOverviewMap(containerId, gebId){
     el2.appendChild(mapDiv);
     const firstSektorPoint = sektoren.map(s=> s.points && s.points.length ? s.points[0] : null).find(Boolean);
     const startPoint = hasOwnPoints ? geb.points[0] : firstSektorPoint;
-    const map = L.map(mapDivId).setView(startPoint ? [startPoint.lat, startPoint.lon] : [46.8182, 8.2275], startPoint ? 13 : 8);
+    const map = fsmCreateFlMap(mapDivId).setView(startPoint ? [startPoint.lat, startPoint.lon] : [46.8182, 8.2275], startPoint ? 13 : 8);
     registerMap(mapDivId, map);
-    addBaseLayerSwitcher(map);
     const boundsItems = [];
     if(hasOwnPoints){
       geb.points.forEach(p=>{
         try{
-          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(geb.name)}</strong><br/>${esc(p.label||'Punkt')}`);
+          const m = FL.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(geb.name)}</strong><br/>${esc(p.label||'Punkt')}`);
           boundsItems.push(m);
         }catch(e){ /* einzelner fehlerhafter Punkt überspringen */ }
       });
@@ -2440,7 +2439,7 @@ function renderKlettergebietOverviewMap(containerId, gebId){
     sektoren.forEach(sek=>{
       (sek.points||[]).forEach(p=>{
         try{
-          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(sek.name)}</strong><br/>${esc(p.label||'Punkt')}`);
+          const m = FL.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(sek.name)}</strong><br/>${esc(p.label||'Punkt')}`);
           boundsItems.push(m);
         }catch(e){ /* einzelner fehlerhafter Punkt überspringen */ }
       });
@@ -2449,21 +2448,21 @@ function renderKlettergebietOverviewMap(containerId, gebId){
       const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
       if(track){
         try{
-          L.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
-          const line = L.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
+          FL.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
+          const line = FL.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
           boundsItems.push(line);
         }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
       }
       (t.points||[]).forEach(p=>{
         try{
-          const m = L.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
+          const m = FL.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
             .bindPopup(`<strong>${esc(t.name)}</strong>${t.routeName ? ' – '+esc(t.routeName) : ''}<br/>${esc(p.label||'Punkt')}`);
           boundsItems.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
       });
     });
     if(boundsItems.length){
-      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+      map.fitBounds(FL.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderKlettergebietOverviewMap(id, gebId); });
@@ -2613,7 +2612,7 @@ function sektorOverviewLegendHtml(sektorId){
 function renderSektorOverviewMap(containerId, sektorId){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
-  ensureLeafletLoaded().then(()=>{
+  fsmEnsureLoaded().then(()=>{
     const el2 = document.getElementById(containerId);
     if(!el2) return;
     const sek = state.sektoren.find(x=>x.id===sektorId);
@@ -2638,14 +2637,13 @@ function renderSektorOverviewMap(containerId, sektorId){
     el2.appendChild(mapDiv);
     const firstTourPoint = tourEntries.map(e=> e.tour.points && e.tour.points.length ? e.tour.points[0] : null).find(Boolean);
     const startPoint = hasSektorPoints ? sek.points[0] : firstTourPoint;
-    const map = L.map(mapDivId).setView(startPoint ? [startPoint.lat, startPoint.lon] : [46.8182, 8.2275], startPoint ? 13 : 8);
+    const map = fsmCreateFlMap(mapDivId).setView(startPoint ? [startPoint.lat, startPoint.lon] : [46.8182, 8.2275], startPoint ? 13 : 8);
     registerMap(mapDivId, map);
-    addBaseLayerSwitcher(map);
     const boundsItems = [];
     if(hasSektorPoints){
       sek.points.forEach(p=>{
         try{
-          const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(sek.name)}</strong><br/>${esc(p.label||'Punkt')}`);
+          const m = FL.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${esc(sek.name)}</strong><br/>${esc(p.label||'Punkt')}`);
           boundsItems.push(m);
         }catch(e){ /* einzelner fehlerhafter Punkt überspringen */ }
       });
@@ -2654,21 +2652,21 @@ function renderSektorOverviewMap(containerId, sektorId){
       const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
       if(track){
         try{
-          L.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
-          const line = L.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
+          FL.polyline(track, {color:'#ffffff', weight:6, opacity:0.7}).addTo(map);
+          const line = FL.polyline(track, {color, weight:3.5, opacity:1}).addTo(map);
           boundsItems.push(line);
         }catch(e){ /* einzelnen fehlerhaften Track überspringen */ }
       }
       (t.points||[]).forEach(p=>{
         try{
-          const m = L.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
+          const m = FL.circleMarker([p.lat, p.lon], {radius:8, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(map)
             .bindPopup(`<strong>${esc(t.name)}</strong>${t.routeName ? ' – '+esc(t.routeName) : ''}<br/>${esc(p.label||'Punkt')}`);
           boundsItems.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
       });
     });
     if(boundsItems.length){
-      map.fitBounds(L.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
+      map.fitBounds(FL.featureGroup(boundsItems).getBounds(), {padding:[30,30]});
     }
     if(!isFullscreen){
       const btn = makeFullscreenButton(function(id){ renderSektorOverviewMap(id, sektorId); });
