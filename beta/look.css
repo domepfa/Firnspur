@@ -876,7 +876,7 @@ main{ padding-top:6px; }
 /* =====================================================================
    Phase 1: Erkunden / Bearbeiten
    ===================================================================== */
-:root{ --fs-edit:#6741D9; }
+:root{ --fs-edit:#D6336C; }
 
 /* Einheitlicher Kopf: Name zuerst, Chips IMMER darunter (Kachel wie Detail) */
 .card-top{ flex-direction:column; align-items:flex-start; gap:8px; }
@@ -1063,3 +1063,31 @@ html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-map"],
 html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-tour-routes-map"],
 html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-access-routes-map"]{ display:none; }
 .fs-nomap-hint{ margin:0; padding:10px 12px; border-radius:12px; background:var(--ice-light); color:var(--accent-ink, #1F4D63); font-size:13.5px; font-weight:600; }
+
+/* =====================================================================
+   Schritt 4: Lesen / Bearbeiten pro Eintrag (Bearbeiten = Magenta)
+   ===================================================================== */
+/* Lesemodus: leere "Noch kein …"-Abschnitte ausblenden */
+.modal.fs-detail:not(.fs-editing) .fs-empty,
+.modal.fs-detail:not(.fs-editing) .detail-section:has(> .fs-empty){ display:none; }
+/* Bearbeiten-Leiste oben im Eintrag */
+.fs-edit-bar{
+  position:sticky; top:0; z-index:9; display:flex; align-items:center; gap:8px;
+  margin:-22px -18px 14px; padding:10px 12px 10px 18px;
+  background:var(--fs-edit); color:#fff; box-shadow:0 4px 14px rgba(214,51,108,.35);
+}
+.overlay.fs-sheet-mode .fs-edit-bar{ top:32px; margin-top:0; }
+.fs-edit-bar-t{ flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.15; }
+.fs-edit-bar-t span{ font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; opacity:.9; }
+.fs-edit-bar-t strong{ font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fs-edit-bar-btn{
+  flex:none; display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:0 12px;
+  border:none; border-radius:11px; background:rgba(255,255,255,.2); color:#fff; font:inherit; font-size:14px; font-weight:800; cursor:pointer;
+}
+.fs-edit-bar-btn .fs-i{ width:18px; height:18px; }
+.fs-edit-bar-btn.done{ background:#fff; color:var(--fs-edit); }
+/* Im Bearbeiten-Modus: Rahmen in Magenta, Stift aktiv, keine Schlösser mehr */
+.modal.fs-editing{ box-shadow:0 0 0 3px var(--fs-edit), var(--shadow-lg); }
+.modal.fs-editing .fs-icon-btn[data-act^="edit-"]{ background:var(--fs-edit); color:#fff; }
+.modal.fs-editing .btn::before{ content:none !important; }
+.modal.fs-editing [data-act]::after{ display:none; }

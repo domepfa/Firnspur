@@ -2718,7 +2718,7 @@ function sektorDetailHtml(id){
       ${((sek.topoImages && sek.topoImages.length) || (sek.kletterrouten && sek.kletterrouten.length)) ? `
         ${(sek.topoImages && sek.topoImages.length) ? topoImagesGalleryHtml(sek.topoImages) : ''}
         ${kletterroutenTableHtml(sek.kletterrouten)}
-      ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Topo-Bild/keine Routenliste erfasst.</p>`}
+      ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">Noch kein Topo-Bild/keine Routenliste erfasst.</p>`}
       ${sekProtectionInfo ? `<p style="font-size:13px; margin:10px 0 0 0;"><strong>Absicherung:</strong> ${sekProtectionInfo.label} — ${sekProtectionInfo.desc}</p>` : ''}
       ${sek.descentType ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Abstieg:</strong> ${esc(sek.descentType)}</p>` : ''}
       ${(sek.material && sek.material.length) || sek.quickdrawCount ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Material:</strong> ${[...(sek.material||[]), sek.quickdrawCount ? `${sek.quickdrawCount}× Expressschlingen` : ''].filter(Boolean).map(esc).join(', ')}</p>` : ''}
@@ -2765,7 +2765,7 @@ function sektorDetailHtml(id){
         <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-sektor-id="${sek.id}" data-kind="access" data-target="map-sektor-access-${sek.id}">🗺️ Karte anzeigen</button>
         <div id="map-sektor-access-${sek.id}" style="margin-bottom:10px;"></div>
         <div class="grid">${accessRoutes.map((r,i)=>sektorRouteRowHtml(r,i,sek.id,'access')).join('')}</div>
-      ` : `<p style="font-size:13px; color:var(--ink-soft);">${hut && hutRoutes.length ? 'Noch kein eigener Zustieg erfasst — nur nötig, falls der Weg ab der Hütte nochmal abweicht.' : 'Noch kein Zustieg erfasst.'}</p>`}
+      ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">${hut && hutRoutes.length ? 'Noch kein eigener Zustieg erfasst — nur nötig, falls der Weg ab der Hütte nochmal abweicht.' : 'Noch kein Zustieg erfasst.'}</p>`}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="access">+ ${hut && hutRoutes.length ? 'zusätzlichen ' : ''}Zustieg hinzufügen</button>
     </div>
     <div class="detail-section">
@@ -2775,7 +2775,7 @@ function sektorDetailHtml(id){
         <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-sektor-id="${sek.id}" data-kind="descent" data-target="map-sektor-descent-${sek.id}">🗺️ Karte anzeigen</button>
         <div id="map-sektor-descent-${sek.id}" style="margin-bottom:10px;"></div>
         <div class="grid">${descentRoutes.map((r,i)=>sektorRouteRowHtml(r,i,sek.id,'descent')).join('')}</div>
-      ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
+      ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="descent">+ Abstieg hinzufügen</button>
     </div>
     `}
@@ -4456,7 +4456,7 @@ function tourDetailHtml(id){
           <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-tour-id="${t.id}" data-kind="access" data-target="map-tour-access-${t.id}">🗺️ Karte anzeigen</button>
           <div id="map-tour-access-${t.id}" style="margin-bottom:10px;"></div>
           <div class="grid">${accessRoutes.map((r,i)=>tourRouteRowHtml(r,i,t.id,'access')).join('')}</div>
-        ` : `<p style="font-size:13px; color:var(--ink-soft);">${hut && hutRoutes.length ? 'Noch kein eigener Zustieg erfasst — nur nötig, falls der Weg ab der Hütte nochmal abweicht.' : 'Noch kein Zustieg erfasst.'}</p>`}
+        ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">${hut && hutRoutes.length ? 'Noch kein eigener Zustieg erfasst — nur nötig, falls der Weg ab der Hütte nochmal abweicht.' : 'Noch kein Zustieg erfasst.'}</p>`}
         <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-tour-route" data-tour-id="${t.id}" data-kind="access">+ ${hut && hutRoutes.length ? 'zusätzlichen ' : ''}Zustieg hinzufügen</button>
       </div>
       <div class="detail-section">
@@ -4466,7 +4466,7 @@ function tourDetailHtml(id){
           <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-tour-id="${t.id}" data-kind="descent" data-target="map-tour-descent-${t.id}">🗺️ Karte anzeigen</button>
           <div id="map-tour-descent-${t.id}" style="margin-bottom:10px;"></div>
           <div class="grid">${descentRoutes.map((r,i)=>tourRouteRowHtml(r,i,t.id,'descent')).join('')}</div>
-        ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
+        ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
         <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-tour-route" data-tour-id="${t.id}" data-kind="descent">+ Abstieg hinzufügen</button>
       </div>`;
     })()}
@@ -4482,7 +4482,7 @@ function tourDetailHtml(id){
 
     <div class="detail-section">
       <h4>Erledigt (${(t.completions||[]).length})</h4>
-      ${(t.completions && t.completions.length) ? t.completions.slice().sort((a,b)=> (b.date||'').localeCompare(a.date||'')).map(c=>`<p style="margin:0 0 4px 0; font-size:14px;">✓ ${esc(c.by)} — ${esc(fmtDateOnly(c.date))}</p>`).join('') : `<p style="font-size:13.5px; color:var(--ink-soft);">Noch nicht erledigt.</p>`}
+      ${(t.completions && t.completions.length) ? t.completions.slice().sort((a,b)=> (b.date||'').localeCompare(a.date||'')).map(c=>`<p style="margin:0 0 4px 0; font-size:14px;">✓ ${esc(c.by)} — ${esc(fmtDateOnly(c.date))}</p>`).join('') : `<p class="fs-empty" style="font-size:13.5px; color:var(--ink-soft);">Noch nicht erledigt.</p>`}
     </div>
 
     <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}${t.updatedAt && t.updatedAt!==t.createdAt ? ` · zuletzt bearbeitet von ${esc(t.updatedBy||'?')} · ${fmtDate(t.updatedAt)}` : ''}</div>
@@ -4688,7 +4688,7 @@ function hutDetailHtml(id){
         ${rangeText ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${rangeText}</p>` : ''}
         ${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}
         <div class="grid">${routes.map((r,i)=>accessRouteRowHtml(r,i,h.id)).join('')}</div>
-      ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
+      ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-access-route" data-hut-id="${h.id}">+ Zustieg hinzufügen</button>
     </div>
 
@@ -4702,7 +4702,7 @@ function hutDetailHtml(id){
 
     <div class="detail-section">
       <h4>Erledigt (${(h.completions||[]).length})</h4>
-      ${(h.completions && h.completions.length) ? h.completions.slice().sort((a,b)=> (b.date||'').localeCompare(a.date||'')).map(c=>`<p style="margin:0 0 4px 0; font-size:14px;">✓ ${esc(c.by)} — ${esc(fmtDateOnly(c.date))}</p>`).join('') : `<p style="font-size:13.5px; color:var(--ink-soft);">Noch nicht erledigt.</p>`}
+      ${(h.completions && h.completions.length) ? h.completions.slice().sort((a,b)=> (b.date||'').localeCompare(a.date||'')).map(c=>`<p style="margin:0 0 4px 0; font-size:14px;">✓ ${esc(c.by)} — ${esc(fmtDateOnly(c.date))}</p>`).join('') : `<p class="fs-empty" style="font-size:13.5px; color:var(--ink-soft);">Noch nicht erledigt.</p>`}
     </div>
 
     <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(h.createdBy||'?')} · ${fmtDate(h.createdAt)}${h.updatedAt && h.updatedAt!==h.createdAt ? ` · zuletzt bearbeitet von ${esc(h.updatedBy||'?')} · ${fmtDate(h.updatedAt)}` : ''}</div>

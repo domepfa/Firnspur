@@ -2251,7 +2251,7 @@ function tourDetailHtml(id){
           <span>✓ ${esc(c.by||'?')}${c.date ? ' · ' + fmtDateOnly(c.date) : ''}</span>
           <button data-act="remove-completion" data-kind="tour" data-id="${t.id}" data-idx="${idx}" style="background:none; border:none; color:var(--danger); font-size:12px; cursor:pointer;">entfernen</button>
         </div>`).join('')}
-      </div>` : `<p style="margin:0; font-size:13px; color:var(--ink-soft);">Noch niemand hat diese Tour als abgeschlossen markiert.</p>`}
+      </div>` : `<p class="fs-empty" style="margin:0; font-size:13px; color:var(--ink-soft);">Noch niemand hat diese Tour als abgeschlossen markiert.</p>`}
     </div>
 
     <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}${t.updatedAt && t.updatedAt!==t.createdAt ? ` · zuletzt bearbeitet von ${esc(t.updatedBy||'?')} · ${fmtDate(t.updatedAt)}` : ''}</div>
@@ -2416,7 +2416,7 @@ function hutDetailHtml(id){
         ${rangeText ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${rangeText}</p>` : ''}
         ${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}
         <div class="grid">${routes.map((r,i)=>accessRouteRowHtml(r,i,h.id)).join('')}</div>
-      ` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
+      ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-access-route" data-hut-id="${h.id}">+ Zustieg hinzufügen</button>
     </div>
 
@@ -2435,7 +2435,7 @@ function hutDetailHtml(id){
           <span>✓ ${esc(c.by||'?')}${c.date ? ' · ' + fmtDateOnly(c.date) : ''}</span>
           <button data-act="remove-completion" data-kind="hut" data-id="${h.id}" data-idx="${idx}" style="background:none; border:none; color:var(--danger); font-size:12px; cursor:pointer;">entfernen</button>
         </div>`).join('')}
-      </div>` : `<p style="margin:0; font-size:13px; color:var(--ink-soft);">Noch niemand hat diese Hütte als besucht markiert.</p>`}
+      </div>` : `<p class="fs-empty" style="margin:0; font-size:13px; color:var(--ink-soft);">Noch niemand hat diese Hütte als besucht markiert.</p>`}
     </div>
 
     <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(h.createdBy||'?')} · ${fmtDate(h.createdAt)}${h.updatedAt && h.updatedAt!==h.createdAt ? ` · zuletzt bearbeitet von ${esc(h.updatedBy||'?')} · ${fmtDate(h.updatedAt)}` : ''}</div>
