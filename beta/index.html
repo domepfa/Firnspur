@@ -1042,6 +1042,11 @@ async function submitTourForm(form, existing){
 
   const ok = await saveTourCloud(t).catch(()=>false);
   t._unsynced = !ok;
+  // Aus der swisstopo-Skitourenebene übernommen: Original-GPX ablegen (für "GPX herunterladen")
+  if(existing && existing._fsPendingGpx && t.trackSimplified){
+    const pg = existing._fsPendingGpx;
+    fbSet(GPX_TRACKS_PATH + '/' + t.id, { gpx: buildGpxXml(pg.coords, pg.name), uploadedAt: new Date().toISOString(), fileName: (pg.name || 'track') + '.gpx' }).catch(()=>{});
+  }
   if(!ok){
     markUnsaved();
     showToast('Tour ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);

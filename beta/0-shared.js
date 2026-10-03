@@ -2329,7 +2329,8 @@ function renderStandaloneMap(containerId){
       if(skitourenLayer && map.hasLayer(skitourenLayer)){
         const feature = await identifySkitourAt(map, e.latlng);
         if(feature){
-          L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature)).openOn(map);
+          const pop = L.popup({maxWidth:280}).setLatLng(e.latlng);
+          pop.setContent(buildSkitourPopupContent(feature, {popup: pop})).openOn(map);
           return;
         }
       }
@@ -3755,8 +3756,37 @@ async function identifySkitourAt(map, latlng){
     const res = await fetch('https://api3.geo.admin.ch/rest/services/all/MapServer/identify?' + params.toString());
     if(!res.ok) return null;
     const data = await res.json();
-    return (data.results && data.results.length) ? data.results[0] : null;
+    const results = (data.results || []).filter(Boolean);
+    if(!results.length) return null;
+    // Oft liegen mehrere Routen(-Abschnitte) an derselben Stelle, viele davon ohne Infos
+    // ("Keine Routeninfo verfügbar"). Solche mit SAC-Ziel/-Link zuerst, Doppelte (gleicher Link)
+    // nur einmal — die Auswahl trifft dann buildSkitourPopupContent().
+    const seen = new Set();
+    const informative = [], rest = [];
+    results.forEach(f=>{
+      const a = skitourAttrs(f);
+      if(a.url || a.target){
+        const key = a.url || (a.target + '|' + a.route);
+        if(seen.has(key)) return;
+        seen.add(key);
+        informative.push(f);
+      }else rest.push(f);
+    });
+    return informative.length ? informative : [rest[0]];
   }catch(e){ return null; }
+}
+// Sachdaten einer Route der swisstopo-Skitourenebene (SAC) in lesbarer Form.
+function skitourAttrs(feature){
+  const a = (feature && (feature.attributes || feature.properties)) || {};
+  const route = a.name_de && a.name_de !== 'Keine Routeninfo verfügbar' ? a.name_de : '';
+  return {
+    target: (a.target_name || '').trim(),
+    route,
+    altitude: a.target_altitude || '',
+    difficulty: a.difficulty_de || '',
+    time: a.ascent_time_label || '',
+    url: a.url_sac_de || ''
+  };
 }
 
 // Fragt dieselbe geo.admin.ch-"identify"-Schnittstelle für die Wegsperrungen-Ebene ab —
@@ -3833,29 +3863,84 @@ function geojsonToLatLngs(geometry){
 // (renderPointsEditorMap) bewusst aus — dort wird genau EINE Tour bearbeitet, eine Auswahlliste
 // aller Touren führte dazu, dass versehentlich eine andere Tour verändert wurde. Übernehmen
 // geht nur auf der grossen Karte.
-function buildSkitourPopupContent(feature, opts){
+function buildSkitourPopupContent(featureOrList, opts){
+  const list = Array.isArray(featureOrList) ? featureOrList : [featureOrList];
+  // Inhalt wechseln (Liste ↔ Route): über Leaflet, damit die Karte nachschwenkt und das
+  // (grösser gewordene) Popup sichtbar bleibt; ohne Popup-Bezug einfach im DOM ersetzen.
+  const swap = (oldNode, newNode)=>{ if(opts && opts.popup) opts.popup.setContent(newNode); else oldNode.replaceWith(newNode); };
+  // Mehrere Routen an dieser Stelle: kurze Auswahl statt einer zufälligen ersten.
+  if(list.length > 1){
+    const wrap = document.createElement('div');
+    wrap.className = 'fs-sac-pop';
+    const h = document.createElement('p');
+    h.className = 'fs-sac-title';
+    h.textContent = list.length + ' Skitouren hier';
+    wrap.appendChild(h);
+    list.forEach(f=>{
+      const a = skitourAttrs(f);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'fs-sac-pick';
+      b.innerHTML = `<strong>${esc(a.target || 'Skitour')}</strong><span>${esc([a.route, a.difficulty, a.altitude ? a.altitude + ' m' : ''].filter(Boolean).join(' · '))}</span>`;
+      b.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const detail = buildSkitourPopupContent(f, Object.assign({}, opts, {backTo: ()=> buildSkitourPopupContent(list, opts)}));
+        swap(wrap, detail);
+      });
+      wrap.appendChild(b);
+    });
+    return wrap;
+  }
+  const feature = list[0];
   const allowAttach = !opts || opts.allowAttach !== false;
+  const info = skitourAttrs(feature);
   const wrap = document.createElement('div');
-  wrap.style.minWidth = '190px';
-  // Je nach angeforderter Geometrie-Form liefert swisstopo die Sachdaten mal unter
-  // "attributes" (ESRI-Stil), mal unter "properties" (GeoJSON-Stil) — beides abdecken.
-  const attrs = feature.attributes || feature.properties || {};
-  const knownName = attrs.name || attrs.bezeichnung || attrs.routenname || attrs.label || attrs.title || attrs.routename || attrs.strecke;
-  const name = knownName || 'Skitour';
+  wrap.className = 'fs-sac-pop';
+  if(opts && opts.backTo){
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'fs-sac-back';
+    back.textContent = '‹ Alle Routen hier';
+    back.addEventListener('click', (e)=>{ e.stopPropagation(); swap(wrap, opts.backTo()); });
+    wrap.appendChild(back);
+  }
+  const name = info.target || 'Skitour';
   const title = document.createElement('p');
-  title.style.cssText = 'margin:0 0 8px 0; font-weight:700;';
-  title.textContent = '⛷️ ' + name;
+  title.className = 'fs-sac-title';
+  title.textContent = name;
   wrap.appendChild(title);
-  if(!knownName){
-    // Temporär, bis das echte Namensfeld bekannt ist: alle Rohdaten anzeigen, damit wir
-    // den richtigen Feldnamen identifizieren können.
-    const debugKeys = Object.keys(attrs).filter(k=> attrs[k] !== null && attrs[k] !== '' && k !== 'geometry');
-    if(debugKeys.length){
-      const debugP = document.createElement('p');
-      debugP.style.cssText = 'margin:0 0 8px 0; font-size:11px; color:#888; max-height:120px; overflow-y:auto;';
-      debugP.textContent = debugKeys.map(k=> k + ': ' + attrs[k]).join(' | ');
-      wrap.appendChild(debugP);
-    }
+  if(info.route){
+    const sub = document.createElement('p');
+    sub.className = 'fs-sac-sub';
+    sub.textContent = info.route;
+    wrap.appendChild(sub);
+  }
+  const chips = [info.difficulty, info.altitude ? info.altitude + ' m' : '', info.time].filter(Boolean);
+  if(chips.length){
+    const row = document.createElement('div');
+    row.className = 'fs-sac-chips';
+    chips.forEach((c,i)=>{
+      const sp = document.createElement('span');
+      sp.textContent = c;
+      if(i === 0 && info.difficulty && typeof DIFF !== 'undefined' && DIFF[info.difficulty]) sp.style.cssText = 'background:' + DIFF[info.difficulty].color + '; color:#fff;';
+      row.appendChild(sp);
+    });
+    wrap.appendChild(row);
+  }
+  if(!info.target && !info.url){
+    const none = document.createElement('p');
+    none.className = 'fs-sac-sub';
+    none.textContent = 'Für diesen Abschnitt hat swisstopo keine Routeninfo.';
+    wrap.appendChild(none);
+  }
+  if(info.url){
+    const sac = document.createElement('a');
+    sac.className = 'fs-sac-main';
+    sac.href = info.url;
+    sac.target = '_blank';
+    sac.rel = 'noopener noreferrer';
+    sac.textContent = 'Im SAC-Tourenportal öffnen';
+    wrap.appendChild(sac);
   }
   const coords = geojsonToLatLngs(feature.geometry);
   if(coords.length){
@@ -3863,8 +3948,20 @@ function buildSkitourPopupContent(feature, opts){
     btn.type = 'button';
     btn.textContent = '📥 GPX herunterladen';
     btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
-    btn.addEventListener('click', ()=> downloadTrackAsGpx(coords, name));
+    btn.addEventListener('click', ()=> downloadTrackAsGpx(coords, name + (info.route ? ' – ' + info.route : '')));
+    btn.className = 'fs-sac-sec';
+    btn.removeAttribute('style');
+    btn.textContent = 'GPX herunterladen';
     wrap.appendChild(btn);
+    // Nur Skitour-App: daraus direkt eine neue Tour anlegen (Formular vorbefüllt)
+    if(allowAttach && typeof SEKTOREN_PATH === 'undefined'){
+      const nb = document.createElement('button');
+      nb.type = 'button';
+      nb.className = 'fs-sac-sec';
+      nb.textContent = 'Als neue Tour übernehmen';
+      nb.addEventListener('click', ()=> openAddTourFromSkitour(info, coords));
+      wrap.appendChild(nb);
+    }
     // Direkt einer bestehenden Tour zuweisen, statt den Umweg über Herunterladen und
     // anschliessendes manuelles Hochladen im Formular zu gehen — die Koordinaten liegen ja
     // schon hier vor. Nur sinnvoll, wenn es überhaupt eigene Touren gibt.
@@ -3927,6 +4024,29 @@ function buildSkitourPopupContent(feature, opts){
     }
   }
   return wrap;
+}
+// Legt aus einer SAC-Route der swisstopo-Ebene eine neue Skitour an: Formular mit Ziel, Route,
+// Schwierigkeit, Höhe, SAC-Link und Track vorbefüllt; die GPX-Datei wird beim Speichern mit
+// abgelegt (siehe _fsPendingGpx in submitTourForm). Vorher die grosse Karte schliessen.
+function openAddTourFromSkitour(info, coords){
+  modalOpenedFromStandaloneMap = true;
+  closeTopOverlayLayer();
+  let simplified = coords;
+  try{
+    simplified = simplifyTrackForStorage(coords.map(c=>({lat:c[0], lon:c[1]})), 200)
+      .map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]);
+  }catch(e){}
+  const payload = {
+    name: (info.target || '').replace(/\s+CAS$/, ''),
+    routeName: info.route || '',
+    difficulty: info.difficulty || '',
+    targetAltitude: info.altitude ? String(info.altitude) : '',
+    tourLink: info.url || '',
+    trackSimplified: simplified,
+    _fsPendingGpx: { coords, name: (info.target || 'Skitour') + (info.route ? ' – ' + info.route : '') }
+  };
+  const open = ()=>{ state.modal = {type:'edit-tour', payload}; render(); };
+  if(typeof ensureName === 'function') ensureName(open); else open();
 }
 // Übernimmt die von identifySkitourAt() gelieferten Koordinaten direkt als GPX-Track einer
 // bestehenden Tour — ohne den Umweg über "Herunterladen" und anschliessendes manuelles
@@ -4810,7 +4930,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         // angetippten Route, statt einen Punkt zu setzen (das geht per langem Drücken, s. u.).
         const feature = await identifySkitourAt(map, e.latlng);
         if(feature){
-          L.popup().setLatLng(e.latlng).setContent(buildSkitourPopupContent(feature, {allowAttach:false})).openOn(map);
+          const pop = L.popup({maxWidth:280}).setLatLng(e.latlng);
+          pop.setContent(buildSkitourPopupContent(feature, {allowAttach:false, popup: pop})).openOn(map);
         }
       }
     });
