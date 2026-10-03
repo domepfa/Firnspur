@@ -5166,7 +5166,7 @@ function altTracksListHtml(tour){
    Namen und einen Typ. Gespeichert wird beim bestehenden Feld (trackName/trackType,
    manualTrackName/manualTrackType, altTracks[i].name/.type) — vorhandene Daten bleiben gültig,
    fehlende Typen ergeben sich aus der bisherigen Bedeutung (Track/Linie = Aufstieg, Alternativ-
-   routen = Variante). Fixseil nutzt die Typen (noch) nicht. */
+   routen = Variante). Gilt in allen Apps; ausser in Skitour heisst "Abfahrt" dort "Abstieg". */
 const FS_ROUTE_TYPES = {
   aufstieg: {label:'Aufstieg', color:'#E8384F'},
   abfahrt:  {label:'Abfahrt', color:'#D9730D'},
@@ -5175,7 +5175,14 @@ const FS_ROUTE_TYPES = {
   zustieg:  {label:'Zustieg', color:'#2F7D4A'}
 };
 const FS_ROUTE_TYPE_ORDER = ['aufstieg','aufab','abfahrt','variante','zustieg'];
-function fsRouteTypesOn(){ return fsAppKey() === 'firnspur'; }
+function fsRouteTypesOn(){ return true; } // alle Apps (Skitour, Hochtour/Klettern, Wandern)
+// Bezeichnung einer Routenart — abgefahren wird nur in der Skitour-App, sonst geht man ab
+function fsRouteLabel(k){
+  const ski = fsAppKey() === 'firnspur';
+  if(!ski && k === 'abfahrt') return 'Abstieg';
+  if(!ski && k === 'aufab') return 'Auf- & Abstieg';
+  return (FS_ROUTE_TYPES[k] || FS_ROUTE_TYPES.variante).label;
+}
 function fsTourRoutes(t){
   const out = [];
   if(!t) return out;
@@ -5190,9 +5197,9 @@ function fsTourRoutes(t){
 function fsRouteStyle(r){
   const ty = FS_ROUTE_TYPES[r.type] || FS_ROUTE_TYPES.variante;
   const color = (r.type === 'variante' && r.src === 'alt') ? ALT_TRACK_COLORS[r.idx % ALT_TRACK_COLORS.length] : ty.color;
-  return {color, dash:!!ty.dash, label:ty.label};
+  return {color, dash:!!ty.dash, label:fsRouteLabel(r.type)};
 }
-function fsRouteTitle(r){ return r.name || (FS_ROUTE_TYPES[r.type] || FS_ROUTE_TYPES.variante).label; }
+function fsRouteTitle(r){ return r.name || fsRouteLabel(r.type); }
 function fsRouteSwatchHtml(r){
   const st = fsRouteStyle(r);
   return `<span class="fs-route-sw${st.dash ? ' dash' : ''}" style="--c:${st.color}"></span>`;
@@ -5205,7 +5212,7 @@ function fsRoutesListHtml(t){
     const dl = r.src === 'track' ? `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name + ' – ' + fsRouteTitle(r))}"`
       : r.src === 'manual' ? `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(r.coords))}' data-name="${esc(t.name + ' – ' + fsRouteTitle(r))}"`
       : `data-act="download-alt-gpx" data-tour-id="${t.id}" data-alt-id="${r.altId}" data-name="${esc(t.name + ' – ' + fsRouteTitle(r))}"`;
-    return `<div class="fs-route-row">${fsRouteSwatchHtml(r)}<div class="fs-route-txt"><strong>${esc(fsRouteTitle(r))}</strong>${r.name ? `<span>${esc(FS_ROUTE_TYPES[r.type].label)}</span>` : ''}</div>
+    return `<div class="fs-route-row">${fsRouteSwatchHtml(r)}<div class="fs-route-txt"><strong>${esc(fsRouteTitle(r))}</strong>${r.name ? `<span>${esc(fsRouteLabel(r.type))}</span>` : ''}</div>
       <button type="button" class="fs-icon-btn" ${dl} aria-label="Als GPX herunterladen">${fsIconHtml('download')}</button></div>`;
   }).join('')}</div>`;
 }
@@ -5238,7 +5245,7 @@ function fsRoutesEditorRender(){
   box.innerHTML = routes.length ? routes.map(r=>`<div class="fs-route-edit" data-key="${esc(r.key)}">
       ${fsRouteSwatchHtml(r)}
       <input type="text" class="fs-route-name" value="${esc(r.name)}" placeholder="${esc(r.src === 'track' ? 'GPX-Track' : r.src === 'manual' ? 'Gezeichnete Linie' : 'Name')}" aria-label="Name der Route"/>
-      <select class="fs-route-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k===r.type?'selected':''}>${FS_ROUTE_TYPES[k].label}</option>`).join('')}</select>
+      <select class="fs-route-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k===r.type?'selected':''}>${fsRouteLabel(k)}</option>`).join('')}</select>
       ${r.src === 'alt' ? `<button type="button" class="fs-icon-btn fs-route-del" aria-label="Route entfernen">${fsIconHtml('trash')}</button>` : ''}
     </div>`).join('') : '<p class="hint" style="margin:0 0 8px;">Noch keine Route — GPX hochladen oder auf der Karte zeichnen.</p>';
   box.querySelectorAll('.fs-route-edit').forEach(row=>{
@@ -5612,6 +5619,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const routeStatsEl = document.createElement('div');
     routeStatsEl.style.cssText = 'display:none; margin-top:8px; gap:6px; flex-wrap:wrap;';
     wrapDiv.appendChild(routeStatsEl);
+    // Name/Art der aktuellen Linie und "weitere Route" (nur im Tour-Formular mit Routenliste)
+    const routeMetaEl = document.createElement('div');
+    routeMetaEl.className = 'fs-route-meta';
+    routeMetaEl.style.display = 'none';
+    wrapDiv.appendChild(routeMetaEl);
 
     el2.appendChild(wrapDiv);
 
@@ -5649,6 +5661,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       FL.circleMarker([rp.lat, rp.lon], {radius:6, color:'#fff', weight:2, fillColor: rp.color || '#4A3524', fillOpacity:0.9}).bindTooltip(rp.label || '').addTo(map);
     });
 
+    const otherRoutesLayer = FL.layerGroup().addTo(map); // bereits abgelegte weitere Routen (nur Anzeige)
     const markerLayer = FL.layerGroup().addTo(map);
     let lineLayer = FL.layerGroup().addTo(map);
     let routeLayer = FL.layerGroup().addTo(map);
@@ -5676,7 +5689,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // lastRouteStats oben), damit die Historie einen Wechsel in/aus der Vollbildansicht überlebt.
     let undoStack = (manualTrackHidden && manualTrackHidden._undoStack) || [];
     function pushUndo(){
-      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats, usingGpxTrack}));
+      const rv = (id)=>{ const el = document.getElementById(id); return el ? el.value : null; };
+      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats, usingGpxTrack,
+        routes: {alt: rv('route-alt-tracks'), mn: rv('route-manual-name'), mt: rv('route-manual-type'), tn: rv('route-track-name'), tt: rv('route-track-type')}}));
       if(undoStack.length > 25) undoStack.shift();
       if(manualTrackHidden) manualTrackHidden._undoStack = undoStack;
       updateUndoBtn();
@@ -5695,6 +5710,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       manualTrack = snap.manualTrack;
       routeWaypoints = snap.routeWaypoints;
       usingGpxTrack = !!snap.usingGpxTrack;
+      if(snap.routes){
+        // Routenliste (weitere Routen, Name/Art) mit zurücksetzen
+        [['route-alt-tracks','alt'],['route-manual-name','mn'],['route-manual-type','mt'],['route-track-name','tn'],['route-track-type','tt']].forEach(([id, k])=>{
+          const el = document.getElementById(id); if(el && snap.routes[k] != null) el.value = snap.routes[k];
+        });
+      }
       insertAfterWaypointIndex = null;
       setLastRouteStats(snap.lastRouteStats);
       hiddenInput.value = JSON.stringify(points);
@@ -5862,6 +5883,56 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         }
       }
       updateGpxReplaceBtn();
+      renderRouteMeta();
+    }
+    // Weitere Routen der Tour (Routenliste im Formular) gestrichelt mitzeigen, und für die aktuelle
+    // Linie Name/Art sowie "Als weitere Route ablegen" anbieten — so lassen sich Zustieg, Aufstieg,
+    // Abstieg nacheinander berechnen oder zeichnen, jede mit eigenem Namen.
+    function renderRouteMeta(){
+      const altEl = document.getElementById('route-alt-tracks');
+      otherRoutesLayer.clearLayers();
+      if(!altEl){ routeMetaEl.style.display = 'none'; return; }
+      let alts = []; try{ alts = JSON.parse(altEl.value || '[]'); }catch(e){}
+      alts.forEach((a, i)=>{
+        if(!a.trackSimplified || a.trackSimplified.length < 2) return;
+        const st = fsRouteStyle({type: FS_ROUTE_TYPES[a.type] ? a.type : 'variante', src:'alt', idx:i});
+        FL.polyline(a.trackSimplified, {color:'#ffffff', weight:6, opacity:0.6, interactive:false}).addTo(otherRoutesLayer);
+        FL.polyline(a.trackSimplified, {color: st.color, weight:3.5, opacity:0.85, dashArray:'7,6'}).addTo(otherRoutesLayer).bindPopup(esc((a.name || fsRouteLabel(a.type)) + ' (' + fsRouteLabel(a.type) + ')'));
+      });
+      if(!manualTrack.length){
+        routeMetaEl.style.display = alts.length ? 'block' : 'none';
+        routeMetaEl.innerHTML = alts.length ? `<p class="hint" style="margin:6px 0 0;">${alts.length} weitere Route${alts.length > 1 ? 'n' : ''} abgelegt (gestrichelt) — neue Route berechnen oder zeichnen.</p>` : '';
+        return;
+      }
+      const nameEl = document.getElementById(usingGpxTrack ? 'route-track-name' : 'route-manual-name');
+      const typeEl = document.getElementById(usingGpxTrack ? 'route-track-type' : 'route-manual-type');
+      if(!nameEl || !typeEl){ routeMetaEl.style.display = 'none'; return; }
+      const curType = FS_ROUTE_TYPES[typeEl.value] ? typeEl.value : 'aufstieg';
+      routeMetaEl.style.display = 'block';
+      routeMetaEl.innerHTML = `<div class="fs-route-meta-head">Diese Route</div>
+        <div class="fs-route-edit">
+          <input type="text" class="fs-route-name" value="${esc(nameEl.value)}" placeholder="Name, z. B. Zustieg ab Sustenbrüggli" aria-label="Name der Route"/>
+          <select class="fs-route-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k===curType?'selected':''}>${fsRouteLabel(k)}</option>`).join('')}</select>
+        </div>
+        ${usingGpxTrack ? '' : `<button type="button" class="btn secondary fs-route-park" style="width:100%;">+ Als weitere Route ablegen, neue beginnen</button>`}
+        ${alts.length ? `<p class="hint" style="margin:6px 0 0;">Dazu ${alts.length} weitere Route${alts.length > 1 ? 'n' : ''} (gestrichelt).</p>` : ''}`;
+      const inName = routeMetaEl.querySelector('.fs-route-name'), inType = routeMetaEl.querySelector('.fs-route-type');
+      inName.addEventListener('input', ()=>{ nameEl.value = inName.value.trim(); markModalDirty(); if(typeof fsRoutesEditorRender === 'function') fsRoutesEditorRender(); });
+      inType.addEventListener('change', ()=>{ typeEl.value = inType.value; markModalDirty(); if(typeof fsRoutesEditorRender === 'function') fsRoutesEditorRender(); });
+      const park = routeMetaEl.querySelector('.fs-route-park');
+      if(park) park.addEventListener('click', ()=>{
+        pushUndo();
+        const id = 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+        alts.push({id, name: nameEl.value.trim(), type: inType.value, trackSimplified: manualTrack.map(c=> [Math.round(c[0]*1e6)/1e6, Math.round(c[1]*1e6)/1e6])});
+        altEl.value = JSON.stringify(alts);
+        nameEl.value = ''; typeEl.value = '';
+        manualTrack = [];
+        setLastRouteStats(null);
+        routeStatsEl.style.display = 'none'; routeStatsEl.innerHTML = '';
+        redrawLine();
+        persistTrack();
+        showToast('Route abgelegt — jetzt die nächste berechnen oder zeichnen.');
+      });
     }
     redrawLine();
     // Kennzahlen-Kärtchen (inkl. Löschen-Knopf) gleich wiederherstellen, falls für die aktuelle
@@ -6420,7 +6491,10 @@ function fsrCostFactor(p){
   else f = 1.5;
   if(/demanding_alpine|difficult_alpine/.test(sac)) f *= 1.6;
   else if(/alpine_hiking/.test(sac)) f *= 1.2;
-  if(p.is_route) f *= 0.9; // signalisierte Wanderwege leicht bevorzugen
+  // Markierte Wanderwege klar bevorzugen: unmarkierte Pfade können Leitern, Ketten oder
+  // Kletterstellen haben, auch wenn sie in den Daten nur als Bergweg geführt sind. Ein Umweg
+  // auf markiertem Weg wird bis gut 50 % Mehrlänge in Kauf genommen.
+  if(!p.is_route && /^(footway|path|trail|mask_terrain)$/.test(c)) f *= 1.55;
   return f;
 }
 // Einen Streckenzug auf das Kachelquadrat [0, ext] beschneiden (Kacheln haben einen Überstand,
@@ -10883,8 +10957,8 @@ function fsShowContextMap(t){
         FS_ROUTE_TYPE_ORDER.forEach(k=>{
           if(!byType[k]) return;
           const st = fsRouteStyle(byType[k][0]);
-          const g = group(FS_ROUTE_TYPES[k].label, st.color, true, st.dash);
-          byType[k].forEach(r=>{ const rs = fsRouteStyle(r); line(r.coords, rs.color, {group:g, dash:rs.dash, label: r.name ? r.name + ' (' + FS_ROUTE_TYPES[r.type].label + ')' : FS_ROUTE_TYPES[r.type].label}); });
+          const g = group(fsRouteLabel(k), st.color, true, st.dash);
+          byType[k].forEach(r=>{ const rs = fsRouteStyle(r); line(r.coords, rs.color, {group:g, dash:rs.dash, label: r.name ? r.name + ' (' + fsRouteLabel(r.type) + ')' : fsRouteLabel(r.type)}); });
         });
       }else{
         const g = group('Tour', FS_CTX_COLORS.track, true);

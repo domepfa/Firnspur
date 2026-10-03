@@ -1398,6 +1398,9 @@ html.fs-dark .fsm-row{ border-top-color:#33414C; }
 .fsm-popup .maplibregl-popup-content input, .fsm-popup .maplibregl-popup-content select, .fsm-popup .maplibregl-popup-content textarea{ max-width:100%; box-sizing:border-box; }
 .fsm-popup .maplibregl-popup-content > div{ min-width:0 !important; }
 .maplibregl-popup.fsm-popup{ z-index:7; }
+.fs-route-meta{ margin-top:10px; padding:10px 12px; border-radius:14px; background:var(--ice-light, #EEF4F8); }
+.fs-route-meta-head{ font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-soft); margin-bottom:6px; }
+.fs-route-meta .fs-route-edit{ margin-bottom:8px; }
 
 /* 3D: Gipfel ringsum (Panorama vom Standort) */
 .fs-3d-chip[data-3d="pano"].on{ background:var(--ice-deep); color:#fff; }
