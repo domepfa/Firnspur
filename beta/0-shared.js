@@ -650,9 +650,9 @@ function makeCategoryIcon(category){
 }
 const REGIONS = ['Wallis','Berner Oberland','Simmental','Graubünden','Tessin','Zentralschweiz','Jura','Freiburger Alpen','Waadtländer Alpen'];
 const REGION_SUBAREAS = {
-  'Wallis': ['Nikolaital/Zermatt','Saastal','Val d\'Anniviers','Lötschental','Goms','Unterwallis','Nufenenpass','Grimselpass','Furkapass','Simplonpass','Grosser St. Bernhard'],
+  'Wallis': ['Nikolaital/Zermatt','Saastal','Val d\'Anniviers','Val d\'Hérens','Val de Bagnes','Turtmanntal','Lötschental','Leukerbad/Gemmi','Aletsch/Brig','Wildstrubel/Crans-Montana','Goms','Unterwallis','Nufenenpass','Grimselpass','Furkapass','Simplonpass','Grosser St. Bernhard'],
   'Berner Oberland': ['Lauterbrunnental','Haslital','Kandertal','Simmental','Diemtigtal','Justistal','Saanenland/Gstaad','Grimselpass','Sustenpass','Jochpass','Grosse Scheidegg'],
-  'Graubünden': ['Engadin','Prättigau','Albula','Surselva','Bergell','Puschlav','Julierpass','Albulapass','Flüelapass','Ofenpass','Splügenpass','Berninapass'],
+  'Graubünden': ['Oberengadin','Unterengadin','Davos','Arosa/Schanfigg','Prättigau','Albula','Surselva','Safiental','Rheinwald','Avers','Bergell','Puschlav','Val Müstair','Misox','Julierpass','Albulapass','Flüelapass','Ofenpass','Splügenpass','Berninapass'],
   'Tessin': ['Bedretto','Maggiatal','Blenio','Leventina','San Bernardino','Nufenenpass','Gotthardpass','Lukmanierpass'],
   'Zentralschweiz': ['Urner Alpen','Glarner Alpen','Nidwalden','Schwyz','Sustenpass','Klausenpass','Gotthardpass','Jochpass'],
   'Jura': ['Solothurner Jura','Waadtländer Jura','Baselbieter Jura','Neuenburger Jura','Passwang','Col de Pierre Pertuis','Balmberg'],
@@ -660,8 +660,10 @@ const REGION_SUBAREAS = {
   'Waadtländer Alpen': ['Diablerets-Gebiet','Villars/Leysin-Gebiet','Col des Mosses','Col du Pillon','Col de la Croix']
 };
 function renderSubregionChipsHtml(region, selectedSub){
-  const subs = REGION_SUBAREAS[region] || [];
+  let subs = REGION_SUBAREAS[region] || [];
   if(!subs.length) return '';
+  // Früher gewählte, inzwischen aufgeteilte Teilregion (z. B. "Engadin") bleibt sichtbar und wählbar
+  if(selectedSub && !subs.includes(selectedSub)) subs = [selectedSub, ...subs];
   return subs.map(s=>`<button type="button" class="chip subregion-chip ${selectedSub===s?'on':''}" style="${selectedSub===s?'background:var(--ice-deep); color:#fff; border-color:transparent;':''}" data-subregion="${s}">${s}</button>`).join('');
 }
 
@@ -2280,9 +2282,15 @@ function fs3dClose(){
 function fs3dTourLines(t){
   const out = [];
   if(!t) return out;
+  if(fsRouteTypesOn()){
+    // Aufstieg zuerst: dessen Richtung bestimmt den Blickwinkel
+    const rs = fsTourRoutes(t).sort((a,b)=> (b.type === 'aufstieg' || b.type === 'aufab') - (a.type === 'aufstieg' || a.type === 'aufab'));
+    rs.forEach(r=>{ const st = fsRouteStyle(r); out.push({coords:r.coords, color:st.color, dash:st.dash}); });
+  }else{
   if(t.trackSimplified && t.trackSimplified.length) out.push({coords:t.trackSimplified, color:FS_CTX_COLORS.track});
   if(t.manualTrack && t.manualTrack.length) out.push({coords:t.manualTrack, color:FS_CTX_COLORS.manual});
   (t.altTracks||[]).forEach((a,i)=>{ if(a.trackSimplified && a.trackSimplified.length) out.push({coords:a.trackSimplified, color:ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length], dash:true}); });
+  }
   (t.accessRoutes||[]).forEach(r=>{ const c = fsRouteCoords(r); if(c) out.push({coords:c, color:FS_CTX_COLORS.access}); });
   (t.descentRoutes||[]).forEach(r=>{ const c = fsRouteCoords(r); if(c) out.push({coords:c, color:FS_CTX_COLORS.descent}); });
   const hut = fsTourHut(t);
@@ -4340,6 +4348,158 @@ function altTracksListHtml(tour){
   </div>`;
 }
 
+/* ================= Routen mit Name und Typ (Firnspur) =================
+   Jede Linie einer Tour (GPX-Track, gezeichnete Linie, weitere Routen in altTracks) bekommt einen
+   Namen und einen Typ. Gespeichert wird beim bestehenden Feld (trackName/trackType,
+   manualTrackName/manualTrackType, altTracks[i].name/.type) — vorhandene Daten bleiben gültig,
+   fehlende Typen ergeben sich aus der bisherigen Bedeutung (Track/Linie = Aufstieg, Alternativ-
+   routen = Variante). Fixseil nutzt die Typen (noch) nicht. */
+const FS_ROUTE_TYPES = {
+  aufstieg: {label:'Aufstieg', color:'#E8384F'},
+  abfahrt:  {label:'Abfahrt', color:'#D9730D'},
+  aufab:    {label:'Auf- & Abfahrt', color:'#E8384F'},
+  variante: {label:'Variante', color:'#8E44AD', dash:true},
+  zustieg:  {label:'Zustieg', color:'#2F7D4A'}
+};
+const FS_ROUTE_TYPE_ORDER = ['aufstieg','aufab','abfahrt','variante','zustieg'];
+function fsRouteTypesOn(){ return typeof SEKTOREN_PATH === 'undefined'; }
+function fsTourRoutes(t){
+  const out = [];
+  if(!t) return out;
+  if(t.trackSimplified && t.trackSimplified.length) out.push({key:'track', src:'track', name:t.trackName || '', type:FS_ROUTE_TYPES[t.trackType] ? t.trackType : 'aufstieg', coords:t.trackSimplified});
+  if(t.manualTrack && t.manualTrack.length) out.push({key:'manual', src:'manual', name:t.manualTrackName || '', type:FS_ROUTE_TYPES[t.manualTrackType] ? t.manualTrackType : 'aufstieg', coords:t.manualTrack});
+  (t.altTracks||[]).forEach((a,i)=>{
+    if(a && a.trackSimplified && a.trackSimplified.length) out.push({key:'alt:' + a.id, src:'alt', altId:a.id, idx:i, name:(a.name && a.name !== 'Alternativroute') ? a.name : '', type:FS_ROUTE_TYPES[a.type] ? a.type : 'variante', coords:a.trackSimplified});
+  });
+  return out;
+}
+// Farbe/Strichart einer Route; mehrere Varianten unterscheiden sich in der Farbe
+function fsRouteStyle(r){
+  const ty = FS_ROUTE_TYPES[r.type] || FS_ROUTE_TYPES.variante;
+  const color = (r.type === 'variante' && r.src === 'alt') ? ALT_TRACK_COLORS[r.idx % ALT_TRACK_COLORS.length] : ty.color;
+  return {color, dash:!!ty.dash, label:ty.label};
+}
+function fsRouteTitle(r){ return r.name || (FS_ROUTE_TYPES[r.type] || FS_ROUTE_TYPES.variante).label; }
+function fsRouteSwatchHtml(r){
+  const st = fsRouteStyle(r);
+  return `<span class="fs-route-sw${st.dash ? ' dash' : ''}" style="--c:${st.color}"></span>`;
+}
+// Detailansicht: Liste aller Routen mit Typ und GPX-Download
+function fsRoutesListHtml(t){
+  const routes = fsTourRoutes(t);
+  if(!routes.length) return '';
+  return `<div class="fs-routes">${routes.map(r=>{
+    const dl = r.src === 'track' ? `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name + ' – ' + fsRouteTitle(r))}"`
+      : r.src === 'manual' ? `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(r.coords))}' data-name="${esc(t.name + ' – ' + fsRouteTitle(r))}"`
+      : `data-act="download-alt-gpx" data-tour-id="${t.id}" data-alt-id="${r.altId}" data-name="${esc(t.name + ' – ' + fsRouteTitle(r))}"`;
+    return `<div class="fs-route-row">${fsRouteSwatchHtml(r)}<div class="fs-route-txt"><strong>${esc(fsRouteTitle(r))}</strong>${r.name ? `<span>${esc(FS_ROUTE_TYPES[r.type].label)}</span>` : ''}</div>
+      <button type="button" class="fs-icon-btn" ${dl} aria-label="Als GPX herunterladen">${fsIconHtml('download')}</button></div>`;
+  }).join('')}</div>`;
+}
+// Bearbeiten-Formular: Name und Typ je Route, weitere Route per GPX dazu, Route entfernen.
+// Liest/schreibt nur die versteckten Felder des Formulars — gespeichert wird mit "Speichern".
+function fsRoutesEditorHtml(t){
+  return `<div class="field" id="fs-routes-field"><label>Routen</label>
+    <div id="fs-routes-edit"></div>
+    <button type="button" class="btn secondary fs-route-add" id="alt-gpx-btn">+ Weitere Route (GPX)</button>
+    <input type="file" id="alt-gpx-input" accept=".gpx,application/gpx+xml" hidden/>
+    <div class="hint">Name und Art je Route. Die Hauptroute lädst du oben als GPX hoch oder zeichnest sie auf der Karte.</div>
+    <input type="hidden" name="trackName" id="route-track-name" value="${esc(t.trackName||'')}"/>
+    <input type="hidden" name="trackType" id="route-track-type" value="${esc(t.trackType||'')}"/>
+    <input type="hidden" name="manualTrackName" id="route-manual-name" value="${esc(t.manualTrackName||'')}"/>
+    <input type="hidden" name="manualTrackType" id="route-manual-type" value="${esc(t.manualTrackType||'')}"/>
+    <input type="hidden" name="altTracks" id="route-alt-tracks" value='${esc(JSON.stringify(t.altTracks||[]))}'/>
+  </div>`;
+}
+function fsRoutesEditorRender(){
+  const box = document.getElementById('fs-routes-edit');
+  if(!box) return;
+  const val = (id)=>{ const el = document.getElementById(id); return el ? el.value : ''; };
+  const parse = (id, d)=>{ try{ return JSON.parse(val(id) || 'null') || d; }catch(e){ return d; } };
+  const t = {
+    trackSimplified: parse('track-simplified-hidden', null), trackName: val('route-track-name'), trackType: val('route-track-type'),
+    manualTrack: parse('manual-track-hidden', []), manualTrackName: val('route-manual-name'), manualTrackType: val('route-manual-type'),
+    altTracks: parse('route-alt-tracks', [])
+  };
+  const routes = fsTourRoutes(t);
+  box.innerHTML = routes.length ? routes.map(r=>`<div class="fs-route-edit" data-key="${esc(r.key)}">
+      ${fsRouteSwatchHtml(r)}
+      <input type="text" class="fs-route-name" value="${esc(r.name)}" placeholder="${esc(r.src === 'track' ? 'GPX-Track' : r.src === 'manual' ? 'Gezeichnete Linie' : 'Name')}" aria-label="Name der Route"/>
+      <select class="fs-route-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k===r.type?'selected':''}>${FS_ROUTE_TYPES[k].label}</option>`).join('')}</select>
+      ${r.src === 'alt' ? `<button type="button" class="fs-icon-btn fs-route-del" aria-label="Route entfernen">${fsIconHtml('trash')}</button>` : ''}
+    </div>`).join('') : '<p class="hint" style="margin:0 0 8px;">Noch keine Route — GPX hochladen oder auf der Karte zeichnen.</p>';
+  box.querySelectorAll('.fs-route-edit').forEach(row=>{
+    const key = row.getAttribute('data-key');
+    const write = ()=>{
+      const name = row.querySelector('.fs-route-name').value.trim();
+      const type = row.querySelector('.fs-route-type').value;
+      if(key === 'track'){ document.getElementById('route-track-name').value = name; document.getElementById('route-track-type').value = type; }
+      else if(key === 'manual'){ document.getElementById('route-manual-name').value = name; document.getElementById('route-manual-type').value = type; }
+      else{
+        const alts = parse('route-alt-tracks', []);
+        const a = alts.find(x=> 'alt:' + x.id === key);
+        if(a){ a.name = name; a.type = type; }
+        document.getElementById('route-alt-tracks').value = JSON.stringify(alts);
+      }
+      markModalDirty();
+    };
+    row.querySelector('.fs-route-name').addEventListener('input', write);
+    row.querySelector('.fs-route-type').addEventListener('change', ()=>{ write(); fsRoutesEditorRender(); });
+    const del = row.querySelector('.fs-route-del');
+    if(del) del.addEventListener('click', ()=>{
+      if(!confirm('Diese Route entfernen? (Wird erst mit „Speichern“ übernommen.)')) return;
+      const alts = parse('route-alt-tracks', []).filter(x=> 'alt:' + x.id !== key);
+      document.getElementById('route-alt-tracks').value = JSON.stringify(alts);
+      markModalDirty();
+      fsRoutesEditorRender();
+    });
+  });
+}
+function fsWireRoutesEditor(){
+  fsRoutesEditorRender();
+  const inp = document.getElementById('alt-gpx-input');
+  if(!inp) return;
+  const btn = document.getElementById('alt-gpx-btn');
+  if(btn) btn.addEventListener('click', ()=> inp.click());
+  inp.addEventListener('change', ()=>{
+    const file = inp.files && inp.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const pts = parseGpxTrackPoints(reader.result);
+      if(!pts.length){ showToast('Keine Track-Punkte in dieser Datei gefunden.', true); return; }
+      const simplified = simplifyTrackForStorage(pts, 200).map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]);
+      const el = document.getElementById('route-alt-tracks');
+      let alts = []; try{ alts = JSON.parse(el.value || '[]'); }catch(e){}
+      const id = 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+      // Original-GPX wird erst beim Speichern hochgeladen (_gpx wird dabei entfernt)
+      alts.push({id, name: file.name.replace(/\.gpx$/i, ''), type:'variante', trackSimplified: simplified, _gpx: reader.result, _file: file.name});
+      el.value = JSON.stringify(alts);
+      inp.value = '';
+      markModalDirty();
+      fsRoutesEditorRender();
+    };
+    reader.readAsText(file);
+  });
+}
+document.addEventListener('fs-track-changed', ()=> fsRoutesEditorRender());
+// Beim Speichern: Routen-Felder aus dem Formular übernehmen, neue GPX-Originale hochladen,
+// Originale entfernter Routen löschen.
+function fsApplyRoutesFromForm(t, form, prev){
+  if(form.altTracks === undefined) return [];
+  t.trackName = form.trackName || ''; t.trackType = form.trackType || '';
+  t.manualTrackName = form.manualTrackName || ''; t.manualTrackType = form.manualTrackType || '';
+  let alts = []; try{ alts = JSON.parse(form.altTracks || '[]'); }catch(e){ alts = (prev && prev.altTracks) || []; }
+  const uploads = [];
+  t.altTracks = alts.map(a=>{
+    if(a._gpx) uploads.push(fbSet(GPX_TRACKS_PATH + 'Alt/' + t.id + '/' + a.id, {gpx:a._gpx, uploadedAt:new Date().toISOString(), fileName:a._file || 'route.gpx'}).catch(()=>false));
+    const c = {...a}; delete c._gpx; delete c._file; return c;
+  });
+  const keep = new Set(t.altTracks.map(a=>a.id));
+  ((prev && prev.altTracks) || []).forEach(a=>{ if(!keep.has(a.id)) uploads.push(fbDelete(GPX_TRACKS_PATH + 'Alt/' + t.id + '/' + a.id).catch(()=>false)); });
+  return uploads;
+}
+
 function renderMiniMap(containerId, lat, lon, label){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
@@ -4751,6 +4911,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       markModalDirty();
       const target = usingGpxTrack ? gpxHiddenInput : manualTrackHidden;
       if(target) target.value = JSON.stringify(manualTrack);
+      document.dispatchEvent(new CustomEvent('fs-track-changed'));
     }
     // Blendet den "Original ersetzen"-Knopf ein/aus, je nachdem ob die Linie aktuell (noch) der
     // eigene GPX-Track ist — nicht mehr der Fall, sobald z. B. eine neu berechnete Route sie ersetzt.
@@ -5297,6 +5458,7 @@ function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simpl
       const simplifiedInput = document.getElementById(simplifiedHiddenId);
       if(simplifiedInput) simplifiedInput.value = JSON.stringify(simplified.map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]));
       markModalDirty();
+      document.dispatchEvent(new CustomEvent('fs-track-changed'));
       if(typeof onSimplifiedReady === 'function') onSimplifiedReady();
 
       const tourIdInput = document.getElementById(tourIdHiddenId);
@@ -5325,6 +5487,7 @@ async function removeGpxTrack(trackPathPrefix, tourIdHiddenId, simplifiedHiddenI
   const trackId = tourIdInput ? tourIdInput.value : '';
   const simplifiedInput = document.getElementById(simplifiedHiddenId);
   if(simplifiedInput) simplifiedInput.value = '';
+  document.dispatchEvent(new CustomEvent('fs-track-changed'));
   markModalDirty();
   const statusEl = document.getElementById(statusId);
   if(statusEl) statusEl.textContent = 'Track wird entfernt…';
@@ -9606,15 +9769,27 @@ function fsShowContextMap(t){
       groups.push({label, color, layer, on, dash});
       return layer;
     }
-    // Tour selbst
-    const tourLayer = group('Tour', FS_CTX_COLORS.track, true);
-    if(t.trackSimplified && t.trackSimplified.length) line(t.trackSimplified, FS_CTX_COLORS.track, {layer:tourLayer, label:'GPX-Track'});
-    if(t.manualTrack && t.manualTrack.length) line(t.manualTrack, FS_CTX_COLORS.manual, {layer:tourLayer, label:'Geplante Linie'});
+    // Tour selbst — in Firnspur nach Art der Route (Aufstieg, Abfahrt, Variante …) gruppiert
+    const typed = fsRouteTypesOn();
+    const tourLayer = typed ? L.layerGroup().addTo(map) : group('Tour', FS_CTX_COLORS.track, true);
+    if(typed){
+      const byType = {};
+      fsTourRoutes(t).forEach(r=>{ (byType[r.type] = byType[r.type] || []).push(r); });
+      FS_ROUTE_TYPE_ORDER.forEach(k=>{
+        if(!byType[k]) return;
+        const st = fsRouteStyle(byType[k][0]);
+        const l = group(FS_ROUTE_TYPES[k].label, st.color, true, st.dash);
+        byType[k].forEach(r=> line(r.coords, fsRouteStyle(r).color, {layer:l, dash:fsRouteStyle(r).dash, label: r.name ? r.name + ' (' + FS_ROUTE_TYPES[r.type].label + ')' : FS_ROUTE_TYPES[r.type].label}));
+      });
+    }else{
+      if(t.trackSimplified && t.trackSimplified.length) line(t.trackSimplified, FS_CTX_COLORS.track, {layer:tourLayer, label:'GPX-Track'});
+      if(t.manualTrack && t.manualTrack.length) line(t.manualTrack, FS_CTX_COLORS.manual, {layer:tourLayer, label:'Geplante Linie'});
+    }
     (t.points||[]).forEach(p=>{
       const m = L.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(tourLayer).bindPopup(esc(p.label || t.name));
       all.push(m);
     });
-    const alts = (t.altTracks||[]).filter(a=> a.trackSimplified && a.trackSimplified.length);
+    const alts = typed ? [] : (t.altTracks||[]).filter(a=> a.trackSimplified && a.trackSimplified.length);
     if(alts.length){
       const altLayer = group('Varianten', ALT_TRACK_COLORS[0], true, true);
       alts.forEach((a,i)=> line(a.trackSimplified, ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length], {layer:altLayer, dash:true, label:a.name || 'Alternativroute'}));
