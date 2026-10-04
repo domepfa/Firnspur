@@ -1410,3 +1410,6 @@ html.fs-dark .fsm-row{ border-top-color:#33414C; }
 .fs-3d-pano .fs-3d-chip[data-3d="ski"],
 .fs-3d-pano .fs-3d-chip[data-3d="walk"]{ display:none; }
 .fs-3d-pano .fs-3d-map{ touch-action:none; }
+/* Link zur Tourbeschreibung in der Tourenansicht */
+.fs-tourlink{ display:inline-flex; align-items:center; gap:6px; text-decoration:none; color:var(--accent-ink, var(--ice-deep)); font-weight:700; }
+.fs-tourlink .fs-i{ width:16px; height:16px; }
