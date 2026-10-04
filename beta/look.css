@@ -1413,3 +1413,15 @@ html.fs-dark .fsm-row{ border-top-color:#33414C; }
 /* Link zur Tourbeschreibung in der Tourenansicht */
 .fs-tourlink{ display:inline-flex; align-items:center; gap:6px; text-decoration:none; color:var(--accent-ink, var(--ice-deep)); font-weight:700; }
 .fs-tourlink .fs-i{ width:16px; height:16px; }
+/* Anreise: Navigation, Fahrzeit, ÖV */
+.fs-travel-row{ padding:10px 0; border-top:1px solid var(--line); }
+.fs-travel-row:first-of-type{ border-top:none; padding-top:2px; }
+.fs-travel-head{ display:flex; align-items:center; gap:8px; }
+.fs-travel-head strong{ flex:1; min-width:0; font-size:14.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fs-travel-ico{ flex:none; font-size:16px; }
+.fs-travel-go{ flex:none; display:inline-flex; align-items:center; min-height:36px; padding:0 12px; border-radius:999px; background:var(--ice-light); color:var(--accent-ink, var(--ice-deep)); font-weight:700; font-size:13.5px; text-decoration:none; }
+.fs-travel-info{ margin:4px 0 0 26px; font-size:13.5px; color:var(--ink); line-height:1.45; }
+.fs-travel-info:empty{ display:none; }
+.fs-travel-note{ color:var(--ink-soft); font-size:12.5px; }
+.fs-travel-calc{ margin-top:8px; display:inline-flex; align-items:center; gap:8px; }
+.fs-travel-calc .fs-i{ width:18px; height:18px; }
