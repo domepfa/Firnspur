@@ -1,7 +1,7 @@
-const CACHE_NAME = 'bergtouren-shell-v171';
+const CACHE_NAME = 'bergtouren-shell-v172';
 const SHELL_ASSETS = [
-  './', './index.html', './fixseil.html', './0-shared.js', './look.css', './0-geo-ch.js',
-  './manifest.json', './manifest-fixseil.json',
+  './', './index.html', './fixseil.html', './wandern.html', './0-shared.js', './look.css', './0-geo-ch.js',
+  './manifest.json', './manifest-fixseil.json', './manifest-wandern.json', './wandern-hero.jpg',
   './share-target-index.html', './share-target-fixseil.html',
   './20260114_145500.jpg', './IMG_20260811_073051812_HDR.jpg',
   './icon-512.png', './msl-hero.jpg',
@@ -69,7 +69,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
   if (e.request.method === 'POST' && url.pathname.endsWith('/share-target-fixseil.html')){
-    e.respondWith(handleShareTarget(e.request, new URL('./fixseil.html', url).toString()));
+    e.respondWith(handleShareTarget(e.request, new URL('./fixseil.html', './wandern.html', url).toString()));
     return;
   }
   if (e.request.method === 'POST' && url.pathname.endsWith('/share-target-index.html')){

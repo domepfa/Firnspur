@@ -320,8 +320,7 @@ function mapStripClusterPoints(positioned, zoom){
 // bei jedem render() die ~30 KB Pfad-Strings neu zusammenzusetzen.
 let _mapStripBgSvgCache = {};
 function mapStripBackgroundSvg(){
-  const isFixseilApp = typeof SEKTOREN_PATH !== 'undefined';
-  const key = isFixseilApp ? 'fixseil' : 'firnspur';
+  const key = fsAppKey();
   if(_mapStripBgSvgCache[key]) return _mapStripBgSvgCache[key];
   const vb = GEO_CH_VIEWBOX, hs = GEO_CH_HILLSHADE;
   const cantonPaths = Object.values(GEO_CH_CANTON_PATHS).map(d=>`<path d="${d}"/>`).join('');
@@ -690,7 +689,7 @@ function tourSortKey(t, by){
   if(by==='date') return t.createdAt || '';
   if(by==='name') return (t.name||'').toLowerCase();
   if(by==='region') return (t.region||'').toLowerCase();
-  if(by==='difficulty'){ const i = t.difficulty ? DIFF_ORDER.indexOf(t.difficulty) : -1; return i>=0 ? i : null; }
+  if(by==='difficulty'){ let i = t.difficulty ? DIFF_ORDER.indexOf(t.difficulty) : -1; if(i<0 && t.difficulty) i = HIKE_SCALE_ORDER.indexOf(t.difficulty); return i>=0 ? i : null; }
   if(by==='crux'){ const i = t.cruxDifficulty ? CLIMB_ORDER.indexOf(t.cruxDifficulty) : -1; return i>=0 ? i : null; }
   if(by==='elevation'){ const n = parseFloat(t.elevationGain); return isNaN(n) ? null : n; }
   if(by==='duration') return parseDurationHours(t.duration);
@@ -753,6 +752,7 @@ function removeAgendaItem(id){
   fbDelete(AGENDA_PATH+'/'+id).catch(()=>{});
 }
 function agendaTypeLabel(type){
+  if(type==='wandern') return '🥾 Wandern';
   if(type==='hochtour') return '🏔️ Hochtour';
   if(type==='msl') return '🧗 Klettern';
   return '🎿 Skitour';
@@ -761,6 +761,7 @@ function agendaTypeLabel(type){
 // Markenthema (blau in Firnspur, braun in Fixseil) — ein Termin muss aber unabhängig davon,
 // in welcher App man ihn gerade öffnet, immer dieselbe Farbe für seine Art zeigen.
 function agendaTypeColor(type){
+  if(type==='wandern') return '#3D7A4E';
   if(type==='hochtour') return '#4A3524';
   if(type==='msl') return '#A87A1F';
   return '#2E6E8E';
@@ -1450,7 +1451,7 @@ function applyAgendaEditPrefill(agendaForm, a){
 function agendaFormHtml(editId){
   const a = editId ? state.agenda.find(x=>x.id===editId) : null;
   const today = todayStr();
-  const typeOpt = (val, label) => `<option value="${val}" ${a && a.type===val ? 'selected' : ''}>${label}</option>`;
+  const typeOpt = (val, label) => `<option value="${val}" ${(a ? a.type===val : val===fsDefaultAgendaType()) ? 'selected' : ''}>${label}</option>`;
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${a ? 'Termin bearbeiten' : 'Neuer Termin'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="agenda-form" novalidate>
@@ -1464,6 +1465,7 @@ function agendaFormHtml(editId){
           ${typeOpt('ski','🎿 Skitour')}
           ${typeOpt('hochtour','🏔️ Hochtour')}
           ${typeOpt('msl','🧗 Klettern')}
+          ${typeOpt('wandern','🥾 Wandern')}
         </select>
       </div>
       <div id="agenda-day-plan-container"></div>
@@ -1486,7 +1488,12 @@ function agendaFormHtml(editId){
 // Fixseil) immer. Grundlage für die Filterung der Tour-Dropdowns nach gewählter Art.
 function tourAgendaType(t){
   if(!t || !t.tourCategory) return 'ski';
+  if(t.tourCategory==='wanderung') return 'wandern';
   return t.tourCategory==='msl' ? 'msl' : 'hochtour';
+}
+// Vorauswahl der Art bei einem neuen Termin: passend zur App, in der man ihn anlegt.
+function fsDefaultAgendaType(){
+  return fsAppKey() === 'wandern' ? 'wandern' : 'ski';
 }
 // Baut die <option>-Liste für ein Tour-Dropdown, gefiltert auf eine Art (ski/hochtour/msl) — eigene
 // und andere-App-Touren zusammen, geteilt zwischen Einzeltag- und Mehrtages-Feldern.
@@ -1494,7 +1501,7 @@ function agendaTourOptionsHtml(type, selectedValue){
   const own = state.tours.filter(t=>tourAgendaType(t)===type)
     .map(t=>`<option value="own:${t.id}" ${selectedValue==='own:'+t.id?'selected':''}>${OWN_APP_LABEL} — ${esc(t.name)}</option>`).join('');
   const other = state.otherAppTours.filter(t=>tourAgendaType(t)===type)
-    .map(t=>`<option value="other:${t.id}" ${selectedValue==='other:'+t.id?'selected':''}>${OTHER_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+    .map(t=>`<option value="other:${t.id}" ${selectedValue==='other:'+t.id?'selected':''}>${agendaTypeLabel(tourAgendaType(t))} — ${esc(t.name)}</option>`).join('');
   return own + other;
 }
 function agendaTourChoiceMatchesType(choiceVal, type){
@@ -1813,7 +1820,7 @@ function wireAgendaSingleDayFieldHandlers(agendaForm){
     // Nur Hochtour/MSL-Touren tragen ein tourCategory-Feld (Skitouren nie, unabhängig davon, ob
     // das in dieser App die "eigenen" oder die "anderen" Touren sind) — app-unabhängig also anhand
     // dieses Felds entscheiden statt anhand von src (das würde je nach App das Gegenteil bedeuten).
-    typeSelect.value = ref.tourCategory ? (ref.tourCategory==='msl' ? 'msl' : 'hochtour') : 'ski';
+    typeSelect.value = tourAgendaType(ref);
   }
   function syncRouteFieldsFromTourChoice(){
     if(!tourSelect || !routeFieldsWrap) return;
@@ -2240,7 +2247,7 @@ const FS3D_WMTS = (layer, ext)=> new Cesium.UrlTemplateImageryProvider({
   url: 'https://wmts.geo.admin.ch/1.0.0/' + layer + '/default/current/3857/{z}/{x}/{y}.' + ext,
   maximumLevel: 18, credit: '© swisstopo'
 });
-let fs3dLoadPromise = null, fs3dViewer = null;
+let fs3dLoadPromise = null, fs3dViewer = null, fs3dPanoCleanup = null;
 // swisstopo-Namen (3D Tiles von 2018): Die Kacheln geben als Höhenbereich nur den tiefsten Punkt
 // an (z. B. 450 m), die Namen liegen aber bis über 4000 m. Mit diesen Angaben hielt Cesium die
 // Kacheln für weit weg/unsichtbar und lud die Namen in der Nähe nie. Daher den Höhenbereich beim
@@ -2275,6 +2282,28 @@ const FS3D_NAMES_STYLE = {
   disableDepthTestDistance: '1e9',
   distanceDisplayCondition: 'vec2(0, 30000)'
 };
+// Im Panorama ("Gipfel ringsum"): nur Gipfel und Pässe, bis weit in die Ferne, und hinter dem
+// Gelände verdeckt (Tiefentest an), damit nur angeschrieben ist, was man von hier aus wirklich sieht.
+const FS3D_NAMES_PANO_STYLE = Object.assign({}, FS3D_NAMES_STYLE, {
+  show: "regExp('Gipfel|Pass|Huegel').test(${OBJEKTART})",
+  font: "'700 15px sans-serif'",
+  disableDepthTestDistance: '0',
+  distanceDisplayCondition: 'vec2(0, 150000)'
+});
+// Blickrichtung der Handy-Rückseite (Kamera) aus dem Bewegungssensor, in Grad: heading 0 = Norden,
+// pitch 0 = waagrecht. Rechnet mit der Drehmatrix aus alpha/beta/gamma (W3C DeviceOrientation).
+function fs3dDeviceView(e){
+  if(e.beta == null || e.gamma == null) return null;
+  const r = Math.PI / 180;
+  const a = (e.alpha || 0) * r, b = e.beta * r, g = e.gamma * r;
+  const cA = Math.cos(a), sA = Math.sin(a), cB = Math.cos(b), sB = Math.sin(b), cG = Math.cos(g), sG = Math.sin(g);
+  const east = -(cA * sG + sA * sB * cG), north = cA * sB * cG - sA * sG, up = -cB * cG;
+  const pitch = Math.asin(Math.max(-1, Math.min(1, up))) / r;
+  let heading = null;
+  if(typeof e.webkitCompassHeading === 'number' && e.webkitCompassHeading >= 0) heading = e.webkitCompassHeading; // iOS: schon nach Norden ausgerichtet
+  else if(e.absolute && e.alpha != null) heading = (Math.atan2(east, north) / r + 360) % 360;
+  return heading === null ? null : {heading, pitch};
+}
 function fs3dEnsureCesium(){
   if(window.Cesium) return Promise.resolve();
   if(fs3dLoadPromise) return fs3dLoadPromise;
@@ -2292,6 +2321,7 @@ function fs3dEnsureCesium(){
   return fs3dLoadPromise;
 }
 function fs3dClose(){
+  if(fs3dPanoCleanup){ try{ fs3dPanoCleanup(); }catch(e){} fs3dPanoCleanup = null; }
   if(fs3dViewer){ try{ fs3dViewer.destroy(); }catch(e){} fs3dViewer = null; }
   const el = document.getElementById('fs-3d');
   if(el) el.remove();
@@ -2313,7 +2343,7 @@ function fs3dTourLines(t){
   (t.descentRoutes||[]).forEach(r=>{ const c = fsRouteCoords(r); if(c) out.push({coords:c, color:FS_CTX_COLORS.descent}); });
   const hut = fsTourHut(t);
   if(hut){
-    const pref = (typeof SEKTOREN_PATH !== 'undefined') ? 'sommer' : 'winter';
+    const pref = (fsAppKey() === 'firnspur') ? 'winter' : 'sommer';
     (hut.accessRoutes||[]).forEach(r=>{ const c = fsRouteCoords(r); if(c && (!r.season || r.season === pref)) out.push({coords:c, color:FS_CTX_COLORS.hutRoute}); });
   }
   return out;
@@ -2338,6 +2368,8 @@ function fsOpen3d(opts){
     </div>
     <div class="fs-3d-panel" id="fs-3d-panel" hidden></div>
     <div class="fs-3d-chips">
+      <button type="button" class="fs-3d-chip" data-3d="pano">Gipfel ringsum</button>
+      <button type="button" class="fs-3d-chip" data-3d="pano-compass" hidden>Kompass folgen</button>
       <div class="fs-3d-seg"><button type="button" class="on" data-3d="img-luft">Luftbild</button><button type="button" data-3d="img-karte">Karte</button></div>
       <button type="button" class="fs-3d-chip" data-3d="slope">Hangneigung &gt;30°</button>
       <button type="button" class="fs-3d-chip" data-3d="ski">SAC-Skitouren</button>
@@ -2431,9 +2463,10 @@ function fsOpen3d(opts){
       c.flyToBoundingSphere(new Cesium.BoundingSphere(target, 1), {duration:0.6, offset:new Cesium.HeadingPitchRange(heading, c.pitch, range)});
     };
     const step = Math.PI / 4;
-    wrap.querySelector('[data-3d="north"]').addEventListener('click', ()=> orbitTo(0));
-    wrap.querySelector('[data-3d="rot-l"]').addEventListener('click', ()=> orbitTo(viewer.camera.heading - step));
-    wrap.querySelector('[data-3d="rot-r"]').addEventListener('click', ()=> orbitTo(viewer.camera.heading + step));
+    let pano = null; // Zustand von "Gipfel ringsum" (siehe weiter unten), sonst null
+    wrap.querySelector('[data-3d="north"]').addEventListener('click', ()=>{ if(pano){ panoTurnTo(0); return; } orbitTo(0); });
+    wrap.querySelector('[data-3d="rot-l"]').addEventListener('click', ()=>{ if(pano){ panoTurnBy(-45); return; } orbitTo(viewer.camera.heading - step); });
+    wrap.querySelector('[data-3d="rot-r"]').addEventListener('click', ()=>{ if(pano){ panoTurnBy(45); return; } orbitTo(viewer.camera.heading + step); });
     const needle = wrap.querySelector('.fs-3d-needle');
     let lastHeading = null;
     viewer.scene.postRender.addEventListener(()=>{
@@ -2480,6 +2513,181 @@ function fsOpen3d(opts){
       showPanel(buildSkitourPopupContent(res, {popup: fakePopup, allowAttach:false, onShow: highlight}));
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
     wrap.querySelector('[data-3d="ski"]').addEventListener('click', ()=>{ if(!ski.show) closePanel(); });
+
+    // ===== Gipfel ringsum: Panorama vom eigenen Standort =====
+    // Kamera auf Augenhöhe am GPS-Standort, waagrechter Blick, nur Gipfel/Pässe angeschrieben (hinter
+    // Bergen verdeckt). Wischen = umschauen (bzw. Kompass von Hand nachstellen), 2 Finger = zoomen,
+    // "Kompass folgen" = das Handy bestimmt die Richtung.
+    const panoBtn = wrap.querySelector('[data-3d="pano"]');
+    const compassBtn = wrap.querySelector('[data-3d="pano-compass"]');
+    const mapEl = document.getElementById('fs-3d-map');
+    const ctrl = viewer.scene.screenSpaceCameraController;
+    const deg = Cesium.Math.toRadians;
+    const panoApply = ()=>{
+      if(!pano) return;
+      const h = ((pano.heading + pano.offset) % 360 + 360) % 360;
+      viewer.camera.setView({destination: pano.pos, orientation:{heading: deg(h), pitch: deg(pano.pitch), roll:0}});
+      rerender();
+    };
+    const panoTurnBy = (d)=>{ pano.offset += d; panoApply(); };
+    const panoTurnTo = (h)=>{ panoSetFollow(false); pano.heading = h; pano.offset = 0; panoApply(); };
+    const getPosition = ()=> new Promise((resolve)=>{
+      if(!navigator.geolocation){ resolve(null); return; }
+      navigator.geolocation.getCurrentPosition(p=> resolve({lat:p.coords.latitude, lon:p.coords.longitude}), ()=> resolve(null), {enableHighAccuracy:true, timeout:12000, maximumAge:60000});
+    });
+    // Kompass: Werte weich mitteln (Kreismittel über sin/cos), sonst zittert das Bild
+    let orientEvent = null, orientHandler = null, sx = null, sy = 0, lastSensorAt = 0;
+    const stopCompass = ()=>{
+      if(orientHandler) window.removeEventListener(orientEvent, orientHandler);
+      orientHandler = null; sx = null;
+    };
+    const startCompass = async ()=>{
+      if(typeof DeviceOrientationEvent === 'undefined'){ showToast('Dieses Gerät hat keinen Kompass. Richtung bitte per Wischen einstellen.', true); return false; }
+      if(typeof DeviceOrientationEvent.requestPermission === 'function'){
+        let ok = false;
+        try{ ok = (await DeviceOrientationEvent.requestPermission()) === 'granted'; }catch(e){ ok = false; }
+        if(!ok){ showToast('Ohne Zugriff auf den Bewegungssensor geht „Kompass folgen“ nicht.', true); return false; }
+      }
+      orientEvent = ('ondeviceorientationabsolute' in window) ? 'deviceorientationabsolute' : 'deviceorientation';
+      orientHandler = (e)=>{
+        if(!pano || !pano.follow) return;
+        const v = fs3dDeviceView(e);
+        if(!v) return;
+        lastSensorAt = Date.now();
+        const r = v.heading * Math.PI / 180, k = 0.18;
+        if(sx === null){ sx = Math.cos(r); sy = Math.sin(r); }
+        else{ sx = sx * (1 - k) + Math.cos(r) * k; sy = sy * (1 - k) + Math.sin(r) * k; }
+        pano.heading = (Math.atan2(sy, sx) * 180 / Math.PI + 360) % 360;
+        pano.pitch = pano.pitch * 0.8 + Math.max(-35, Math.min(35, v.pitch)) * 0.2;
+        panoApply();
+      };
+      window.addEventListener(orientEvent, orientHandler);
+      lastSensorAt = 0;
+      setTimeout(()=>{ if(pano && pano.follow && !lastSensorAt){ panoSetFollow(false); showToast('Kein Kompass gefunden. Richtung bitte per Wischen einstellen.', true); } }, 2500);
+      return true;
+    };
+    const panoSetFollow = async (on)=>{
+      if(!pano) return;
+      if(on && !pano.follow){
+        pano.follow = true;
+        compassBtn.classList.add('on');
+        // Bisherige Blickrichtung behalten: von Hand Nachgestelltes bleibt als Korrektur erhalten
+        if(!(await startCompass())){ pano.follow = false; compassBtn.classList.remove('on'); }
+      }else if(!on && pano.follow){
+        pano.follow = false;
+        compassBtn.classList.remove('on');
+        pano.heading = (pano.heading + pano.offset + 360) % 360; pano.offset = 0;
+        stopCompass();
+      }
+    };
+    // Gesten im Panorama: 1 Finger dreht den Blick, 2 Finger zoomen (Blickwinkel)
+    const pointers = new Map();
+    let pinch = null;
+    const onDown = (e)=>{
+      if(!pano) return;
+      pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+      try{ mapEl.setPointerCapture(e.pointerId); }catch(err){}
+      if(pointers.size === 2){
+        const [a, b] = [...pointers.values()];
+        pinch = {d: Math.hypot(a.x - b.x, a.y - b.y), fov: viewer.camera.frustum.fov};
+      }
+    };
+    const onMove = (e)=>{
+      if(!pano || !pointers.has(e.pointerId)) return;
+      const prev = pointers.get(e.pointerId);
+      pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+      const fovDeg = viewer.camera.frustum.fov * 180 / Math.PI;
+      const span = Math.max(mapEl.clientWidth, mapEl.clientHeight);
+      if(pointers.size === 1){
+        const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+        pano.offset -= dx * fovDeg / span;
+        if(!pano.follow) pano.pitch = Math.max(-35, Math.min(35, pano.pitch + dy * fovDeg / span));
+        panoApply();
+      }else if(pointers.size === 2 && pinch){
+        const [a, b] = [...pointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if(d > 10){ viewer.camera.frustum.fov = Math.max(deg(12), Math.min(deg(90), pinch.fov * pinch.d / d)); rerender(); }
+      }
+    };
+    const onUp = (e)=>{ pointers.delete(e.pointerId); if(pointers.size < 2) pinch = null; };
+    const onWheel = (e)=>{
+      if(!pano) return;
+      e.preventDefault();
+      viewer.camera.frustum.fov = Math.max(deg(12), Math.min(deg(90), viewer.camera.frustum.fov * (e.deltaY > 0 ? 1.1 : 0.9)));
+      rerender();
+    };
+    mapEl.addEventListener('pointerdown', onDown);
+    mapEl.addEventListener('pointermove', onMove);
+    mapEl.addEventListener('pointerup', onUp);
+    mapEl.addEventListener('pointercancel', onUp);
+    mapEl.addEventListener('wheel', onWheel, {passive:false});
+    const panoStop = ()=>{
+      if(!pano) return;
+      const saved = pano.saved;
+      stopCompass();
+      pano = null;
+      pointers.clear(); pinch = null;
+      wrap.classList.remove('fs-3d-pano');
+      panoBtn.classList.remove('on');
+      compassBtn.classList.remove('on');
+      compassBtn.hidden = true;
+      ctrl.enableInputs = true;
+      viewer.scene.fog.enabled = saved.fog;
+      viewer.camera.frustum.fov = saved.fov;
+      if(names){ names.style = new Cesium.Cesium3DTileStyle(FS3D_NAMES_STYLE); names.show = saved.namesShow; }
+      viewer.camera.setView({destination: saved.position, orientation:{heading: saved.heading, pitch: saved.pitch, roll:0}});
+      rerender();
+    };
+    const panoStart = async ()=>{
+      panoBtn.disabled = true;
+      const oldLabel = panoBtn.textContent;
+      panoBtn.textContent = 'Standort wird gesucht …';
+      let pos = await getPosition();
+      panoBtn.disabled = false;
+      panoBtn.textContent = oldLabel;
+      if(fs3dViewer !== viewer) return;
+      if(!pos){
+        // Ohne GPS: vom Punkt in der Bildmitte aus (z. B. um ein Panorama vorab anzuschauen)
+        const ray = viewer.camera.getPickRay(new Cesium.Cartesian2(viewer.canvas.clientWidth / 2, viewer.canvas.clientHeight / 2));
+        const target = ray && viewer.scene.globe.pick(ray, viewer.scene);
+        if(!target){ showToast('Standort nicht verfügbar.', true); return; }
+        const cg = Cesium.Cartographic.fromCartesian(target);
+        pos = {lat: Cesium.Math.toDegrees(cg.latitude), lon: Cesium.Math.toDegrees(cg.longitude)};
+        showToast('Standort nicht verfügbar – Panorama von der Bildmitte aus.');
+      }
+      let groundH = 0;
+      try{ const [c] = await Cesium.sampleTerrainMostDetailed(terrain, [Cesium.Cartographic.fromDegrees(pos.lon, pos.lat)]); groundH = c.height || 0; }catch(err){}
+      if(fs3dViewer !== viewer) return;
+      const cam = viewer.camera;
+      pano = {
+        pos: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat, groundH + 2),
+        heading: (Cesium.Math.toDegrees(cam.heading) + 360) % 360, pitch: 2, offset: 0, follow: false,
+        saved: {position: cam.positionWC.clone(), heading: cam.heading, pitch: cam.pitch, fov: cam.frustum.fov, fog: viewer.scene.fog.enabled, namesShow: names ? names.show : true}
+      };
+      wrap.classList.add('fs-3d-pano');
+      panoBtn.classList.add('on');
+      compassBtn.hidden = false;
+      ctrl.enableInputs = false;
+      viewer.scene.fog.enabled = false; // sonst verschwinden ferne Berge im Dunst
+      cam.frustum.fov = deg(70);
+      if(names){ names.style = new Cesium.Cesium3DTileStyle(FS3D_NAMES_PANO_STYLE); names.show = true; namesBtn.classList.add('on'); }
+      panoApply();
+      let seenPano = false; try{ seenPano = localStorage.getItem('fs-3d-pano-hint') === '1'; }catch(e){}
+      if(!seenPano){
+        const ph = document.createElement('div');
+        ph.className = 'fs-3d-hint';
+        ph.innerHTML = `<p><b>Wischen</b> umschauen</p><p><b>2 Finger</b> heranzoomen</p><p><b>Kompass folgen</b>: Handy hochhalten, die Ansicht dreht mit. Liegt sie etwas daneben, per Wischen nachstellen.</p><button type="button">Verstanden</button>`;
+        ph.querySelector('button').addEventListener('click', ()=>{ ph.remove(); try{ localStorage.setItem('fs-3d-pano-hint', '1'); }catch(e){} });
+        wrap.appendChild(ph);
+      }
+    };
+    panoBtn.addEventListener('click', ()=>{ if(pano) panoStop(); else panoStart(); });
+    compassBtn.addEventListener('click', ()=> panoSetFollow(!(pano && pano.follow)));
+    // Beim Schliessen der 3D-Ansicht den Sensor wieder abmelden
+    const closeBtn3d = wrap.querySelector('[data-3d="close"]');
+    if(closeBtn3d) closeBtn3d.addEventListener('click', stopCompass);
+    fs3dPanoCleanup = stopCompass;
+    if(opts.panorama) panoStart();
     // Einmaliger Hinweis zur Bedienung
     let seen = false; try{ seen = localStorage.getItem('fs-3d-hint') === '1'; }catch(e){}
     if(!seen){
@@ -2574,6 +2782,7 @@ function renderStandaloneMap(containerId){
       hochtour: { label: '🏔️ Hochtour', color: '#4E5A9C' },
       msl: { label: '🧗 MSL', color: '#9A5418' },
       skitour: { label: '🎿 Skitour', color: '#1E6AA0' },
+      wanderung: { label: '🥾 Wanderung', color: '#3D7A4E' },
       huette: { label: '🛖 Hütten', color: '#33434D' },
       sektor: { label: '⛺ Sektoren', color: '#5E7A3A' },
       klettergebiet: { label: '⛰️ Klettergebiete', color: '#B06A2A' },
@@ -2590,6 +2799,7 @@ function renderStandaloneMap(containerId){
     // ein Hochtour-Chip auftauchen bzw. in der Hochtour/MSL-App ein Skitour-Chip.
     const isFixseilApp = typeof SEKTOREN_PATH !== 'undefined';
     function tourCategoryKey(t){
+      if(fsAppKey() === 'wandern') return 'wanderung';
       if(!isFixseilApp) return 'skitour'; // Skitour-App: nur diese eine Tourenart möglich
       return t.tourCategory === 'msl' ? 'msl' : 'hochtour'; // Hochtour/MSL-App: 'hochtour' auch als Fallback für alte Touren ohne das Feld
     }
@@ -3477,6 +3687,10 @@ function renderStandaloneMap(containerId){
           createdBy: state.myName, createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(), updatedBy: state.myName
         };
+        if(fsAppKey() === 'wandern'){
+          t.tourCategory = 'wanderung';
+          t.dog = ''; t.tourShape = '';
+        }
         if(isFixseilAppNow){
           t.tourCategory = 'hochtour';
           t.climbGrade = ''; t.crevasseRisk = 'nein';
@@ -3882,7 +4096,7 @@ function fsmPrefs(){
   return Object.assign({base:'karte', on:[]}, p || {});
 }
 function fsmSavePrefs(p){ try{ localStorage.setItem('fs-map-layers', JSON.stringify(p)); }catch(e){} }
-function fsmOverlaysForApp(){ return FSM_OVERLAYS.filter(o=> !o.skitourOnly || typeof SEKTOREN_PATH === 'undefined'); }
+function fsmOverlaysForApp(){ return FSM_OVERLAYS.filter(o=> !o.skitourOnly || fsAppKey() === 'firnspur'); }
 // Leerer Grundstil: Grundkarten als Raster, zwei unsichtbare "Anker" für die Reihenfolge
 // (Ebenen < Namen < eigene Linien/Punkte).
 function fsmBaseStyle(){
@@ -4088,14 +4302,36 @@ function fsmAddMarker(map, lat, lon, html, opts){
 }
 function fsmPopup(map, lngLat, content, offset){
   if(map._fsm.popup) map._fsm.popup.remove();
-  const p = new maplibregl.Popup({maxWidth:'300px', offset: offset || 8, className:'fsm-popup'}).setLngLat(lngLat);
+  const p = new maplibregl.Popup({maxWidth: fsmPopupMaxWidth(map), offset: offset || 8, className:'fsm-popup'}).setLngLat(lngLat);
   if(typeof content === 'string') p.setHTML(content); else p.setDOMContent(content);
   p.addTo(map);
+  fsmPopupStopEvents(p);
+  fsmPopupAutoPan(map, p);
   map._fsm.popup = p;
   // Wie Leaflet-Popups: setContent(node) für Inhaltswechsel (z. B. SAC-Liste ↔ Route)
   p.setContent = (node)=>{ p.setDOMContent(node); return p; };
   return p;
 }
+// Wie Leaflets autoPan: Karte so verschieben, dass ein Fenster ganz sichtbar ist (v. a. auf den
+// kleinen Karten im Formular, wo es sonst links/oben abgeschnitten wird).
+function fsmPopupAutoPan(ml, popup){
+  requestAnimationFrame(()=>{
+    const el = popup.getElement && popup.getElement();
+    if(!el) return;
+    const r = el.getBoundingClientRect(), c = ml.getContainer().getBoundingClientRect(), m = 10;
+    let dx = 0, dy = 0;
+    if(r.left < c.left + m) dx = r.left - c.left - m; else if(r.right > c.right - m) dx = r.right - c.right + m;
+    if(r.top < c.top + m) dy = r.top - c.top - m; else if(r.bottom > c.bottom - m) dy = Math.min(r.bottom - c.bottom + m, r.top - c.top - m);
+    if(dx || dy) ml.panBy([dx, dy], {duration: 250});
+  });
+}
+// Klicks im Fenster nicht an die Karte weitergeben (wie bei Leaflet) — sonst schliesst die Karte
+// ein Fenster, das gerade durch einen Knopf im vorherigen Fenster geöffnet wurde.
+function fsmPopupStopEvents(popup){
+  const el = popup.getElement && popup.getElement();
+  if(el && !el._fsmStop){ el._fsmStop = true; ['click','dblclick','mousedown','pointerdown','touchstart','wheel','contextmenu'].forEach(t=> el.addEventListener(t, (e)=> e.stopPropagation())); }
+}
+function fsmPopupMaxWidth(ml){ return Math.max(180, Math.min(300, ml.getContainer().clientWidth - 24)) + 'px'; }
 function fsmCategoryMarkerHtml(category){
   const meta = MAP_POINT_CATEGORIES[category] || MAP_POINT_CATEGORIES[''];
   return `<div class="fsm-pin" style="background:${meta.color}"><span>${meta.icon}</span></div>`;
@@ -4360,16 +4596,18 @@ const FL = (function(){
   Popup.prototype.getLatLng = function(){ return this._ll; };
   Popup.prototype.setContent = function(c){
     this._content = c;
-    if(this._p){ if(typeof c === 'string') this._p.setHTML(c); else this._p.setDOMContent(c); }
+    if(this._p){ if(typeof c === 'string') this._p.setHTML(c); else this._p.setDOMContent(c); fsmPopupAutoPan(this._p._map, this._p); }
     return this;
   };
   Popup.prototype.openOn = function(fm){
     fm.closePopup();
-    const maxW = this.options.maxWidth ? this.options.maxWidth + 'px' : '300px';
+    const maxW = this.options.maxWidth ? Math.min(this.options.maxWidth, parseInt(fsmPopupMaxWidth(fm._ml), 10)) + 'px' : fsmPopupMaxWidth(fm._ml);
     const off = this.options._off != null ? this.options._off : (this.options.offset && this.options.offset[1] ? Math.abs(this.options.offset[1]) : 10);
     this._p = new maplibregl.Popup({maxWidth:maxW, offset:off, className:'fsm-popup', closeOnClick:true}).setLngLat([this._ll.lng, this._ll.lat]);
     if(typeof this._content === 'string') this._p.setHTML(this._content); else if(this._content) this._p.setDOMContent(this._content);
     this._p.addTo(fm._ml);
+    fsmPopupStopEvents(this._p);
+    fsmPopupAutoPan(fm._ml, this._p);
     fm._popup = this;
     this._p.on('close', ()=>{ if(fm._popup === this) fm._popup = null; });
     return this;
@@ -4747,7 +4985,7 @@ function buildSkitourPopupContent(featureOrList, opts){
     btn.textContent = 'GPX herunterladen';
     wrap.appendChild(btn);
     // Nur Skitour-App: daraus direkt eine neue Tour anlegen (Formular vorbefüllt)
-    if(allowAttach && typeof SEKTOREN_PATH === 'undefined'){
+    if(allowAttach && fsAppKey() === 'firnspur'){
       const nb = document.createElement('button');
       nb.type = 'button';
       nb.className = 'fs-sac-sec';
@@ -4928,7 +5166,7 @@ function altTracksListHtml(tour){
    Namen und einen Typ. Gespeichert wird beim bestehenden Feld (trackName/trackType,
    manualTrackName/manualTrackType, altTracks[i].name/.type) — vorhandene Daten bleiben gültig,
    fehlende Typen ergeben sich aus der bisherigen Bedeutung (Track/Linie = Aufstieg, Alternativ-
-   routen = Variante). Fixseil nutzt die Typen (noch) nicht. */
+   routen = Variante). Gilt in allen Apps; ausser in Skitour heisst "Abfahrt" dort "Abstieg". */
 const FS_ROUTE_TYPES = {
   aufstieg: {label:'Aufstieg', color:'#E8384F'},
   abfahrt:  {label:'Abfahrt', color:'#D9730D'},
@@ -4937,7 +5175,14 @@ const FS_ROUTE_TYPES = {
   zustieg:  {label:'Zustieg', color:'#2F7D4A'}
 };
 const FS_ROUTE_TYPE_ORDER = ['aufstieg','aufab','abfahrt','variante','zustieg'];
-function fsRouteTypesOn(){ return typeof SEKTOREN_PATH === 'undefined'; }
+function fsRouteTypesOn(){ return true; } // alle Apps (Skitour, Hochtour/Klettern, Wandern)
+// Bezeichnung einer Routenart — abgefahren wird nur in der Skitour-App, sonst geht man ab
+function fsRouteLabel(k){
+  const ski = fsAppKey() === 'firnspur';
+  if(!ski && k === 'abfahrt') return 'Abstieg';
+  if(!ski && k === 'aufab') return 'Auf- & Abstieg';
+  return (FS_ROUTE_TYPES[k] || FS_ROUTE_TYPES.variante).label;
+}
 function fsTourRoutes(t){
   const out = [];
   if(!t) return out;
@@ -4952,9 +5197,9 @@ function fsTourRoutes(t){
 function fsRouteStyle(r){
   const ty = FS_ROUTE_TYPES[r.type] || FS_ROUTE_TYPES.variante;
   const color = (r.type === 'variante' && r.src === 'alt') ? ALT_TRACK_COLORS[r.idx % ALT_TRACK_COLORS.length] : ty.color;
-  return {color, dash:!!ty.dash, label:ty.label};
+  return {color, dash:!!ty.dash, label:fsRouteLabel(r.type)};
 }
-function fsRouteTitle(r){ return r.name || (FS_ROUTE_TYPES[r.type] || FS_ROUTE_TYPES.variante).label; }
+function fsRouteTitle(r){ return r.name || fsRouteLabel(r.type); }
 function fsRouteSwatchHtml(r){
   const st = fsRouteStyle(r);
   return `<span class="fs-route-sw${st.dash ? ' dash' : ''}" style="--c:${st.color}"></span>`;
@@ -4967,7 +5212,7 @@ function fsRoutesListHtml(t){
     const dl = r.src === 'track' ? `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name + ' – ' + fsRouteTitle(r))}"`
       : r.src === 'manual' ? `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(r.coords))}' data-name="${esc(t.name + ' – ' + fsRouteTitle(r))}"`
       : `data-act="download-alt-gpx" data-tour-id="${t.id}" data-alt-id="${r.altId}" data-name="${esc(t.name + ' – ' + fsRouteTitle(r))}"`;
-    return `<div class="fs-route-row">${fsRouteSwatchHtml(r)}<div class="fs-route-txt"><strong>${esc(fsRouteTitle(r))}</strong>${r.name ? `<span>${esc(FS_ROUTE_TYPES[r.type].label)}</span>` : ''}</div>
+    return `<div class="fs-route-row">${fsRouteSwatchHtml(r)}<div class="fs-route-txt"><strong>${esc(fsRouteTitle(r))}</strong>${r.name ? `<span>${esc(fsRouteLabel(r.type))}</span>` : ''}</div>
       <button type="button" class="fs-icon-btn" ${dl} aria-label="Als GPX herunterladen">${fsIconHtml('download')}</button></div>`;
   }).join('')}</div>`;
 }
@@ -5000,7 +5245,7 @@ function fsRoutesEditorRender(){
   box.innerHTML = routes.length ? routes.map(r=>`<div class="fs-route-edit" data-key="${esc(r.key)}">
       ${fsRouteSwatchHtml(r)}
       <input type="text" class="fs-route-name" value="${esc(r.name)}" placeholder="${esc(r.src === 'track' ? 'GPX-Track' : r.src === 'manual' ? 'Gezeichnete Linie' : 'Name')}" aria-label="Name der Route"/>
-      <select class="fs-route-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k===r.type?'selected':''}>${FS_ROUTE_TYPES[k].label}</option>`).join('')}</select>
+      <select class="fs-route-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k===r.type?'selected':''}>${fsRouteLabel(k)}</option>`).join('')}</select>
       ${r.src === 'alt' ? `<button type="button" class="fs-icon-btn fs-route-del" aria-label="Route entfernen">${fsIconHtml('trash')}</button>` : ''}
     </div>`).join('') : '<p class="hint" style="margin:0 0 8px;">Noch keine Route — GPX hochladen oder auf der Karte zeichnen.</p>';
   box.querySelectorAll('.fs-route-edit').forEach(row=>{
@@ -5374,6 +5619,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const routeStatsEl = document.createElement('div');
     routeStatsEl.style.cssText = 'display:none; margin-top:8px; gap:6px; flex-wrap:wrap;';
     wrapDiv.appendChild(routeStatsEl);
+    // Name/Art der aktuellen Linie und "weitere Route" (nur im Tour-Formular mit Routenliste)
+    const routeMetaEl = document.createElement('div');
+    routeMetaEl.className = 'fs-route-meta';
+    routeMetaEl.style.display = 'none';
+    wrapDiv.appendChild(routeMetaEl);
 
     el2.appendChild(wrapDiv);
 
@@ -5411,6 +5661,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       FL.circleMarker([rp.lat, rp.lon], {radius:6, color:'#fff', weight:2, fillColor: rp.color || '#4A3524', fillOpacity:0.9}).bindTooltip(rp.label || '').addTo(map);
     });
 
+    const otherRoutesLayer = FL.layerGroup().addTo(map); // bereits abgelegte weitere Routen (nur Anzeige)
     const markerLayer = FL.layerGroup().addTo(map);
     let lineLayer = FL.layerGroup().addTo(map);
     let routeLayer = FL.layerGroup().addTo(map);
@@ -5438,7 +5689,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // lastRouteStats oben), damit die Historie einen Wechsel in/aus der Vollbildansicht überlebt.
     let undoStack = (manualTrackHidden && manualTrackHidden._undoStack) || [];
     function pushUndo(){
-      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats, usingGpxTrack}));
+      const rv = (id)=>{ const el = document.getElementById(id); return el ? el.value : null; };
+      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats, usingGpxTrack,
+        routes: {alt: rv('route-alt-tracks'), mn: rv('route-manual-name'), mt: rv('route-manual-type'), tn: rv('route-track-name'), tt: rv('route-track-type')}}));
       if(undoStack.length > 25) undoStack.shift();
       if(manualTrackHidden) manualTrackHidden._undoStack = undoStack;
       updateUndoBtn();
@@ -5457,6 +5710,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       manualTrack = snap.manualTrack;
       routeWaypoints = snap.routeWaypoints;
       usingGpxTrack = !!snap.usingGpxTrack;
+      if(snap.routes){
+        // Routenliste (weitere Routen, Name/Art) mit zurücksetzen
+        [['route-alt-tracks','alt'],['route-manual-name','mn'],['route-manual-type','mt'],['route-track-name','tn'],['route-track-type','tt']].forEach(([id, k])=>{
+          const el = document.getElementById(id); if(el && snap.routes[k] != null) el.value = snap.routes[k];
+        });
+      }
       insertAfterWaypointIndex = null;
       setLastRouteStats(snap.lastRouteStats);
       hiddenInput.value = JSON.stringify(points);
@@ -5624,6 +5883,56 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         }
       }
       updateGpxReplaceBtn();
+      renderRouteMeta();
+    }
+    // Weitere Routen der Tour (Routenliste im Formular) gestrichelt mitzeigen, und für die aktuelle
+    // Linie Name/Art sowie "Als weitere Route ablegen" anbieten — so lassen sich Zustieg, Aufstieg,
+    // Abstieg nacheinander berechnen oder zeichnen, jede mit eigenem Namen.
+    function renderRouteMeta(){
+      const altEl = document.getElementById('route-alt-tracks');
+      otherRoutesLayer.clearLayers();
+      if(!altEl){ routeMetaEl.style.display = 'none'; return; }
+      let alts = []; try{ alts = JSON.parse(altEl.value || '[]'); }catch(e){}
+      alts.forEach((a, i)=>{
+        if(!a.trackSimplified || a.trackSimplified.length < 2) return;
+        const st = fsRouteStyle({type: FS_ROUTE_TYPES[a.type] ? a.type : 'variante', src:'alt', idx:i});
+        FL.polyline(a.trackSimplified, {color:'#ffffff', weight:6, opacity:0.6, interactive:false}).addTo(otherRoutesLayer);
+        FL.polyline(a.trackSimplified, {color: st.color, weight:3.5, opacity:0.85, dashArray:'7,6'}).addTo(otherRoutesLayer).bindPopup(esc((a.name || fsRouteLabel(a.type)) + ' (' + fsRouteLabel(a.type) + ')'));
+      });
+      if(!manualTrack.length){
+        routeMetaEl.style.display = alts.length ? 'block' : 'none';
+        routeMetaEl.innerHTML = alts.length ? `<p class="hint" style="margin:6px 0 0;">${alts.length} weitere Route${alts.length > 1 ? 'n' : ''} abgelegt (gestrichelt) — neue Route berechnen oder zeichnen.</p>` : '';
+        return;
+      }
+      const nameEl = document.getElementById(usingGpxTrack ? 'route-track-name' : 'route-manual-name');
+      const typeEl = document.getElementById(usingGpxTrack ? 'route-track-type' : 'route-manual-type');
+      if(!nameEl || !typeEl){ routeMetaEl.style.display = 'none'; return; }
+      const curType = FS_ROUTE_TYPES[typeEl.value] ? typeEl.value : 'aufstieg';
+      routeMetaEl.style.display = 'block';
+      routeMetaEl.innerHTML = `<div class="fs-route-meta-head">Diese Route</div>
+        <div class="fs-route-edit">
+          <input type="text" class="fs-route-name" value="${esc(nameEl.value)}" placeholder="Name, z. B. Zustieg ab Sustenbrüggli" aria-label="Name der Route"/>
+          <select class="fs-route-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k===curType?'selected':''}>${fsRouteLabel(k)}</option>`).join('')}</select>
+        </div>
+        ${usingGpxTrack ? '' : `<button type="button" class="btn secondary fs-route-park" style="width:100%;">+ Als weitere Route ablegen, neue beginnen</button>`}
+        ${alts.length ? `<p class="hint" style="margin:6px 0 0;">Dazu ${alts.length} weitere Route${alts.length > 1 ? 'n' : ''} (gestrichelt).</p>` : ''}`;
+      const inName = routeMetaEl.querySelector('.fs-route-name'), inType = routeMetaEl.querySelector('.fs-route-type');
+      inName.addEventListener('input', ()=>{ nameEl.value = inName.value.trim(); markModalDirty(); if(typeof fsRoutesEditorRender === 'function') fsRoutesEditorRender(); });
+      inType.addEventListener('change', ()=>{ typeEl.value = inType.value; markModalDirty(); if(typeof fsRoutesEditorRender === 'function') fsRoutesEditorRender(); });
+      const park = routeMetaEl.querySelector('.fs-route-park');
+      if(park) park.addEventListener('click', ()=>{
+        pushUndo();
+        const id = 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+        alts.push({id, name: nameEl.value.trim(), type: inType.value, trackSimplified: manualTrack.map(c=> [Math.round(c[0]*1e6)/1e6, Math.round(c[1]*1e6)/1e6])});
+        altEl.value = JSON.stringify(alts);
+        nameEl.value = ''; typeEl.value = '';
+        manualTrack = [];
+        setLastRouteStats(null);
+        routeStatsEl.style.display = 'none'; routeStatsEl.innerHTML = '';
+        redrawLine();
+        persistTrack();
+        showToast('Route abgelegt — jetzt die nächste berechnen oder zeichnen.');
+      });
     }
     redrawLine();
     // Kennzahlen-Kärtchen (inkl. Löschen-Knopf) gleich wiederherstellen, falls für die aktuelle
@@ -5822,24 +6131,31 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         routeStatus.textContent = '';
         setMode('point');
         renderRouteStatCards(routeStatsEl, calculated, clearCalculatedRoute, editCalculatedRoute);
-        const filledLabels = [];
-        if(autofillFields){
-          if(autofillFields.ascent && typeof calculated.ascentM==='number'){
-            autofillFields.ascent.value = String(Math.round(calculated.ascentM));
-            flashFilledField(autofillFields.ascent);
-            filledLabels.push('Aufstieg');
-          }
-          if(autofillFields.descent && typeof calculated.descentM==='number'){
-            autofillFields.descent.value = String(Math.round(calculated.descentM));
-            filledLabels.push('Abstieg');
-          }
-          if(autofillFields.duration && typeof calculated.durationS==='number'){
-            autofillFields.duration.value = formatDurationShort(calculated.durationS);
-            filledLabels.push('Zeitbedarf');
-          }
+        // Werte NICHT mehr automatisch ins Formular schreiben: Die Route ist oft nur ein Zustieg,
+        // und die Kopfdaten der Tour (z. B. einer Kletterei) wurden dadurch überschrieben.
+        // Stattdessen ein Knopf zum bewussten Übernehmen, mit Rückfrage vor dem Überschreiben.
+        if(autofillFields && (autofillFields.ascent || autofillFields.descent || autofillFields.duration)){
+          const applyBtn = document.createElement('button');
+          applyBtn.type = 'button';
+          applyBtn.className = 'btn secondary';
+          applyBtn.style.cssText = 'width:100%; margin-top:6px;';
+          applyBtn.textContent = 'Werte in die Tour übernehmen (Hm, Zeit)';
+          applyBtn.addEventListener('click', ()=>{
+            const plan = [];
+            if(autofillFields.ascent && typeof calculated.ascentM==='number') plan.push([autofillFields.ascent, String(Math.round(calculated.ascentM)), 'Aufstieg']);
+            if(autofillFields.descent && typeof calculated.descentM==='number') plan.push([autofillFields.descent, String(Math.round(calculated.descentM)), 'Abstieg']);
+            if(autofillFields.duration && typeof calculated.durationS==='number') plan.push([autofillFields.duration, formatDurationShort(calculated.durationS), 'Zeitbedarf']);
+            const overwrite = plan.filter(([f, v])=> f.value && f.value.trim() && f.value.trim() !== v);
+            if(overwrite.length && !confirm('Bestehende Angaben überschreiben?\n' + overwrite.map(([f, v, l])=> l + ': ' + f.value + ' → ' + v).join('\n'))) return;
+            plan.forEach(([f, v])=>{ f.value = v; flashFilledField(f); });
+            markModalDirty();
+            applyBtn.remove();
+            showToast('Übernommen: ' + plan.map(x=> x[2]).join(', ') + '.');
+          });
+          routeStatsEl.insertBefore(applyBtn, routeStatsEl.querySelector('[data-act="edit-calculated-route"]') || null);
         }
         const statsText = formatRouteStats(calculated);
-        showToast('Route berechnet' + (statsText ? ': ' + statsText : '') + (filledLabels.length ? ' — im Formular übernommen: ' + filledLabels.join(', ') + '.' : (autofillFields ? ' (keine passenden Felder automatisch befüllt.)' : '')));
+        showToast('Route berechnet' + (statsText ? ': ' + statsText : '') + '.');
       }catch(err){
         routeStatus.style.color = 'var(--danger)';
         routeStatus.textContent = '⚠ ' + (err && err.message ? err.message : 'Route konnte nicht berechnet werden.');
@@ -5890,9 +6206,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       btn.addEventListener('click', ()=>{
         pushUndo();
         points.push({ label:'', lat: e.latlng.lat, lon: e.latlng.lng, _justAdded:true });
+        map.closePopup(); // zuerst schliessen — redraw() öffnet gleich das Fenster des neuen Punkts
         redraw();
         persist();
-        map.closePopup();
       });
       wrap.appendChild(btn);
       FL.popup().setLatLng(e.latlng).setContent(wrap).openOn(map);
@@ -6072,7 +6388,321 @@ async function removeGpxTrack(trackPathPrefix, tourIdHiddenId, simplifiedHiddenI
    Fehlermeldung im UI, der Rest der App funktioniert unabhängig davon. */
 const OPENROUTESERVICE_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImMzNGNmZWNmY2Q3YzRjODlhNGJkNzVjOThlZjkyMjg4IiwiaCI6Im11cm11cjY0In0=';
 
+/* ================= Routen auf dem swisstopo-Wegnetz (fsr*) =================
+   Statt openrouteservice (OpenStreetMap-Wege, die in den Bergen oft neben dem Weg der Landeskarte
+   liegen) rechnet die App selbst auf dem offiziellen swisstopo-Wegnetz (swissTLM3D, aus den freien
+   Vektorkacheln von geo.admin.ch). Die Spur liegt so genau auf dem Weg der Landeskarte.
+   Ablauf: Kacheln (Zoom 14) für das Gebiet laden → Wege (Ebene "transportation") zu einem Netz
+   verbinden → kürzester "Aufwand" mit Dijkstra → Höhen aus swissALTI3D (Profil-Dienst) → Zeit nach
+   der SAC/DAV-Faustregel. Findet sich kein Weg (z. B. weglos), rechnet openrouteservice wie bisher. */
+const FSR_TILE_URL = 'https://vectortiles.geo.admin.ch/tiles/ch.swisstopo.base.vt/v1.0.0/';
+const FSR_Z = 14;
+const FSR_MAX_TILES = 90;
+const FSR_EXT = 4096; // Kachelauflösung; das Wegnetz rechnet in globalen Kachelpixeln (≈ 0,4 m)
+const fsrTileCache = new Map();
+
+// --- Minimaler Vektorkachel-Leser (Mapbox Vector Tile / Protobuf), nur was hier gebraucht wird ---
+function fsrDecodeTransport(buf){
+  const b = new Uint8Array(buf);
+  let pos = 0;
+  const varint = ()=>{ let r = 0, s = 0, x; do{ x = b[pos++]; r += (x & 0x7f) * Math.pow(2, s); s += 7; }while(x >= 0x80); return r; };
+  const skip = (wt)=>{ if(wt === 0) varint(); else if(wt === 1) pos += 8; else if(wt === 2){ const l = varint(); pos += l; } else if(wt === 5) pos += 4; };
+  const str = (end)=> new TextDecoder().decode(b.subarray(pos, end));
+  const out = {extent: 4096, features: []};
+  while(pos < b.length){
+    const tag = varint(), fn = Math.floor(tag / 8), wt = tag & 7;
+    if(fn !== 3 || wt !== 2){ skip(wt); continue; }
+    const lend = varint() + pos;
+    let name = '', keys = [], vals = [], feats = [], extent = 4096;
+    while(pos < lend){
+      const t2 = varint(), f2 = Math.floor(t2 / 8), w2 = t2 & 7;
+      if(f2 === 1 && w2 === 2){ const l = varint(); name = str(pos + l); pos += l; }
+      else if(f2 === 3 && w2 === 2){ const l = varint(); keys.push(str(pos + l)); pos += l; }
+      else if(f2 === 4 && w2 === 2){
+        const vend = varint() + pos; let v = null;
+        while(pos < vend){
+          const t3 = varint(), f3 = Math.floor(t3 / 8), w3 = t3 & 7;
+          if(f3 === 1 && w3 === 2){ const l = varint(); v = str(pos + l); pos += l; }
+          else if((f3 === 4 || f3 === 5) && w3 === 0) v = varint();
+          else if(f3 === 6 && w3 === 0){ const n = varint(); v = (n % 2) ? -(n + 1) / 2 : n / 2; }
+          else if(f3 === 7 && w3 === 0) v = !!varint();
+          else if(f3 === 2 && w3 === 5){ v = new DataView(b.buffer, b.byteOffset + pos, 4).getFloat32(0, true); pos += 4; }
+          else if(f3 === 3 && w3 === 1){ v = new DataView(b.buffer, b.byteOffset + pos, 8).getFloat64(0, true); pos += 8; }
+          else skip(w3);
+        }
+        vals.push(v);
+      }
+      else if(f2 === 5 && w2 === 0) extent = varint();
+      else if(f2 === 2 && w2 === 2){
+        const fend = varint() + pos; let tags = [], geom = [], type = 0;
+        while(pos < fend){
+          const t4 = varint(), f4 = Math.floor(t4 / 8), w4 = t4 & 7;
+          if(f4 === 2 && w4 === 2){ const e = varint() + pos; while(pos < e) tags.push(varint()); }
+          else if(f4 === 3 && w4 === 0) type = varint();
+          else if(f4 === 4 && w4 === 2){ const e = varint() + pos; while(pos < e) geom.push(varint()); }
+          else skip(w4);
+        }
+        feats.push({tags, geom, type});
+      }
+      else skip(w2);
+    }
+    if(name !== 'transportation') continue;
+    out.extent = extent;
+    feats.forEach(f=>{
+      if(f.type !== 2) return;
+      const p = {};
+      for(let i = 0; i + 1 < f.tags.length; i += 2) p[keys[f.tags[i]]] = vals[f.tags[i + 1]];
+      // Geometrie: MoveTo/LineTo mit Zickzack-Deltas
+      const lines = []; let x = 0, y = 0, i = 0, cur = null;
+      while(i < f.geom.length){
+        const ci = f.geom[i++], cmd = ci & 7, cnt = ci >> 3;
+        for(let k = 0; k < cnt; k++){
+          if(cmd === 7) break;
+          const dx = f.geom[i++], dy = f.geom[i++];
+          x += (dx % 2) ? -(dx + 1) / 2 : dx / 2; y += (dy % 2) ? -(dy + 1) / 2 : dy / 2;
+          if(cmd === 1){ cur = [[x, y]]; lines.push(cur); } else if(cur) cur.push([x, y]);
+        }
+      }
+      lines.forEach(l=>{ if(l.length > 1) out.features.push({p, line: l}); });
+    });
+  }
+  return out;
+}
+async function fsrLoadTile(x, y){
+  const key = x + '/' + y;
+  if(fsrTileCache.has(key)) return fsrTileCache.get(key);
+  const pr = fetch(FSR_TILE_URL + FSR_Z + '/' + x + '/' + y + '.pbf').then(r=>{ if(!r.ok) throw new Error('Kachel'); return r.arrayBuffer(); })
+    .then(fsrDecodeTransport).catch(e=>{ fsrTileCache.delete(key); throw e; });
+  fsrTileCache.set(key, pr);
+  return pr;
+}
+// Aufwand pro Meter je Wegart: Wege und Pfade bevorzugt, Strassen meiden, Bahnen/Lifte nie
+function fsrCostFactor(p){
+  const c = p.class || '', sc = p.subclass || '', sac = p.sac_scale || '';
+  // Exakt prüfen ("trail" enthält "rail"!): Bahnen, Seilbahnen, Fähren, Autobahnen nie
+  if(/^(rail|transit|aerialway.*|cable_car|gondola|chair_lift|ferry|motorway.*|trunk.*|pier|bus.*)$/.test(c)) return 0;
+  let f;
+  if(c === 'footway' || c === 'path') f = 1.0;
+  else if(c === 'trail') f = 1.1;
+  else if(c === 'mask_terrain') f = /rock/.test(sc) ? 1.35 : 1.2;
+  else if(c === 'track' || c === 'minor' || c === 'service') f = 1.1;
+  else if(c === 'tertiary') f = 1.4;
+  else if(c === 'secondary' || c === 'primary') f = 1.8;
+  else f = 1.5;
+  if(/demanding_alpine|difficult_alpine/.test(sac)) f *= 1.6;
+  else if(/alpine_hiking/.test(sac)) f *= 1.2;
+  // Markierte Wanderwege klar bevorzugen: unmarkierte Pfade können Leitern, Ketten oder
+  // Kletterstellen haben, auch wenn sie in den Daten nur als Bergweg geführt sind. Ein Umweg
+  // auf markiertem Weg wird bis gut 50 % Mehrlänge in Kauf genommen.
+  if(!p.is_route && /^(footway|path|trail|mask_terrain)$/.test(c)) f *= 1.55;
+  return f;
+}
+// Einen Streckenzug auf das Kachelquadrat [0, ext] beschneiden (Kacheln haben einen Überstand,
+// der sonst doppelte, leicht versetzte Wege ergäbe)
+function fsrClip(line, ext){
+  const out = []; let cur = null;
+  const inside = (p)=> p[0] >= 0 && p[0] <= ext && p[1] >= 0 && p[1] <= ext;
+  for(let i = 0; i + 1 < line.length; i++){
+    let [x0, y0] = line[i], [x1, y1] = line[i + 1];
+    let t0 = 0, t1 = 1; const dx = x1 - x0, dy = y1 - y0;
+    const pq = [[-dx, x0], [dx, ext - x0], [-dy, y0], [dy, ext - y0]];
+    let ok = true;
+    for(const [p, q] of pq){
+      if(p === 0){ if(q < 0){ ok = false; break; } continue; }
+      const r = q / p;
+      if(p < 0){ if(r > t1){ ok = false; break; } if(r > t0) t0 = r; }
+      else { if(r < t0){ ok = false; break; } if(r < t1) t1 = r; }
+    }
+    if(!ok){ cur = null; continue; }
+    const a = [x0 + t0 * dx, y0 + t0 * dy], c = [x0 + t1 * dx, y0 + t1 * dy];
+    if(!cur || t0 > 0){ cur = [a]; out.push(cur); }
+    cur.push(c);
+    if(t1 < 1) cur = null;
+  }
+  return out.filter(l=> l.length > 1);
+}
+const fsrLon2X = (lon)=> (lon + 180) / 360 * Math.pow(2, FSR_Z);
+const fsrLat2Y = (lat)=>{ const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * Math.pow(2, FSR_Z); };
+const fsrX2Lon = (x)=> x / Math.pow(2, FSR_Z) * 360 - 180;
+const fsrY2Lat = (y)=>{ const n = Math.PI - 2 * Math.PI * y / Math.pow(2, FSR_Z); return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))); };
+// Kleiner Binär-Heap für Dijkstra
+function FsrHeap(){ this.a = []; }
+FsrHeap.prototype.push = function(n, d){ const a = this.a; a.push([d, n]); let i = a.length - 1; while(i > 0){ const p = (i - 1) >> 1; if(a[p][0] <= a[i][0]) break; [a[p], a[i]] = [a[i], a[p]]; i = p; } };
+FsrHeap.prototype.pop = function(){ const a = this.a, top = a[0], last = a.pop(); if(a.length){ a[0] = last; let i = 0; for(;;){ const l = 2 * i + 1, r = l + 1; let m = i; if(l < a.length && a[l][0] < a[m][0]) m = l; if(r < a.length && a[r][0] < a[m][0]) m = r; if(m === i) break; [a[m], a[i]] = [a[i], a[m]]; i = m; } } return top; };
+// Wegnetz für ein Gebiet aufbauen. Koordinaten in "Kachelpixeln" (global, Zoom 14 × 4096)
+async function fsrBuildGraph(bbox){
+  const x0 = Math.floor(fsrLon2X(bbox[1])), x1 = Math.floor(fsrLon2X(bbox[3]));
+  const y0 = Math.floor(fsrLat2Y(bbox[2])), y1 = Math.floor(fsrLat2Y(bbox[0]));
+  const tiles = [];
+  for(let x = x0; x <= x1; x++) for(let y = y0; y <= y1; y++) tiles.push([x, y]);
+  if(tiles.length > FSR_MAX_TILES) throw new Error('Gebiet zu gross für die Berechnung auf dem swisstopo-Wegnetz.');
+  const loaded = [];
+  for(let i = 0; i < tiles.length; i += 8){
+    const part = await Promise.all(tiles.slice(i, i + 8).map(([x, y])=> fsrLoadTile(x, y).then(t=> ({x, y, t}))));
+    part.forEach(p=> loaded.push(p));
+  }
+  const nodes = [], adj = [], keyIdx = new Map(), segs = [];
+  const nodeAt = (gx, gy)=>{
+    const k = Math.round(gx * 4) + ',' + Math.round(gy * 4); // auf 1/4 Kachelpixel (~10 cm) zusammenführen
+    let i = keyIdx.get(k);
+    if(i === undefined){ i = nodes.length; nodes.push([gx, gy]); adj.push([]); keyIdx.set(k, i); }
+    return i;
+  };
+  loaded.forEach(({x, y, t})=>{
+    const ext = t.extent;
+    t.features.forEach(f=>{
+      const cf = fsrCostFactor(f.p);
+      if(!cf) return;
+      fsrClip(f.line, ext).forEach(part=>{
+        let prev = null;
+        part.forEach(pt=>{
+          const n = nodeAt(x * FSR_EXT + pt[0] * FSR_EXT / ext, y * FSR_EXT + pt[1] * FSR_EXT / ext);
+          if(prev !== null && prev !== n){ segs.push([prev, n, cf, f.p]); }
+          prev = n;
+        });
+      });
+    });
+  });
+  const lat0 = (bbox[0] + bbox[2]) / 2;
+  const mPerUnit = 40075016.686 * Math.cos(lat0 * Math.PI / 180) / (Math.pow(2, FSR_Z) * FSR_EXT);
+  const dist = (a, b)=> Math.hypot(nodes[a][0] - nodes[b][0], nodes[a][1] - nodes[b][1]) * mPerUnit;
+  const addEdge = (a, b, cf)=>{ const d = dist(a, b); adj[a].push([b, d * cf, d]); adj[b].push([a, d * cf, d]); };
+  segs.forEach(([a, b, cf])=> addEdge(a, b, cf));
+  // Lücken im Netz schliessen: Im swisstopo-Wegnetz enden Wegstücke oft einige Meter vor dem
+  // anschliessenden Weg (z. B. Bergweg vor der Passstrasse, Pfad vor der Hütte). Lose Wegenden
+  // werden darum mit dem nächsten Weg bis 12 m verbunden — sonst entstehen grosse Umwege.
+  const grid = new Map(), cell = 40 / mPerUnit; // ~40 m Zellen
+  const addToGrid = (si)=>{
+    const s = segs[si], a = nodes[s[0]], b = nodes[s[1]];
+    const cx0 = Math.floor(Math.min(a[0], b[0]) / cell), cx1 = Math.floor(Math.max(a[0], b[0]) / cell);
+    const cy0 = Math.floor(Math.min(a[1], b[1]) / cell), cy1 = Math.floor(Math.max(a[1], b[1]) / cell);
+    for(let cx = cx0; cx <= cx1; cx++) for(let cy = cy0; cy <= cy1; cy++){ const k = cx + ',' + cy; if(!grid.has(k)) grid.set(k, []); grid.get(k).push(si); }
+  };
+  segs.forEach((s, si)=> addToGrid(si));
+  const near = (gx, gy)=>{ const cx = Math.floor(gx / cell), cy = Math.floor(gy / cell), out = new Set(); for(let dx = -1; dx <= 1; dx++) for(let dy = -1; dy <= 1; dy++){ const g = grid.get((cx + dx) + ',' + (cy + dy)); if(g) g.forEach(v=> out.add(v)); } return out; };
+  const proj = (p, a, b)=>{ const vx = b[0] - a[0], vy = b[1] - a[1], L2 = vx * vx + vy * vy; let t = L2 ? ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / L2 : 0; t = Math.max(0, Math.min(1, t)); return {t, x: a[0] + t * vx, y: a[1] + t * vy}; };
+  const tol = 12 / mPerUnit;
+  const ends = [];
+  for(let n = 0; n < nodes.length; n++) if(adj[n].length === 1) ends.push(n);
+  ends.forEach(n=>{
+    // Was über das Netz schon innert 25 m erreichbar ist, ausschliessen — sonst "verbindet" sich
+    // ein Weg mit sich selbst (z. B. in einer Kehre)
+    const own = new Map([[n, 0]]); let frontier = [n];
+    while(frontier.length){ const nx = []; frontier.forEach(u=> adj[u].forEach(([v, , d])=>{ const nd = own.get(u) + d; if(nd <= 25 && (!own.has(v) || own.get(v) > nd)){ own.set(v, nd); nx.push(v); } })); frontier = nx; }
+    let best = null;
+    near(nodes[n][0], nodes[n][1]).forEach(si=>{
+      const s = segs[si]; if(own.has(s[0]) && own.has(s[1])) return;
+      const q = proj(nodes[n], nodes[s[0]], nodes[s[1]]);
+      const d = Math.hypot(q.x - nodes[n][0], q.y - nodes[n][1]);
+      if(d <= tol && (!best || d < best.d)) best = {d, q, s};
+    });
+    if(!best) return;
+    let m;
+    if(best.q.t <= 0.001) m = best.s[0]; else if(best.q.t >= 0.999) m = best.s[1];
+    else { m = nodes.length; nodes.push([best.q.x, best.q.y]); adj.push([]); addEdge(best.s[0], m, best.s[2]); addEdge(m, best.s[1], best.s[2]); }
+    addEdge(n, m, 1.3);
+  });
+  return {nodes, adj, segs, mPerUnit, near, proj, nodeAt, addEdge, dist, cell};
+}
+// Punkt (lat, lon) ans Wegnetz anhängen: nächster Weg bis 400 m
+function fsrAttach(G, lat, lon){
+  const p = [fsrLon2X(lon) * FSR_EXT, fsrLat2Y(lat) * FSR_EXT];
+  let best = null;
+  // Einfach und robust: alle Segmente prüfen (einige zehntausend, schnell genug)
+  for(const s of G.segs){
+    const q = G.proj(p, G.nodes[s[0]], G.nodes[s[1]]);
+    const d = Math.hypot(q.x - p[0], q.y - p[1]);
+    if(!best || d < best.d) best = {d, q, s};
+  }
+  if(!best || best.d * G.mPerUnit > 400) return null;
+  const m = G.nodes.length; G.nodes.push([best.q.x, best.q.y]); G.adj.push([]);
+  G.addEdge(best.s[0], m, best.s[2]); G.addEdge(m, best.s[1], best.s[2]);
+  return {node: m, offM: best.d * G.mPerUnit, tap: [lat, lon]};
+}
+function fsrDijkstra(G, s, t){
+  const dist = new Float64Array(G.nodes.length).fill(Infinity), prev = new Int32Array(G.nodes.length).fill(-1);
+  const h = new FsrHeap(); dist[s] = 0; h.push(s, 0);
+  while(h.a.length){
+    const [d, u] = h.pop();
+    if(u === t) break;
+    if(d > dist[u]) continue;
+    for(const [v, w] of G.adj[u]){ const nd = d + w; if(nd < dist[v]){ dist[v] = nd; prev[v] = u; h.push(v, nd); } }
+  }
+  if(dist[t] === Infinity) return null;
+  const path = []; for(let u = t; u !== -1; u = prev[u]) path.push(u);
+  return path.reverse();
+}
+// WGS84 → LV95 (Näherungsformel swisstopo, ~1 m genau) für den Höhenprofil-Dienst
+function fsrToLv95(lat, lon){
+  const phi = (lat * 3600 - 169028.66) / 10000, lam = (lon * 3600 - 26782.5) / 10000;
+  return [2600072.37 + 211455.93 * lam - 10938.51 * lam * phi - 0.36 * lam * phi * phi - 44.54 * lam * lam * lam,
+          1200147.07 + 308807.95 * phi + 3745.25 * lam * lam + 76.63 * phi * phi - 194.56 * lam * lam * phi + 119.79 * phi * phi * phi];
+}
+async function fsrElevation(coords){
+  let pts = coords;
+  if(pts.length > 900){ const step = pts.length / 900; pts = Array.from({length: 900}, (_, i)=> coords[Math.floor(i * step)]).concat([coords[coords.length - 1]]); }
+  const geom = {type:'LineString', coordinates: pts.map(c=> fsrToLv95(c[0], c[1]).map(v=> Math.round(v * 10) / 10))};
+  const res = await fetch('https://api3.geo.admin.ch/rest/services/profile.json?sr=2056&distinct_points=true&nb_points=' + Math.min(1000, Math.max(100, pts.length * 2)), {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(geom)
+  });
+  if(!res.ok) throw new Error('Höhenprofil nicht verfügbar');
+  const prof = await res.json();
+  const profile = prof.map(p=> ({distM: p.dist, eleM: p.alts && (p.alts.DTM2 || p.alts.COMB)})).filter(p=> p.eleM != null);
+  let up = 0, down = 0, ref = profile.length ? profile[0].eleM : 0;
+  // Kleine Schwelle gegen Messrauschen
+  profile.forEach(p=>{ const d = p.eleM - ref; if(d >= 2){ up += d; ref = p.eleM; } else if(d <= -2){ down -= d; ref = p.eleM; } });
+  return {profile, up: Math.round(up), down: Math.round(down)};
+}
+// Wanderzeit nach SAC/DAV: 4 km/h horizontal, 300 Hm/h aufwärts, 500 Hm/h abwärts;
+// Gesamt = grösserer Wert + halber kleinerer Wert
+function fsrHikeSeconds(distM, up, down){
+  const h = distM / 4000, v = up / 300 + down / 500;
+  return (Math.max(h, v) + Math.min(h, v) / 2) * 3600;
+}
+async function fsrRoute(waypoints){
+  const lats = waypoints.map(w=> w[0]), lons = waypoints.map(w=> w[1]);
+  let minLat = Math.min(...lats), maxLat = Math.max(...lats), minLon = Math.min(...lons), maxLon = Math.max(...lons);
+  const spanM = Math.max((maxLat - minLat) * 111320, (maxLon - minLon) * 111320 * Math.cos(minLat * Math.PI / 180));
+  let lastErr = null;
+  for(const factor of [0.35, 0.8]){
+    const bufM = Math.max(700, spanM * factor);
+    const dLat = bufM / 111320, dLon = bufM / (111320 * Math.cos(minLat * Math.PI / 180));
+    const G = await fsrBuildGraph([minLat - dLat, minLon - dLon, maxLat + dLat, maxLon + dLon]);
+    const att = waypoints.map(w=> fsrAttach(G, w[0], w[1]));
+    if(att.some(a=> !a)){ lastErr = new Error('Ein Punkt liegt zu weit weg von einem Weg.'); break; }
+    let coords = [], ok = true;
+    if(att[0].offM > 3) coords.push(att[0].tap); // angetippter Punkt etwas neben dem Weg
+    for(let i = 0; i + 1 < att.length; i++){
+      const path = fsrDijkstra(G, att[i].node, att[i + 1].node);
+      if(!path){ ok = false; break; }
+      const seg = path.map(n=> [fsrY2Lat(G.nodes[n][1] / FSR_EXT), fsrX2Lon(G.nodes[n][0] / FSR_EXT)]);
+      coords = coords.concat(i === 0 ? seg : seg.slice(1)); // Etappen teilen sich den Zwischenpunkt
+    }
+    if(ok && att[att.length - 1].offM > 3) coords.push(att[att.length - 1].tap);
+    if(!ok){ lastErr = new Error('Kein durchgehender Weg im swisstopo-Wegnetz gefunden.'); continue; }
+    coords = coords.map(c=> [Math.round(c[0] * 1e6) / 1e6, Math.round(c[1] * 1e6) / 1e6]);
+    let distanceM = 0; for(let i = 1; i < coords.length; i++) distanceM += haversineMeters(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1]);
+    let ascentM = null, descentM = null, elevationProfile = null;
+    try{ const e = await fsrElevation(coords); ascentM = e.up; descentM = e.down; elevationProfile = e.profile; }catch(e){}
+    return {coords, distanceM, durationS: fsrHikeSeconds(distanceM, ascentM || 0, descentM || 0), ascentM, descentM, elevationProfile, source:'swisstopo'};
+  }
+  throw lastErr || new Error('Keine Route gefunden.');
+}
+
+// Route berechnen: zuerst auf dem swisstopo-Wegnetz (genau auf den Wegen der Landeskarte),
+// nur wenn dort kein Weg gefunden wird über openrouteservice (OpenStreetMap).
 async function fetchCalculatedRoute(waypoints){
+  try{
+    return await fsrRoute(waypoints);
+  }catch(e){
+    dlog('swisstopo-Routing: ' + (e && e.message ? e.message : e) + ' — weiter mit openrouteservice', 'err');
+    const r = await fetchCalculatedRouteOrs(waypoints);
+    r.source = 'ors';
+    showToast('Kein durchgehender swisstopo-Weg — Route über OpenStreetMap berechnet (kann neben dem Weg liegen).');
+    return r;
+  }
+}
+async function fetchCalculatedRouteOrs(waypoints){
   // waypoints: Array von [lat, lon], mindestens 2 Punkte.
   // Rückgabe: {coords, distanceM, durationS, ascentM, descentM} — Distanz/Zeit liefert ORS immer,
   // Höhenmeter (ascent/descent) nur, wenn elevation:true angefragt wird (Geometrie wird dann 3D).
@@ -7582,6 +8212,24 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - Routen-Felder \`manualTrackName\`, \`manualTrackType\`, \`trackName\`, \`trackType\`
   und \`altTracks\` NICHT setzen — Linien, ihre Namen und ihre Art (Aufstieg,
   Abfahrt, Variante …) werden ausschliesslich in der App erfasst
+
+## Felder-Erklärung (Wandern) — anstelle der Skitour-Felder
+
+- \`tourCategory\`: immer "wanderung"
+- \`difficulty\`: Wanderskala "T1" bis "T6" (nicht SAC-Skitourenskala)
+- \`targetAltitude\`: höchster Punkt der Wanderung in m ü. M.
+- \`distance\`: Distanz in km, z. B. "14"
+- \`elevationGain\` / \`elevationLoss\`: Auf- bzw. Abstieg in Hm
+- \`duration\`: Zeitbedarf in Stunden, z. B. "6-7"
+- \`tourShape\`: "rund" (Rundtour), "strecke" (Streckenwanderung) oder "hinzurueck" (Hin und zurück)
+- \`dog\`: mit Hund geeignet — "ja", "bedingt" oder "nein"; Details (Leitern, Weidevieh,
+  Leinenpflicht …) gehören in \`special\`
+- \`bestMonths\`: Liste der besten Monate ("jan", "feb", "maer", "apr", "mai", "jun", "jul",
+  "aug", "sep", "okt", "nov", "dez")
+- \`gefahren\`: Liste, z. B. "Exponierte Stellen", "Ketten/Leitern", "Steile Geröllhalden",
+  "Blockgelände", "Schneefelder", "Bachquerung", "Mutterkühe/Weidevieh", "Herdenschutzhunde",
+  "schwierige Orientierung", "Steinschlag"
+- Nicht verwenden: \`glacier\`, \`material\`, \`exposition\`, \`ropeType\`, \`ropeLength\`
 
 ## Felder-Erklärung (Fixseil = Hochtour/Klettern-MSL) — zusätzlich zu obigem
 
@@ -10035,7 +10683,12 @@ function fsEnsureThemeToggles(){
    "Tour starten" merkt sich die Tour (auch nach Neuladen, pro App). Erst dann erscheint SOS
    (beim Planen zuhause braucht es den nicht), oben steht "Unterwegs · Tourname" — ein Tipp
    öffnet die Tour, "Beenden" schliesst den Modus. */
-function fsAppKey(){ return (typeof SEKTOREN_PATH !== 'undefined') ? 'fixseil' : 'firnspur'; }
+// Welche App gerade läuft: wandern.html setzt APP_KEY selbst, Firnspur/Fixseil erkennt man wie
+// bisher an SEKTOREN_PATH (gibt es nur in Fixseil).
+function fsAppKey(){
+  if(typeof APP_KEY !== 'undefined') return APP_KEY;
+  return (typeof SEKTOREN_PATH !== 'undefined') ? 'fixseil' : 'firnspur';
+}
 function fsGetOnTour(){
   try{
     const v = JSON.parse(localStorage.getItem('fs-on-tour') || 'null');
@@ -10304,8 +10957,8 @@ function fsShowContextMap(t){
         FS_ROUTE_TYPE_ORDER.forEach(k=>{
           if(!byType[k]) return;
           const st = fsRouteStyle(byType[k][0]);
-          const g = group(FS_ROUTE_TYPES[k].label, st.color, true, st.dash);
-          byType[k].forEach(r=>{ const rs = fsRouteStyle(r); line(r.coords, rs.color, {group:g, dash:rs.dash, label: r.name ? r.name + ' (' + FS_ROUTE_TYPES[r.type].label + ')' : FS_ROUTE_TYPES[r.type].label}); });
+          const g = group(fsRouteLabel(k), st.color, true, st.dash);
+          byType[k].forEach(r=>{ const rs = fsRouteStyle(r); line(r.coords, rs.color, {group:g, dash:rs.dash, label: r.name ? r.name + ' (' + fsRouteLabel(r.type) + ')' : fsRouteLabel(r.type)}); });
         });
       }else{
         const g = group('Tour', FS_CTX_COLORS.track, true);
@@ -10330,7 +10983,7 @@ function fsShowContextMap(t){
       // Hütte + deren Zustiege (Saison passend zur App zuerst)
       const hut = fsTourHut(t);
       if(hut){
-        const prefSeason = (typeof SEKTOREN_PATH !== 'undefined') ? 'sommer' : 'winter';
+        const prefSeason = (fsAppKey() === 'firnspur') ? 'winter' : 'sommer';
         const hutRoutes = (hut.accessRoutes||[]).filter(fsRouteCoords);
         const main = hutRoutes.filter(r=> !r.season || r.season === prefSeason);
         const other = hutRoutes.filter(r=> r.season && r.season !== prefSeason);
@@ -10740,6 +11393,12 @@ const BRIEFING_PACK_TEMPLATES = {
     ['Ausrüstung', [['Bergschuhe, steigeisenfest',0],['Stirnlampe',0],['Stöcke',0]]],
     ['Bekleidung', [['Hardshell',0],['Handschuhe',0],['Mütze und Sonnenbrille',0],['Sonnencreme',0]]],
     ['Hütte und Verpflegung', [['Hüttenschlafsack',0],['Bargeld',0],['Wasser',0],['Lunch',0]]]
+  ],
+  wandern: [
+    ['Sicherheit', [['Erste-Hilfe-Set',1],['Handy geladen',1],['Rettungsdecke',0]]],
+    ['Ausrüstung', [['Wanderschuhe',0],['Stöcke',0],['Karte / Offline-Karte',0]]],
+    ['Bekleidung', [['Regenjacke',0],['Warme Schicht',0],['Sonnenhut und Sonnenbrille',0],['Sonnencreme',0]]],
+    ['Verpflegung', [['Wasser',0],['Lunch',0]]]
   ],
   msl: [
     ['Sicherheit', [['Helm',1],['Klettergurt',1],['Sicherungsgerät',1],['Schraubkarabiner',0],['Erste-Hilfe-Set',0]]],

@@ -410,6 +410,7 @@
   <a href="./index.html">🎿 Skitour</a>
   <a href="./fixseil.html" id="switch-hochtour">🏔️ Hochtour</a>
   <a href="./fixseil.html?view=msl" id="switch-msl">🧗 Klettern</a>
+  <a href="./wandern.html">🥾 Wandern</a>
 </div>
 <div id="app"></div>
 <button class="emergency-tab" id="emergency-btn">SOS</button>
@@ -1288,8 +1289,9 @@ async function assignSektorToKlettergebiet(sekId, gebId){
 }
 
 async function loadOtherAppTours(){
-  const obj = await fbGet(OTHER_TOURS_PATH);
-  state.otherAppTours = obj ? Object.values(obj) : [];
+  // Für die Agenda: Touren der anderen App plus die Wanderungen (wandern.html).
+  const [obj, wandernObj] = await Promise.all([ fbGet(OTHER_TOURS_PATH), fbGet('wandern/tours') ]);
+  state.otherAppTours = [...(obj ? Object.values(obj) : []), ...(wandernObj ? Object.values(wandernObj) : [])];
   return state.otherAppTours;
 }
 
@@ -1582,6 +1584,7 @@ async function submitTourForm(form, existing){
   t.gpxLink = form.gpxLink || '';
   try{ t.trackSimplified = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ t.trackSimplified = null; }
   try{ t.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ t.manualTrack = []; }
+  const routeUploads = fsApplyRoutesFromForm(t, form, existing);
   try{ t.topoImages = form.topoImages ? JSON.parse(form.topoImages) : []; }catch(e){ t.topoImages = []; }
   t.crux = form.crux;
   t.special = form.special;
@@ -1626,6 +1629,7 @@ async function submitTourForm(form, existing){
 
   const ok = await saveTourCloud(t).catch(()=>false);
   t._unsynced = !ok;
+  if(routeUploads.length) Promise.all(routeUploads).then(r=>{ if(r.some(x=>x===false)) showToast('Eine GPX-Originaldatei konnte nicht gespeichert werden (Internet?).', true); });
   if(!ok){
     markUnsaved();
     showToast('Tour ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
@@ -4300,6 +4304,7 @@ function tourFormHtml(existing){
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(t.manualTrack || []))}'/>
       </div>
+      ${fsRoutesEditorHtml(t)}
       <div id="descent-freetext-field" class="field" style="${(t.tourCategory==='msl')?'display:none;':''}"><label>Abstieg</label><textarea name="descent" placeholder="Abstiegsroute, Varianten, Abseilstellen …">${esc(t.descent||'')}</textarea></div>
       <div id="descent-msl-hint" class="hint" style="margin:-4px 0 9px 0; ${(t.tourCategory==='msl')?'':'display:none;'}">Abstieg wird unten in der Detailansicht über "+ Abstieg hinzufügen" strukturiert erfasst (mit Karte/GPX).</div>
       <div class="field"><label>Zustieg über Hütte</label>
@@ -4403,11 +4408,9 @@ function tourDetailHtml(id){
       ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
     </div>` : ''}
     <div class="detail-section" id="tour-map-section-${t.id}">
-      <h4>Standort${t.points && t.points.length>1?'e':''}${(t.trackSimplified || (t.manualTrack && t.manualTrack.length)) ? ' & Track' : ''}</h4>
+      <h4>${fsTourRoutes(t).length ? 'Routen & Standorte' : 'Standort' + (t.points && t.points.length>1?'e':'')}</h4>
       ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
-      ${t.trackSimplified ? `<span class="hint">🔴 Rot: aufgezeichneter GPX-Track</span><br/>` : ''}
-      ${(t.manualTrack && t.manualTrack.length) ? `<span class="hint">🔵 Blau: manuell geplante Linie</span>` : ''}
-      ${(t.altTracks && t.altTracks.length) ? `<span class="hint">┄ gestrichelt: Alternativrouten</span><br/>` : ''}
+      ${fsRoutesListHtml(t)}
       ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${t.id}" data-act="quick-edit-toggle" data-id="${t.id}" data-kind="tour" title="Gedrückt halten, um die Karte zu bearbeiten">Karte bearbeiten</button>
@@ -4462,10 +4465,9 @@ function tourDetailHtml(id){
         <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-tour-route" data-tour-id="${t.id}" data-kind="descent">+ Abstieg hinzufügen</button>
       </div>`;
     })()}
-    ${(t.gpxLink || (t.altTracks && t.altTracks.length)) ? `<div class="detail-section">
-      <h4>GPX-Track</h4>
-      ${t.gpxLink ? `<p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>` : ''}
-      ${altTracksListHtml(t)}
+    ${t.gpxLink ? `<div class="detail-section">
+      <h4>GPX-Link</h4>
+      <p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>
     </div>` : ''}
     <!-- Aktionen nach den Infos: geplant und angeschaut wird häufiger als heruntergeladen -->
     ${tourActionsHtml(t, [
@@ -5153,6 +5155,7 @@ function wireModalHandlers(){
     const pointsMapDiv = document.getElementById('points-map');
     if(pointsMapDiv && pointsMapDiv.style.display !== 'none' && pointsMapToggleBtn) pointsMapToggleBtn.click();
   }
+  if(root.querySelector('#fs-routes-edit')) fsWireRoutesEditor();
   const gpxFileInput = root.querySelector('#gpx-file-input');
   if(gpxFileInput) gpxFileInput.addEventListener('change', ()=>{
     handleGpxFileUpload(gpxFileInput, GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status', refreshPointsMapIfOpen);
