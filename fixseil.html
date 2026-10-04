@@ -4394,8 +4394,7 @@ function tourDetailHtml(id){
       ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')]
     ])}
     ${(t.topoImages && t.topoImages.length) ? `<div class="detail-section" style="margin-bottom:14px;"><h4>Topo</h4>${topoImagesGalleryHtml(t.topoImages)}</div>` : ''}
-    ${hut ? `<div class="fs-links"><button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button></div>` : ''}
-    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon)}</div>` : ''}
+    ${(hut || t.tourLink) ? `<div class="fs-links">${fsTourLinkChipHtml(t.tourLink)}${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button>` : ''}</div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${!isMsl && t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
@@ -4407,6 +4406,8 @@ function tourDetailHtml(id){
       </div>` : ''}
       ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
     </div>` : ''}
+    <!-- Wetter nach den Infos (Spezielles, Aufstieg, Anfahrt sind beim Planen wichtiger) -->
+    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon)}</div>` : ''}
     <div class="detail-section" id="tour-map-section-${t.id}">
       <h4>${fsTourRoutes(t).length ? 'Routen & Standorte' : 'Standort' + (t.points && t.points.length>1?'e':'')}</h4>
       ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
@@ -4474,7 +4475,6 @@ function tourDetailHtml(id){
       t.trackSimplified ? fsMenuItemHtml('download', 'GPX herunterladen', `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}"`) : '',
       (!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? fsMenuItemHtml('download', 'Route als GPX', `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}"`) : '',
       fsMenuItemHtml('upload', 'Exportieren / teilen', `data-act="export-tour" data-id="${t.id}"`),
-      t.tourLink ? fsMenuItemHtml('link', 'Link zur Tour öffnen', '', t.tourLink) : '',
       fsMenuItemHtml('check', 'Als erledigt markieren', `data-act="mark-done" data-kind="tour" data-id="${t.id}"`),
       (isMsl && t.sektorId) ? fsMenuItemHtml('refresh', 'In Klettergarten-Route umwandeln', `data-act="convert-msl-to-klettergarten" data-id="${t.id}"`) : ''
     ])}

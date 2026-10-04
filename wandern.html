@@ -2198,11 +2198,11 @@ function tourDetailHtml(id){
       ['Mit Hund', DOG_LABELS[t.dog] || ''],
       ['Beste Monate', MONTHS.filter(m=>(t.bestMonths||[]).includes(m.key)).map(m=>m.label).join(', ')]
     ])}
-    ${(hut || gebiet) ? `<div class="fs-links">
+    ${(hut || gebiet || t.tourLink) ? `<div class="fs-links">
+      ${fsTourLinkChipHtml(t.tourLink)}
       ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
       ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">⛰️ Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
     </div>` : ''}
-    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon)}</div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
@@ -2214,6 +2214,8 @@ function tourDetailHtml(id){
       </div>` : ''}
       ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
     </div>` : ''}
+    <!-- Wetter nach den Infos (Spezielles, Aufstieg, Anfahrt sind beim Planen wichtiger) -->
+    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon)}</div>` : ''}
     <div class="detail-section" id="tour-map-section-${t.id}">
       <h4>${fsTourRoutes(t).length ? 'Routen & Standorte' : 'Standort' + (t.points && t.points.length>1?'e':'')}</h4>
       ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
@@ -2239,7 +2241,6 @@ function tourDetailHtml(id){
       t.trackSimplified ? fsMenuItemHtml('download', 'GPX herunterladen', `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}"`) : '',
       (!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? fsMenuItemHtml('download', 'Route als GPX', `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}"`) : '',
       fsMenuItemHtml('upload', 'Exportieren / teilen', `data-act="export-tour" data-id="${t.id}"`),
-      t.tourLink ? fsMenuItemHtml('link', 'Link zur Tour öffnen', '', t.tourLink) : '',
       fsMenuItemHtml('check', 'Als abgeschlossen markieren', `data-act="open-complete-tour" data-id="${t.id}"`)
     ])}
     ${(() => { const related = findToursSharingPoints(t, state.tours, 300); return related.length ? `<div class="detail-section">
