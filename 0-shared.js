@@ -10575,6 +10575,138 @@ function fsTileHtml(icon, label, attrs){
   return `<button type="button" class="fs-tile" ${attrs}>${fsIconHtml(icon)}<span>${label}</span></button>`;
 }
 // Ein Eintrag im "Mehr"-Menü. href gesetzt = externer Link statt Knopf.
+/* ================= Anreise: Navigation, Fahrzeit und ÖV-Verbindung (fsTravel*) =================
+   Pro Tour ein Block "Anreise" in der Tourenansicht:
+   - Parkplatz (oder erster Punkt als Ausgangspunkt): "Navigieren" öffnet Google Maps / die Karten-App
+     mit Route ab dem eigenen Standort; Fahrzeit ab Standort über openrouteservice (ohne Verkehr)
+   - Haltestelle: nächste Verbindung aus dem Schweizer Fahrplan (transport.opendata.ch) ab der
+     nächstgelegenen Haltestelle beim eigenen Standort; Link zur ÖV-Route
+   Den Standort fragt die App erst auf Knopfdruck ab — ausser er ist schon erlaubt. */
+function fsTravelTargets(t){
+  const pts = (t && t.points) || [];
+  const park = pts.filter(p=> p.category === 'parkplatz');
+  const stops = pts.filter(p=> p.category === 'haltestelle');
+  const car = park.length ? park : (pts.length && !stops.length ? [Object.assign({}, pts[0], {_start: true})] : []);
+  return {car, stops};
+}
+function fsTravelHtml(t){
+  const {car, stops} = fsTravelTargets(t);
+  if(!car.length && !stops.length) return '';
+  const gm = (p, mode)=> 'https://www.google.com/maps/dir/?api=1&destination=' + p.lat + ',' + p.lon + '&travelmode=' + mode;
+  const row = (p, kind, i)=>{
+    const label = p.label || (kind === 'car' ? (p._start ? 'Ausgangspunkt' : 'Parkplatz') : 'Haltestelle');
+    return `<div class="fs-travel-row" data-kind="${kind}" data-i="${i}">
+      <div class="fs-travel-head">
+        <span class="fs-travel-ico">${kind === 'car' ? '🅿️' : '🚏'}</span>
+        <strong>${esc(label)}</strong>
+        <a class="fs-travel-go" href="${gm(p, kind === 'car' ? 'driving' : 'transit')}" target="_blank" rel="noopener noreferrer">${kind === 'car' ? 'Navigieren' : 'ÖV-Route'} ↗</a>
+      </div>
+      <div class="fs-travel-info" data-info></div>
+    </div>`;
+  };
+  return `<div class="detail-section fs-travel" id="fs-travel-${t.id}" data-tour-id="${t.id}" data-pending="1">
+    <h4>Anreise</h4>
+    ${car.map((p, i)=> row(p, 'car', i)).join('')}
+    ${stops.map((p, i)=> row(p, 'stop', i)).join('')}
+    <button type="button" class="btn secondary fs-travel-calc" data-act="fs-travel-calc">${fsIconHtml('gps')}<span>Ab meinem Standort berechnen</span></button>
+  </div>`;
+}
+let fsTravelPos = null, fsTravelPosAt = 0;
+const fsTravelCache = new Map();
+function fsTravelPosition(){
+  if(fsTravelPos && Date.now() - fsTravelPosAt < 5 * 60000) return Promise.resolve(fsTravelPos);
+  return new Promise((resolve, reject)=>{
+    if(!navigator.geolocation){ reject(new Error('Standort nicht verfügbar')); return; }
+    navigator.geolocation.getCurrentPosition(pos=>{ fsTravelPos = {lat: pos.coords.latitude, lon: pos.coords.longitude}; fsTravelPosAt = Date.now(); resolve(fsTravelPos); },
+      err=> reject(new Error(err && err.code === 1 ? 'Standort nicht erlaubt' : 'Standort nicht verfügbar')), {enableHighAccuracy:false, maximumAge:300000, timeout:15000});
+  });
+}
+const fsFmtDur = (s)=>{ const m = Math.round(s / 60); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') + ' min'; };
+async function fsTravelDrive(from, to){
+  const key = 'car|' + from.lat.toFixed(3) + ',' + from.lon.toFixed(3) + '|' + to.lat + ',' + to.lon;
+  if(fsTravelCache.has(key)) return fsTravelCache.get(key);
+  const url = 'https://api.openrouteservice.org/v2/directions/driving-car?api_key=' + encodeURIComponent(OPENROUTESERVICE_API_KEY) + '&start=' + from.lon + ',' + from.lat + '&end=' + to.lon + ',' + to.lat;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('Fahrzeit nicht verfügbar');
+  const d = await res.json();
+  const s = d.features && d.features[0] && d.features[0].properties && d.features[0].properties.summary;
+  if(!s) throw new Error('Keine Strassenverbindung gefunden');
+  const r = {durationS: s.duration, distanceM: s.distance};
+  fsTravelCache.set(key, r);
+  return r;
+}
+// Nächste Haltestelle(n) bei einer Koordinate (Schweizer Fahrplan)
+async function fsTravelNearestStation(p){
+  const res = await fetch('https://transport.opendata.ch/v1/locations?type=station&x=' + p.lat + '&y=' + p.lon);
+  if(!res.ok) throw new Error('Fahrplan nicht erreichbar');
+  const d = await res.json();
+  const st = (d.stations || []).find(s=> s && s.id);
+  if(!st) throw new Error('Keine Haltestelle in der Nähe');
+  return st;
+}
+async function fsTravelTransit(from, to){
+  const key = 'oev|' + from.lat.toFixed(3) + ',' + from.lon.toFixed(3) + '|' + to.lat + ',' + to.lon;
+  if(fsTravelCache.has(key)) return fsTravelCache.get(key);
+  const [a, b] = await Promise.all([fsTravelNearestStation(from), fsTravelNearestStation(to)]);
+  if(a.id === b.id) return {same: true, station: a.name};
+  const res = await fetch('https://transport.opendata.ch/v1/connections?limit=2&from=' + encodeURIComponent(a.id) + '&to=' + encodeURIComponent(b.id));
+  if(!res.ok) throw new Error('Fahrplan nicht erreichbar');
+  const d = await res.json();
+  const c = (d.connections || [])[0];
+  if(!c) throw new Error('Keine Verbindung gefunden');
+  const t = (iso)=> iso ? new Date(iso).toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'}) : '';
+  const dm = /(\d+)d(\d+):(\d+)/.exec(c.duration || '');
+  const r = {from: a.name, to: b.name, dep: t(c.from && c.from.departure), arr: t(c.to && c.to.arrival),
+    durS: dm ? (+dm[1] * 1440 + +dm[2] * 60 + +dm[3]) * 60 : null, transfers: c.transfers,
+    products: (c.products || []).filter(Boolean).join(', ')};
+  fsTravelCache.set(key, r);
+  return r;
+}
+async function fsTravelCalc(box){
+  const t = (state.tours || []).find(x=> String(x.id) === String(box.getAttribute('data-tour-id')));
+  if(!t) return;
+  box.setAttribute('data-pending', '0');
+  const btn = box.querySelector('.fs-travel-calc');
+  if(btn){ btn.disabled = true; btn.querySelector('span').textContent = 'Standort wird bestimmt …'; }
+  let pos;
+  try{ pos = await fsTravelPosition(); }
+  catch(e){ if(btn){ btn.disabled = false; btn.querySelector('span').textContent = 'Ab meinem Standort berechnen'; } showToast(e.message + ' — Navigation über die Links geht trotzdem.', true); return; }
+  if(btn) btn.remove();
+  const {car, stops} = fsTravelTargets(t);
+  box.querySelectorAll('.fs-travel-row').forEach(row=>{
+    const kind = row.getAttribute('data-kind'), i = +row.getAttribute('data-i');
+    const p = (kind === 'car' ? car : stops)[i], info = row.querySelector('[data-info]');
+    if(!p) return;
+    info.textContent = 'Berechne …';
+    if(kind === 'car'){
+      fsTravelDrive(pos, p).then(r=>{ info.innerHTML = `<b>🚗 ${fsFmtDur(r.durationS)}</b> · ${(r.distanceM / 1000).toFixed(0)} km ab deinem Standort <span class="fs-travel-note">(ohne Verkehr)</span>`; })
+        .catch(e=>{ info.textContent = e.message; });
+    }else{
+      fsTravelTransit(pos, p).then(r=>{
+        if(r.same){ info.textContent = 'Du bist schon bei ' + r.station + '.'; return; }
+        info.innerHTML = `<b>🚆 ${esc(r.dep)} → ${esc(r.arr)}</b>${r.durS ? ' · ' + fsFmtDur(r.durS) : ''}${typeof r.transfers === 'number' ? ' · ' + (r.transfers === 0 ? 'direkt' : r.transfers + '× umsteigen') : ''}<br/><span class="fs-travel-note">ab ${esc(r.from)} bis ${esc(r.to)}${r.products ? ' · ' + esc(r.products) : ''}</span>`;
+      }).catch(e=>{ info.textContent = e.message; });
+    }
+  });
+}
+// Automatisch berechnen, wenn der Standort schon erlaubt ist (sonst erst auf Knopfdruck)
+let fsTravelPerm = null;
+function fsTravelAutoFill(){
+  const box = document.querySelector('.fs-travel[data-pending="1"]');
+  if(!box) return;
+  if(fsTravelPerm === 'granted'){ fsTravelCalc(box); return; }
+  if(fsTravelPerm === null && navigator.permissions && navigator.permissions.query){
+    fsTravelPerm = 'asking';
+    navigator.permissions.query({name:'geolocation'}).then(s=>{ fsTravelPerm = s.state; if(s.state === 'granted') fsTravelAutoFill(); }).catch(()=>{ fsTravelPerm = 'unknown'; });
+  }
+}
+document.addEventListener('click', (e)=>{
+  const b = e.target.closest && e.target.closest('[data-act="fs-travel-calc"]');
+  if(!b) return;
+  e.preventDefault(); e.stopPropagation();
+  fsTravelCalc(b.closest('.fs-travel'));
+}, true);
+
 // Link zur Tourbeschreibung (SAC, Camptocamp, Hikr …) direkt in der Tourenansicht, mit Quelle
 function fsTourLinkChipHtml(url){
   if(!url) return '';
@@ -11042,7 +11174,7 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
       if(ctx && muts.every(m=> ctx.contains(m.target))) return;
       if(queued) return;
       queued = true;
-      requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); });
+      requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); });
     }).observe(document.body, {childList:true, subtree:true});
     fsApplyTourSheetMode();
     fsApplyEditMode();
