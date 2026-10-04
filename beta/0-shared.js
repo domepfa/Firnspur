@@ -888,7 +888,15 @@ function resolveAgendaWeatherLocation(a){
   const lat = pt ? parseFloat(pt.lat) : NaN;
   const lon = pt ? parseFloat(pt.lon) : NaN;
   if(isNaN(lat) || isNaN(lon)) return null;
-  return {lat, lon, label: tour.region || ''};
+  return {lat, lon, label: (pt.label && pt.label.trim()) || tour.name || tour.region || ''};
+}
+// "Di 06.10. · in 2 Tagen" — damit klar ist, dass die Prognose für den Tourtag gilt
+function agendaWeatherDayLabel(dateStr){
+  const d = new Date(dateStr + 'T00:00:00'), today = new Date(); today.setHours(0,0,0,0);
+  const diff = Math.round((d - today) / 86400000);
+  const wd = d.toLocaleDateString('de-CH', {weekday:'short'}).replace('.', '');
+  const dm = d.toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit'});
+  return {wd, dm, rel: diff === 0 ? 'heute' : diff === 1 ? 'morgen' : diff > 1 ? 'in ' + diff + ' Tagen' : ''};
 }
 async function loadAgendaWeather(agendaId){
   const a = state.agenda.find(x=>x.id===agendaId);
@@ -916,18 +924,20 @@ async function loadAgendaWeather(agendaId){
     const info = weatherCodeInfo(w.weathercode);
     window.__agendaWeatherCache = window.__agendaWeatherCache || {};
     window.__agendaWeatherCache[agendaId] = { icon: info.icon, label: info.label, tempMin: w.tempMin, tempMax: w.tempMax, precipitation: w.precipitation, windMax: w.windMax, locationLabel: loc.label, source: w.source, meteoSwissLink };
-    const followingDays = (w.days || []).slice(1); // Starttag selbst steht schon oben, hier nur die Folgetage
+    const tl = agendaWeatherDayLabel(a.startDate);
     el.innerHTML = `<div class="detail-section">
-      <h4>Wetter${loc.label ? ' — ' + esc(loc.label) : ''}</h4>
+      <h4>Wetter am Tourtag${loc.label ? ' — ' + esc(loc.label) : ''}</h4>
+      <p class="aw-when"><b>${esc(tl.wd)} ${esc(tl.dm)}</b>${tl.rel ? ' · ' + esc(tl.rel) : ''}</p>
       <p style="font-size:15px; margin:0 0 4px 0;">${info.icon} ${esc(info.label)}</p>
       <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(w.tempMin)}° / ${Math.round(w.tempMax)}° · 💧 ${w.precipitation} mm · 💨 ${Math.round(w.windMax)} km/h</p>
-      ${followingDays.length ? `<div style="display:flex; gap:8px; margin-top:8px;">
-        ${followingDays.map(day=>{
-          const dInfo = weatherCodeInfo(day.weathercode);
-          return `<div style="flex:1; background:var(--ice-light); border-radius:6px; padding:6px; text-align:center;">
-            <div style="font-size:11px; color:var(--ink-soft); margin-bottom:2px;">${esc(fmtDateShort(day.date))}</div>
+      ${(w.days || []).length > 1 ? `<div class="aw-days">
+        ${(w.days || []).map((day, i)=>{
+          const dInfo = weatherCodeInfo(day.weathercode), dl = agendaWeatherDayLabel(day.date);
+          return `<div class="aw-day${i === 0 ? ' on' : ''}">
+            <div class="aw-day-d">${i === 0 ? 'Tourtag' : esc(dl.wd + ' ' + dl.dm)}</div>
             <div style="font-size:16px;">${dInfo.icon}</div>
-            <div style="font-size:12px; color:var(--ink-soft);">${Math.round(day.tempMin)}° / ${Math.round(day.tempMax)}°</div>
+            <div style="font-size:12px;">${Math.round(day.tempMin)}° / ${Math.round(day.tempMax)}°</div>
+            ${day.precipitation ? `<div style="font-size:11px; color:var(--ink-soft);">${day.precipitation} mm</div>` : ''}
           </div>`;
         }).join('')}
       </div>` : ''}
@@ -940,7 +950,8 @@ async function loadAgendaWeather(agendaId){
     const snapBtn = document.getElementById('save-weather-snapshot-btn-' + agendaId);
     if(snapBtn) snapBtn.onclick = ()=> saveWeatherSnapshot(agendaId);
   }else if(w.status==='too-far'){
-    el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">Prognose erst ca. 16 Tage vor dem Termin verfügbar.</p></div>`;
+    const from = new Date(new Date(a.startDate + 'T00:00:00').getTime() - 16 * 86400000).toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit'});
+    el.innerHTML = `<div class="detail-section"><h4>Wetter am Tourtag</h4><p style="font-size:13px; color:var(--ink-faint);">Prognose ab dem ${esc(from)} verfügbar (rund 16 Tage vor der Tour).</p></div>`;
   }else if(w.status==='past'){
     el.innerHTML = '';
   }else{
@@ -1230,7 +1241,7 @@ function printTourenzettel(agendaId){
   if(tour && Array.isArray(tour.material)) materialList.push(...tour.material);
   if(tour && tour.quickdrawCount) materialList.push(tour.quickdrawCount + '× Expressschlingen');
   if(tour && tour.ropeType) materialList.push(tour.ropeType + (tour.ropeLength ? ' ('+tour.ropeLength+')' : ''));
-  if(brief.pack && brief.pack.length){ materialList.length = 0; brief.pack.forEach(p=> materialList.push(p.label + (p.must ? ' (Pflicht)' : ''))); }
+  if(brief.pack && brief.pack.length){ materialList.length = 0; brief.pack.forEach(p=>{ const lv = briefingPackLevel(p); materialList.push(p.label + (lv === 'must' ? ' (Pflicht)' : lv === 'opt' ? ' (wenn vorhanden)' : '')); }); }
 
   // Notfallnummern: die beiden Schweizer Rettungsnummern immer, dazu Notfallkontakt und
   // Hütten-Kontakt(e) — nur sachliche Nummern, keine Alarm-Formulierung.
@@ -11545,6 +11556,10 @@ const BRIEFING_PACK_TEMPLATES = {
     ['Verpflegung', [['Wasser',0],['Lunch',0]]]
   ]
 };
+// Stufe eines Packlisten-Eintrags: 'must' = Pflicht, 'opt' = wenn vorhanden, '' = normal.
+// Ältere Einträge kennen nur must (true/false).
+function briefingPackLevel(p){ return p && (p.level === 'must' || p.level === 'opt') ? p.level : (p && p.must ? 'must' : ''); }
+const BRIEFING_LEVEL_LABEL = {must:'Pflicht', opt:'Wenn vorhanden'};
 function briefingSlug(label){ return (label||'').toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || uid('p'); }
 function briefingPackFromTemplate(type, tour){
   const groups = BRIEFING_PACK_TEMPLATES[type] || BRIEFING_PACK_TEMPLATES.ski;
@@ -11614,9 +11629,14 @@ function briefingPackHtml(a){
   });
   const groups = [];
   pack.forEach(p=>{ const g = p.group || 'Material'; let e = groups.find(x=>x.g===g); if(!e){ e = {g, items:[]}; groups.push(e); } e.items.push(p); });
+  // Innerhalb einer Gruppe: Pflicht zuerst, "wenn vorhanden" zuletzt
+  const rank = {must:0, '':1, opt:2};
+  groups.forEach(g=> g.items.sort((x, y)=> rank[briefingPackLevel(x)] - rank[briefingPackLevel(y)]));
+  const mustAll = pack.filter(p=> briefingPackLevel(p) === 'must');
   return `<div class="bf-card">
       <div class="bf-row"><h3 class="bf-h">Packliste</h3><span class="bf-count">${state.myName ? `${done} von ${pack.length}` : ''}</span></div>
       ${state.myName ? `<div class="bf-bar"><span style="width:${pct}%"></span></div>` : `<p class="bf-empty">Setze deinen Namen, um abzuhaken.</p>`}
+      ${mustAll.length ? `<p class="bf-must-sum"><span class="bf-must">Pflicht</span> ${mustAll.map(p=> esc(p.label)).join(', ')}</p>` : ''}
       ${others.length ? `<div class="bf-people">${others.map(o=>`<span class="bf-person"><i class="${o.all?'ok':''}"></i>${esc(o.n)} · ${o.all ? 'komplett' : o.cnt + ' von ' + pack.length}</span>`).join('')}</div>` : ''}
     </div>
     ${groups.map(g=>`<div class="bf-group">
@@ -11625,7 +11645,7 @@ function briefingPackHtml(a){
         ${g.items.map(p=>{ const on = mine.has(p.id); return `<button type="button" class="bf-check ${on?'on':''}" data-act="brief-pack" data-id="${esc(a.id)}" data-item="${esc(p.id)}" aria-pressed="${on}">
           <span class="bf-box" aria-hidden="true">${fsIconHtml('check')}</span>
           <span class="bf-check-label">${esc(p.label)}</span>
-          ${p.must ? `<span class="bf-must">Pflicht</span>` : ''}
+          ${briefingPackLevel(p) === 'must' ? `<span class="bf-must">Pflicht</span>` : briefingPackLevel(p) === 'opt' ? `<span class="bf-opt">Wenn vorhanden</span>` : ''}
         </button>`; }).join('')}
       </div>
     </div>`).join('')}`;
@@ -11714,7 +11734,8 @@ function briefingEditorInnerHtml(d){
     <div class="field"><label>Das braucht es (Kondition, Technik)</label><textarea data-bf-field="anforderungen" placeholder="z. B. 1200 Hm in 4½ h, Spitzkehren sicher">${esc(d.anforderungen||'')}</textarea></div>
     <div class="bf-ed-h"><span class="bf-kicker">Packliste${d.pack.length ? ' (' + d.pack.length + ')' : ''}</span>
       <button type="button" class="chip" data-act="brief-ed-template">${d.pack.length ? 'Vorlage neu laden' : 'Vorlage übernehmen'}</button></div>
-    ${d.pack.length ? `<div class="chips bf-ed-pack">${d.pack.map((p,i)=>`<button type="button" class="chip on" data-act="brief-ed-pack-remove" data-i="${i}" title="Entfernen" style="background:var(--ice-deep)">${esc(p.label)}${p.must?' ·&nbsp;Pflicht':''} ✕</button>`).join('')}</div>` : ''}
+    ${d.pack.length ? `<p class="bf-ed-hint">Antippen schaltet um: <b>Pflicht</b> → <b>wenn vorhanden</b> → normal. ✕ entfernt.</p>
+    <div class="bf-ed-pack">${d.pack.map((p,i)=>{ const lv = briefingPackLevel(p); return `<span class="bf-ed-item lv-${lv || 'none'}"><button type="button" class="bf-ed-item-main" data-act="brief-ed-pack-level" data-i="${i}" title="Pflicht / wenn vorhanden / normal">${esc(p.label)}${lv ? `<small>${BRIEFING_LEVEL_LABEL[lv]}</small>` : ''}</button><button type="button" class="bf-ed-item-x" data-act="brief-ed-pack-remove" data-i="${i}" aria-label="${esc(p.label)} entfernen">✕</button></span>`; }).join('')}</div>` : ''}
     <div class="bf-ed-addpack"><input type="text" placeholder="Eigener Gegenstand" data-bf-newpack aria-label="Eigener Gegenstand"/><button type="button" class="chip" data-act="brief-ed-pack-add">➕</button></div>
   `;
 }
@@ -11786,10 +11807,16 @@ document.addEventListener('click', async (e)=>{
   else if(act==='brief-ed-suggest'){ d.ablauf = briefingSuggestedAblauf(briefingFormValues()); briefingEditorSync(true); }
   else if(act==='brief-ed-template'){ const v = briefingFormValues(); d.pack = briefingPackFromTemplate(v.type, v.tour); briefingEditorSync(true); }
   else if(act==='brief-ed-pack-remove'){ d.pack.splice(i,1); briefingEditorSync(true); }
+  else if(act==='brief-ed-pack-level'){
+    const p = d.pack[i]; if(!p) return;
+    const next = {'':'must', must:'opt', opt:''}[briefingPackLevel(p)];
+    p.level = next; p.must = next === 'must';
+    briefingEditorSync(true);
+  }
   else if(act==='brief-ed-pack-add'){
     const inp = document.querySelector('[data-bf-newpack]');
     const label = inp && inp.value.trim();
-    if(label && !d.pack.some(p=>p.id===briefingSlug(label))){ d.pack.push({id:briefingSlug(label), label, must:false, group:'Eigenes'}); briefingEditorSync(true); }
+    if(label && !d.pack.some(p=>p.id===briefingSlug(label))){ d.pack.push({id:briefingSlug(label), label, must:false, level:'', group:'Eigenes'}); briefingEditorSync(true); }
   }
 }, true);
 document.addEventListener('input', (e)=>{

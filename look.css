@@ -1425,3 +1425,25 @@ html.fs-dark .fsm-row{ border-top-color:#33414C; }
 .fs-travel-note{ color:var(--ink-soft); font-size:12.5px; }
 .fs-travel-calc{ margin-top:8px; display:inline-flex; align-items:center; gap:8px; }
 .fs-travel-calc .fs-i{ width:18px; height:18px; }
+/* Tourenzettel: Wetter am Tourtag, Packliste mit Pflicht / wenn vorhanden */
+.aw-when{ margin:0 0 6px; font-size:14px; color:var(--ink); }
+.aw-days{ display:flex; gap:8px; margin-top:10px; }
+.aw-day{ flex:1; min-width:0; background:var(--ice-light); border-radius:10px; padding:6px 4px; text-align:center; color:var(--ink-soft); }
+.aw-day.on{ background:var(--ice-deep); color:#fff; }
+.aw-day.on div{ color:#fff !important; }
+.aw-day-d{ font-size:11px; font-weight:700; margin-bottom:2px; }
+.bf-opt{ font-size:10.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#5A4A1A; background:#FBF1D6; padding:3px 8px; border-radius:999px; }
+.bf-must-sum{ margin:8px 0 0; font-size:13.5px; line-height:1.6; }
+.bf-ed-hint{ margin:0 0 8px; font-size:12.5px; color:var(--ink-soft); }
+.bf-ed-pack{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+.bf-ed-item{ display:inline-flex; align-items:stretch; border-radius:999px; overflow:hidden; border:1.5px solid var(--line); background:#fff; }
+.bf-ed-item button{ border:none; background:none; font:inherit; cursor:pointer; color:var(--ink); }
+.bf-ed-item-main{ display:flex; flex-direction:column; align-items:flex-start; justify-content:center; min-height:40px; padding:4px 6px 4px 14px; font-size:14px; font-weight:700; line-height:1.15; text-align:left; }
+.bf-ed-item-main small{ font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; }
+.bf-ed-item-x{ padding:0 12px 0 6px; font-size:14px; color:var(--ink-soft) !important; }
+.bf-ed-item.lv-must{ background:#8F1C13; border-color:#8F1C13; }
+.bf-ed-item.lv-must button{ color:#fff !important; }
+.bf-ed-item.lv-opt{ background:#FBF1D6; border-color:#E2C36B; }
+.bf-ed-item.lv-opt small{ color:#7A5A12; }
+html.fs-dark .bf-ed-item{ background:#2A3640; border-color:#3A4752; }
+html.fs-dark .bf-ed-item.lv-opt{ background:#4A3E1E; border-color:#7A6430; }
