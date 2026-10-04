@@ -10575,6 +10575,12 @@ function fsTileHtml(icon, label, attrs){
   return `<button type="button" class="fs-tile" ${attrs}>${fsIconHtml(icon)}<span>${label}</span></button>`;
 }
 // Ein Eintrag im "Mehr"-Menü. href gesetzt = externer Link statt Knopf.
+// Link zur Tourbeschreibung (SAC, Camptocamp, Hikr …) direkt in der Tourenansicht, mit Quelle
+function fsTourLinkChipHtml(url){
+  if(!url) return '';
+  let host = ''; try{ host = new URL(url).hostname.replace(/^www\./, ''); }catch(e){}
+  return `<a class="hut-link-chip fs-tourlink" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${fsIconHtml('link')}<span>Tourbeschreibung${host ? ' · ' + esc(host) : ''}</span> ↗</a>`;
+}
 function fsMenuItemHtml(icon, label, attrs, href){
   if(href) return `<a class="fs-more-item" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${fsIconHtml(icon)}<span>${label}</span></a>`;
   return `<button type="button" class="fs-more-item" ${attrs}>${fsIconHtml(icon)}<span>${label}</span></button>`;
