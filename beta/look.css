@@ -1462,3 +1462,12 @@ html.fs-dark .bf-ed-item.lv-opt{ background:#4A3E1E; border-color:#7A6430; }
 .fs-phones{display:flex;flex-direction:column;gap:6px;}
 .fs-phone-row{display:grid;grid-template-columns:minmax(90px,40%) 1fr;align-items:center;gap:10px;font-size:13.5px;margin:0;}
 .fs-phone-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* Rettung aus dem Gerätespeicher */
+.fs-rescue{position:fixed;inset:0;z-index:100000;background:rgba(15,30,39,.55);display:flex;align-items:center;justify-content:center;padding:16px;}
+.fs-rescue-card{background:var(--paper,#fff);color:var(--ink,#0F1E27);border-radius:16px;max-width:520px;width:100%;max-height:86vh;overflow:auto;padding:18px 18px 14px;box-shadow:0 10px 40px rgba(0,0,0,.3);}
+.fs-rescue-card h3{margin:0 0 8px;font-size:18px;}
+.fs-rescue-card p{margin:0 0 10px;font-size:14px;}
+.fs-rescue-list{display:flex;flex-direction:column;gap:8px;font-size:13.5px;margin-bottom:14px;}
+.fs-rescue-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+.fs-rescue-muted{color:var(--ink-faint,#6B7A84);font-size:12.5px;}
