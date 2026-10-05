@@ -58,7 +58,15 @@ async function fbGet(path){
     return null;
   }
 }
+// Schutz: nie eine ganze Sammlung überschreiben oder löschen. Jeder Schreibpfad endet mit einer
+// gültigen ID (z. B. "fixseil/tours/t_abc"); eine leere ID ("fixseil/tours/") würde sonst die
+// komplette Sammlung durch einen einzelnen Eintrag ersetzen.
+function fbPathOk(path){
+  const segs = String(path || '').split('/');
+  return segs.length >= 2 && segs.every(s=> s && s !== 'undefined' && s !== 'null' && !/[.#$\[\]]/.test(s));
+}
 async function fbSet(path, value){
+  if(!fbPathOk(path)){ dlog('Speichern blockiert (ungültiger Pfad): "' + path + '"', 'err'); return false; }
   try{
     await ensureValidAuthToken();
     const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
@@ -75,6 +83,7 @@ async function fbSet(path, value){
   }
 }
 async function fbDelete(path){
+  if(!fbPathOk(path)){ dlog('Löschen blockiert (ungültiger Pfad): "' + path + '"', 'err'); return false; }
   try{
     await ensureValidAuthToken();
     const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
@@ -210,6 +219,91 @@ function purgeFromTrash(id, trashedList, path){
   if(idx<0) return;
   trashedList.splice(idx, 1);
   fbDelete(path+'/'+id).catch(()=>{});
+}
+/* ================= Rettung aus dem Gerätespeicher =================
+   Fehlen Einträge in der Datenbank, die im lokalen Speicher dieses Geräts (App oder Beta) noch
+   vorhanden sind, werden sie sicher beiseitegelegt (fs-rescue-<app>) und zum Wiederherstellen
+   angeboten. Wird beim Laden aufgerufen, bevor der lokale Speicher mit dem neuen Stand
+   überschrieben wird. */
+const FS_RESCUE_COLLS = {tours:['Touren','saveTourCloud'], huts:['Hütten','saveHutCloud'], gebiete:['Gebiete','saveGebietCloud'],
+  sektoren:['Sektoren','saveSektorCloud'], klettergebiete:['Klettergebiete','saveKlettergebietCloud'], gipfel:['Gipfel','saveGipfelCloud']};
+const fsRescueCap = s=> s[0].toUpperCase() + s.slice(1);
+// Für den Import: nur Einträge mit Namen, und jede fehlende/ungültige ID durch eine neue ersetzen
+function fsImportPrep(list, prefix, nameField){
+  return (Array.isArray(list) ? list : []).filter(x=> x && typeof x === 'object' && x[nameField || 'name']).map(x=>{
+    if(typeof x.id !== 'string' || !fbPathOk('x/' + x.id)) x.id = uid(prefix);
+    return x;
+  });
+}
+function fsRescueCollect(appKey, cacheKeys){
+  const storeKey = 'fs-rescue-' + appKey;
+  let store = {};
+  try{ store = JSON.parse(localStorage.getItem(storeKey) || '{}') || {}; }catch(e){ store = {}; }
+  Object.keys(FS_RESCUE_COLLS).forEach(coll=>{
+    if(!Array.isArray(state[coll]) || typeof window[FS_RESCUE_COLLS[coll][1]] !== 'function') return;
+    const have = new Set([...(state[coll] || []), ...(state['trashed' + fsRescueCap(coll)] || [])].map(x=> x && x.id));
+    const found = new Map((store[coll] || []).map(x=> [x.id, x]));
+    cacheKeys.forEach(k=>{
+      let c = null;
+      try{ c = JSON.parse(localStorage.getItem(k) || 'null'); }catch(e){ c = null; }
+      if(!c) return;
+      [...(c[coll] || []), ...(c['trashed' + fsRescueCap(coll)] || [])].forEach(x=>{
+        if(!x || typeof x.id !== 'string' || !fbPathOk('x/' + x.id) || have.has(x.id) || isTrashExpired(x)) return;
+        const prev = found.get(x.id);
+        if(!prev || (x.updatedAt || x.createdAt || '') > (prev.updatedAt || prev.createdAt || '')) found.set(x.id, x);
+      });
+    });
+    const left = [...found.values()].filter(x=> !have.has(x.id));
+    if(left.length) store[coll] = left; else delete store[coll];
+  });
+  try{ if(Object.keys(store).length) localStorage.setItem(storeKey, JSON.stringify(store)); else localStorage.removeItem(storeKey); }catch(e){}
+  if(Object.keys(store).length) setTimeout(()=> fsRescueOffer(appKey), 600);
+  return store;
+}
+function fsRescueOffer(appKey){
+  let store = {};
+  try{ store = JSON.parse(localStorage.getItem('fs-rescue-' + appKey) || '{}') || {}; }catch(e){ return; }
+  const colls = Object.keys(store).filter(c=> (store[c] || []).length);
+  if(!colls.length || document.getElementById('fs-rescue')) return;
+  const total = colls.reduce((n, c)=> n + store[c].length, 0);
+  const box = document.createElement('div');
+  box.id = 'fs-rescue';
+  box.className = 'fs-rescue';
+  box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true">
+    <h3>⚠️ ${total} Einträge fehlen in der Datenbank</h3>
+    <p>Sie sind auf diesem Gerät noch gespeichert und können zurückgeholt werden:</p>
+    <div class="fs-rescue-list">${colls.map(c=> `<div><b>${esc(FS_RESCUE_COLLS[c][0])} (${store[c].length})</b><br/>${store[c].map(x=> esc(x.name || x.id) + (x.deletedAt ? ' <span class="fs-rescue-muted">(Papierkorb)</span>' : '')).join(' · ')}</div>`).join('')}</div>
+    <div class="fs-rescue-actions">
+      <button type="button" class="btn" data-r="go">Alle wiederherstellen</button>
+      <button type="button" class="btn secondary" data-r="later">Später</button>
+    </div>
+    <p class="fs-rescue-muted">«Später» behält die Kopie auf diesem Gerät; die Frage kommt beim nächsten Öffnen wieder.</p>
+  </div>`;
+  document.body.appendChild(box);
+  box.querySelector('[data-r="later"]').onclick = ()=> box.remove();
+  box.querySelector('[data-r="go"]').onclick = async ()=>{
+    const btn = box.querySelector('[data-r="go"]');
+    btn.disabled = true; btn.textContent = 'Wird wiederhergestellt …';
+    let ok = 0, fail = 0;
+    for(const c of colls){
+      const save = window[FS_RESCUE_COLLS[c][1]];
+      const keep = [];
+      for(const x of store[c]){
+        const item = Object.assign({}, x); delete item._unsynced;
+        const res = await save(item).catch(()=> false);
+        if(res){
+          ok++;
+          const list = item.deletedAt ? state['trashed' + fsRescueCap(c)] : state[c];
+          if(Array.isArray(list) && !list.some(y=> y.id === item.id)) list.unshift(item);
+        }else{ fail++; keep.push(x); }
+      }
+      if(keep.length) store[c] = keep; else delete store[c];
+    }
+    try{ if(Object.keys(store).length) localStorage.setItem('fs-rescue-' + appKey, JSON.stringify(store)); else localStorage.removeItem('fs-rescue-' + appKey); }catch(e){}
+    box.remove();
+    render();
+    showToast(fail ? ok + ' wiederhergestellt, ' + fail + ' noch offen (keine Verbindung?).' : ok + ' Einträge wiederhergestellt.', !!fail);
+  };
 }
 function isTrashExpired(item){
   if(!item || !item.deletedAt) return false;
