@@ -1249,7 +1249,7 @@ function printTourenzettel(agendaId){
   if(tour && tour.hutId) hutIds.add(tour.hutId);
   if(a.days) a.days.forEach(d=>{ if(d.overnight && d.overnight.hutId) hutIds.add(d.overnight.hutId); });
   const huts = [...hutIds].map(id=>state.huts.find(h=>h.id===id)).filter(h=>h && h.contact);
-  const contactRows = [['Rettung', '144'], ['REGA', '1414']];
+  const contactRows = [['Rettung', '144'], ['REGA', '1414'], ['Europäischer Notruf', '112']];
   if(a.emergencyContact) contactRows.push(['Notfallkontakt', a.emergencyContact]);
   huts.forEach(h=> contactRows.push([h.name, h.contact]));
 
@@ -1258,41 +1258,112 @@ function printTourenzettel(agendaId){
   const track = tour ? ((tour.trackSimplified && tour.trackSimplified.length) ? tour.trackSimplified : (tour.manualTrack && tour.manualTrack.length ? tour.manualTrack : null)) : null;
   const hasMap = points.length > 0 || (track && track.length > 0);
 
-  const wx = a.weatherSnapshot;
+  // Auf einen Blick: Treffpunkt/Zeit, Leitung, Rückkehr — und die Eckdaten der Tour
+  const meetTime = (a.meetingPoint || '').match(/\b(\d{1,2})[:.](\d{2})\b/);
+  const leader = a.leader || a.createdBy || '';
+  const keyRows = [];
+  if(a.meetingPoint) keyRows.push(['Treffpunkt', a.meetingPoint]);
+  if(leader) keyRows.push(['Leitung', leader]);
+  if(a.plannedReturnTime) keyRows.push(['Rückkehr geplant', a.plannedReturnTime]);
+  const factRows = [];
+  if(tour){
+    if(tour.elevationGain) factRows.push(['Aufstieg', tour.elevationGain + ' Hm']);
+    if(tour.elevationLoss) factRows.push([a.type === 'ski' ? 'Abfahrt' : 'Abstieg', tour.elevationLoss + ' Hm']);
+    if(tour.duration) factRows.push(['Zeitbedarf', tour.duration + ' h']);
+    if(difficultyLabel) factRows.push(['Schwierigkeit', difficultyLabel]);
+    if(tour.crux) factRows.push(['Schlüsselstelle', tour.crux]);
+    if((tour.exposition||[]).length) factRows.push(['Exposition', tour.exposition.join(', ')]);
+    if((tour.gefahren||[]).length) factRows.push(['Gefahren', tour.gefahren.join(', ')]);
+  }
+  // Umkehrzeit und Entscheidungspunkte gehören hervorgehoben, nicht nur in den Ablauf
+  const critical = (brief.ablauf || []).filter(r=> r.kind === 'umkehr' || r.kind === 'entscheid');
+
+  // Koordinaten für den Notruf (WGS84 und Schweizer LV95)
+  const coordPts = [];
+  const pickCats = ['gipfel', 'parkplatz', 'haltestelle', 'biwak', 'rueckzug'];
+  points.filter(p=> pickCats.includes(p.category)).forEach(p=> coordPts.push(p));
+  if(!coordPts.length && points.length) coordPts.push(points[0]);
+  const coordRows = coordPts.slice(0, 6).map(p=>{
+    const lat = parseFloat(p.lat), lon = parseFloat(p.lon);
+    const cat = MAP_POINT_CATEGORIES[p.category] || MAP_POINT_CATEGORIES[''];
+    return [p.label || cat.label, lat.toFixed(5) + ', ' + lon.toFixed(5), fsFmtLv95(lat, lon)];
+  });
+  if(a.meetingLat != null && a.meetingLon != null) coordRows.push(['Treffpunkt', a.meetingLat.toFixed(5) + ', ' + a.meetingLon.toFixed(5), fsFmtLv95(a.meetingLat, a.meetingLon)]);
+
+  // Anfahrt ab Treffpunkt: Auto zum Parkplatz und/oder ÖV zur Haltestelle
+  const meet = (a.meetingLat != null && a.meetingLon != null) ? {lat: a.meetingLat, lon: a.meetingLon} : null;
+  const travel = tour ? fsTravelTargets(tour) : {car: [], stops: []};
+  const driveTo = a.anreiseType !== 'oev' && travel.car.length ? travel.car[0] : null;
+  const transitTo = a.anreiseType !== 'auto' && travel.stops.length ? travel.stops[0] : null;
+  const hasTravel = !!(driveTo || transitTo);
+
+  // Winter: Lawinenbulletin (Skitour immer, sonst Nov–Mai)
+  const month = +(a.startDate || '').slice(5, 7);
+  const winter = a.type === 'ski' || (a.type !== 'wandern' && (month >= 11 || month <= 5));
+  const target = fsTzTargetPoint(tour);
+  const wxLoc = target ? {lat: parseFloat(target.lat), lon: parseFloat(target.lon), label: target.label || (tour && tour.name) || ''} : resolveAgendaWeatherLocation(a);
+  const elev = tour && parseInt(tour.targetAltitude, 10) > 0 ? parseInt(tour.targetAltitude, 10) : null;
 
   const shareTextLines = [a.tourName || 'Tour', dateLabel];
+  if(leader) shareTextLines.push('Leitung: ' + leader);
   ablaufItems.forEach(it=> shareTextLines.push(`${it.label}: ${it.text}`));
   if(brief.planB) shareTextLines.push('Plan B: ' + brief.planB);
   if(materialList.length) shareTextLines.push('Material: ' + materialList.join(', '));
+  if(a.costs) shareTextLines.push('Kosten: ' + a.costs);
   shareTextLines.push('Rettung 144 · REGA 1414' + (a.emergencyContact ? ' · Notfallkontakt: '+a.emergencyContact : ''));
   const shareText = shareTextLines.join('\n');
 
-  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Tourenzettel — ${escHtml(a.tourName||'Termin')}</title>
+  const kv = rows=> `<div class="kv">${rows.map(([k,v])=>`<div class="k">${escHtml(k)}</div><div class="v">${escHtml(v)}</div>`).join('')}</div>`;
+  const participants = a.participants || [];
+  const phoneOf = name=> fsAgendaPhone(a, name);
+
+  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tourenzettel — ${escHtml(a.tourName||'Termin')}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   body{margin:0;background:#F3F6F8;color:#0F1E27;font-family:'Manrope',system-ui,sans-serif;}
   .serif{font-family:'Instrument Serif',Georgia,serif;}
-  .wrap{max-width:640px;margin:0 auto;padding:36px 28px 60px;}
+  .wrap{max-width:680px;margin:0 auto;padding:36px 22px 60px;}
   .eyebrow{font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#4A5A64;font-weight:600;}
-  h1{font-size:40px;font-weight:400;margin:4px 0 0 0;}
+  h1{font-size:40px;font-weight:400;margin:4px 0 0 0;line-height:1.05;}
   .routename{font-size:16px;font-style:italic;color:#4A5A64;}
   .badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
   .badge{display:inline-flex;align-items:center;background:#fff;border:1.5px solid #0F1E27;border-radius:999px;padding:5px 13px;font-size:12.5px;font-weight:600;}
-  .section{margin-top:24px;}
+  .section{margin-top:22px;break-inside:avoid;page-break-inside:avoid;}
   .section h4{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#4A5A64;margin:0 0 8px 0;}
+  .box{border:1.5px solid #E1E7EB;background:#FFFFFF;border-radius:12px;padding:12px 16px;font-size:13.5px;}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13.5px;}
+  .kv .k{color:#4A5A64;}
+  .kv .v{font-weight:600;}
+  .alert{border:2px solid #B0392C;background:#FFF5F3;border-radius:12px;padding:10px 16px;font-size:13.5px;}
+  .alert div{padding:2px 0;}
   .material-box{border:1.5px solid #E1E7EB;background:#FFFFFF;border-radius:12px;padding:12px 16px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13.5px;}
   .contact-box{border:1.5px solid #E1E7EB;background:#FFFFFF;border-radius:12px;padding:10px 16px;font-size:13.5px;}
-  .contact-row{display:flex;justify-content:space-between;padding:3px 0;}
+  .contact-row{display:flex;justify-content:space-between;gap:12px;padding:3px 0;}
   .timeline{font-size:13.5px;display:flex;flex-direction:column;gap:7px;}
   .tl-item{padding-left:14px;border-left:2px solid #E1E7EB;}
   .muted{color:#4A5A64;font-size:13px;}
-  #tz-map{height:200px;border-radius:12px;border:1.5px solid #E1E7EB;margin-top:2px;}
+  table{border-collapse:collapse;width:100%;font-size:13px;}
+  th,td{text-align:left;padding:5px 6px;border-bottom:1px solid #E1E7EB;vertical-align:top;}
+  th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#4A5A64;font-weight:600;}
+  td.c{text-align:center;width:44px;font-size:15px;}
+  .fill{display:inline-block;min-width:150px;border-bottom:1px solid #9AA7AF;height:1.1em;}
+  .lv{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;border:1.5px solid #9AA7AF;border-radius:5px;margin-right:4px;font-weight:700;font-size:12px;}
+  .wx-big{font-size:16px;font-weight:600;margin:0 0 4px 0;}
+  .drive{display:grid;grid-template-columns:1fr 104px;gap:12px;align-items:start;}
+  .qr svg{width:104px;height:104px;display:block;}
+  .qr p{font-size:10.5px;color:#4A5A64;margin:3px 0 0 0;text-align:center;}
+  .legs div{padding:2px 0;}
+  #tz-map{height:220px;border-radius:12px;border:1.5px solid #E1E7EB;margin-top:2px;}
+  #tz-drive-map{height:170px;border-radius:10px;border:1.5px solid #E1E7EB;margin-bottom:8px;}
+  a{color:#0F1E27;}
   .actions{margin-top:30px;display:flex;gap:10px;flex-wrap:wrap;}
   button{font-family:inherit;font-size:13.5px;font-weight:600;padding:9px 16px;border-radius:999px;border:1.5px solid #0F1E27;background:#fff;cursor:pointer;}
   button.primary{background:#0F1E27;color:#F3F6F8;}
   .foot{margin-top:28px;font-size:11px;color:#4A5A64;}
-  @media print{ .no-print{display:none;} body{background:#fff;} }
+  @media (max-width:560px){ .cols,.drive{grid-template-columns:1fr;} .material-box{grid-template-columns:1fr;} h1{font-size:32px;} }
+  @media print{ .no-print{display:none;} body{background:#fff;} .wrap{padding:0 4px;} .section{margin-top:16px;} }
 </style>
 </head><body>
 <div class="wrap">
@@ -1301,7 +1372,20 @@ function printTourenzettel(agendaId){
   ${tour && tour.routeName ? `<div class="serif routename">${escHtml(tour.routeName)}</div>` : ''}
   <div class="badges">${badges.map(b=>`<span class="badge">${escHtml(b)}</span>`).join('')}</div>
 
+  ${(keyRows.length || factRows.length) ? `<div class="section"><h4>🧭 Auf einen Blick</h4><div class="${keyRows.length && factRows.length ? 'cols' : ''}">
+    ${keyRows.length ? `<div class="box">${kv(keyRows)}</div>` : ''}
+    ${factRows.length ? `<div class="box">${kv(factRows)}</div>` : ''}
+  </div></div>` : ''}
+
+  ${critical.length ? `<div class="section"><h4>⏰ Umkehrzeit & Entscheidungspunkte</h4><div class="alert">${critical.map(r=>`<div><strong>${escHtml(r.t || '')}${r.t ? ' — ' : ''}${r.kind === 'umkehr' ? 'Umkehrzeit' : 'Entscheidungspunkt'}:</strong> ${escHtml(r.label || '')}</div>`).join('')}</div></div>` : ''}
+
   ${ablaufItems.length ? `<div class="section"><h4>📍 Ablauf</h4><div class="timeline">${ablaufItems.map(it=>`<div class="tl-item"><strong>${escHtml(it.label)}:</strong> ${escHtml(it.text)}</div>`).join('')}</div></div>` : ''}
+
+  ${hasTravel ? `<div class="section"><h4>🚗 Anfahrt${meet ? ' ab Treffpunkt' : ''}</h4><div class="box" id="tz-travel">${meet ? '<p class="muted" style="margin:0;">Wird berechnet …</p>' : '<p class="muted" style="margin:0;">Für Route und Fahrzeit im Termin beim Treffpunkt einen Ort setzen (suchen oder auf der Karte).</p>'}</div></div>` : ''}
+
+  <div class="section"><h4>🌦️ Wetter am Tourtag${wxLoc && wxLoc.label ? ' — ' + escHtml(wxLoc.label) : ''}</h4><div class="box" id="tz-weather"><p class="muted" style="margin:0;">${wxLoc ? 'Prognose wird geladen …' : 'Nur mit verlinkter Tour und Kartenpunkt verfügbar.'}</p></div></div>
+
+  ${winter ? `<div class="section"><h4>❄️ Lawinensituation</h4><div class="box" id="tz-avalanche"><p class="muted" style="margin:0;">Bulletin wird geladen …</p></div></div>` : ''}
 
   ${brief.planB ? `<div class="section"><h4>↩️ Plan B</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.planB)}</p></div>` : ''}
   ${brief.anforderungen ? `<div class="section"><h4>💪 Das braucht es</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.anforderungen)}</p></div>` : ''}
@@ -1310,18 +1394,24 @@ function printTourenzettel(agendaId){
 
   ${hasMap ? `<div class="section"><h4>🗺️ Kartenausschnitt</h4><div id="tz-map"></div></div>` : ''}
 
-  ${wx ? `<div class="section"><h4>🌦️ Verhältnisse${wx.locationLabel ? ' — '+escHtml(wx.locationLabel) : ''}</h4><p style="font-size:13.5px;margin:0;">${wx.icon||''} ${escHtml(wx.label||'')} · ${Math.round(wx.tempMin)}° / ${Math.round(wx.tempMax)}° · 💨 ${Math.round(wx.windMax)} km/h</p><p class="muted" style="margin:4px 0 0 0;">Stand vom ${escHtml(fmtDate(wx.savedAt))}</p></div>` : ''}
+  ${participants.length ? `<div class="section"><h4>👥 Teilnehmende (${participants.length})</h4><div class="box" style="padding:6px 10px;"><table>
+    <tr><th>Name</th><th>Natel</th><th style="text-align:center;">Da</th>${winter ? '<th style="text-align:center;">LVS ✓</th>' : ''}</tr>
+    ${participants.map(p=>`<tr><td>${escHtml(p.by)}</td><td>${escHtml(phoneOf(p.by))}</td><td class="c">☐</td>${winter ? '<td class="c">☐</td>' : ''}</tr>`).join('')}
+  </table></div></div>` : ''}
 
-  <div class="section"><h4>📞 Notfallnummern</h4><div class="contact-box">${contactRows.map(([k,v])=>`<div class="contact-row"><span class="muted">${escHtml(k)}</span><strong>${escHtml(v)}</strong></div>`).join('')}</div></div>
+  <div class="section"><h4>📞 Notfall</h4><div class="contact-box">${contactRows.map(([k,v])=>`<div class="contact-row"><span class="muted">${escHtml(k)}</span><strong>${escHtml(v)}</strong></div>`).join('')}</div>
+    <p class="muted" style="margin:8px 0 0 0;">Tipp: Mit der REGA-App oder «Echo112» wird beim Alarm der Standort automatisch übermittelt.</p>
+    ${coordRows.length ? `<div class="box" style="margin-top:8px;padding:6px 10px;"><table><tr><th>Ort</th><th>WGS84</th><th>LV95</th></tr>${coordRows.map(r=>`<tr><td>${escHtml(r[0])}</td><td>${escHtml(r[1])}</td><td>${escHtml(r[2])}</td></tr>`).join('')}</table></div>` : ''}
+  </div>
 
-  ${(a.participants||[]).length ? `<div class="section"><h4>👥 Teilnehmende</h4><p style="font-size:13.5px;margin:0;">${(a.participants||[]).map(p=>escHtml(p.by)).join(' · ')}</p></div>` : ''}
+  ${a.costs ? `<div class="section"><h4>💶 Kosten / Billette</h4><p style="font-size:13.5px;margin:0;">${escHtml(a.costs)}</p></div>` : ''}
   ${a.note ? `<div class="section"><h4>📝 Notiz</h4><p style="font-size:13.5px;margin:0;">${escHtml(a.note)}</p></div>` : ''}
 
   <div class="actions no-print">
     <button class="primary" onclick="window.print()">🖨️ Drucken</button>
     <button id="tz-share-btn" type="button">🔗 Teilen</button>
   </div>
-  <div class="foot">Geteilt mit Firnspur/Fixseil am ${escHtml(new Date().toLocaleDateString('de-CH'))}.</div>
+  <div class="foot">Geteilt mit Firnspur am ${escHtml(new Date().toLocaleDateString('de-CH'))}.</div>
 </div>
 </body></html>`;
 
@@ -1351,19 +1441,25 @@ function printTourenzettel(agendaId){
       }
     };
   }
+  const $ = id=> win.document.getElementById(id);
+  const scriptIn = src=> new Promise((res, rej)=>{ const s = win.document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; win.document.head.appendChild(s); });
+
+  // Leaflet nur einmal laden, beide Karten (Tour + Anfahrt) nutzen es
+  let leafletP = null;
+  const leaflet = ()=>{
+    if(leafletP) return leafletP;
+    const css = win.document.createElement('link'); css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    win.document.head.appendChild(css);
+    return (leafletP = scriptIn('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'));
+  };
+  const baseLayer = map=> win.L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {maxZoom:18, attribution:'© swisstopo'}).addTo(map);
 
   if(hasMap){
-    const leafletCss = win.document.createElement('link');
-    leafletCss.rel = 'stylesheet';
-    leafletCss.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    win.document.head.appendChild(leafletCss);
-    const leafletJs = win.document.createElement('script');
-    leafletJs.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    leafletJs.onload = function(){
+    leaflet().then(()=>{
       try{
-        const mapEl = win.document.getElementById('tz-map');
+        const mapEl = $('tz-map');
         const map = win.L.map(mapEl, {zoomControl:false, attributionControl:true});
-        win.L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {maxZoom:18, attribution:'© swisstopo'}).addTo(map);
+        baseLayer(map);
         let bounds = [];
         points.forEach(p=>{
           const lat = parseFloat(p.lat), lon = parseFloat(p.lon);
@@ -1376,16 +1472,211 @@ function printTourenzettel(agendaId){
         else if(bounds.length === 1) map.setView(bounds[0], 13);
         else mapEl.style.display = 'none';
       }catch(e){
-        const mapEl = win.document.getElementById('tz-map');
+        const mapEl = $('tz-map');
         if(mapEl) mapEl.outerHTML = '<p class="muted">Karte konnte nicht geladen werden.</p>';
       }
-    };
-    leafletJs.onerror = function(){
-      const mapEl = win.document.getElementById('tz-map');
+    }).catch(()=>{
+      const mapEl = $('tz-map');
       if(mapEl) mapEl.outerHTML = '<p class="muted">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
-    };
-    win.document.head.appendChild(leafletJs);
+    });
   }
+
+  // Wetter am Tourtag: live laden; ohne Netz den gespeicherten Stand zeigen
+  if(wxLoc){
+    fetchTourDayDetail(wxLoc.lat, wxLoc.lon, a.startDate, elev).then(w=>{
+      const el = $('tz-weather');
+      if(!el) return;
+      const tl = agendaWeatherDayLabel(a.startDate);
+      const when = `<p class="muted" style="margin:0 0 6px 0;"><b>${escHtml(tl.wd)} ${escHtml(tl.dm)}</b>${tl.rel ? ' · ' + escHtml(tl.rel) : ''}</p>`;
+      if(w.status === 'ok'){
+        const info = weatherCodeInfo(w.weathercode);
+        const rows = [];
+        rows.push(['Temperatur' + (w.elevation ? ' auf ' + w.elevation + ' m' : ''), Math.round(w.tempMin) + '° / ' + Math.round(w.tempMax) + '°']);
+        rows.push(['Niederschlag', w.precipitation + ' mm']);
+        if(w.freezing) rows.push(['Nullgradgrenze', w.freezing]);
+        rows.push(['Wind (Bodennähe)', Math.round(w.windMax) + ' km/h' + (w.gustMax ? ', Böen ' + Math.round(w.gustMax) : '')]);
+        if(w.windHigh != null) rows.push(['Wind auf ~3000 m', Math.round(w.windHigh) + ' km/h']);
+        if(w.sunrise) rows.push(['Sonne', '↑ ' + w.sunrise + '  ↓ ' + w.sunset]);
+        el.innerHTML = when + `<p class="wx-big">${info.icon} ${escHtml(info.label)}</p>` + kv(rows) + `<p class="muted" style="margin:6px 0 0 0;font-size:11.5px;">Prognose ${escHtml(w.source)}, Stand ${escHtml(new Date().toLocaleString('de-CH', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}))} — am Vorabend nochmals prüfen.</p>`;
+      }else if(w.status === 'too-far'){
+        const from = new Date(new Date(a.startDate + 'T00:00:00').getTime() - 16 * 86400000);
+        el.innerHTML = when + `<p class="muted" style="margin:0;">Prognose ab ${escHtml(from.toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit'}))} verfügbar.</p>`;
+      }else if(w.status === 'past'){
+        el.innerHTML = when + '<p class="muted" style="margin:0;">Der Tourtag liegt in der Vergangenheit.</p>';
+      }else{
+        const wx = a.weatherSnapshot;
+        el.innerHTML = when + (wx ? `<p class="wx-big">${wx.icon||''} ${escHtml(wx.label||'')}</p><p style="margin:0;">${Math.round(wx.tempMin)}° / ${Math.round(wx.tempMax)}° · 💨 ${Math.round(wx.windMax)} km/h</p><p class="muted" style="margin:4px 0 0 0;">Gespeicherter Stand vom ${escHtml(fmtDate(wx.savedAt))} (gerade keine Verbindung).</p>`
+          : '<p class="muted" style="margin:0;">Wetterdaten gerade nicht verfügbar (keine Internetverbindung?).</p>');
+      }
+    });
+  }
+
+  // Lawinenbulletin: aktuelles SLF-Bulletin für die Region des Ziels, wenn es für den Tourtag gilt —
+  // sonst Felder zum Ausfüllen am Vorabend
+  if(winter){
+    const fillIn = note=> `${note ? `<p class="muted" style="margin:0 0 8px 0;">${note}</p>` : ''}
+      <div style="margin-bottom:8px;">Gefahrenstufe: <span class="lv">1</span><span class="lv">2</span><span class="lv">3</span><span class="lv">4</span><span class="lv">5</span></div>
+      <div style="margin-bottom:8px;">Kernzone (Höhe / Exposition): <span class="fill"></span></div>
+      <div style="margin-bottom:8px;">Lawinenproblem: <span class="fill"></span></div>
+      <div>Bulletin vom: <span class="fill" style="min-width:90px;"></span> <a class="no-print" href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener">slf.ch ↗</a></div>`;
+    const t = target || (points[0] || null);
+    (t ? fsSlfBulletinAt(parseFloat(t.lat), parseFloat(t.lon), a.startDate) : Promise.resolve(null)).then(b=>{
+      const el = $('tz-avalanche');
+      if(!el) return;
+      if(!b){ el.innerHTML = fillIn('Das Bulletin erscheint um 17 Uhr für den Folgetag — am Vorabend eintragen.'); return; }
+      el.innerHTML = `<p class="wx-big">Gefahrenstufe ${escHtml(b.level)}${b.region ? ` <span class="muted" style="font-weight:400;">· ${escHtml(b.region)}</span>` : ''}</p>
+        ${b.ratings.length ? `<div>${b.ratings.map(r=>`<div>${escHtml(r)}</div>`).join('')}</div>` : ''}
+        ${b.problems.length ? `<div style="margin-top:6px;"><b>Lawinenprobleme:</b> ${b.problems.map(escHtml).join(' · ')}</div>` : ''}
+        <p class="muted" style="margin:6px 0 0 0;font-size:11.5px;">SLF-Bulletin gültig bis ${escHtml(b.validUntil)} — <a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener">slf.ch</a></p>`;
+    }).catch(()=>{ const el = $('tz-avalanche'); if(el) el.innerHTML = fillIn('Bulletin gerade nicht abrufbar.'); });
+  }
+
+  // Anfahrt ab Treffpunkt: kleine Karte mit Fahrroute, Zeit/Distanz, QR-Code für die Navigation;
+  // mit ÖV die Verbindung zur Treffpunkt-Zeit
+  if(hasTravel && meet){
+    const parts = [];
+    const done = ()=>{ const el = $('tz-travel'); if(el) el.innerHTML = parts.join('<hr style="border:none;border-top:1px solid #E1E7EB;margin:10px 0;">') || '<p class="muted" style="margin:0;">Anfahrt gerade nicht berechenbar (keine Verbindung?).</p>'; };
+    const gm = (to, mode)=> 'https://www.google.com/maps/dir/?api=1&origin=' + meet.lat + ',' + meet.lon + '&destination=' + to.lat + ',' + to.lon + '&travelmode=' + mode;
+    const jobs = [];
+    if(driveTo){
+      const dest = {lat: parseFloat(driveTo.lat), lon: parseFloat(driveTo.lon)};
+      const name = driveTo.label || (driveTo._start ? 'Ausgangspunkt' : 'Parkplatz');
+      jobs.push(fsTravelDrive(meet, dest).then(r=>{
+        parts.push(`<div class="drive"><div>
+            ${r.coords && r.coords.length ? '<div id="tz-drive-map"></div>' : ''}
+            <div class="wx-big">🚗 ${escHtml(fsFmtDur(r.durationS))} · ${(r.distanceM / 1000).toFixed(0)} km</div>
+            <div class="muted">bis ${escHtml(name)} (ohne Verkehr, ohne Pausen)</div>
+            <div class="no-print" style="margin-top:4px;"><a href="${gm(dest, 'driving')}" target="_blank" rel="noopener">In Google Maps öffnen ↗</a></div>
+          </div><div class="qr" data-qr="${escHtml(gm(dest, 'driving'))}"></div></div>`);
+        return {coords: r.coords, dest};
+      }).catch(()=>{
+        parts.push(`<div class="drive"><div><div class="wx-big">🚗 bis ${escHtml(name)}</div><div class="muted">Fahrzeit gerade nicht berechenbar.</div><div class="no-print"><a href="${gm(dest, 'driving')}" target="_blank" rel="noopener">In Google Maps öffnen ↗</a></div></div><div class="qr" data-qr="${escHtml(gm(dest, 'driving'))}"></div></div>`);
+        return null;
+      }));
+    }
+    if(transitTo){
+      const dest = {lat: parseFloat(transitTo.lat), lon: parseFloat(transitTo.lon)};
+      const time = meetTime ? meetTime[1].padStart(2, '0') + ':' + meetTime[2] : '';
+      jobs.push(fsTravelTransit(meet, dest, {date: a.startDate, time}).then(r=>{
+        if(r.same){ parts.push(`<div>🚆 Treffpunkt ist schon bei ${escHtml(r.station)}.</div>`); return null; }
+        parts.push(`<div class="drive"><div>
+            <div class="wx-big">🚆 ${escHtml(r.dep)} → ${escHtml(r.arr)}${r.durS ? ' · ' + escHtml(fsFmtDur(r.durS)) : ''}</div>
+            <div class="muted" style="margin-bottom:4px;">${escHtml(r.from)} → ${escHtml(r.to)} · ${typeof r.transfers === 'number' ? (r.transfers === 0 ? 'direkt' : r.transfers + '× umsteigen') : ''}</div>
+            ${(r.legs || []).length ? `<div class="legs">${r.legs.map(l=>`<div><b>${escHtml(l.dep)}</b> ${escHtml(l.from)}${l.platform ? ' (Gl. ' + escHtml(l.platform) + ')' : ''} · ${escHtml(l.line)} → ${escHtml(l.to)} <b>${escHtml(l.arr)}</b></div>`).join('')}</div>` : ''}
+            <div class="muted" style="font-size:11.5px;margin-top:4px;">Fahrplan-Abfrage ${time ? 'ab ' + escHtml(time) + ' ' : ''}— kurz vorher in der SBB-App prüfen.</div>
+          </div><div class="qr" data-qr="${escHtml(gm(dest, 'transit'))}"></div></div>`);
+        return null;
+      }).catch(()=>{ parts.push(`<div>🚆 ÖV-Verbindung gerade nicht abrufbar. <a href="${gm(dest, 'transit')}" target="_blank" rel="noopener">ÖV-Route ↗</a></div>`); return null; }));
+    }
+    Promise.all(jobs).then(res=>{
+      done();
+      const drive = res.find(x=> x && x.coords && x.coords.length);
+      if(drive){
+        leaflet().then(()=>{
+          const el = $('tz-drive-map');
+          if(!el) return;
+          const map = win.L.map(el, {zoomControl:false, attributionControl:true});
+          baseLayer(map);
+          const line = drive.coords.map(c=> [c[1], c[0]]);
+          win.L.polyline(line, {color:'#B5652D', weight:4}).addTo(map);
+          win.L.circleMarker([meet.lat, meet.lon], {radius:6, color:'#0F1E27', fillColor:'#fff', fillOpacity:1, weight:2}).addTo(map).bindTooltip('Treffpunkt', {permanent:true, direction:'top', offset:[0,-6]});
+          win.L.circleMarker([drive.dest.lat, drive.dest.lon], {radius:6, color:'#0F1E27', fillColor:'#B5652D', fillOpacity:1, weight:2}).addTo(map).bindTooltip('🅿️', {permanent:true, direction:'top', offset:[0,-6]});
+          map.fitBounds(line, {padding:[18,18]});
+        }).catch(()=>{ const el = $('tz-drive-map'); if(el) el.remove(); });
+      }
+      const qrs = win.document.querySelectorAll('[data-qr]');
+      if(qrs.length){
+        scriptIn('https://unpkg.com/qrcode-generator@1.4.4/qrcode.js').then(()=>{
+          qrs.forEach(q=>{
+            const qr = win.qrcode(0, 'M'); qr.addData(q.getAttribute('data-qr')); qr.make();
+            q.innerHTML = qr.createSvgTag({cellSize: 3, margin: 0, scalable: true}) + '<p>Navigation scannen</p>';
+          });
+        }).catch(()=>{});
+      }
+    });
+  }
+}
+// Ziel der Tour für Wetter/Lawinen: Gipfel-Punkt, sonst der letzte Punkt, der kein Parkplatz/ÖV ist
+function fsTzTargetPoint(tour){
+  const pts = (tour && Array.isArray(tour.points) ? tour.points : []).filter(p=> p && !isNaN(parseFloat(p.lat)) && !isNaN(parseFloat(p.lon)));
+  return pts.find(p=> p.category === 'gipfel') || pts.filter(p=> !['parkplatz', 'haltestelle', 'toilette'].includes(p.category)).slice(-1)[0] || pts[0] || null;
+}
+function fsFmtLv95(lat, lon){
+  const [e, n] = fsrToLv95(lat, lon);
+  const f = v=> String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, '’');
+  return f(e) + ' / ' + f(n);
+}
+// Detailprognose für einen Tag am Ziel: Temperatur auf Zielhöhe, Nullgradgrenze, Höhenwind, Sonne
+async function fetchTourDayDetail(lat, lon, dateStr, elev){
+  const target = new Date(dateStr + 'T00:00:00'), today = new Date(); today.setHours(0,0,0,0);
+  const diff = Math.round((target - today) / 86400000);
+  if(diff < 0) return {status:'past'};
+  if(diff > 16) return {status:'too-far'};
+  try{
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon
+      + '&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,windgusts_10m_max,sunrise,sunset'
+      + '&hourly=freezing_level_height,wind_speed_700hPa&timezone=Europe%2FZurich&start_date=' + dateStr + '&end_date=' + dateStr
+      + (elev ? '&elevation=' + elev : '');
+    const res = await fetch(url);
+    if(!res.ok) throw new Error();
+    const d = await res.json(), dd = d.daily || {}, h = d.hourly || {};
+    if(!dd.time || !dd.time.length) throw new Error();
+    // Tagsüber (6–16 Uhr): Nullgradgrenze von–bis, stärkster Höhenwind
+    const idx = (h.time || []).map((t, i)=> [+t.slice(11, 13), i]).filter(([hr])=> hr >= 6 && hr <= 16).map(([, i])=> i);
+    const fl = idx.map(i=> h.freezing_level_height && h.freezing_level_height[i]).filter(v=> v != null);
+    const wh = idx.map(i=> h.wind_speed_700hPa && h.wind_speed_700hPa[i]).filter(v=> v != null);
+    const r100 = v=> Math.round(v / 100) * 100;
+    const flMin = fl.length ? r100(Math.min(...fl)) : null, flMax = fl.length ? r100(Math.max(...fl)) : null;
+    const tm = s=> s ? s.slice(11, 16) : '';
+    return {
+      status:'ok', source: 'Open-Meteo', elevation: elev || null,
+      weathercode: dd.weathercode[0], tempMax: dd.temperature_2m_max[0], tempMin: dd.temperature_2m_min[0],
+      precipitation: dd.precipitation_sum[0], windMax: dd.windspeed_10m_max[0], gustMax: dd.windgusts_10m_max ? dd.windgusts_10m_max[0] : null,
+      sunrise: tm(dd.sunrise && dd.sunrise[0]), sunset: tm(dd.sunset && dd.sunset[0]),
+      freezing: flMin == null ? '' : (flMin === flMax ? flMin + ' m' : flMin + '–' + flMax + ' m'),
+      windHigh: wh.length ? Math.max(...wh) : null
+    };
+  }catch(e){
+    return {status:'error'};
+  }
+}
+const FS_SLF_PROBLEMS = {new_snow:'Neuschnee', wind_slab:'Triebschnee', persistent_weak_layers:'Altschnee', wet_snow:'Nassschnee', gliding_snow:'Gleitschnee', favourable_situation:'Günstige Situation', no_distinct_avalanche_problem:'Kein ausgeprägtes Problem'};
+const FS_SLF_ASPECTS = {N:'N', NE:'NO', E:'O', SE:'SO', S:'S', SW:'SW', W:'W', NW:'NW'};
+function fsPointInGeom(lon, lat, geom){
+  const inRing = ring=>{ let c = false; for(let i = 0, j = ring.length - 1; i < ring.length; j = i++){ const [xi, yi] = ring[i], [xj, yj] = ring[j]; if(((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) c = !c; } return c; };
+  const inPoly = poly=> inRing(poly[0]) && !poly.slice(1).some(inRing);
+  if(!geom) return false;
+  if(geom.type === 'Polygon') return inPoly(geom.coordinates);
+  if(geom.type === 'MultiPolygon') return geom.coordinates.some(inPoly);
+  return false;
+}
+// SLF-Bulletin für einen Punkt, nur wenn es am Tourtag (Morgen) gilt — sonst null
+async function fsSlfBulletinAt(lat, lon, dateStr){
+  const [regionsRes, bulletinRes] = await Promise.all([fetch('https://aws.slf.ch/api/warningregion/'), fetch('https://aws.slf.ch/api/bulletin/caaml')]);
+  if(!regionsRes.ok || !bulletinRes.ok) throw new Error('SLF nicht erreichbar');
+  const regions = await regionsRes.json(), bd = await bulletinRes.json();
+  const feat = (regions.features || []).find(f=> fsPointInGeom(lon, lat, f.geometry));
+  if(!feat) return null;
+  const rid = slfRegionId(feat);
+  const bulletins = Array.isArray(bd) ? bd : (bd.bulletins || []);
+  const when = new Date(dateStr + 'T09:00:00');
+  const b = bulletins.find(x=> (x.regions || []).some(r=> (r.regionID || r.id) === rid)
+    && x.validTime && new Date(x.validTime.startTime) <= when && when < new Date(x.validTime.endTime));
+  if(!b) return null;
+  const elevTxt = e=> !e ? '' : e.lowerBound ? 'über ' + e.lowerBound + ' m' : e.upperBound ? 'unter ' + e.upperBound + ' m' : '';
+  const levels = (b.dangerRatings || []).map(r=> SLF_DANGER_LEVELS[r.mainValue]).filter(Boolean);
+  if(!levels.length) return null;
+  const max = levels.reduce((m, x)=> x.level > m.level ? x : m);
+  const ratings = (b.dangerRatings || []).length > 1 ? (b.dangerRatings || []).map(r=>{
+    const info = SLF_DANGER_LEVELS[r.mainValue];
+    return info ? info.label + (elevTxt(r.elevation) ? ' ' + elevTxt(r.elevation) : '') + (r.validTimePeriod === 'later' ? ' (im Tagesverlauf)' : '') : '';
+  }).filter(Boolean) : [];
+  const problems = (b.avalancheProblems || []).map(p=> (FS_SLF_PROBLEMS[p.problemType] || p.problemType)
+    + ((p.aspects || []).length ? ' ' + p.aspects.map(x=> FS_SLF_ASPECTS[x] || x).join('/') : '')
+    + (elevTxt(p.elevation) ? ' ' + elevTxt(p.elevation) : ''));
+  const regionName = (b.regions || []).find(r=> (r.regionID || r.id) === rid);
+  return {level: max.label, ratings, problems, region: regionName && regionName.name ? regionName.name : '',
+    validUntil: new Date(b.validTime.endTime).toLocaleString('de-CH', {weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'})};
 }
 function openAddAgenda(){
   ensureName(async ()=>{
@@ -1480,11 +1771,20 @@ function agendaFormHtml(editId){
         </select>
       </div>
       <div id="agenda-day-plan-container"></div>
-      <div class="field"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof" value="${a ? esc(a.meetingPoint||'') : ''}"/></div>
+      <div class="field fs-meet"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof" value="${a ? esc(a.meetingPoint||'') : ''}"/>
+        ${fsMeetToolsHtml(a)}
+      </div>
       <div class="row2">
         <div class="field"><label>Geplante Rückkehrzeit</label><input name="plannedReturnTime" placeholder="z. B. 18:00" value="${a ? esc(a.plannedReturnTime||'') : ''}"/></div>
         <div class="field"><label>Notfallkontakt</label><input name="emergencyContact" placeholder="Name, Telefonnummer" value="${a ? esc(a.emergencyContact||'') : ''}"/></div>
       </div>
+      <div class="row2">
+        <div class="field"><label>Leitung (Name, Natel)</label><input name="leader" placeholder="z. B. Anna, 079 123 45 67" value="${a ? esc(a.leader||'') : ''}"/></div>
+        <div class="field"><label>Kosten / Billette</label><input name="costs" placeholder="z. B. Halbtax, Parkplatz 10.–, Hütte HP 75.–" value="${a ? esc(a.costs||'') : ''}"/></div>
+      </div>
+      ${a && (a.participants||[]).length ? `<div class="field"><label>Natel der Teilnehmenden (für den Tourenzettel)</label>
+        <div class="fs-phones">${(a.participants||[]).map(p=>`<label class="fs-phone-row"><span>${esc(p.by)}</span><input name="phone::${esc(p.by)}" type="tel" placeholder="079 …" value="${esc(fsAgendaPhone(a, p.by))}"/></label>`).join('')}</div>
+      </div>` : ''}
       ${briefingEditorHtml(editId)}
       <div class="field"><label>Notiz (optional)</label><textarea name="note" placeholder="z. B. Ausrüstung, offene Fragen …">${a ? esc(a.note||'') : ''}</textarea></div>
       <div class="form-actions">
@@ -2007,7 +2307,13 @@ async function submitAgendaForm(form){
     anreiseType, anreiseOrt,
     endOption, endNote,
     plannedReturnTime: form.plannedReturnTime||'', emergencyContact: form.emergencyContact||'',
+    leader: (form.leader||'').trim(), costs: (form.costs||'').trim(),
+    meetingLat: isNaN(parseFloat(form.meetingLat)) ? null : +parseFloat(form.meetingLat).toFixed(5),
+    meetingLon: isNaN(parseFloat(form.meetingLon)) ? null : +parseFloat(form.meetingLon).toFixed(5),
   };
+  // Natel der Teilnehmenden als Liste (Namen taugen nicht als Firebase-Schlüssel)
+  const phoneKeys = Object.keys(form).filter(k=> k.startsWith('phone::'));
+  if(phoneKeys.length) editableFields.phones = phoneKeys.map(k=>({name: k.slice(7), phone: String(form[k]||'').trim()})).filter(x=> x.phone);
   // Tourenbriefing (Schritt 4) — nur übernehmen, wenn das Formular es mitgeschickt hat.
   if(typeof form.briefing === 'string' && form.briefing){
     try{
@@ -10642,7 +10948,8 @@ async function fsTravelDrive(from, to){
   const d = await res.json();
   const s = d.features && d.features[0] && d.features[0].properties && d.features[0].properties.summary;
   if(!s) throw new Error('Keine Strassenverbindung gefunden');
-  const r = {durationS: s.duration, distanceM: s.distance};
+  const g = d.features[0].geometry;
+  const r = {durationS: s.duration, distanceM: s.distance, coords: g && Array.isArray(g.coordinates) ? g.coordinates : null};
   fsTravelCache.set(key, r);
   return r;
 }
@@ -10655,12 +10962,15 @@ async function fsTravelNearestStation(p){
   if(!st) throw new Error('Keine Haltestelle in der Nähe');
   return st;
 }
-async function fsTravelTransit(from, to){
-  const key = 'oev|' + from.lat.toFixed(3) + ',' + from.lon.toFixed(3) + '|' + to.lat + ',' + to.lon;
+// opts {date:'YYYY-MM-DD', time:'HH:MM'}: Verbindung zu einem bestimmten Zeitpunkt (Tourenzettel)
+async function fsTravelTransit(from, to, opts){
+  opts = opts || {};
+  const when = (opts.date ? '&date=' + opts.date : '') + (opts.time ? '&time=' + encodeURIComponent(opts.time) : '');
+  const key = 'oev|' + from.lat.toFixed(3) + ',' + from.lon.toFixed(3) + '|' + to.lat + ',' + to.lon + when;
   if(fsTravelCache.has(key)) return fsTravelCache.get(key);
   const [a, b] = await Promise.all([fsTravelNearestStation(from), fsTravelNearestStation(to)]);
   if(a.id === b.id) return {same: true, station: a.name};
-  const res = await fetch('https://transport.opendata.ch/v1/connections?limit=2&from=' + encodeURIComponent(a.id) + '&to=' + encodeURIComponent(b.id));
+  const res = await fetch('https://transport.opendata.ch/v1/connections?limit=2&from=' + encodeURIComponent(a.id) + '&to=' + encodeURIComponent(b.id) + when);
   if(!res.ok) throw new Error('Fahrplan nicht erreichbar');
   const d = await res.json();
   const c = (d.connections || [])[0];
@@ -10669,7 +10979,12 @@ async function fsTravelTransit(from, to){
   const dm = /(\d+)d(\d+):(\d+)/.exec(c.duration || '');
   const r = {from: a.name, to: b.name, dep: t(c.from && c.from.departure), arr: t(c.to && c.to.arrival),
     durS: dm ? (+dm[1] * 1440 + +dm[2] * 60 + +dm[3]) * 60 : null, transfers: c.transfers,
-    products: (c.products || []).filter(Boolean).join(', ')};
+    products: (c.products || []).filter(Boolean).join(', '),
+    legs: (c.sections || []).filter(x=> x && x.journey).map(x=>({
+      line: [x.journey.category, x.journey.number].filter(Boolean).join(' ') || x.journey.name || '',
+      from: x.departure && x.departure.station ? x.departure.station.name : '', dep: t(x.departure && x.departure.departure),
+      platform: x.departure && x.departure.platform ? x.departure.platform : '',
+      to: x.arrival && x.arrival.station ? x.arrival.station.name : '', arr: t(x.arrival && x.arrival.arrival)}))};
   fsTravelCache.set(key, r);
   return r;
 }
@@ -10716,6 +11031,84 @@ document.addEventListener('click', (e)=>{
   if(!b) return;
   e.preventDefault(); e.stopPropagation();
   fsTravelCalc(b.closest('.fs-travel'));
+}, true);
+
+/* ================= Treffpunkt mit Koordinaten (für die Anfahrt auf dem Tourenzettel) =================
+   Im Termin-Formular: Ort suchen (swisstopo-Suche) oder auf der Karte setzen. Gespeichert werden
+   meetingLat/meetingLon zusätzlich zum Freitext. */
+function fsAgendaPhone(a, name){
+  const hit = (a && Array.isArray(a.phones) ? a.phones : []).find(x=> x && x.name === name);
+  return hit ? hit.phone : '';
+}
+function fsMeetToolsHtml(a){
+  const has = a && a.meetingLat != null && a.meetingLon != null;
+  return `<input type="hidden" name="meetingLat" value="${has ? a.meetingLat : ''}"/><input type="hidden" name="meetingLon" value="${has ? a.meetingLon : ''}"/>
+    <div class="fs-meet-tools">
+      <button type="button" class="btn secondary" data-act="meet-search">🔎 Ort suchen</button>
+      <button type="button" class="btn secondary" data-act="meet-map">📍 Auf Karte</button>
+      <span class="fs-meet-status">${has ? '✓ Ort gesetzt' : 'Ort für die Anfahrt-Route'}</span>
+      ${has ? `<button type="button" class="fs-meet-clear" data-act="meet-clear" title="Ort entfernen">×</button>` : ''}
+    </div>
+    <div class="fs-meet-results"></div>
+    <div class="fs-meet-map" hidden></div>`;
+}
+function fsMeetSet(box, lat, lon, label){
+  box.querySelector('input[name="meetingLat"]').value = lat == null ? '' : lat.toFixed(5);
+  box.querySelector('input[name="meetingLon"]').value = lon == null ? '' : lon.toFixed(5);
+  const st = box.querySelector('.fs-meet-status');
+  st.textContent = lat == null ? 'Ort für die Anfahrt-Route' : '✓ ' + (label || 'Ort gesetzt');
+  let clr = box.querySelector('.fs-meet-clear');
+  if(lat != null && !clr){ clr = document.createElement('button'); clr.type = 'button'; clr.className = 'fs-meet-clear'; clr.setAttribute('data-act', 'meet-clear'); clr.title = 'Ort entfernen'; clr.textContent = '×'; st.after(clr); }
+  if(lat == null && clr) clr.remove();
+  if(box._meetMap){
+    if(box._meetMarker){ box._meetMarker.remove(); box._meetMarker = null; }
+    if(lat != null) box._meetMarker = new maplibregl.Marker({color:'#B5652D'}).setLngLat([lon, lat]).addTo(box._meetMap);
+  }
+  if(typeof markModalDirty === 'function') markModalDirty();
+}
+async function fsMeetSearch(box){
+  const res = box.querySelector('.fs-meet-results');
+  // Uhrzeit ("06:30") aus dem Freitext weglassen, sonst findet die Suche nichts
+  const q = (box.querySelector('input[name="meetingPoint"]').value || '').replace(/\b\d{1,2}[:.]\d{2}\b/g, '').replace(/\s+/g, ' ').trim();
+  if(!q){ res.innerHTML = '<p class="fs-meet-hint">Zuerst einen Ort ins Feld schreiben, z. B. «Bahnhof Thun».</p>'; return; }
+  res.innerHTML = '<p class="fs-meet-hint">Suche …</p>';
+  try{
+    const r = await fetch('https://api3.geo.admin.ch/rest/services/ech/SearchServer?type=locations&sr=4326&limit=6&searchText=' + encodeURIComponent(q));
+    const d = await r.json();
+    const hits = (d.results || []).map(x=> x.attrs).filter(x=> x && x.lat != null && x.lon != null);
+    if(!hits.length){ res.innerHTML = '<p class="fs-meet-hint">Nichts gefunden — anders schreiben oder auf der Karte setzen.</p>'; return; }
+    res.innerHTML = hits.map((h, i)=> `<button type="button" class="fs-meet-hit" data-act="meet-pick" data-lat="${h.lat}" data-lon="${h.lon}">${esc(String(h.label || '').replace(/<[^>]*>/g, ''))}</button>`).join('');
+  }catch(e){ res.innerHTML = '<p class="fs-meet-hint">Suche nicht erreichbar (offline?).</p>'; }
+}
+async function fsMeetMap(box){
+  const el = box.querySelector('.fs-meet-map');
+  if(!el.hidden){ el.hidden = true; return; }
+  el.hidden = false;
+  if(box._meetMap) return;
+  try{ await fsmEnsureLoaded(); }catch(e){ el.innerHTML = '<p class="fs-meet-hint">Karte nicht verfügbar.</p>'; return; }
+  const lat = parseFloat(box.querySelector('input[name="meetingLat"]').value), lon = parseFloat(box.querySelector('input[name="meetingLon"]').value);
+  const has = !isNaN(lat) && !isNaN(lon);
+  const map = fsmCreateMap(el, {center: has ? [lat, lon] : [46.8, 8.2], zoom: has ? 13 : 7});
+  box._meetMap = map;
+  if(has) box._meetMarker = new maplibregl.Marker({color:'#B5652D'}).setLngLat([lon, lat]).addTo(map);
+  map.on('click', e=> fsMeetSet(box, e.lngLat.lat, e.lngLat.lng, 'auf der Karte gesetzt'));
+}
+document.addEventListener('click', (e)=>{
+  const b = e.target.closest && e.target.closest('[data-act^="meet-"]');
+  if(!b) return;
+  const box = b.closest('.fs-meet');
+  if(!box) return;
+  e.preventDefault(); e.stopPropagation();
+  const act = b.getAttribute('data-act');
+  if(act === 'meet-search') fsMeetSearch(box);
+  else if(act === 'meet-map') fsMeetMap(box);
+  else if(act === 'meet-clear') fsMeetSet(box, null, null);
+  else if(act === 'meet-pick'){
+    const lat = parseFloat(b.getAttribute('data-lat')), lon = parseFloat(b.getAttribute('data-lon'));
+    fsMeetSet(box, lat, lon, b.textContent);
+    box.querySelector('.fs-meet-results').innerHTML = '';
+    if(box._meetMap) box._meetMap.jumpTo({center:[lon, lat], zoom: 14});
+  }
 }, true);
 
 // Link zur Tourbeschreibung (SAC, Camptocamp, Hikr …) direkt in der Tourenansicht, mit Quelle
