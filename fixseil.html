@@ -1526,28 +1526,29 @@ function mergeImportedData(json){
   const importedSektoren = fsImportPrep(data.sektoren, 'sek');
   const importedAgenda = fsImportPrep(data.agenda, 'a', 'tourName');
   let addedTours = 0, updatedTours = 0, addedHuts = 0, updatedHuts = 0, addedSektoren = 0, updatedSektoren = 0, addedAgenda = 0, updatedAgenda = 0;
+  fsImportConfirm([['Touren', importedTours, state.tours], ['Hütten', importedHuts, state.huts], ['Sektoren', importedSektoren, state.sektoren], ['Termine', importedAgenda, state.agenda]]);
   importedTours.forEach(t=>{
     if(!t || !t.id || !t.name) return;
     const idx = state.tours.findIndex(x=>x.id===t.id);
-    if(idx>=0){ state.tours[idx] = t; updatedTours++; }
+    if(idx>=0){ Object.assign(t, fsImportMerge(state.tours[idx], t)); state.tours[idx] = t; updatedTours++; }
     else { state.tours.unshift(t); addedTours++; }
   });
   importedHuts.forEach(h=>{
     if(!h || !h.id || !h.name) return;
     const idx = state.huts.findIndex(x=>x.id===h.id);
-    if(idx>=0){ state.huts[idx] = h; updatedHuts++; }
+    if(idx>=0){ Object.assign(h, fsImportMerge(state.huts[idx], h)); state.huts[idx] = h; updatedHuts++; }
     else { state.huts.push(h); addedHuts++; }
   });
   importedSektoren.forEach(sek=>{
     if(!sek || !sek.id || !sek.name) return;
     const idx = state.sektoren.findIndex(x=>x.id===sek.id);
-    if(idx>=0){ state.sektoren[idx] = sek; updatedSektoren++; }
+    if(idx>=0){ Object.assign(sek, fsImportMerge(state.sektoren[idx], sek)); state.sektoren[idx] = sek; updatedSektoren++; }
     else { state.sektoren.unshift(sek); addedSektoren++; }
   });
   importedAgenda.forEach(a=>{
     if(!a || !a.id || !a.tourName) return;
     const idx = state.agenda.findIndex(x=>x.id===a.id);
-    if(idx>=0){ state.agenda[idx] = a; updatedAgenda++; }
+    if(idx>=0){ Object.assign(a, fsImportMerge(state.agenda[idx], a)); state.agenda[idx] = a; updatedAgenda++; }
     else { state.agenda.unshift(a); addedAgenda++; }
   });
   importedTours.forEach(t=> saveTourCloud(t).catch(()=>markUnsaved()));
