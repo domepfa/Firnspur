@@ -1447,3 +1447,18 @@ html.fs-dark .fsm-row{ border-top-color:#33414C; }
 .bf-ed-item.lv-opt small{ color:#7A5A12; }
 html.fs-dark .bf-ed-item{ background:#2A3640; border-color:#3A4752; }
 html.fs-dark .bf-ed-item.lv-opt{ background:#4A3E1E; border-color:#7A6430; }
+
+/* Treffpunkt mit Ort (Termin-Formular) */
+.fs-meet-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;}
+.fs-meet-tools .btn{padding:6px 12px;font-size:13px;}
+.fs-meet-status{font-size:12.5px;color:var(--ink-soft);}
+.fs-meet-clear{background:none;border:none;color:var(--ink-faint);font-size:18px;line-height:1;cursor:pointer;padding:0 4px;}
+.fs-meet-results{display:flex;flex-direction:column;gap:4px;margin-top:6px;}
+.fs-meet-results:empty{display:none;}
+.fs-meet-hit{text-align:left;background:var(--ice-light,#EEF3F6);border:1px solid var(--line,#E1E7EB);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer;color:inherit;}
+.fs-meet-hint{font-size:12.5px;color:var(--ink-faint);margin:0;}
+.fs-meet-map{position:relative;height:240px;border-radius:10px;overflow:hidden;margin-top:8px;border:1px solid var(--line,#E1E7EB);}
+.fs-meet-map[hidden]{display:none;}
+.fs-phones{display:flex;flex-direction:column;gap:6px;}
+.fs-phone-row{display:grid;grid-template-columns:minmax(90px,40%) 1fr;align-items:center;gap:10px;font-size:13.5px;margin:0;}
+.fs-phone-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
