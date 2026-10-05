@@ -346,7 +346,9 @@ function fsRescueCollect(appKey, cacheKeys){
     if(left.length) store[coll] = left; else delete store[coll];
   });
   try{ if(Object.keys(store).length) localStorage.setItem(storeKey, JSON.stringify(store)); else localStorage.removeItem(storeKey); }catch(e){}
+  fsBetterCollect(appKey, cacheKeys);
   if(Object.keys(store).length) setTimeout(()=> fsRescueOffer(appKey), 600);
+  setTimeout(()=> fsBetterOffer(appKey), 1500);
   setTimeout(()=> fsGpxRepairCheck(appKey), 2500);
   return store;
 }
@@ -509,6 +511,90 @@ function fsGpxRepairOffer(appKey, lineTours, altFix, orphanData){
     box.remove();
     render();
     showToast(ok + ' GPX-Linien wiederhergestellt.');
+  };
+}
+/* Bessere Fassung vom Gerät: Gibt es einen Eintrag in der Datenbank, hat dieses Gerät aber in
+   Feldern Daten, die dort leer sind (z. B. Linie, Punkte, Fotos, Routen), wird das beiseitegelegt
+   (fs-better-<app>) und angeboten. Übernommen werden nur die leeren Felder — nichts wird ersetzt. */
+const FS_BETTER_LABELS = {trackSimplified:'GPX-Linie', manualTrack:'gezeichnete Linie', points:'Punkte', altTracks:'weitere Routen',
+  topoImages:'Fotos/Topos', accessRoutes:'Zustiege', descentRoutes:'Abstiege', kletterrouten:'Kletterrouten', completions:'Begehungen'};
+function fsBetterCollect(appKey, cacheKeys){
+  const key = 'fs-better-' + appKey;
+  let store = {};
+  try{ store = JSON.parse(localStorage.getItem(key) || '{}') || {}; }catch(e){ store = {}; }
+  Object.keys(FS_RESCUE_COLLS).forEach(coll=>{
+    if(!Array.isArray(state[coll]) || typeof window[FS_RESCUE_COLLS[coll][1]] !== 'function') return;
+    const cloud = new Map([...(state[coll] || []), ...(state['trashed' + fsRescueCap(coll)] || [])].map(x=> [x && x.id, x]));
+    const found = new Map((store[coll] || []).map(x=> [x.id, x]));
+    cacheKeys.forEach(k=>{
+      let c = null;
+      try{ c = JSON.parse(localStorage.getItem(k) || 'null'); }catch(e){ c = null; }
+      if(!c) return;
+      [...(c[coll] || []), ...(c['trashed' + fsRescueCap(coll)] || [])].forEach(x=>{
+        const cur = x && cloud.get(x.id);
+        if(!cur) return;
+        const fields = {};
+        Object.keys(FS_BETTER_LABELS).forEach(f=>{ if(fsImportIsEmpty(cur[f]) && !fsImportIsEmpty(x[f])) fields[f] = x[f]; });
+        if(!Object.keys(fields).length) return;
+        const prev = found.get(x.id);
+        found.set(x.id, {id: x.id, name: x.name || cur.name || x.id, fields: Object.assign({}, prev ? prev.fields : {}, fields)});
+      });
+    });
+    // Was inzwischen in der Datenbank wieder gefüllt ist, fällt raus
+    const left = [...found.values()].map(b=>{
+      const cur = cloud.get(b.id);
+      if(!cur) return null;
+      const f = {};
+      Object.keys(b.fields).forEach(k=>{ if(fsImportIsEmpty(cur[k])) f[k] = b.fields[k]; });
+      return Object.keys(f).length ? Object.assign({}, b, {fields: f}) : null;
+    }).filter(Boolean);
+    if(left.length) store[coll] = left; else delete store[coll];
+  });
+  try{ if(Object.keys(store).length) localStorage.setItem(key, JSON.stringify(store)); else localStorage.removeItem(key); }catch(e){}
+  return store;
+}
+function fsBetterOffer(appKey){
+  if(document.getElementById('fs-rescue') || document.getElementById('fs-better')){ if(!document.getElementById('fs-better')) setTimeout(()=> fsBetterOffer(appKey), 1500); return; }
+  let store = {};
+  try{ store = JSON.parse(localStorage.getItem('fs-better-' + appKey) || '{}') || {}; }catch(e){ return; }
+  const colls = Object.keys(store).filter(c=> (store[c] || []).length);
+  if(!colls.length) return;
+  const total = colls.reduce((n, c)=> n + store[c].length, 0);
+  const box = document.createElement('div');
+  box.id = 'fs-better';
+  box.className = 'fs-rescue';
+  box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true">
+    <h3>📲 Dieses Gerät hat mehr Daten</h3>
+    <p>Bei ${total} Einträgen sind hier Daten gespeichert, die in der Datenbank fehlen. Übernommen werden nur die fehlenden Teile, nichts wird ersetzt:</p>
+    <div class="fs-rescue-list">${colls.map(c=> store[c].map((b, i)=> `<label class="fs-gpx-orphan"><input type="checkbox" data-b="${c}:${i}" checked/> <span><b>${esc(b.name)}</b> <span class="fs-rescue-muted">${Object.keys(b.fields).map(f=> esc(FS_BETTER_LABELS[f] || f)).join(', ')}</span></span></label>`).join('')).join('')}</div>
+    <div class="fs-rescue-actions">
+      <button type="button" class="btn" data-r="go">Übernehmen</button>
+      <button type="button" class="btn secondary" data-r="later">Später</button>
+    </div>
+    <p class="fs-rescue-muted">Nicht angehakte Einträge werden nicht mehr angeboten. Die bisherige Fassung bleibt unter «Frühere Versionen» erhalten.</p>
+  </div>`;
+  document.body.appendChild(box);
+  box.querySelector('[data-r="later"]').onclick = ()=> box.remove();
+  box.querySelector('[data-r="go"]').onclick = async ()=>{
+    const btn = box.querySelector('[data-r="go"]');
+    btn.disabled = true; btn.textContent = 'Wird übernommen …';
+    let ok = 0;
+    for(const c of colls){
+      const save = window[FS_RESCUE_COLLS[c][1]];
+      for(const [i, b] of store[c].entries()){
+        const cb = box.querySelector(`[data-b="${c}:${i}"]`);
+        if(!cb || !cb.checked) continue;
+        const obj = (state[c] || []).find(x=> x.id === b.id) || (state['trashed' + fsRescueCap(c)] || []).find(x=> x.id === b.id);
+        if(!obj) continue;
+        Object.keys(b.fields).forEach(f=>{ if(fsImportIsEmpty(obj[f])) obj[f] = b.fields[f]; });
+        if(await save(obj).catch(()=> false)) ok++;
+      }
+    }
+    // Erledigt oder abgewählt: nicht mehr anbieten (Schlüssel bleibt leer, bis neue Unterschiede auftauchen)
+    try{ localStorage.removeItem('fs-better-' + appKey); localStorage.setItem('fs-better-done-' + appKey, '1'); }catch(e){}
+    box.remove();
+    render();
+    showToast(ok + ' Einträge ergänzt.');
   };
 }
 function fsRescueOffer(appKey){
