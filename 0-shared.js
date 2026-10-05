@@ -52,6 +52,7 @@ async function fbGet(path){
     const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam);
     if(!res.ok){ dlog('Firebase GET fehlgeschlagen ('+res.status+'): '+path, 'err'); return null; }
     const data = await res.json();
+    if(FS_VERSIONED.includes(path) && data && typeof data === 'object') Object.keys(data).forEach(id=> fsBaseStamp.set(path + '/' + id, (data[id] && data[id].updatedAt) || ''));
     return data;
   }catch(e){
     dlog('Firebase GET Fehler für "'+path+'": '+(e && e.message ? e.message : e), 'err');
@@ -61,13 +62,71 @@ async function fbGet(path){
 // Schutz: nie eine ganze Sammlung überschreiben oder löschen. Jeder Schreibpfad endet mit einer
 // gültigen ID (z. B. "fixseil/tours/t_abc"); eine leere ID ("fixseil/tours/") würde sonst die
 // komplette Sammlung durch einen einzelnen Eintrag ersetzen.
+// Sammlungen selbst (z. B. "fixseil/tours") dürfen nie als Ganzes geschrieben oder gelöscht werden
+const FB_COLLECTION_ROOTS = ['fixseil', 'wandern', 'versions', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete', 'fixseil/gipfel',
+  'fixseil/huts', 'fixseil/gpxTracks', 'fixseil/gpxTracksAlt', 'wandern/tours', 'wandern/gebiete', 'wandern/gpxTracks', 'wandern/gpxTracksAlt'];
 function fbPathOk(path){
   const segs = String(path || '').split('/');
-  return segs.length >= 2 && segs.every(s=> s && s !== 'undefined' && s !== 'null' && !/[.#$\[\]]/.test(s));
+  return segs.length >= 2 && !FB_COLLECTION_ROOTS.includes(String(path)) && !/^versions\/[^/]+$/.test(String(path))
+    && segs.every(s=> s && s !== 'undefined' && s !== 'null' && !/[.#$\[\]]/.test(s));
+}
+/* Versionen und Schutz bei gleichzeitigem Bearbeiten (Touren, Hütten, Gebiete, Sektoren, Gipfel,
+   Termine): Vor jedem Überschreiben oder Löschen wird die bisherige Fassung unter versions/…
+   abgelegt (nur hinzufügen, nie überschreiben) und lässt sich in der App zurückholen. Hat jemand
+   anderes den Eintrag geändert, seit dieses Gerät ihn geladen hat, fragt die App nach, statt
+   still dessen Änderungen zu überschreiben. */
+const FS_VERSIONED = ['tours', 'huts', 'gebiete', 'agenda', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete', 'fixseil/gipfel', 'fixseil/huts', 'wandern/tours', 'wandern/gebiete'];
+const fsBaseStamp = new Map(); // Pfad → updatedAt beim Laden
+function fsVersionedSplit(path){
+  const i = String(path).lastIndexOf('/');
+  const coll = path.slice(0, i);
+  return FS_VERSIONED.includes(coll) ? {coll, id: path.slice(i + 1), key: coll.replace(/\//g, '_')} : null;
+}
+async function fsRawFetch(path, opts){
+  await ensureValidAuthToken();
+  const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
+  return fetch(FIREBASE_URL + '/' + path + '.json' + authParam, opts);
+}
+// Bisherige Fassung sichern; Fehler hier blockieren das Speichern nicht
+async function fsSaveVersion(v, cur, reason){
+  try{
+    const stamp = new Date().toISOString().replace(/[.:]/g, '-');
+    const by = (typeof state !== 'undefined' && state.myName) || '';
+    const res = await fsRawFetch('versions/' + v.key + '/' + v.id + '/' + stamp, {method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(Object.assign({}, cur, {_versionAt: new Date().toISOString(), _versionBy: by, _versionReason: reason || ''}))});
+    if(!res.ok) dlog('Version nicht gesichert (' + res.status + '): ' + v.key + '/' + v.id, 'err');
+  }catch(e){ dlog('Version nicht gesichert: ' + (e && e.message ? e.message : e), 'err'); }
 }
 async function fbSet(path, value){
   if(!fbPathOk(path)){ dlog('Speichern blockiert (ungültiger Pfad): "' + path + '"', 'err'); return false; }
   try{
+    const v = value && typeof value === 'object' && !Array.isArray(value) ? fsVersionedSplit(path) : null;
+    if(v){
+      let cur = null;
+      try{ const r = await fsRawFetch(path); if(r.ok) cur = await r.json(); }catch(e){ cur = null; }
+      if(cur && typeof cur === 'object'){
+        const base = fsBaseStamp.get(path);
+        const curStamp = cur.updatedAt || '';
+        // Jemand anderes hat seit dem Laden gespeichert (Termine ausgenommen: dort tragen sich
+        // oft mehrere gleichzeitig ein, das wäre nur lästig)
+        if(v.coll !== 'agenda' && base !== undefined && curStamp && curStamp !== base){
+          const who = cur.updatedBy || 'jemand anderes';
+          const when = new Date(curStamp).toLocaleString('de-CH', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+          const keep = window.confirm(`«${cur.name || cur.tourName || 'Dieser Eintrag'}» wurde inzwischen von ${who} geändert (${when}).\n\nOK: deine Fassung speichern — die andere bleibt unter «Frühere Versionen» erhalten.\nAbbrechen: nicht speichern und die neuere Fassung laden.`);
+          if(!keep){
+            Object.keys(value).forEach(k=> delete value[k]);
+            Object.assign(value, cur);
+            fsBaseStamp.set(path, curStamp);
+            if(typeof showToast === 'function') showToast('Nicht gespeichert — die neuere Fassung ist geladen.');
+            if(typeof render === 'function') setTimeout(render, 0);
+            return true;
+          }
+        }
+        if(JSON.stringify(cur) !== JSON.stringify(value)) await fsSaveVersion(v, cur, 'vor dem Speichern');
+      }
+      value.updatedAt = new Date().toISOString();
+      if(typeof state !== 'undefined' && state.myName) value.updatedBy = state.myName;
+    }
     await ensureValidAuthToken();
     const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
     const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam, {
@@ -76,6 +135,7 @@ async function fbSet(path, value){
       body: JSON.stringify(value)
     });
     if(!res.ok){ dlog('Firebase PUT fehlgeschlagen ('+res.status+'): '+path, 'err'); return false; }
+    if(v) fsBaseStamp.set(path, value.updatedAt);
     return true;
   }catch(e){
     dlog('Firebase PUT Fehler für "'+path+'": '+(e && e.message ? e.message : e), 'err');
@@ -85,6 +145,10 @@ async function fbSet(path, value){
 async function fbDelete(path){
   if(!fbPathOk(path)){ dlog('Löschen blockiert (ungültiger Pfad): "' + path + '"', 'err'); return false; }
   try{
+    const v = fsVersionedSplit(path);
+    if(v){
+      try{ const r = await fsRawFetch(path); const cur = r.ok ? await r.json() : null; if(cur && typeof cur === 'object') await fsSaveVersion(v, cur, 'vor dem endgültigen Löschen'); }catch(e){}
+    }
     await ensureValidAuthToken();
     const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
     const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam, {method:'DELETE'});
@@ -235,6 +299,31 @@ function fsImportPrep(list, prefix, nameField){
     return x;
   });
 }
+// Import ergänzt statt ersetzt: Werte aus der Datei überschreiben nur, wenn sie etwas enthalten —
+// leere Felder in der Datei löschen nie vorhandene Daten (GPX, Punkte, Fotos, Routen, Begehungen).
+function fsImportIsEmpty(v){
+  return v === '' || v === null || v === undefined || (Array.isArray(v) && !v.length) || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length);
+}
+function fsImportMerge(existing, incoming){
+  const out = Object.assign({}, existing);
+  Object.keys(incoming || {}).forEach(k=>{ if(k !== 'id' && !fsImportIsEmpty(incoming[k])) out[k] = incoming[k]; });
+  out.id = existing.id;
+  return out;
+}
+// Vorschau vor dem Import: was kommt neu, was wird ergänzt. rows: [[Bezeichnung, importierte Liste, bestehende Liste]]
+function fsImportConfirm(rows){
+  const lines = [];
+  rows.forEach(([label, list, existing])=>{
+    const ids = new Set((existing || []).map(x=> x && x.id));
+    const upd = (list || []).filter(x=> ids.has(x.id)), add = (list || []).filter(x=> !ids.has(x.id));
+    const nm = x=> x.name || x.tourName || x.id;
+    if(add.length) lines.push(`${label} neu (${add.length}): ${add.map(nm).slice(0, 8).join(', ')}${add.length > 8 ? ' …' : ''}`);
+    if(upd.length) lines.push(`${label} ergänzt (${upd.length}): ${upd.map(nm).slice(0, 8).join(', ')}${upd.length > 8 ? ' …' : ''}`);
+  });
+  if(!lines.length) return;
+  const ok = window.confirm('Import prüfen:\n\n' + lines.join('\n') + '\n\nBestehende Einträge werden nur ergänzt — vorhandene Punkte, Tracks, Fotos und Routen bleiben erhalten. Die bisherige Fassung wird zusätzlich unter «Frühere Versionen» gesichert.\n\nImportieren?');
+  if(!ok) throw new Error('Import abgebrochen — nichts wurde verändert.');
+}
 function fsRescueCollect(appKey, cacheKeys){
   const storeKey = 'fs-rescue-' + appKey;
   let store = {};
@@ -260,6 +349,62 @@ function fsRescueCollect(appKey, cacheKeys){
   if(Object.keys(store).length) setTimeout(()=> fsRescueOffer(appKey), 600);
   return store;
 }
+/* ================= Frühere Versionen einer Tour ansehen und zurückholen ================= */
+function fsOwnToursPath(){ return {firnspur: 'tours', fixseil: 'fixseil/tours', wandern: 'wandern/tours'}[fsAppKey()] || 'tours'; }
+async function fsOpenVersions(id){
+  const path = fsOwnToursPath() + '/' + id;
+  const v = fsVersionedSplit(path);
+  const box = document.createElement('div');
+  box.id = 'fs-versions';
+  box.className = 'fs-rescue';
+  box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true"><h3>🕘 Frühere Versionen</h3><p class="fs-rescue-muted">Wird geladen …</p></div>`;
+  box.addEventListener('click', e=>{ if(e.target === box) box.remove(); });
+  document.body.appendChild(box);
+  const card = box.querySelector('.fs-rescue-card');
+  const data = await fbGet('versions/' + v.key + '/' + id);
+  const list = data && typeof data === 'object' ? Object.keys(data).sort().reverse().map(k=> Object.assign({_key: k}, data[k])) : [];
+  const cnt = (a)=> Array.isArray(a) ? a.length : 0;
+  const sum = x=> [
+    cnt(x.points) ? cnt(x.points) + ' Punkte' : '',
+    cnt(x.trackSimplified) || cnt(x.manualTrack) ? 'Linie' : '',
+    cnt(x.altTracks) ? cnt(x.altTracks) + ' weitere Routen' : '',
+    cnt(x.topoImages) ? cnt(x.topoImages) + ' Fotos' : '',
+    x.deletedAt ? 'im Papierkorb' : ''
+  ].filter(Boolean).join(' · ') || 'ohne Kartendaten';
+  const when = iso=> iso ? new Date(iso).toLocaleString('de-CH', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}) : '?';
+  card.innerHTML = `<h3>🕘 Frühere Versionen</h3>
+    ${list.length ? `<p class="fs-rescue-muted">Vor jedem Speichern wird die bisherige Fassung hier abgelegt. Zurückholen sichert die aktuelle Fassung ebenfalls zuerst.</p>
+    <div class="fs-ver-list">${list.slice(0, 30).map((x, i)=> `<div class="fs-ver-row">
+      <div><b>${esc(when(x._versionAt))}</b>${x._versionBy ? ' · gespeichert von ' + esc(x._versionBy) : ''}<br/>
+        <span>${esc(x.name || '')}</span> <span class="fs-rescue-muted">${esc(sum(x))}${x.updatedBy ? ' · Stand von ' + esc(x.updatedBy) : ''}</span></div>
+      <button type="button" class="btn secondary" data-ver="${i}">Zurückholen</button>
+    </div>`).join('')}</div>` : `<p>Noch keine früheren Versionen. Ab jetzt wird vor jeder Änderung die bisherige Fassung gesichert.</p>`}
+    <div class="fs-rescue-actions" style="margin-top:12px;"><button type="button" class="btn secondary" data-close>Schliessen</button></div>`;
+  card.querySelector('[data-close]').onclick = ()=> box.remove();
+  card.querySelectorAll('[data-ver]').forEach(b=> b.onclick = async ()=>{
+    const old = list[+b.getAttribute('data-ver')];
+    if(!window.confirm(`Fassung vom ${when(old._versionAt)} zurückholen?\n\nDie jetzige Fassung wird vorher als Version gesichert.`)) return;
+    b.disabled = true; b.textContent = '…';
+    const restored = {};
+    Object.keys(old).forEach(k=>{ if(!k.startsWith('_')) restored[k] = old[k]; });
+    restored.id = id;
+    const ok = await fbSet(path, restored);
+    if(!ok){ b.disabled = false; b.textContent = 'Zurückholen'; showToast('Zurückholen fehlgeschlagen (keine Verbindung?).', true); return; }
+    const lists = [state.tours, state.trashedTours].filter(Array.isArray);
+    let obj = null; lists.forEach(l=>{ const f = l.find(y=> y.id === id); if(f) obj = f; });
+    if(obj){ Object.keys(obj).forEach(k=> delete obj[k]); Object.assign(obj, restored); }
+    box.remove();
+    render();
+    showToast('Frühere Fassung zurückgeholt.');
+  });
+}
+document.addEventListener('click', (e)=>{
+  const b = e.target.closest && e.target.closest('[data-act="fs-versions"]');
+  if(!b) return;
+  e.preventDefault(); e.stopPropagation();
+  const det = b.closest('details'); if(det) det.open = false;
+  fsOpenVersions(b.getAttribute('data-id'));
+}, true);
 function fsRescueOffer(appKey){
   let store = {};
   try{ store = JSON.parse(localStorage.getItem('fs-rescue-' + appKey) || '{}') || {}; }catch(e){ return; }
@@ -11221,6 +11366,7 @@ function tourHasMapData(t){
 function tourActionsHtml(t, moreItems){
   const hasOffline = tourHasMapData(t) || (t.topoImages && t.topoImages.length);
   const items = (moreItems || []).filter(Boolean);
+  items.push(fsMenuItemHtml('clock', 'Frühere Versionen', `data-act="fs-versions" data-id="${esc(t.id)}"`));
   const onTour = fsGetOnTour();
   const active = !!(onTour && String(onTour.id) === String(t.id));
   return `<div class="fs-actions">

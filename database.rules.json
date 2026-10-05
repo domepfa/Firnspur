@@ -1,0 +1,16 @@
+{
+  "rules": {
+    ".read": "auth != null",
+    "$top": {
+      "$a": {
+        ".write": "auth != null && $top !== 'fixseil' && $top !== 'wandern' && $top !== 'versions'",
+        "$b": {
+          ".write": "auth != null && ($top === 'fixseil' || $top === 'wandern')",
+          "$c": {
+            ".write": "auth != null && $top === 'versions' && !data.exists() && newData.exists()"
+          }
+        }
+      }
+    }
+  }
+}

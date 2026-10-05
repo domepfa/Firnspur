@@ -974,25 +974,26 @@ function mergeImportedData(json){
   const importedHuts = fsImportPrep(data.huts, 'h');
   const importedAgenda = fsImportPrep(data.agenda, 'a', 'tourName');
   let addedTours = 0, updatedTours = 0, addedHuts = 0, updatedHuts = 0, addedAgenda = 0, updatedAgenda = 0;
+  fsImportConfirm([['Touren', importedTours, state.tours], ['Hütten', importedHuts, state.huts], ['Termine', importedAgenda, state.agenda]]);
   importedTours.forEach(t=>{
     if(!t || !t.id || !t.name) return;
     migrateCompletions(t);
     t.tourCategory = 'wanderung';
     const idx = state.tours.findIndex(x=>x.id===t.id);
-    if(idx>=0){ state.tours[idx] = t; updatedTours++; }
+    if(idx>=0){ Object.assign(t, fsImportMerge(state.tours[idx], t)); state.tours[idx] = t; updatedTours++; }
     else { state.tours.unshift(t); addedTours++; }
   });
   importedHuts.forEach(h=>{
     if(!h || !h.id || !h.name) return;
     migrateCompletions(h);
     const idx = state.huts.findIndex(x=>x.id===h.id);
-    if(idx>=0){ state.huts[idx] = h; updatedHuts++; }
+    if(idx>=0){ Object.assign(h, fsImportMerge(state.huts[idx], h)); state.huts[idx] = h; updatedHuts++; }
     else { state.huts.push(h); addedHuts++; }
   });
   importedAgenda.forEach(a=>{
     if(!a || !a.id || !a.tourName) return;
     const idx = state.agenda.findIndex(x=>x.id===a.id);
-    if(idx>=0){ state.agenda[idx] = a; updatedAgenda++; }
+    if(idx>=0){ Object.assign(a, fsImportMerge(state.agenda[idx], a)); state.agenda[idx] = a; updatedAgenda++; }
     else { state.agenda.unshift(a); addedAgenda++; }
   });
   // importierte Einträge auch in die Cloud schreiben, damit sie für alle sichtbar werden

@@ -1471,3 +1471,6 @@ html.fs-dark .bf-ed-item.lv-opt{ background:#4A3E1E; border-color:#7A6430; }
 .fs-rescue-list{display:flex;flex-direction:column;gap:8px;font-size:13.5px;margin-bottom:14px;}
 .fs-rescue-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
 .fs-rescue-muted{color:var(--ink-faint,#6B7A84);font-size:12.5px;}
+.fs-ver-list{display:flex;flex-direction:column;gap:8px;margin-top:8px;}
+.fs-ver-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line,#E1E7EB);font-size:13.5px;}
+.fs-ver-row .btn{flex:none;padding:6px 12px;font-size:13px;}
