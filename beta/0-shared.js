@@ -347,6 +347,7 @@ function fsRescueCollect(appKey, cacheKeys){
   });
   try{ if(Object.keys(store).length) localStorage.setItem(storeKey, JSON.stringify(store)); else localStorage.removeItem(storeKey); }catch(e){}
   if(Object.keys(store).length) setTimeout(()=> fsRescueOffer(appKey), 600);
+  setTimeout(()=> fsGpxRepairCheck(appKey), 2500);
   return store;
 }
 /* ================= Frühere Versionen einer Tour ansehen und zurückholen ================= */
@@ -405,6 +406,111 @@ document.addEventListener('click', (e)=>{
   const det = b.closest('details'); if(det) det.open = false;
   fsOpenVersions(b.getAttribute('data-id'));
 }, true);
+/* ================= GPX-Dateien wieder mit ihren Touren verbinden =================
+   Die Original-GPX liegen getrennt von den Touren (gpxTracks/<tourId>, gpxTracksAlt/<tourId>/<altId>).
+   Fehlt einer Tour die Linie (z. B. nach dem Zurückholen eines älteren Stands), obwohl ihre
+   GPX-Datei noch da ist, wird die Linie daraus neu erstellt. GPX-Dateien ganz ohne Tour lassen
+   sich als Entwurf-Tour anlegen. Prüft beim Laden nur die Schlüssel (wenig Daten). */
+async function fsShallowKeys(path){
+  try{
+    await ensureValidAuthToken();
+    const r = await fetch(FIREBASE_URL + '/' + path + '.json?shallow=true' + (authState.idToken ? '&auth=' + authState.idToken : ''));
+    if(!r.ok) return [];
+    const d = await r.json();
+    return d && typeof d === 'object' ? Object.keys(d) : [];
+  }catch(e){ return []; }
+}
+function fsGpxToSimplified(gpx){
+  const pts = parseGpxTrackPoints(gpx || '');
+  if(!pts.length) return null;
+  return simplifyTrackForStorage(pts, 200).map(q=> [Math.round(q.lat * 1e6) / 1e6, Math.round(q.lon * 1e6) / 1e6]);
+}
+let fsGpxRepairRunning = false;
+async function fsGpxRepairCheck(appKey){
+  if(fsGpxRepairRunning || typeof GPX_TRACKS_PATH === 'undefined' || !Array.isArray(state.tours)) return;
+  fsGpxRepairRunning = true;
+  try{
+    const ignore = new Set(JSON.parse(localStorage.getItem('fs-gpx-ignore-' + appKey) || '[]'));
+    const all = [...state.tours, ...(state.trashedTours || [])];
+    const byId = new Map(all.map(t=> [t.id, t]));
+    const [mainKeys, altTourKeys] = await Promise.all([fsShallowKeys(GPX_TRACKS_PATH), fsShallowKeys(GPX_TRACKS_PATH + 'Alt')]);
+    const lineFix = mainKeys.filter(id=> byId.has(id) && !(byId.get(id).trackSimplified || []).length);
+    const orphans = mainKeys.filter(id=> !byId.has(id) && !ignore.has(id));
+    const altFix = [];
+    for(const tid of altTourKeys.filter(id=> byId.has(id))){
+      const have = new Set((byId.get(tid).altTracks || []).map(a=> a.id));
+      (await fsShallowKeys(GPX_TRACKS_PATH + 'Alt/' + tid)).forEach(aid=>{ if(!have.has(aid)) altFix.push([tid, aid]); });
+    }
+    if(!lineFix.length && !orphans.length && !altFix.length) return;
+    // Namen der verwaisten Dateien holen (nur dafür die Datei laden)
+    const orphanData = [];
+    for(const id of orphans){
+      const d = await fbGet(GPX_TRACKS_PATH + '/' + id);
+      if(d && d.gpx) orphanData.push({id, d, name: String(d.fileName || 'GPX-Track').replace(/\.gpx$/i, '')});
+    }
+    fsGpxRepairOffer(appKey, lineFix.map(id=> byId.get(id)), altFix, orphanData);
+  }catch(e){ dlog('GPX-Prüfung fehlgeschlagen: ' + (e && e.message ? e.message : e), 'err'); }
+  finally{ fsGpxRepairRunning = false; }
+}
+function fsGpxRepairOffer(appKey, lineTours, altFix, orphanData){
+  if(document.getElementById('fs-gpxfix') || document.getElementById('fs-rescue')){ setTimeout(()=> fsGpxRepairOffer(appKey, lineTours, altFix, orphanData), 1500); return; }
+  const box = document.createElement('div');
+  box.id = 'fs-gpxfix';
+  box.className = 'fs-rescue';
+  const altTours = [...new Set(altFix.map(x=> x[0]))].map(id=> state.tours.find(t=> t.id === id) || (state.trashedTours || []).find(t=> t.id === id)).filter(Boolean);
+  box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true">
+    <h3>🧭 GPX-Dateien gefunden</h3>
+    ${lineTours.length ? `<p><b>${lineTours.length} Touren</b> fehlt die Linie, ihre GPX-Datei ist aber noch da:<br/>${lineTours.map(t=> esc(t.name || t.id)).join(' · ')}</p>` : ''}
+    ${altTours.length ? `<p><b>${altFix.length} weitere Routen</b> fehlen bei: ${altTours.map(t=> esc(t.name || t.id)).join(' · ')}</p>` : ''}
+    ${orphanData.length ? `<p><b>${orphanData.length} GPX-Dateien ohne Tour</b> — als Entwurf-Tour anlegen?</p>
+      <div class="fs-rescue-list">${orphanData.map((o, i)=> `<label class="fs-gpx-orphan"><input type="checkbox" data-o="${i}" checked/> ${esc(o.name)} <span class="fs-rescue-muted">${o.d.uploadedAt ? '· ' + esc(new Date(o.d.uploadedAt).toLocaleDateString('de-CH')) : ''}</span></label>`).join('')}</div>` : ''}
+    <div class="fs-rescue-actions">
+      <button type="button" class="btn" data-g="go">Wiederherstellen</button>
+      <button type="button" class="btn secondary" data-g="later">Später</button>
+    </div>
+    ${orphanData.length ? `<p class="fs-rescue-muted">Nicht angehakte Dateien werden nicht mehr angeboten (sie bleiben in der Datenbank).</p>` : ''}
+  </div>`;
+  document.body.appendChild(box);
+  box.querySelector('[data-g="later"]').onclick = ()=> box.remove();
+  box.querySelector('[data-g="go"]').onclick = async ()=>{
+    const btn = box.querySelector('[data-g="go"]');
+    btn.disabled = true; btn.textContent = 'Wird wiederhergestellt …';
+    let ok = 0;
+    const touched = new Set();
+    for(const t of lineTours){
+      const d = await fbGet(GPX_TRACKS_PATH + '/' + t.id);
+      const line = d && fsGpxToSimplified(d.gpx);
+      if(line){ t.trackSimplified = line; touched.add(t); ok++; }
+    }
+    for(const [tid, aid] of altFix){
+      const t = state.tours.find(x=> x.id === tid) || (state.trashedTours || []).find(x=> x.id === tid);
+      const d = await fbGet(GPX_TRACKS_PATH + 'Alt/' + tid + '/' + aid);
+      const line = d && fsGpxToSimplified(d.gpx);
+      if(t && line){
+        if(!Array.isArray(t.altTracks)) t.altTracks = [];
+        t.altTracks.push({id: aid, name: String(d.fileName || 'Weitere Route').replace(/\.gpx$/i, ''), type: 'variante', trackSimplified: line});
+        touched.add(t); ok++;
+      }
+    }
+    for(const t of touched) await saveTourCloud(t).catch(()=> false);
+    const ignore = new Set(JSON.parse(localStorage.getItem('fs-gpx-ignore-' + appKey) || '[]'));
+    for(const [i, o] of orphanData.entries()){
+      const cb = box.querySelector(`[data-o="${i}"]`);
+      if(!cb || !cb.checked){ ignore.add(o.id); continue; }
+      const line = fsGpxToSimplified(o.d.gpx);
+      if(!line) continue;
+      const t = {id: o.id, name: o.name, trackSimplified: line, status: 'entwurf', createdBy: state.myName || '', createdAt: o.d.uploadedAt || new Date().toISOString()};
+      if(appKey === 'fixseil') t.tourCategory = 'hochtour';
+      if(appKey === 'wandern') t.tourCategory = 'wanderung';
+      const saved = await saveTourCloud(t).catch(()=> false);
+      if(saved){ state.tours.unshift(t); ok++; }
+    }
+    try{ localStorage.setItem('fs-gpx-ignore-' + appKey, JSON.stringify([...ignore])); }catch(e){}
+    box.remove();
+    render();
+    showToast(ok + ' GPX-Linien wiederhergestellt.');
+  };
+}
 function fsRescueOffer(appKey){
   let store = {};
   try{ store = JSON.parse(localStorage.getItem('fs-rescue-' + appKey) || '{}') || {}; }catch(e){ return; }
