@@ -1,9 +1,20 @@
-name: Wöchentliches Firnspur-Backup
+name: Tägliches Firnspur-Backup
+
+# Sichert die GANZE Datenbank (Skitour, Hochtour/Klettern, Wandern, Hütten, Termine, GPX, Topos)
+# jeden Tag — verschlüsselt, weil das Repository öffentlich ist.
+#
+# Einrichten (einmalig): GitHub → Settings → Secrets and variables → Actions → New repository secret
+#   Name: FIRNSPUR_PASSWORD   Wert: das gemeinsame App-Passwort (damit meldet sich das Backup an
+#   und verschlüsselt die Datei).
+#
+# Wiederherstellen einer Sicherung (Datei herunterladen, dann):
+#   gpg --batch --passphrase 'APP-PASSWORT' -d firnspur-2026-10-06.json.gpg > firnspur.json
+# Wichtig: Wird das App-Passwort geändert, braucht es für ältere Sicherungen das alte Passwort.
 
 on:
   schedule:
-    - cron: '0 6 * * 1'   # jeden Montag um 06:00 UTC (07:00 Winterzeit CH)
-  workflow_dispatch: {}    # erlaubt auch manuelles Auslösen über den "Actions"-Tab
+    - cron: '17 3 * * *'   # täglich ca. 05:17 Schweizer Zeit
+  workflow_dispatch: {}    # auch von Hand startbar über den "Actions"-Tab
 
 permissions:
   contents: write
@@ -15,17 +26,64 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v4
 
-      - name: Daten von Firebase holen
+      - name: Anmelden und alle Daten holen
+        env:
+          PW: ${{ secrets.FIRNSPUR_PASSWORD }}
         run: |
+          set -euo pipefail
+          if [ -z "${PW:-}" ]; then echo "::error::Secret FIRNSPUR_PASSWORD fehlt (siehe Anleitung oben in dieser Datei)."; exit 1; fi
+          API_KEY='AIzaSyDKHMUoOL5aosFU7OhCt22REbyOvXqAXmU'
+          DB='https://firnspur-default-rtdb.europe-west1.firebasedatabase.app'
+          TOKEN=$(jq -n --arg pw "$PW" '{email:"firn@spur.so", password:$pw, returnSecureToken:true}' \
+            | curl -sf -X POST -H 'Content-Type: application/json' -d @- \
+              "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$API_KEY" | jq -r '.idToken // empty')
+          if [ -z "$TOKEN" ]; then echo "::error::Anmeldung fehlgeschlagen — stimmt das Passwort im Secret?"; exit 1; fi
+          echo "::add-mask::$TOKEN"
+          # Ganze Datenbank auf einmal; falls das die Regeln nicht erlauben, Bereich für Bereich
+          if curl -sf "$DB/.json?auth=$TOKEN" -o all.json && jq -e 'type=="object" and (has("error")|not)' all.json >/dev/null; then
+            echo "Ganze Datenbank gelesen."
+          else
+            echo '{}' > all.json
+            for k in tours huts gebiete agenda users fixseil wandern gpxTracks gpxTracksAlt topoImages \
+                     hutGpxTracksSummer hutGpxTracksWinter hutAccessRouteGpxTracks \
+                     mslAccessRouteGpxTracks mslDescentRouteGpxTracks sektorAccessRouteGpxTracks sektorDescentRouteGpxTracks; do
+              curl -sf "$DB/$k.json?auth=$TOKEN" -o part.json || { echo "::warning::$k nicht lesbar"; continue; }
+              jq --arg k "$k" --slurpfile v part.json '. + {($k): $v[0]}' all.json > tmp.json && mv tmp.json all.json
+            done
+          fi
+          # Plausibilität: ohne Touren ist etwas faul — dann nicht still ein leeres Backup ablegen
+          jq '{Skitouren:((.tours//{})|length), Hochtour_Klettern:((.fixseil.tours//{})|length), Sektoren:((.fixseil.sektoren//{})|length), Wandern:((.wandern.tours//{})|length), Huetten:((.huts//{})|length), Termine:((.agenda//{})|length)}' all.json | tee summary.json
+          jq -e '((.tours//{})|length) + ((.fixseil.tours//{})|length) > 0' all.json >/dev/null || { echo "::error::Keine Touren erhalten."; exit 1; }
+
+      - name: Verschlüsselt ablegen (nur wenn sich etwas geändert hat)
+        env:
+          PW: ${{ secrets.FIRNSPUR_PASSWORD }}
+        run: |
+          set -euo pipefail
           mkdir -p backups
           DATE=$(date +'%Y-%m-%d')
-          curl -s "https://firnspur-default-rtdb.europe-west1.firebasedatabase.app/tours.json" -o "backups/tours-$DATE.json"
-          curl -s "https://firnspur-default-rtdb.europe-west1.firebasedatabase.app/huts.json" -o "backups/huts-$DATE.json"
+          HASH=$(jq -S . all.json | sha256sum | cut -d' ' -f1)
+          if [ -f backups/last.sha256 ] && [ "$(cat backups/last.sha256)" = "$HASH" ]; then
+            echo "Keine Änderung seit der letzten Sicherung."; echo "CHANGED=0" >> "$GITHUB_ENV"; exit 0
+          fi
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$PW" --symmetric --cipher-algo AES256 \
+            -o "backups/firnspur-$DATE.json.gpg" all.json
+          echo "$HASH" > backups/last.sha256
+          cp summary.json "backups/firnspur-$DATE.summary.json"
+          # Aufräumen: Sicherungen älter als 60 Tage löschen, ausser die vom Monatsersten
+          CUTOFF=$(date -d '60 days ago' +'%Y-%m-%d')
+          for f in backups/firnspur-*.json.gpg; do
+            d=$(basename "$f" | sed -E 's/firnspur-([0-9-]{10}).*/\1/')
+            if [[ "$d" < "$CUTOFF" && "${d:8:2}" != "01" ]]; then rm -f "$f" "backups/firnspur-$d.summary.json"; fi
+          done
+          echo "CHANGED=1" >> "$GITHUB_ENV"
+          rm -f all.json part.json tmp.json summary.json
 
       - name: Backup committen
+        if: env.CHANGED == '1'
         run: |
           git config user.name "firnspur-backup-bot"
           git config user.email "actions@github.com"
           git add backups/
-          git diff --staged --quiet || git commit -m "Automatisches Backup $(date +'%Y-%m-%d')"
+          git commit -m "Automatisches Backup $(date +'%Y-%m-%d')"
           git push

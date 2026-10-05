@@ -1033,6 +1033,8 @@ async function loadAll(){
   state.trashedKlettergebiete = trashedKlettergebiete;
   state.trashedGipfel = trashedGipfel;
   state.agenda = [...unsyncedAgenda, ...agenda];
+  // Fehlende Einträge aus dem Gerätespeicher retten, bevor dieser überschrieben wird
+  fsRescueCollect('fixseil', ['fixseil-cache', 'fixseil' + 'beta-cache']);
   state.loading = false;
   state.offlineMode = false;
   // Einmal pro Ladevorgang: Papierkorb-Einträge, deren Aufbewahrungsfrist abgelaufen ist, endgültig
@@ -1519,10 +1521,10 @@ function mergeImportedData(json){
   let data;
   try{ data = JSON.parse(json); }
   catch(e){ throw new Error('Das eingefügte Format ist kein gültiges JSON.'); }
-  const importedTours = Array.isArray(data.tours) ? data.tours : [];
-  const importedHuts = Array.isArray(data.huts) ? data.huts : [];
-  const importedSektoren = Array.isArray(data.sektoren) ? data.sektoren : [];
-  const importedAgenda = Array.isArray(data.agenda) ? data.agenda : [];
+  const importedTours = fsImportPrep(data.tours, 't');
+  const importedHuts = fsImportPrep(data.huts, 'h');
+  const importedSektoren = fsImportPrep(data.sektoren, 'sek');
+  const importedAgenda = fsImportPrep(data.agenda, 'a', 'tourName');
   let addedTours = 0, updatedTours = 0, addedHuts = 0, updatedHuts = 0, addedSektoren = 0, updatedSektoren = 0, addedAgenda = 0, updatedAgenda = 0;
   importedTours.forEach(t=>{
     if(!t || !t.id || !t.name) return;
