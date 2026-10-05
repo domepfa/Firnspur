@@ -750,6 +750,8 @@ async function loadAll(){
   state.trashedHuts = trashedHuts;
   state.trashedGebiete = trashedGebiete;
   state.agenda = [...unsyncedAgenda, ...agenda];
+  // Fehlende Einträge aus dem Gerätespeicher retten, bevor dieser überschrieben wird
+  fsRescueCollect('firnspur', ['firnspur-cache', 'firnspur' + 'beta-cache']);
   state.loading = false;
   state.offlineMode = false;
   // Einmal pro Ladevorgang: Papierkorb-Einträge, deren Aufbewahrungsfrist abgelaufen ist, endgültig
@@ -971,9 +973,9 @@ function mergeImportedData(json){
   let data;
   try{ data = JSON.parse(json); }
   catch(e){ throw new Error('Das eingefügte Format ist kein gültiges JSON.'); }
-  const importedTours = Array.isArray(data.tours) ? data.tours : [];
-  const importedHuts = Array.isArray(data.huts) ? data.huts : [];
-  const importedAgenda = Array.isArray(data.agenda) ? data.agenda : [];
+  const importedTours = fsImportPrep(data.tours, 't');
+  const importedHuts = fsImportPrep(data.huts, 'h');
+  const importedAgenda = fsImportPrep(data.agenda, 'a', 'tourName');
   let addedTours = 0, updatedTours = 0, addedHuts = 0, updatedHuts = 0, addedAgenda = 0, updatedAgenda = 0;
   importedTours.forEach(t=>{
     if(!t || !t.id || !t.name) return;
