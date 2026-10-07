@@ -12228,7 +12228,7 @@ async function submitShareImportGpxLink(tourId, link){
 
 
 /* ================= Icons statt Emoji (neuer Look) =================
-   Android zeichnet Emoji als bunte Kacheln (siehe Pincho/DESIGN.md Teil A). Statt jede der über
+   Android zeichnet Emoji als bunte Kacheln, die App nutzt keine Emojis (siehe CLAUDE.md). Statt jede der über
    hundert Stellen in den Vorlagen einzeln umzuschreiben, ersetzt ein MutationObserver bekannte
    Emoji in Textknoten durch schlichte Strich-Icons im gleichen Stil. Eingabefelder, Textareas und
    Attribute bleiben unangetastet; in <option> (kann kein SVG) wird das Emoji einfach weggelassen. */

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Übernimmt den Stand aus beta/ in die Haupt-App (Repo-Wurzel), wie bei Pincho.
+# Übernimmt den Stand aus beta/ in die Haupt-App (Repo-Wurzel).
 # Kopiert index.html, fixseil.html, wandern.html, 0-shared.js und look.css und stellt dabei
 # zurück, was nur für die Beta anders ist:
 #   - Pfade ../<Bild/Skript> -> ./<Bild/Skript> (Beta liegt einen Ordner tiefer)
