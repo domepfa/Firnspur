@@ -1,9 +1,9 @@
 /* =====================================================================
    Firnspur – neuer Look (Beta, Schritt 1: Grundlagen)
-   Eine gemeinsame Stilschicht für Skitour (index.html) und Hochtour/
-   Klettern (fixseil.html). Liegt über dem alten Stil und überschreibt
-   ihn, damit der Umbau Schritt für Schritt gehen kann (siehe
-   Pincho/DESIGN.md Teil A).
+   Eine gemeinsame Stilschicht für Skitour (index.html), Hochtour/
+   Klettern (fixseil.html) und Wandern (wandern.html). Liegt über dem
+   alten Stil und überschreibt ihn, damit der Umbau Schritt für Schritt
+   gehen kann. Design-Regeln: CLAUDE.md.
 
    Charakter: Tageslicht, Firn und Gletscher. Hell, ruhig, elegant.
    Eine Akzentfarbe pro Disziplin, sonst alles gleich:
