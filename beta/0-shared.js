@@ -361,7 +361,7 @@ async function fsOpenVersions(id){
   const box = document.createElement('div');
   box.id = 'fs-versions';
   box.className = 'fs-rescue';
-  box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true"><h3>🕘 Frühere Versionen</h3><p class="fs-rescue-muted">Wird geladen …</p></div>`;
+  box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true"><h3>${fsIconHtml('clock')} Frühere Versionen</h3><p class="fs-rescue-muted">Wird geladen …</p></div>`;
   box.addEventListener('click', e=>{ if(e.target === box) box.remove(); });
   document.body.appendChild(box);
   const card = box.querySelector('.fs-rescue-card');
@@ -376,7 +376,7 @@ async function fsOpenVersions(id){
     x.deletedAt ? 'im Papierkorb' : ''
   ].filter(Boolean).join(' · ') || 'ohne Kartendaten';
   const when = iso=> iso ? new Date(iso).toLocaleString('de-CH', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}) : '?';
-  card.innerHTML = `<h3>🕘 Frühere Versionen</h3>
+  card.innerHTML = `<h3>${fsIconHtml('clock')} Frühere Versionen</h3>
     ${list.length ? `<p class="fs-rescue-muted">Vor jedem Speichern wird die bisherige Fassung hier abgelegt. Zurückholen sichert die aktuelle Fassung ebenfalls zuerst.</p>
     <div class="fs-ver-list">${list.slice(0, 30).map((x, i)=> `<div class="fs-ver-row">
       <div><b>${esc(when(x._versionAt))}</b>${x._versionBy ? ' · gespeichert von ' + esc(x._versionBy) : ''}<br/>
@@ -462,7 +462,7 @@ function fsGpxRepairOffer(appKey, lineTours, altFix, orphanData){
   box.className = 'fs-rescue';
   const altTours = [...new Set(altFix.map(x=> x[0]))].map(id=> state.tours.find(t=> t.id === id) || (state.trashedTours || []).find(t=> t.id === id)).filter(Boolean);
   box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true">
-    <h3>🧭 GPX-Dateien gefunden</h3>
+    <h3>${fsIconHtml('compass')} GPX-Dateien gefunden</h3>
     ${lineTours.length ? `<p><b>${lineTours.length} Touren</b> fehlt die Linie, ihre GPX-Datei ist aber noch da:<br/>${lineTours.map(t=> esc(t.name || t.id)).join(' · ')}</p>` : ''}
     ${altTours.length ? `<p><b>${altFix.length} weitere Routen</b> fehlen bei: ${altTours.map(t=> esc(t.name || t.id)).join(' · ')}</p>` : ''}
     ${orphanData.length ? `<p><b>${orphanData.length} GPX-Dateien ohne Tour</b> — als Entwurf-Tour anlegen?</p>
@@ -565,7 +565,7 @@ function fsBetterOffer(appKey){
   box.id = 'fs-better';
   box.className = 'fs-rescue';
   box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true">
-    <h3>📲 Dieses Gerät hat mehr Daten</h3>
+    <h3>${fsIconHtml('download')} Dieses Gerät hat mehr Daten</h3>
     <p>Bei ${total} Einträgen sind hier Daten gespeichert, die in der Datenbank fehlen. Übernommen werden nur die fehlenden Teile, nichts wird ersetzt:</p>
     <div class="fs-rescue-list">${colls.map(c=> store[c].map((b, i)=> `<label class="fs-gpx-orphan"><input type="checkbox" data-b="${c}:${i}" checked/> <span><b>${esc(b.name)}</b> <span class="fs-rescue-muted">${Object.keys(b.fields).map(f=> esc(FS_BETTER_LABELS[f] || f)).join(', ')}</span></span></label>`).join('')).join('')}</div>
     <div class="fs-rescue-actions">
@@ -608,7 +608,7 @@ function fsRescueOffer(appKey){
   box.id = 'fs-rescue';
   box.className = 'fs-rescue';
   box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true">
-    <h3>⚠️ ${total} Einträge fehlen in der Datenbank</h3>
+    <h3>${fsIconHtml('alert')} ${total} Einträge fehlen in der Datenbank</h3>
     <p>Sie sind auf diesem Gerät noch gespeichert und können zurückgeholt werden:</p>
     <div class="fs-rescue-list">${colls.map(c=> `<div><b>${esc(FS_RESCUE_COLLS[c][0])} (${store[c].length})</b><br/>${store[c].map(x=> esc(x.name || x.id) + (x.deletedAt ? ' <span class="fs-rescue-muted">(Papierkorb)</span>' : '')).join(' · ')}</div>`).join('')}</div>
     <div class="fs-rescue-actions">
@@ -1664,7 +1664,7 @@ function printTourenzettel(agendaId){
     keepAnreise.forEach(it=> ablaufItems.push(it));
     brief.ablauf.forEach(r=> ablaufItems.push({
       label: r.t || (BRIEFING_KINDS[r.kind] ? BRIEFING_KINDS[r.kind].label : 'Punkt'),
-      text: (r.kind==='entscheid' ? '⚠ Entscheidungspunkt: ' : r.kind==='umkehr' ? '⏰ Umkehrzeit: ' : '') + (r.label||'')
+      text: (r.kind==='entscheid' ? 'Entscheidungspunkt: ' : r.kind==='umkehr' ? 'Umkehrzeit: ' : '') + (r.label||'')
     }));
   }
 
@@ -1804,52 +1804,60 @@ function printTourenzettel(agendaId){
   ${tour && tour.routeName ? `<div class="serif routename">${escHtml(tour.routeName)}</div>` : ''}
   <div class="badges">${badges.map(b=>`<span class="badge">${escHtml(b)}</span>`).join('')}</div>
 
-  ${(keyRows.length || factRows.length) ? `<div class="section"><h4>🧭 Auf einen Blick</h4><div class="${keyRows.length && factRows.length ? 'cols' : ''}">
+  ${(keyRows.length || factRows.length) ? `<div class="section"><h4>${fsIconHtml('compass')} Auf einen Blick</h4><div class="${keyRows.length && factRows.length ? 'cols' : ''}">
     ${keyRows.length ? `<div class="box">${kv(keyRows)}</div>` : ''}
     ${factRows.length ? `<div class="box">${kv(factRows)}</div>` : ''}
   </div></div>` : ''}
 
-  ${critical.length ? `<div class="section"><h4>⏰ Umkehrzeit & Entscheidungspunkte</h4><div class="alert">${critical.map(r=>`<div><strong>${escHtml(r.t || '')}${r.t ? ' — ' : ''}${r.kind === 'umkehr' ? 'Umkehrzeit' : 'Entscheidungspunkt'}:</strong> ${escHtml(r.label || '')}</div>`).join('')}</div></div>` : ''}
+  ${critical.length ? `<div class="section"><h4>${fsIconHtml('clock')} Umkehrzeit & Entscheidungspunkte</h4><div class="alert">${critical.map(r=>`<div><strong>${escHtml(r.t || '')}${r.t ? ' — ' : ''}${r.kind === 'umkehr' ? 'Umkehrzeit' : 'Entscheidungspunkt'}:</strong> ${escHtml(r.label || '')}</div>`).join('')}</div></div>` : ''}
 
-  ${ablaufItems.length ? `<div class="section"><h4>📍 Ablauf</h4><div class="timeline">${ablaufItems.map(it=>`<div class="tl-item"><strong>${escHtml(it.label)}:</strong> ${escHtml(it.text)}</div>`).join('')}</div></div>` : ''}
+  ${ablaufItems.length ? `<div class="section"><h4>${fsIconHtml('pin')} Ablauf</h4><div class="timeline">${ablaufItems.map(it=>`<div class="tl-item"><strong>${escHtml(it.label)}:</strong> ${escHtml(it.text)}</div>`).join('')}</div></div>` : ''}
 
-  ${hasTravel ? `<div class="section"><h4>🚗 Anfahrt${meet ? ' ab Treffpunkt' : ''}</h4><div class="box" id="tz-travel">${meet ? '<p class="muted" style="margin:0;">Wird berechnet …</p>' : '<p class="muted" style="margin:0;">Für Route und Fahrzeit im Termin beim Treffpunkt einen Ort setzen (suchen oder auf der Karte).</p>'}</div></div>` : ''}
+  ${hasTravel ? `<div class="section"><h4>${fsIconHtml('car')} Anfahrt${meet ? ' ab Treffpunkt' : ''}</h4><div class="box" id="tz-travel">${meet ? '<p class="muted" style="margin:0;">Wird berechnet …</p>' : '<p class="muted" style="margin:0;">Für Route und Fahrzeit im Termin beim Treffpunkt einen Ort setzen (suchen oder auf der Karte).</p>'}</div></div>` : ''}
 
-  <div class="section"><h4>🌦️ Wetter am Tourtag${wxLoc && wxLoc.label ? ' — ' + escHtml(wxLoc.label) : ''}</h4><div class="box" id="tz-weather"><p class="muted" style="margin:0;">${wxLoc ? 'Prognose wird geladen …' : 'Nur mit verlinkter Tour und Kartenpunkt verfügbar.'}</p></div></div>
+  <div class="section"><h4>${fsIconHtml('partly')} Wetter am Tourtag${wxLoc && wxLoc.label ? ' — ' + escHtml(wxLoc.label) : ''}</h4><div class="box" id="tz-weather"><p class="muted" style="margin:0;">${wxLoc ? 'Prognose wird geladen …' : 'Nur mit verlinkter Tour und Kartenpunkt verfügbar.'}</p></div></div>
 
-  ${winter ? `<div class="section"><h4>❄️ Lawinensituation</h4><div class="box" id="tz-avalanche"><p class="muted" style="margin:0;">Bulletin wird geladen …</p></div></div>` : ''}
+  ${winter ? `<div class="section"><h4>${fsIconHtml('snow')} Lawinensituation</h4><div class="box" id="tz-avalanche"><p class="muted" style="margin:0;">Bulletin wird geladen …</p></div></div>` : ''}
 
-  ${brief.planB ? `<div class="section"><h4>↩️ Plan B</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.planB)}</p></div>` : ''}
-  ${brief.anforderungen ? `<div class="section"><h4>💪 Das braucht es</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.anforderungen)}</p></div>` : ''}
+  ${brief.planB ? `<div class="section"><h4>${fsIconHtml('undo')} Plan B</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.planB)}</p></div>` : ''}
+  ${brief.anforderungen ? `<div class="section"><h4>${fsIconHtml('check')} Das braucht es</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.anforderungen)}</p></div>` : ''}
 
-  <div class="section"><h4>🎒 Material</h4>${materialList.length ? `<div class="material-box">${materialList.map(m=>`<div>☐ ${escHtml(m)}</div>`).join('')}</div>` : `<p class="muted">Keine Material-Angaben zu dieser Tour hinterlegt.</p>`}</div>
+  <div class="section"><h4>${fsIconHtml('pack')} Material</h4>${materialList.length ? `<div class="material-box">${materialList.map(m=>`<div>☐ ${escHtml(m)}</div>`).join('')}</div>` : `<p class="muted">Keine Material-Angaben zu dieser Tour hinterlegt.</p>`}</div>
 
-  ${hasMap ? `<div class="section"><h4>🗺️ Kartenausschnitt</h4><div id="tz-map"></div></div>` : ''}
+  ${hasMap ? `<div class="section"><h4>${fsIconHtml('map')} Kartenausschnitt</h4><div id="tz-map"></div></div>` : ''}
 
-  ${participants.length ? `<div class="section"><h4>👥 Teilnehmende (${participants.length})</h4><div class="box" style="padding:6px 10px;"><table>
+  ${participants.length ? `<div class="section"><h4>${fsIconHtml('users')} Teilnehmende (${participants.length})</h4><div class="box" style="padding:6px 10px;"><table>
     <tr><th>Name</th><th>Natel</th><th style="text-align:center;">Da</th>${winter ? '<th style="text-align:center;">LVS ✓</th>' : ''}</tr>
     ${participants.map(p=>`<tr><td>${escHtml(p.by)}</td><td>${escHtml(phoneOf(p.by))}</td><td class="c">☐</td>${winter ? '<td class="c">☐</td>' : ''}</tr>`).join('')}
   </table></div></div>` : ''}
 
-  <div class="section"><h4>📞 Notfall</h4><div class="contact-box">${contactRows.map(([k,v])=>`<div class="contact-row"><span class="muted">${escHtml(k)}</span><strong>${escHtml(v)}</strong></div>`).join('')}</div>
+  <div class="section"><h4>${fsIconHtml('phone')} Notfall</h4><div class="contact-box">${contactRows.map(([k,v])=>`<div class="contact-row"><span class="muted">${escHtml(k)}</span><strong>${escHtml(v)}</strong></div>`).join('')}</div>
     <p class="muted" style="margin:8px 0 0 0;">Tipp: Mit der REGA-App oder «Echo112» wird beim Alarm der Standort automatisch übermittelt.</p>
     ${coordRows.length ? `<div class="box" style="margin-top:8px;padding:6px 10px;"><table><tr><th>Ort</th><th>WGS84</th><th>LV95</th></tr>${coordRows.map(r=>`<tr><td>${escHtml(r[0])}</td><td>${escHtml(r[1])}</td><td>${escHtml(r[2])}</td></tr>`).join('')}</table></div>` : ''}
   </div>
 
-  ${a.costs ? `<div class="section"><h4>💶 Kosten / Billette</h4><p style="font-size:13.5px;margin:0;">${escHtml(a.costs)}</p></div>` : ''}
-  ${a.note ? `<div class="section"><h4>📝 Notiz</h4><p style="font-size:13.5px;margin:0;">${escHtml(a.note)}</p></div>` : ''}
+  ${a.costs ? `<div class="section"><h4>${fsIconHtml('ticket')} Kosten / Billette</h4><p style="font-size:13.5px;margin:0;">${escHtml(a.costs)}</p></div>` : ''}
+  ${a.note ? `<div class="section"><h4>${fsIconHtml('note')} Notiz</h4><p style="font-size:13.5px;margin:0;">${escHtml(a.note)}</p></div>` : ''}
 
   <div class="actions no-print">
-    <button class="primary" onclick="window.print()">🖨️ Drucken</button>
-    <button id="tz-share-btn" type="button">🔗 Teilen</button>
+    <button class="primary" onclick="window.print()">${fsIconHtml('printer')} Drucken</button>
+    <button id="tz-share-btn" type="button">${fsIconHtml('link')} Teilen</button>
   </div>
   <div class="foot">Geteilt mit Firnspur am ${escHtml(new Date().toLocaleDateString('de-CH'))}.</div>
 </div>
 </body></html>`;
 
-  win.document.write(html);
+  win.document.write(fsNoEmojiHtml(html.replace('</style>', '  .fs-i{width:1.1em;height:1.1em;vertical-align:-.18em;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;margin-right:2px;}\n  .fs-i-fill{fill:currentColor;stroke:none;}\n</style>')));
   win.document.close();
   win.focus();
+  // Später nachgeladene Teile (Wetter, Lawinen, Anfahrt) ebenfalls ohne Emojis
+  try{
+    new win.MutationObserver(muts=> muts.forEach(m=> m.addedNodes.forEach(n=>{
+      FS_EMOJI_RE.lastIndex = 0;
+      if(n.nodeType === 1 && FS_EMOJI_RE.test(n.innerHTML)){ n.innerHTML = fsNoEmojiHtml(n.innerHTML); }
+      else if(n.nodeType === 3 && n.parentNode){ FS_EMOJI_RE.lastIndex = 0; if(FS_EMOJI_RE.test(n.nodeValue)){ const sp = win.document.createElement('span'); sp.innerHTML = fsNoEmojiHtml(esc(n.nodeValue)); n.parentNode.replaceChild(sp, n); } }
+    }))).observe(win.document.body, {childList:true, subtree:true});
+  }catch(e){}
 
   // Leaflet (Kartenausschnitt) und die Teilen-Button-Logik werden bewusst NICHT über <script>-Tags
   // im obigen document.write()-String geladen: Chrome bricht einen per document.write() injizierten,
@@ -1937,7 +1945,7 @@ function printTourenzettel(agendaId){
         el.innerHTML = when + '<p class="muted" style="margin:0;">Der Tourtag liegt in der Vergangenheit.</p>';
       }else{
         const wx = a.weatherSnapshot;
-        el.innerHTML = when + (wx ? `<p class="wx-big">${wx.icon||''} ${escHtml(wx.label||'')}</p><p style="margin:0;">${Math.round(wx.tempMin)}° / ${Math.round(wx.tempMax)}° · 💨 ${Math.round(wx.windMax)} km/h</p><p class="muted" style="margin:4px 0 0 0;">Gespeicherter Stand vom ${escHtml(fmtDate(wx.savedAt))} (gerade keine Verbindung).</p>`
+        el.innerHTML = when + (wx ? `<p class="wx-big">${wx.icon||''} ${escHtml(wx.label||'')}</p><p style="margin:0;">${Math.round(wx.tempMin)}° / ${Math.round(wx.tempMax)}° · ${fsIconHtml('wind')} ${Math.round(wx.windMax)} km/h</p><p class="muted" style="margin:4px 0 0 0;">Gespeicherter Stand vom ${escHtml(fmtDate(wx.savedAt))} (gerade keine Verbindung).</p>`
           : '<p class="muted" style="margin:0;">Wetterdaten gerade nicht verfügbar (keine Internetverbindung?).</p>');
       }
     });
@@ -1976,13 +1984,13 @@ function printTourenzettel(agendaId){
       jobs.push(fsTravelDrive(meet, dest).then(r=>{
         parts.push(`<div class="drive"><div>
             ${r.coords && r.coords.length ? '<div id="tz-drive-map"></div>' : ''}
-            <div class="wx-big">🚗 ${escHtml(fsFmtDur(r.durationS))} · ${(r.distanceM / 1000).toFixed(0)} km</div>
+            <div class="wx-big">${fsIconHtml('car')} ${escHtml(fsFmtDur(r.durationS))} · ${(r.distanceM / 1000).toFixed(0)} km</div>
             <div class="muted">bis ${escHtml(name)} (ohne Verkehr, ohne Pausen)</div>
             <div class="no-print" style="margin-top:4px;"><a href="${gm(dest, 'driving')}" target="_blank" rel="noopener">In Google Maps öffnen ↗</a></div>
           </div><div class="qr" data-qr="${escHtml(gm(dest, 'driving'))}"></div></div>`);
         return {coords: r.coords, dest};
       }).catch(()=>{
-        parts.push(`<div class="drive"><div><div class="wx-big">🚗 bis ${escHtml(name)}</div><div class="muted">Fahrzeit gerade nicht berechenbar.</div><div class="no-print"><a href="${gm(dest, 'driving')}" target="_blank" rel="noopener">In Google Maps öffnen ↗</a></div></div><div class="qr" data-qr="${escHtml(gm(dest, 'driving'))}"></div></div>`);
+        parts.push(`<div class="drive"><div><div class="wx-big">${fsIconHtml('car')} bis ${escHtml(name)}</div><div class="muted">Fahrzeit gerade nicht berechenbar.</div><div class="no-print"><a href="${gm(dest, 'driving')}" target="_blank" rel="noopener">In Google Maps öffnen ↗</a></div></div><div class="qr" data-qr="${escHtml(gm(dest, 'driving'))}"></div></div>`);
         return null;
       }));
     }
@@ -1990,15 +1998,15 @@ function printTourenzettel(agendaId){
       const dest = {lat: parseFloat(transitTo.lat), lon: parseFloat(transitTo.lon)};
       const time = meetTime ? meetTime[1].padStart(2, '0') + ':' + meetTime[2] : '';
       jobs.push(fsTravelTransit(meet, dest, {date: a.startDate, time}).then(r=>{
-        if(r.same){ parts.push(`<div>🚆 Treffpunkt ist schon bei ${escHtml(r.station)}.</div>`); return null; }
+        if(r.same){ parts.push(`<div>${fsIconHtml('train')} Treffpunkt ist schon bei ${escHtml(r.station)}.</div>`); return null; }
         parts.push(`<div class="drive"><div>
-            <div class="wx-big">🚆 ${escHtml(r.dep)} → ${escHtml(r.arr)}${r.durS ? ' · ' + escHtml(fsFmtDur(r.durS)) : ''}</div>
+            <div class="wx-big">${fsIconHtml('train')} ${escHtml(r.dep)} → ${escHtml(r.arr)}${r.durS ? ' · ' + escHtml(fsFmtDur(r.durS)) : ''}</div>
             <div class="muted" style="margin-bottom:4px;">${escHtml(r.from)} → ${escHtml(r.to)} · ${typeof r.transfers === 'number' ? (r.transfers === 0 ? 'direkt' : r.transfers + '× umsteigen') : ''}</div>
             ${(r.legs || []).length ? `<div class="legs">${r.legs.map(l=>`<div><b>${escHtml(l.dep)}</b> ${escHtml(l.from)}${l.platform ? ' (Gl. ' + escHtml(l.platform) + ')' : ''} · ${escHtml(l.line)} → ${escHtml(l.to)} <b>${escHtml(l.arr)}</b></div>`).join('')}</div>` : ''}
             <div class="muted" style="font-size:11.5px;margin-top:4px;">Fahrplan-Abfrage ${time ? 'ab ' + escHtml(time) + ' ' : ''}— kurz vorher in der SBB-App prüfen.</div>
           </div><div class="qr" data-qr="${escHtml(gm(dest, 'transit'))}"></div></div>`);
         return null;
-      }).catch(()=>{ parts.push(`<div>🚆 ÖV-Verbindung gerade nicht abrufbar. <a href="${gm(dest, 'transit')}" target="_blank" rel="noopener">ÖV-Route ↗</a></div>`); return null; }));
+      }).catch(()=>{ parts.push(`<div>${fsIconHtml('train')} ÖV-Verbindung gerade nicht abrufbar. <a href="${gm(dest, 'transit')}" target="_blank" rel="noopener">ÖV-Route ↗</a></div>`); return null; }));
     }
     Promise.all(jobs).then(res=>{
       done();
@@ -2016,10 +2024,9 @@ function printTourenzettel(agendaId){
           map.fitBounds(line, {padding:[18,18]});
         }).catch(()=>{ const el = $('tz-drive-map'); if(el) el.remove(); });
       }
-      const qrs = win.document.querySelectorAll('[data-qr]');
-      if(qrs.length){
+      if(win.document.querySelector('[data-qr]')){
         scriptIn('https://unpkg.com/qrcode-generator@1.4.4/qrcode.js').then(()=>{
-          qrs.forEach(q=>{
+          win.document.querySelectorAll('[data-qr]').forEach(q=>{
             const qr = win.qrcode(0, 'M'); qr.addData(q.getAttribute('data-qr')); qr.make();
             q.innerHTML = qr.createSvgTag({cellSize: 3, margin: 0, scalable: true}) + '<p>Navigation scannen</p>';
           });
@@ -11515,8 +11522,8 @@ function fsMeetToolsHtml(a){
   const has = a && a.meetingLat != null && a.meetingLon != null;
   return `<input type="hidden" name="meetingLat" value="${has ? a.meetingLat : ''}"/><input type="hidden" name="meetingLon" value="${has ? a.meetingLon : ''}"/>
     <div class="fs-meet-tools">
-      <button type="button" class="btn secondary" data-act="meet-search">🔎 Ort suchen</button>
-      <button type="button" class="btn secondary" data-act="meet-map">📍 Auf Karte</button>
+      <button type="button" class="btn secondary" data-act="meet-search">${fsIconHtml('search')} Ort suchen</button>
+      <button type="button" class="btn secondary" data-act="meet-map">${fsIconHtml('pin')} Auf Karte</button>
       <span class="fs-meet-status">${has ? '✓ Ort gesetzt' : 'Ort für die Anfahrt-Route'}</span>
       ${has ? `<button type="button" class="fs-meet-clear" data-act="meet-clear" title="Ort entfernen">×</button>` : ''}
     </div>
@@ -12294,7 +12301,8 @@ const FS_ICON_PATHS = {
   lock: 'M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11',
   star: 'M12 3.2l2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8z',
   dot: 'M12 6a6 6 0 1 0 0 12a6 6 0 1 0 0-12z',
-  tri: 'M12 5l8 14H4z'
+  tri: 'M12 5l8 14H4z',
+  ticket: 'M4 7h16v3.5a1.5 1.5 0 0 0 0 3V17H4v-3.5a1.5 1.5 0 0 0 0-3zM15 7v10'
 };
 // Emoji -> [Icon, Farbe (optional, sonst Textfarbe), gefüllt?]
 const FS_EMOJI_ICONS = {
@@ -12309,6 +12317,7 @@ const FS_EMOJI_ICONS = {
   '🏠':['home'], '📞':['phone'], '🔗':['link'], '🆘':['sos','#B42318'], '📏':['ruler'], '⏱':['clock'], '⏰':['clock'], '⏳':['clock'],
   '⛶':['expand'], '🚧':['barrier'], '🍽':['food'], '🅿':['parking'], '❌':['x','#B42318'], '🌙':['moon'], '🎒':['pack'],
   '🖨':['printer'], '🚁':['heli'], '👮':['shield'], '🎚':['sliders'], '🛰':['gps'], '🔒':['lock'], '💪':['check'], '🖼':['image'],
+  '🚆':['train'], '🕘':['clock'], '📲':['download'], '🔎':['search'], '💶':['ticket'],
   '⭐':['star','#D99A1E',true], '🔵':['dot','#2F7DB5',true], '🔴':['dot','#C0392B',true], '🟡':['dot','#E0A91B',true], '🟢':['dot','#3C8A55',true], '🔺':['tri','#C0392B',true]
 };
 const FS_EMOJI_RE = new RegExp('(' + Object.keys(FS_EMOJI_ICONS).sort((a,b)=>b.length-a.length).map(k=>k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')\\uFE0F?', 'gu');
@@ -12323,6 +12332,13 @@ function fsIconSvg(name, color, filled){
   p.setAttribute('d', FS_ICON_PATHS[name]);
   svg.appendChild(p);
   return svg;
+}
+// Für eigene Fenster (Tourenzettel), in denen die automatische Umwandlung nicht läuft
+function fsNoEmojiHtml(html){
+  return String(html).replace(FS_EMOJI_RE, (m, e)=>{
+    const d = FS_EMOJI_ICONS[e];
+    return `<svg class="fs-i${d[2] ? ' fs-i-fill' : ''}" viewBox="0 0 24 24" aria-hidden="true"${d[1] ? ` style="color:${d[1]}"` : ''}><path d="${FS_ICON_PATHS[d[0]]}"/></svg>`;
+  });
 }
 function fsIconHtml(name){ return `<svg class="fs-i" viewBox="0 0 24 24" aria-hidden="true"><path d="${FS_ICON_PATHS[name]}"/></svg>`; }
 const FS_SKIP_TAGS = new Set(['SCRIPT','STYLE','TEXTAREA','INPUT','SELECT','svg','title']);
