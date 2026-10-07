@@ -75,7 +75,8 @@ function fbPathOk(path){
    abgelegt (nur hinzufügen, nie überschreiben) und lässt sich in der App zurückholen. Hat jemand
    anderes den Eintrag geändert, seit dieses Gerät ihn geladen hat, fragt die App nach, statt
    still dessen Änderungen zu überschreiben. */
-const FS_VERSIONED = ['tours', 'huts', 'gebiete', 'agenda', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete', 'fixseil/gipfel', 'fixseil/huts', 'wandern/tours', 'wandern/gebiete'];
+const FS_VERSIONED = ['tours', 'huts', 'gebiete', 'agenda', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete', 'fixseil/gipfel', 'fixseil/huts', 'wandern/tours', 'wandern/gebiete',
+  'gpxTracks', 'fixseil/gpxTracks', 'wandern/gpxTracks'];
 const fsBaseStamp = new Map(); // Pfad → updatedAt beim Laden
 function fsVersionedSplit(path){
   const i = String(path).lastIndexOf('/');
@@ -3477,7 +3478,7 @@ function renderStandaloneMap(containerId){
     mapDiv.id = mapDivId;
     mapDiv.style.cssText = 'width:100%; height:100%;';
     el2.appendChild(mapDiv);
-    const map = fsmCreateFlMap(mapDivId, {ctlTop: 70, on3d: (ml)=>{ const c = ml.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom:14, heading: ml.getBearing()}); }});
+    const map = fsmCreateFlMap(mapDivId, {ctlTop: 66, on3d: (ml)=>{ const c = ml.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom:14, heading: ml.getBearing()}); }});
     // Markiert diese Karte als DIE Übersichtskarte (im Unterschied zu den vielen anderen, kleineren
     // Vollbild-Karten, die denselben Container über makeFullscreenButton/openFullscreenMap nutzen) —
     // ausgewertet in closeFullscreenMap(), damit der zuletzt gezeigte Ausschnitt auch dann sicher
@@ -5967,11 +5968,13 @@ function fsRoutesListHtml(t){
 // Bearbeiten-Formular: Name und Typ je Route, weitere Route per GPX dazu, Route entfernen.
 // Liest/schreibt nur die versteckten Felder des Formulars — gespeichert wird mit "Speichern".
 function fsRoutesEditorHtml(t){
-  return `<div class="field" id="fs-routes-field"><label>Routen</label>
-    <div id="fs-routes-edit"></div>
-    <button type="button" class="btn secondary fs-route-add" id="alt-gpx-btn">+ Weitere Route (GPX)</button>
+  // Ein Knopf für alles: der erste Track wird zur Hauptroute, jeder weitere kommt dazu —
+  // es wird nie etwas überschrieben. Darunter alle Routen mit Name, Art und Löschen.
+  return `<div id="fs-routes-field">
+    <button type="button" class="btn secondary fs-route-add" id="alt-gpx-btn">+ Track hinzufügen</button>
     <input type="file" id="alt-gpx-input" accept=".gpx,application/gpx+xml" hidden/>
-    <div class="hint">Name und Art je Route. Die Hauptroute lädst du oben als GPX hoch oder zeichnest sie auf der Karte.</div>
+    <div id="fs-routes-edit"></div>
+    <div class="hint">Jeder Track wird hinzugefügt, nichts wird überschrieben. Name und Art je Route; eine Linie lässt sich auch auf der Karte zeichnen.</div>
     <input type="hidden" name="trackName" id="route-track-name" value="${esc(t.trackName||'')}"/>
     <input type="hidden" name="trackType" id="route-track-type" value="${esc(t.trackType||'')}"/>
     <input type="hidden" name="manualTrackName" id="route-manual-name" value="${esc(t.manualTrackName||'')}"/>
@@ -5994,7 +5997,7 @@ function fsRoutesEditorRender(){
       ${fsRouteSwatchHtml(r)}
       <input type="text" class="fs-route-name" value="${esc(r.name)}" placeholder="${esc(r.src === 'track' ? 'GPX-Track' : r.src === 'manual' ? 'Gezeichnete Linie' : 'Name')}" aria-label="Name der Route"/>
       <select class="fs-route-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k===r.type?'selected':''}>${fsRouteLabel(k)}</option>`).join('')}</select>
-      ${r.src === 'alt' ? `<button type="button" class="fs-icon-btn fs-route-del" aria-label="Route entfernen">${fsIconHtml('trash')}</button>` : ''}
+      ${r.src === 'alt' || r.src === 'track' ? `<button type="button" class="fs-icon-btn fs-route-del" aria-label="Route entfernen">${fsIconHtml('trash')}</button>` : ''}
     </div>`).join('') : '<p class="hint" style="margin:0 0 8px;">Noch keine Route — GPX hochladen oder auf der Karte zeichnen.</p>';
   box.querySelectorAll('.fs-route-edit').forEach(row=>{
     const key = row.getAttribute('data-key');
@@ -6014,7 +6017,14 @@ function fsRoutesEditorRender(){
     row.querySelector('.fs-route-name').addEventListener('input', write);
     row.querySelector('.fs-route-type').addEventListener('change', ()=>{ write(); fsRoutesEditorRender(); });
     const del = row.querySelector('.fs-route-del');
-    if(del) del.addEventListener('click', ()=>{
+    if(del) del.addEventListener('click', async ()=>{
+      if(key === 'track'){
+        if(!confirm('Diesen GPX-Track entfernen? Die Originaldatei wird als frühere Version gesichert.')) return;
+        await removeGpxTrack(GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status', null);
+        const st = document.getElementById('gpx-upload-status'); if(st) st.textContent = '';
+        fsRoutesEditorRender();
+        return;
+      }
       if(!confirm('Diese Route entfernen? (Wird erst mit „Speichern“ übernommen.)')) return;
       const alts = parse('route-alt-tracks', []).filter(x=> 'alt:' + x.id !== key);
       document.getElementById('route-alt-tracks').value = JSON.stringify(alts);
@@ -6028,7 +6038,19 @@ function fsWireRoutesEditor(){
   const inp = document.getElementById('alt-gpx-input');
   if(!inp) return;
   const btn = document.getElementById('alt-gpx-btn');
-  if(btn) btn.addEventListener('click', ()=> inp.click());
+  // Noch keine Hauptroute: der Track wird zur Hauptroute (bisheriges Hochladen), sonst kommt er dazu
+  if(btn) btn.addEventListener('click', ()=>{
+    const main = document.getElementById('track-simplified-hidden');
+    const mainInput = document.getElementById('gpx-file-input');
+    // value leeren, sonst löst dieselbe Datei ein zweites Mal kein «change» aus
+    if(main && mainInput && !main.value){ mainInput.value = ''; mainInput.click(); } else { inp.value = ''; inp.click(); }
+  });
+  // Hauptroute: Dateiname als Name übernehmen, solange noch keiner gesetzt ist
+  const mainInp = document.getElementById('gpx-file-input');
+  if(mainInp) mainInp.addEventListener('change', ()=>{
+    const f = mainInp.files && mainInp.files[0], nm = document.getElementById('route-track-name');
+    if(f && nm && !nm.value) nm.value = f.name.replace(/\.gpx$/i, '');
+  });
   inp.addEventListener('change', ()=>{
     const file = inp.files && inp.files[0];
     if(!file) return;
@@ -8449,6 +8471,12 @@ const FS_ENTRY_EDIT_ACTS = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','
 :where(${sel})::after{ content:''; position:absolute; left:0; bottom:0; height:4px; width:0; background:var(--fs-edit, #6741D9); pointer-events:none; }
 .fs-hold-arming::after{ width:100% !important; transition:width ${HOLD_TO_EDIT_MS}ms linear; }
 .fs-hold-arming{ filter:brightness(0.96); }
+@property --fs-hold{ syntax:'<percentage>'; inherits:false; initial-value:0%; }
+.fs-icon-btn:where(${sel})::after{ inset:0; width:auto; height:auto; border-radius:50%;
+  background:conic-gradient(var(--fs-edit, #6741D9) var(--fs-hold), transparent 0);
+  -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  mask:radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px)); }
+.fs-icon-btn.fs-hold-arming::after{ width:auto !important; --fs-hold:100%; transition:--fs-hold ${HOLD_TO_EDIT_MS}ms linear; }
 .btn:where(${sel})::before{ content:''; display:inline-block; width:13px; height:13px; margin-right:6px; vertical-align:-1px; background:currentColor; opacity:.65;
   -webkit-mask:${lock} center/contain no-repeat; mask:${lock} center/contain no-repeat; }
 .fs-hold-hint{ position:fixed; left:50%; top:calc(18px + env(safe-area-inset-top, 0px)); transform:translate(-50%, -12px); z-index:400;
@@ -8512,7 +8540,19 @@ document.addEventListener('pointerdown', (e)=>{
     try{ el.click(); }finally{ el._fsHoldOk = false; }
   }, HOLD_TO_EDIT_MS);
 }, true);
-['pointerup','pointercancel'].forEach(type=> document.addEventListener(type, ()=>{ if(holdArmTimer) cancelHoldArm(); }, true));
+['pointerup','pointercancel'].forEach(type=> document.addEventListener(type, (e)=>{
+  if(!holdArmTimer) return;
+  cancelHoldArm();
+  // Zu früh losgelassen (Touch): Hinweis zeigen — der Klick kommt wegen touchstart unten nicht
+  if(type === 'pointerup' && e.pointerType === 'touch') showHoldHint();
+}, true));
+// Die eigene Lang-Drück-Geste des Handys (vibriert nach ~0.5 s, Kontextmenü) auf diesen Knöpfen
+// unterdrücken: sonst vibriert es mitten im Halten, obwohl noch nichts passiert. Vibriert wird
+// nur einmal — wenn die Bearbeiten-Maske aufgeht.
+document.addEventListener('touchstart', (e)=>{
+  const el = holdTargetFrom(e.target);
+  if(el && !el.closest('.modal.fs-editing') && e.cancelable) e.preventDefault();
+}, {capture:true, passive:false});
 document.addEventListener('pointermove', (e)=>{
   // Wer beim Halten zu scrollen beginnt (Finger verlässt den Knopf), bricht ab.
   if(holdArmEl && !holdArmEl.contains(document.elementFromPoint(e.clientX, e.clientY))) cancelHoldArm();

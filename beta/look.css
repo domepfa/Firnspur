@@ -1475,3 +1475,10 @@ html.fs-dark .bf-ed-item.lv-opt{ background:#4A3E1E; border-color:#7A6430; }
 .fs-ver-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line,#E1E7EB);font-size:13.5px;}
 .fs-ver-row .btn{flex:none;padding:6px 12px;font-size:13px;}
 .fs-gpx-orphan{display:flex;align-items:center;gap:8px;font-size:13.5px;}
+#fs-tracks-field .fs-route-add{margin-bottom:8px;}
+.fs-gpx-status{font-size:12.5px;color:var(--ink-soft);margin:6px 0 0;}
+.fs-gpx-status:empty{display:none;}
+/* Grosse Karte: 3D-Knopf genau in der Knopf-Spalte (alter Abstand aus der Leaflet-Zeit) */
+.fsm-ctlbox .fsm-3d{ margin:0 !important; width:46px; height:46px; }
+/* Grosse Karte: rechte Knopf-Spalte gleich gross und im selben Raster wie links (Filter, Suche) */
+#fullscreen-map-container .fsm-ctlbox .fsm-btn{ width:48px; height:48px; }

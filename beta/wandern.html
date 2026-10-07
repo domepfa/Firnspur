@@ -2023,13 +2023,12 @@ function tourFormHtml(existing){
         <div id="camptocamp-search-box" style="margin-top:10px; display:none;"></div>
       </div>
       <div class="field"><label>Link zu einer GPX-Datei (optional)</label><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></div>
-      <div class="field"><label>Eigenen GPX-Track hochladen</label>
-        <input type="file" id="gpx-file-input" accept=".gpx,application/gpx+xml"/>
-        <div class="hint">Wird automatisch für die Kartenanzeige vereinfacht und direkt in der Karte unten ("Punkte &amp; Linie") bearbeitbar. Die Originaldatei bleibt separat gespeichert und ist jederzeit als Volldownload abrufbar.</div>
-        <p id="gpx-upload-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${t.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
-        ${t.trackSimplified ? `<button type="button" class="btn secondary" id="gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>` : ''}
+      <div class="field" id="fs-tracks-field"><label>GPX-Tracks &amp; Routen</label>
+        <input type="file" id="gpx-file-input" accept=".gpx,application/gpx+xml" hidden/>
         <input type="hidden" name="trackSimplified" id="track-simplified-hidden" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
         <input type="hidden" name="tourIdForTrack" id="tour-id-for-track" value="${esc(t.id||'')}"/>
+        ${fsRoutesEditorHtml(t)}
+        <p id="gpx-upload-status" class="fs-gpx-status"></p>
       </div>
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. Kettenstelle kurz vor dem Pass, ausgesetzte Querung …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Hund, Einkehr, Brunnen, Badestellen, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
@@ -2059,7 +2058,6 @@ function tourFormHtml(existing){
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(t.manualTrack || []))}'/>
       </div>
-      ${fsRoutesEditorHtml(t)}
       <div class="field"><label>Abstieg</label><textarea name="descent" placeholder="Abstiegsroute, Varianten …">${esc(t.descent||'')}</textarea></div>
       <div class="field"><label>Verknüpfte Hütte</label>
         <select name="hutId"><option value="">— keine —</option>${hutOptions}</select>
