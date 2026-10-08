@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Übernimmt den Stand aus beta/ in die Haupt-App (Repo-Wurzel).
-# Kopiert index.html, fixseil.html, wandern.html, 0-shared.js und look.css und stellt dabei
+# Kopiert index.html, fixseil.html, wandern.html, 0-shared.js, 0-ski-wandern.js und look.css und stellt dabei
 # zurück, was nur für die Beta anders ist:
 #   - Pfade ../<Bild/Skript> -> ./<Bild/Skript> (Beta liegt einen Ordner tiefer)
 #   - Speicher-Keys firnspurbeta-/fixseilbeta-/wandernbeta-cache und bergtourenbeta-offline
@@ -14,7 +14,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 assets='0-geo-ch\.js\|icon-512\.png\|20260114_145500\.jpg\|IMG_20260811_073051812_HDR\.jpg\|msl-hero\.jpg\|wandern-hero\.jpg'
-for f in index.html fixseil.html wandern.html 0-shared.js look.css; do
+for f in index.html fixseil.html wandern.html 0-shared.js 0-ski-wandern.js look.css; do
   sed -e "s#\.\./\($assets\)#./\1#g" \
       -e "s#'\.\./' + hs\.#'./' + hs.#g" \
       -e "s/'firnspurbeta-cache'/'firnspur-cache'/g" \
@@ -32,6 +32,7 @@ if [ ! -f manifest-wandern.json ]; then
       beta/manifest-wandern.json > manifest-wandern.json
 fi
 grep -q "'./wandern.html'" sw.js || sed -i "s#'./fixseil.html', #'./fixseil.html', './wandern.html', #; s#'./manifest-fixseil.json',#'./manifest-fixseil.json', './manifest-wandern.json', './wandern-hero.jpg',#" sw.js
+grep -q "'./0-ski-wandern.js'" sw.js || sed -i "s#'./0-shared.js', #'./0-shared.js', './0-ski-wandern.js', #" sw.js
 grep -q "'./look.css'" sw.js || sed -i "s#'./0-shared.js', #'./0-shared.js', './look.css', #" sw.js
 v=$(grep -o "bergtouren-shell-v[0-9]*" sw.js | head -1 | grep -o "[0-9]*$")
 sed -i "s/bergtouren-shell-v$v/bergtouren-shell-v$((v + 1))/" sw.js

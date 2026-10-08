@@ -16,6 +16,8 @@ aus anderen Apps übernehmen.
   je eine App mit eigenem Code für Listen, Formulare und Laden.
 - `0-shared.js`: gemeinsamer Code aller drei Apps (Karten, Firebase, Rettung/Versionen,
   Tourenzettel, Icons …). Gross, gezielt suchen statt ganz lesen.
+- `0-ski-wandern.js`: Code, den nur Skitour und Wandern teilen (Ansichten, Formulare für Hütten
+  und Gebiete, Abgeschlossen, Export/Import, render). Fixseil lädt diese Datei nicht.
 - `look.css`: gemeinsamer Look. `0-geo-ch.js`: statische Geodaten für den Kartenstreifen.
 - `beta/` enthält dieselben Dateien; `promote-beta.sh` kopiert sie in die Wurzel und zählt die
   Cache-Version in `sw.js` hoch.
