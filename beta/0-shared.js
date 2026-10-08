@@ -9095,27 +9095,89 @@ function fsSwipeBlocked(target){
   }
   return false;
 }
+// Die Seite gleitet mit dem Finger mit, am Rand erscheint der Name der Nachbar-App. Loslassen
+// nach genug Weg (oder schnellem Wisch) wechselt, sonst federt die Seite zurück.
 function wireAppSwitchSwipe(){
   const bar = document.querySelector('.app-switch-bar');
   if(!bar) return;
-  let start = null;
+  const appEl = document.getElementById('app');
+  let g = null; // laufende Geste
+  const links = ()=> Array.from(bar.querySelectorAll('a[href]'));
+  const neighbour = (dir)=>{
+    const ls = links(), i = ls.findIndex(a=> a.classList.contains('active'));
+    return i < 0 ? null : (ls[i + dir] || null);
+  };
+  let tag = null;
+  const showTag = (link, dx)=>{
+    if(!tag){ tag = document.createElement('div'); tag.className = 'fs-swipe-tag'; document.body.appendChild(tag); }
+    tag.textContent = link ? link.textContent.trim() : '';
+    tag.hidden = !link;
+    tag.classList.toggle('left', dx > 0);
+    tag.classList.toggle('ready', Math.abs(dx) > 80);
+    tag.style.opacity = String(Math.min(1, Math.abs(dx) / 80));
+  };
+  const reset = (animate)=>{
+    if(appEl){
+      appEl.style.transition = animate ? 'transform .2s ease, opacity .2s ease' : '';
+      appEl.style.transform = '';
+      appEl.style.opacity = '';
+    }
+    if(tag) tag.hidden = true;
+  };
   document.addEventListener('touchstart', (e)=>{
-    if(e.touches.length !== 1){ start = null; return; }
+    if(e.touches.length !== 1){ g = null; return; }
     const onBar = !!(e.target.closest && e.target.closest('.app-switch-bar'));
-    start = (onBar || !fsSwipeBlocked(e.target)) ? {x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now()} : null;
+    g = (onBar || !fsSwipeBlocked(e.target)) ? {x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), mode: null} : null;
   }, {passive:true});
-  document.addEventListener('touchend', (e)=>{
-    if(!start) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - start.x, dy = t.clientY - start.y, dt = Date.now() - start.t;
-    start = null;
-    if(dt > 700 || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
-    const links = Array.from(bar.querySelectorAll('a[href]'));
-    const i = links.findIndex(a=> a.classList.contains('active'));
-    if(i < 0) return;
-    const next = links[dx < 0 ? i + 1 : i - 1];
-    if(next) next.click();
+  document.addEventListener('touchmove', (e)=>{
+    if(!g || e.touches.length !== 1) return;
+    const dx = e.touches[0].clientX - g.x, dy = e.touches[0].clientY - g.y;
+    if(!g.mode){
+      if(Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      g.mode = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'h' : 'v';
+      if(g.mode === 'h') g.link = null;
+    }
+    if(g.mode !== 'h') return;
+    g.dx = dx;
+    g.link = neighbour(dx < 0 ? 1 : -1);
+    // Ohne Nachbar (Rand erreicht): nur ein wenig nachgeben
+    const shift = g.link ? dx * 0.85 : dx * 0.2;
+    if(appEl){
+      appEl.style.transition = 'none';
+      appEl.style.transform = 'translateX(' + shift + 'px)';
+      appEl.style.opacity = String(1 - Math.min(0.35, Math.abs(shift) / 900));
+    }
+    showTag(g.link, dx);
   }, {passive:true});
+  const end = ()=>{
+    if(!g) return;
+    const cur = g; g = null;
+    if(cur.mode !== 'h' || !cur.dx){ reset(false); return; }
+    const dt = Math.max(1, Date.now() - cur.t), fast = Math.abs(cur.dx) / dt > 0.5 && Math.abs(cur.dx) > 40;
+    if(!cur.link || !(Math.abs(cur.dx) > 80 || fast)){ reset(true); return; }
+    const out = cur.dx < 0 ? -1 : 1;
+    if(appEl){
+      appEl.style.transition = 'transform .14s ease-out, opacity .14s ease-out';
+      appEl.style.transform = 'translateX(' + (out * window.innerWidth) + 'px)';
+      appEl.style.opacity = '0.3';
+    }
+    const link = cur.link;
+    setTimeout(()=>{
+      link.click();
+      // Wechsel innerhalb derselben Seite (Hochtour ↔ Klettern): von der anderen Seite hereingleiten
+      setTimeout(()=>{
+        if(!appEl || !document.body.contains(appEl)) return;
+        appEl.style.transition = 'none';
+        appEl.style.transform = 'translateX(' + (-out * window.innerWidth * 0.3) + 'px)';
+        appEl.style.opacity = '0.3';
+        requestAnimationFrame(()=> requestAnimationFrame(()=> reset(true)));
+      }, 60);
+    }, 140);
+  };
+  document.addEventListener('touchend', end, {passive:true});
+  document.addEventListener('touchcancel', ()=>{ if(g){ g = null; reset(true); } }, {passive:true});
+  // Zurück aus dem Verlauf (bfcache) mit verschobener Seite: zurücksetzen
+  window.addEventListener('pageshow', ()=> reset(false));
 }
 
 /* ================= Vorlagen fuer ChatGPT/Gemini + Bedienungsanleitung (direkt in der App) ================= */
