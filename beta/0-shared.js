@@ -9031,7 +9031,9 @@ function fsArmExitGuard(){
   // unter die aktuelle Seite schieben geht nicht, darum nur setzen, solange nichts offen ist.
   try{ history.pushState({fsLayer:'guard'}, '', location.href); }catch(e){ fsExitGuardArmed = false; }
 }
-['pointerdown','keydown'].forEach(ev=> window.addEventListener(ev, ()=>{
+// Nur Ereignisse, die für den Browser als Nutzeraktion zählen (beim Antippen erst touchend/click,
+// nicht pointerdown) — sonst überspringt Chrome den Eintrag beim Zurückwischen und die App geht zu.
+['touchend','click','keydown'].forEach(ev=> window.addEventListener(ev, ()=>{
   if(!fsExitGuardArmed && !modalHistoryPushed && !overlayLayers.length) fsArmExitGuard();
 }, {capture:true, passive:true}));
 document.addEventListener('click', e=>{
