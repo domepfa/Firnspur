@@ -12046,8 +12046,7 @@ function fsApplyTourSheetMode(){
   }
   if(overlay.classList.contains('fs-sheet-mode') && modal.querySelector(':scope > .fs-grabber')){
     // Gleiches Blatt neu gezeichnet ohne neue Daten: nichts zu tun. Sonst Karte auffrischen.
-    const cur = (typeof state !== 'undefined' && state.modal && state.tours) ? state.tours.find(x=> String(x.id) === String(state.modal.payload)) : null;
-    if(cur) fsShowContextMap(cur);
+    fsSheetShowContext();
     return;
   }
   if(fsSheetSavedScroll === null) fsSheetSavedScroll = window.scrollY;
@@ -12083,10 +12082,18 @@ function fsApplyTourSheetMode(){
   }, {passive:true});
   modal.addEventListener('touchend', ()=>{ pullStartY = null; pullArmed = false; }, {passive:true});
   fsSetSheetDetent(fsSheetDetent);
-  const tourObj = (state.tours || []).find(x=> String(x.id) === tourId);
-  if(tourObj) fsShowContextMap(tourObj);
+  fsSheetShowContext();
   // Punkt der offenen Tour auf der Karte hervorheben (nach dem Rendern der Karte)
   setTimeout(()=> document.querySelectorAll('.map-strip-dot').forEach(d=> d.classList.toggle('fs-sel', d.getAttribute('data-id') === tourId)), 0);
+}
+// Karte hinter dem offenen Blatt: bei einer Tour deren Karte, bei einem Gebiet alle seine Touren
+// (die App liefert die Inhalte über fsAreaForMap(modal), siehe fsShowAreaContextMap).
+function fsSheetShowContext(){
+  if(typeof state === 'undefined' || !state.modal) return;
+  const area = (typeof fsAreaForMap === 'function') ? fsAreaForMap(state.modal) : null;
+  if(area){ fsShowAreaContextMap(area); return; }
+  const t = (state.tours || []).find(x=> String(x.id) === String(state.modal.payload));
+  if(t) fsShowContextMap(t);
 }
 /* ================= Eine Tourenkarte hinter dem Blatt (Phase 2, Schritt 3) =================
    Statt mehrerer einzelner Karten (Karte anzeigen, Zustieg, Abstieg, Hütte …) liegt hinter dem
@@ -12246,6 +12253,105 @@ function fsShowContextMap(t){
         map._fsCoords = all;
         fsFitContextMap();
       }
+    });
+  }).catch(()=>{
+    const inner = document.getElementById('fs-tour-map-inner');
+    if(inner) inner.innerHTML = '<p class="fs-ctx-offline">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
+/* ===== Gebiet als Blatt über der Karte: alle Touren und Hütten des Gebiets =====
+   area: {key, name, tours:[Tour], huts:[Hütte], spots:[{lat, lon, label, open:()=>{}}], points:[Punkte des Gebiets]}
+   Jede Tour hat eine eigene Farbe; ihr Schild auf der Karte antippen öffnet die Tour. */
+function fsAreaHasData(a){
+  return (a.points||[]).length || (a.spots||[]).length || (a.huts||[]).some(h=> h.points && h.points.length) || (a.tours||[]).some(t=> tourMapPoint(t) || fsTourRoutes(t).length);
+}
+function fsShowAreaContextMap(a){
+  if(!fsAreaHasData(a)){ fsDestroyContextMap(); return; }
+  const stamp = x=> (x.updatedAt || '') + (x.id || '');
+  const key = 'area|' + a.key + '|' + [...(a.tours||[]), ...(a.huts||[])].map(stamp).join(',');
+  let el = document.getElementById('fs-tour-map');
+  if(el && fsCtxKey === key){
+    if(el.style.display === 'none'){
+      el.style.display = '';
+      document.documentElement.classList.add('fs-ctx-map');
+      if(fsCtxMap) setTimeout(()=> fsCtxMap.resize(), 0);
+    }
+    return;
+  }
+  fsDestroyContextMap();
+  fsCtxKey = key;
+  el = document.createElement('div');
+  el.id = 'fs-tour-map';
+  el.className = 'fs-tour-map';
+  el.innerHTML = '<div class="fs-tour-map-inner" id="fs-tour-map-inner"></div><div class="fs-ctx-legend" id="fs-ctx-legend"></div>';
+  document.body.appendChild(el);
+  document.documentElement.classList.add('fs-ctx-map');
+  fsmEnsureLoaded().then(()=>{
+    if(fsCtxKey !== key || !document.getElementById('fs-tour-map-inner')) return;
+    const p0 = (a.points||[])[0] || (a.tours||[]).map(tourMapPoint).find(Boolean);
+    const map = fsmCreateMap('fs-tour-map-inner', {center: p0 ? [p0.lat, p0.lon] : null, zoom: 11, on3d: (m)=>{
+      const c = m.getCenter();
+      const lines = [];
+      (a.tours||[]).forEach((t,i)=>{ const col = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length]; fsTourRoutes(t).forEach(r=> lines.push({coords:r.coords, color:col})); });
+      const pts = (a.tours||[]).map(t=>{ const p = tourMapPoint(t); return p ? {lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean);
+      fsOpen3d({lat:c.lat, lon:c.lng, zoom:13, heading:m.getBearing(), title:a.name, lines, points:pts});
+    }});
+    fsCtxMap = map;
+    fsmWireInfoClicks(map, {sac:{allowAttach:false}});
+    fsmWhenLoaded(map, ()=>{
+      if(fsCtxMap !== map) return;
+      const all = [], groups = [];
+      const group = (label, color, dash)=>{ const g = {label, color, dash, on:true, items:[]}; groups.push(g); return g; };
+      const markerItem = (m)=> ({setVisible:(v)=>{ m.getElement().style.display = v ? '' : 'none'; }});
+      const tg = group('Touren', ACCESS_ROUTE_COLORS[0]);
+      (a.tours||[]).forEach((t,i)=>{
+        const col = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
+        fsTourRoutes(t).forEach(r=>{
+          tg.items.push(fsmAddLine(map, r.coords, {color: col, dash: r.src === 'alt', label: t.name}));
+          r.coords.forEach(c=> all.push(c));
+        });
+        const p = tourMapPoint(t);
+        if(!p) return;
+        const m = fsmAddMarker(map, p.lat, p.lon, `<button type="button" class="fs-area-pin" style="--c:${col}"><span class="sw"></span>${esc(t.name)}</button>`, {anchor:'bottom'});
+        m.getElement().addEventListener('click', (e)=>{ e.stopPropagation(); if(typeof openTourDetail === 'function') openTourDetail(t.id); });
+        tg.items.push(markerItem(m));
+        all.push([p.lat, p.lon]);
+      });
+      const huts = (a.huts||[]).filter(h=> h.points && h.points.length);
+      if(huts.length){
+        const hg = group('Hütten', FS_CTX_COLORS.hutRoute);
+        huts.forEach(h=>{
+          const p = h.points[0];
+          const m = fsmAddMarker(map, p.lat, p.lon, `<button type="button" class="fs-area-pin fs-area-hut">${fsIconHtml('hut')}${esc(h.name)}</button>`, {anchor:'bottom'});
+          m.getElement().addEventListener('click', (e)=>{ e.stopPropagation(); if(typeof openHutDetail === 'function') openHutDetail(h.id); });
+          hg.items.push(markerItem(m));
+          all.push([p.lat, p.lon]);
+        });
+      }
+      if((a.spots||[]).length){
+        const sg = group(a.spotsLabel || 'Sektoren', '#7A8B95');
+        a.spots.forEach(sp=>{
+          const m = fsmAddMarker(map, sp.lat, sp.lon, `<button type="button" class="fs-area-pin fs-area-spot">${esc(sp.label)}</button>`, {anchor:'bottom'});
+          m.getElement().addEventListener('click', (e)=>{ e.stopPropagation(); if(sp.open) sp.open(); });
+          sg.items.push(markerItem(m));
+          all.push([sp.lat, sp.lon]);
+        });
+      }
+      const pg = {items:[]};
+      (a.points||[]).forEach(p=>{ pg.items.push(markerItem(fsmAddMarker(map, p.lat, p.lon, fsmCategoryMarkerHtml(p.category), {popup: esc(p.label || a.name), anchor:'bottom'}))); all.push([p.lat, p.lon]); });
+      const legend = document.getElementById('fs-ctx-legend');
+      if(legend && groups.length > 1){
+        groups.forEach(g=>{
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'fs-ctx-chip on';
+          b.innerHTML = `<span class="sw${g.dash ? ' dash' : ''}" style="--c:${g.color}"></span>${esc(g.label)}`;
+          b.addEventListener('click', ()=>{ g.on = !g.on; b.classList.toggle('on', g.on); g.items.forEach(it=> it.setVisible(g.on)); });
+          legend.appendChild(b);
+        });
+      }
+      if(all.length){ map._fsCoords = all; fsFitContextMap(); }
     });
   }).catch(()=>{
     const inner = document.getElementById('fs-tour-map-inner');

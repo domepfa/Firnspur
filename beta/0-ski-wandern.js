@@ -301,6 +301,14 @@ function emptyGebiete(){
 
 function gebietTouren(geb){ return state.tours.filter(t=>t.gebietId===geb.id); }
 
+// Gebiet als Blatt über der Karte: Inhalte für die Karte dahinter (siehe fsShowAreaContextMap)
+function fsAreaForMap(modal){
+  if(!modal || modal.type !== 'gebiet-detail') return null;
+  const geb = state.gebiete.find(x=>x.id===modal.payload);
+  if(!geb) return null;
+  return {key: geb.id, name: geb.name, tours: gebietTouren(geb), huts: gebietHuetten(geb), points: geb.points || []};
+}
+
 function gebietHuetten(geb){ return state.huts.filter(h=>h.gebietId===geb.id); }
 
 

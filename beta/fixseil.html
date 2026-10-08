@@ -2436,7 +2436,7 @@ function klettergebietDetailHtml(id){
   const unlinkedGipfel = state.gipfel.filter(gp=>!gp.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   const huettenImGebiet = klettergebietHuetten(geb);
   const unlinkedHuetten = state.huts.filter(h=>!h.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
-  return `<div class="modal fs-onroute" data-stop="1">
+  return `<div class="modal td gd fs-onroute" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
@@ -3540,6 +3540,15 @@ function klettergebietTouren(geb){
 }
 function klettergebietHochtouren(geb){ return klettergebietTouren(geb).filter(t=>t.tourCategory!=='msl'); }
 function klettergebietMslTouren(geb){ return klettergebietTouren(geb).filter(t=>t.tourCategory==='msl'); }
+// Gebiet als Blatt über der Karte: Touren, Hütten und Klettergärten (siehe fsShowAreaContextMap)
+function fsAreaForMap(modal){
+  if(!modal || modal.type !== 'klettergebiet-detail') return null;
+  const geb = state.klettergebiete.find(x=>x.id===modal.payload);
+  if(!geb) return null;
+  const spots = klettergebietKlettergaerten(geb).filter(sk=> sk.points && sk.points.length)
+    .map(sk=>({lat: sk.points[0].lat, lon: sk.points[0].lon, label: sk.name, open: ()=> openSektorDetail(sk.id)}));
+  return {key: geb.id, name: geb.name, tours: klettergebietTouren(geb), huts: klettergebietHuetten(geb), spots, spotsLabel: 'Klettergärten', points: geb.points || []};
+}
 // Nur Sektoren mit eigener Routen-Liste zählen als "Klettergarten" -- ein Sektor ohne Kletterrouten
 // ist reine technische Klammer für seine Touren und taucht hier nicht als eigener Eintrag auf.
 function klettergebietKlettergaerten(geb){
