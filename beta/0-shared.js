@@ -9079,25 +9079,43 @@ window.addEventListener('popstate', (ev)=>{
   }
 });
 
-/* ================= Wischgeste zwischen den Apps (nur auf der oberen Umschalt-Leiste) ================= */
-function wireAppSwitchSwipe(otherAppUrl){
+/* ================= Wischgeste zwischen den Apps =================
+   Links/rechts wischen wechselt in der Reihenfolge der oberen Leiste (Skitour · Hochtour ·
+   Klettern · Wandern) zur Nachbar-App — auf der Leiste und in den Listen. Nicht bei offenem
+   Fenster, auf Karten, in seitlich scrollbaren Reihen und in Eingabefeldern. */
+function fsSwipeBlocked(target){
+  if(typeof state !== 'undefined' && state.modal) return true;
+  if(overlayLayers.length || document.getElementById('fs-3d')) return true;
+  for(let el = target; el && el !== document.body; el = el.parentElement){
+    if(el.matches && el.matches('input, textarea, select, .maplibregl-map, .map-strip-canvas, .fs-tour-map, [data-no-swipe]')) return true;
+    if(el.scrollWidth > el.clientWidth + 2){
+      const ox = getComputedStyle(el).overflowX;
+      if(ox === 'auto' || ox === 'scroll') return true;
+    }
+  }
+  return false;
+}
+function wireAppSwitchSwipe(){
   const bar = document.querySelector('.app-switch-bar');
   if(!bar) return;
-  let startX = null, startY = null;
-  bar.addEventListener('touchstart', (e)=>{
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
+  let start = null;
+  document.addEventListener('touchstart', (e)=>{
+    if(e.touches.length !== 1){ start = null; return; }
+    const onBar = !!(e.target.closest && e.target.closest('.app-switch-bar'));
+    start = (onBar || !fsSwipeBlocked(e.target)) ? {x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now()} : null;
   }, {passive:true});
-  bar.addEventListener('touchend', (e)=>{
-    if(startX===null) return;
+  document.addEventListener('touchend', (e)=>{
+    if(!start) return;
     const t = e.changedTouches[0];
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-    startX = null; startY = null;
-    if(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)){
-      window.location.replace(otherAppUrl);
-    }
-  });
+    const dx = t.clientX - start.x, dy = t.clientY - start.y, dt = Date.now() - start.t;
+    start = null;
+    if(dt > 700 || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
+    const links = Array.from(bar.querySelectorAll('a[href]'));
+    const i = links.findIndex(a=> a.classList.contains('active'));
+    if(i < 0) return;
+    const next = links[dx < 0 ? i + 1 : i - 1];
+    if(next) next.click();
+  }, {passive:true});
 }
 
 /* ================= Vorlagen fuer ChatGPT/Gemini + Bedienungsanleitung (direkt in der App) ================= */
