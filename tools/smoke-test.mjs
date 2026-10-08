@@ -13,10 +13,10 @@
 // Aufruf:  node tools/smoke-test.mjs            (alles)
 //          node tools/smoke-test.mjs beta       (nur Beta)
 //          node tools/smoke-test.mjs main       (nur Haupt-App)
-// Screenshots landen in $SMOKE_OUT (Standard: Temp-Ordner).
+//          … -v                                 (jede Ansicht einzeln, mit Schreibzugriffen)
+// Ausgabe kurz: «8 von 8 ok» oder nur die Fehler. Screenshots nur mit SMOKE_OUT=<Ordner>.
 import http from 'node:http';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -45,7 +45,8 @@ const APPS = [
   { file: 'wandern.html', cache: 'wandern-cache', names: wan.tours.map(t => t.name), edit: fixFirst('wandern/tours', wan.tours) },
 ];
 
-const mode = process.argv[2] || 'all';
+const verbose = process.argv.includes('-v');
+const mode = process.argv.slice(2).find(a => a !== '-v') || 'all';
 const targets = [];
 for (const a of APPS) {
   const q = a.query || '';
@@ -64,7 +65,7 @@ const server = http.createServer((req, res) => {
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const base = 'http://127.0.0.1:' + server.address().port + '/';
-const outDir = process.env.SMOKE_OUT || fs.mkdtempSync(path.join(os.tmpdir(), 'firnspur-smoke-'));
+const outDir = process.env.SMOKE_OUT || '';
 
 const browser = await chromium.launch();
 let failed = 0;
@@ -114,7 +115,7 @@ for (const t of targets) {
     await page.waitForTimeout(2500);
     const text = await page.evaluate(() => document.body.innerText);
     for (const n of t.names) if (!text.includes(n)) problems.push(phase + ': Tour «' + n + '» nicht sichtbar');
-    await page.screenshot({ path: path.join(outDir, t.label.replace(/[/?=]/g, '-') + '-' + phase + '.png') });
+    if (outDir) await page.screenshot({ path: path.join(outDir, t.label.replace(/[/?=]/g, '-') + '-' + phase + '.png') });
   };
   const editAndSave = async () => {
     const { path: coll, tour } = t.edit, newName = tour.name + ' geprüft';
@@ -154,10 +155,10 @@ for (const t of targets) {
 
   await ctx.close();
   if (problems.length) { failed++; console.log('FEHLER ' + t.label); problems.forEach(p => console.log('  - ' + p)); }
-  else console.log('ok     ' + t.label);
-  if (writes.size) console.log('         Schreibzugriffe (simuliert): ' + [...writes].join(', '));
+  else if (verbose) console.log('ok     ' + t.label);
+  if (verbose && writes.size) console.log('         Schreibzugriffe (simuliert): ' + [...writes].join(', '));
 }
 await browser.close();
 server.close();
-console.log('Screenshots: ' + outDir);
+console.log((targets.length - failed) + ' von ' + targets.length + ' ok' + (outDir ? ' · Screenshots: ' + outDir : ''));
 process.exit(failed ? 1 : 0);

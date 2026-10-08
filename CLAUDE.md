@@ -38,7 +38,11 @@ aus anderen Apps übernehmen.
   ohne Internet (Firebase wird mit `vorlage/*.json` simuliert, nichts wird geschrieben). Prüft:
   keine JS-Fehler, Touren sichtbar, lokale Kopie unter dem richtigen Schlüssel, Tour über das
   Formular bearbeiten und speichern (kein Feld geht verloren, alte Fassung unter `versions/`),
-  danach offline weiter nutzbar mit der Änderung. Vor jedem PR laufen lassen; Screenshots in `$SMOKE_OUT` anschauen.
+  danach offline weiter nutzbar mit der Änderung. Ausgabe: «8 von 8 ok» oder nur die Fehler
+  (`-v` für Details).
+- Bei jeder Code-Änderung laufen lassen; bei reinen Text- oder CSS-Änderungen nicht nötig.
+- Screenshots (`SMOKE_OUT=<Ordner>`) nur machen und anschauen, wenn sich das Aussehen ändert –
+  Bilder kosten viele Token.
 
 ## Design
 - **Charakter:** Tageslicht, Firn und Gletscher – hell, ruhig, elegant. Gebraucht wird die App
