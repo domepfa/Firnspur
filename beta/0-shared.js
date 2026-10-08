@@ -1701,7 +1701,8 @@ function printTourenzettel(agendaId){
   if(tour){
     if(tour.elevationGain) factRows.push(['Aufstieg', tour.elevationGain + ' Hm']);
     if(tour.elevationLoss) factRows.push([a.type === 'ski' ? 'Abfahrt' : 'Abstieg', tour.elevationLoss + ' Hm']);
-    if(tour.duration) factRows.push(['Zeitbedarf', tour.duration + ' h']);
+    if(tour.duration) factRows.push([tour.descentDuration ? 'Zeit Aufstieg' : 'Zeitbedarf', tour.duration + ' h']);
+    if(tour.descentDuration) factRows.push(['Zeit Abstieg', tour.descentDuration + ' h']);
     if(difficultyLabel) factRows.push(['Schwierigkeit', difficultyLabel]);
     if(tour.crux) factRows.push(['Schlüsselstelle', tour.crux]);
     if((tour.exposition||[]).length) factRows.push(['Exposition', tour.exposition.join(', ')]);
@@ -3115,7 +3116,7 @@ function fsOpen3d(opts){
     <div class="fs-3d-map" id="fs-3d-map"></div>
     <div class="fs-3d-top">
       <button type="button" class="fs-3d-btn" data-3d="close" aria-label="Zurück">‹ Zurück</button>
-      <div class="fs-3d-title">${esc(t ? t.name : '3D-Ansicht')}</div>
+      <div class="fs-3d-title">${esc(opts.title || (t ? t.name : '3D-Ansicht'))}</div>
       <button type="button" class="fs-3d-btn fs-3d-compass" data-3d="north" aria-label="Nach Norden ausrichten"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><g class="fs-3d-needle"><path d="M12 2.5 15.2 12H8.8Z" fill="#E03131"/><path d="M12 21.5 8.8 12h6.4Z" fill="#9AA5AD"/><text x="12" y="11" text-anchor="middle" font-size="5.5" font-weight="800" fill="#fff" font-family="sans-serif">N</text></g></svg></button>
     </div>
     <div class="fs-3d-rot">
@@ -3131,7 +3132,12 @@ function fsOpen3d(opts){
       <button type="button" class="fs-3d-chip" data-3d="ski">SAC-Skitouren</button>
       <button type="button" class="fs-3d-chip" data-3d="walk">Wanderwege</button>
       <button type="button" class="fs-3d-chip on" data-3d="names">Namen</button>
+      <div class="fs-3d-seg" aria-label="Auflösung"><button type="button" data-3d="q-hi">Hoch</button><button type="button" data-3d="q-lo">Spar</button></div>
     </div>
+    ${opts.edit ? `<div class="fs-3d-edit">
+      <div class="fs-3d-seg fs-3d-emode"><button type="button" data-3d="em-point">Punkt</button><button type="button" data-3d="em-line">Linie</button><button type="button" data-3d="em-route">Route</button><button type="button" data-3d="e-undo" aria-label="Rückgängig">↶</button></div>
+      <div class="fs-3d-ehint" id="fs-3d-ehint"></div>
+    </div>` : ''}
     <div class="fs-3d-loading" id="fs-3d-loading">3D wird geladen …</div>`;
   document.body.appendChild(wrap);
   pushOverlayLayer(fs3dClose);
@@ -3148,7 +3154,26 @@ function fsOpen3d(opts){
       requestRenderMode:true, maximumRenderTimeChange:Infinity
     });
     fs3dViewer = viewer;
-    viewer.scene.globe.maximumScreenSpaceError = 2;
+    // Auflösung: «Hoch» lädt feinere Kacheln und rechnet mit der vollen Bildschirmauflösung (zuhause im
+    // WLAN), «Spar» lädt gröber und weniger Daten (unterwegs). Wahl bleibt pro Gerät gespeichert.
+    let names = null;
+    const applyQuality = (q)=>{
+      const hi = q !== 'lo';
+      viewer.scene.globe.maximumScreenSpaceError = hi ? 1.5 : 5;
+      viewer.useBrowserRecommendedResolution = !hi;
+      viewer.resolutionScale = 1;
+      viewer.scene.globe.tileCacheSize = hi ? 300 : 100;
+      if(names) names.maximumScreenSpaceError = hi ? 4 : 12;
+      wrap.querySelectorAll('[data-3d^="q-"]').forEach(b=> b.classList.toggle('on', b.getAttribute('data-3d') === (hi ? 'q-hi' : 'q-lo')));
+      viewer.scene.requestRender();
+    };
+    let quality = 'hi'; try{ quality = localStorage.getItem('fs-3d-quality') || 'hi'; }catch(e){}
+    applyQuality(quality);
+    wrap.querySelectorAll('[data-3d^="q-"]').forEach(b=> b.addEventListener('click', ()=>{
+      quality = b.getAttribute('data-3d') === 'q-lo' ? 'lo' : 'hi';
+      try{ localStorage.setItem('fs-3d-quality', quality); }catch(e){}
+      applyQuality(quality);
+    }));
     viewer.scene.screenSpaceCameraController.minimumZoomDistance = 150;
     viewer.scene.globe.depthTestAgainstTerrain = true;
     const layers = viewer.imageryLayers;
@@ -3167,20 +3192,19 @@ function fsOpen3d(opts){
     wrap.querySelector('[data-3d="ski"]').addEventListener('click', (e)=>{ ski.show = !ski.show; e.currentTarget.classList.toggle('on', ski.show); rerender(); });
     // Namen (Gipfel, Pässe, Orte, Hütten, Seen) — offizielle 3D-Namensebene von swisstopo, wie in
     // der 3D-Ansicht von map.geo.admin.ch. Standardmässig an; Fehler beim Laden blenden nur den Schalter aus.
-    let names = null;
     const namesBtn = wrap.querySelector('[data-3d="names"]');
     fs3dLoadNames().then(ts=>{
       if(fs3dViewer !== viewer) return;
       names = ts;
       ts.style = new Cesium.Cesium3DTileStyle(FS3D_NAMES_STYLE);
-      ts.maximumScreenSpaceError = 4;
+      ts.maximumScreenSpaceError = quality === 'lo' ? 12 : 4;
       viewer.scene.primitives.add(ts);
       rerender();
     }).catch(()=>{ namesBtn.style.display = 'none'; });
     namesBtn.addEventListener('click', ()=>{ if(!names) return; names.show = !names.show; namesBtn.classList.toggle('on', names.show); rerender(); });
     wrap.querySelector('[data-3d="walk"]').addEventListener('click', (e)=>{ walk.show = !walk.show; e.currentTarget.classList.toggle('on', walk.show); rerender(); });
     // Eigene Linien leicht über dem Gelände (Höhen aus dem Modell), damit sie durchgehend sichtbar sind
-    const lines = fs3dTourLines(t);
+    const lines = opts.edit ? [] : (opts.lines || fs3dTourLines(t));
     const allPts = [];
     for(const ln of lines){
       const carto = ln.coords.map(c=> Cesium.Cartographic.fromDegrees(c[1], c[0]));
@@ -3192,7 +3216,7 @@ function fsOpen3d(opts){
         : new Cesium.PolylineOutlineMaterialProperty({color: Cesium.Color.fromCssColorString(ln.color), outlineColor: Cesium.Color.WHITE, outlineWidth:1.5})}});
       positions.forEach(p=> allPts.push(p));
     }
-    (t && t.points || []).forEach(p=>{
+    (opts.edit ? [] : (opts.points || (t && t.points) || [])).forEach(p=>{
       viewer.entities.add({position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat), point:{pixelSize:12, color:Cesium.Color.fromCssColorString('#4A3524'), outlineColor:Cesium.Color.WHITE, outlineWidth:2, heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY},
         label: p.label ? {text:p.label, font:'600 13px sans-serif', fillColor:Cesium.Color.WHITE, outlineColor:Cesium.Color.BLACK, outlineWidth:3, style:Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset:new Cesium.Cartesian2(0,-18), heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY} : undefined});
       allPts.push(Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 3000));
@@ -3252,8 +3276,72 @@ function fsOpen3d(opts){
       panel.hidden = false;
     };
     const fakePopup = { setContent: (node)=>{ const old = panel.querySelector('.fs-sac-pop'); if(old) old.replaceWith(node); } };
+    const pickLatLon = (screenPos)=>{
+      const ray = viewer.camera.getPickRay(screenPos);
+      const pos = ray && viewer.scene.globe.pick(ray, viewer.scene);
+      if(!pos) return null;
+      const cg = Cesium.Cartographic.fromCartesian(pos);
+      return {lat: Cesium.Math.toDegrees(cg.latitude), lon: Cesium.Math.toDegrees(cg.longitude)};
+    };
+    // Bearbeiten in 3D: Linie/Route = antippen, Punkt = lange drücken (wie auf der 2D-Karte)
+    if(opts.edit){
+      const ed = opts.edit;
+      const eds = new Cesium.CustomDataSource('edit'); viewer.dataSources.add(eds);
+      const hintEl = document.getElementById('fs-3d-ehint');
+      const HINTS = {point: 'Lange drücken setzt einen Punkt.', line: 'Antippen verlängert die Linie.', route: 'Antippen setzt Wegpunkte. Berechnen danach in 2D.'};
+      const drawEdit = ()=>{
+        eds.entities.removeAll();
+        ed.lines().forEach(ln=>{
+          if(!ln.coords || ln.coords.length < 2) return;
+          const col = Cesium.Color.fromCssColorString(ln.color);
+          eds.entities.add({polyline:{positions: Cesium.Cartesian3.fromDegreesArray(ln.coords.flatMap(c=>[c[1], c[0]])), width: ln.edit ? 6 : 4, clampToGround:true,
+            material: ln.dash ? new Cesium.PolylineDashMaterialProperty({color: col, dashLength:16}) : new Cesium.PolylineOutlineMaterialProperty({color: col, outlineColor: Cesium.Color.WHITE, outlineWidth:1.5})}});
+          if(ln.edit) ln.coords.forEach(c=> eds.entities.add({position: Cesium.Cartesian3.fromDegrees(c[1], c[0]), point:{pixelSize:9, color: col, outlineColor: Cesium.Color.WHITE, outlineWidth:2, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: 1e9}}));
+        });
+        ed.points().forEach(p=> eds.entities.add({position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat), point:{pixelSize:13, color: Cesium.Color.fromCssColorString(p.color || '#4A3524'), outlineColor: Cesium.Color.WHITE, outlineWidth:2, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: 1e9},
+          label: p.label ? {text: p.label, font:'600 13px sans-serif', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK, outlineWidth:3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0,-18), heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: 1e9} : undefined}));
+        rerender();
+      };
+      const syncMode = ()=>{
+        const m = ed.getMode();
+        wrap.querySelectorAll('[data-3d^="em-"]').forEach(b=> b.classList.toggle('on', b.getAttribute('data-3d') === 'em-' + m));
+        if(hintEl) hintEl.textContent = HINTS[m] || '';
+      };
+      wrap.querySelectorAll('[data-3d^="em-"]').forEach(b=> b.addEventListener('click', ()=>{ ed.setMode(b.getAttribute('data-3d').slice(3)); syncMode(); }));
+      wrap.querySelector('[data-3d="e-undo"]').addEventListener('click', ()=>{ ed.undo(); drawEdit(); });
+      syncMode();
+      drawEdit();
+      const eh = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+      let holdTimer = null, downAt = null;
+      const cancelHold = ()=>{ if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; } };
+      eh.setInputAction((ev)=>{
+        downAt = Cesium.Cartesian2.clone(ev.position);
+        cancelHold();
+        if(ed.getMode() !== 'point') return;
+        holdTimer = setTimeout(()=>{
+          holdTimer = null;
+          const ll = pickLatLon(downAt);
+          if(!ll) return;
+          ed.hold(ll.lat, ll.lon);
+          if(navigator.vibrate) try{ navigator.vibrate(30); }catch(e){}
+          drawEdit();
+        }, 600);
+      }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
+      eh.setInputAction((ev)=>{ if(downAt && Cesium.Cartesian2.distance(downAt, ev.endPosition) > 10) cancelHold(); }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+      eh.setInputAction(cancelHold, Cesium.ScreenSpaceEventType.LEFT_UP);
+      eh.setInputAction(cancelHold, Cesium.ScreenSpaceEventType.PINCH_START);
+      eh.setInputAction((ev)=>{
+        const m = ed.getMode();
+        if(m !== 'line' && m !== 'route') return;
+        const ll = pickLatLon(ev.position);
+        if(!ll) return;
+        ed.tap(ll.lat, ll.lon);
+        drawEdit();
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    }
     new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas).setInputAction(async (ev)=>{
       if(!ski.show){ return; }
+      if(opts.edit && opts.edit.getMode() !== 'point') return;
       const ray = viewer.camera.getPickRay(ev.position);
       const pos = ray && viewer.scene.globe.pick(ray, viewer.scene);
       if(!pos){ closePanel(); return; }
@@ -6402,6 +6490,40 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     routeMetaEl.style.display = 'none';
     wrapDiv.appendChild(routeMetaEl);
 
+    // Vollbild: Karte über die ganze Fläche, Bedienung schwebt oben/unten darüber, Hinweise
+    // zugeklappt — sonst blieb wegen der Meldungen nur etwa die halbe Höhe für die Karte.
+    let fsPeTop = null;
+    if(isFullscreen){
+      wrapDiv.style.cssText = 'position:relative; height:100%; overflow:hidden;';
+      mapDiv.style.cssText = 'position:absolute; inset:0;';
+      fsPeTop = document.createElement('div');
+      fsPeTop.className = 'fs-pe-top';
+      searchRow.classList.add('fs-pe-search');
+      modeRow.style.marginBottom = '0';
+      undoAllBtn.className = 'fs-pe-undo';
+      undoAllBtn.style.cssText = '';
+      undoAllBtn.setAttribute('aria-label', 'Rückgängig');
+      undoAllBtn.innerHTML = '↶';
+      modeRow.appendChild(undoAllBtn);
+      fsPeTop.append(searchRow, searchResults, modeRow);
+      const hints = Array.from(wrapDiv.querySelectorAll(':scope > p.hint'));
+      if(hints.length){
+        const d = document.createElement('details');
+        d.className = 'fs-pe-hints';
+        d.innerHTML = '<summary>Hinweise</summary>';
+        hints.forEach(h=> d.appendChild(h));
+        fsPeTop.appendChild(d);
+      }
+      const fsPeBottom = document.createElement('div');
+      fsPeBottom.className = 'fs-pe-bottom';
+      fsPeBottom.append(lineActionsRow, routeActionsRow, routeStatsEl, routeMetaEl);
+      wrapDiv.append(fsPeTop, fsPeBottom);
+      ['click','pointerdown','touchstart','wheel','dblclick'].forEach(ev=>{
+        fsPeTop.addEventListener(ev, e=> e.stopPropagation());
+        fsPeBottom.addEventListener(ev, e=> e.stopPropagation());
+      });
+    }
+
     el2.appendChild(wrapDiv);
 
     let points = [];
@@ -6425,8 +6547,17 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const center = lastPointsEditorMapView ? lastPointsEditorMapView.center
       : (points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : (firstRefPoint || [46.8182, 8.2275]))));
     const zoom = lastPointsEditorMapView ? lastPointsEditorMapView.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
-    const map = fsmCreateFlMap(mapDivId).setView(center, zoom);
+    const map = fsmCreateFlMap(mapDivId, isFullscreen ? {on3d: (ml)=> openEditor3d(ml)} : undefined).setView(center, zoom);
     map._isPointsEditorMap = true;
+    if(fsPeTop){
+      // Kartenknöpfe (Ebenen, Standort, 3D) unter die schwebende Leiste schieben
+      const placeCtl = ()=>{
+        const top = fsPeTop.offsetHeight + 16;
+        mapDiv.querySelectorAll('.fsm-ctlbox, .fsm-panel').forEach(b=>{ b.style.top = top + 'px'; });
+      };
+      setTimeout(placeCtl, 0);
+      if(window.ResizeObserver) new ResizeObserver(placeCtl).observe(fsPeTop);
+    }
     map.on('moveend', ()=>{ lastPointsEditorMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
     registerMap(mapDivId, map);
 
@@ -6475,6 +6606,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
     function updateUndoBtn(){
       const n = undoStack.length;
+      if(isFullscreen){
+        // Vollbild: nur zeigen, wenn es etwas rückgängig zu machen gibt
+        undoAllBtn.style.display = n ? '' : 'none';
+        undoAllBtn.textContent = '↶ ' + n;
+        return;
+      }
       undoAllBtn.disabled = n === 0;
       undoAllBtn.style.opacity = n === 0 ? '0.4' : '1';
       undoAllBtn.style.cursor = n === 0 ? 'default' : 'pointer';
@@ -6940,15 +7077,49 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       updateRoutePanelState();
     });
 
+    function addLineAt(lat, lon){
+      pushUndo();
+      manualTrack.push([lat, lon]);
+      setLastRouteStats(null);
+      routeStatsEl.style.display = 'none';
+      routeStatsEl.innerHTML = '';
+      redrawLine();
+      persistTrack();
+    }
+    function addPointAt(lat, lon){
+      pushUndo();
+      points.push({ label:'', lat, lon, _justAdded:true });
+      map.closePopup(); // zuerst schliessen — redraw() öffnet gleich das Fenster des neuen Punkts
+      redraw();
+      persist();
+    }
+    // 3D-Ansicht zum Bearbeiten: dieselben Modi und Schritte wie hier, Ergebnis landet direkt in
+    // dieser Karte (beim Zurückkommen neu gezeichnet).
+    function openEditor3d(ml){
+      const c = ml.getCenter();
+      const lines3d = () => {
+        const out = refTracks.map(rt=>({coords: rt.coords, color: rt.color || '#E8384F'}));
+        if(manualTrack.length > 1) out.push({coords: manualTrack, color: usingGpxTrack ? '#E8384F' : '#1565C0', edit:true});
+        if(routeWaypoints.length > 1) out.push({coords: routeWaypoints, color: '#2F6B44', dash:true, edit:true});
+        return out;
+      };
+      fsOpen3d({lat: c.lat, lon: c.lng, zoom: ml.getZoom(), heading: ml.getBearing(), title: 'Bearbeiten in 3D',
+        lines: lines3d(), points: points.concat(refPoints),
+        edit: {
+          getMode: ()=> mode,
+          setMode: (m)=> setMode(m),
+          tap: (lat, lon)=>{ if(mode==='line') addLineAt(lat, lon); else if(mode==='route'){ pushUndo(); routeWaypoints.push([lat, lon]); redrawRoute(); } },
+          hold: (lat, lon)=>{ if(mode==='point'){ pushUndo(); points.push({label:'', lat, lon}); redraw(); persist(); } },
+          undo: ()=> performUndo(),
+          lines: lines3d,
+          points: ()=> points.concat(refPoints)
+        }
+      });
+    }
+
     map.on('click', async (e)=>{
       if(mode==='line'){
-        pushUndo();
-        manualTrack.push([e.latlng.lat, e.latlng.lng]);
-        setLastRouteStats(null);
-        routeStatsEl.style.display = 'none';
-        routeStatsEl.innerHTML = '';
-        redrawLine();
-        persistTrack();
+        addLineAt(e.latlng.lat, e.latlng.lng);
       }else if(mode==='route'){
         pushUndo();
         if(insertAfterWaypointIndex !== null){
@@ -6980,13 +7151,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       btn.type = 'button';
       btn.textContent = '📍 Punkt hier setzen';
       btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
-      btn.addEventListener('click', ()=>{
-        pushUndo();
-        points.push({ label:'', lat: e.latlng.lat, lon: e.latlng.lng, _justAdded:true });
-        map.closePopup(); // zuerst schliessen — redraw() öffnet gleich das Fenster des neuen Punkts
-        redraw();
-        persist();
-      });
+      btn.addEventListener('click', ()=> addPointAt(e.latlng.lat, e.latlng.lng));
       wrap.appendChild(btn);
       FL.popup().setLatLng(e.latlng).setContent(wrap).openOn(map);
     });
@@ -8849,7 +9014,49 @@ function confirmDiscardIfDirty(){
   return ok;
 }
 
-window.addEventListener('popstate', ()=>{
+/* ===== Zurück bis ganz nach unten: «Firnspur beenden?» =====
+   Unter allen eigenen Ebenen liegt ein Wächter-Eintrag (fsLayer:'guard'). Wer so weit zurückgeht,
+   dass die App sich schliessen würde, landet darunter und wird gefragt. Der Eintrag wird erst nach
+   der ersten Berührung gesetzt, weil Browser Einträge ohne Nutzeraktion beim Zurückgehen
+   überspringen. Wechsel zwischen den Apps ersetzen die Seite (kein Verlauf), damit Zurück nicht
+   in die vorher offene App führt. */
+let fsExitGuardArmed = false;
+let fsExitLeaving = false;
+function fsArmExitGuard(){
+  if(fsExitGuardArmed) return;
+  const st = history.state;
+  if(st && st.fsLayer) return; // nach Neuladen mitten in einer Ebene: nicht doppelt stapeln
+  fsExitGuardArmed = true;
+  // Einträge, die Modal/Overlay bereits gepusht haben, bleiben oben: Wächter-Zustand nachträglich
+  // unter die aktuelle Seite schieben geht nicht, darum nur setzen, solange nichts offen ist.
+  try{ history.pushState({fsLayer:'guard'}, '', location.href); }catch(e){ fsExitGuardArmed = false; }
+}
+['pointerdown','keydown'].forEach(ev=> window.addEventListener(ev, ()=>{
+  if(!fsExitGuardArmed && !modalHistoryPushed && !overlayLayers.length) fsArmExitGuard();
+}, {capture:true, passive:true}));
+document.addEventListener('click', e=>{
+  const a = e.target && e.target.closest && e.target.closest('.app-switch-bar a[href]');
+  if(!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  e.preventDefault();
+  window.location.replace(a.href);
+});
+// true = popstate ist erledigt (Wächter verlassen und Rückfrage gestellt)
+function fsHandleExitGuard(ev){
+  if(!fsExitGuardArmed || fsExitLeaving) return false;
+  const st = ev && ev.state;
+  if(st && st.fsLayer) return false; // noch innerhalb unserer Einträge
+  if(confirm('Firnspur beenden?')){
+    // Ist dies der erste Eintrag (installierte App), schliesst erst das nächste Zurück die App.
+    fsExitLeaving = true;
+    try{ history.back(); }catch(e){}
+    setTimeout(()=>{ try{ window.close(); }catch(e){} }, 150);
+  }else{
+    try{ history.pushState({fsLayer:'guard'}, '', location.href); }catch(e){}
+  }
+  return true;
+}
+
+window.addEventListener('popstate', (ev)=>{
   if(suppressNextPopstateHandling){ suppressNextPopstateHandling = false; return; }
   // Oberste Ebene zuerst: offene Vollbild-Karte / Bild-Vollbildansicht schliesst nur sich selbst.
   if(overlayLayers.length){
@@ -8866,6 +9073,7 @@ window.addEventListener('popstate', ()=>{
     else{ state.modal = null; modalHistoryPushed = false; if(typeof render === 'function') render(); }
   }else{
     modalHistoryPushed = false;
+    fsHandleExitGuard(ev);
   }
 });
 
@@ -8885,7 +9093,7 @@ function wireAppSwitchSwipe(otherAppUrl){
     const dy = t.clientY - startY;
     startX = null; startY = null;
     if(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)){
-      window.location.href = otherAppUrl;
+      window.location.replace(otherAppUrl);
     }
   });
 }

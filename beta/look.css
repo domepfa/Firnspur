@@ -865,6 +865,8 @@ main{ padding-top:6px; }
 .wx-strip p.wx-src{ font-size:11.5px; line-height:1.4; }
 /* Titel, Profil und Segment-Schalter liegen im Foto; Unterkante der Leiste an der Foto-Unterkante (spart Höhe) */
 .hero{ padding:22px 18px 14px; }
+/* Mehr vom Foto zeigen: höherer Bildstreifen, Titel sitzt weiter unten */
+.hero-top{ padding-top:44px !important; }
 .hero::before{ top:8px; bottom:6px; height:auto; left:10px; right:10px; -webkit-mask-image:none; mask-image:none; }
 .hero::after{
   display:block; content:''; position:absolute; top:8px; bottom:6px; left:10px; right:10px; border-radius:22px; z-index:0;
@@ -1482,3 +1484,47 @@ html.fs-dark .bf-ed-item.lv-opt{ background:#4A3E1E; border-color:#7A6430; }
 .fsm-ctlbox .fsm-3d{ margin:0 !important; width:46px; height:46px; }
 /* Grosse Karte: rechte Knopf-Spalte gleich gross und im selben Raster wie links (Filter, Suche) */
 #fullscreen-map-container .fsm-ctlbox .fsm-btn{ width:48px; height:48px; }
+
+/* ===== Bearbeiten-Karte im Vollbild: Karte ganzflächig, Bedienung schwebt darüber ===== */
+.fs-pe-top{
+  position:absolute; left:10px; right:10px; top:calc(8px + env(safe-area-inset-top, 0px)); z-index:5;
+  display:flex; flex-direction:column; gap:6px;
+}
+.fs-pe-top .fs-pe-search{ margin:0 !important; margin-right:150px !important; }
+.fs-pe-top .fs-pe-search input{ min-height:44px; border-radius:14px !important; border:1px solid var(--line) !important; background:var(--paper); box-shadow:0 2px 10px rgba(15,30,39,.18); font-size:14px !important; }
+.fs-pe-top .fs-pe-search button{ min-height:44px; min-width:46px; border-radius:14px !important; box-shadow:0 2px 10px rgba(15,30,39,.18); }
+.fs-pe-top > div:not(.fs-pe-search){ margin:0 !important; }
+.fs-pe-top > div:nth-child(2):empty{ display:none !important; }
+.fs-pe-top > div:nth-child(2){ background:var(--paper); border-radius:12px; padding:4px; box-shadow:0 2px 10px rgba(15,30,39,.18); }
+.fs-pe-top > div:nth-child(3){ box-shadow:0 2px 10px rgba(15,30,39,.18); background:var(--paper) !important; }
+.fs-pe-undo{
+  flex:0 0 auto; min-width:52px; padding:0 12px; border:none; border-radius:16px; background:var(--paper); color:var(--ink);
+  font-size:16px; font-weight:800; cursor:pointer; white-space:nowrap;
+}
+.fs-pe-hints{
+  align-self:flex-start; max-width:100%; background:var(--paper); border-radius:12px;
+  padding:6px 12px; box-shadow:0 2px 10px rgba(15,30,39,.18); font-size:12.5px; color:var(--ink-soft);
+}
+.fs-pe-hints summary{ cursor:pointer; font-weight:700; min-height:28px; display:flex; align-items:center; }
+.fs-pe-hints[open]{ max-height:40vh; overflow-y:auto; }
+.fs-pe-hints .hint{ margin:6px 0 0 !important; }
+.fs-pe-bottom{
+  position:absolute; left:10px; right:70px; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); z-index:5;
+  display:flex; flex-direction:column; gap:6px; max-height:45vh; overflow-y:auto;
+}
+.fs-pe-bottom > *{ margin:0 !important; }
+.fs-pe-bottom > div[style*="display:flex"], .fs-pe-bottom > div[style*="display: flex"]{
+  background:var(--paper); border-radius:14px; padding:8px; box-shadow:0 2px 10px rgba(15,30,39,.18);
+}
+.fs-pe-bottom > div[style*="block"]{ box-shadow:0 2px 10px rgba(15,30,39,.18); border-radius:14px !important; }
+
+/* ===== 3D: Bearbeiten-Leiste unten ===== */
+.fs-3d-edit{
+  position:absolute; left:10px; right:70px; bottom:calc(40px + env(safe-area-inset-bottom, 0px)); z-index:5;
+  display:flex; flex-direction:column; align-items:flex-start; gap:6px;
+}
+.fs-3d-emode{ max-width:100%; }
+.fs-3d-emode button{ min-height:44px; padding:0 14px; }
+.fs-3d-emode button[data-3d="e-undo"]{ font-size:19px; padding:0 12px; }
+.fs-3d-ehint{ color:#fff; font-size:13px; font-weight:700; text-shadow:0 1px 6px rgba(0,0,0,.7); }
+.fs-3d-ehint:empty{ display:none; }

@@ -1535,6 +1535,7 @@ async function submitTourForm(form, existing){
   t.elevationGain = form.elevationGain;
   t.elevationLoss = form.elevationLoss;
   t.duration = form.duration;
+  t.descentDuration = form.descentDuration || '';
   t.region = form.region;
   t.subregion = form.subregion || '';
   t.material = form.material || [];
@@ -3408,7 +3409,8 @@ function tourCardHtml(t, draggable, opts){
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
-      ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span></span>` : ''}
+      ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span>${t.descentDuration ? ' ↑' : ''}</span>` : ''}
+      ${t.descentDuration ? `<span>${t.duration ? '' : '⏱ '}<span class="mono">${esc(t.descentDuration)} h</span> ↓</span>` : ''}
     </div>
     ${t.region ? `<p class="excerpt">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${summitChipsForCardHtml(t)}
@@ -3992,13 +3994,14 @@ function tourFormHtml(existing){
         </div>
         <input type="hidden" name="ropeLength" id="rope-length-hidden" value="${esc(t.ropeLength||'')}"/>
       </div>
-      <div class="row2">
-        <div class="field"><label>Ziel – Gipfelhöhe (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 4545"/></div>
-        <div class="field"><label>Zeitbedarf (h)</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 6–8"/></div>
-      </div>
+      <div class="field"><label>Ziel – Gipfelhöhe (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 4545"/></div>
       <div class="row2">
         <div class="field"><label>Aufstieg (Hm)</label><input name="elevationGain" value="${esc(t.elevationGain||'')}" placeholder="z. B. 1200"/></div>
         <div class="field"><label>Abstieg (Hm, falls abweichend)</label><input name="elevationLoss" value="${esc(t.elevationLoss||'')}" placeholder="z. B. 1600"/></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Zeit Aufstieg (h)</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 5–6"/></div>
+        <div class="field"><label>Zeit Abstieg (h)</label><input name="descentDuration" value="${esc(t.descentDuration||'')}" placeholder="z. B. 3"/></div>
       </div>
       <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" id="tour-link-input" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/>
         <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">🔍 Auf Camptocamp.org suchen</button>
@@ -4125,7 +4128,8 @@ function tourDetailHtml(id){
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
-      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">${t.descentDuration ? 'Zeit Aufstieg' : 'Zeitbedarf'}</div></div>` : ''}
+      ${t.descentDuration ? `<div class="detail-stat"><div class="num">${esc(t.descentDuration)} h</div><div class="lbl">Zeit Abstieg</div></div>` : ''}
       ${t.pitchCount ? `<div class="detail-stat"><div class="num">${esc(t.pitchCount)}</div><div class="lbl">Seillängen</div></div>` : ''}
       ${t.longestPitch ? `<div class="detail-stat"><div class="num">${esc(t.longestPitch)}</div><div class="lbl">Längste SL</div></div>` : ''}
     </div>
