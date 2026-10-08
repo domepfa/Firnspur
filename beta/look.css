@@ -1585,3 +1585,9 @@ html.fs-filter-open body{ overflow:hidden; }
   background:var(--paper); border-top:1px solid var(--line-soft);
 }
 .fs-filter-foot .btn{ width:100%; min-height:52px; font-size:16px; }
+
+/* ===== 3D: Auflösung Hoch/Spar immer sichtbar unten links ===== */
+.fs-3d-quality{ position:absolute; left:10px; bottom:calc(40px + env(safe-area-inset-bottom, 0px)); z-index:5; }
+.fs-3d-quality button{ min-height:44px; }
+.fs-3d-quality-edit{ bottom:calc(150px + env(safe-area-inset-bottom, 0px)); }
+.fs-3d-pano .fs-3d-quality{ display:none; }

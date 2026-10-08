@@ -3016,10 +3016,18 @@ function fs3dLoadNames(){
     if(r){ r[4] = Math.min(r[4], 190); r[5] = Math.max(r[5], 4800); }
     (n.children || []).forEach(fix);
   };
-  Cesium.Cesium3DTileset.loadJson = (res)=> orig(res).then(j=>{ if(j && j.root) fix(j.root); return j; });
-  const p = Cesium.Cesium3DTileset.fromUrl('https://vectortiles.geo.admin.ch/3d-tiles/ch.swisstopo.swissnames3d.3d/20180716/tileset.json');
-  p.finally(()=>{ Cesium.Cesium3DTileset.loadJson = orig; });
-  return p;
+  // Dauerhaft und nur für die Namen: Die Namen-Kacheln verweisen auf weitere tileset.json-Dateien
+  // (nachgeladen beim Hineinzoomen). Wurde die Korrektur nach dem ersten Laden wieder entfernt,
+  // galten diese tieferen Ebenen als unsichtbar — in der Nähe erschienen darum kaum Namen.
+  if(!Cesium.Cesium3DTileset._fsNamesFix){
+    Cesium.Cesium3DTileset._fsNamesFix = true;
+    Cesium.Cesium3DTileset.loadJson = (res)=> orig(res).then(j=>{
+      const url = String((res && (res.url || res)) || '');
+      if(j && j.root && url.indexOf('swissnames3d') !== -1) fix(j.root);
+      return j;
+    });
+  }
+  return Cesium.Cesium3DTileset.fromUrl('https://vectortiles.geo.admin.ch/3d-tiles/ch.swisstopo.swissnames3d.3d/20180716/tileset.json');
 }
 // Darstellung der swisstopo-Namen in 3D: Gipfel/Pässe/Hütten grösser, Gewässer blau
 const FS3D_NAMES_STYLE = {
@@ -3132,8 +3140,8 @@ function fsOpen3d(opts){
       <button type="button" class="fs-3d-chip" data-3d="ski">SAC-Skitouren</button>
       <button type="button" class="fs-3d-chip" data-3d="walk">Wanderwege</button>
       <button type="button" class="fs-3d-chip on" data-3d="names">Namen</button>
-      <div class="fs-3d-seg" aria-label="Auflösung"><button type="button" data-3d="q-hi">Hoch</button><button type="button" data-3d="q-lo">Spar</button></div>
     </div>
+    <div class="fs-3d-seg fs-3d-quality${opts.edit ? ' fs-3d-quality-edit' : ''}" aria-label="Auflösung"><button type="button" data-3d="q-hi">Hoch</button><button type="button" data-3d="q-lo">Spar</button></div>
     ${opts.edit ? `<div class="fs-3d-edit">
       <div class="fs-3d-seg fs-3d-emode"><button type="button" data-3d="em-point">Punkt</button><button type="button" data-3d="em-line">Linie</button><button type="button" data-3d="em-route">Route</button><button type="button" data-3d="e-undo" aria-label="Rückgängig">↶</button></div>
       <div class="fs-3d-ehint" id="fs-3d-ehint"></div>
@@ -3159,11 +3167,14 @@ function fsOpen3d(opts){
     let names = null;
     const applyQuality = (q)=>{
       const hi = q !== 'lo';
-      viewer.scene.globe.maximumScreenSpaceError = hi ? 1.5 : 5;
+      // «Hoch»: schärfer gerechnet (höchstens doppelte Auflösung, sonst wird es auf dem Handy zu
+      // schwer) und feinere Kacheln; «Spar»: einfache Auflösung, gröbere Kacheln.
+      const dpr = window.devicePixelRatio || 1;
       viewer.useBrowserRecommendedResolution = !hi;
-      viewer.resolutionScale = 1;
-      viewer.scene.globe.tileCacheSize = hi ? 300 : 100;
-      if(names) names.maximumScreenSpaceError = hi ? 4 : 12;
+      viewer.resolutionScale = hi ? Math.min(2, dpr) / dpr : 1;
+      viewer.scene.globe.maximumScreenSpaceError = hi ? 2.5 : 5;
+      viewer.scene.globe.tileCacheSize = hi ? 200 : 100;
+      if(names) names.maximumScreenSpaceError = hi ? 6 : 12;
       wrap.querySelectorAll('[data-3d^="q-"]').forEach(b=> b.classList.toggle('on', b.getAttribute('data-3d') === (hi ? 'q-hi' : 'q-lo')));
       viewer.scene.requestRender();
     };
@@ -3186,6 +3197,9 @@ function fsOpen3d(opts){
     const slope = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo.hangneigung-ueber_30', 'png')); slope.show = false; slope.alpha = 0.6;
     const ski = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo-karto.skitouren', 'png')); ski.show = false;
     const walk = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo.swisstlm3d-wanderwege', 'png')); walk.show = false;
+    // Alle Namen (Gipfel, Alpen, Gletscher, Bäche …) als Bild direkt auf dem Gelände — die schwebenden
+    // 3D-Namen von swisstopo enthalten nur grössere Orte, Seen und Berge.
+    const namesImg = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo.swissnames3d', 'png'));
     const rerender = ()=> viewer.scene.requestRender();
     wrap.querySelectorAll('[data-3d^="img-"]').forEach(b=> b.addEventListener('click', ()=>{
       const karte = b.getAttribute('data-3d') === 'img-karte';
@@ -3202,11 +3216,17 @@ function fsOpen3d(opts){
       if(fs3dViewer !== viewer) return;
       names = ts;
       ts.style = new Cesium.Cesium3DTileStyle(FS3D_NAMES_STYLE);
-      ts.maximumScreenSpaceError = quality === 'lo' ? 12 : 4;
+      ts.maximumScreenSpaceError = quality === 'lo' ? 12 : 6;
       viewer.scene.primitives.add(ts);
       rerender();
-    }).catch(()=>{ namesBtn.style.display = 'none'; });
-    namesBtn.addEventListener('click', ()=>{ if(!names) return; names.show = !names.show; namesBtn.classList.toggle('on', names.show); rerender(); });
+    }).catch(()=>{});
+    namesBtn.addEventListener('click', ()=>{
+      const on = !namesImg.show;
+      namesImg.show = on;
+      if(names) names.show = on;
+      namesBtn.classList.toggle('on', on);
+      rerender();
+    });
     wrap.querySelector('[data-3d="walk"]').addEventListener('click', (e)=>{ walk.show = !walk.show; e.currentTarget.classList.toggle('on', walk.show); rerender(); });
     // Eigene Linien leicht über dem Gelände (Höhen aus dem Modell), damit sie durchgehend sichtbar sind
     const lines = opts.edit ? [] : (opts.lines || fs3dTourLines(t));
