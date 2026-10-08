@@ -3167,11 +3167,16 @@ function fsOpen3d(opts){
       wrap.querySelectorAll('[data-3d^="q-"]').forEach(b=> b.classList.toggle('on', b.getAttribute('data-3d') === (hi ? 'q-hi' : 'q-lo')));
       viewer.scene.requestRender();
     };
-    let quality = 'hi'; try{ quality = localStorage.getItem('fs-3d-quality') || 'hi'; }catch(e){}
+    // Getrennt gemerkt für WLAN und Mobilnetz; ohne eigene Wahl: im Mobilnetz «Spar».
+    // Ohne Angabe zum Netz (z. B. iPhone) gilt die WLAN-Einstellung.
+    const conn = navigator.connection || navigator.webkitConnection;
+    const cellular = !!(conn && (conn.type === 'cellular' || (!conn.type && conn.saveData)));
+    const qKey = cellular ? 'fs-3d-quality-mobil' : 'fs-3d-quality';
+    let quality = cellular ? 'lo' : 'hi'; try{ quality = localStorage.getItem(qKey) || quality; }catch(e){}
     applyQuality(quality);
     wrap.querySelectorAll('[data-3d^="q-"]').forEach(b=> b.addEventListener('click', ()=>{
       quality = b.getAttribute('data-3d') === 'q-lo' ? 'lo' : 'hi';
-      try{ localStorage.setItem('fs-3d-quality', quality); }catch(e){}
+      try{ localStorage.setItem(qKey, quality); }catch(e){}
       applyQuality(quality);
     }));
     viewer.scene.screenSpaceCameraController.minimumZoomDistance = 150;
@@ -11701,6 +11706,9 @@ function formatOfflineRemaining(expiresAt){
 let gpsWatchId = null;
 let gpsMarker = null;
 let gpsActiveOfflineId = null; // für welche Tour GPS aktuell läuft — überlebt einen Kartenwechsel (z. B. beim Öffnen der Vollbildansicht)
+// Akku: Standort schaltet sich nach 5 Minuten selbst ab (erneut antippen = wieder 5 Minuten)
+const FS_GPS_AUTO_OFF_MS = 5 * 60 * 1000;
+let fsGpsOffTimer = null;
 function startLiveGpsOnMap(map, offlineId){
   if(!navigator.geolocation) return;
   if(map && map._ml) map = map._ml; // FL-Karte: die MapLibre-Karte darunter
@@ -11719,8 +11727,15 @@ function startLiveGpsOnMap(map, offlineId){
     dlog('GPS-Standort nicht verfügbar: ' + (err && err.message ? err.message : err), 'err');
     if(map && map._fsm && map._fsmFlyOnFix){ map._fsmFlyOnFix = false; showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }
   }, { enableHighAccuracy:true, maximumAge:5000 });
+  fsGpsOffTimer = setTimeout(()=>{
+    if(gpsWatchId === null) return;
+    stopLiveGpsOnMap();
+    document.querySelectorAll('.fsm-btn[data-fsm="gps"].on').forEach(b=> b.classList.remove('on'));
+    showToast('Standort nach 5 Minuten ausgeschaltet (Akku sparen). Antippen schaltet ihn wieder ein.');
+  }, FS_GPS_AUTO_OFF_MS);
 }
 function stopLiveGpsOnMap(){
+  if(fsGpsOffTimer){ clearTimeout(fsGpsOffTimer); fsGpsOffTimer = null; }
   gpsActiveOfflineId = null;
   if(gpsWatchId !== null){ try{ navigator.geolocation.clearWatch(gpsWatchId); }catch(e){} gpsWatchId = null; }
   if(gpsMarker){ try{ gpsMarker.remove(); }catch(e){} gpsMarker = null; }
