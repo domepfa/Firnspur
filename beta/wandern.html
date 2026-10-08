@@ -1209,13 +1209,13 @@ function gebietDetailHtml(id){
   const touren = gebietTouren(geb);
   const huetten = gebietHuetten(geb);
   const hasMapData = (geb.points && geb.points.length) || huetten.some(h=>h.points && h.points.length) || touren.some(t=> (t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length));
-  return `<div class="modal" data-stop="1">
+  return `<div class="modal td gd" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     ${geb.description ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 10px 0;">${esc(geb.description)}</p>` : ''}
-    ${hasMapData ? `<div class="detail-section">
+    ${hasMapData ? `<div class="detail-section fs-area-mapsec">
       <h4>🗺️ Übersichtskarte</h4>
       <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gebiet-overview-map" data-gebiet-id="${geb.id}" data-target="map-gebiet-${geb.id}">🗺️ Karte anzeigen</button>
       <div id="map-gebiet-${geb.id}"></div>

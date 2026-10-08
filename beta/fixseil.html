@@ -1535,6 +1535,7 @@ async function submitTourForm(form, existing){
   t.elevationGain = form.elevationGain;
   t.elevationLoss = form.elevationLoss;
   t.duration = form.duration;
+  t.descentDuration = form.descentDuration || '';
   t.region = form.region;
   t.subregion = form.subregion || '';
   t.material = form.material || [];
@@ -2435,7 +2436,7 @@ function klettergebietDetailHtml(id){
   const unlinkedGipfel = state.gipfel.filter(gp=>!gp.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   const huettenImGebiet = klettergebietHuetten(geb);
   const unlinkedHuetten = state.huts.filter(h=>!h.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
-  return `<div class="modal fs-onroute" data-stop="1">
+  return `<div class="modal td gd fs-onroute" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
@@ -3408,7 +3409,8 @@ function tourCardHtml(t, draggable, opts){
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
-      ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span></span>` : ''}
+      ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span>${t.descentDuration ? ' ↑' : ''}</span>` : ''}
+      ${t.descentDuration ? `<span>${t.duration ? '' : '⏱ '}<span class="mono">${esc(t.descentDuration)} h</span> ↓</span>` : ''}
     </div>
     ${t.region ? `<p class="excerpt">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${summitChipsForCardHtml(t)}
@@ -3538,6 +3540,15 @@ function klettergebietTouren(geb){
 }
 function klettergebietHochtouren(geb){ return klettergebietTouren(geb).filter(t=>t.tourCategory!=='msl'); }
 function klettergebietMslTouren(geb){ return klettergebietTouren(geb).filter(t=>t.tourCategory==='msl'); }
+// Gebiet als Blatt über der Karte: Touren, Hütten und Klettergärten (siehe fsShowAreaContextMap)
+function fsAreaForMap(modal){
+  if(!modal || modal.type !== 'klettergebiet-detail') return null;
+  const geb = state.klettergebiete.find(x=>x.id===modal.payload);
+  if(!geb) return null;
+  const spots = klettergebietKlettergaerten(geb).filter(sk=> sk.points && sk.points.length)
+    .map(sk=>({lat: sk.points[0].lat, lon: sk.points[0].lon, label: sk.name, open: ()=> openSektorDetail(sk.id)}));
+  return {key: geb.id, name: geb.name, tours: klettergebietTouren(geb), huts: klettergebietHuetten(geb), spots, spotsLabel: 'Klettergärten', points: geb.points || []};
+}
 // Nur Sektoren mit eigener Routen-Liste zählen als "Klettergarten" -- ein Sektor ohne Kletterrouten
 // ist reine technische Klammer für seine Touren und taucht hier nicht als eigener Eintrag auf.
 function klettergebietKlettergaerten(geb){
@@ -3992,13 +4003,14 @@ function tourFormHtml(existing){
         </div>
         <input type="hidden" name="ropeLength" id="rope-length-hidden" value="${esc(t.ropeLength||'')}"/>
       </div>
-      <div class="row2">
-        <div class="field"><label>Ziel – Gipfelhöhe (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 4545"/></div>
-        <div class="field"><label>Zeitbedarf (h)</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 6–8"/></div>
-      </div>
+      <div class="field"><label>Ziel – Gipfelhöhe (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 4545"/></div>
       <div class="row2">
         <div class="field"><label>Aufstieg (Hm)</label><input name="elevationGain" value="${esc(t.elevationGain||'')}" placeholder="z. B. 1200"/></div>
         <div class="field"><label>Abstieg (Hm, falls abweichend)</label><input name="elevationLoss" value="${esc(t.elevationLoss||'')}" placeholder="z. B. 1600"/></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Zeit Aufstieg (h)</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 5–6"/></div>
+        <div class="field"><label>Zeit Abstieg (h)</label><input name="descentDuration" value="${esc(t.descentDuration||'')}" placeholder="z. B. 3"/></div>
       </div>
       <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" id="tour-link-input" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/>
         <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">🔍 Auf Camptocamp.org suchen</button>
@@ -4125,7 +4137,8 @@ function tourDetailHtml(id){
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
-      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">${t.descentDuration ? 'Zeit Aufstieg' : 'Zeitbedarf'}</div></div>` : ''}
+      ${t.descentDuration ? `<div class="detail-stat"><div class="num">${esc(t.descentDuration)} h</div><div class="lbl">Zeit Abstieg</div></div>` : ''}
       ${t.pitchCount ? `<div class="detail-stat"><div class="num">${esc(t.pitchCount)}</div><div class="lbl">Seillängen</div></div>` : ''}
       ${t.longestPitch ? `<div class="detail-stat"><div class="num">${esc(t.longestPitch)}</div><div class="lbl">Längste SL</div></div>` : ''}
     </div>
