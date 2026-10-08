@@ -9079,6 +9079,87 @@ window.addEventListener('popstate', (ev)=>{
   }
 });
 
+/* ================= Filter als Blatt von unten (alle Listen) =================
+   Statt einer seitlich verschiebbaren Reihe (Filter · Merkliste · Sortierung): ein grosser
+   Knopf «Filter», darunter die aktiven Filter als Chips mit ×. Der Knopf öffnet die bestehende
+   Filterauswahl als Blatt von unten, oben darin Merkliste und Sortierung, unten «Anzeigen».
+   Baut das von den Apps gerenderte HTML nach jedem Rendern um (Handler bleiben dieselben). */
+const FS_FILTER_TOGGLE_SEL = '#tour-filter-toggle-btn, #hut-filter-toggle-btn, [data-act="gebiet-filter-toggle"]';
+const FS_FILTER_PANEL_SEL = '#tour-filter-panel, #hut-filter-panel, .fs-filter-panel';
+const fsFilterScroll = {};
+function fsOpenFilterSheet(){
+  const p = document.querySelector('.fs-filter-sheet');
+  return (p && p.isConnected && getComputedStyle(p).display !== 'none') ? p : null;
+}
+function fsUpgradeFilterRows(){
+  document.querySelectorAll('.toolbar.toolbar-row').forEach(row=>{
+    const toggle = row.querySelector(FS_FILTER_TOGGLE_SEL);
+    if(!toggle || row.dataset.fsUp) return;
+    row.dataset.fsUp = '1';
+    row.classList.add('fs-filter-row');
+    let panel = null;
+    for(let el = row.nextElementSibling; el && !panel; el = el.nextElementSibling){
+      if(el.matches(FS_FILTER_PANEL_SEL)) panel = el;
+      else if(el.matches('.grid, .toolbar')) break;
+    }
+    const extras = Array.from(row.children).filter(el=> el !== toggle && !el.matches('[data-act="gebiet-scan-menu"]'));
+    // Aktive Auswahl als Chips unter dem Knopf (× = abwählen, löst den Originalknopf aus)
+    const actives = [...extras.filter(el=> el.matches('.btn.on')), ...(panel ? Array.from(panel.querySelectorAll('.chip.on')) : [])];
+    if(actives.length){
+      const bar = document.createElement('div');
+      bar.className = 'fs-filter-active';
+      actives.forEach(src=>{
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'fs-filter-pill';
+        b.innerHTML = '<span></span><b aria-hidden="true">×</b>';
+        b.firstChild.textContent = src.textContent.replace(/\s+/g, ' ').trim();
+        b.setAttribute('aria-label', b.firstChild.textContent + ' entfernen');
+        b.addEventListener('click', ()=> src.click());
+        bar.appendChild(b);
+      });
+      row.after(bar);
+    }
+    if(!panel){ extras.forEach(el=> el.classList.add('fs-filter-hidden')); return; }
+    panel.classList.add('fs-filter-sheet');
+    const key = panel.id || 'gebiet';
+    const head = document.createElement('div');
+    head.className = 'fs-filter-head';
+    head.innerHTML = '<h3>Filter &amp; Sortierung</h3><button type="button" class="x-btn" aria-label="Schliessen">×</button>';
+    head.querySelector('button').addEventListener('click', ()=> toggle.click());
+    const view = document.createElement('div');
+    view.className = 'field fs-filter-view';
+    view.innerHTML = '<label>Anzeige</label><div class="fs-filter-viewrow"></div>';
+    extras.forEach(el=> view.lastChild.appendChild(el));
+    panel.prepend(head, ...(extras.length ? [view] : []));
+    let n = 0;
+    for(let el = panel.nextElementSibling; el; el = el.nextElementSibling){
+      if(el.matches('.grid')) n += el.children.length; else n += el.querySelectorAll('.grid > *').length;
+    }
+    const foot = document.createElement('div');
+    foot.className = 'fs-filter-foot';
+    foot.innerHTML = '<button type="button" class="btn"></button>';
+    foot.firstChild.textContent = n === 0 ? 'Keine Treffer – schliessen' : (n === 1 ? '1 Eintrag anzeigen' : n + ' Einträge anzeigen');
+    foot.firstChild.addEventListener('click', ()=> toggle.click());
+    panel.appendChild(foot);
+    if(fsFilterScroll[key]) panel.scrollTop = fsFilterScroll[key];
+    panel.addEventListener('scroll', ()=>{ fsFilterScroll[key] = panel.scrollTop; }, {passive:true});
+  });
+  document.documentElement.classList.toggle('fs-filter-open', !!fsOpenFilterSheet());
+}
+// Antippen neben das Blatt schliesst es
+document.addEventListener('click', (e)=>{
+  const sheet = fsOpenFilterSheet();
+  if(!sheet || sheet.contains(e.target)) return;
+  const row = document.querySelector('.fs-filter-row');
+  const toggle = row && row.querySelector(FS_FILTER_TOGGLE_SEL);
+  if(!toggle || toggle.contains(e.target)) return;
+  e.preventDefault(); e.stopPropagation();
+  toggle.click();
+}, true);
+// Das Ein-/Ausblenden der Filter (Tour/Hütte) ändert nur style.display: Hintergrund nachziehen
+document.addEventListener('click', ()=> setTimeout(()=> document.documentElement.classList.toggle('fs-filter-open', !!fsOpenFilterSheet()), 0));
+
 /* ================= Wischgeste zwischen den Apps =================
    Links/rechts wischen wechselt in der Reihenfolge der oberen Leiste (Skitour · Hochtour ·
    Klettern · Wandern) zur Nachbar-App — auf der Leiste und in den Listen. Nicht bei offenem
@@ -9086,6 +9167,7 @@ window.addEventListener('popstate', (ev)=>{
 function fsSwipeBlocked(target){
   if(typeof state !== 'undefined' && state.modal) return true;
   if(overlayLayers.length || document.getElementById('fs-3d')) return true;
+  if(fsOpenFilterSheet()) return true;
   for(let el = target; el && el !== document.body; el = el.parentElement){
     if(el.matches && el.matches('input, textarea, select, .maplibregl-map, .map-strip-canvas, .fs-tour-map, [data-no-swipe]')) return true;
     if(el.scrollWidth > el.clientWidth + 2){
@@ -12475,8 +12557,9 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
       if(ctx && muts.every(m=> ctx.contains(m.target))) return;
       if(queued) return;
       queued = true;
-      requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); });
+      requestAnimationFrame(()=>{ queued = false; fsUpgradeFilterRows(); fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); });
     }).observe(document.body, {childList:true, subtree:true});
+    fsUpgradeFilterRows();
     fsApplyTourSheetMode();
     fsApplyEditMode();
     fsApplyOnTour();
