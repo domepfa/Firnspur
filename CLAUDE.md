@@ -34,8 +34,9 @@ aus anderen Apps übernehmen.
 ## Testen
 - `node tools/smoke-test.mjs` (oder `… beta`): öffnet alle Apps in Handygrösse in Chromium,
   ohne Internet (Firebase wird mit `vorlage/*.json` simuliert, nichts wird geschrieben). Prüft:
-  keine JS-Fehler, Touren sichtbar, lokale Kopie unter dem richtigen Schlüssel, offline weiter
-  nutzbar. Vor jedem PR laufen lassen; Screenshots in `$SMOKE_OUT` anschauen.
+  keine JS-Fehler, Touren sichtbar, lokale Kopie unter dem richtigen Schlüssel, Tour über das
+  Formular bearbeiten und speichern (kein Feld geht verloren, alte Fassung unter `versions/`),
+  danach offline weiter nutzbar mit der Änderung. Vor jedem PR laufen lassen; Screenshots in `$SMOKE_OUT` anschauen.
 
 ## Design
 - **Charakter:** Tageslicht, Firn und Gletscher – hell, ruhig, elegant. Gebraucht wird die App
