@@ -797,12 +797,6 @@ async function loadOtherAppTours(){
   return state.otherAppTours;
 }
 
-function removeTour(id){
-  moveToTrash(id, state.tours, state.trashedTours, saveTourCloud);
-}
-function removeHut(id){
-  moveToTrash(id, state.huts, state.trashedHuts, saveHutCloud);
-}
 function removeGebiet(id){
   moveToTrash(id, state.gebiete, state.trashedGebiete, saveGebietCloud);
 }
@@ -815,33 +809,13 @@ function papierkorbGroups(){
     { kind:'gebiet', icon:'⛰️', label:'Gebiete', trashedList: state.trashedGebiete },
   ];
 }
-function papierkorbTrashCount(){ return trashCountTotal(papierkorbGroups()); }
-function papierkorbPageHtml(){ return papierkorbViewHtml(papierkorbGroups()); }
 const PAPIERKORB_ENTITY_MAP = {
   tour: { active: ()=>state.tours, trashed: ()=>state.trashedTours, save: saveTourCloud, path: 'tours' },
   hut: { active: ()=>state.huts, trashed: ()=>state.trashedHuts, save: saveHutCloud, path: 'huts' },
   gebiet: { active: ()=>state.gebiete, trashed: ()=>state.trashedGebiete, save: saveGebietCloud, path: 'gebiete' },
 };
-function restoreTrashItem(kind, id){
-  const m = PAPIERKORB_ENTITY_MAP[kind];
-  if(!m) return;
-  restoreFromTrash(id, m.active(), m.trashed(), m.save);
-  render();
-}
-function purgeTrashItem(kind, id){
-  const m = PAPIERKORB_ENTITY_MAP[kind];
-  if(!m) return;
-  if(!confirm('Diesen Eintrag endgültig und unwiderruflich löschen?')) return;
-  purgeFromTrash(id, m.trashed(), m.path);
-  render();
-}
 
 /* ================= Name handling ================= */
-function ensureName(after){
-  if(state.myName){ after(); return; }
-  state.modal = {type:'name', after};
-  render();
-}
 async function submitName(nameVal, pinVal){
   const n = (nameVal||'').trim();
   if(!n) return;
@@ -891,10 +865,6 @@ function navigateToModal(newModal){
   render();
 }
 function openTourDetail(id){ navigateToModal({type:'tour-detail', payload:id}); }
-function openAddHut(){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:null}; render(); }); }
-function openAddHutWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-hut', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
-function openEditHut(id){ ensureName(()=>{ const h = state.huts.find(x=>x.id===id); navigateToModal({type:'edit-hut', payload:h}); }); }
-function openHutDetail(id){ navigateToModal({type:'hut-detail', payload:id}); }
 function openAddGebiet(){ ensureName(()=>{ state.modal = {type:'edit-gebiet', payload:null}; render(); }); }
 function openEditGebiet(id){ ensureName(()=>{ const g = state.gebiete.find(x=>x.id===id); navigateToModal({type:'edit-gebiet', payload:g}); }); }
 function openGebietDetail(id){ navigateToModal({type:'gebiet-detail', payload:id}); }
@@ -965,10 +935,6 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     if(!fromPopstate) consumeHistoryEntry();
   }
 }
-function openExport(){ state.modal = {type:'export'}; render(); }
-function openTourExport(id){ state.modal = {type:'export', payload:{tourId:id}}; render(); }
-function openImport(){ ensureName(()=>{ state.modal = {type:'import'}; render(); }); }
-
 function mergeImportedData(json){
   let data;
   try{ data = JSON.parse(json); }
@@ -1142,109 +1108,10 @@ async function submitGebietForm(form, existing){
   render();
 }
 
-async function submitAccessRouteForm(form){
-  const hut = state.huts.find(h=>h.id===form.hutId);
-  if(!hut) return;
-  migrateHutAccessRoutes(hut);
-  let track = null;
-  try{ track = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ track = null; }
-  let manual = [];
-  try{ manual = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ manual = []; }
-  const routeData = {
-    id: form.routeId || uid('ar'),
-    name: (form.name||'').trim(),
-    season: form.season || '',
-    elevation: form.elevation||'',
-    duration: form.duration||'',
-    difficulty: form.difficulty||'',
-    difficultyT: form.difficultyT||'',
-    description: form.description||'',
-    gpxLink: form.gpxLink||'',
-    trackSimplified: track,
-    manualTrack: manual
-  };
-  const idx = hut.accessRoutes.findIndex(r=>r.id===routeData.id);
-  if(idx>=0) hut.accessRoutes[idx] = routeData; else hut.accessRoutes.push(routeData);
-  hut.updatedAt = new Date().toISOString();
-  hut.updatedBy = state.myName;
-  closeModal(false, true, true);
-  returnAfterRouteChange('access-route-detail', routeData.id, {hutId:hut.id, route:routeData}, {type:'hut-detail', payload:hut.id});
-  render();
-  const ok = await saveHutCloud(hut).catch(()=>false);
-  hut._unsynced = !ok;
-  if(!ok){ markUnsaved(); showToast('Zustieg lokal gespeichert, aber nicht synchronisiert.', true); }
-  else{ showToast('Zustieg gespeichert.'); }
-  render();
-}
 
-async function deleteAccessRoute(hutId, routeId){
-  const hut = state.huts.find(h=>h.id===hutId);
-  if(!hut) return;
-  hut.accessRoutes = (hut.accessRoutes||[]).filter(r=>r.id!==routeId);
-  hut.updatedAt = new Date().toISOString();
-  hut.updatedBy = state.myName;
-  closeModal(false, true, true);
-  returnAfterRouteChange('access-route-detail', routeId, null, {type:'hut-detail', payload:hutId});
-  render();
-  const ok = await saveHutCloud(hut).catch(()=>false);
-  hut._unsynced = !ok;
-  if(!ok) markUnsaved();
-  render();
-  showToast('Zustieg gelöscht.');
-}
-function setFormBusy(formId, busy){
-  const form = document.getElementById(formId);
-  if(!form) return;
-  const btnId = formId==='tour-form' ? 'tour-save-btn' : 'hut-save-btn';
-  const btn = document.getElementById(btnId);
-  if(btn){
-    btn.disabled = busy;
-    if(busy){ btn.dataset.origText = btn.textContent; btn.textContent = 'Speichert…'; }
-    else if(btn.dataset.origText){ btn.textContent = btn.dataset.origText; }
-  }
-}
-function showFormError(formId, message){
-  const form = document.getElementById(formId);
-  if(!form) return;
-  let box = form.querySelector('.form-error');
-  if(!box){
-    box = document.createElement('div');
-    box.className = 'form-error';
-    const actions = form.querySelector('.form-actions');
-    if(actions) form.insertBefore(box, actions);
-    else form.appendChild(box);
-  }
-  box.textContent = message;
-  box.scrollIntoView({behavior:'smooth', block:'center'});
-}
 
 /* ================= Sortierung ================= */
 
-function toggleDiffFilter(code){
-  if(state.activeDiffFilters.has(code)) state.activeDiffFilters.delete(code);
-  else state.activeDiffFilters.add(code);
-  render();
-}
-function toggleRegionFilter(region){
-  if(state.activeRegionFilters.has(region)) state.activeRegionFilters.delete(region);
-  else state.activeRegionFilters.add(region);
-  render();
-}
-function toggleApproachTypeFilter(v){
-  if(state.activeApproachTypeFilters.has(v)) state.activeApproachTypeFilters.delete(v);
-  else state.activeApproachTypeFilters.add(v);
-  render();
-}
-function toggleStayTypeFilter(v){
-  if(state.activeStayTypeFilters.has(v)) state.activeStayTypeFilters.delete(v);
-  else state.activeStayTypeFilters.add(v);
-  render();
-}
-function toggleStatusFilter(v){
-  if(state.activeStatusFilters.has(v)) state.activeStatusFilters.delete(v);
-  else state.activeStatusFilters.add(v);
-  render();
-}
 function toggleGlacierFilter(v){
   state.activeGlacierFilter = (state.activeGlacierFilter === v) ? '' : v;
   render();
@@ -1258,40 +1125,6 @@ function resetTourFilters(){
   state.activeGlacierFilter = '';
   render();
 }
-function toggleHutRegionFilter(region){
-  if(state.activeHutRegionFilters.has(region)) state.activeHutRegionFilters.delete(region);
-  else state.activeHutRegionFilters.add(region);
-  render();
-}
-function toggleHutDiffFilter(code){
-  if(state.activeHutDiffFilters.has(code)) state.activeHutDiffFilters.delete(code);
-  else state.activeHutDiffFilters.add(code);
-  render();
-}
-function toggleHutApproachTypeFilter(v){
-  if(state.activeHutApproachTypeFilters.has(v)) state.activeHutApproachTypeFilters.delete(v);
-  else state.activeHutApproachTypeFilters.add(v);
-  render();
-}
-function toggleHutStaffedMonthFilter(m){
-  if(state.activeHutStaffedMonthFilters.has(m)) state.activeHutStaffedMonthFilters.delete(m);
-  else state.activeHutStaffedMonthFilters.add(m);
-  render();
-}
-function toggleHutWinterraumMonthFilter(m){
-  if(state.activeHutWinterraumMonthFilters.has(m)) state.activeHutWinterraumMonthFilters.delete(m);
-  else state.activeHutWinterraumMonthFilters.add(m);
-  render();
-}
-function resetHutFilters(){
-  state.activeHutRegionFilters.clear();
-  state.activeHutDiffFilters.clear();
-  state.activeHutApproachTypeFilters.clear();
-  state.activeHutStaffedMonthFilters.clear();
-  state.activeHutWinterraumMonthFilters.clear();
-  render();
-}
-function setSearch(v){ state.search = v; render(); }
 function setView(v){ state.view = v; state.modal = null; modalOpenedFromStandaloneMap = false; render(); }
 
 /* ================= Render: shell ================= */
@@ -1478,76 +1311,7 @@ function tourCardHtml(t){
 }
 
 /* ================= Hütten view ================= */
-function filteredHuts(){
-  let list = state.huts;
-  if(state.activeHutRegionFilters.size){
-    list = list.filter(h=>state.activeHutRegionFilters.has(h.region));
-  }
-  if(state.activeHutDiffFilters.size){
-    list = list.filter(h=>state.activeHutDiffFilters.has(h.accessDifficultySummer) || state.activeHutDiffFilters.has(h.accessDifficultyWinter) || state.activeHutDiffFilters.has(h.accessDifficultySummerT));
-  }
-  if(state.activeHutApproachTypeFilters.size){
-    list = list.filter(h=>(h.approachTypes||[]).some(v=>state.activeHutApproachTypeFilters.has(v)));
-  }
-  if(state.activeHutStaffedMonthFilters.size){
-    list = list.filter(h=>[...(h.staffedMonths||[]), ...(h.staffedMonthsPartial||[])].some(m=>state.activeHutStaffedMonthFilters.has(m)));
-  }
-  if(state.activeHutWinterraumMonthFilters.size){
-    list = list.filter(h=>[...(h.winterraumMonths||[]), ...(h.winterraumMonthsPartial||[])].some(m=>state.activeHutWinterraumMonthFilters.has(m)));
-  }
-  if(state.search.trim()){
-    const q = state.search.trim().toLowerCase();
-    list = list.filter(h=> (h.name||'').toLowerCase().includes(q) || (h.region||'').toLowerCase().includes(q));
-  }
-  return sortHuts(list);
-}
 
-function huettenViewHtml(){
-  const list = filteredHuts();
-  const activeFilterCount = state.activeHutRegionFilters.size + state.activeHutDiffFilters.size + state.activeHutApproachTypeFilters.size + state.activeHutStaffedMonthFilters.size + state.activeHutWinterraumMonthFilters.size;
-  const usedHutRegions = Array.from(new Set(state.huts.map(h=>h.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
-  const allDiffCodes = [...DIFF_ORDER, ...HIKE_SCALE_ORDER];
-  return stageLayoutHtml(mapStripHtml({label:'Hütten auf der Karte', kind:'hut', points: list.filter(h=>h.points&&h.points.length).map(h=>({id:h.id, lat:h.points[0].lat, lon:h.points[0].lon, label:h.name})), emptyText:'Noch keine Hütte mit Kartenpunkt erfasst.', openPinId: state._mapStripOpenPinId}), `
-    <div class="toolbar">
-      <input class="search-input" type="text" placeholder="Hütte oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
-      <button class="btn fs-fab" data-act="add-hut">+ Neue Hütte</button>
-      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
-    </div>
-    <div class="toolbar toolbar-row">
-      <button type="button" class="btn secondary" id="hut-filter-toggle-btn">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
-      ${sortControlHtml('hut', HUT_SORT_OPTIONS, state.hutSortBy, state.hutSortDir)}
-    </div>
-    <div id="hut-filter-panel" style="display:${state.hutFilterPanelOpen ? '' : 'none'}; margin-bottom:14px;">
-      ${usedHutRegions.length ? `<div class="field"><label>Region</label>
-        <div class="chips">
-          ${usedHutRegions.map(r=>`<button class="chip ${state.activeHutRegionFilters.has(r)?'on':''}" style="${state.activeHutRegionFilters.has(r)?'background:var(--ice-deep)':''}" data-act="filter-hut-region" data-region="${esc(r)}">${esc(r)}</button>`).join('')}
-        </div>
-      </div>` : ''}
-      <div class="field"><label>Schwierigkeit (Zustieg, SAC oder T)</label>
-        <div class="chips">
-          ${allDiffCodes.map(c=>`<button class="chip ${state.activeHutDiffFilters.has(c)?'on':''}" style="${state.activeHutDiffFilters.has(c)?'background:var(--ice-deep)':''}" data-act="filter-hut-diff" data-code="${c}">${c}</button>`).join('')}
-        </div>
-      </div>
-      <div class="field"><label>Art der Anfahrt</label>
-        <div class="chips">
-          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeHutApproachTypeFilters.has(v)?'on':''}" style="${state.activeHutApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-hut-approach-type" data-value="${v}">${APPROACH_TYPE_LABELS[v]}</button>`).join('')}
-        </div>
-      </div>
-      <div class="field"><label>Bewartet in Monat(en)</label>
-        <div class="chips">
-          ${MONTHS.map(m=>`<button class="chip ${state.activeHutStaffedMonthFilters.has(m.key)?'on':''}" style="${state.activeHutStaffedMonthFilters.has(m.key)?'background:var(--ok)':''}" data-act="filter-hut-staffed-month" data-month="${m.key}">${m.label}</button>`).join('')}
-        </div>
-      </div>
-      <div class="field"><label>Schutzraum offen in Monat(en)</label>
-        <div class="chips">
-          ${MONTHS.map(m=>`<button class="chip ${state.activeHutWinterraumMonthFilters.has(m.key)?'on':''}" style="${state.activeHutWinterraumMonthFilters.has(m.key)?'background:var(--ice-deep)':''}" data-act="filter-hut-winterraum-month" data-month="${m.key}">${m.label}</button>`).join('')}
-        </div>
-      </div>
-      ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-hut-filters">Filter zurücksetzen</button>` : ''}
-    </div>
-    ${list.length ? `<div class="grid">${list.map(hutCardHtml).join('')}</div>` : emptyHuts()}
-  `);
-}
 
 function emptyHuts(){
   const hasAny = state.huts.length>0;
@@ -1853,10 +1617,6 @@ function buildExportData(){
   if(selected.has('agenda')) data.agenda = state.agenda;
   return data;
 }
-function refreshExportText(){
-  const ta = document.getElementById('export-text');
-  if(ta) ta.value = JSON.stringify(buildExportData(), null, 2);
-}
 function exportModalHtml(payload){
   const singleTour = payload && payload.tourId ? state.tours.find(t=>t.id===payload.tourId) : null;
   return `<div class="modal" data-stop="1">
@@ -1903,21 +1663,6 @@ function importModalHtml(){
   </div>`;
 }
 
-function nameModalHtml(){
-  const errorMsg = state.modal && state.modal.error;
-  return `<div class="modal" data-stop="1">
-    <div class="modal-head"><h2>Wie heisst du?</h2></div>
-    <p style="font-size:14px; color:var(--ink-soft); margin:0 0 10px 0;">Dein Name wird bei Touren und Hütten angezeigt, die du hinzufügst oder bearbeitest.</p>
-    <div class="field"><label>Name</label><input type="text" id="name-input" value="${esc((state.myName||''))}" placeholder="z. B. Simone" autofocus/></div>
-    <div class="field"><label>Passwort</label><input type="password" id="name-pin-input" placeholder="frei wählbar"/></div>
-    <p style="font-size:12px; color:var(--ink-faint); margin:0 0 14px 0;">Schützt deinen Namen vor Verwechslungen: Beim ersten Mal legst du hier ein Passwort für diesen Namen fest — danach brauchst du es, um wieder als "dieser Name" zu gelten (auch auf einem anderen Gerät).</p>
-    ${errorMsg ? `<p style="color:var(--danger); font-size:13px; margin:0 0 14px 0;">${esc(errorMsg)}</p>` : ''}
-    <div class="form-actions">
-      <button class="btn secondary" data-act="close-modal">Abbrechen</button>
-      <button class="btn" data-act="submit-name">Weiter</button>
-    </div>
-  </div>`;
-}
 
 function completeFormHtml(kind, id){
   const item = kind==='tour' ? state.tours.find(x=>x.id===id) : state.huts.find(x=>x.id===id);
@@ -2473,24 +2218,6 @@ function hutDetailHtml(id){
 
 
 /* ================= Abgeschlossen view ================= */
-function buildPersonGroups(){
-  const groups = {};
-  state.tours.forEach(t=>{
-    (t.completions||[]).forEach(c=>{
-      const name = (c.by||'').trim() || '?';
-      if(!groups[name]) groups[name] = {tours:[], huts:[]};
-      if(!groups[name].tours.find(x=>x.id===t.id)) groups[name].tours.push(t);
-    });
-  });
-  state.huts.forEach(h=>{
-    (h.completions||[]).forEach(c=>{
-      const name = (c.by||'').trim() || '?';
-      if(!groups[name]) groups[name] = {tours:[], huts:[]};
-      if(!groups[name].huts.find(x=>x.id===h.id)) groups[name].huts.push(h);
-    });
-  });
-  return groups;
-}
 
 function abgeschlossenViewHtml(){
   const groups = buildPersonGroups();
@@ -3608,10 +3335,6 @@ try{
 loadAuthFromStorage();
 cleanupExpiredOfflineDownloads();
 wireAppSwitchSwipe('./fixseil.html');
-function toggleEmergencyCard(){
-  if(state.modal && state.modal.type==='emergency'){ closeModal(); }
-  else{ state.modal = {type:'emergency'}; render(); }
-}
 const emergencyTab = document.getElementById('emergency-btn');
 emergencyTab.addEventListener('click', toggleEmergencyCard);
 let emergencySwipeStart = null;
