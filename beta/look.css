@@ -1550,3 +1550,38 @@ html.fs-ctx-map .overlay.fs-sheet-mode .fs-area-mapsec{ display:none; }
 .fs-swipe-tag.left{ right:auto; left:12px; }
 .fs-swipe-tag.ready{ background:var(--ice-deep); color:#fff; }
 .fs-swipe-tag[hidden]{ display:none; }
+
+/* ===== Filter als Blatt von unten ===== */
+.toolbar-row.fs-filter-row{ overflow:visible; flex-wrap:nowrap; margin:0 0 10px; padding:0; gap:8px; }
+.fs-filter-row > *{ flex-shrink:1; }
+.fs-filter-row > .btn:first-child{ flex:1 1 auto; justify-content:center; min-height:48px; font-size:15px; }
+.fs-filter-hidden{ display:none !important; }
+.fs-filter-active{ display:flex; flex-wrap:wrap; gap:8px; margin:-2px 0 14px; }
+.fs-filter-pill{
+  display:inline-flex; align-items:center; gap:8px; min-height:40px; padding:0 8px 0 14px; border-radius:999px;
+  border:1px solid var(--ice-deep); background:var(--ice-light); color:var(--accent-ink, var(--ink)); font:inherit; font-size:13.5px; font-weight:700; cursor:pointer;
+}
+.fs-filter-pill b{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:var(--paper); font-size:16px; }
+.fs-filter-pill .fs-i{ display:none; }
+.fs-filter-sheet{
+  position:fixed !important; left:0; right:0; bottom:0; z-index:250; margin:0 !important;
+  max-height:82vh; overflow-y:auto; padding:0 18px calc(16px + env(safe-area-inset-bottom, 0px));
+  background:var(--paper); border-radius:24px 24px 0 0;
+  box-shadow:0 0 0 100vmax rgba(15,30,39,.38), var(--shadow-lg);
+}
+html.fs-filter-open body{ overflow:hidden; }
+.fs-filter-head{
+  position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between;
+  margin:0 -18px 6px; padding:16px 18px 10px; background:var(--paper);
+}
+.fs-filter-head h3{ margin:0; font-family:var(--font-display); font-weight:400; font-size:26px; }
+.fs-filter-viewrow{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.fs-filter-viewrow .btn{ min-height:44px; border-radius:999px; }
+.fs-filter-viewrow .btn.on{ background:var(--ice-deep) !important; color:#fff !important; border-color:var(--ice-deep); }
+.fs-filter-viewrow .sort-control select{ min-height:44px; }
+.fs-filter-sheet .chip{ min-height:40px; }
+.fs-filter-foot{
+  position:sticky; bottom:calc(-16px - env(safe-area-inset-bottom, 0px)); margin:10px -18px 0; padding:12px 18px calc(16px + env(safe-area-inset-bottom, 0px));
+  background:var(--paper); border-top:1px solid var(--line-soft);
+}
+.fs-filter-foot .btn{ width:100%; min-height:52px; font-size:16px; }
