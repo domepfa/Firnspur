@@ -11847,6 +11847,28 @@ function tourGlanceHtml(crux, rows){
 function editIconButtonHtml(act, id){
   return `<button type="button" class="fs-icon-btn" data-act="${act}" data-id="${id}" title="Bearbeiten (gedrückt halten)" aria-label="Bearbeiten, gedrückt halten">${fsIconHtml('edit')}</button>`;
 }
+// Standort-Chip antippen: Blatt klein machen und auf der Karte dahinter zum Punkt fliegen.
+// Ohne Karte dahinter (z. B. Hütte): grosse Karte an dieser Stelle öffnen.
+function fsGotoPoint(lat, lon, label){
+  if(!isFinite(lat) || !isFinite(lon)) return;
+  if(fsCtxMap && document.documentElement.classList.contains('fs-ctx-map')){
+    fsSetSheetDetent('peek');
+    const pad = {top: 70, left: 30, right: 70, bottom: fsSheetHeightPx('peek') + 20};
+    fsCtxMap.flyTo({center: [lon, lat], zoom: Math.max(fsCtxMap.getZoom(), 15), padding: pad, duration: 700});
+    fsCtxMap.once('moveend', ()=> fsmPopup(fsCtxMap, {lng: lon, lat}, '<b>' + esc(label || 'Punkt') + '</b>', 30));
+    return;
+  }
+  if(typeof openStandaloneMap === 'function'){
+    lastStandaloneMapView = {center: [lat, lon], zoom: 15};
+    openStandaloneMap();
+  }
+}
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="fs-point-goto"]');
+  if(!el) return;
+  e.stopPropagation();
+  fsGotoPoint(parseFloat(el.getAttribute('data-lat')), parseFloat(el.getAttribute('data-lon')), el.getAttribute('data-label'));
+}, true);
 // Kacheln "Karte"/"Wetter": zum Abschnitt springen; bei "Karte" die Karte gleich anzeigen.
 document.addEventListener('click', (e)=>{
   const el = e.target.closest && e.target.closest('[data-act="fs-goto"],[data-act="fs-goto-map"]');
