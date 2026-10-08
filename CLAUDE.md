@@ -20,6 +20,24 @@ aus anderen Apps übernehmen.
 - `beta/` enthält dieselben Dateien; `promote-beta.sh` kopiert sie in die Wurzel und zählt die
   Cache-Version in `sw.js` hoch.
 
+## Code finden (statt ganze Dateien lesen)
+- Alle Dateien sind in Abschnitte mit `/* ===== Titel ===== */` gegliedert. Inhaltsverzeichnis
+  mit Zeilennummern: `grep -n '^\s*/\* ===' beta/0-shared.js` (genauso für die HTML-Dateien
+  und `look.css`). Danach nur den passenden Abschnitt lesen.
+- Wichtige Bereiche in `0-shared.js`: Firebase (`fbGet`, `fbSet`, `fbPathOk`), Rettung aus dem
+  Gerätespeicher, Versionen, GPX, Agenda, Notfallkarte, Karten (MapLibre `fsm*`, Leaflet-Ersatz
+  `FL`, Routen `fsr*`, 3D), Login, Bearbeiten/Gedrückthalten, Topo-Bilder, Offline-Download,
+  Anreise `fsTravel*`, Dunkelmodus, Icons (`FS_ICON_PATHS`), Tourenbriefing/Tourenzettel.
+- In den App-Dateien: Laden/Offline-Cache, Actions, Ansichten (Touren, Hütten, Gebiete),
+  Modal rendering (Formulare), Event wiring, Init.
+
+## Testen
+- `node tools/smoke-test.mjs` (oder `… beta`): öffnet alle Apps in Handygrösse in Chromium,
+  ohne Internet (Firebase wird mit `vorlage/*.json` simuliert, nichts wird geschrieben). Prüft:
+  keine JS-Fehler, Touren sichtbar, lokale Kopie unter dem richtigen Schlüssel, Tour über das
+  Formular bearbeiten und speichern (kein Feld geht verloren, alte Fassung unter `versions/`),
+  danach offline weiter nutzbar mit der Änderung. Vor jedem PR laufen lassen; Screenshots in `$SMOKE_OUT` anschauen.
+
 ## Design
 - **Charakter:** Tageslicht, Firn und Gletscher – hell, ruhig, elegant. Gebraucht wird die App
   draussen, oft mit kalten Fingern oder Handschuhen.
