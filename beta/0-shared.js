@@ -3004,7 +3004,7 @@ const FS3D_WMTS = (layer, ext)=> new Cesium.UrlTemplateImageryProvider({
   url: 'https://wmts.geo.admin.ch/1.0.0/' + layer + '/default/current/3857/{z}/{x}/{y}.' + ext,
   maximumLevel: 18, credit: '© swisstopo'
 });
-let fs3dLoadPromise = null, fs3dViewer = null, fs3dPanoCleanup = null, fs3dViewPeaks = null;
+let fs3dLoadPromise = null, fs3dViewer = null, fs3dPanoCleanup = null, fs3dViewPeaks = null, fs3dGpsStop = null;
 // swisstopo-Namen (3D Tiles von 2018): Die Kacheln geben als Höhenbereich nur den tiefsten Punkt
 // an (z. B. 450 m), die Namen liegen aber bis über 4000 m. Mit diesen Angaben hielt Cesium die
 // Kacheln für weit weg/unsichtbar und lud die Namen in der Nähe nie. Daher den Höhenbereich beim
@@ -3086,6 +3086,7 @@ function fs3dEnsureCesium(){
   return fs3dLoadPromise;
 }
 function fs3dClose(){
+  if(fs3dGpsStop){ try{ fs3dGpsStop(); }catch(e){} fs3dGpsStop = null; }
   if(fs3dPanoCleanup){ try{ fs3dPanoCleanup(); }catch(e){} fs3dPanoCleanup = null; }
   if(fs3dViewer){ try{ fs3dViewer.destroy(); }catch(e){} fs3dViewer = null; }
   const el = document.getElementById('fs-3d');
@@ -3401,6 +3402,7 @@ function fs3dCesiumOpen(opts){
     </div>
     <div class="fs-3d-panel" id="fs-3d-panel" hidden></div>
     <button type="button" class="fs-3d-btn fs-3d-layers-btn" data-3d="layers" aria-label="Ebenen">${fsIconHtml('layers')}</button>
+    <button type="button" class="fs-3d-btn fs-3d-gps-btn" data-3d="gps" aria-label="Mein Standort">${fsIconHtml('gps')}</button>
     <div class="fs-3d-actions"${opts.edit ? ' hidden' : ''}>
       <button type="button" class="fs-3d-chip" data-3d="pano">${fsIconHtml('mountain')}Gipfel ringsum</button>
       <button type="button" class="fs-3d-chip" data-3d="pano-compass" hidden>Kompass folgen</button>
@@ -3990,6 +3992,41 @@ function fs3dCesiumOpen(opts){
       searchHl.entities.add({position: pos, point:{pixelSize:14, color: Cesium.Color.fromCssColorString('#D9480F'), outlineColor: Cesium.Color.WHITE, outlineWidth:3, disableDepthTestDistance: Number.POSITIVE_INFINITY},
         label:{text: h.name, font:'700 15px Manrope, sans-serif', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.fromCssColorString('#0F1E27'), outlineWidth:3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -14), disableDepthTestDistance: Number.POSITIVE_INFINITY}});
       viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(pos, 1), {duration: 2, offset: new Cesium.HeadingPitchRange(viewer.camera.heading, Cesium.Math.toRadians(-28), 5500)});
+    });
+    // Mein Standort: blauer Punkt, beim ersten Fix dorthin fliegen; nochmals antippen = aus.
+    // Schaltet sich wie auf der Karte nach 5 Minuten selbst ab (Akku).
+    const gpsBtn = wrap.querySelector('[data-3d="gps"]');
+    const gpsDs = new Cesium.CustomDataSource('standort'); viewer.dataSources.add(gpsDs);
+    let gpsWatch = null, gpsOff = null, gpsEnt = null;
+    const gpsStop = ()=>{
+      if(gpsWatch !== null){ try{ navigator.geolocation.clearWatch(gpsWatch); }catch(e){} gpsWatch = null; }
+      if(gpsOff){ clearTimeout(gpsOff); gpsOff = null; }
+      gpsDs.entities.removeAll(); gpsEnt = null;
+      gpsBtn.classList.remove('on');
+      rerender();
+    };
+    fs3dGpsStop = gpsStop;
+    gpsBtn.addEventListener('click', ()=>{
+      if(gpsWatch !== null){ gpsStop(); return; }
+      if(!navigator.geolocation){ showToast('Standort ist auf diesem Gerät nicht verfügbar.', true); return; }
+      gpsBtn.classList.add('on');
+      let first = true;
+      gpsWatch = navigator.geolocation.watchPosition(async (p)=>{
+        if(fs3dViewer !== viewer) return;
+        const lat = p.coords.latitude, lon = p.coords.longitude;
+        let height = 0;
+        try{ const [c] = await Cesium.sampleTerrainMostDetailed(terrain, [Cesium.Cartographic.fromDegrees(lon, lat)]); height = c.height || 0; }catch(e){}
+        const pos = Cesium.Cartesian3.fromDegrees(lon, lat, height + 3);
+        if(!gpsEnt) gpsEnt = gpsDs.entities.add({position: pos, point:{pixelSize:16, color: Cesium.Color.fromCssColorString('#1971C2'), outlineColor: Cesium.Color.WHITE, outlineWidth:3, disableDepthTestDistance: Number.POSITIVE_INFINITY}});
+        else gpsEnt.position = pos;
+        if(first){
+          first = false;
+          if(pano) panoStop();
+          viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(pos, 1), {duration: 1.6, offset: new Cesium.HeadingPitchRange(viewer.camera.heading, Cesium.Math.toRadians(-32), 3500)});
+        }
+        rerender();
+      }, ()=>{ gpsStop(); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, maximumAge:5000, timeout:20000});
+      gpsOff = setTimeout(()=>{ if(gpsWatch !== null){ gpsStop(); showToast('Standort nach 5 Minuten ausgeschaltet (Akku sparen).'); } }, FS_GPS_AUTO_OFF_MS);
     });
     // Schild antippen (ausserhalb des Panoramas): Name und Höhe
     new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas).setInputAction((ev)=>{

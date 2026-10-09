@@ -1649,3 +1649,7 @@ html.fs-filter-open body{ overflow:hidden; }
 .fs-3d-search-res b{ font-size:15.5px; font-weight:800; }
 .fs-3d-search-res span{ font-size:12.5px; color:#66757F; }
 .fs-3d-search-msg{ margin:0; padding:14px 16px; color:#4A5A64; font-size:14px; }
+.fs-3d-gps-btn{ position:absolute; right:10px; top:calc(124px + env(safe-area-inset-top, 0px)); z-index:5; width:48px; padding:0; display:flex; align-items:center; justify-content:center; }
+.fs-3d-gps-btn .fs-i{ width:22px; height:22px; }
+.fs-3d-gps-btn.on{ background:#1971C2; color:#fff; }
+.fs-3d-pano .fs-3d-gps-btn{ display:none; }
