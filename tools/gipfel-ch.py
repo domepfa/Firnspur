@@ -10,7 +10,8 @@ import mapbox_vector_tile
 Z = 13
 URL = 'https://vectortiles.geo.admin.ch/tiles/ch.swisstopo.base.vt/v1.0.0/{z}/{x}/{y}.pbf'
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'beta', '0-gipfel-ch.json')
-KIND = {'peak': 'g', 'main_peak': 'g', 'alpine_peak': 'g', 'saddle': 'p'}
+KIND = {'peak': 'g', 'main_peak': 'g', 'alpine_peak': 'g', 'hill': 'g', 'main_hill': 'g', 'rocky_knoll': 'g', 'saddle': 'p', 'mountain_pass': 'p'}
+HUTS = ('alpine_hut', 'wilderness_hut')
 
 def tile_xy(lat, lon):
     n = 2 ** Z
@@ -35,7 +36,7 @@ def fetch(xy):
                     if g['type'] != 'Point':
                         continue
                     if layer == 'poi':
-                        if p.get('class') != 'lodging' or 'hut' not in str(p.get('subclass', '')):
+                        if p.get('class') != 'lodging' or p.get('subclass') not in HUTS:
                             continue
                         kind = 'h'
                     else:

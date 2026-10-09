@@ -1607,3 +1607,6 @@ html.fs-filter-open body{ overflow:hidden; }
 .fs-pano-info{ display:flex; flex-direction:column; gap:2px; padding-right:30px; }
 .fs-pano-info b{ font-family:var(--font-display); font-weight:400; font-size:24px; line-height:1.1; }
 .fs-pano-info span{ font-size:14px; color:var(--ink-soft); font-weight:600; }
+/* Panorama: nur «Gipfel ringsum» (beendet) und «Kompass folgen» */
+.fs-3d-pano .fs-3d-chips > :not([data-3d="pano"]):not([data-3d="pano-compass"]){ display:none !important; }
+.fs-3d-pano .fs-3d-quality{ display:none; }

@@ -3384,9 +3384,6 @@ function fs3dCesiumOpen(opts){
     const slope = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo.hangneigung-ueber_30', 'png')); slope.show = false; slope.alpha = 0.6;
     const ski = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo-karto.skitouren', 'png')); ski.show = false;
     const walk = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo.swisstlm3d-wanderwege', 'png')); walk.show = false;
-    // Alle Namen (Gipfel, Alpen, Gletscher, Bäche …) als Bild direkt auf dem Gelände — die schwebenden
-    // 3D-Namen von swisstopo enthalten nur grössere Orte, Seen und Berge.
-    const namesImg = layers.addImageryProvider(FS3D_WMTS('ch.swisstopo.swissnames3d', 'png'));
     const rerender = ()=> viewer.scene.requestRender();
     wrap.querySelectorAll('[data-3d^="img-"]').forEach(b=> b.addEventListener('click', ()=>{
       const karte = b.getAttribute('data-3d') === 'img-karte';
@@ -3408,9 +3405,9 @@ function fs3dCesiumOpen(opts){
       rerender();
     }).catch(()=>{});
     namesBtn.addEventListener('click', ()=>{
-      const on = !namesImg.show;
-      namesImg.show = on;
-      if(names) names.show = on;
+      if(!names) return;
+      const on = !names.show;
+      names.show = on;
       namesBtn.classList.toggle('on', on);
       rerender();
     });
@@ -3694,7 +3691,7 @@ function fs3dCesiumOpen(opts){
     // sich nicht überlappt — wichtigere (höher, näher) zuerst. Antippen zeigt Name, Höhe, Entfernung.
     let peakLabels = null, peakList = [], peakTimer = null, peakPos = null;
     const PEAK_RANGE = {g: 80000, p: 20000, h: 25000};
-    const peakPrio = (pk)=> (pk.kind === 'g' ? 0 : 1500) - pk.ele + pk.dist / 40;
+    const peakPrio = (pk)=> (pk.kind === 'g' ? 0 : 1500) - pk.ele + pk.dist / 25;
     const panoPeaksUpdate = ()=>{
       peakTimer = null;
       if(!pano || !peakLabels) return;
@@ -3710,15 +3707,22 @@ function fs3dCesiumOpen(opts){
         // Liegt der Gipfel vor der Kamera? (Richtung zum Gipfel vs. Blickrichtung)
         const toPk = Cesium.Cartesian3.subtract(pk.pos, cam.positionWC, new Cesium.Cartesian3());
         if(Cesium.Cartesian3.dot(toPk, cam.directionWC) <= 0) continue;
-        // Sichtbar? Strahl durch den Bildpunkt: trifft er das Gelände deutlich vor dem Gipfel, ist er verdeckt
-        const ray = cam.getPickRay(new Cesium.Cartesian2(sp.x, sp.y + 2));
+        // Sichtbar? Strahl knapp über den Gipfel: trifft er vorher das Gelände (ein Grat davor), ist der
+        // Gipfel verdeckt; sonst geht er in den Himmel oder auf Berge dahinter.
+        const ray = cam.getPickRay(new Cesium.Cartesian2(sp.x, sp.y - 4));
         const hit = ray && scene.globe.pick(ray, scene);
-        if(hit && Cesium.Cartesian3.distance(cam.positionWC, hit) < pk.dist3 * 0.97 - 60) continue;
+        if(hit && Cesium.Cartesian3.distance(cam.positionWC, hit) < pk.dist3 * 0.92 - 80) continue;
+        // Überlappt das Schild ein wichtigeres, weicht es bis zu drei Zeilen nach oben aus
         const tw = pk.name.length * 7.4 + 14, th = 34;
-        const box = {x0: sp.x - tw / 2, x1: sp.x + tw / 2, y0: sp.y - th - 8, y1: sp.y + 4};
-        if(boxes.some(b=> b.x0 < box.x1 && box.x0 < b.x1 && b.y0 < box.y1 && box.y0 < b.y1)) continue;
-        boxes.push(box);
-        pk.label.show = true; pk.dot.show = true; pk.vis = true; pk.sp = sp; shown++;
+        let placed = null;
+        for(const up of [0, 36, 72, 108]){
+          const box = {x0: sp.x - tw / 2, x1: sp.x + tw / 2, y0: sp.y - th - 8 - up, y1: sp.y + 4 - up};
+          if(!boxes.some(b=> b.x0 < box.x1 && box.x0 < b.x1 && b.y0 < box.y1 && box.y0 < b.y1)){ placed = {box, up}; break; }
+        }
+        if(!placed) continue;
+        boxes.push(placed.box);
+        pk.label.pixelOffset = new Cesium.Cartesian2(0, -8 - placed.up);
+        pk.label.show = true; pk.dot.show = true; pk.vis = true; pk.sp = {x: sp.x, y: sp.y - placed.up}; shown++;
       }
       viewer.scene.requestRender();
     };
