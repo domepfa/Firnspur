@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Übernimmt den Stand aus beta/ in die Haupt-App (Repo-Wurzel).
-# Kopiert index.html, fixseil.html, wandern.html, 0-shared.js, 0-ski-wandern.js und look.css und stellt dabei
+# Kopiert index.html, fixseil.html, wandern.html, 0-shared.js, 0-ski-wandern.js, look.css (und 0-gipfel-ch.json) und stellt dabei
 # zurück, was nur für die Beta anders ist:
 #   - Pfade ../<Bild/Skript> -> ./<Bild/Skript> (Beta liegt einen Ordner tiefer)
 #   - Speicher-Keys firnspurbeta-/fixseilbeta-/wandernbeta-cache und bergtourenbeta-offline
@@ -24,6 +24,8 @@ for f in index.html fixseil.html wandern.html 0-shared.js 0-ski-wandern.js look.
       -e "s# · Beta</title>#</title>#" \
       "beta/$f" > "$f"
 done
+# Gipfelliste für «Gipfel ringsum» (Daten, unverändert übernehmen)
+[ -f beta/0-gipfel-ch.json ] && cp beta/0-gipfel-ch.json 0-gipfel-ch.json
 if [ ! -f manifest-wandern.json ]; then
   sed -e 's#"\.\./icon-512\.png"#"./icon-512.png"#g' \
       -e 's#"Firnspur Beta – Wandern"#"Firnspur – Wandern"#' \
