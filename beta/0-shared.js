@@ -3251,11 +3251,21 @@ function fs3dMlOpen(opts){
 function fs3dMlWireEdit(map, ed){
   const wrap = document.getElementById('fs-3d');
   const hintEl = document.getElementById('fs-3d-ehint');
-  const HINTS = {point: 'Lange drücken setzt einen Punkt.', line: 'Antippen verlängert die Linie.', route: 'Antippen setzt Wegpunkte. Berechnen danach in 2D.'};
+  const HINTS = {point: 'Lange drücken setzt einen Punkt, Punkt antippen beschriftet ihn.', line: 'Antippen verlängert die Linie.', route: 'Antippen setzt Wegpunkte. Berechnen danach in 2D.'};
   map.addSource('fs3d-edit', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
   map.addLayer({id:'fs3d-edit-case', type:'line', source:'fs3d-edit', filter:['==', ['geometry-type'], 'LineString'], layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#fff', 'line-width':8, 'line-opacity':0.8}});
   map.addLayer({id:'fs3d-edit-line', type:'line', source:'fs3d-edit', filter:['==', ['geometry-type'], 'LineString'], layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':['get','color'], 'line-width':5}});
   map.addLayer({id:'fs3d-edit-pt', type:'circle', source:'fs3d-edit', filter:['==', ['geometry-type'], 'Point'], paint:{'circle-radius':['get','r'], 'circle-color':['get','color'], 'circle-stroke-color':'#fff', 'circle-stroke-width':2}});
+  // Namen der Punkte: erst wenn die Schrift (vom swisstopo-Stil) bereitsteht
+  const addLabelLayer = ()=>{
+    if(map.getLayer('fs3d-edit-lbl') || !map.getStyle() || !map.getStyle().glyphs) return;
+    try{
+      map.addLayer({id:'fs3d-edit-lbl', type:'symbol', source:'fs3d-edit', filter:['all', ['==', ['geometry-type'], 'Point'], ['has', 'label']],
+        layout:{'text-field':['get','label'], 'text-font':['Frutiger Neue Regular'], 'text-size':14, 'text-offset':[0, -1.4], 'text-anchor':'bottom', 'text-allow-overlap':true},
+        paint:{'text-color':'#fff', 'text-halo-color':'#0F1E27', 'text-halo-width':2}});
+    }catch(e){}
+  };
+  map.on('styledata', addLabelLayer);
   const draw = ()=>{
     const f = [];
     ed.lines().forEach(ln=>{
@@ -3263,9 +3273,10 @@ function fs3dMlWireEdit(map, ed){
       f.push({type:'Feature', properties:{color: ln.color}, geometry:{type:'LineString', coordinates: ln.coords.map(c=>[c[1], c[0]])}});
       if(ln.edit) ln.coords.forEach(c=> f.push({type:'Feature', properties:{color: ln.color, r:5}, geometry:{type:'Point', coordinates:[c[1], c[0]]}}));
     });
-    ed.points().forEach(p=> f.push({type:'Feature', properties:{color: p.color || '#4A3524', r:8}, geometry:{type:'Point', coordinates:[p.lon, p.lat]}}));
+    ed.points().forEach(p=> f.push({type:'Feature', properties: Object.assign({color: p.color || '#4A3524', r:8}, p.label ? {label: p.label} : {}), geometry:{type:'Point', coordinates:[p.lon, p.lat]}}));
     const src = map.getSource('fs3d-edit');
     if(src) src.setData({type:'FeatureCollection', features:f});
+    addLabelLayer();
   };
   const syncMode = ()=>{
     const m = ed.getMode();
@@ -3275,13 +3286,28 @@ function fs3dMlWireEdit(map, ed){
   wrap.querySelectorAll('[data-3d^="em-"]').forEach(b=> b.addEventListener('click', ()=>{ ed.setMode(b.getAttribute('data-3d').slice(3)); syncMode(); }));
   wrap.querySelector('[data-3d="e-undo"]').addEventListener('click', ()=>{ ed.undo(); draw(); });
   syncMode(); draw();
+  const openForm = (pt)=>{
+    if(!pt || !ed.form) return;
+    const node = ed.form(pt, ()=>{ if(map._fsm.popup) map._fsm.popup.remove(); draw(); });
+    node.classList.add('fs-3d-ptform');
+    fsmPopup(map, {lng: pt.lon, lat: pt.lat}, node, 14);
+    const inp = node.querySelector('input'); if(inp) setTimeout(()=> inp.focus(), 80);
+  };
   map.on('click', (e)=>{
     const m = ed.getMode();
+    if(m === 'point'){
+      // Punkt antippen: beschriften, Art wählen oder entfernen
+      const pts = ed.pointsEditable ? ed.pointsEditable() : [];
+      let best = null, bd = 28;
+      pts.forEach(pt=>{ const sp = map.project([pt.lon, pt.lat]); const d = Math.hypot(sp.x - e.point.x, sp.y - e.point.y); if(d < bd){ bd = d; best = pt; } });
+      if(best) openForm(best);
+      return;
+    }
     if(m !== 'line' && m !== 'route') return;
     ed.tap(e.lngLat.lat, e.lngLat.lng); draw();
   });
-  // Lange drücken (Handy) bzw. Rechtsklick: Punkt setzen
-  const hold = (ll)=>{ if(ed.getMode() !== 'point') return; ed.hold(ll.lat, ll.lng); if(navigator.vibrate) try{ navigator.vibrate(30); }catch(e){} draw(); };
+  // Lange drücken (Handy) bzw. Rechtsklick: Punkt setzen, danach gleich beschriften
+  const hold = (ll)=>{ if(ed.getMode() !== 'point') return; const pt = ed.hold(ll.lat, ll.lng); if(navigator.vibrate) try{ navigator.vibrate(30); }catch(e){} draw(); openForm(pt); };
   map.on('contextmenu', (e)=> hold(e.lngLat));
   let timer = null, startPt = null;
   const cancel = ()=>{ if(timer){ clearTimeout(timer); timer = null; } };
@@ -3587,7 +3613,7 @@ function fs3dCesiumOpen(opts){
       const ed = opts.edit;
       const eds = new Cesium.CustomDataSource('edit'); viewer.dataSources.add(eds);
       const hintEl = document.getElementById('fs-3d-ehint');
-      const HINTS = {point: 'Lange drücken setzt einen Punkt.', line: 'Antippen verlängert die Linie.', route: 'Antippen setzt Wegpunkte. Berechnen danach in 2D.'};
+      const HINTS = {point: 'Lange drücken setzt einen Punkt, Punkt antippen beschriftet ihn.', line: 'Antippen verlängert die Linie.', route: 'Antippen setzt Wegpunkte. Berechnen danach in 2D.'};
       const drawEdit = ()=>{
         eds.entities.removeAll();
         ed.lines().forEach(ln=>{
@@ -3610,6 +3636,16 @@ function fs3dCesiumOpen(opts){
       wrap.querySelector('[data-3d="e-undo"]').addEventListener('click', ()=>{ ed.undo(); drawEdit(); });
       syncMode();
       drawEdit();
+      // Formular für einen Punkt im Fenster unten (wie auf der 2D-Karte)
+      const openPtForm = (pt)=>{
+        if(!pt || !ed.form) return;
+        const node = ed.form(pt, ()=>{ closePanel(); drawEdit(); });
+        node.classList.add('fs-3d-ptform');
+        showPanel(node);
+        const inp = node.querySelector('input'); if(inp) setTimeout(()=> inp.focus(), 80);
+      };
+      // Höhe eines Punkts für die Bildschirmlage (aus dem geladenen Gelände)
+      const pickHeight = (pt)=>{ const h = viewer.scene.globe.getHeight(Cesium.Cartographic.fromDegrees(pt.lon, pt.lat)); return h || 0; };
       const eh = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
       let holdTimer = null, downAt = null;
       const cancelHold = ()=>{ if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; } };
@@ -3621,9 +3657,10 @@ function fs3dCesiumOpen(opts){
           holdTimer = null;
           const ll = pickLatLon(downAt);
           if(!ll) return;
-          ed.hold(ll.lat, ll.lon);
+          const pt = ed.hold(ll.lat, ll.lon);
           if(navigator.vibrate) try{ navigator.vibrate(30); }catch(e){}
           drawEdit();
+          openPtForm(pt);
         }, 600);
       }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
       eh.setInputAction((ev)=>{ if(downAt && Cesium.Cartesian2.distance(downAt, ev.endPosition) > 10) cancelHold(); }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
@@ -3631,6 +3668,17 @@ function fs3dCesiumOpen(opts){
       eh.setInputAction(cancelHold, Cesium.ScreenSpaceEventType.PINCH_START);
       eh.setInputAction((ev)=>{
         const m = ed.getMode();
+        if(m === 'point'){
+          // Punkt antippen: beschriften, Art wählen oder entfernen
+          const pts = ed.pointsEditable ? ed.pointsEditable() : [];
+          let best = null, bd = 28;
+          pts.forEach(pt=>{
+            const sp = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, pickHeight(pt)));
+            if(sp){ const d = Math.hypot(sp.x - ev.position.x, sp.y - ev.position.y); if(d < bd){ bd = d; best = pt; } }
+          });
+          if(best) openPtForm(best);
+          return;
+        }
         if(m !== 'line' && m !== 'route') return;
         const ll = pickLatLon(ev.position);
         if(!ll) return;
@@ -3856,7 +3904,7 @@ function fs3dCesiumOpen(opts){
       try{ viewer.scene.globe.tileLoadProgressEvent.removeEventListener(panoPeaksSchedule); }catch(e){}
       if(peakLabels){ try{ viewer.scene.primitives.remove(peakLabels._fsDots); viewer.scene.primitives.remove(peakLabels); }catch(e){} }
       peakLabels = null; peakList = [];
-      closePanel();
+      if(panel.querySelector('.fs-pano-info')) closePanel(); // nur Gipfel-Infos schliessen, kein Punkt-Formular
     };
     // Antippen: nächstes Schild in der Nähe, sonst der angetippte Punkt im Gelände
     const panoTap = (x, y)=>{
@@ -4018,7 +4066,7 @@ function fs3dCesiumOpen(opts){
     viewer.scene.canvas.addEventListener('pointerdown', ()=>{ if(!layerPanel.hidden) layerPanel.hidden = true; });
     // Schild antippen (ausserhalb des Panoramas): Name und Höhe
     new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas).setInputAction((ev)=>{
-      if(pano || (opts.edit && opts.edit.getMode() !== 'point')) return;
+      if(pano || opts.edit) return; // beim Bearbeiten gehören Tipps dem Bearbeiten
       let best = null, bd = 40;
       peakList.forEach(pk=>{ if(pk.vis && pk.sp){ const d = Math.hypot(pk.sp.x - ev.position.x, pk.sp.y - 10 - ev.position.y); if(d < bd){ bd = d; best = pk; } } });
       if(!best) return;
@@ -5582,8 +5630,8 @@ function fsmAddControls(map){
   const gpsBtn = box.querySelector('[data-fsm="gps"]');
   gpsBtn.classList.toggle('on', !!(gpsMarker && gpsMarker._fsmMap === map));
   gpsBtn.addEventListener('click', ()=>{
-    if(map._fsm.gpsOnce){
-      // 3D-Karte: einmal orten, hinfliegen, Punkt setzen — kein laufender Standort
+    {
+      // Standort nur auf Tipp: einmal orten, hinfliegen, Punkt setzen — kein laufender Standort (Akku)
       if(!navigator.geolocation){ showToast('Standort ist auf diesem Gerät nicht verfügbar.', true); return; }
       gpsBtn.classList.add('busy');
       navigator.geolocation.getCurrentPosition((p)=>{
@@ -7623,7 +7671,10 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           getMode: ()=> mode,
           setMode: (m)=> setMode(m),
           tap: (lat, lon)=>{ if(mode==='line') addLineAt(lat, lon); else if(mode==='route'){ pushUndo(); routeWaypoints.push([lat, lon]); redrawRoute(); } },
-          hold: (lat, lon)=>{ if(mode==='point'){ pushUndo(); points.push({label:'', lat, lon}); redraw(); persist(); } },
+          hold: (lat, lon)=>{ if(mode!=='point') return null; pushUndo(); const pt = {label:'', lat, lon}; points.push(pt); redraw(); persist(); return pt; },
+          // Formular wie auf der 2D-Karte (Art, Name, Speichern/Entfernen); done() schliesst das Fenster
+          form: (pt, done)=>{ const node = buildPopupContent(pt); node.querySelectorAll('button').forEach(b=> b.addEventListener('click', ()=> setTimeout(done, 0))); return node; },
+          pointsEditable: ()=> points,
           undo: ()=> performUndo(),
           lines: lines3d,
           points: ()=> points.concat(refPoints)
@@ -12880,7 +12931,6 @@ function fsShowContextMap(t){
     fsmWireInfoClicks(map, {sac:{allowAttach:false}});
     fsmWhenLoaded(map, ()=>{
       if(fsCtxMap !== map) return;
-      if(typeof gpsActiveOfflineId !== 'undefined' && gpsActiveOfflineId === t.id) startLiveGpsOnMap(map, t.id);
       const all = [];
       const groups = [];
       function group(label, color, on, dash){
