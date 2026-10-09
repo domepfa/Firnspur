@@ -3155,6 +3155,7 @@ function fs3dMlOpen(opts){
     <div class="fs-3d-top">
       <button type="button" class="fs-3d-btn" data-3d="close" aria-label="Zurück">‹ Zurück</button>
       <div class="fs-3d-title">${esc(opts.title || (t ? t.name : '3D-Ansicht'))}</div>
+      <button type="button" class="fs-3d-btn fs-3d-searchbtn" data-3d="search" aria-label="Suchen">${fsIconHtml('search')}</button>
     </div>
     <div class="fs-3d-actions"${opts.edit ? ' hidden' : ''}>
       <button type="button" class="fs-3d-chip" data-3d="pano">${fsIconHtml('mountain')}Gipfel ringsum</button>
@@ -3222,6 +3223,12 @@ function fs3dMlOpen(opts){
         map.jumpTo({bearing, pitch: 62});
       }
       if(opts.edit) fs3dMlWireEdit(map, opts.edit);
+      let searchMarker = null;
+      fs3dWireSearch(wrap, (h)=>{
+        if(searchMarker) searchMarker.remove();
+        searchMarker = fsmAddMarker(map, h.lat, h.lon, fsmCategoryMarkerHtml(''), {popup: '<b>' + esc(h.name) + '</b>', anchor:'bottom'});
+        map.flyTo({center:[h.lon, h.lat], zoom: 12.8, pitch: 62, bearing: map.getBearing(), duration: 1800});
+      });
       const loading = document.getElementById('fs-3d-loading');
       map.once('idle', ()=>{ if(loading) loading.remove(); });
       setTimeout(()=>{ if(loading) loading.remove(); }, 8000);
@@ -3306,6 +3313,73 @@ function fsGeoDist(lat1, lon1, lat2, lon2){
   return Math.sqrt(x * x + y * y) * 6371000;
 }
 function fsFmtKm(m){ return m < 1000 ? Math.round(m / 10) * 10 + ' m' : (m < 10000 ? (m / 1000).toFixed(1) : Math.round(m / 1000)) + ' km'; }
+/* ===== Suche in der 3D-Ansicht =====
+   Eigene Touren und Hütten zuerst, dann die swisstopo-Ortssuche (Gipfel, Hütten, Orte, Flurnamen).
+   Auswahl ruft onPick({lat, lon, name, kind}) auf; die Ansicht fliegt dorthin. */
+async function fs3dSearch(q){
+  const ql = q.toLowerCase(), out = [];
+  ((typeof state !== 'undefined' && state.tours) || []).forEach(t=>{
+    const p = tourMapPoint(t);
+    if(p && ((t.name || '') + ' ' + (t.routeName || '')).toLowerCase().includes(ql)) out.push({lat:p.lat, lon:p.lon, name:t.name, kind:'Tour' + (t.routeName ? ' · ' + t.routeName : '')});
+  });
+  ((typeof state !== 'undefined' && state.huts) || []).forEach(h=>{
+    const p = h.points && h.points[0];
+    if(p && (h.name || '').toLowerCase().includes(ql)) out.push({lat:p.lat, lon:p.lon, name:h.name, kind:'Hütte'});
+  });
+  try{
+    const r = await fetch('https://api3.geo.admin.ch/rest/services/api/SearchServer?type=locations&sr=4326&limit=8&searchText=' + encodeURIComponent(q));
+    const j = await r.json();
+    (j.results || []).forEach(x=>{
+      const a = x.attrs || {};
+      if(typeof a.lat !== 'number') return;
+      // label z. B. "<i>Hauptgipfel</i> <b>Blüemlisalp Rothorn</b> (BE) - Kandersteg"
+      const tmp = document.createElement('div'); tmp.innerHTML = a.label || '';
+      const i = tmp.querySelector('i'), b = tmp.querySelector('b');
+      const kind = i ? i.textContent : '', name = b ? b.textContent : tmp.textContent;
+      if(i) i.remove(); if(b) b.remove();
+      const rest = tmp.textContent.replace(/\s+/g, ' ').trim();
+      out.push({lat:a.lat, lon:a.lon, name, kind: [kind, rest].filter(Boolean).join(' · ')});
+    });
+  }catch(e){ if(!out.length) throw e; }
+  return out.slice(0, 12);
+}
+function fs3dWireSearch(wrap, onPick){
+  const btn = wrap.querySelector('[data-3d="search"]');
+  if(!btn) return;
+  const box = document.createElement('div');
+  box.className = 'fs-3d-search';
+  box.hidden = true;
+  box.innerHTML = `<div class="fs-3d-search-row"><input type="search" placeholder="Gipfel, Hütte, Ort oder Tour" enterkeyhint="search" aria-label="Suchen"/><button type="button" class="fs-3d-btn" aria-label="Suche schliessen">×</button></div><div class="fs-3d-search-res"></div>`;
+  wrap.appendChild(box);
+  const input = box.querySelector('input'), res = box.querySelector('.fs-3d-search-res');
+  const close = ()=>{ box.hidden = true; res.innerHTML = ''; input.blur(); };
+  btn.addEventListener('click', ()=>{ box.hidden = !box.hidden; if(!box.hidden) setTimeout(()=> input.focus(), 50); });
+  box.querySelector('button').addEventListener('click', close);
+  let seq = 0, timer = null;
+  const run = async ()=>{
+    const q = input.value.trim();
+    if(q.length < 2){ res.innerHTML = ''; return; }
+    const my = ++seq;
+    res.innerHTML = '<p class="fs-3d-search-msg">Suche …</p>';
+    let hits = [];
+    try{ hits = await fs3dSearch(q); }catch(e){ if(my === seq) res.innerHTML = '<p class="fs-3d-search-msg">Suche braucht Internet.</p>'; return; }
+    if(my !== seq) return;
+    if(!hits.length){ res.innerHTML = '<p class="fs-3d-search-msg">Nichts gefunden.</p>'; return; }
+    res.innerHTML = '';
+    hits.forEach(h=>{
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.innerHTML = '<b></b><span></span>';
+      b.querySelector('b').textContent = h.name;
+      b.querySelector('span').textContent = h.kind || '';
+      b.addEventListener('click', ()=>{ close(); onPick(h); });
+      res.appendChild(b);
+    });
+  };
+  input.addEventListener('input', ()=>{ clearTimeout(timer); timer = setTimeout(run, 300); });
+  input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ e.preventDefault(); clearTimeout(timer); run(); } else if(e.key === 'Escape') close(); });
+  ['pointerdown','touchstart','wheel','click'].forEach(ev=> box.addEventListener(ev, e=> e.stopPropagation()));
+}
 function fs3dCesiumOpen(opts){
   if(!navigator.onLine){ showToast('3D braucht Internet (Gelände und Luftbild werden live geladen).', true); return; }
   fs3dClose();
@@ -3318,6 +3392,7 @@ function fs3dCesiumOpen(opts){
     <div class="fs-3d-top">
       <button type="button" class="fs-3d-btn" data-3d="close" aria-label="Zurück">‹ Zurück</button>
       <div class="fs-3d-title">${esc(opts.title || (t ? t.name : '3D-Ansicht'))}</div>
+      <button type="button" class="fs-3d-btn fs-3d-searchbtn" data-3d="search" aria-label="Suchen">${fsIconHtml('search')}</button>
       <button type="button" class="fs-3d-btn fs-3d-compass" data-3d="north" aria-label="Nach Norden ausrichten"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><g class="fs-3d-needle"><path d="M12 2.5 15.2 12H8.8Z" fill="#E03131"/><path d="M12 21.5 8.8 12h6.4Z" fill="#9AA5AD"/><text x="12" y="11" text-anchor="middle" font-size="5.5" font-weight="800" fill="#fff" font-family="sans-serif">N</text></g></svg></button>
     </div>
     <div class="fs-3d-rot">
@@ -3903,6 +3978,19 @@ function fs3dCesiumOpen(opts){
       setTimeout(viewPeaks, 1200);
       viewer.camera.moveEnd.addEventListener(viewPeaks);
     }
+    // Suche: hinfliegen, Ziel markieren (Höhe aus dem Gelände)
+    const searchHl = new Cesium.CustomDataSource('suche'); viewer.dataSources.add(searchHl);
+    fs3dWireSearch(wrap, async (h)=>{
+      if(pano) panoStop();
+      let height = 0;
+      try{ const [c] = await Cesium.sampleTerrainMostDetailed(terrain, [Cesium.Cartographic.fromDegrees(h.lon, h.lat)]); height = c.height || 0; }catch(e){}
+      if(fs3dViewer !== viewer) return;
+      searchHl.entities.removeAll();
+      const pos = Cesium.Cartesian3.fromDegrees(h.lon, h.lat, height + 4);
+      searchHl.entities.add({position: pos, point:{pixelSize:14, color: Cesium.Color.fromCssColorString('#D9480F'), outlineColor: Cesium.Color.WHITE, outlineWidth:3, disableDepthTestDistance: Number.POSITIVE_INFINITY},
+        label:{text: h.name, font:'700 15px Manrope, sans-serif', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.fromCssColorString('#0F1E27'), outlineWidth:3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -14), disableDepthTestDistance: Number.POSITIVE_INFINITY}});
+      viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(pos, 1), {duration: 2, offset: new Cesium.HeadingPitchRange(viewer.camera.heading, Cesium.Math.toRadians(-28), 5500)});
+    });
     // Schild antippen (ausserhalb des Panoramas): Name und Höhe
     new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas).setInputAction((ev)=>{
       if(pano || (opts.edit && opts.edit.getMode() !== 'point')) return;
