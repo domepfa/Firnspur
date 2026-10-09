@@ -1191,13 +1191,13 @@ function gebietDetailHtml(id){
   const touren = gebietTouren(geb);
   const huetten = gebietHuetten(geb);
   const hasMapData = (geb.points && geb.points.length) || huetten.some(h=>h.points && h.points.length) || touren.some(t=> (t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length));
-  return `<div class="modal" data-stop="1">
+  return `<div class="modal td gd" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     ${geb.description ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 10px 0;">${esc(geb.description)}</p>` : ''}
-    ${hasMapData ? `<div class="detail-section">
+    ${hasMapData ? `<div class="detail-section fs-area-mapsec">
       <h4>🗺️ Übersichtskarte</h4>
       <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gebiet-overview-map" data-gebiet-id="${geb.id}" data-target="map-gebiet-${geb.id}">🗺️ Karte anzeigen</button>
       <div id="map-gebiet-${geb.id}"></div>
@@ -1442,7 +1442,7 @@ function tourDetailHtml(id){
     ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon)}</div>` : ''}
     <div class="detail-section" id="tour-map-section-${t.id}">
       <h4>${fsTourRoutes(t).length ? 'Routen & Standorte' : 'Standort' + (t.points && t.points.length>1?'e':'')}</h4>
-      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${fsRoutesListHtml(t)}
       ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
@@ -1679,13 +1679,9 @@ function wireModalHandlers(){
         showToast('Bitte zuerst "🗺️ Karte anzeigen" antippen.', true);
         return;
       }
-      if(gpsWatchId === null){
-        startLiveGpsOnMap(mapInner, offlineId);
-        gpsToggleBtn.textContent = '📍 Standort ausblenden';
-      }else{
-        stopLiveGpsOnMap();
-        gpsToggleBtn.textContent = '📍 Standort auf Karte zeigen';
-      }
+      // Standort nur auf Tipp: einmal orten und auf der Karte zeigen (kein laufender Standort)
+      if(typeof fsSetSheetDetent === 'function' && document.documentElement.classList.contains('fs-ctx-map')) fsSetSheetDetent('peek');
+      fsmLocateOnce(mapInner, gpsToggleBtn);
     }
   });
 

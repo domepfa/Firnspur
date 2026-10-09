@@ -5604,6 +5604,20 @@ async function fsmLoadSlf(map, lid){
   }
 }
 // Knöpfe oben rechts: Ebenen, Kompass (nur wenn gedreht/gekippt), 3D
+// Standort nur auf Tipp: einmal orten, hinfliegen, blauen Punkt setzen — kein laufender Standort (Akku)
+function fsmLocateOnce(map, btn){
+  if(map && map._ml) map = map._ml; // FL-Karte: die MapLibre-Karte darunter
+  if(!map || !map._fsm) return;
+  if(!navigator.geolocation){ showToast('Standort ist auf diesem Gerät nicht verfügbar.', true); return; }
+  if(btn) btn.classList.add('busy');
+  navigator.geolocation.getCurrentPosition((p)=>{
+    if(btn) btn.classList.remove('busy');
+    const ll = [p.coords.longitude, p.coords.latitude];
+    if(map._fsmOnceMarker) map._fsmOnceMarker.setLngLat(ll);
+    else{ const el = document.createElement('div'); el.className = 'fsm-gps'; map._fsmOnceMarker = new maplibregl.Marker({element: el}).setLngLat(ll).addTo(map); }
+    map.flyTo({center: ll, zoom: Math.max(map.getZoom(), 13.5), duration: 1400});
+  }, ()=>{ if(btn) btn.classList.remove('busy'); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
+}
 function fsmAddControls(map){
   const box = document.createElement('div');
   box.className = 'fsm-ctlbox';
@@ -5630,19 +5644,8 @@ function fsmAddControls(map){
   const gpsBtn = box.querySelector('[data-fsm="gps"]');
   gpsBtn.classList.toggle('on', !!(gpsMarker && gpsMarker._fsmMap === map));
   gpsBtn.addEventListener('click', ()=>{
-    {
-      // Standort nur auf Tipp: einmal orten, hinfliegen, Punkt setzen — kein laufender Standort (Akku)
-      if(!navigator.geolocation){ showToast('Standort ist auf diesem Gerät nicht verfügbar.', true); return; }
-      gpsBtn.classList.add('busy');
-      navigator.geolocation.getCurrentPosition((p)=>{
-        gpsBtn.classList.remove('busy');
-        const ll = [p.coords.longitude, p.coords.latitude];
-        if(map._fsmOnceMarker) map._fsmOnceMarker.setLngLat(ll);
-        else{ const el = document.createElement('div'); el.className = 'fsm-gps'; map._fsmOnceMarker = new maplibregl.Marker({element: el}).setLngLat(ll).addTo(map); }
-        map.flyTo({center: ll, zoom: Math.max(map.getZoom(), 13.5), duration: 1400});
-      }, ()=>{ gpsBtn.classList.remove('busy'); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
-      return;
-    }
+    fsmLocateOnce(map, gpsBtn);
+    return;
     if(gpsWatchId !== null && gpsMarker && gpsMarker._fsmMap === map){
       // Läuft schon: erst zum Standort springen, beim zweiten Tippen ausschalten
       const ll = gpsMarker.getLngLat();

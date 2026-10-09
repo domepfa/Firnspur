@@ -1686,13 +1686,9 @@ function wireModalHandlers(){
         showToast('Bitte zuerst "🗺️ Karte anzeigen" antippen.', true);
         return;
       }
-      if(gpsWatchId === null){
-        startLiveGpsOnMap(mapInner, offlineId);
-        gpsToggleBtn.textContent = '📍 Standort ausblenden';
-      }else{
-        stopLiveGpsOnMap();
-        gpsToggleBtn.textContent = '📍 Standort auf Karte zeigen';
-      }
+      // Standort nur auf Tipp: einmal orten und auf der Karte zeigen (kein laufender Standort)
+      if(typeof fsSetSheetDetent === 'function' && document.documentElement.classList.contains('fs-ctx-map')) fsSetSheetDetent('peek');
+      fsmLocateOnce(mapInner, gpsToggleBtn);
     }
   });
 

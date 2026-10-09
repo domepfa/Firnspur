@@ -1535,6 +1535,7 @@ async function submitTourForm(form, existing){
   t.elevationGain = form.elevationGain;
   t.elevationLoss = form.elevationLoss;
   t.duration = form.duration;
+  t.descentDuration = form.descentDuration || '';
   t.region = form.region;
   t.subregion = form.subregion || '';
   t.material = form.material || [];
@@ -2435,7 +2436,7 @@ function klettergebietDetailHtml(id){
   const unlinkedGipfel = state.gipfel.filter(gp=>!gp.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   const huettenImGebiet = klettergebietHuetten(geb);
   const unlinkedHuetten = state.huts.filter(h=>!h.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
-  return `<div class="modal fs-onroute" data-stop="1">
+  return `<div class="modal td gd fs-onroute" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
@@ -3408,7 +3409,8 @@ function tourCardHtml(t, draggable, opts){
     <div class="stat-row">
       <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
-      ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span></span>` : ''}
+      ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span>${t.descentDuration ? ' ↑' : ''}</span>` : ''}
+      ${t.descentDuration ? `<span>${t.duration ? '' : '⏱ '}<span class="mono">${esc(t.descentDuration)} h</span> ↓</span>` : ''}
     </div>
     ${t.region ? `<p class="excerpt">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${summitChipsForCardHtml(t)}
@@ -3538,6 +3540,15 @@ function klettergebietTouren(geb){
 }
 function klettergebietHochtouren(geb){ return klettergebietTouren(geb).filter(t=>t.tourCategory!=='msl'); }
 function klettergebietMslTouren(geb){ return klettergebietTouren(geb).filter(t=>t.tourCategory==='msl'); }
+// Gebiet als Blatt über der Karte: Touren, Hütten und Klettergärten (siehe fsShowAreaContextMap)
+function fsAreaForMap(modal){
+  if(!modal || modal.type !== 'klettergebiet-detail') return null;
+  const geb = state.klettergebiete.find(x=>x.id===modal.payload);
+  if(!geb) return null;
+  const spots = klettergebietKlettergaerten(geb).filter(sk=> sk.points && sk.points.length)
+    .map(sk=>({lat: sk.points[0].lat, lon: sk.points[0].lon, label: sk.name, open: ()=> openSektorDetail(sk.id)}));
+  return {key: geb.id, name: geb.name, tours: klettergebietTouren(geb), huts: klettergebietHuetten(geb), spots, spotsLabel: 'Klettergärten', points: geb.points || []};
+}
 // Nur Sektoren mit eigener Routen-Liste zählen als "Klettergarten" -- ein Sektor ohne Kletterrouten
 // ist reine technische Klammer für seine Touren und taucht hier nicht als eigener Eintrag auf.
 function klettergebietKlettergaerten(geb){
@@ -3992,13 +4003,14 @@ function tourFormHtml(existing){
         </div>
         <input type="hidden" name="ropeLength" id="rope-length-hidden" value="${esc(t.ropeLength||'')}"/>
       </div>
-      <div class="row2">
-        <div class="field"><label>Ziel – Gipfelhöhe (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 4545"/></div>
-        <div class="field"><label>Zeitbedarf (h)</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 6–8"/></div>
-      </div>
+      <div class="field"><label>Ziel – Gipfelhöhe (m ü. M.)</label><input name="targetAltitude" value="${esc(t.targetAltitude||'')}" placeholder="z. B. 4545"/></div>
       <div class="row2">
         <div class="field"><label>Aufstieg (Hm)</label><input name="elevationGain" value="${esc(t.elevationGain||'')}" placeholder="z. B. 1200"/></div>
         <div class="field"><label>Abstieg (Hm, falls abweichend)</label><input name="elevationLoss" value="${esc(t.elevationLoss||'')}" placeholder="z. B. 1600"/></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Zeit Aufstieg (h)</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 5–6"/></div>
+        <div class="field"><label>Zeit Abstieg (h)</label><input name="descentDuration" value="${esc(t.descentDuration||'')}" placeholder="z. B. 3"/></div>
       </div>
       <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" id="tour-link-input" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/>
         <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">🔍 Auf Camptocamp.org suchen</button>
@@ -4125,7 +4137,8 @@ function tourDetailHtml(id){
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
-      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">${t.descentDuration ? 'Zeit Aufstieg' : 'Zeitbedarf'}</div></div>` : ''}
+      ${t.descentDuration ? `<div class="detail-stat"><div class="num">${esc(t.descentDuration)} h</div><div class="lbl">Zeit Abstieg</div></div>` : ''}
       ${t.pitchCount ? `<div class="detail-stat"><div class="num">${esc(t.pitchCount)}</div><div class="lbl">Seillängen</div></div>` : ''}
       ${t.longestPitch ? `<div class="detail-stat"><div class="num">${esc(t.longestPitch)}</div><div class="lbl">Längste SL</div></div>` : ''}
     </div>
@@ -4157,7 +4170,7 @@ function tourDetailHtml(id){
     ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon)}</div>` : ''}
     <div class="detail-section" id="tour-map-section-${t.id}">
       <h4>${fsTourRoutes(t).length ? 'Routen & Standorte' : 'Standort' + (t.points && t.points.length>1?'e':'')}</h4>
-      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${fsRoutesListHtml(t)}
       ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
@@ -4411,7 +4424,7 @@ function hutDetailHtml(id){
     ${(h.points && h.points.length || (h.manualTrack && h.manualTrack.length)) ? `<div class="detail-section">
       <h4>Standort${h.points && h.points.length>1?'e':''}${(h.manualTrack && h.manualTrack.length) ? ' & Linie' : ''}</h4>
       <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Allgemeine Punkte/Linie zur Hütte (z. B. Parkplatz).</p>
-      ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${(h.manualTrack && h.manualTrack.length) ? `<span class="hint">🔴 Rot: selbst eingezeichnet</span>` : ''}
       ${(h.manualTrack && h.manualTrack.length) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(h.manualTrack))}' data-name="${esc(h.name)}">📥 Route als GPX exportieren</button>` : ''}
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${h.id}" data-act="quick-edit-toggle" data-id="${h.id}" data-kind="hut" title="Gedrückt halten, um die Karte zu bearbeiten">Karte bearbeiten</button>
@@ -4983,13 +4996,9 @@ function wireModalHandlers(){
         showToast('Bitte zuerst "🗺️ Karte anzeigen" antippen.', true);
         return;
       }
-      if(gpsWatchId === null){
-        startLiveGpsOnMap(mapInner, offlineId);
-        gpsToggleBtn.textContent = '📍 Standort ausblenden';
-      }else{
-        stopLiveGpsOnMap();
-        gpsToggleBtn.textContent = '📍 Standort auf Karte zeigen';
-      }
+      // Standort nur auf Tipp: einmal orten und auf der Karte zeigen (kein laufender Standort)
+      if(typeof fsSetSheetDetent === 'function' && document.documentElement.classList.contains('fs-ctx-map')) fsSetSheetDetent('peek');
+      fsmLocateOnce(mapInner, gpsToggleBtn);
     }
   });
 

@@ -1701,7 +1701,8 @@ function printTourenzettel(agendaId){
   if(tour){
     if(tour.elevationGain) factRows.push(['Aufstieg', tour.elevationGain + ' Hm']);
     if(tour.elevationLoss) factRows.push([a.type === 'ski' ? 'Abfahrt' : 'Abstieg', tour.elevationLoss + ' Hm']);
-    if(tour.duration) factRows.push(['Zeitbedarf', tour.duration + ' h']);
+    if(tour.duration) factRows.push([tour.descentDuration ? 'Zeit Aufstieg' : 'Zeitbedarf', tour.duration + ' h']);
+    if(tour.descentDuration) factRows.push(['Zeit Abstieg', tour.descentDuration + ' h']);
     if(difficultyLabel) factRows.push(['Schwierigkeit', difficultyLabel]);
     if(tour.crux) factRows.push(['Schlüsselstelle', tour.crux]);
     if((tour.exposition||[]).length) factRows.push(['Exposition', tour.exposition.join(', ')]);
@@ -3003,7 +3004,7 @@ const FS3D_WMTS = (layer, ext)=> new Cesium.UrlTemplateImageryProvider({
   url: 'https://wmts.geo.admin.ch/1.0.0/' + layer + '/default/current/3857/{z}/{x}/{y}.' + ext,
   maximumLevel: 18, credit: '© swisstopo'
 });
-let fs3dLoadPromise = null, fs3dViewer = null, fs3dPanoCleanup = null;
+let fs3dLoadPromise = null, fs3dViewer = null, fs3dPanoCleanup = null, fs3dViewPeaks = null, fs3dGpsStop = null;
 // swisstopo-Namen (3D Tiles von 2018): Die Kacheln geben als Höhenbereich nur den tiefsten Punkt
 // an (z. B. 450 m), die Namen liegen aber bis über 4000 m. Mit diesen Angaben hielt Cesium die
 // Kacheln für weit weg/unsichtbar und lud die Namen in der Nähe nie. Daher den Höhenbereich beim
@@ -3015,10 +3016,18 @@ function fs3dLoadNames(){
     if(r){ r[4] = Math.min(r[4], 190); r[5] = Math.max(r[5], 4800); }
     (n.children || []).forEach(fix);
   };
-  Cesium.Cesium3DTileset.loadJson = (res)=> orig(res).then(j=>{ if(j && j.root) fix(j.root); return j; });
-  const p = Cesium.Cesium3DTileset.fromUrl('https://vectortiles.geo.admin.ch/3d-tiles/ch.swisstopo.swissnames3d.3d/20180716/tileset.json');
-  p.finally(()=>{ Cesium.Cesium3DTileset.loadJson = orig; });
-  return p;
+  // Dauerhaft und nur für die Namen: Die Namen-Kacheln verweisen auf weitere tileset.json-Dateien
+  // (nachgeladen beim Hineinzoomen). Wurde die Korrektur nach dem ersten Laden wieder entfernt,
+  // galten diese tieferen Ebenen als unsichtbar — in der Nähe erschienen darum kaum Namen.
+  if(!Cesium.Cesium3DTileset._fsNamesFix){
+    Cesium.Cesium3DTileset._fsNamesFix = true;
+    Cesium.Cesium3DTileset.loadJson = (res)=> orig(res).then(j=>{
+      const url = String((res && (res.url || res)) || '');
+      if(j && j.root && url.indexOf('swissnames3d') !== -1) fix(j.root);
+      return j;
+    });
+  }
+  return Cesium.Cesium3DTileset.fromUrl('https://vectortiles.geo.admin.ch/3d-tiles/ch.swisstopo.swissnames3d.3d/20180716/tileset.json');
 }
 // Darstellung der swisstopo-Namen in 3D: Gipfel/Pässe/Hütten grösser, Gewässer blau
 const FS3D_NAMES_STYLE = {
@@ -3077,6 +3086,7 @@ function fs3dEnsureCesium(){
   return fs3dLoadPromise;
 }
 function fs3dClose(){
+  if(fs3dGpsStop){ try{ fs3dGpsStop(); }catch(e){} fs3dGpsStop = null; }
   if(fs3dPanoCleanup){ try{ fs3dPanoCleanup(); }catch(e){} fs3dPanoCleanup = null; }
   if(fs3dViewer){ try{ fs3dViewer.destroy(); }catch(e){} fs3dViewer = null; }
   const el = document.getElementById('fs-3d');
@@ -3104,7 +3114,300 @@ function fs3dTourLines(t){
   }
   return out;
 }
+/* ===== 3D mit derselben Karte wie 2D (MapLibre + Gelände) =====
+   Die normale Karte, gekippt, mit Höhenmodell darunter. Beschriftung aus dem swisstopo-Vektorstil
+   («Luftbild + Namen»): gerade stehend, ohne Überlappung, hinter Bergen verdeckt. Ebenen, Standort
+   und SAC-Infos wie auf jeder Karte. Nur «Gipfel ringsum» läuft weiter mit Cesium und dem genauen
+   swisstopo-Gelände (fs3dCesiumOpen). */
+const FS3D_DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+let fs3dMap = null;
 function fsOpen3d(opts){
+  opts = opts || {};
+  if(opts.panorama || fs3dQuality() === 'hi') return fs3dCesiumOpen(opts);
+  return fs3dMlOpen(opts);
+}
+// Zwischen Hoch (Cesium) und Spar (MapLibre) wechseln, gleicher Ausschnitt, gleicher Verlaufseintrag
+function fs3dSwitchQuality(q, view){
+  try{ localStorage.setItem(fs3dQualityKey().key, q); }catch(e){}
+  fs3dClose(); fs3dMlClose(); overlayLayers.pop();
+  const o = Object.assign({}, view, {reuseHistory: true});
+  if(q === 'hi') fs3dCesiumOpen(o); else fs3dMlOpen(o);
+}
+function fs3dQualityKey(){
+  const conn = navigator.connection || navigator.webkitConnection;
+  const cellular = !!(conn && (conn.type === 'cellular' || (!conn.type && conn.saveData)));
+  return {key: cellular ? 'fs-3d-quality-mobil' : 'fs-3d-quality', def: cellular ? 'lo' : 'hi'};
+}
+function fs3dQuality(){ const q = fs3dQualityKey(); try{ return localStorage.getItem(q.key) || q.def; }catch(e){ return q.def; } }
+function fs3dMlClose(){
+  if(fs3dMap){ try{ fs3dMap.remove(); }catch(e){} fs3dMap = null; }
+  const el = document.getElementById('fs-3d');
+  if(el) el.remove();
+}
+function fs3dMlOpen(opts){
+  if(!navigator.onLine){ showToast('3D braucht Internet (Gelände und Luftbild werden live geladen).', true); return; }
+  fs3dClose(); fs3dMlClose();
+  const t = opts.tour || null;
+  const wrap = document.createElement('div');
+  wrap.id = 'fs-3d';
+  wrap.className = 'fs-3d fs-3d-ml';
+  wrap.innerHTML = `
+    <div class="fs-3d-map" id="fs-3d-map"></div>
+    <div class="fs-3d-top">
+      <button type="button" class="fs-3d-btn" data-3d="close" aria-label="Zurück">‹ Zurück</button>
+      <div class="fs-3d-title">${esc(opts.title || (t ? t.name : '3D-Ansicht'))}</div>
+      <button type="button" class="fs-3d-btn fs-3d-searchbtn" data-3d="search" aria-label="Suchen">${fsIconHtml('search')}</button>
+    </div>
+    <div class="fs-3d-actions"${opts.edit ? ' hidden' : ''}>
+      <button type="button" class="fs-3d-chip" data-3d="pano">${fsIconHtml('mountain')}Gipfel ringsum</button>
+    </div>
+    ${opts.edit ? `<div class="fs-3d-edit">
+      <div class="fs-3d-seg fs-3d-emode"><button type="button" data-3d="em-point">Punkt</button><button type="button" data-3d="em-line">Linie</button><button type="button" data-3d="em-route">Route</button><button type="button" data-3d="e-undo" aria-label="Rückgängig">↶</button></div>
+      <div class="fs-3d-ehint" id="fs-3d-ehint"></div>
+    </div>` : ''}
+    <div class="fs-3d-loading" id="fs-3d-loading">3D wird geladen …</div>`;
+  document.body.appendChild(wrap);
+  if(opts.reuseHistory) overlayLayers.push(fs3dMlClose); else pushOverlayLayer(fs3dMlClose);
+  wrap.querySelector('[data-3d="close"]').addEventListener('click', ()=> closeTopOverlayLayer());
+  fsmEnsureLoaded().then(()=>{
+    if(!document.getElementById('fs-3d-map')) return;
+    const quality = 'lo';
+    const map = fsmCreateMap('fs-3d-map', {center:[opts.lat, opts.lon], zoom: Math.max(11, Math.min(15, (opts.zoom || 13) - 0.5)), ctlTop: 64, gpsOnce: true});
+    fs3dMap = map;
+    map.setMaxPitch(80);
+    try{ map.setPixelRatio(1); }catch(e){}
+    fsmWireInfoClicks(map, {sac:{allowAttach:false}});
+    // Ebenen-Fenster: zusätzlich die Auflösung (Hoch = schärfer und feineres Gelände, Spar = weniger Daten)
+    map._fsm.extraPanel = (panel)=>{
+      const q = 'lo';
+      const row = document.createElement('div');
+      row.className = 'fsm-extra';
+      row.innerHTML = `<div class="fsm-extra-label">Auflösung (Hoch = genaues swisstopo-Gelände)</div><div class="fsm-seg"><button type="button" data-q="hi" class="${q==='hi'?'on':''}">Hoch</button><button type="button" data-q="lo" class="${q==='lo'?'on':''}">Spar</button></div>`;
+      row.querySelectorAll('[data-q]').forEach(b=> b.addEventListener('click', ()=>{
+        const nq = b.getAttribute('data-q');
+        if(nq === 'hi'){ const c = map.getCenter(); fs3dSwitchQuality('hi', Object.assign({}, opts, {lat: c.lat, lon: c.lng, zoom: map.getZoom() + 0.5, heading: map.getBearing()})); return; }
+        try{ localStorage.setItem(fs3dQualityKey().key, nq); }catch(e){}
+        fsmSyncPanel(map);
+      }));
+      panel.appendChild(row);
+    };
+    const setDem = (q)=>{
+      try{ map.setTerrain(null); }catch(e){}
+      if(map.getSource('dem')) map.removeSource('dem');
+      map.addSource('dem', {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: q === 'lo' ? 11 : 14, attribution:'Höhen: Mapzen/AWS Terrain Tiles'});
+      map.setTerrain({source:'dem', exaggeration:1});
+    };
+    fsmWhenLoaded(map, ()=>{
+      if(fs3dMap !== map) return;
+      // In 3D immer mit Beschriftung: Luftbild + Namen (die Wahl für 2D bleibt unverändert)
+      if(fsmPrefs().base !== 'hybrid') fsmSetBase(map, 'hybrid', true);
+      setDem(quality);
+      try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
+      // Eigene Linien und Punkte
+      const lines = opts.edit ? [] : (opts.lines || fs3dTourLines(t));
+      const all = [];
+      lines.forEach(ln=>{ if(ln.coords && ln.coords.length > 1){ fsmAddLine(map, ln.coords, {color: ln.color, dash: ln.dash, width: 5}); ln.coords.forEach(c=> all.push(c)); } });
+      const pts = opts.edit ? [] : (opts.points || (t && t.points) || []);
+      pts.forEach(p=>{ fsmAddMarker(map, p.lat, p.lon, fsmCategoryMarkerHtml(p.category), {popup: p.label ? esc(p.label) : '', anchor:'bottom'}); all.push([p.lat, p.lon]); });
+      // Blick: schräg auf alles Eigene, Richtung von der 2D-Karte übernommen, sonst Route Richtung Ziel
+      let bearing = opts.heading || 0;
+      if(!(Math.abs(bearing) > 0.5) && lines.length && lines[0].coords.length > 1){
+        const a = lines[0].coords[0], b = lines[0].coords[lines[0].coords.length - 1];
+        bearing = Math.atan2((b[1]-a[1]) * Math.cos(a[0]*Math.PI/180), b[0]-a[0]) * 180 / Math.PI;
+      }
+      if(all.length > 1){
+        const bb = new maplibregl.LngLatBounds();
+        all.forEach(c=> bb.extend([c[1], c[0]]));
+        const cam = map.cameraForBounds(bb, {padding:{top:140, bottom:120, left:40, right:70}, maxZoom:13.5});
+        if(cam) map.jumpTo({center: cam.center, zoom: cam.zoom - 0.3, bearing, pitch: 62});
+      }else{
+        map.jumpTo({bearing, pitch: 62});
+      }
+      if(opts.edit) fs3dMlWireEdit(map, opts.edit);
+      let searchMarker = null;
+      fs3dWireSearch(wrap, (h)=>{
+        if(searchMarker) searchMarker.remove();
+        searchMarker = fsmAddMarker(map, h.lat, h.lon, fsmCategoryMarkerHtml(''), {popup: '<b>' + esc(h.name) + '</b>', anchor:'bottom'});
+        map.flyTo({center:[h.lon, h.lat], zoom: 12.8, pitch: 62, bearing: map.getBearing(), duration: 1800});
+      });
+      const loading = document.getElementById('fs-3d-loading');
+      map.once('idle', ()=>{ if(loading) loading.remove(); });
+      setTimeout(()=>{ if(loading) loading.remove(); }, 8000);
+    });
+    // «Gipfel ringsum»: Panorama mit dem genauen swisstopo-Gelände (Cesium)
+    wrap.querySelector('[data-3d="pano"]').addEventListener('click', ()=>{
+      const c = map.getCenter();
+      fs3dMlClose();
+      overlayLayers.pop(); // Ebene dieser Ansicht übernimmt das Panorama (gleicher Verlaufseintrag)
+      const back = Object.assign({}, opts, {lat: c.lat, lon: c.lng, zoom: map.getZoom() + 0.5, heading: map.getBearing(), reuseHistory: false});
+      fs3dCesiumOpen({lat: c.lat, lon: c.lng, zoom: map.getZoom(), tour: t, panorama: true, reuseHistory: true, back});
+    });
+  }).catch(()=>{
+    const loading = document.getElementById('fs-3d-loading');
+    if(loading) loading.textContent = '3D konnte nicht geladen werden (keine Internetverbindung?).';
+  });
+}
+// Bearbeiten in 3D: Linie/Route = antippen, Punkt = lange drücken (wie auf der 2D-Karte)
+function fs3dMlWireEdit(map, ed){
+  const wrap = document.getElementById('fs-3d');
+  const hintEl = document.getElementById('fs-3d-ehint');
+  const HINTS = {point: 'Lange drücken setzt einen Punkt, Punkt antippen beschriftet ihn.', line: 'Antippen verlängert die Linie.', route: 'Antippen setzt Wegpunkte. Berechnen danach in 2D.'};
+  map.addSource('fs3d-edit', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+  map.addLayer({id:'fs3d-edit-case', type:'line', source:'fs3d-edit', filter:['==', ['geometry-type'], 'LineString'], layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#fff', 'line-width':8, 'line-opacity':0.8}});
+  map.addLayer({id:'fs3d-edit-line', type:'line', source:'fs3d-edit', filter:['==', ['geometry-type'], 'LineString'], layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':['get','color'], 'line-width':5}});
+  map.addLayer({id:'fs3d-edit-pt', type:'circle', source:'fs3d-edit', filter:['==', ['geometry-type'], 'Point'], paint:{'circle-radius':['get','r'], 'circle-color':['get','color'], 'circle-stroke-color':'#fff', 'circle-stroke-width':2}});
+  // Namen der Punkte: erst wenn die Schrift (vom swisstopo-Stil) bereitsteht
+  const addLabelLayer = ()=>{
+    if(map.getLayer('fs3d-edit-lbl') || !map.getStyle() || !map.getStyle().glyphs) return;
+    try{
+      map.addLayer({id:'fs3d-edit-lbl', type:'symbol', source:'fs3d-edit', filter:['all', ['==', ['geometry-type'], 'Point'], ['has', 'label']],
+        layout:{'text-field':['get','label'], 'text-font':['Frutiger Neue Regular'], 'text-size':14, 'text-offset':[0, -1.4], 'text-anchor':'bottom', 'text-allow-overlap':true},
+        paint:{'text-color':'#fff', 'text-halo-color':'#0F1E27', 'text-halo-width':2}});
+    }catch(e){}
+  };
+  map.on('styledata', addLabelLayer);
+  const draw = ()=>{
+    const f = [];
+    ed.lines().forEach(ln=>{
+      if(!ln.coords || ln.coords.length < 2) return;
+      f.push({type:'Feature', properties:{color: ln.color}, geometry:{type:'LineString', coordinates: ln.coords.map(c=>[c[1], c[0]])}});
+      if(ln.edit) ln.coords.forEach(c=> f.push({type:'Feature', properties:{color: ln.color, r:5}, geometry:{type:'Point', coordinates:[c[1], c[0]]}}));
+    });
+    ed.points().forEach(p=> f.push({type:'Feature', properties: Object.assign({color: p.color || '#4A3524', r:8}, p.label ? {label: p.label} : {}), geometry:{type:'Point', coordinates:[p.lon, p.lat]}}));
+    const src = map.getSource('fs3d-edit');
+    if(src) src.setData({type:'FeatureCollection', features:f});
+    addLabelLayer();
+  };
+  const syncMode = ()=>{
+    const m = ed.getMode();
+    wrap.querySelectorAll('[data-3d^="em-"]').forEach(b=> b.classList.toggle('on', b.getAttribute('data-3d') === 'em-' + m));
+    if(hintEl) hintEl.textContent = HINTS[m] || '';
+  };
+  wrap.querySelectorAll('[data-3d^="em-"]').forEach(b=> b.addEventListener('click', ()=>{ ed.setMode(b.getAttribute('data-3d').slice(3)); syncMode(); }));
+  wrap.querySelector('[data-3d="e-undo"]').addEventListener('click', ()=>{ ed.undo(); draw(); });
+  syncMode(); draw();
+  const openForm = (pt)=>{
+    if(!pt || !ed.form) return;
+    const node = ed.form(pt, ()=>{ if(map._fsm.popup) map._fsm.popup.remove(); draw(); });
+    node.classList.add('fs-3d-ptform');
+    fsmPopup(map, {lng: pt.lon, lat: pt.lat}, node, 14);
+    const inp = node.querySelector('input'); if(inp) setTimeout(()=> inp.focus(), 80);
+  };
+  map.on('click', (e)=>{
+    const m = ed.getMode();
+    if(m === 'point'){
+      // Punkt antippen: beschriften, Art wählen oder entfernen
+      const pts = ed.pointsEditable ? ed.pointsEditable() : [];
+      let best = null, bd = 28;
+      pts.forEach(pt=>{ const sp = map.project([pt.lon, pt.lat]); const d = Math.hypot(sp.x - e.point.x, sp.y - e.point.y); if(d < bd){ bd = d; best = pt; } });
+      if(best) openForm(best);
+      return;
+    }
+    if(m !== 'line' && m !== 'route') return;
+    ed.tap(e.lngLat.lat, e.lngLat.lng); draw();
+  });
+  // Lange drücken (Handy) bzw. Rechtsklick: Punkt setzen, danach gleich beschriften
+  const hold = (ll)=>{ if(ed.getMode() !== 'point') return; const pt = ed.hold(ll.lat, ll.lng); if(navigator.vibrate) try{ navigator.vibrate(30); }catch(e){} draw(); openForm(pt); };
+  map.on('contextmenu', (e)=> hold(e.lngLat));
+  let timer = null, startPt = null;
+  const cancel = ()=>{ if(timer){ clearTimeout(timer); timer = null; } };
+  map.on('touchstart', (e)=>{
+    cancel();
+    if(!e.originalEvent || e.originalEvent.touches.length !== 1) return;
+    startPt = e.point;
+    const ll = e.lngLat;
+    timer = setTimeout(()=>{ timer = null; hold(ll); }, 600);
+  });
+  map.on('touchmove', (e)=>{ if(startPt && (Math.abs(e.point.x - startPt.x) > 10 || Math.abs(e.point.y - startPt.y) > 10)) cancel(); });
+  map.on('touchend', cancel);
+  map.on('movestart', cancel);
+}
+/* ===== Gipfel ringsum: vollständige Gipfelliste =====
+   0-gipfel-ch.json: alle Gipfel, Pässe und Hütten der Schweiz (aus den swisstopo-Vektorkarten,
+   tools/gipfel-ch.py) als [lat·1e5, lon·1e5, Höhe, Art, Name]; Art: g = Gipfel, p = Pass, h = Hütte.
+   Wird erst beim ersten Panorama geladen. */
+let fsPeaksPromise = null;
+function fsPeaksLoad(){
+  if(!fsPeaksPromise){
+    fsPeaksPromise = fetch('./0-gipfel-ch.json').then(r=>{ if(!r.ok) throw new Error('Gipfelliste fehlt'); return r.json(); })
+      .then(j=> (j.p || []).map(a=>({lat: a[0] / 1e5, lon: a[1] / 1e5, ele: a[2], kind: a[3], name: a[4]})))
+      .catch(e=>{ fsPeaksPromise = null; throw e; });
+  }
+  return fsPeaksPromise;
+}
+function fsGeoDist(lat1, lon1, lat2, lon2){
+  const r = Math.PI / 180, x = (lon2 - lon1) * r * Math.cos((lat1 + lat2) / 2 * r), y = (lat2 - lat1) * r;
+  return Math.sqrt(x * x + y * y) * 6371000;
+}
+function fsFmtKm(m){ return m < 1000 ? Math.round(m / 10) * 10 + ' m' : (m < 10000 ? (m / 1000).toFixed(1) : Math.round(m / 1000)) + ' km'; }
+/* ===== Suche in der 3D-Ansicht =====
+   Eigene Touren und Hütten zuerst, dann die swisstopo-Ortssuche (Gipfel, Hütten, Orte, Flurnamen).
+   Auswahl ruft onPick({lat, lon, name, kind}) auf; die Ansicht fliegt dorthin. */
+async function fs3dSearch(q){
+  const ql = q.toLowerCase(), out = [];
+  ((typeof state !== 'undefined' && state.tours) || []).forEach(t=>{
+    const p = tourMapPoint(t);
+    if(p && ((t.name || '') + ' ' + (t.routeName || '')).toLowerCase().includes(ql)) out.push({lat:p.lat, lon:p.lon, name:t.name, kind:'Tour' + (t.routeName ? ' · ' + t.routeName : '')});
+  });
+  ((typeof state !== 'undefined' && state.huts) || []).forEach(h=>{
+    const p = h.points && h.points[0];
+    if(p && (h.name || '').toLowerCase().includes(ql)) out.push({lat:p.lat, lon:p.lon, name:h.name, kind:'Hütte'});
+  });
+  try{
+    const r = await fetch('https://api3.geo.admin.ch/rest/services/api/SearchServer?type=locations&sr=4326&limit=8&searchText=' + encodeURIComponent(q));
+    const j = await r.json();
+    (j.results || []).forEach(x=>{
+      const a = x.attrs || {};
+      if(typeof a.lat !== 'number') return;
+      // label z. B. "<i>Hauptgipfel</i> <b>Blüemlisalp Rothorn</b> (BE) - Kandersteg"
+      const tmp = document.createElement('div'); tmp.innerHTML = a.label || '';
+      const i = tmp.querySelector('i'), b = tmp.querySelector('b');
+      const kind = i ? i.textContent : '', name = b ? b.textContent : tmp.textContent;
+      if(i) i.remove(); if(b) b.remove();
+      const rest = tmp.textContent.replace(/\s+/g, ' ').trim();
+      out.push({lat:a.lat, lon:a.lon, name, kind: [kind, rest].filter(Boolean).join(' · ')});
+    });
+  }catch(e){ if(!out.length) throw e; }
+  return out.slice(0, 12);
+}
+function fs3dWireSearch(wrap, onPick){
+  const btn = wrap.querySelector('[data-3d="search"]');
+  if(!btn) return;
+  const box = document.createElement('div');
+  box.className = 'fs-3d-search';
+  box.hidden = true;
+  box.innerHTML = `<div class="fs-3d-search-row"><input type="search" placeholder="Gipfel, Hütte, Ort oder Tour" enterkeyhint="search" aria-label="Suchen"/><button type="button" class="fs-3d-btn" aria-label="Suche schliessen">×</button></div><div class="fs-3d-search-res"></div>`;
+  wrap.appendChild(box);
+  const input = box.querySelector('input'), res = box.querySelector('.fs-3d-search-res');
+  const close = ()=>{ box.hidden = true; res.innerHTML = ''; input.blur(); };
+  btn.addEventListener('click', ()=>{ box.hidden = !box.hidden; if(!box.hidden) setTimeout(()=> input.focus(), 50); });
+  box.querySelector('button').addEventListener('click', close);
+  let seq = 0, timer = null;
+  const run = async ()=>{
+    const q = input.value.trim();
+    if(q.length < 2){ res.innerHTML = ''; return; }
+    const my = ++seq;
+    res.innerHTML = '<p class="fs-3d-search-msg">Suche …</p>';
+    let hits = [];
+    try{ hits = await fs3dSearch(q); }catch(e){ if(my === seq) res.innerHTML = '<p class="fs-3d-search-msg">Suche braucht Internet.</p>'; return; }
+    if(my !== seq) return;
+    if(!hits.length){ res.innerHTML = '<p class="fs-3d-search-msg">Nichts gefunden.</p>'; return; }
+    res.innerHTML = '';
+    hits.forEach(h=>{
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.innerHTML = '<b></b><span></span>';
+      b.querySelector('b').textContent = h.name;
+      b.querySelector('span').textContent = h.kind || '';
+      b.addEventListener('click', ()=>{ close(); onPick(h); });
+      res.appendChild(b);
+    });
+  };
+  input.addEventListener('input', ()=>{ clearTimeout(timer); timer = setTimeout(run, 300); });
+  input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ e.preventDefault(); clearTimeout(timer); run(); } else if(e.key === 'Escape') close(); });
+  ['pointerdown','touchstart','wheel','click'].forEach(ev=> box.addEventListener(ev, e=> e.stopPropagation()));
+}
+function fs3dCesiumOpen(opts){
   if(!navigator.onLine){ showToast('3D braucht Internet (Gelände und Luftbild werden live geladen).', true); return; }
   fs3dClose();
   const t = opts.tour;
@@ -3115,7 +3418,8 @@ function fsOpen3d(opts){
     <div class="fs-3d-map" id="fs-3d-map"></div>
     <div class="fs-3d-top">
       <button type="button" class="fs-3d-btn" data-3d="close" aria-label="Zurück">‹ Zurück</button>
-      <div class="fs-3d-title">${esc(t ? t.name : '3D-Ansicht')}</div>
+      <div class="fs-3d-title">${esc(opts.title || (t ? t.name : '3D-Ansicht'))}</div>
+      <button type="button" class="fs-3d-btn fs-3d-searchbtn" data-3d="search" aria-label="Suchen">${fsIconHtml('search')}</button>
       <button type="button" class="fs-3d-btn fs-3d-compass" data-3d="north" aria-label="Nach Norden ausrichten"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><g class="fs-3d-needle"><path d="M12 2.5 15.2 12H8.8Z" fill="#E03131"/><path d="M12 21.5 8.8 12h6.4Z" fill="#9AA5AD"/><text x="12" y="11" text-anchor="middle" font-size="5.5" font-weight="800" fill="#fff" font-family="sans-serif">N</text></g></svg></button>
     </div>
     <div class="fs-3d-rot">
@@ -3123,19 +3427,31 @@ function fsOpen3d(opts){
       <button type="button" class="fs-3d-rbtn" data-3d="rot-r" aria-label="Nach rechts drehen">⟳</button>
     </div>
     <div class="fs-3d-panel" id="fs-3d-panel" hidden></div>
-    <div class="fs-3d-chips">
-      <button type="button" class="fs-3d-chip" data-3d="pano">Gipfel ringsum</button>
+    <button type="button" class="fs-3d-btn fs-3d-layers-btn" data-3d="layers" aria-label="Ebenen">${fsIconHtml('layers')}</button>
+    <button type="button" class="fs-3d-btn fs-3d-gps-btn" data-3d="gps" aria-label="Mein Standort">${fsIconHtml('gps')}</button>
+    <div class="fs-3d-actions"${opts.edit ? ' hidden' : ''}>
+      <button type="button" class="fs-3d-chip" data-3d="pano">${fsIconHtml('mountain')}Gipfel ringsum</button>
       <button type="button" class="fs-3d-chip" data-3d="pano-compass" hidden>Kompass folgen</button>
+    </div>
+    <div class="fs-3d-chips fs-3d-layerpanel" hidden>
       <div class="fs-3d-seg"><button type="button" class="on" data-3d="img-luft">Luftbild</button><button type="button" data-3d="img-karte">Karte</button></div>
       <button type="button" class="fs-3d-chip" data-3d="slope">Hangneigung &gt;30°</button>
       <button type="button" class="fs-3d-chip" data-3d="ski">SAC-Skitouren</button>
       <button type="button" class="fs-3d-chip" data-3d="walk">Wanderwege</button>
-      <button type="button" class="fs-3d-chip on" data-3d="names">Namen</button>
+      <button type="button" class="fs-3d-chip on" data-3d="names">Gipfelnamen</button>
+      <div class="fs-3d-plabel">Auflösung</div>
+      <div class="fs-3d-seg" aria-label="Auflösung"><button type="button" data-3d="q-hi">Hoch</button><button type="button" data-3d="q-lo">Spar</button></div>
     </div>
+    ${opts.edit ? `<div class="fs-3d-edit">
+      <div class="fs-3d-seg fs-3d-emode"><button type="button" data-3d="em-point">Punkt</button><button type="button" data-3d="em-line">Linie</button><button type="button" data-3d="em-route">Route</button><button type="button" data-3d="e-undo" aria-label="Rückgängig">↶</button></div>
+      <div class="fs-3d-ehint" id="fs-3d-ehint"></div>
+    </div>` : ''}
     <div class="fs-3d-loading" id="fs-3d-loading">3D wird geladen …</div>`;
   document.body.appendChild(wrap);
-  pushOverlayLayer(fs3dClose);
+  if(opts.reuseHistory) overlayLayers.push(fs3dClose); else pushOverlayLayer(fs3dClose);
   wrap.querySelector('[data-3d="close"]').addEventListener('click', ()=> closeTopOverlayLayer());
+  const layerPanel = wrap.querySelector('.fs-3d-layerpanel');
+  wrap.querySelector('[data-3d="layers"]').addEventListener('click', ()=>{ layerPanel.hidden = !layerPanel.hidden; });
   fs3dEnsureCesium().then(async ()=>{
     if(!document.getElementById('fs-3d-map')) return;
     const terrain = await Cesium.CesiumTerrainProvider.fromUrl('https://3d.geo.admin.ch/ch.swisstopo.terrain.3d/v1/');
@@ -3148,7 +3464,35 @@ function fsOpen3d(opts){
       requestRenderMode:true, maximumRenderTimeChange:Infinity
     });
     fs3dViewer = viewer;
-    viewer.scene.globe.maximumScreenSpaceError = 2;
+    // Auflösung: «Hoch» lädt feinere Kacheln und rechnet mit der vollen Bildschirmauflösung (zuhause im
+    // WLAN), «Spar» lädt gröber und weniger Daten (unterwegs). Wahl bleibt pro Gerät gespeichert.
+    let names = null;
+    // «hi» (3D Hoch, zum Planen): volle Schärfe (höchstens doppelte Auflösung) und feinste Kacheln.
+    // «pano» (Gipfel ringsum): schnell statt scharf — einfache Auflösung, gröbere Kacheln; für die
+    // Silhouette am Horizont und die Sichtprüfung der Gipfel reicht das.
+    const applyQuality = (q)=>{
+      const hi = q === 'hi';
+      const dpr = window.devicePixelRatio || 1;
+      viewer.useBrowserRecommendedResolution = !hi;
+      viewer.resolutionScale = hi ? Math.min(2, dpr) / dpr : 1;
+      viewer.scene.globe.maximumScreenSpaceError = hi ? 1.5 : 6;
+      viewer.scene.globe.tileCacheSize = hi ? 400 : 100;
+      viewer.scene.globe.preloadSiblings = hi;
+      wrap.querySelectorAll('[data-3d^="q-"]').forEach(b=> b.classList.toggle('on', b.getAttribute('data-3d') === 'q-hi'));
+      viewer.scene.requestRender();
+    };
+    // Getrennt gemerkt für WLAN und Mobilnetz; ohne eigene Wahl: im Mobilnetz «Spar».
+    // Ohne Angabe zum Netz (z. B. iPhone) gilt die WLAN-Einstellung.
+    // Cesium = «Hoch» (genaues swisstopo-Gelände); «Spar» wechselt zur leichten 3D-Karte (MapLibre)
+    const quality = 'hi';
+    applyQuality(opts.panorama ? 'pano' : 'hi');
+    wrap.querySelectorAll('[data-3d^="q-"]').forEach(b=> b.addEventListener('click', ()=>{
+      if(b.getAttribute('data-3d') !== 'q-lo') return;
+      const ray = viewer.camera.getPickRay(new Cesium.Cartesian2(viewer.canvas.clientWidth / 2, viewer.canvas.clientHeight / 2));
+      const tg = ray && viewer.scene.globe.pick(ray, viewer.scene);
+      const cg = tg ? Cesium.Cartographic.fromCartesian(tg) : viewer.camera.positionCartographic;
+      fs3dSwitchQuality('lo', Object.assign({}, opts, {panorama: false, lat: Cesium.Math.toDegrees(cg.latitude), lon: Cesium.Math.toDegrees(cg.longitude), zoom: opts.zoom || 13, heading: Cesium.Math.toDegrees(viewer.camera.heading)}));
+    }));
     viewer.scene.screenSpaceCameraController.minimumZoomDistance = 150;
     viewer.scene.globe.depthTestAgainstTerrain = true;
     const layers = viewer.imageryLayers;
@@ -3167,20 +3511,25 @@ function fsOpen3d(opts){
     wrap.querySelector('[data-3d="ski"]').addEventListener('click', (e)=>{ ski.show = !ski.show; e.currentTarget.classList.toggle('on', ski.show); rerender(); });
     // Namen (Gipfel, Pässe, Orte, Hütten, Seen) — offizielle 3D-Namensebene von swisstopo, wie in
     // der 3D-Ansicht von map.geo.admin.ch. Standardmässig an; Fehler beim Laden blenden nur den Schalter aus.
-    let names = null;
     const namesBtn = wrap.querySelector('[data-3d="names"]');
     fs3dLoadNames().then(ts=>{
       if(fs3dViewer !== viewer) return;
       names = ts;
       ts.style = new Cesium.Cesium3DTileStyle(FS3D_NAMES_STYLE);
-      ts.maximumScreenSpaceError = 4;
+      ts.maximumScreenSpaceError = 6;
+      ts.show = false; // ersetzt durch die eigenen Gipfelnamen (siehe peaksStart)
       viewer.scene.primitives.add(ts);
       rerender();
-    }).catch(()=>{ namesBtn.style.display = 'none'; });
-    namesBtn.addEventListener('click', ()=>{ if(!names) return; names.show = !names.show; namesBtn.classList.toggle('on', names.show); rerender(); });
+    }).catch(()=>{});
+    let peaksHidden = false;
+    namesBtn.addEventListener('click', ()=>{
+      peaksHidden = !peaksHidden;
+      namesBtn.classList.toggle('on', !peaksHidden);
+      if(typeof panoPeaksSchedule === 'function') panoPeaksSchedule();
+    });
     wrap.querySelector('[data-3d="walk"]').addEventListener('click', (e)=>{ walk.show = !walk.show; e.currentTarget.classList.toggle('on', walk.show); rerender(); });
     // Eigene Linien leicht über dem Gelände (Höhen aus dem Modell), damit sie durchgehend sichtbar sind
-    const lines = fs3dTourLines(t);
+    const lines = opts.edit ? [] : (opts.lines || fs3dTourLines(t));
     const allPts = [];
     for(const ln of lines){
       const carto = ln.coords.map(c=> Cesium.Cartographic.fromDegrees(c[1], c[0]));
@@ -3192,7 +3541,7 @@ function fsOpen3d(opts){
         : new Cesium.PolylineOutlineMaterialProperty({color: Cesium.Color.fromCssColorString(ln.color), outlineColor: Cesium.Color.WHITE, outlineWidth:1.5})}});
       positions.forEach(p=> allPts.push(p));
     }
-    (t && t.points || []).forEach(p=>{
+    (opts.edit ? [] : (opts.points || (t && t.points) || [])).forEach(p=>{
       viewer.entities.add({position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat), point:{pixelSize:12, color:Cesium.Color.fromCssColorString('#4A3524'), outlineColor:Cesium.Color.WHITE, outlineWidth:2, heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY},
         label: p.label ? {text:p.label, font:'600 13px sans-serif', fillColor:Cesium.Color.WHITE, outlineColor:Cesium.Color.BLACK, outlineWidth:3, style:Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset:new Cesium.Cartesian2(0,-18), heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY} : undefined});
       allPts.push(Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 3000));
@@ -3252,8 +3601,94 @@ function fsOpen3d(opts){
       panel.hidden = false;
     };
     const fakePopup = { setContent: (node)=>{ const old = panel.querySelector('.fs-sac-pop'); if(old) old.replaceWith(node); } };
+    const pickLatLon = (screenPos)=>{
+      const ray = viewer.camera.getPickRay(screenPos);
+      const pos = ray && viewer.scene.globe.pick(ray, viewer.scene);
+      if(!pos) return null;
+      const cg = Cesium.Cartographic.fromCartesian(pos);
+      return {lat: Cesium.Math.toDegrees(cg.latitude), lon: Cesium.Math.toDegrees(cg.longitude)};
+    };
+    // Bearbeiten in 3D: Linie/Route = antippen, Punkt = lange drücken (wie auf der 2D-Karte)
+    if(opts.edit){
+      const ed = opts.edit;
+      const eds = new Cesium.CustomDataSource('edit'); viewer.dataSources.add(eds);
+      const hintEl = document.getElementById('fs-3d-ehint');
+      const HINTS = {point: 'Lange drücken setzt einen Punkt, Punkt antippen beschriftet ihn.', line: 'Antippen verlängert die Linie.', route: 'Antippen setzt Wegpunkte. Berechnen danach in 2D.'};
+      const drawEdit = ()=>{
+        eds.entities.removeAll();
+        ed.lines().forEach(ln=>{
+          if(!ln.coords || ln.coords.length < 2) return;
+          const col = Cesium.Color.fromCssColorString(ln.color);
+          eds.entities.add({polyline:{positions: Cesium.Cartesian3.fromDegreesArray(ln.coords.flatMap(c=>[c[1], c[0]])), width: ln.edit ? 6 : 4, clampToGround:true,
+            material: ln.dash ? new Cesium.PolylineDashMaterialProperty({color: col, dashLength:16}) : new Cesium.PolylineOutlineMaterialProperty({color: col, outlineColor: Cesium.Color.WHITE, outlineWidth:1.5})}});
+          if(ln.edit) ln.coords.forEach(c=> eds.entities.add({position: Cesium.Cartesian3.fromDegrees(c[1], c[0]), point:{pixelSize:9, color: col, outlineColor: Cesium.Color.WHITE, outlineWidth:2, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: 1e9}}));
+        });
+        ed.points().forEach(p=> eds.entities.add({position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat), point:{pixelSize:13, color: Cesium.Color.fromCssColorString(p.color || '#4A3524'), outlineColor: Cesium.Color.WHITE, outlineWidth:2, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: 1e9},
+          label: p.label ? {text: p.label, font:'600 13px sans-serif', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK, outlineWidth:3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0,-18), heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: 1e9} : undefined}));
+        rerender();
+      };
+      const syncMode = ()=>{
+        const m = ed.getMode();
+        wrap.querySelectorAll('[data-3d^="em-"]').forEach(b=> b.classList.toggle('on', b.getAttribute('data-3d') === 'em-' + m));
+        if(hintEl) hintEl.textContent = HINTS[m] || '';
+      };
+      wrap.querySelectorAll('[data-3d^="em-"]').forEach(b=> b.addEventListener('click', ()=>{ ed.setMode(b.getAttribute('data-3d').slice(3)); syncMode(); }));
+      wrap.querySelector('[data-3d="e-undo"]').addEventListener('click', ()=>{ ed.undo(); drawEdit(); });
+      syncMode();
+      drawEdit();
+      // Formular für einen Punkt im Fenster unten (wie auf der 2D-Karte)
+      const openPtForm = (pt)=>{
+        if(!pt || !ed.form) return;
+        const node = ed.form(pt, ()=>{ closePanel(); drawEdit(); });
+        node.classList.add('fs-3d-ptform');
+        showPanel(node);
+        const inp = node.querySelector('input'); if(inp) setTimeout(()=> inp.focus(), 80);
+      };
+      // Höhe eines Punkts für die Bildschirmlage (aus dem geladenen Gelände)
+      const pickHeight = (pt)=>{ const h = viewer.scene.globe.getHeight(Cesium.Cartographic.fromDegrees(pt.lon, pt.lat)); return h || 0; };
+      const eh = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+      let holdTimer = null, downAt = null;
+      const cancelHold = ()=>{ if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; } };
+      eh.setInputAction((ev)=>{
+        downAt = Cesium.Cartesian2.clone(ev.position);
+        cancelHold();
+        if(ed.getMode() !== 'point') return;
+        holdTimer = setTimeout(()=>{
+          holdTimer = null;
+          const ll = pickLatLon(downAt);
+          if(!ll) return;
+          const pt = ed.hold(ll.lat, ll.lon);
+          if(navigator.vibrate) try{ navigator.vibrate(30); }catch(e){}
+          drawEdit();
+          openPtForm(pt);
+        }, 600);
+      }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
+      eh.setInputAction((ev)=>{ if(downAt && Cesium.Cartesian2.distance(downAt, ev.endPosition) > 10) cancelHold(); }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+      eh.setInputAction(cancelHold, Cesium.ScreenSpaceEventType.LEFT_UP);
+      eh.setInputAction(cancelHold, Cesium.ScreenSpaceEventType.PINCH_START);
+      eh.setInputAction((ev)=>{
+        const m = ed.getMode();
+        if(m === 'point'){
+          // Punkt antippen: beschriften, Art wählen oder entfernen
+          const pts = ed.pointsEditable ? ed.pointsEditable() : [];
+          let best = null, bd = 28;
+          pts.forEach(pt=>{
+            const sp = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, pickHeight(pt)));
+            if(sp){ const d = Math.hypot(sp.x - ev.position.x, sp.y - ev.position.y); if(d < bd){ bd = d; best = pt; } }
+          });
+          if(best) openPtForm(best);
+          return;
+        }
+        if(m !== 'line' && m !== 'route') return;
+        const ll = pickLatLon(ev.position);
+        if(!ll) return;
+        ed.tap(ll.lat, ll.lon);
+        drawEdit();
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    }
     new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas).setInputAction(async (ev)=>{
       if(!ski.show){ return; }
+      if(opts.edit && opts.edit.getMode() !== 'point') return;
       const ray = viewer.camera.getPickRay(ev.position);
       const pos = ray && viewer.scene.globe.pick(ray, viewer.scene);
       if(!pos){ closePanel(); return; }
@@ -3339,8 +3774,10 @@ function fsOpen3d(opts){
     // Gesten im Panorama: 1 Finger dreht den Blick, 2 Finger zoomen (Blickwinkel)
     const pointers = new Map();
     let pinch = null;
+    let tapStart = null;
     const onDown = (e)=>{
       if(!pano) return;
+      tapStart = pointers.size === 0 ? {x:e.clientX, y:e.clientY, t:Date.now(), moved:false} : null;
       pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
       try{ mapEl.setPointerCapture(e.pointerId); }catch(err){}
       if(pointers.size === 2){
@@ -3352,6 +3789,7 @@ function fsOpen3d(opts){
       if(!pano || !pointers.has(e.pointerId)) return;
       const prev = pointers.get(e.pointerId);
       pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+      if(tapStart && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) > 8) tapStart.moved = true;
       const fovDeg = viewer.camera.frustum.fov * 180 / Math.PI;
       const span = Math.max(mapEl.clientWidth, mapEl.clientHeight);
       if(pointers.size === 1){
@@ -3365,7 +3803,15 @@ function fsOpen3d(opts){
         if(d > 10){ viewer.camera.frustum.fov = Math.max(deg(12), Math.min(deg(90), pinch.fov * pinch.d / d)); rerender(); }
       }
     };
-    const onUp = (e)=>{ pointers.delete(e.pointerId); if(pointers.size < 2) pinch = null; };
+    const onUp = (e)=>{
+      pointers.delete(e.pointerId);
+      if(pointers.size < 2) pinch = null;
+      if(tapStart && !tapStart.moved && pointers.size === 0 && Date.now() - tapStart.t < 450){
+        const r = mapEl.getBoundingClientRect();
+        panoTap(e.clientX - r.left, e.clientY - r.top);
+      }
+      tapStart = null;
+    };
     const onWheel = (e)=>{
       if(!pano) return;
       e.preventDefault();
@@ -3377,6 +3823,113 @@ function fsOpen3d(opts){
     mapEl.addEventListener('pointerup', onUp);
     mapEl.addEventListener('pointercancel', onUp);
     mapEl.addEventListener('wheel', onWheel, {passive:false});
+    // ===== Gipfelnamen im Panorama =====
+    // Alle Gipfel/Pässe/Hütten im Umkreis als Schilder. Nach jeder Drehung (gedrosselt): nur was
+    // wirklich zu sehen ist (Strahl von der Kamera zum Gipfel trifft nicht vorher das Gelände) und was
+    // sich nicht überlappt — wichtigere (höher, näher) zuerst. Antippen zeigt Name, Höhe, Entfernung.
+    let peakLabels = null, peakList = [], peakTimer = null, peakPos = null;
+    const PEAK_RANGE = {g: 80000, p: 20000, h: 25000};
+    const peakPrio = (pk)=> (pk.kind === 'g' ? 0 : 1500) - pk.ele + pk.dist / 25;
+    const panoPeaksUpdate = ()=>{
+      peakTimer = null;
+      if(!peakLabels) return;
+      const scene = viewer.scene, cam = viewer.camera, w = viewer.canvas.clientWidth, h = viewer.canvas.clientHeight;
+      const boxes = [];
+      // Rangfolge nach Höhe und Abstand zur Kamera: nahe, hohe Gipfel zuerst
+      peakList.forEach(pk=>{ pk.camDist = Cesium.Cartesian3.distance(cam.positionWC, pk.pos); pk.prio = (pk.kind === 'g' ? 0 : 1500) - pk.ele + pk.camDist / 25; });
+      const order = peakList.slice().sort((a, b)=> a.prio - b.prio);
+      let shown = 0;
+      for(const pk of order){
+        pk.label.show = false; pk.dot.show = false; pk.vis = false;
+        if(shown >= 40 || peaksHidden) continue;
+        const sp = Cesium.SceneTransforms.worldToWindowCoordinates ? Cesium.SceneTransforms.worldToWindowCoordinates(scene, pk.pos) : Cesium.SceneTransforms.wgs84ToWindowCoordinates(scene, pk.pos);
+        if(!sp || sp.x < 10 || sp.x > w - 10 || sp.y < 120 || sp.y > h - 20) continue; // nicht unter die Leisten
+        // Liegt der Gipfel vor der Kamera? (Richtung zum Gipfel vs. Blickrichtung)
+        const toPk = Cesium.Cartesian3.subtract(pk.pos, cam.positionWC, new Cesium.Cartesian3());
+        if(Cesium.Cartesian3.dot(toPk, cam.directionWC) <= 0) continue;
+        // Sichtbar? Strahl knapp über den Gipfel: trifft er vorher das Gelände (ein Grat davor), ist der
+        // Gipfel verdeckt; sonst geht er in den Himmel oder auf Berge dahinter.
+        const ray = cam.getPickRay(new Cesium.Cartesian2(sp.x, sp.y - 4));
+        const hit = ray && scene.globe.pick(ray, scene);
+        const dist3 = pk.camDist;
+        if(hit && Cesium.Cartesian3.distance(cam.positionWC, hit) < dist3 * 0.92 - 80) continue;
+        // Überlappt das Schild ein wichtigeres, weicht es bis zu drei Zeilen nach oben aus
+        const tw = pk.name.length * 7.4 + 14, th = 34;
+        let placed = null;
+        for(const up of [0, 36, 72, 108]){
+          const box = {x0: sp.x - tw / 2, x1: sp.x + tw / 2, y0: sp.y - th - 8 - up, y1: sp.y + 4 - up};
+          if(!boxes.some(b=> b.x0 < box.x1 && box.x0 < b.x1 && b.y0 < box.y1 && box.y0 < b.y1)){ placed = {box, up}; break; }
+        }
+        if(!placed) continue;
+        boxes.push(placed.box);
+        pk.label.pixelOffset = new Cesium.Cartesian2(0, -8 - placed.up);
+        pk.label.show = true; pk.dot.show = true; pk.vis = true; pk.sp = {x: sp.x, y: sp.y - placed.up}; shown++;
+      }
+      viewer.scene.requestRender();
+    };
+    const panoPeaksSchedule = ()=>{ if(!peakTimer) peakTimer = setTimeout(panoPeaksUpdate, 140); };
+    // range: Umkreis je Art (Panorama weiter als die Ansicht von oben)
+    const panoPeaksStart = async (pos, groundH, range)=>{
+      peakPos = pos;
+      let all = [];
+      try{ all = await fsPeaksLoad(); }catch(e){ showToast('Gipfelliste konnte nicht geladen werden.', true); return; }
+      if(fs3dViewer !== viewer || peakLabels) return;
+      range = range || PEAK_RANGE;
+      peakLabels = viewer.scene.primitives.add(new Cesium.LabelCollection());
+      const dots = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+      peakLabels._fsDots = dots;
+      peakList = [];
+      all.forEach(pk=>{
+        const d = fsGeoDist(pos.lat, pos.lon, pk.lat, pk.lon);
+        if(d > (range[pk.kind] || 20000) || d < 30 || !pk.name) return;
+        const p3 = Cesium.Cartesian3.fromDegrees(pk.lon, pk.lat, (pk.ele || 0) + 4);
+        const o = Object.assign({}, pk, {dist: d, pos: p3});
+        o.prio = peakPrio(o);
+        o.label = peakLabels.add({position: p3, text: pk.name + (pk.ele ? '\n' + Math.round(pk.ele) : ''), show:false,
+          font: (pk.kind === 'g' ? '700 ' : '600 ') + '14px Manrope, sans-serif', fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.fromCssColorString('#0F1E27'), outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM, horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+          pixelOffset: new Cesium.Cartesian2(0, -8), disableDepthTestDistance: Number.POSITIVE_INFINITY});
+        o.dot = dots.add({position: p3, pixelSize: 6, color: Cesium.Color.WHITE, outlineColor: Cesium.Color.fromCssColorString('#0F1E27'), outlineWidth: 1.5, show:false, disableDepthTestDistance: Number.POSITIVE_INFINITY});
+        peakList.push(o);
+      });
+      viewer.camera.changed.addEventListener(panoPeaksSchedule);
+      viewer.camera.percentageChanged = 0.01;
+      viewer.scene.globe.tileLoadProgressEvent.addEventListener(panoPeaksSchedule);
+      panoPeaksSchedule();
+    };
+    const panoPeaksStop = ()=>{
+      if(peakTimer){ clearTimeout(peakTimer); peakTimer = null; }
+      try{ viewer.camera.changed.removeEventListener(panoPeaksSchedule); }catch(e){}
+      try{ viewer.scene.globe.tileLoadProgressEvent.removeEventListener(panoPeaksSchedule); }catch(e){}
+      if(peakLabels){ try{ viewer.scene.primitives.remove(peakLabels._fsDots); viewer.scene.primitives.remove(peakLabels); }catch(e){} }
+      peakLabels = null; peakList = [];
+      if(panel.querySelector('.fs-pano-info')) closePanel(); // nur Gipfel-Infos schliessen, kein Punkt-Formular
+    };
+    // Antippen: nächstes Schild in der Nähe, sonst der angetippte Punkt im Gelände
+    const panoTap = (x, y)=>{
+      let best = null, bd = 44;
+      peakList.forEach(pk=>{ if(pk.vis && pk.sp){ const d = Math.hypot(pk.sp.x - x, pk.sp.y - 10 - y); if(d < bd){ bd = d; best = pk; } } });
+      const node = document.createElement('div');
+      node.className = 'fs-pano-info';
+      if(best){
+        node.innerHTML = `<b>${esc(best.name)}</b><span>${best.ele ? Math.round(best.ele) + ' m · ' : ''}${fsFmtKm(best.dist)} entfernt</span>`;
+      }else{
+        const ray = viewer.camera.getPickRay(new Cesium.Cartesian2(x, y));
+        const hit = ray && viewer.scene.globe.pick(ray, viewer.scene);
+        if(!hit) return;
+        const cg = Cesium.Cartographic.fromCartesian(hit);
+        const lat = Cesium.Math.toDegrees(cg.latitude), lon = Cesium.Math.toDegrees(cg.longitude);
+        // Benannter Gipfel/Pass in der Nähe des angetippten Punkts (auch wenn sein Schild ausgeblendet ist)
+        let near = null, nd = 400;
+        peakList.forEach(pk=>{ const d = fsGeoDist(lat, lon, pk.lat, pk.lon); if(d < nd){ nd = d; near = pk; } });
+        const dist = peakPos ? fsGeoDist(peakPos.lat, peakPos.lon, lat, lon) : 0;
+        node.innerHTML = near
+          ? `<b>${esc(near.name)}</b><span>${near.ele ? Math.round(near.ele) + ' m · ' : ''}${fsFmtKm(near.dist)} entfernt</span>`
+          : `<b>Ohne Namen</b><span>${Math.round(cg.height)} m ü. M. · ${fsFmtKm(dist)} entfernt</span>`;
+      }
+      showPanel(node);
+    };
     const panoStop = ()=>{
       if(!pano) return;
       const saved = pano.saved;
@@ -3391,7 +3944,10 @@ function fsOpen3d(opts){
       viewer.scene.fog.enabled = saved.fog;
       viewer.camera.frustum.fov = saved.fov;
       if(names){ names.style = new Cesium.Cesium3DTileStyle(FS3D_NAMES_STYLE); names.show = saved.namesShow; }
+      panoPeaksStop();
+      applyQuality('hi');
       viewer.camera.setView({destination: saved.position, orientation:{heading: saved.heading, pitch: saved.pitch, roll:0}});
+      setTimeout(()=>{ if(fs3dViewPeaks) fs3dViewPeaks(); }, 300);
       rerender();
     };
     const panoStart = async ()=>{
@@ -3426,8 +3982,11 @@ function fsOpen3d(opts){
       ctrl.enableInputs = false;
       viewer.scene.fog.enabled = false; // sonst verschwinden ferne Berge im Dunst
       cam.frustum.fov = deg(70);
-      if(names){ names.style = new Cesium.Cesium3DTileStyle(FS3D_NAMES_PANO_STYLE); names.show = true; namesBtn.classList.add('on'); }
+      if(names) names.show = false; // eigene, vollständige Gipfelnamen (siehe panoPeaksStart)
+      applyQuality('pano');
       panoApply();
+      panoPeaksStop();
+      panoPeaksStart(pos, groundH);
       let seenPano = false; try{ seenPano = localStorage.getItem('fs-3d-pano-hint') === '1'; }catch(e){}
       if(!seenPano){
         const ph = document.createElement('div');
@@ -3437,13 +3996,85 @@ function fsOpen3d(opts){
         wrap.appendChild(ph);
       }
     };
-    panoBtn.addEventListener('click', ()=>{ if(pano) panoStop(); else panoStart(); });
+    panoBtn.addEventListener('click', ()=>{
+      if(pano && opts.panorama){
+        // Aus der 3D-Karte geöffnet: zurück dorthin (gleicher Verlaufseintrag)
+        const back = opts.back || {lat: opts.lat, lon: opts.lon, zoom: opts.zoom, tour: opts.tour};
+        stopCompass(); fs3dClose(); overlayLayers.pop();
+        fs3dMlOpen(Object.assign({}, back, {reuseHistory: true}));
+        return;
+      }
+      if(pano) panoStop(); else panoStart();
+    });
     compassBtn.addEventListener('click', ()=> panoSetFollow(!(pano && pano.follow)));
     // Beim Schliessen der 3D-Ansicht den Sensor wieder abmelden
     const closeBtn3d = wrap.querySelector('[data-3d="close"]');
     if(closeBtn3d) closeBtn3d.addEventListener('click', stopCompass);
     fs3dPanoCleanup = stopCompass;
     if(opts.panorama) panoStart();
+    // Gipfelnamen in der Ansicht von oben: um die Bildmitte, nach grösseren Verschiebungen neu
+    const VIEW_RANGE = {g: 40000, p: 14000, h: 16000};
+    const viewPeaks = ()=>{
+      if(pano || fs3dViewer !== viewer) return;
+      // Mittelpunkt: der Ort unter der Kamera (unabhängig davon, ob das Gelände schon geladen ist)
+      const cg = viewer.camera.positionCartographic;
+      const c = {lat: Cesium.Math.toDegrees(cg.latitude), lon: Cesium.Math.toDegrees(cg.longitude)};
+      if(peakLabels && peakPos && fsGeoDist(c.lat, c.lon, peakPos.lat, peakPos.lon) < 8000){ panoPeaksSchedule(); return; }
+      panoPeaksStop();
+      panoPeaksStart(c, 0, VIEW_RANGE);
+    };
+    fs3dViewPeaks = viewPeaks;
+    if(!opts.panorama){
+      setTimeout(viewPeaks, 1200);
+      viewer.camera.moveEnd.addEventListener(viewPeaks);
+    }
+    // Suche: hinfliegen, Ziel markieren (Höhe aus dem Gelände)
+    const searchHl = new Cesium.CustomDataSource('suche'); viewer.dataSources.add(searchHl);
+    fs3dWireSearch(wrap, async (h)=>{
+      if(pano) panoStop();
+      let height = 0;
+      try{ const [c] = await Cesium.sampleTerrainMostDetailed(terrain, [Cesium.Cartographic.fromDegrees(h.lon, h.lat)]); height = c.height || 0; }catch(e){}
+      if(fs3dViewer !== viewer) return;
+      searchHl.entities.removeAll();
+      const pos = Cesium.Cartesian3.fromDegrees(h.lon, h.lat, height + 4);
+      searchHl.entities.add({position: pos, point:{pixelSize:14, color: Cesium.Color.fromCssColorString('#D9480F'), outlineColor: Cesium.Color.WHITE, outlineWidth:3, disableDepthTestDistance: Number.POSITIVE_INFINITY},
+        label:{text: h.name, font:'700 15px Manrope, sans-serif', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.fromCssColorString('#0F1E27'), outlineWidth:3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -14), disableDepthTestDistance: Number.POSITIVE_INFINITY}});
+      viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(pos, 1), {duration: 2, offset: new Cesium.HeadingPitchRange(viewer.camera.heading, Cesium.Math.toRadians(-28), 5500)});
+    });
+    // Mein Standort: einmal orten, hinfliegen, blauen Punkt setzen (kein laufender Standort, spart Akku)
+    const gpsBtn = wrap.querySelector('[data-3d="gps"]');
+    const gpsDs = new Cesium.CustomDataSource('standort'); viewer.dataSources.add(gpsDs);
+    fs3dGpsStop = null;
+    gpsBtn.addEventListener('click', ()=>{
+      if(!navigator.geolocation){ showToast('Standort ist auf diesem Gerät nicht verfügbar.', true); return; }
+      gpsBtn.classList.add('on');
+      navigator.geolocation.getCurrentPosition(async (p)=>{
+        if(fs3dViewer !== viewer) return;
+        const lat = p.coords.latitude, lon = p.coords.longitude;
+        let height = 0;
+        try{ const [c] = await Cesium.sampleTerrainMostDetailed(terrain, [Cesium.Cartographic.fromDegrees(lon, lat)]); height = c.height || 0; }catch(e){}
+        gpsBtn.classList.remove('on');
+        if(fs3dViewer !== viewer) return;
+        const pos = Cesium.Cartesian3.fromDegrees(lon, lat, height + 3);
+        gpsDs.entities.removeAll();
+        gpsDs.entities.add({position: pos, point:{pixelSize:16, color: Cesium.Color.fromCssColorString('#1971C2'), outlineColor: Cesium.Color.WHITE, outlineWidth:3, disableDepthTestDistance: Number.POSITIVE_INFINITY}});
+        if(pano) panoStop();
+        viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(pos, 1), {duration: 1.6, offset: new Cesium.HeadingPitchRange(viewer.camera.heading, Cesium.Math.toRadians(-32), 3500)});
+      }, ()=>{ gpsBtn.classList.remove('on'); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
+    });
+    // Tipp in die Ansicht schliesst das Ebenen-Fenster
+    viewer.scene.canvas.addEventListener('pointerdown', ()=>{ if(!layerPanel.hidden) layerPanel.hidden = true; });
+    // Schild antippen (ausserhalb des Panoramas): Name und Höhe
+    new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas).setInputAction((ev)=>{
+      if(pano || opts.edit) return; // beim Bearbeiten gehören Tipps dem Bearbeiten
+      let best = null, bd = 40;
+      peakList.forEach(pk=>{ if(pk.vis && pk.sp){ const d = Math.hypot(pk.sp.x - ev.position.x, pk.sp.y - 10 - ev.position.y); if(d < bd){ bd = d; best = pk; } } });
+      if(!best) return;
+      const node = document.createElement('div');
+      node.className = 'fs-pano-info';
+      node.innerHTML = `<b>${esc(best.name)}</b><span>${best.kind === 'p' ? 'Pass · ' : best.kind === 'h' ? 'Hütte · ' : ''}${best.ele ? Math.round(best.ele) + ' m ü. M.' : ''}</span>`;
+      setTimeout(()=> showPanel(node), 0);
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
     // Einmaliger Hinweis zur Bedienung
     let seen = false; try{ seen = localStorage.getItem('fs-3d-hint') === '1'; }catch(e){}
     if(!seen){
@@ -4882,7 +5513,10 @@ function fsmCreateMap(container, opts){
     maxPitch: 60, attributionControl: {compact: true}, dragRotate: true, touchPitch: true,
     maxBounds: [[3, 43.5], [13.5, 49.5]]
   });
-  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0};
+  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0, gpsOnce: !!opts.gpsOnce};
+  // Tipp in die Karte schliesst das Ebenen-Fenster
+  map.on('click', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) map._fsm.panel.hidden = true; });
+  map.on('dragstart', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) map._fsm.panel.hidden = true; });
   map.once('load', ()=>{ map._fsmLoaded = true; fsmApplyPrefs(map); });
   if(opts.controls !== false) fsmAddControls(map);
   return map;
@@ -4895,6 +5529,7 @@ function fsmApplyPrefs(map){
 }
 function fsmSetBase(map, base, silent){
   if(!map._fsmLoaded) return;
+  map._fsm.base = base;
   const luft = base === 'luftbild' || base === 'hybrid';
   map.setLayoutProperty('base-karte', 'visibility', luft ? 'none' : 'visible');
   map.setLayoutProperty('base-luftbild', 'visibility', luft ? 'visible' : 'none');
@@ -4922,7 +5557,7 @@ async function fsmSetNames(map, on){
       const nl = Object.assign({}, l, {id:'n-' + l.id, source:'n-' + l.source});
       try{ map.addLayer(nl, 'fsm-anchor-own'); st.namesLayers.push(nl.id); }catch(e){}
     });
-    if(fsmPrefs().base !== 'hybrid') fsmSetNames(map, false);
+    if((st.base || fsmPrefs().base) !== 'hybrid') fsmSetNames(map, false);
   }catch(e){
     showToast('Namen über dem Luftbild brauchen Internet.', true);
   }
@@ -4969,6 +5604,20 @@ async function fsmLoadSlf(map, lid){
   }
 }
 // Knöpfe oben rechts: Ebenen, Kompass (nur wenn gedreht/gekippt), 3D
+// Standort nur auf Tipp: einmal orten, hinfliegen, blauen Punkt setzen — kein laufender Standort (Akku)
+function fsmLocateOnce(map, btn){
+  if(map && map._ml) map = map._ml; // FL-Karte: die MapLibre-Karte darunter
+  if(!map || !map._fsm) return;
+  if(!navigator.geolocation){ showToast('Standort ist auf diesem Gerät nicht verfügbar.', true); return; }
+  if(btn) btn.classList.add('busy');
+  navigator.geolocation.getCurrentPosition((p)=>{
+    if(btn) btn.classList.remove('busy');
+    const ll = [p.coords.longitude, p.coords.latitude];
+    if(map._fsmOnceMarker) map._fsmOnceMarker.setLngLat(ll);
+    else{ const el = document.createElement('div'); el.className = 'fsm-gps'; map._fsmOnceMarker = new maplibregl.Marker({element: el}).setLngLat(ll).addTo(map); }
+    map.flyTo({center: ll, zoom: Math.max(map.getZoom(), 13.5), duration: 1400});
+  }, ()=>{ if(btn) btn.classList.remove('busy'); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
+}
 function fsmAddControls(map){
   const box = document.createElement('div');
   box.className = 'fsm-ctlbox';
@@ -4995,6 +5644,8 @@ function fsmAddControls(map){
   const gpsBtn = box.querySelector('[data-fsm="gps"]');
   gpsBtn.classList.toggle('on', !!(gpsMarker && gpsMarker._fsmMap === map));
   gpsBtn.addEventListener('click', ()=>{
+    fsmLocateOnce(map, gpsBtn);
+    return;
     if(gpsWatchId !== null && gpsMarker && gpsMarker._fsmMap === map){
       // Läuft schon: erst zum Standort springen, beim zweiten Tippen ausschalten
       const ll = gpsMarker.getLngLat();
@@ -5022,10 +5673,12 @@ function fsmSyncPanel(map){
   const panel = map._fsm && map._fsm.panel;
   if(!panel || panel.hidden) return;
   const p = fsmPrefs();
-  panel.innerHTML = `<div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${p.base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
+  const base = map._fsm.base || p.base;
+  panel.innerHTML = `<div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
     ${fsmOverlaysForApp().map(o=>`<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`).join('')}`;
   panel.querySelectorAll('[data-base]').forEach(b=> b.addEventListener('click', ()=> fsmSetBase(map, b.getAttribute('data-base'))));
   panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=> fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked)));
+  if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
 }
 /* --- Eigene Inhalte --- */
 // Linie mit weissem Rand. coords: [[lat,lon],…]. opts: {color, dash, width, label, onClick}
@@ -6402,6 +7055,40 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     routeMetaEl.style.display = 'none';
     wrapDiv.appendChild(routeMetaEl);
 
+    // Vollbild: Karte über die ganze Fläche, Bedienung schwebt oben/unten darüber, Hinweise
+    // zugeklappt — sonst blieb wegen der Meldungen nur etwa die halbe Höhe für die Karte.
+    let fsPeTop = null;
+    if(isFullscreen){
+      wrapDiv.style.cssText = 'position:relative; height:100%; overflow:hidden;';
+      mapDiv.style.cssText = 'position:absolute; inset:0;';
+      fsPeTop = document.createElement('div');
+      fsPeTop.className = 'fs-pe-top';
+      searchRow.classList.add('fs-pe-search');
+      modeRow.style.marginBottom = '0';
+      undoAllBtn.className = 'fs-pe-undo';
+      undoAllBtn.style.cssText = '';
+      undoAllBtn.setAttribute('aria-label', 'Rückgängig');
+      undoAllBtn.innerHTML = '↶';
+      modeRow.appendChild(undoAllBtn);
+      fsPeTop.append(searchRow, searchResults, modeRow);
+      const hints = Array.from(wrapDiv.querySelectorAll(':scope > p.hint'));
+      if(hints.length){
+        const d = document.createElement('details');
+        d.className = 'fs-pe-hints';
+        d.innerHTML = '<summary>Hinweise</summary>';
+        hints.forEach(h=> d.appendChild(h));
+        fsPeTop.appendChild(d);
+      }
+      const fsPeBottom = document.createElement('div');
+      fsPeBottom.className = 'fs-pe-bottom';
+      fsPeBottom.append(lineActionsRow, routeActionsRow, routeStatsEl, routeMetaEl);
+      wrapDiv.append(fsPeTop, fsPeBottom);
+      ['click','pointerdown','touchstart','wheel','dblclick'].forEach(ev=>{
+        fsPeTop.addEventListener(ev, e=> e.stopPropagation());
+        fsPeBottom.addEventListener(ev, e=> e.stopPropagation());
+      });
+    }
+
     el2.appendChild(wrapDiv);
 
     let points = [];
@@ -6425,8 +7112,17 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const center = lastPointsEditorMapView ? lastPointsEditorMapView.center
       : (points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : (firstRefPoint || [46.8182, 8.2275]))));
     const zoom = lastPointsEditorMapView ? lastPointsEditorMapView.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
-    const map = fsmCreateFlMap(mapDivId).setView(center, zoom);
+    const map = fsmCreateFlMap(mapDivId, isFullscreen ? {on3d: (ml)=> openEditor3d(ml)} : undefined).setView(center, zoom);
     map._isPointsEditorMap = true;
+    if(fsPeTop){
+      // Kartenknöpfe (Ebenen, Standort, 3D) unter die schwebende Leiste schieben
+      const placeCtl = ()=>{
+        const top = fsPeTop.offsetHeight + 16;
+        mapDiv.querySelectorAll('.fsm-ctlbox, .fsm-panel').forEach(b=>{ b.style.top = top + 'px'; });
+      };
+      setTimeout(placeCtl, 0);
+      if(window.ResizeObserver) new ResizeObserver(placeCtl).observe(fsPeTop);
+    }
     map.on('moveend', ()=>{ lastPointsEditorMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
     registerMap(mapDivId, map);
 
@@ -6475,6 +7171,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
     function updateUndoBtn(){
       const n = undoStack.length;
+      if(isFullscreen){
+        // Vollbild: nur zeigen, wenn es etwas rückgängig zu machen gibt
+        undoAllBtn.style.display = n ? '' : 'none';
+        undoAllBtn.textContent = '↶ ' + n;
+        return;
+      }
       undoAllBtn.disabled = n === 0;
       undoAllBtn.style.opacity = n === 0 ? '0.4' : '1';
       undoAllBtn.style.cursor = n === 0 ? 'default' : 'pointer';
@@ -6940,15 +7642,52 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       updateRoutePanelState();
     });
 
+    function addLineAt(lat, lon){
+      pushUndo();
+      manualTrack.push([lat, lon]);
+      setLastRouteStats(null);
+      routeStatsEl.style.display = 'none';
+      routeStatsEl.innerHTML = '';
+      redrawLine();
+      persistTrack();
+    }
+    function addPointAt(lat, lon){
+      pushUndo();
+      points.push({ label:'', lat, lon, _justAdded:true });
+      map.closePopup(); // zuerst schliessen — redraw() öffnet gleich das Fenster des neuen Punkts
+      redraw();
+      persist();
+    }
+    // 3D-Ansicht zum Bearbeiten: dieselben Modi und Schritte wie hier, Ergebnis landet direkt in
+    // dieser Karte (beim Zurückkommen neu gezeichnet).
+    function openEditor3d(ml){
+      const c = ml.getCenter();
+      const lines3d = () => {
+        const out = refTracks.map(rt=>({coords: rt.coords, color: rt.color || '#E8384F'}));
+        if(manualTrack.length > 1) out.push({coords: manualTrack, color: usingGpxTrack ? '#E8384F' : '#1565C0', edit:true});
+        if(routeWaypoints.length > 1) out.push({coords: routeWaypoints, color: '#2F6B44', dash:true, edit:true});
+        return out;
+      };
+      fsOpen3d({lat: c.lat, lon: c.lng, zoom: ml.getZoom(), heading: ml.getBearing(), title: 'Bearbeiten in 3D',
+        lines: lines3d(), points: points.concat(refPoints),
+        edit: {
+          getMode: ()=> mode,
+          setMode: (m)=> setMode(m),
+          tap: (lat, lon)=>{ if(mode==='line') addLineAt(lat, lon); else if(mode==='route'){ pushUndo(); routeWaypoints.push([lat, lon]); redrawRoute(); } },
+          hold: (lat, lon)=>{ if(mode!=='point') return null; pushUndo(); const pt = {label:'', lat, lon}; points.push(pt); redraw(); persist(); return pt; },
+          // Formular wie auf der 2D-Karte (Art, Name, Speichern/Entfernen); done() schliesst das Fenster
+          form: (pt, done)=>{ const node = buildPopupContent(pt); node.querySelectorAll('button').forEach(b=> b.addEventListener('click', ()=> setTimeout(done, 0))); return node; },
+          pointsEditable: ()=> points,
+          undo: ()=> performUndo(),
+          lines: lines3d,
+          points: ()=> points.concat(refPoints)
+        }
+      });
+    }
+
     map.on('click', async (e)=>{
       if(mode==='line'){
-        pushUndo();
-        manualTrack.push([e.latlng.lat, e.latlng.lng]);
-        setLastRouteStats(null);
-        routeStatsEl.style.display = 'none';
-        routeStatsEl.innerHTML = '';
-        redrawLine();
-        persistTrack();
+        addLineAt(e.latlng.lat, e.latlng.lng);
       }else if(mode==='route'){
         pushUndo();
         if(insertAfterWaypointIndex !== null){
@@ -6980,13 +7719,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       btn.type = 'button';
       btn.textContent = '📍 Punkt hier setzen';
       btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
-      btn.addEventListener('click', ()=>{
-        pushUndo();
-        points.push({ label:'', lat: e.latlng.lat, lon: e.latlng.lng, _justAdded:true });
-        map.closePopup(); // zuerst schliessen — redraw() öffnet gleich das Fenster des neuen Punkts
-        redraw();
-        persist();
-      });
+      btn.addEventListener('click', ()=> addPointAt(e.latlng.lat, e.latlng.lng));
       wrap.appendChild(btn);
       FL.popup().setLatLng(e.latlng).setContent(wrap).openOn(map);
     });
@@ -8849,7 +9582,51 @@ function confirmDiscardIfDirty(){
   return ok;
 }
 
-window.addEventListener('popstate', ()=>{
+/* ===== Zurück bis ganz nach unten: «Firnspur beenden?» =====
+   Unter allen eigenen Ebenen liegt ein Wächter-Eintrag (fsLayer:'guard'). Wer so weit zurückgeht,
+   dass die App sich schliessen würde, landet darunter und wird gefragt. Der Eintrag wird erst nach
+   der ersten Berührung gesetzt, weil Browser Einträge ohne Nutzeraktion beim Zurückgehen
+   überspringen. Wechsel zwischen den Apps ersetzen die Seite (kein Verlauf), damit Zurück nicht
+   in die vorher offene App führt. */
+let fsExitGuardArmed = false;
+let fsExitLeaving = false;
+function fsArmExitGuard(){
+  if(fsExitGuardArmed) return;
+  const st = history.state;
+  if(st && st.fsLayer) return; // nach Neuladen mitten in einer Ebene: nicht doppelt stapeln
+  fsExitGuardArmed = true;
+  // Einträge, die Modal/Overlay bereits gepusht haben, bleiben oben: Wächter-Zustand nachträglich
+  // unter die aktuelle Seite schieben geht nicht, darum nur setzen, solange nichts offen ist.
+  try{ history.pushState({fsLayer:'guard'}, '', location.href); }catch(e){ fsExitGuardArmed = false; }
+}
+// Nur Ereignisse, die für den Browser als Nutzeraktion zählen (beim Antippen erst touchend/click,
+// nicht pointerdown) — sonst überspringt Chrome den Eintrag beim Zurückwischen und die App geht zu.
+['touchend','click','keydown'].forEach(ev=> window.addEventListener(ev, ()=>{
+  if(!fsExitGuardArmed && !modalHistoryPushed && !overlayLayers.length) fsArmExitGuard();
+}, {capture:true, passive:true}));
+document.addEventListener('click', e=>{
+  const a = e.target && e.target.closest && e.target.closest('.app-switch-bar a[href]');
+  if(!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  e.preventDefault();
+  window.location.replace(a.href);
+});
+// true = popstate ist erledigt (Wächter verlassen und Rückfrage gestellt)
+function fsHandleExitGuard(ev){
+  if(!fsExitGuardArmed || fsExitLeaving) return false;
+  const st = ev && ev.state;
+  if(st && st.fsLayer) return false; // noch innerhalb unserer Einträge
+  if(confirm('Firnspur beenden?')){
+    // Ist dies der erste Eintrag (installierte App), schliesst erst das nächste Zurück die App.
+    fsExitLeaving = true;
+    try{ history.back(); }catch(e){}
+    setTimeout(()=>{ try{ window.close(); }catch(e){} }, 150);
+  }else{
+    try{ history.pushState({fsLayer:'guard'}, '', location.href); }catch(e){}
+  }
+  return true;
+}
+
+window.addEventListener('popstate', (ev)=>{
   if(suppressNextPopstateHandling){ suppressNextPopstateHandling = false; return; }
   // Oberste Ebene zuerst: offene Vollbild-Karte / Bild-Vollbildansicht schliesst nur sich selbst.
   if(overlayLayers.length){
@@ -8866,28 +9643,196 @@ window.addEventListener('popstate', ()=>{
     else{ state.modal = null; modalHistoryPushed = false; if(typeof render === 'function') render(); }
   }else{
     modalHistoryPushed = false;
+    fsHandleExitGuard(ev);
   }
 });
 
-/* ================= Wischgeste zwischen den Apps (nur auf der oberen Umschalt-Leiste) ================= */
-function wireAppSwitchSwipe(otherAppUrl){
+/* ================= Filter als Blatt von unten (alle Listen) =================
+   Statt einer seitlich verschiebbaren Reihe (Filter · Merkliste · Sortierung): ein grosser
+   Knopf «Filter», darunter die aktiven Filter als Chips mit ×. Der Knopf öffnet die bestehende
+   Filterauswahl als Blatt von unten, oben darin Merkliste und Sortierung, unten «Anzeigen».
+   Baut das von den Apps gerenderte HTML nach jedem Rendern um (Handler bleiben dieselben). */
+const FS_FILTER_TOGGLE_SEL = '#tour-filter-toggle-btn, #hut-filter-toggle-btn, [data-act="gebiet-filter-toggle"]';
+const FS_FILTER_PANEL_SEL = '#tour-filter-panel, #hut-filter-panel, .fs-filter-panel';
+const fsFilterScroll = {};
+function fsOpenFilterSheet(){
+  const p = document.querySelector('.fs-filter-sheet');
+  return (p && p.isConnected && getComputedStyle(p).display !== 'none') ? p : null;
+}
+function fsUpgradeFilterRows(){
+  document.querySelectorAll('.toolbar.toolbar-row').forEach(row=>{
+    const toggle = row.querySelector(FS_FILTER_TOGGLE_SEL);
+    if(!toggle || row.dataset.fsUp) return;
+    row.dataset.fsUp = '1';
+    row.classList.add('fs-filter-row');
+    let panel = null;
+    for(let el = row.nextElementSibling; el && !panel; el = el.nextElementSibling){
+      if(el.matches(FS_FILTER_PANEL_SEL)) panel = el;
+      else if(el.matches('.grid, .toolbar')) break;
+    }
+    const extras = Array.from(row.children).filter(el=> el !== toggle && !el.matches('[data-act="gebiet-scan-menu"]'));
+    // Aktive Auswahl als Chips unter dem Knopf (× = abwählen, löst den Originalknopf aus)
+    const actives = [...extras.filter(el=> el.matches('.btn.on')), ...(panel ? Array.from(panel.querySelectorAll('.chip.on')) : [])];
+    if(actives.length){
+      const bar = document.createElement('div');
+      bar.className = 'fs-filter-active';
+      actives.forEach(src=>{
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'fs-filter-pill';
+        b.innerHTML = '<span></span><b aria-hidden="true">×</b>';
+        b.firstChild.textContent = src.textContent.replace(/\s+/g, ' ').trim();
+        b.setAttribute('aria-label', b.firstChild.textContent + ' entfernen');
+        b.addEventListener('click', ()=> src.click());
+        bar.appendChild(b);
+      });
+      row.after(bar);
+    }
+    if(!panel){ extras.forEach(el=> el.classList.add('fs-filter-hidden')); return; }
+    panel.classList.add('fs-filter-sheet');
+    const key = panel.id || 'gebiet';
+    const head = document.createElement('div');
+    head.className = 'fs-filter-head';
+    head.innerHTML = '<h3>Filter &amp; Sortierung</h3><button type="button" class="x-btn" aria-label="Schliessen">×</button>';
+    head.querySelector('button').addEventListener('click', ()=> toggle.click());
+    const view = document.createElement('div');
+    view.className = 'field fs-filter-view';
+    view.innerHTML = '<label>Anzeige</label><div class="fs-filter-viewrow"></div>';
+    extras.forEach(el=> view.lastChild.appendChild(el));
+    panel.prepend(head, ...(extras.length ? [view] : []));
+    let n = 0;
+    for(let el = panel.nextElementSibling; el; el = el.nextElementSibling){
+      if(el.matches('.grid')) n += el.children.length; else n += el.querySelectorAll('.grid > *').length;
+    }
+    const foot = document.createElement('div');
+    foot.className = 'fs-filter-foot';
+    foot.innerHTML = '<button type="button" class="btn"></button>';
+    foot.firstChild.textContent = n === 0 ? 'Keine Treffer – schliessen' : (n === 1 ? '1 Eintrag anzeigen' : n + ' Einträge anzeigen');
+    foot.firstChild.addEventListener('click', ()=> toggle.click());
+    panel.appendChild(foot);
+    if(fsFilterScroll[key]) panel.scrollTop = fsFilterScroll[key];
+    panel.addEventListener('scroll', ()=>{ fsFilterScroll[key] = panel.scrollTop; }, {passive:true});
+  });
+  document.documentElement.classList.toggle('fs-filter-open', !!fsOpenFilterSheet());
+}
+// Antippen neben das Blatt (auch auf die Karte) schliesst es. pointerdown statt click: die
+// Kartenvorschau fängt Berührungen ab, ein click käme dort nie an.
+let fsFilterSwallowClick = false;
+document.addEventListener('pointerdown', (e)=>{
+  const sheet = fsOpenFilterSheet();
+  if(!sheet || sheet.contains(e.target)) return;
+  const row = document.querySelector('.fs-filter-row');
+  const toggle = row && row.querySelector(FS_FILTER_TOGGLE_SEL);
+  if(!toggle || toggle.contains(e.target)) return;
+  e.preventDefault(); e.stopPropagation();
+  toggle.click();
+  fsFilterSwallowClick = true; // der folgende click soll nichts darunter auslösen
+  setTimeout(()=>{ fsFilterSwallowClick = false; }, 500);
+}, true);
+document.addEventListener('click', (e)=>{ if(fsFilterSwallowClick){ fsFilterSwallowClick = false; e.preventDefault(); e.stopPropagation(); } }, true);
+// Das Ein-/Ausblenden der Filter (Tour/Hütte) ändert nur style.display: Hintergrund nachziehen
+document.addEventListener('click', ()=> setTimeout(()=> document.documentElement.classList.toggle('fs-filter-open', !!fsOpenFilterSheet()), 0));
+
+/* ================= Wischgeste zwischen den Apps =================
+   Links/rechts wischen wechselt in der Reihenfolge der oberen Leiste (Skitour · Hochtour ·
+   Klettern · Wandern) zur Nachbar-App — auf der Leiste und in den Listen. Nicht bei offenem
+   Fenster, auf Karten, in seitlich scrollbaren Reihen und in Eingabefeldern. */
+function fsSwipeBlocked(target){
+  if(typeof state !== 'undefined' && state.modal) return true;
+  if(overlayLayers.length || document.getElementById('fs-3d')) return true;
+  if(fsOpenFilterSheet()) return true;
+  for(let el = target; el && el !== document.body; el = el.parentElement){
+    if(el.matches && el.matches('input, textarea, select, .maplibregl-map, .map-strip-canvas, .fs-tour-map, [data-no-swipe]')) return true;
+    if(el.scrollWidth > el.clientWidth + 2){
+      const ox = getComputedStyle(el).overflowX;
+      if(ox === 'auto' || ox === 'scroll') return true;
+    }
+  }
+  return false;
+}
+// Die Seite gleitet mit dem Finger mit, am Rand erscheint der Name der Nachbar-App. Loslassen
+// nach genug Weg (oder schnellem Wisch) wechselt, sonst federt die Seite zurück.
+function wireAppSwitchSwipe(){
   const bar = document.querySelector('.app-switch-bar');
   if(!bar) return;
-  let startX = null, startY = null;
-  bar.addEventListener('touchstart', (e)=>{
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-  }, {passive:true});
-  bar.addEventListener('touchend', (e)=>{
-    if(startX===null) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-    startX = null; startY = null;
-    if(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)){
-      window.location.href = otherAppUrl;
+  const appEl = document.getElementById('app');
+  let g = null; // laufende Geste
+  const links = ()=> Array.from(bar.querySelectorAll('a[href]'));
+  const neighbour = (dir)=>{
+    const ls = links(), i = ls.findIndex(a=> a.classList.contains('active'));
+    return i < 0 ? null : (ls[i + dir] || null);
+  };
+  let tag = null;
+  const showTag = (link, dx)=>{
+    if(!tag){ tag = document.createElement('div'); tag.className = 'fs-swipe-tag'; document.body.appendChild(tag); }
+    tag.textContent = link ? link.textContent.trim() : '';
+    tag.hidden = !link;
+    tag.classList.toggle('left', dx > 0);
+    tag.classList.toggle('ready', Math.abs(dx) > 80);
+    tag.style.opacity = String(Math.min(1, Math.abs(dx) / 80));
+  };
+  const reset = (animate)=>{
+    if(appEl){
+      appEl.style.transition = animate ? 'transform .2s ease, opacity .2s ease' : '';
+      appEl.style.transform = '';
+      appEl.style.opacity = '';
     }
-  });
+    if(tag) tag.hidden = true;
+  };
+  document.addEventListener('touchstart', (e)=>{
+    if(e.touches.length !== 1){ g = null; return; }
+    const onBar = !!(e.target.closest && e.target.closest('.app-switch-bar'));
+    g = (onBar || !fsSwipeBlocked(e.target)) ? {x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), mode: null} : null;
+  }, {passive:true});
+  document.addEventListener('touchmove', (e)=>{
+    if(!g || e.touches.length !== 1) return;
+    const dx = e.touches[0].clientX - g.x, dy = e.touches[0].clientY - g.y;
+    if(!g.mode){
+      if(Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      g.mode = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'h' : 'v';
+      if(g.mode === 'h') g.link = null;
+    }
+    if(g.mode !== 'h') return;
+    g.dx = dx;
+    g.link = neighbour(dx < 0 ? 1 : -1);
+    // Ohne Nachbar (Rand erreicht): nur ein wenig nachgeben
+    const shift = g.link ? dx * 0.85 : dx * 0.2;
+    if(appEl){
+      appEl.style.transition = 'none';
+      appEl.style.transform = 'translateX(' + shift + 'px)';
+      appEl.style.opacity = String(1 - Math.min(0.35, Math.abs(shift) / 900));
+    }
+    showTag(g.link, dx);
+  }, {passive:true});
+  const end = ()=>{
+    if(!g) return;
+    const cur = g; g = null;
+    if(cur.mode !== 'h' || !cur.dx){ reset(false); return; }
+    const dt = Math.max(1, Date.now() - cur.t), fast = Math.abs(cur.dx) / dt > 0.5 && Math.abs(cur.dx) > 40;
+    if(!cur.link || !(Math.abs(cur.dx) > 80 || fast)){ reset(true); return; }
+    const out = cur.dx < 0 ? -1 : 1;
+    if(appEl){
+      appEl.style.transition = 'transform .14s ease-out, opacity .14s ease-out';
+      appEl.style.transform = 'translateX(' + (out * window.innerWidth) + 'px)';
+      appEl.style.opacity = '0.3';
+    }
+    const link = cur.link;
+    setTimeout(()=>{
+      link.click();
+      // Wechsel innerhalb derselben Seite (Hochtour ↔ Klettern): von der anderen Seite hereingleiten
+      setTimeout(()=>{
+        if(!appEl || !document.body.contains(appEl)) return;
+        appEl.style.transition = 'none';
+        appEl.style.transform = 'translateX(' + (-out * window.innerWidth * 0.3) + 'px)';
+        appEl.style.opacity = '0.3';
+        requestAnimationFrame(()=> requestAnimationFrame(()=> reset(true)));
+      }, 60);
+    }, 140);
+  };
+  document.addEventListener('touchend', end, {passive:true});
+  document.addEventListener('touchcancel', ()=>{ if(g){ g = null; reset(true); } }, {passive:true});
+  // Zurück aus dem Verlauf (bfcache) mit verschobener Seite: zurücksetzen
+  window.addEventListener('pageshow', ()=> reset(false));
 }
 
 /* ================= Vorlagen fuer ChatGPT/Gemini + Bedienungsanleitung (direkt in der App) ================= */
@@ -11329,6 +12274,9 @@ function formatOfflineRemaining(expiresAt){
 let gpsWatchId = null;
 let gpsMarker = null;
 let gpsActiveOfflineId = null; // für welche Tour GPS aktuell läuft — überlebt einen Kartenwechsel (z. B. beim Öffnen der Vollbildansicht)
+// Akku: Standort schaltet sich nach 5 Minuten selbst ab (erneut antippen = wieder 5 Minuten)
+const FS_GPS_AUTO_OFF_MS = 5 * 60 * 1000;
+let fsGpsOffTimer = null;
 function startLiveGpsOnMap(map, offlineId){
   if(!navigator.geolocation) return;
   if(map && map._ml) map = map._ml; // FL-Karte: die MapLibre-Karte darunter
@@ -11347,8 +12295,15 @@ function startLiveGpsOnMap(map, offlineId){
     dlog('GPS-Standort nicht verfügbar: ' + (err && err.message ? err.message : err), 'err');
     if(map && map._fsm && map._fsmFlyOnFix){ map._fsmFlyOnFix = false; showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }
   }, { enableHighAccuracy:true, maximumAge:5000 });
+  fsGpsOffTimer = setTimeout(()=>{
+    if(gpsWatchId === null) return;
+    stopLiveGpsOnMap();
+    document.querySelectorAll('.fsm-btn[data-fsm="gps"].on').forEach(b=> b.classList.remove('on'));
+    showToast('Standort nach 5 Minuten ausgeschaltet (Akku sparen). Antippen schaltet ihn wieder ein.');
+  }, FS_GPS_AUTO_OFF_MS);
 }
 function stopLiveGpsOnMap(){
+  if(fsGpsOffTimer){ clearTimeout(fsGpsOffTimer); fsGpsOffTimer = null; }
   gpsActiveOfflineId = null;
   if(gpsWatchId !== null){ try{ navigator.geolocation.clearWatch(gpsWatchId); }catch(e){} gpsWatchId = null; }
   if(gpsMarker){ try{ gpsMarker.remove(); }catch(e){} gpsMarker = null; }
@@ -11637,6 +12592,28 @@ function tourGlanceHtml(crux, rows){
 function editIconButtonHtml(act, id){
   return `<button type="button" class="fs-icon-btn" data-act="${act}" data-id="${id}" title="Bearbeiten (gedrückt halten)" aria-label="Bearbeiten, gedrückt halten">${fsIconHtml('edit')}</button>`;
 }
+// Standort-Chip antippen: Blatt klein machen und auf der Karte dahinter zum Punkt fliegen.
+// Ohne Karte dahinter (z. B. Hütte): grosse Karte an dieser Stelle öffnen.
+function fsGotoPoint(lat, lon, label){
+  if(!isFinite(lat) || !isFinite(lon)) return;
+  if(fsCtxMap && document.documentElement.classList.contains('fs-ctx-map')){
+    fsSetSheetDetent('peek');
+    const pad = {top: 70, left: 30, right: 70, bottom: fsSheetHeightPx('peek') + 20};
+    fsCtxMap.flyTo({center: [lon, lat], zoom: Math.max(fsCtxMap.getZoom(), 15), padding: pad, duration: 700});
+    fsCtxMap.once('moveend', ()=> fsmPopup(fsCtxMap, {lng: lon, lat}, '<b>' + esc(label || 'Punkt') + '</b>', 30));
+    return;
+  }
+  if(typeof openStandaloneMap === 'function'){
+    lastStandaloneMapView = {center: [lat, lon], zoom: 15};
+    openStandaloneMap();
+  }
+}
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="fs-point-goto"]');
+  if(!el) return;
+  e.stopPropagation();
+  fsGotoPoint(parseFloat(el.getAttribute('data-lat')), parseFloat(el.getAttribute('data-lon')), el.getAttribute('data-label'));
+}, true);
 // Kacheln "Karte"/"Wetter": zum Abschnitt springen; bei "Karte" die Karte gleich anzeigen.
 document.addEventListener('click', (e)=>{
   const el = e.target.closest && e.target.closest('[data-act="fs-goto"],[data-act="fs-goto-map"]');
@@ -11838,8 +12815,7 @@ function fsApplyTourSheetMode(){
   }
   if(overlay.classList.contains('fs-sheet-mode') && modal.querySelector(':scope > .fs-grabber')){
     // Gleiches Blatt neu gezeichnet ohne neue Daten: nichts zu tun. Sonst Karte auffrischen.
-    const cur = (typeof state !== 'undefined' && state.modal && state.tours) ? state.tours.find(x=> String(x.id) === String(state.modal.payload)) : null;
-    if(cur) fsShowContextMap(cur);
+    fsSheetShowContext();
     return;
   }
   if(fsSheetSavedScroll === null) fsSheetSavedScroll = window.scrollY;
@@ -11875,10 +12851,18 @@ function fsApplyTourSheetMode(){
   }, {passive:true});
   modal.addEventListener('touchend', ()=>{ pullStartY = null; pullArmed = false; }, {passive:true});
   fsSetSheetDetent(fsSheetDetent);
-  const tourObj = (state.tours || []).find(x=> String(x.id) === tourId);
-  if(tourObj) fsShowContextMap(tourObj);
+  fsSheetShowContext();
   // Punkt der offenen Tour auf der Karte hervorheben (nach dem Rendern der Karte)
   setTimeout(()=> document.querySelectorAll('.map-strip-dot').forEach(d=> d.classList.toggle('fs-sel', d.getAttribute('data-id') === tourId)), 0);
+}
+// Karte hinter dem offenen Blatt: bei einer Tour deren Karte, bei einem Gebiet alle seine Touren
+// (die App liefert die Inhalte über fsAreaForMap(modal), siehe fsShowAreaContextMap).
+function fsSheetShowContext(){
+  if(typeof state === 'undefined' || !state.modal) return;
+  const area = (typeof fsAreaForMap === 'function') ? fsAreaForMap(state.modal) : null;
+  if(area){ fsShowAreaContextMap(area); return; }
+  const t = (state.tours || []).find(x=> String(x.id) === String(state.modal.payload));
+  if(t) fsShowContextMap(t);
 }
 /* ================= Eine Tourenkarte hinter dem Blatt (Phase 2, Schritt 3) =================
    Statt mehrerer einzelner Karten (Karte anzeigen, Zustieg, Abstieg, Hütte …) liegt hinter dem
@@ -11950,7 +12934,6 @@ function fsShowContextMap(t){
     fsmWireInfoClicks(map, {sac:{allowAttach:false}});
     fsmWhenLoaded(map, ()=>{
       if(fsCtxMap !== map) return;
-      if(typeof gpsActiveOfflineId !== 'undefined' && gpsActiveOfflineId === t.id) startLiveGpsOnMap(map, t.id);
       const all = [];
       const groups = [];
       function group(label, color, on, dash){
@@ -12045,6 +13028,105 @@ function fsShowContextMap(t){
   });
 }
 
+/* ===== Gebiet als Blatt über der Karte: alle Touren und Hütten des Gebiets =====
+   area: {key, name, tours:[Tour], huts:[Hütte], spots:[{lat, lon, label, open:()=>{}}], points:[Punkte des Gebiets]}
+   Jede Tour hat eine eigene Farbe; ihr Schild auf der Karte antippen öffnet die Tour. */
+function fsAreaHasData(a){
+  return (a.points||[]).length || (a.spots||[]).length || (a.huts||[]).some(h=> h.points && h.points.length) || (a.tours||[]).some(t=> tourMapPoint(t) || fsTourRoutes(t).length);
+}
+function fsShowAreaContextMap(a){
+  if(!fsAreaHasData(a)){ fsDestroyContextMap(); return; }
+  const stamp = x=> (x.updatedAt || '') + (x.id || '');
+  const key = 'area|' + a.key + '|' + [...(a.tours||[]), ...(a.huts||[])].map(stamp).join(',');
+  let el = document.getElementById('fs-tour-map');
+  if(el && fsCtxKey === key){
+    if(el.style.display === 'none'){
+      el.style.display = '';
+      document.documentElement.classList.add('fs-ctx-map');
+      if(fsCtxMap) setTimeout(()=> fsCtxMap.resize(), 0);
+    }
+    return;
+  }
+  fsDestroyContextMap();
+  fsCtxKey = key;
+  el = document.createElement('div');
+  el.id = 'fs-tour-map';
+  el.className = 'fs-tour-map';
+  el.innerHTML = '<div class="fs-tour-map-inner" id="fs-tour-map-inner"></div><div class="fs-ctx-legend" id="fs-ctx-legend"></div>';
+  document.body.appendChild(el);
+  document.documentElement.classList.add('fs-ctx-map');
+  fsmEnsureLoaded().then(()=>{
+    if(fsCtxKey !== key || !document.getElementById('fs-tour-map-inner')) return;
+    const p0 = (a.points||[])[0] || (a.tours||[]).map(tourMapPoint).find(Boolean);
+    const map = fsmCreateMap('fs-tour-map-inner', {center: p0 ? [p0.lat, p0.lon] : null, zoom: 11, on3d: (m)=>{
+      const c = m.getCenter();
+      const lines = [];
+      (a.tours||[]).forEach((t,i)=>{ const col = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length]; fsTourRoutes(t).forEach(r=> lines.push({coords:r.coords, color:col})); });
+      const pts = (a.tours||[]).map(t=>{ const p = tourMapPoint(t); return p ? {lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean);
+      fsOpen3d({lat:c.lat, lon:c.lng, zoom:13, heading:m.getBearing(), title:a.name, lines, points:pts});
+    }});
+    fsCtxMap = map;
+    fsmWireInfoClicks(map, {sac:{allowAttach:false}});
+    fsmWhenLoaded(map, ()=>{
+      if(fsCtxMap !== map) return;
+      const all = [], groups = [];
+      const group = (label, color, dash)=>{ const g = {label, color, dash, on:true, items:[]}; groups.push(g); return g; };
+      const markerItem = (m)=> ({setVisible:(v)=>{ m.getElement().style.display = v ? '' : 'none'; }});
+      const tg = group('Touren', ACCESS_ROUTE_COLORS[0]);
+      (a.tours||[]).forEach((t,i)=>{
+        const col = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
+        fsTourRoutes(t).forEach(r=>{
+          tg.items.push(fsmAddLine(map, r.coords, {color: col, dash: r.src === 'alt', label: t.name}));
+          r.coords.forEach(c=> all.push(c));
+        });
+        const p = tourMapPoint(t);
+        if(!p) return;
+        const m = fsmAddMarker(map, p.lat, p.lon, `<button type="button" class="fs-area-pin" style="--c:${col}"><span class="sw"></span>${esc(t.name)}</button>`, {anchor:'bottom'});
+        m.getElement().addEventListener('click', (e)=>{ e.stopPropagation(); if(typeof openTourDetail === 'function') openTourDetail(t.id); });
+        tg.items.push(markerItem(m));
+        all.push([p.lat, p.lon]);
+      });
+      const huts = (a.huts||[]).filter(h=> h.points && h.points.length);
+      if(huts.length){
+        const hg = group('Hütten', FS_CTX_COLORS.hutRoute);
+        huts.forEach(h=>{
+          const p = h.points[0];
+          const m = fsmAddMarker(map, p.lat, p.lon, `<button type="button" class="fs-area-pin fs-area-hut">${fsIconHtml('hut')}${esc(h.name)}</button>`, {anchor:'bottom'});
+          m.getElement().addEventListener('click', (e)=>{ e.stopPropagation(); if(typeof openHutDetail === 'function') openHutDetail(h.id); });
+          hg.items.push(markerItem(m));
+          all.push([p.lat, p.lon]);
+        });
+      }
+      if((a.spots||[]).length){
+        const sg = group(a.spotsLabel || 'Sektoren', '#7A8B95');
+        a.spots.forEach(sp=>{
+          const m = fsmAddMarker(map, sp.lat, sp.lon, `<button type="button" class="fs-area-pin fs-area-spot">${esc(sp.label)}</button>`, {anchor:'bottom'});
+          m.getElement().addEventListener('click', (e)=>{ e.stopPropagation(); if(sp.open) sp.open(); });
+          sg.items.push(markerItem(m));
+          all.push([sp.lat, sp.lon]);
+        });
+      }
+      const pg = {items:[]};
+      (a.points||[]).forEach(p=>{ pg.items.push(markerItem(fsmAddMarker(map, p.lat, p.lon, fsmCategoryMarkerHtml(p.category), {popup: esc(p.label || a.name), anchor:'bottom'}))); all.push([p.lat, p.lon]); });
+      const legend = document.getElementById('fs-ctx-legend');
+      if(legend && groups.length > 1){
+        groups.forEach(g=>{
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'fs-ctx-chip on';
+          b.innerHTML = `<span class="sw${g.dash ? ' dash' : ''}" style="--c:${g.color}"></span>${esc(g.label)}`;
+          b.addEventListener('click', ()=>{ g.on = !g.on; b.classList.toggle('on', g.on); g.items.forEach(it=> it.setVisible(g.on)); });
+          legend.appendChild(b);
+        });
+      }
+      if(all.length){ map._fsCoords = all; fsFitContextMap(); }
+    });
+  }).catch(()=>{
+    const inner = document.getElementById('fs-tour-map-inner');
+    if(inner) inner.innerHTML = '<p class="fs-ctx-offline">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+  });
+}
+
 window.addEventListener('resize', ()=>{ if(document.documentElement.classList.contains('fs-sheet-open')) fsSetSheetDetent(fsSheetDetent); });
 (function fsWatchModalRoot(){
   // Ganze Seite beobachten (die Apps bauen #modal-root beim Rendern teils neu auf), aber die
@@ -12057,8 +13139,9 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
       if(ctx && muts.every(m=> ctx.contains(m.target))) return;
       if(queued) return;
       queued = true;
-      requestAnimationFrame(()=>{ queued = false; fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); });
+      requestAnimationFrame(()=>{ queued = false; fsUpgradeFilterRows(); fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); });
     }).observe(document.body, {childList:true, subtree:true});
+    fsUpgradeFilterRows();
     fsApplyTourSheetMode();
     fsApplyEditMode();
     fsApplyOnTour();

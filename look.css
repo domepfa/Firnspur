@@ -865,6 +865,8 @@ main{ padding-top:6px; }
 .wx-strip p.wx-src{ font-size:11.5px; line-height:1.4; }
 /* Titel, Profil und Segment-Schalter liegen im Foto; Unterkante der Leiste an der Foto-Unterkante (spart Höhe) */
 .hero{ padding:22px 18px 14px; }
+/* Mehr vom Foto zeigen: höherer Bildstreifen, Titel sitzt weiter unten */
+.hero-top{ padding-top:44px !important; }
 .hero::before{ top:8px; bottom:6px; height:auto; left:10px; right:10px; -webkit-mask-image:none; mask-image:none; }
 .hero::after{
   display:block; content:''; position:absolute; top:8px; bottom:6px; left:10px; right:10px; border-radius:22px; z-index:0;
@@ -1482,3 +1484,176 @@ html.fs-dark .bf-ed-item.lv-opt{ background:#4A3E1E; border-color:#7A6430; }
 .fsm-ctlbox .fsm-3d{ margin:0 !important; width:46px; height:46px; }
 /* Grosse Karte: rechte Knopf-Spalte gleich gross und im selben Raster wie links (Filter, Suche) */
 #fullscreen-map-container .fsm-ctlbox .fsm-btn{ width:48px; height:48px; }
+
+/* ===== Bearbeiten-Karte im Vollbild: Karte ganzflächig, Bedienung schwebt darüber ===== */
+.fs-pe-top{
+  position:absolute; left:10px; right:10px; top:calc(8px + env(safe-area-inset-top, 0px)); z-index:5;
+  display:flex; flex-direction:column; gap:6px;
+}
+.fs-pe-top .fs-pe-search{ margin:0 !important; margin-right:150px !important; }
+.fs-pe-top .fs-pe-search input{ min-height:44px; border-radius:14px !important; border:1px solid var(--line) !important; background:var(--paper); box-shadow:0 2px 10px rgba(15,30,39,.18); font-size:14px !important; }
+.fs-pe-top .fs-pe-search button{ min-height:44px; min-width:46px; border-radius:14px !important; box-shadow:0 2px 10px rgba(15,30,39,.18); }
+.fs-pe-top > div:not(.fs-pe-search){ margin:0 !important; }
+.fs-pe-top > div:nth-child(2):empty{ display:none !important; }
+.fs-pe-top > div:nth-child(2){ background:var(--paper); border-radius:12px; padding:4px; box-shadow:0 2px 10px rgba(15,30,39,.18); }
+.fs-pe-top > div:nth-child(3){ box-shadow:0 2px 10px rgba(15,30,39,.18); background:var(--paper) !important; }
+.fs-pe-undo{
+  flex:0 0 auto; min-width:52px; padding:0 12px; border:none; border-radius:16px; background:var(--paper); color:var(--ink);
+  font-size:16px; font-weight:800; cursor:pointer; white-space:nowrap;
+}
+.fs-pe-hints{
+  align-self:flex-start; max-width:100%; background:var(--paper); border-radius:12px;
+  padding:6px 12px; box-shadow:0 2px 10px rgba(15,30,39,.18); font-size:12.5px; color:var(--ink-soft);
+}
+.fs-pe-hints summary{ cursor:pointer; font-weight:700; min-height:28px; display:flex; align-items:center; }
+.fs-pe-hints[open]{ max-height:40vh; overflow-y:auto; }
+.fs-pe-hints .hint{ margin:6px 0 0 !important; }
+.fs-pe-bottom{
+  position:absolute; left:10px; right:70px; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); z-index:5;
+  display:flex; flex-direction:column; gap:6px; max-height:45vh; overflow-y:auto;
+}
+.fs-pe-bottom > *{ margin:0 !important; }
+.fs-pe-bottom > div[style*="display:flex"], .fs-pe-bottom > div[style*="display: flex"]{
+  background:var(--paper); border-radius:14px; padding:8px; box-shadow:0 2px 10px rgba(15,30,39,.18);
+}
+.fs-pe-bottom > div[style*="block"]{ box-shadow:0 2px 10px rgba(15,30,39,.18); border-radius:14px !important; }
+
+/* ===== 3D: Bearbeiten-Leiste unten ===== */
+.fs-3d-edit{
+  position:absolute; left:10px; right:70px; bottom:calc(40px + env(safe-area-inset-bottom, 0px)); z-index:5;
+  display:flex; flex-direction:column; align-items:flex-start; gap:6px;
+}
+.fs-3d-emode{ max-width:100%; }
+.fs-3d-emode button{ min-height:44px; padding:0 14px; }
+.fs-3d-emode button[data-3d="e-undo"]{ font-size:19px; padding:0 12px; }
+.fs-3d-ehint{ color:#fff; font-size:13px; font-weight:700; text-shadow:0 1px 6px rgba(0,0,0,.7); }
+.fs-3d-ehint:empty{ display:none; }
+
+/* ===== Gebiet als Blatt über der Karte: Schilder für Touren, Hütten, Klettergärten ===== */
+html.fs-ctx-map .overlay.fs-sheet-mode .fs-area-mapsec{ display:none; }
+.fs-area-pin{
+  display:inline-flex; align-items:center; gap:6px; max-width:170px; min-height:34px; padding:0 11px;
+  border:none; border-radius:999px; background:var(--paper); color:var(--ink); font:inherit; font-size:13px; font-weight:800;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; box-shadow:0 2px 10px rgba(15,30,39,.3); cursor:pointer;
+}
+.fs-area-pin .sw{ flex:none; width:12px; height:12px; border-radius:50%; background:var(--c); border:2px solid var(--paper); box-shadow:0 0 0 1px var(--line); }
+.fs-area-pin .fs-i{ flex:none; width:16px; height:16px; color:var(--ice-deep); }
+.fs-area-spot{ color:var(--ink-soft); font-weight:700; }
+
+/* ===== Wischen zwischen den Apps: Name der Nachbar-App am Rand ===== */
+.fs-swipe-tag{
+  position:fixed; top:50%; right:12px; z-index:400; transform:translateY(-50%);
+  display:flex; align-items:center; gap:6px; min-height:44px; padding:0 16px; border-radius:999px;
+  background:var(--paper); color:var(--ink); font-weight:800; font-size:15px; box-shadow:var(--shadow-lg);
+  pointer-events:none; transition:background .15s, color .15s;
+}
+.fs-swipe-tag.left{ right:auto; left:12px; }
+.fs-swipe-tag.ready{ background:var(--ice-deep); color:#fff; }
+.fs-swipe-tag[hidden]{ display:none; }
+
+/* ===== Filter als Blatt von unten ===== */
+.toolbar-row.fs-filter-row{ overflow:visible; flex-wrap:nowrap; margin:0 0 10px; padding:0; gap:8px; }
+.fs-filter-row > *{ flex-shrink:1; }
+.fs-filter-row > .btn:first-child{ flex:1 1 auto; justify-content:center; min-height:48px; font-size:15px; }
+.fs-filter-hidden{ display:none !important; }
+.fs-filter-active{ display:flex; flex-wrap:wrap; gap:8px; margin:-2px 0 14px; }
+.fs-filter-pill{
+  display:inline-flex; align-items:center; gap:8px; min-height:40px; padding:0 8px 0 14px; border-radius:999px;
+  border:1px solid var(--ice-deep); background:var(--ice-light); color:var(--accent-ink, var(--ink)); font:inherit; font-size:13.5px; font-weight:700; cursor:pointer;
+}
+.fs-filter-pill b{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:var(--paper); font-size:16px; }
+.fs-filter-pill .fs-i{ display:none; }
+.fs-filter-sheet{
+  position:fixed !important; left:0; right:0; bottom:0; z-index:250; margin:0 !important;
+  max-height:82vh; overflow-y:auto; padding:0 18px calc(16px + env(safe-area-inset-bottom, 0px));
+  background:var(--paper); border-radius:24px 24px 0 0;
+  box-shadow:0 0 0 100vmax rgba(15,30,39,.38), var(--shadow-lg);
+}
+html.fs-filter-open body{ overflow:hidden; }
+.fs-filter-head{
+  position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between;
+  margin:0 -18px 6px; padding:16px 18px 10px; background:var(--paper);
+}
+.fs-filter-head h3{ margin:0; font-family:var(--font-display); font-weight:400; font-size:26px; }
+.fs-filter-viewrow{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.fs-filter-viewrow .btn{ min-height:44px; border-radius:999px; }
+.fs-filter-viewrow .btn.on{ background:var(--ice-deep) !important; color:#fff !important; border-color:var(--ice-deep); }
+.fs-filter-viewrow .sort-control select{ min-height:44px; }
+.fs-filter-sheet .chip{ min-height:40px; }
+.fs-filter-foot{
+  position:sticky; bottom:calc(-16px - env(safe-area-inset-bottom, 0px)); margin:10px -18px 0; padding:12px 18px calc(16px + env(safe-area-inset-bottom, 0px));
+  background:var(--paper); border-top:1px solid var(--line-soft);
+}
+.fs-filter-foot .btn{ width:100%; min-height:52px; font-size:16px; }
+
+/* ===== 3D: Auflösung Hoch/Spar immer sichtbar unten links ===== */
+.fs-3d-quality{ position:absolute; left:10px; bottom:calc(40px + env(safe-area-inset-bottom, 0px)); z-index:5; }
+.fs-3d-quality button{ min-height:44px; }
+.fs-3d-quality-edit{ bottom:calc(150px + env(safe-area-inset-bottom, 0px)); }
+.fs-3d-pano .fs-3d-quality{ display:none; }
+
+/* ===== 3D mit MapLibre ===== */
+.fs-3d-ml{ background:#DDEBF5; }
+.fs-3d-ml .fs-3d-top{ right:70px; }
+.fs-3d-actions{ position:absolute; left:10px; bottom:calc(36px + env(safe-area-inset-bottom, 0px)); z-index:5; display:flex; gap:8px; }
+.fs-3d-actions[hidden]{ display:none; }
+.fs-3d-actions .fs-3d-chip{ display:inline-flex; align-items:center; gap:8px; min-height:48px; padding:0 16px; }
+.fs-3d-actions .fs-i{ width:18px; height:18px; }
+.fsm-extra{ margin-top:12px; padding-top:10px; border-top:1px solid var(--line-soft, #EDF1F3); }
+.fsm-extra-label{ font-size:11.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint, #66757F); margin-bottom:6px; }
+.fs-3d-ml .fs-3d-map{ position:absolute !important; inset:0; width:100%; height:100%; }
+
+/* ===== Gipfel ringsum: Info nach dem Antippen ===== */
+.fs-pano-info{ display:flex; flex-direction:column; gap:2px; padding-right:30px; }
+.fs-pano-info b{ font-family:var(--font-display); font-weight:400; font-size:24px; line-height:1.1; }
+.fs-pano-info span{ font-size:14px; color:var(--ink-soft); font-weight:600; }
+/* Panorama: nur «Gipfel ringsum» (beendet) und «Kompass folgen» */
+.fs-3d-pano .fs-3d-chips > :not([data-3d="pano"]):not([data-3d="pano-compass"]){ display:none !important; }
+.fs-3d-pano .fs-3d-quality{ display:none; }
+
+/* ===== 3D Hoch (Cesium): Ebenen-Knopf mit Fenster statt Schiebeleiste ===== */
+.fs-3d-layers-btn{ position:absolute; right:10px; top:calc(66px + env(safe-area-inset-top, 0px)); z-index:5; width:48px; padding:0; display:flex; align-items:center; justify-content:center; }
+.fs-3d-layers-btn .fs-i{ width:22px; height:22px; }
+.fs-3d-chips.fs-3d-layerpanel{
+  left:auto; right:68px; top:calc(66px + env(safe-area-inset-top, 0px)); width:min(260px, calc(100% - 88px));
+  flex-direction:column; align-items:stretch; gap:8px; overflow:visible; padding:12px; border-radius:18px;
+  background:#fff; box-shadow:0 8px 30px rgba(15,30,39,.3);
+}
+.fs-3d-layerpanel[hidden]{ display:none !important; }
+.fs-3d-layerpanel .fs-3d-chip{ box-shadow:none; background:#EEF2F5; justify-content:flex-start; }
+.fs-3d-layerpanel .fs-3d-seg{ box-shadow:none; background:#EEF2F5; }
+.fs-3d-layerpanel .fs-3d-seg button{ flex:1; }
+.fs-3d-plabel{ margin-top:4px; font-size:11.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#66757F; }
+.fs-3d-chip[data-3d="pano"].on{ background:var(--ice-deep); color:#fff; }
+.fs-3d-pano .fs-3d-layers-btn, .fs-3d-pano .fs-3d-layerpanel{ display:none !important; }
+.fs-3d-actions .fs-3d-chip[hidden]{ display:none !important; }
+
+/* ===== 3D: Suche ===== */
+.fs-3d-searchbtn{ width:48px; padding:0; display:flex; align-items:center; justify-content:center; }
+.fs-3d-searchbtn .fs-i{ width:22px; height:22px; }
+.fs-3d-search{ position:absolute; left:10px; right:10px; top:calc(10px + env(safe-area-inset-top, 0px)); z-index:9; display:flex; flex-direction:column; gap:8px; }
+.fs-3d-search[hidden]{ display:none; }
+.fs-3d-search-row{ display:flex; gap:8px; }
+.fs-3d-search-row input{
+  flex:1; min-width:0; min-height:48px; padding:0 16px; border:none; border-radius:14px; background:#fff; color:#0F1E27;
+  font:inherit; font-size:16px; box-shadow:0 2px 10px rgba(0,0,0,.25);
+}
+.fs-3d-search-row .fs-3d-btn{ font-size:22px; }
+.fs-3d-search-res{ display:flex; flex-direction:column; max-height:55vh; overflow-y:auto; border-radius:16px; background:#fff; box-shadow:0 8px 30px rgba(0,0,0,.3); }
+.fs-3d-search-res:empty{ display:none; }
+.fs-3d-search-res button{
+  display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-height:52px; padding:9px 16px; border:none;
+  border-bottom:1px solid #EDF1F3; background:none; color:#0F1E27; font:inherit; text-align:left; cursor:pointer;
+}
+.fs-3d-search-res button:last-child{ border-bottom:none; }
+.fs-3d-search-res b{ font-size:15.5px; font-weight:800; }
+.fs-3d-search-res span{ font-size:12.5px; color:#66757F; }
+.fs-3d-search-msg{ margin:0; padding:14px 16px; color:#4A5A64; font-size:14px; }
+.fs-3d-gps-btn{ position:absolute; right:10px; top:calc(124px + env(safe-area-inset-top, 0px)); z-index:5; width:48px; padding:0; display:flex; align-items:center; justify-content:center; }
+.fs-3d-gps-btn .fs-i{ width:22px; height:22px; }
+.fs-3d-gps-btn.on{ background:#1971C2; color:#fff; }
+.fs-3d-pano .fs-3d-gps-btn{ display:none; }
+/* 3D bearbeiten: Punkt-Formular */
+.fs-3d-ptform{ min-width:220px; }
+.fs-3d-ptform select, .fs-3d-ptform input{ min-height:44px; font-size:15px !important; border-radius:10px !important; }
+.fs-3d-ptform button{ min-height:44px; font-size:14px !important; border-radius:10px !important; }
