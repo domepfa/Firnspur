@@ -5423,6 +5423,7 @@ const FSM_NAMES_STYLE = 'https://vectortiles.geo.admin.ch/styles/ch.swisstopo.im
 // Zuschaltbare Ebenen (Reihenfolge = Reihenfolge im Ebenen-Fenster)
 const FSM_OVERLAYS = [
   {id:'wanderwege', label:'Wanderwege', icon:'walk', tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
+  {id:'wanderrouten', label:'Wanderrouten (SchweizMobil)', icon:'walk', tiles:[FSM_WMTS('ch.astra.wanderland','png')]},
   {id:'skitouren', label:'SAC-Skitouren', icon:'snow', tiles:[FSM_WMTS('ch.swisstopo-karto.skitouren','png')]},
   {id:'hangneigung', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
   {id:'slf', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
@@ -5480,7 +5481,14 @@ function fsmRegisterOfflineProtocol(){
 function fsmPrefs(){
   let p = null;
   try{ p = JSON.parse(localStorage.getItem('fs-map-layers') || 'null'); }catch(e){}
-  return Object.assign({base:'karte', on:[]}, p || {});
+  p = Object.assign({base:'karte', on:[]}, p || {});
+  // Wander-App: die antippbaren Wanderrouten einmalig einschalten (danach gilt die eigene Wahl)
+  if(fsAppKey() === 'wandern' && !p.wrDefault){
+    p.wrDefault = true;
+    if(!p.on.includes('wanderrouten')) p.on.push('wanderrouten');
+    fsmSavePrefs(p);
+  }
+  return p;
 }
 function fsmSavePrefs(p){ try{ localStorage.setItem('fs-map-layers', JSON.stringify(p)); }catch(e){} }
 function fsmOverlaysForApp(){ return FSM_OVERLAYS.filter(o=> !o.skitourOnly || fsAppKey() === 'firnspur'); }
@@ -5773,6 +5781,14 @@ async function fsmHandleInfoClick(map, ll, opts){
     if(res){
       const pop = fsmPopup(map, lngLat, document.createElement('div'));
       pop.setDOMContent(buildSkitourPopupContent(res, Object.assign({popup: pop}, opts && opts.sac)));
+      return true;
+    }
+  }
+  if(fsmOverlayOn(map, 'wanderrouten')){
+    const list = await identifyWanderrouteAt(ll, fsmIdentifyView(map));
+    if(list){
+      const pop = fsmPopup(map, lngLat, document.createElement('div'));
+      pop.setDOMContent(buildWanderroutePopupContent(list, Object.assign({popup: pop}, opts && opts.sac)));
       return true;
     }
   }
@@ -6249,6 +6265,133 @@ async function identifyWegsperrungAt(map, latlng, view){
     const data = await res.json();
     return (data.results && data.results.length) ? data.results[0] : null;
   }catch(e){ return null; }
+}
+// Wanderrouten von SchweizMobil (Wanderland, ASTRA): ganze Etappen mit Name und Nummer als Linie.
+async function identifyWanderrouteAt(latlng, view){
+  try{
+    const params = new URLSearchParams({
+      geometryType: 'esriGeometryPoint', geometry: latlng.lng + ',' + latlng.lat, geometryFormat: 'geojson',
+      layers: 'all:ch.astra.wanderland', tolerance: String(fsTapTolerancePx()),
+      mapExtent: view.extent.join(','), imageDisplay: view.size[0] + ',' + view.size[1] + ',96',
+      sr: '4326', returnGeometry: 'true', limit: '10'
+    });
+    const res = await fetch('https://api3.geo.admin.ch/rest/services/all/MapServer/identify?' + params.toString());
+    if(!res.ok) return null;
+    const data = await res.json();
+    const seen = new Set(), out = [];
+    (data.results || []).forEach(f=>{
+      const a = f.properties || f.attributes || {};
+      const key = (a.chmobil_title || a.label || '') + '|' + (a.chmobil_route_number || '');
+      if(seen.has(key)) return;
+      seen.add(key); out.push(f);
+    });
+    return out.length ? out : null;
+  }catch(e){ return null; }
+}
+function wanderrouteAttrs(f){
+  const a = (f && (f.properties || f.attributes)) || {};
+  return {title: a.chmobil_title || a.label || 'Wanderroute', nr: a.chmobil_route_number || ''};
+}
+// Linie übernehmen: als neue Tour (Formular vorbefüllt) oder in eine bestehende Tour
+function fsTrackAttachUi(coords, name, newTourFn){
+  const box = document.createElement('div');
+  if(newTourFn){
+    const nb = document.createElement('button');
+    nb.type = 'button'; nb.className = 'fs-sac-sec'; nb.textContent = 'Als neue Tour übernehmen';
+    nb.addEventListener('click', newTourFn);
+    box.appendChild(nb);
+  }
+  if(Array.isArray(state.tours) && state.tours.length){
+    const sel = document.createElement('select');
+    sel.className = 'fs-wr-select';
+    state.tours.forEach(t=>{ const o = document.createElement('option'); o.value = t.id; o.textContent = t.name || '?'; sel.appendChild(o); });
+    const mainBtn = document.createElement('button');
+    mainBtn.type = 'button'; mainBtn.className = 'fs-sac-sec';
+    const sync = ()=>{ const t = state.tours.find(x=>x.id===sel.value); mainBtn.textContent = (t && t.trackSimplified) ? 'Als Haupttrack ersetzen' : 'Als Haupttrack übernehmen'; };
+    sel.addEventListener('change', sync); sync();
+    mainBtn.addEventListener('click', async ()=>{
+      const t = state.tours.find(x=>x.id===sel.value);
+      if(!t) return;
+      if(t.trackSimplified && !confirm(`"${t.name}" hat schon einen Haupttrack. Wirklich ersetzen?`)) return;
+      mainBtn.disabled = true;
+      const ok = await attachSkitourTrackToTour(t.id, coords, name);
+      mainBtn.disabled = false; sync();
+      showToast(ok ? `Route zu "${t.name}" hinzugefügt.` : 'Konnte nicht übernommen werden (Internetverbindung prüfen).', !ok);
+    });
+    const altBtn = document.createElement('button');
+    altBtn.type = 'button'; altBtn.className = 'fs-sac-sec'; altBtn.textContent = 'Als Variante hinzufügen';
+    altBtn.addEventListener('click', async ()=>{
+      const t = state.tours.find(x=>x.id===sel.value);
+      if(!t) return;
+      altBtn.disabled = true;
+      const ok = await attachSkitourTrackToTour(t.id, coords, name, {asAlternative:true});
+      altBtn.disabled = false;
+      showToast(ok ? `"${name}" als Variante zu "${t.name}" hinzugefügt.` : 'Konnte nicht hinzugefügt werden (Internetverbindung prüfen).', !ok);
+    });
+    const lab = document.createElement('p'); lab.className = 'fs-wr-label'; lab.textContent = 'Zu bestehender Tour:';
+    box.append(lab, sel, mainBtn, altBtn);
+  }
+  return box;
+}
+function buildWanderroutePopupContent(list, opts){
+  opts = opts || {};
+  const swap = (o, n)=>{ if(opts.popup) opts.popup.setContent(n); else o.replaceWith(n); };
+  const wrap = document.createElement('div');
+  wrap.className = 'fs-sac-pop';
+  if(list.length > 1){
+    const h = document.createElement('p'); h.className = 'fs-sac-title'; h.textContent = list.length + ' Wanderrouten hier';
+    wrap.appendChild(h);
+    list.forEach(f=>{
+      const a = wanderrouteAttrs(f);
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'fs-sac-pick';
+      b.innerHTML = `<strong>${esc(a.title)}</strong><span>${a.nr ? 'Route ' + esc(String(a.nr)) : ''}</span>`;
+      b.addEventListener('click', (e)=>{ e.stopPropagation(); swap(wrap, buildWanderroutePopupContent([f], Object.assign({}, opts, {backTo: ()=> buildWanderroutePopupContent(list, opts)}))); });
+      wrap.appendChild(b);
+    });
+    return wrap;
+  }
+  const f = list[0], a = wanderrouteAttrs(f);
+  if(opts.backTo){
+    const back = document.createElement('button'); back.type = 'button'; back.className = 'fs-sac-back'; back.textContent = '‹ Alle Routen hier';
+    back.addEventListener('click', (e)=>{ e.stopPropagation(); swap(wrap, opts.backTo()); });
+    wrap.appendChild(back);
+  }
+  const title = document.createElement('p'); title.className = 'fs-sac-title'; title.textContent = a.title;
+  wrap.appendChild(title);
+  const coords = geojsonToLatLngs(f.geometry);
+  let km = 0;
+  for(let i = 1; i < coords.length; i++) km += fsGeoDist(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1]) / 1000;
+  const sub = document.createElement('p'); sub.className = 'fs-sac-sub';
+  sub.textContent = [a.nr ? 'SchweizMobil Route ' + a.nr : 'SchweizMobil', km ? km.toFixed(1) + ' km' : ''].filter(Boolean).join(' · ');
+  wrap.appendChild(sub);
+  if(coords.length){
+    const dl = document.createElement('button'); dl.type = 'button'; dl.className = 'fs-sac-sec'; dl.textContent = 'GPX herunterladen';
+    dl.addEventListener('click', ()=> downloadTrackAsGpx(coords, a.title));
+    wrap.appendChild(dl);
+    if(opts.allowAttach === false){
+      const note = document.createElement('p'); note.className = 'fs-wr-label'; note.textContent = 'Zu einer Tour übernehmen: auf der grossen Karte antippen.';
+      wrap.appendChild(note);
+    }else{
+      const newTour = (fsAppKey() === 'wandern') ? ()=> openAddTourFromWanderroute(a, coords) : null; // nur Wandern: Formular kennt die GPX-Vorbefüllung
+      wrap.appendChild(fsTrackAttachUi(coords, a.title, newTour));
+    }
+  }
+  return wrap;
+}
+// Neue Tour aus einer Wanderroute: Name und Linie vorbefüllt, GPX wird beim Speichern abgelegt
+function openAddTourFromWanderroute(a, coords){
+  modalOpenedFromStandaloneMap = true;
+  closeTopOverlayLayer();
+  let simplified = coords;
+  try{ simplified = simplifyTrackForStorage(coords.map(c=>({lat:c[0], lon:c[1]})), 200).map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]); }catch(e){}
+  const parts = a.title.split(/\s*\(\s*|\s*\)\s*/).filter(Boolean);
+  const payload = {
+    name: parts[1] || a.title, routeName: parts[1] ? parts[0] + (a.nr ? ' (' + a.nr + ')' : '') : (a.nr ? 'SchweizMobil ' + a.nr : ''),
+    trackSimplified: simplified, _fsPendingGpx: {coords, name: a.title}
+  };
+  const open = ()=>{ state.modal = {type:'edit-tour', payload}; render(); };
+  if(typeof ensureName === 'function') ensureName(open); else open();
 }
 // Baut den Popup-Inhalt für eine angetippte Wegsperrung. Das genaue Namensschema der
 // Beschreibungs-Felder ist von aussen nicht zuverlässig dokumentiert (mehrsprachige Varianten

@@ -1657,3 +1657,6 @@ html.fs-filter-open body{ overflow:hidden; }
 .fs-3d-ptform{ min-width:220px; }
 .fs-3d-ptform select, .fs-3d-ptform input{ min-height:44px; font-size:15px !important; border-radius:10px !important; }
 .fs-3d-ptform button{ min-height:44px; font-size:14px !important; border-radius:10px !important; }
+/* Wanderrouten-Fenster */
+.fs-wr-label{ margin:10px 0 4px; font-size:12px; color:var(--ink-faint); }
+.fs-wr-select{ width:100%; min-height:40px; margin-bottom:6px; padding:6px 8px; border:1px solid var(--line); border-radius:10px; font:inherit; font-size:13.5px; }
