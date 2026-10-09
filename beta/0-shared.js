@@ -3157,7 +3157,7 @@ function fs3dMlOpen(opts){
     </div>` : ''}
     <div class="fs-3d-loading" id="fs-3d-loading">3D wird geladen …</div>`;
   document.body.appendChild(wrap);
-  pushOverlayLayer(fs3dMlClose);
+  if(opts.reuseHistory) overlayLayers.push(fs3dMlClose); else pushOverlayLayer(fs3dMlClose);
   wrap.querySelector('[data-3d="close"]').addEventListener('click', ()=> closeTopOverlayLayer());
   fsmEnsureLoaded().then(()=>{
     if(!document.getElementById('fs-3d-map')) return;
@@ -3225,7 +3225,8 @@ function fs3dMlOpen(opts){
       const c = map.getCenter();
       fs3dMlClose();
       overlayLayers.pop(); // Ebene dieser Ansicht übernimmt das Panorama (gleicher Verlaufseintrag)
-      fs3dCesiumOpen({lat: c.lat, lon: c.lng, zoom: map.getZoom(), tour: t, panorama: true, reuseHistory: true});
+      const back = Object.assign({}, opts, {lat: c.lat, lon: c.lng, zoom: map.getZoom() + 0.5, heading: map.getBearing(), reuseHistory: false});
+      fs3dCesiumOpen({lat: c.lat, lon: c.lng, zoom: map.getZoom(), tour: t, panorama: true, reuseHistory: true, back});
     });
   }).catch(()=>{
     const loading = document.getElementById('fs-3d-loading');
@@ -3281,6 +3282,24 @@ function fs3dMlWireEdit(map, ed){
   map.on('touchend', cancel);
   map.on('movestart', cancel);
 }
+/* ===== Gipfel ringsum: vollständige Gipfelliste =====
+   0-gipfel-ch.json: alle Gipfel, Pässe und Hütten der Schweiz (aus den swisstopo-Vektorkarten,
+   tools/gipfel-ch.py) als [lat·1e5, lon·1e5, Höhe, Art, Name]; Art: g = Gipfel, p = Pass, h = Hütte.
+   Wird erst beim ersten Panorama geladen. */
+let fsPeaksPromise = null;
+function fsPeaksLoad(){
+  if(!fsPeaksPromise){
+    fsPeaksPromise = fetch('./0-gipfel-ch.json').then(r=>{ if(!r.ok) throw new Error('Gipfelliste fehlt'); return r.json(); })
+      .then(j=> (j.p || []).map(a=>({lat: a[0] / 1e5, lon: a[1] / 1e5, ele: a[2], kind: a[3], name: a[4]})))
+      .catch(e=>{ fsPeaksPromise = null; throw e; });
+  }
+  return fsPeaksPromise;
+}
+function fsGeoDist(lat1, lon1, lat2, lon2){
+  const r = Math.PI / 180, x = (lon2 - lon1) * r * Math.cos((lat1 + lat2) / 2 * r), y = (lat2 - lat1) * r;
+  return Math.sqrt(x * x + y * y) * 6371000;
+}
+function fsFmtKm(m){ return m < 1000 ? Math.round(m / 10) * 10 + ' m' : (m < 10000 ? (m / 1000).toFixed(1) : Math.round(m / 1000)) + ' km'; }
 function fs3dCesiumOpen(opts){
   if(!navigator.onLine){ showToast('3D braucht Internet (Gelände und Luftbild werden live geladen).', true); return; }
   fs3dClose();
@@ -3620,8 +3639,10 @@ function fs3dCesiumOpen(opts){
     // Gesten im Panorama: 1 Finger dreht den Blick, 2 Finger zoomen (Blickwinkel)
     const pointers = new Map();
     let pinch = null;
+    let tapStart = null;
     const onDown = (e)=>{
       if(!pano) return;
+      tapStart = pointers.size === 0 ? {x:e.clientX, y:e.clientY, t:Date.now(), moved:false} : null;
       pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
       try{ mapEl.setPointerCapture(e.pointerId); }catch(err){}
       if(pointers.size === 2){
@@ -3633,6 +3654,7 @@ function fs3dCesiumOpen(opts){
       if(!pano || !pointers.has(e.pointerId)) return;
       const prev = pointers.get(e.pointerId);
       pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+      if(tapStart && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) > 8) tapStart.moved = true;
       const fovDeg = viewer.camera.frustum.fov * 180 / Math.PI;
       const span = Math.max(mapEl.clientWidth, mapEl.clientHeight);
       if(pointers.size === 1){
@@ -3646,7 +3668,15 @@ function fs3dCesiumOpen(opts){
         if(d > 10){ viewer.camera.frustum.fov = Math.max(deg(12), Math.min(deg(90), pinch.fov * pinch.d / d)); rerender(); }
       }
     };
-    const onUp = (e)=>{ pointers.delete(e.pointerId); if(pointers.size < 2) pinch = null; };
+    const onUp = (e)=>{
+      pointers.delete(e.pointerId);
+      if(pointers.size < 2) pinch = null;
+      if(tapStart && !tapStart.moved && pointers.size === 0 && Date.now() - tapStart.t < 450){
+        const r = mapEl.getBoundingClientRect();
+        panoTap(e.clientX - r.left, e.clientY - r.top);
+      }
+      tapStart = null;
+    };
     const onWheel = (e)=>{
       if(!pano) return;
       e.preventDefault();
@@ -3658,6 +3688,103 @@ function fs3dCesiumOpen(opts){
     mapEl.addEventListener('pointerup', onUp);
     mapEl.addEventListener('pointercancel', onUp);
     mapEl.addEventListener('wheel', onWheel, {passive:false});
+    // ===== Gipfelnamen im Panorama =====
+    // Alle Gipfel/Pässe/Hütten im Umkreis als Schilder. Nach jeder Drehung (gedrosselt): nur was
+    // wirklich zu sehen ist (Strahl von der Kamera zum Gipfel trifft nicht vorher das Gelände) und was
+    // sich nicht überlappt — wichtigere (höher, näher) zuerst. Antippen zeigt Name, Höhe, Entfernung.
+    let peakLabels = null, peakList = [], peakTimer = null, peakPos = null;
+    const PEAK_RANGE = {g: 80000, p: 20000, h: 25000};
+    const peakPrio = (pk)=> (pk.kind === 'g' ? 0 : 1500) - pk.ele + pk.dist / 40;
+    const panoPeaksUpdate = ()=>{
+      peakTimer = null;
+      if(!pano || !peakLabels) return;
+      const scene = viewer.scene, cam = viewer.camera, w = viewer.canvas.clientWidth, h = viewer.canvas.clientHeight;
+      const boxes = [];
+      const order = peakList.slice().sort((a, b)=> a.prio - b.prio);
+      let shown = 0;
+      for(const pk of order){
+        pk.label.show = false; pk.dot.show = false; pk.vis = false;
+        if(shown > 60) continue;
+        const sp = Cesium.SceneTransforms.worldToWindowCoordinates ? Cesium.SceneTransforms.worldToWindowCoordinates(scene, pk.pos) : Cesium.SceneTransforms.wgs84ToWindowCoordinates(scene, pk.pos);
+        if(!sp || sp.x < -20 || sp.x > w + 20 || sp.y < 30 || sp.y > h) continue;
+        // Liegt der Gipfel vor der Kamera? (Richtung zum Gipfel vs. Blickrichtung)
+        const toPk = Cesium.Cartesian3.subtract(pk.pos, cam.positionWC, new Cesium.Cartesian3());
+        if(Cesium.Cartesian3.dot(toPk, cam.directionWC) <= 0) continue;
+        // Sichtbar? Strahl durch den Bildpunkt: trifft er das Gelände deutlich vor dem Gipfel, ist er verdeckt
+        const ray = cam.getPickRay(new Cesium.Cartesian2(sp.x, sp.y + 2));
+        const hit = ray && scene.globe.pick(ray, scene);
+        if(hit && Cesium.Cartesian3.distance(cam.positionWC, hit) < pk.dist3 * 0.97 - 60) continue;
+        const tw = pk.name.length * 7.4 + 14, th = 34;
+        const box = {x0: sp.x - tw / 2, x1: sp.x + tw / 2, y0: sp.y - th - 8, y1: sp.y + 4};
+        if(boxes.some(b=> b.x0 < box.x1 && box.x0 < b.x1 && b.y0 < box.y1 && box.y0 < b.y1)) continue;
+        boxes.push(box);
+        pk.label.show = true; pk.dot.show = true; pk.vis = true; pk.sp = sp; shown++;
+      }
+      viewer.scene.requestRender();
+    };
+    const panoPeaksSchedule = ()=>{ if(!peakTimer) peakTimer = setTimeout(panoPeaksUpdate, 140); };
+    const panoPeaksStart = async (pos, groundH)=>{
+      peakPos = pos;
+      let all = [];
+      try{ all = await fsPeaksLoad(); }catch(e){ showToast('Gipfelliste konnte nicht geladen werden.', true); return; }
+      if(!pano || fs3dViewer !== viewer) return;
+      peakLabels = viewer.scene.primitives.add(new Cesium.LabelCollection());
+      const dots = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+      peakLabels._fsDots = dots;
+      const eye = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat, groundH + 2);
+      peakList = [];
+      all.forEach(pk=>{
+        const d = fsGeoDist(pos.lat, pos.lon, pk.lat, pk.lon);
+        if(d > (PEAK_RANGE[pk.kind] || 20000) || d < 30 || !pk.name) return;
+        const p3 = Cesium.Cartesian3.fromDegrees(pk.lon, pk.lat, (pk.ele || 0) + 4);
+        const o = Object.assign({}, pk, {dist: d, pos: p3, dist3: Cesium.Cartesian3.distance(eye, p3)});
+        o.prio = peakPrio(o);
+        o.label = peakLabels.add({position: p3, text: pk.name + (pk.ele ? '\n' + Math.round(pk.ele) : ''), show:false,
+          font: (pk.kind === 'g' ? '700 ' : '600 ') + '14px Manrope, sans-serif', fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.fromCssColorString('#0F1E27'), outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM, horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+          pixelOffset: new Cesium.Cartesian2(0, -8), disableDepthTestDistance: Number.POSITIVE_INFINITY});
+        o.dot = dots.add({position: p3, pixelSize: 6, color: Cesium.Color.WHITE, outlineColor: Cesium.Color.fromCssColorString('#0F1E27'), outlineWidth: 1.5, show:false, disableDepthTestDistance: Number.POSITIVE_INFINITY});
+        peakList.push(o);
+      });
+      viewer.camera.changed.addEventListener(panoPeaksSchedule);
+      viewer.camera.percentageChanged = 0.01;
+      viewer.scene.globe.tileLoadProgressEvent.addEventListener(panoPeaksSchedule);
+      panoPeaksSchedule();
+    };
+    const panoPeaksStop = ()=>{
+      if(peakTimer){ clearTimeout(peakTimer); peakTimer = null; }
+      try{ viewer.camera.changed.removeEventListener(panoPeaksSchedule); }catch(e){}
+      try{ viewer.scene.globe.tileLoadProgressEvent.removeEventListener(panoPeaksSchedule); }catch(e){}
+      if(peakLabels){ try{ viewer.scene.primitives.remove(peakLabels._fsDots); viewer.scene.primitives.remove(peakLabels); }catch(e){} }
+      peakLabels = null; peakList = [];
+      closePanel();
+    };
+    // Antippen: nächstes Schild in der Nähe, sonst der angetippte Punkt im Gelände
+    const panoTap = (x, y)=>{
+      if(!pano) return;
+      let best = null, bd = 44;
+      peakList.forEach(pk=>{ if(pk.vis && pk.sp){ const d = Math.hypot(pk.sp.x - x, pk.sp.y - 10 - y); if(d < bd){ bd = d; best = pk; } } });
+      const node = document.createElement('div');
+      node.className = 'fs-pano-info';
+      if(best){
+        node.innerHTML = `<b>${esc(best.name)}</b><span>${best.ele ? Math.round(best.ele) + ' m · ' : ''}${fsFmtKm(best.dist)} entfernt</span>`;
+      }else{
+        const ray = viewer.camera.getPickRay(new Cesium.Cartesian2(x, y));
+        const hit = ray && viewer.scene.globe.pick(ray, viewer.scene);
+        if(!hit) return;
+        const cg = Cesium.Cartographic.fromCartesian(hit);
+        const lat = Cesium.Math.toDegrees(cg.latitude), lon = Cesium.Math.toDegrees(cg.longitude);
+        // Benannter Gipfel/Pass in der Nähe des angetippten Punkts (auch wenn sein Schild ausgeblendet ist)
+        let near = null, nd = 400;
+        peakList.forEach(pk=>{ const d = fsGeoDist(lat, lon, pk.lat, pk.lon); if(d < nd){ nd = d; near = pk; } });
+        const dist = peakPos ? fsGeoDist(peakPos.lat, peakPos.lon, lat, lon) : 0;
+        node.innerHTML = near
+          ? `<b>${esc(near.name)}</b><span>${near.ele ? Math.round(near.ele) + ' m · ' : ''}${fsFmtKm(near.dist)} entfernt</span>`
+          : `<b>Ohne Namen</b><span>${Math.round(cg.height)} m ü. M. · ${fsFmtKm(dist)} entfernt</span>`;
+      }
+      showPanel(node);
+    };
     const panoStop = ()=>{
       if(!pano) return;
       const saved = pano.saved;
@@ -3672,6 +3799,7 @@ function fs3dCesiumOpen(opts){
       viewer.scene.fog.enabled = saved.fog;
       viewer.camera.frustum.fov = saved.fov;
       if(names){ names.style = new Cesium.Cesium3DTileStyle(FS3D_NAMES_STYLE); names.show = saved.namesShow; }
+      panoPeaksStop();
       viewer.camera.setView({destination: saved.position, orientation:{heading: saved.heading, pitch: saved.pitch, roll:0}});
       rerender();
     };
@@ -3707,8 +3835,9 @@ function fs3dCesiumOpen(opts){
       ctrl.enableInputs = false;
       viewer.scene.fog.enabled = false; // sonst verschwinden ferne Berge im Dunst
       cam.frustum.fov = deg(70);
-      if(names){ names.style = new Cesium.Cesium3DTileStyle(FS3D_NAMES_PANO_STYLE); names.show = true; namesBtn.classList.add('on'); }
+      if(names) names.show = false; // eigene, vollständige Gipfelnamen (siehe panoPeaksStart)
       panoApply();
+      panoPeaksStart(pos, groundH);
       let seenPano = false; try{ seenPano = localStorage.getItem('fs-3d-pano-hint') === '1'; }catch(e){}
       if(!seenPano){
         const ph = document.createElement('div');
@@ -3718,7 +3847,16 @@ function fs3dCesiumOpen(opts){
         wrap.appendChild(ph);
       }
     };
-    panoBtn.addEventListener('click', ()=>{ if(pano) panoStop(); else panoStart(); });
+    panoBtn.addEventListener('click', ()=>{
+      if(pano && opts.panorama){
+        // Aus der 3D-Karte geöffnet: zurück dorthin (gleicher Verlaufseintrag)
+        const back = opts.back || {lat: opts.lat, lon: opts.lon, zoom: opts.zoom, tour: opts.tour};
+        stopCompass(); fs3dClose(); overlayLayers.pop();
+        fs3dMlOpen(Object.assign({}, back, {reuseHistory: true}));
+        return;
+      }
+      if(pano) panoStop(); else panoStart();
+    });
     compassBtn.addEventListener('click', ()=> panoSetFollow(!(pano && pano.follow)));
     // Beim Schliessen der 3D-Ansicht den Sensor wieder abmelden
     const closeBtn3d = wrap.querySelector('[data-3d="close"]');
