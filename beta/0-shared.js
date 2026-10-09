@@ -3364,24 +3364,25 @@ function fs3dCesiumOpen(opts){
     // Auflösung: «Hoch» lädt feinere Kacheln und rechnet mit der vollen Bildschirmauflösung (zuhause im
     // WLAN), «Spar» lädt gröber und weniger Daten (unterwegs). Wahl bleibt pro Gerät gespeichert.
     let names = null;
+    // «hi» (3D Hoch, zum Planen): volle Schärfe (höchstens doppelte Auflösung) und feinste Kacheln.
+    // «pano» (Gipfel ringsum): schnell statt scharf — einfache Auflösung, gröbere Kacheln; für die
+    // Silhouette am Horizont und die Sichtprüfung der Gipfel reicht das.
     const applyQuality = (q)=>{
-      const hi = q !== 'lo';
-      // «Hoch»: schärfer gerechnet (höchstens doppelte Auflösung, sonst wird es auf dem Handy zu
-      // schwer) und feinere Kacheln; «Spar»: einfache Auflösung, gröbere Kacheln.
+      const hi = q === 'hi';
       const dpr = window.devicePixelRatio || 1;
       viewer.useBrowserRecommendedResolution = !hi;
       viewer.resolutionScale = hi ? Math.min(2, dpr) / dpr : 1;
-      viewer.scene.globe.maximumScreenSpaceError = hi ? 2.5 : 5;
-      viewer.scene.globe.tileCacheSize = hi ? 200 : 100;
-      if(names) names.maximumScreenSpaceError = hi ? 6 : 12;
-      wrap.querySelectorAll('[data-3d^="q-"]').forEach(b=> b.classList.toggle('on', b.getAttribute('data-3d') === (hi ? 'q-hi' : 'q-lo')));
+      viewer.scene.globe.maximumScreenSpaceError = hi ? 1.5 : 6;
+      viewer.scene.globe.tileCacheSize = hi ? 400 : 100;
+      viewer.scene.globe.preloadSiblings = hi;
+      wrap.querySelectorAll('[data-3d^="q-"]').forEach(b=> b.classList.toggle('on', b.getAttribute('data-3d') === 'q-hi'));
       viewer.scene.requestRender();
     };
     // Getrennt gemerkt für WLAN und Mobilnetz; ohne eigene Wahl: im Mobilnetz «Spar».
     // Ohne Angabe zum Netz (z. B. iPhone) gilt die WLAN-Einstellung.
     // Cesium = «Hoch» (genaues swisstopo-Gelände); «Spar» wechselt zur leichten 3D-Karte (MapLibre)
     const quality = 'hi';
-    applyQuality(quality);
+    applyQuality(opts.panorama ? 'pano' : 'hi');
     wrap.querySelectorAll('[data-3d^="q-"]').forEach(b=> b.addEventListener('click', ()=>{
       if(b.getAttribute('data-3d') !== 'q-lo') return;
       const ray = viewer.camera.getPickRay(new Cesium.Cartesian2(viewer.canvas.clientWidth / 2, viewer.canvas.clientHeight / 2));
@@ -3819,6 +3820,7 @@ function fs3dCesiumOpen(opts){
       viewer.camera.frustum.fov = saved.fov;
       if(names){ names.style = new Cesium.Cesium3DTileStyle(FS3D_NAMES_STYLE); names.show = saved.namesShow; }
       panoPeaksStop();
+      applyQuality('hi');
       viewer.camera.setView({destination: saved.position, orientation:{heading: saved.heading, pitch: saved.pitch, roll:0}});
       setTimeout(()=>{ if(fs3dViewPeaks) fs3dViewPeaks(); }, 300);
       rerender();
@@ -3856,6 +3858,7 @@ function fs3dCesiumOpen(opts){
       viewer.scene.fog.enabled = false; // sonst verschwinden ferne Berge im Dunst
       cam.frustum.fov = deg(70);
       if(names) names.show = false; // eigene, vollständige Gipfelnamen (siehe panoPeaksStart)
+      applyQuality('pano');
       panoApply();
       panoPeaksStop();
       panoPeaksStart(pos, groundH);
