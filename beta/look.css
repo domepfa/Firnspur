@@ -1653,3 +1653,7 @@ html.fs-filter-open body{ overflow:hidden; }
 .fs-3d-gps-btn .fs-i{ width:22px; height:22px; }
 .fs-3d-gps-btn.on{ background:#1971C2; color:#fff; }
 .fs-3d-pano .fs-3d-gps-btn{ display:none; }
+/* 3D bearbeiten: Punkt-Formular */
+.fs-3d-ptform{ min-width:220px; }
+.fs-3d-ptform select, .fs-3d-ptform input{ min-height:44px; font-size:15px !important; border-radius:10px !important; }
+.fs-3d-ptform button{ min-height:44px; font-size:14px !important; border-radius:10px !important; }
