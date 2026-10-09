@@ -1591,3 +1591,14 @@ html.fs-filter-open body{ overflow:hidden; }
 .fs-3d-quality button{ min-height:44px; }
 .fs-3d-quality-edit{ bottom:calc(150px + env(safe-area-inset-bottom, 0px)); }
 .fs-3d-pano .fs-3d-quality{ display:none; }
+
+/* ===== 3D mit MapLibre ===== */
+.fs-3d-ml{ background:#DDEBF5; }
+.fs-3d-ml .fs-3d-top{ right:70px; }
+.fs-3d-actions{ position:absolute; left:10px; bottom:calc(36px + env(safe-area-inset-bottom, 0px)); z-index:5; display:flex; gap:8px; }
+.fs-3d-actions[hidden]{ display:none; }
+.fs-3d-actions .fs-3d-chip{ display:inline-flex; align-items:center; gap:8px; min-height:48px; padding:0 16px; }
+.fs-3d-actions .fs-i{ width:18px; height:18px; }
+.fsm-extra{ margin-top:12px; padding-top:10px; border-top:1px solid var(--line-soft, #EDF1F3); }
+.fsm-extra-label{ font-size:11.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint, #66757F); margin-bottom:6px; }
+.fs-3d-ml .fs-3d-map{ position:absolute !important; inset:0; width:100%; height:100%; }

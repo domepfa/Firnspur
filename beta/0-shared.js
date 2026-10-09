@@ -3113,7 +3113,175 @@ function fs3dTourLines(t){
   }
   return out;
 }
+/* ===== 3D mit derselben Karte wie 2D (MapLibre + Gelände) =====
+   Die normale Karte, gekippt, mit Höhenmodell darunter. Beschriftung aus dem swisstopo-Vektorstil
+   («Luftbild + Namen»): gerade stehend, ohne Überlappung, hinter Bergen verdeckt. Ebenen, Standort
+   und SAC-Infos wie auf jeder Karte. Nur «Gipfel ringsum» läuft weiter mit Cesium und dem genauen
+   swisstopo-Gelände (fs3dCesiumOpen). */
+const FS3D_DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+let fs3dMap = null;
 function fsOpen3d(opts){
+  if(opts && opts.panorama) return fs3dCesiumOpen(opts);
+  return fs3dMlOpen(opts || {});
+}
+function fs3dQualityKey(){
+  const conn = navigator.connection || navigator.webkitConnection;
+  const cellular = !!(conn && (conn.type === 'cellular' || (!conn.type && conn.saveData)));
+  return {key: cellular ? 'fs-3d-quality-mobil' : 'fs-3d-quality', def: cellular ? 'lo' : 'hi'};
+}
+function fs3dQuality(){ const q = fs3dQualityKey(); try{ return localStorage.getItem(q.key) || q.def; }catch(e){ return q.def; } }
+function fs3dMlClose(){
+  if(fs3dMap){ try{ fs3dMap.remove(); }catch(e){} fs3dMap = null; }
+  const el = document.getElementById('fs-3d');
+  if(el) el.remove();
+}
+function fs3dMlOpen(opts){
+  if(!navigator.onLine){ showToast('3D braucht Internet (Gelände und Luftbild werden live geladen).', true); return; }
+  fs3dClose(); fs3dMlClose();
+  const t = opts.tour || null;
+  const wrap = document.createElement('div');
+  wrap.id = 'fs-3d';
+  wrap.className = 'fs-3d fs-3d-ml';
+  wrap.innerHTML = `
+    <div class="fs-3d-map" id="fs-3d-map"></div>
+    <div class="fs-3d-top">
+      <button type="button" class="fs-3d-btn" data-3d="close" aria-label="Zurück">‹ Zurück</button>
+      <div class="fs-3d-title">${esc(opts.title || (t ? t.name : '3D-Ansicht'))}</div>
+    </div>
+    <div class="fs-3d-actions"${opts.edit ? ' hidden' : ''}>
+      <button type="button" class="fs-3d-chip" data-3d="pano">${fsIconHtml('mountain')}Gipfel ringsum</button>
+    </div>
+    ${opts.edit ? `<div class="fs-3d-edit">
+      <div class="fs-3d-seg fs-3d-emode"><button type="button" data-3d="em-point">Punkt</button><button type="button" data-3d="em-line">Linie</button><button type="button" data-3d="em-route">Route</button><button type="button" data-3d="e-undo" aria-label="Rückgängig">↶</button></div>
+      <div class="fs-3d-ehint" id="fs-3d-ehint"></div>
+    </div>` : ''}
+    <div class="fs-3d-loading" id="fs-3d-loading">3D wird geladen …</div>`;
+  document.body.appendChild(wrap);
+  pushOverlayLayer(fs3dMlClose);
+  wrap.querySelector('[data-3d="close"]').addEventListener('click', ()=> closeTopOverlayLayer());
+  fsmEnsureLoaded().then(()=>{
+    if(!document.getElementById('fs-3d-map')) return;
+    const quality = fs3dQuality();
+    const map = fsmCreateMap('fs-3d-map', {center:[opts.lat, opts.lon], zoom: Math.max(11, Math.min(15, (opts.zoom || 13) - 0.5)), ctlTop: 64});
+    fs3dMap = map;
+    map.setMaxPitch(80);
+    const dpr = window.devicePixelRatio || 1;
+    try{ map.setPixelRatio(quality === 'lo' ? 1 : Math.min(2, dpr)); }catch(e){}
+    fsmWireInfoClicks(map, {sac:{allowAttach:false}});
+    // Ebenen-Fenster: zusätzlich die Auflösung (Hoch = schärfer und feineres Gelände, Spar = weniger Daten)
+    map._fsm.extraPanel = (panel)=>{
+      const q = fs3dQuality();
+      const row = document.createElement('div');
+      row.className = 'fsm-extra';
+      row.innerHTML = `<div class="fsm-extra-label">Auflösung</div><div class="fsm-seg"><button type="button" data-q="hi" class="${q==='hi'?'on':''}">Hoch</button><button type="button" data-q="lo" class="${q==='lo'?'on':''}">Spar</button></div>`;
+      row.querySelectorAll('[data-q]').forEach(b=> b.addEventListener('click', ()=>{
+        const nq = b.getAttribute('data-q');
+        try{ localStorage.setItem(fs3dQualityKey().key, nq); }catch(e){}
+        try{ map.setPixelRatio(nq === 'lo' ? 1 : Math.min(2, dpr)); }catch(e){}
+        setDem(nq);
+        fsmSyncPanel(map);
+      }));
+      panel.appendChild(row);
+    };
+    const setDem = (q)=>{
+      try{ map.setTerrain(null); }catch(e){}
+      if(map.getSource('dem')) map.removeSource('dem');
+      map.addSource('dem', {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: q === 'lo' ? 11 : 14, attribution:'Höhen: Mapzen/AWS Terrain Tiles'});
+      map.setTerrain({source:'dem', exaggeration:1});
+    };
+    fsmWhenLoaded(map, ()=>{
+      if(fs3dMap !== map) return;
+      // In 3D immer mit Beschriftung: Luftbild + Namen (die Wahl für 2D bleibt unverändert)
+      if(fsmPrefs().base !== 'hybrid') fsmSetBase(map, 'hybrid', true);
+      setDem(quality);
+      try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
+      // Eigene Linien und Punkte
+      const lines = opts.edit ? [] : (opts.lines || fs3dTourLines(t));
+      const all = [];
+      lines.forEach(ln=>{ if(ln.coords && ln.coords.length > 1){ fsmAddLine(map, ln.coords, {color: ln.color, dash: ln.dash, width: 5}); ln.coords.forEach(c=> all.push(c)); } });
+      const pts = opts.edit ? [] : (opts.points || (t && t.points) || []);
+      pts.forEach(p=>{ fsmAddMarker(map, p.lat, p.lon, fsmCategoryMarkerHtml(p.category), {popup: p.label ? esc(p.label) : '', anchor:'bottom'}); all.push([p.lat, p.lon]); });
+      // Blick: schräg auf alles Eigene, Richtung von der 2D-Karte übernommen, sonst Route Richtung Ziel
+      let bearing = opts.heading || 0;
+      if(!(Math.abs(bearing) > 0.5) && lines.length && lines[0].coords.length > 1){
+        const a = lines[0].coords[0], b = lines[0].coords[lines[0].coords.length - 1];
+        bearing = Math.atan2((b[1]-a[1]) * Math.cos(a[0]*Math.PI/180), b[0]-a[0]) * 180 / Math.PI;
+      }
+      if(all.length > 1){
+        const bb = new maplibregl.LngLatBounds();
+        all.forEach(c=> bb.extend([c[1], c[0]]));
+        const cam = map.cameraForBounds(bb, {padding:{top:140, bottom:120, left:40, right:70}, maxZoom:13.5});
+        if(cam) map.jumpTo({center: cam.center, zoom: cam.zoom - 0.3, bearing, pitch: 62});
+      }else{
+        map.jumpTo({bearing, pitch: 62});
+      }
+      if(opts.edit) fs3dMlWireEdit(map, opts.edit);
+      const loading = document.getElementById('fs-3d-loading');
+      map.once('idle', ()=>{ if(loading) loading.remove(); });
+      setTimeout(()=>{ if(loading) loading.remove(); }, 8000);
+    });
+    // «Gipfel ringsum»: Panorama mit dem genauen swisstopo-Gelände (Cesium)
+    wrap.querySelector('[data-3d="pano"]').addEventListener('click', ()=>{
+      const c = map.getCenter();
+      fs3dMlClose();
+      overlayLayers.pop(); // Ebene dieser Ansicht übernimmt das Panorama (gleicher Verlaufseintrag)
+      fs3dCesiumOpen({lat: c.lat, lon: c.lng, zoom: map.getZoom(), tour: t, panorama: true, reuseHistory: true});
+    });
+  }).catch(()=>{
+    const loading = document.getElementById('fs-3d-loading');
+    if(loading) loading.textContent = '3D konnte nicht geladen werden (keine Internetverbindung?).';
+  });
+}
+// Bearbeiten in 3D: Linie/Route = antippen, Punkt = lange drücken (wie auf der 2D-Karte)
+function fs3dMlWireEdit(map, ed){
+  const wrap = document.getElementById('fs-3d');
+  const hintEl = document.getElementById('fs-3d-ehint');
+  const HINTS = {point: 'Lange drücken setzt einen Punkt.', line: 'Antippen verlängert die Linie.', route: 'Antippen setzt Wegpunkte. Berechnen danach in 2D.'};
+  map.addSource('fs3d-edit', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+  map.addLayer({id:'fs3d-edit-case', type:'line', source:'fs3d-edit', filter:['==', ['geometry-type'], 'LineString'], layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#fff', 'line-width':8, 'line-opacity':0.8}});
+  map.addLayer({id:'fs3d-edit-line', type:'line', source:'fs3d-edit', filter:['==', ['geometry-type'], 'LineString'], layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':['get','color'], 'line-width':5}});
+  map.addLayer({id:'fs3d-edit-pt', type:'circle', source:'fs3d-edit', filter:['==', ['geometry-type'], 'Point'], paint:{'circle-radius':['get','r'], 'circle-color':['get','color'], 'circle-stroke-color':'#fff', 'circle-stroke-width':2}});
+  const draw = ()=>{
+    const f = [];
+    ed.lines().forEach(ln=>{
+      if(!ln.coords || ln.coords.length < 2) return;
+      f.push({type:'Feature', properties:{color: ln.color}, geometry:{type:'LineString', coordinates: ln.coords.map(c=>[c[1], c[0]])}});
+      if(ln.edit) ln.coords.forEach(c=> f.push({type:'Feature', properties:{color: ln.color, r:5}, geometry:{type:'Point', coordinates:[c[1], c[0]]}}));
+    });
+    ed.points().forEach(p=> f.push({type:'Feature', properties:{color: p.color || '#4A3524', r:8}, geometry:{type:'Point', coordinates:[p.lon, p.lat]}}));
+    const src = map.getSource('fs3d-edit');
+    if(src) src.setData({type:'FeatureCollection', features:f});
+  };
+  const syncMode = ()=>{
+    const m = ed.getMode();
+    wrap.querySelectorAll('[data-3d^="em-"]').forEach(b=> b.classList.toggle('on', b.getAttribute('data-3d') === 'em-' + m));
+    if(hintEl) hintEl.textContent = HINTS[m] || '';
+  };
+  wrap.querySelectorAll('[data-3d^="em-"]').forEach(b=> b.addEventListener('click', ()=>{ ed.setMode(b.getAttribute('data-3d').slice(3)); syncMode(); }));
+  wrap.querySelector('[data-3d="e-undo"]').addEventListener('click', ()=>{ ed.undo(); draw(); });
+  syncMode(); draw();
+  map.on('click', (e)=>{
+    const m = ed.getMode();
+    if(m !== 'line' && m !== 'route') return;
+    ed.tap(e.lngLat.lat, e.lngLat.lng); draw();
+  });
+  // Lange drücken (Handy) bzw. Rechtsklick: Punkt setzen
+  const hold = (ll)=>{ if(ed.getMode() !== 'point') return; ed.hold(ll.lat, ll.lng); if(navigator.vibrate) try{ navigator.vibrate(30); }catch(e){} draw(); };
+  map.on('contextmenu', (e)=> hold(e.lngLat));
+  let timer = null, startPt = null;
+  const cancel = ()=>{ if(timer){ clearTimeout(timer); timer = null; } };
+  map.on('touchstart', (e)=>{
+    cancel();
+    if(!e.originalEvent || e.originalEvent.touches.length !== 1) return;
+    startPt = e.point;
+    const ll = e.lngLat;
+    timer = setTimeout(()=>{ timer = null; hold(ll); }, 600);
+  });
+  map.on('touchmove', (e)=>{ if(startPt && (Math.abs(e.point.x - startPt.x) > 10 || Math.abs(e.point.y - startPt.y) > 10)) cancel(); });
+  map.on('touchend', cancel);
+  map.on('movestart', cancel);
+}
+function fs3dCesiumOpen(opts){
   if(!navigator.onLine){ showToast('3D braucht Internet (Gelände und Luftbild werden live geladen).', true); return; }
   fs3dClose();
   const t = opts.tour;
@@ -3148,7 +3316,7 @@ function fsOpen3d(opts){
     </div>` : ''}
     <div class="fs-3d-loading" id="fs-3d-loading">3D wird geladen …</div>`;
   document.body.appendChild(wrap);
-  pushOverlayLayer(fs3dClose);
+  if(opts.reuseHistory) overlayLayers.push(fs3dClose); else pushOverlayLayer(fs3dClose);
   wrap.querySelector('[data-3d="close"]').addEventListener('click', ()=> closeTopOverlayLayer());
   fs3dEnsureCesium().then(async ()=>{
     if(!document.getElementById('fs-3d-map')) return;
@@ -5008,6 +5176,7 @@ function fsmApplyPrefs(map){
 }
 function fsmSetBase(map, base, silent){
   if(!map._fsmLoaded) return;
+  map._fsm.base = base;
   const luft = base === 'luftbild' || base === 'hybrid';
   map.setLayoutProperty('base-karte', 'visibility', luft ? 'none' : 'visible');
   map.setLayoutProperty('base-luftbild', 'visibility', luft ? 'visible' : 'none');
@@ -5035,7 +5204,7 @@ async function fsmSetNames(map, on){
       const nl = Object.assign({}, l, {id:'n-' + l.id, source:'n-' + l.source});
       try{ map.addLayer(nl, 'fsm-anchor-own'); st.namesLayers.push(nl.id); }catch(e){}
     });
-    if(fsmPrefs().base !== 'hybrid') fsmSetNames(map, false);
+    if((st.base || fsmPrefs().base) !== 'hybrid') fsmSetNames(map, false);
   }catch(e){
     showToast('Namen über dem Luftbild brauchen Internet.', true);
   }
@@ -5135,10 +5304,12 @@ function fsmSyncPanel(map){
   const panel = map._fsm && map._fsm.panel;
   if(!panel || panel.hidden) return;
   const p = fsmPrefs();
-  panel.innerHTML = `<div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${p.base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
+  const base = map._fsm.base || p.base;
+  panel.innerHTML = `<div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
     ${fsmOverlaysForApp().map(o=>`<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`).join('')}`;
   panel.querySelectorAll('[data-base]').forEach(b=> b.addEventListener('click', ()=> fsmSetBase(map, b.getAttribute('data-base'))));
   panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=> fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked)));
+  if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
 }
 /* --- Eigene Inhalte --- */
 // Linie mit weissem Rand. coords: [[lat,lon],…]. opts: {color, dash, width, label, onClick}
