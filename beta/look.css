@@ -1610,3 +1610,20 @@ html.fs-filter-open body{ overflow:hidden; }
 /* Panorama: nur «Gipfel ringsum» (beendet) und «Kompass folgen» */
 .fs-3d-pano .fs-3d-chips > :not([data-3d="pano"]):not([data-3d="pano-compass"]){ display:none !important; }
 .fs-3d-pano .fs-3d-quality{ display:none; }
+
+/* ===== 3D Hoch (Cesium): Ebenen-Knopf mit Fenster statt Schiebeleiste ===== */
+.fs-3d-layers-btn{ position:absolute; right:10px; top:calc(66px + env(safe-area-inset-top, 0px)); z-index:5; width:48px; padding:0; display:flex; align-items:center; justify-content:center; }
+.fs-3d-layers-btn .fs-i{ width:22px; height:22px; }
+.fs-3d-chips.fs-3d-layerpanel{
+  left:auto; right:68px; top:calc(66px + env(safe-area-inset-top, 0px)); width:min(260px, calc(100% - 88px));
+  flex-direction:column; align-items:stretch; gap:8px; overflow:visible; padding:12px; border-radius:18px;
+  background:#fff; box-shadow:0 8px 30px rgba(15,30,39,.3);
+}
+.fs-3d-layerpanel[hidden]{ display:none !important; }
+.fs-3d-layerpanel .fs-3d-chip{ box-shadow:none; background:#EEF2F5; justify-content:flex-start; }
+.fs-3d-layerpanel .fs-3d-seg{ box-shadow:none; background:#EEF2F5; }
+.fs-3d-layerpanel .fs-3d-seg button{ flex:1; }
+.fs-3d-plabel{ margin-top:4px; font-size:11.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#66757F; }
+.fs-3d-chip[data-3d="pano"].on{ background:var(--ice-deep); color:#fff; }
+.fs-3d-pano .fs-3d-layers-btn, .fs-3d-pano .fs-3d-layerpanel{ display:none !important; }
+.fs-3d-actions .fs-3d-chip[hidden]{ display:none !important; }
