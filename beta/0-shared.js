@@ -3172,7 +3172,7 @@ function fs3dMlOpen(opts){
   fsmEnsureLoaded().then(()=>{
     if(!document.getElementById('fs-3d-map')) return;
     const quality = 'lo';
-    const map = fsmCreateMap('fs-3d-map', {center:[opts.lat, opts.lon], zoom: Math.max(11, Math.min(15, (opts.zoom || 13) - 0.5)), ctlTop: 64});
+    const map = fsmCreateMap('fs-3d-map', {center:[opts.lat, opts.lon], zoom: Math.max(11, Math.min(15, (opts.zoom || 13) - 0.5)), ctlTop: 64, gpsOnce: true});
     fs3dMap = map;
     map.setMaxPitch(80);
     try{ map.setPixelRatio(1); }catch(e){}
@@ -3993,41 +3993,29 @@ function fs3dCesiumOpen(opts){
         label:{text: h.name, font:'700 15px Manrope, sans-serif', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.fromCssColorString('#0F1E27'), outlineWidth:3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -14), disableDepthTestDistance: Number.POSITIVE_INFINITY}});
       viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(pos, 1), {duration: 2, offset: new Cesium.HeadingPitchRange(viewer.camera.heading, Cesium.Math.toRadians(-28), 5500)});
     });
-    // Mein Standort: blauer Punkt, beim ersten Fix dorthin fliegen; nochmals antippen = aus.
-    // Schaltet sich wie auf der Karte nach 5 Minuten selbst ab (Akku).
+    // Mein Standort: einmal orten, hinfliegen, blauen Punkt setzen (kein laufender Standort, spart Akku)
     const gpsBtn = wrap.querySelector('[data-3d="gps"]');
     const gpsDs = new Cesium.CustomDataSource('standort'); viewer.dataSources.add(gpsDs);
-    let gpsWatch = null, gpsOff = null, gpsEnt = null;
-    const gpsStop = ()=>{
-      if(gpsWatch !== null){ try{ navigator.geolocation.clearWatch(gpsWatch); }catch(e){} gpsWatch = null; }
-      if(gpsOff){ clearTimeout(gpsOff); gpsOff = null; }
-      gpsDs.entities.removeAll(); gpsEnt = null;
-      gpsBtn.classList.remove('on');
-      rerender();
-    };
-    fs3dGpsStop = gpsStop;
+    fs3dGpsStop = null;
     gpsBtn.addEventListener('click', ()=>{
-      if(gpsWatch !== null){ gpsStop(); return; }
       if(!navigator.geolocation){ showToast('Standort ist auf diesem Gerät nicht verfügbar.', true); return; }
       gpsBtn.classList.add('on');
-      let first = true;
-      gpsWatch = navigator.geolocation.watchPosition(async (p)=>{
+      navigator.geolocation.getCurrentPosition(async (p)=>{
         if(fs3dViewer !== viewer) return;
         const lat = p.coords.latitude, lon = p.coords.longitude;
         let height = 0;
         try{ const [c] = await Cesium.sampleTerrainMostDetailed(terrain, [Cesium.Cartographic.fromDegrees(lon, lat)]); height = c.height || 0; }catch(e){}
+        gpsBtn.classList.remove('on');
+        if(fs3dViewer !== viewer) return;
         const pos = Cesium.Cartesian3.fromDegrees(lon, lat, height + 3);
-        if(!gpsEnt) gpsEnt = gpsDs.entities.add({position: pos, point:{pixelSize:16, color: Cesium.Color.fromCssColorString('#1971C2'), outlineColor: Cesium.Color.WHITE, outlineWidth:3, disableDepthTestDistance: Number.POSITIVE_INFINITY}});
-        else gpsEnt.position = pos;
-        if(first){
-          first = false;
-          if(pano) panoStop();
-          viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(pos, 1), {duration: 1.6, offset: new Cesium.HeadingPitchRange(viewer.camera.heading, Cesium.Math.toRadians(-32), 3500)});
-        }
-        rerender();
-      }, ()=>{ gpsStop(); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, maximumAge:5000, timeout:20000});
-      gpsOff = setTimeout(()=>{ if(gpsWatch !== null){ gpsStop(); showToast('Standort nach 5 Minuten ausgeschaltet (Akku sparen).'); } }, FS_GPS_AUTO_OFF_MS);
+        gpsDs.entities.removeAll();
+        gpsDs.entities.add({position: pos, point:{pixelSize:16, color: Cesium.Color.fromCssColorString('#1971C2'), outlineColor: Cesium.Color.WHITE, outlineWidth:3, disableDepthTestDistance: Number.POSITIVE_INFINITY}});
+        if(pano) panoStop();
+        viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(pos, 1), {duration: 1.6, offset: new Cesium.HeadingPitchRange(viewer.camera.heading, Cesium.Math.toRadians(-32), 3500)});
+      }, ()=>{ gpsBtn.classList.remove('on'); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
     });
+    // Tipp in die Ansicht schliesst das Ebenen-Fenster
+    viewer.scene.canvas.addEventListener('pointerdown', ()=>{ if(!layerPanel.hidden) layerPanel.hidden = true; });
     // Schild antippen (ausserhalb des Panoramas): Name und Höhe
     new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas).setInputAction((ev)=>{
       if(pano || (opts.edit && opts.edit.getMode() !== 'point')) return;
@@ -5477,7 +5465,10 @@ function fsmCreateMap(container, opts){
     maxPitch: 60, attributionControl: {compact: true}, dragRotate: true, touchPitch: true,
     maxBounds: [[3, 43.5], [13.5, 49.5]]
   });
-  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0};
+  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0, gpsOnce: !!opts.gpsOnce};
+  // Tipp in die Karte schliesst das Ebenen-Fenster
+  map.on('click', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) map._fsm.panel.hidden = true; });
+  map.on('dragstart', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) map._fsm.panel.hidden = true; });
   map.once('load', ()=>{ map._fsmLoaded = true; fsmApplyPrefs(map); });
   if(opts.controls !== false) fsmAddControls(map);
   return map;
@@ -5591,6 +5582,19 @@ function fsmAddControls(map){
   const gpsBtn = box.querySelector('[data-fsm="gps"]');
   gpsBtn.classList.toggle('on', !!(gpsMarker && gpsMarker._fsmMap === map));
   gpsBtn.addEventListener('click', ()=>{
+    if(map._fsm.gpsOnce){
+      // 3D-Karte: einmal orten, hinfliegen, Punkt setzen — kein laufender Standort
+      if(!navigator.geolocation){ showToast('Standort ist auf diesem Gerät nicht verfügbar.', true); return; }
+      gpsBtn.classList.add('busy');
+      navigator.geolocation.getCurrentPosition((p)=>{
+        gpsBtn.classList.remove('busy');
+        const ll = [p.coords.longitude, p.coords.latitude];
+        if(map._fsmOnceMarker) map._fsmOnceMarker.setLngLat(ll);
+        else{ const el = document.createElement('div'); el.className = 'fsm-gps'; map._fsmOnceMarker = new maplibregl.Marker({element: el}).setLngLat(ll).addTo(map); }
+        map.flyTo({center: ll, zoom: Math.max(map.getZoom(), 13.5), duration: 1400});
+      }, ()=>{ gpsBtn.classList.remove('busy'); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
+      return;
+    }
     if(gpsWatchId !== null && gpsMarker && gpsMarker._fsmMap === map){
       // Läuft schon: erst zum Standort springen, beim zweiten Tippen ausschalten
       const ll = gpsMarker.getLngLat();
@@ -9657,8 +9661,10 @@ function fsUpgradeFilterRows(){
   });
   document.documentElement.classList.toggle('fs-filter-open', !!fsOpenFilterSheet());
 }
-// Antippen neben das Blatt schliesst es
-document.addEventListener('click', (e)=>{
+// Antippen neben das Blatt (auch auf die Karte) schliesst es. pointerdown statt click: die
+// Kartenvorschau fängt Berührungen ab, ein click käme dort nie an.
+let fsFilterSwallowClick = false;
+document.addEventListener('pointerdown', (e)=>{
   const sheet = fsOpenFilterSheet();
   if(!sheet || sheet.contains(e.target)) return;
   const row = document.querySelector('.fs-filter-row');
@@ -9666,7 +9672,10 @@ document.addEventListener('click', (e)=>{
   if(!toggle || toggle.contains(e.target)) return;
   e.preventDefault(); e.stopPropagation();
   toggle.click();
+  fsFilterSwallowClick = true; // der folgende click soll nichts darunter auslösen
+  setTimeout(()=>{ fsFilterSwallowClick = false; }, 500);
 }, true);
+document.addEventListener('click', (e)=>{ if(fsFilterSwallowClick){ fsFilterSwallowClick = false; e.preventDefault(); e.stopPropagation(); } }, true);
 // Das Ein-/Ausblenden der Filter (Tour/Hütte) ändert nur style.display: Hintergrund nachziehen
 document.addEventListener('click', ()=> setTimeout(()=> document.documentElement.classList.toggle('fs-filter-open', !!fsOpenFilterSheet()), 0));
 
