@@ -1660,3 +1660,24 @@ html.fs-filter-open body{ overflow:hidden; }
 /* Wanderrouten-Fenster */
 .fs-wr-label{ margin:10px 0 4px; font-size:12px; color:var(--ink-faint); }
 .fs-wr-select{ width:100%; min-height:40px; margin-bottom:6px; padding:6px 8px; border:1px solid var(--line); border-radius:10px; font:inherit; font-size:13.5px; }
+
+/* ===== Messwerte und Webcams auf der Karte ===== */
+.fsm-val{ min-width:30px; padding:2px 6px; border-radius:999px; background:var(--c); color:#fff; font-size:12px; font-weight:800; text-align:center; border:2px solid #fff; box-shadow:0 1px 4px rgba(15,30,39,.35); cursor:pointer; }
+.fsm-val-0{ min-width:0; width:10px; height:10px; padding:0; background:#ADB5BD; }
+.fsm-cam{ width:30px; height:30px; border-radius:50%; background:#fff; color:#0E5072; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(15,30,39,.35); cursor:pointer; }
+.fsm-cam .fs-i{ width:17px; height:17px; }
+.fs-cam-pop{ display:flex; flex-direction:column; gap:4px; min-width:180px; }
+.fs-cam-pop b{ font-size:14px; }
+.fs-cam-pop span{ font-size:12.5px; color:var(--ink-soft); }
+.fs-cam-pop img{ width:100%; max-width:280px; border-radius:10px; margin-top:4px; display:block; }
+.fs-cam-link{ font-weight:700; color:var(--ice-deep); }
+/* ===== Tour: Wetter der letzten Tage, Webcams in der Nähe ===== */
+.wx-past .wx-sum{ margin:0 0 8px; font-size:14px; color:var(--ink); }
+.wx-sn{ font-size:10.5px; font-weight:700; color:#5B3FA8; margin-top:1px; }
+.wx-day.wx-today{ opacity:.7; }
+.fs-cams .fs-cam-row{ display:flex; align-items:center; gap:12px; min-height:56px; padding:6px 0; border-bottom:1px solid var(--line-soft); color:var(--ink); text-decoration:none; }
+.fs-cams .fs-cam-row:last-of-type{ border-bottom:none; }
+.fs-cams .fs-cam-row img{ width:88px; height:56px; object-fit:cover; border-radius:10px; flex:none; }
+.fs-cams .fs-cam-row > .fs-i{ width:22px; height:22px; color:var(--ice-deep); flex:none; }
+.fs-cams .fs-cam-row span{ display:flex; flex-direction:column; }
+.fs-cams .fs-cam-row small{ color:var(--ink-faint); font-size:12px; }
