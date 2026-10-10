@@ -5429,11 +5429,11 @@ const FSM_OVERLAYS = [
   {id:'slf', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
   {id:'sperrungen', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln — siehe fsmLoadPoints
-  // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt
-  {id:'slfstationen', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3},
-  {id:'webcams', label:'Webcams (MeteoSchweiz)', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3},
-  {id:'temp', label:'Temperatur (aktuell)', icon:'therm', points:'https://data.geo.admin.ch/ch.meteoschweiz.messwerte-lufttemperatur-10min/ch.meteoschweiz.messwerte-lufttemperatur-10min_de.json', kind:'temp', maxAge:5*60e3},
-  {id:'regen', label:'Niederschlag (letzte 10 Min.)', icon:'drop', points:'https://data.geo.admin.ch/ch.meteoschweiz.messwerte-niederschlag-10min/ch.meteoschweiz.messwerte-niederschlag-10min_de.json', kind:'regen', maxAge:5*60e3}
+  // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt; Daten für «Wetter-Messwerte»
+  {id:'slfstationen', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
+  // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
+  {id:'wetter', label:'Wetter-Messwerte', icon:'therm', wetter:true},
+  {id:'webcams', label:'Webcams (MeteoSchweiz)', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
 ];
 const FSM_BASES = [
   {id:'karte', label:'Karte'},
@@ -5495,7 +5495,7 @@ function fsmPrefs(){
   return p;
 }
 function fsmSavePrefs(p){ try{ localStorage.setItem('fs-map-layers', JSON.stringify(p)); }catch(e){} }
-function fsmOverlaysForApp(){ return FSM_OVERLAYS.filter(o=> !o.skitourOnly || fsAppKey() === 'firnspur'); }
+function fsmOverlaysForApp(){ return FSM_OVERLAYS.filter(o=> !o.hidden && (!o.skitourOnly || fsAppKey() === 'firnspur')); }
 // Leerer Grundstil: Grundkarten als Raster, zwei unsichtbare "Anker" für die Reihenfolge
 // (Ebenen < Namen < eigene Linien/Punkte).
 function fsmBaseStyle(){
@@ -5579,7 +5579,9 @@ function fsmSetOverlay(map, id, on, silent){
   const o = FSM_OVERLAYS.find(x=> x.id === id);
   if(!o) return;
   const lid = 'ov-' + id;
-  if(o.points){
+  if(o.wetter){
+    if(on) fsmWxStart(map); else fsmWxStop(map);
+  }else if(o.points){
     // Punkte als HTML-Marker (Messwerte, Webcams)
     map._fsm.pt = map._fsm.pt || {};
     if(on && !map._fsm.pt[id]) fsmLoadPoints(map, o);
@@ -9100,9 +9102,236 @@ function meteoFormatDayLabel(dateKey){
   return { weekday: METEO_WEEKDAYS[dt.getDay()], day: d, month: m+1 };
 }
 
-function meteoForecastWidgetHtml(lat, lon){
+/* ===== Bedingungen: alles für die Planung an einem Ort (Tour, Gebiet) =====
+   Zusammenfassung in einem Satz, Lawinengefahr, Niederschlag/Neuschnee der letzten 3 Tage (Modell
+   am Gipfel), gemessene Werte der nächsten SLF- und MeteoSchweiz-Stationen, Webcams, Prognose. */
+const WINDY_API_KEY = ''; // Windy-Webcams: Schlüssel von api.windy.com/keys (leer = nur MeteoSchweiz-Kameras)
+const FS_MS = (layer)=> 'https://data.geo.admin.ch/ch.meteoschweiz.' + layer + '/ch.meteoschweiz.' + layer + '_de.json';
+// Messgrössen für Karte (B) und Bedingungen (C). src: ms = MeteoSchweiz-Datei, slf = eigene SLF-Datei
+const FS_WX_PARAMS = [
+  {id:'neuschnee', label:'Neuschnee 24 h', unit:'cm', ms:'messwerte-neuschnee-1d', slf:'dhs24', scale:[[0,'#ADB5BD'],[1,'#91A7FF'],[5,'#748FFC'],[15,'#5C7CFA'],[30,'#7048E8'],[50,'#5F3DC4']]},
+  {id:'schnee', label:'Schneehöhe', unit:'cm', ms:'messwerte-schneehoehe-automatisch-10min', slf:'hs', scale:[[0,'#ADB5BD'],[1,'#A5D8FF'],[50,'#74C0FC'],[100,'#339AF0'],[200,'#1971C2'],[300,'#0B4F8A']]},
+  {id:'regen', label:'Niederschlag 24 h', unit:'mm', ms:'messwerte-niederschlag-24h', scale:[[0,'#ADB5BD'],[0.5,'#A5D8FF'],[5,'#4DABF7'],[15,'#1971C2'],[30,'#5F3DC4']]},
+  {id:'temp', label:'Temperatur', unit:'°', ms:'messwerte-lufttemperatur-10min', slf:'ta', scale:[[-15,'#5B3FA8'],[-5,'#3B5BDB'],[0,'#4DABF7'],[5,'#63C5B5'],[10,'#8BC34A'],[15,'#E8C547'],[20,'#F59F00'],[25,'#F76707'],[30,'#E03131']]},
+  {id:'wind', label:'Windböen', unit:'km/h', ms:'messwerte-wind-boeenspitze-kmh-10min', scale:[[0,'#8BC34A'],[30,'#E8C547'],[50,'#F59F00'],[70,'#F76707'],[90,'#E03131']]}
+];
+function fsWxColor(p, v){ let c = p.scale[0][1]; p.scale.forEach(([t, col])=>{ if(v >= t) c = col; }); return c; }
+function fsWxFmt(p, v){ return p.id === 'temp' ? Math.round(v) + '°' : (p.id === 'regen' && v < 10 ? v.toFixed(1) : String(Math.round(v))); }
+// Messpunkte einer Grösse (MeteoSchweiz und SLF zusammen) als [{lat, lon, v, name, ele, src}]
+async function fsWxPoints(p){
+  const out = [];
+  const jobs = [];
+  if(p.ms) jobs.push(fsPointsFetch({id:'ms-' + p.id, points: FS_MS(p.ms), maxAge: 10*60e3}).then(j=>{
+    (j.features || []).forEach(f=>{
+      const g = f.geometry, pr = f.properties || {};
+      const v = typeof pr.value === 'number' ? pr.value : parseFloat(pr.value);
+      if(!g || g.type !== 'Point' || !isFinite(v) || v < -90 || v > 9000) return;
+      out.push({lon: g.coordinates[0], lat: g.coordinates[1], v, name: pr.station_name || '', ele: pr.altitude || pr.station_altitude || null, src: 'MeteoSchweiz'});
+    });
+  }).catch(()=>{}));
+  if(p.slf) jobs.push(fsPointsFetch(FSM_OVERLAYS.find(o=> o.id === 'slfstationen') || {id:'slfstationen', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3}).then(j=>{
+    (j.features || []).forEach(f=>{
+      const pr = f.properties || {}; let v = pr[p.slf];
+      if(v == null) return;
+      if(p.id === 'neuschnee') v = Math.max(0, v);
+      out.push({lon: pr.lon, lat: pr.lat, v, name: pr.name, ele: pr.ele, src: 'SLF', props: pr});
+    });
+  }).catch(()=>{}));
+  await Promise.all(jobs);
+  return out;
+}
+function fsNearest(list, lat, lon, maxM, filter){
+  let best = null, bd = maxM || 25000;
+  list.forEach(x=>{ if(filter && !filter(x)) return; const d = fsGeoDist(lat, lon, x.lat, x.lon); if(d < bd){ bd = d; best = Object.assign({d}, x); } });
+  return best;
+}
+// Lawinengefahr am Punkt (Warnregion des aktuellen Bulletins)
+let fsSlfDangerPromise = null;
+function fsPointInPoly(lon, lat, ring){
+  let inside = false;
+  for(let i = 0, j = ring.length - 1; i < ring.length; j = i++){
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if(((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function fsDangerAt(lat, lon, data){
+  for(const f of data.features){
+    const g = f.geometry; if(!g) continue;
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+    if(polys.some(pl=> pl[0] && fsPointInPoly(lon, lat, pl[0]))){
+      const rid = slfRegionId(f);
+      return rid ? data.dangerByRegion[rid] || null : null;
+    }
+  }
+  return null;
+}
+function fsConditionsHtml(lat, lon, alt){
+  state._cond = state._cond || {};
+  const key = lat.toFixed(3) + ',' + lon.toFixed(3) + ',' + (alt || '');
+  let c = state._cond[key];
+  if(!c){
+    c = state._cond[key] = {status:'loading'};
+    const elev = parseFloat(alt);
+    const om = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + (isFinite(elev) ? '&elevation=' + elev : '') + '&daily=precipitation_sum,snowfall_sum,temperature_2m_max,temperature_2m_min,freezing_level_height_max&past_days=3&forecast_days=1&timezone=Europe%2FZurich';
+    const pOm = fetch(om).then(r=> r.ok ? r.json() : null).catch(()=> null);
+    const pNs = fsWxPoints(FS_WX_PARAMS[0]), pHs = fsWxPoints(FS_WX_PARAMS[1]), pRain = fsWxPoints(FS_WX_PARAMS[2]);
+    if(!fsSlfDangerPromise) fsSlfDangerPromise = fetchSlfDangerRegions().catch(()=> null);
+    const pCams = fsWebcamsNear(lat, lon);
+    Promise.all([pOm, pNs, pHs, pRain, fsSlfDangerPromise, pCams]).then(([omj, ns, hs, rain, dang, cams])=>{
+      state._cond[key] = {status:'ok', om: omj, ns, hs, rain, danger: dang ? fsDangerAt(lat, lon, dang) : null, cams};
+      render();
+      if(window.__fsCondRedraw) window.__fsCondRedraw();
+    });
+  }
+  if(c.status !== 'ok') return `<div class="detail-section fs-cond"><h4>Bedingungen</h4><p class="hint">Lädt…</p></div>`;
+  const parts = [];
+  // Zusammenfassung
+  const d = c.om && c.om.daily;
+  let sent = '', bars = '';
+  if(d && d.time && d.time.length >= 2){
+    const n = d.time.length, past = [...Array(n - 1).keys()];
+    const snow = past.reduce((s, i)=> s + (d.snowfall_sum[i] || 0), 0), rain = past.reduce((s, i)=> s + (d.precipitation_sum[i] || 0), 0);
+    const yRain = d.precipitation_sum[n - 2] || 0;
+    sent = snow >= 1 ? `Etwa <b>${Math.round(snow)} cm Neuschnee</b> in den letzten 3 Tagen` : rain >= 1 ? `<b>${Math.round(rain)} mm Niederschlag</b> in den letzten 3 Tagen` : '<b>Die letzten 3 Tage trocken</b>';
+    if(snow >= 1 || rain >= 1) sent += yRain < 0.2 ? ', gestern trocken' : `, gestern ${yRain.toFixed(1)} mm`;
+    const fz = d.freezing_level_height_max && d.freezing_level_height_max[n - 2];
+    if(fz) sent += `. Nullgradgrenze gestern bis ${Math.round(fz / 100) * 100} m`;
+    sent += '.';
+    const names = ['Vor 3 Tagen', 'Vorgestern', 'Gestern', 'Heute'], off = 4 - n;
+    const max = Math.max(5, ...d.time.map((t, i)=> Math.max((d.snowfall_sum[i] || 0), (d.precipitation_sum[i] || 0))));
+    bars = `<div class="fs-cond-bars">${d.time.map((t, i)=>{
+      const sn = d.snowfall_sum[i] || 0, pr = d.precipitation_sum[i] || 0, isSnow = sn >= 0.5;
+      const v = isSnow ? sn : pr, h = Math.max(4, Math.round(v / max * 64));
+      return `<div class="fs-cond-bar${i === n - 1 ? ' today' : ''}"><span class="val">${v >= 0.2 ? (isSnow ? Math.round(sn) + ' cm' : pr.toFixed(1) + ' mm') : '–'}</span><i style="height:${h}px; background:${v < 0.2 ? '#DEE2E6' : isSnow ? '#7048E8' : '#4DABF7'}"></i><span class="lbl">${names[i + off] || t}</span><span class="t">${Math.round(d.temperature_2m_max[i])}° / ${Math.round(d.temperature_2m_min[i])}°</span></div>`;
+    }).join('')}</div>`;
+  }
+  const chips = [];
+  if(c.danger) chips.push(`<span class="fs-cond-chip" style="background:${c.danger.color}; color:${c.danger.level >= 3 ? '#fff' : '#0F1E27'}">Lawinengefahr ${esc(c.danger.label || String(c.danger.level))}</span>`);
+  const hsNear = fsNearest(c.hs, lat, lon, 25000, x=> x.src === 'SLF');
+  const msNs = fsNearest(c.ns, lat, lon, 25000, x=> x.src === 'MeteoSchweiz');
+  const rainNear = fsNearest(c.rain, lat, lon, 25000);
+  parts.push(`<p class="fs-cond-sum">${sent || 'Für diesen Punkt sind gerade keine Modelldaten verfügbar.'}</p>`);
+  if(chips.length) parts.push(`<div class="fs-cond-chips">${chips.join('')}</div>`);
+  if(bars) parts.push(bars + `<p class="wx-src">Open-Meteo (Modell MeteoSchweiz), gerechnet für ${c.om && c.om.elevation != null ? Math.round(c.om.elevation) + ' m' : 'diesen Punkt'}${alt ? ' (Gipfel)' : ''} — Modellwerte, keine Messung.</p>`);
+  // Gemessen
+  const rows = [];
+  if(hsNear){ const p = hsNear.props || {}; rows.push([`${esc(hsNear.name)} <small>SLF · ${hsNear.ele ? Math.round(hsNear.ele) + ' m · ' : ''}${fsFmtKm(hsNear.d)}</small>`, `${Math.round(hsNear.v)} cm${p.dhs24 != null ? ` <em>${p.dhs24 >= 0 ? '+' : ''}${Math.round(p.dhs24)} in 24 h</em>` : ''}`]); }
+  if(msNs && msNs.v > 0) rows.push([`${esc(msNs.name)} <small>MeteoSchweiz · ${fsFmtKm(msNs.d)}</small>`, `${Math.round(msNs.v)} cm Neuschnee 24 h`]);
+  if(rainNear) rows.push([`${esc(rainNear.name)} <small>${rainNear.src} · ${fsFmtKm(rainNear.d)}</small>`, `${rainNear.v.toFixed(1)} mm in 24 h`]);
+  if(rows.length) parts.push(`<p class="fs-cond-h">Gemessen in der Nähe</p>` + rows.map(r=> `<div class="fs-cond-row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join(''));
+  // Webcams
+  if(c.cams && c.cams.length) parts.push(`<p class="fs-cond-h">Webcams</p><div class="fs-cond-cams">${c.cams.map(w=> `<a href="${esc(w.href)}" target="_blank" rel="noopener noreferrer">${w.img ? `<img src="${esc(w.img)}" alt="" loading="lazy"/>` : `<span class="noimg">${fsIconHtml('camera')}</span>`}<span>${esc(w.name)}</span></a>`).join('')}</div><p class="wx-src">${c.cams[0].src}</p>`);
+  return `<div class="detail-section fs-cond"><h4>Bedingungen</h4>${parts.join('')}</div>`;
+}
+// Webcams in der Nähe: Windy (mit Schlüssel, viele Bergbahn-/Hüttenkameras), sonst MeteoSchweiz
+async function fsWebcamsNear(lat, lon){
+  if(WINDY_API_KEY){
+    try{
+      const r = await fetch('https://api.windy.com/webcams/api/v3/webcams?nearby=' + lat + ',' + lon + ',30&include=images,location,urls&limit=8', {headers:{'x-windy-api-key': WINDY_API_KEY}});
+      if(r.ok){
+        const j = await r.json();
+        const list = (j.webcams || []).map(w=>({name: w.title || 'Webcam', img: w.images && w.images.current && (w.images.current.preview || w.images.current.thumbnail), href: (w.urls && (w.urls.detail || w.urls.provider)) || 'https://www.windy.com/webcams/' + w.webcamId, src:'Windy Webcams'}));
+        if(list.length) return list;
+      }
+    }catch(e){}
+  }
+  try{
+    const o = FSM_OVERLAYS.find(x=> x.id === 'webcams');
+    const j = await fsPointsFetch(o);
+    return (j.features || []).filter(f=> f.geometry && f.geometry.type === 'Point').map(f=>{
+      const p = f.properties || {}, l = fsLinksOf(p);
+      return {d: fsGeoDist(lat, lon, f.geometry.coordinates[1], f.geometry.coordinates[0]), name: p.station_name || 'Webcam', img: l.img, href: l.img || l.link || 'https://www.meteoschweiz.admin.ch', src:'MeteoSchweiz-Wetterkameras'};
+    }).filter(x=> x.d < 25000).sort((a, b)=> a.d - b.d).slice(0, 4);
+  }catch(e){ return []; }
+}
+
+/* ===== Wetter-Messwerte auf der Karte (B): eine Grösse, wenige lesbare Werte, Farbskala ===== */
+function fsWxParam(){ let id = null; try{ id = localStorage.getItem('fs-wx-param'); }catch(e){} return FS_WX_PARAMS.find(p=> p.id === id) || FS_WX_PARAMS[0]; }
+async function fsmWxStart(map){
+  const st = map._fsm.wx = map._fsm.wx || {markers:[], pts:[]};
+  const cont = map.getContainer();
+  if(!st.bar){
+    st.bar = document.createElement('div'); st.bar.className = 'fsm-wx-bar';
+    st.legend = document.createElement('div'); st.legend.className = 'fsm-wx-legend';
+    st.card = document.createElement('div'); st.card.className = 'fsm-wx-card'; st.card.hidden = true;
+    cont.append(st.bar, st.legend, st.card);
+    ['click','pointerdown','touchstart','wheel'].forEach(ev=> [st.bar, st.legend, st.card].forEach(el=> el.addEventListener(ev, e=> e.stopPropagation())));
+    map.on('moveend', ()=> fsmWxPlace(map));
+    map.on('click', ()=>{ st.card.hidden = true; });
+  }
+  st.bar.hidden = st.legend.hidden = false;
+  const p = fsWxParam();
+  st.bar.innerHTML = FS_WX_PARAMS.map(x=> `<button type="button" data-wx="${x.id}" class="${x.id === p.id ? 'on' : ''}">${x.label}</button>`).join('');
+  st.bar.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} fsmWxStart(map); }));
+  const sc = p.scale;
+  st.legend.innerHTML = `<span class="u">${p.label}</span><div class="g">${sc.map(([t, col])=> `<i style="background:${col}"><b>${p.id === 'temp' ? t + '°' : t}</b></i>`).join('')}</div>`;
+  st.param = p; st.pts = [];
+  fsmWxPlace(map);
+  const pts = await fsWxPoints(p);
+  if(st.param !== p) return;
+  st.pts = pts;
+  if(!pts.length) showToast('Wetter-Messwerte gerade nicht verfügbar (Internet?).', true);
+  fsmWxPlace(map);
+}
+function fsmWxStop(map){
+  const st = map._fsm && map._fsm.wx;
+  if(!st) return;
+  st.markers.forEach(m=> m.remove()); st.markers = [];
+  [st.bar, st.legend, st.card].forEach(el=>{ if(el) el.hidden = true; });
+  st.param = null;
+}
+// Nur so viele Werte, wie sich nicht überlappen; höhere Stationen zuerst (Berge sind wichtiger)
+function fsmWxPlace(map){
+  const st = map._fsm && map._fsm.wx;
+  if(!st || !st.param) return;
+  st.markers.forEach(m=> m.remove()); st.markers = [];
+  const p = st.param, w = map.getContainer().clientWidth, h = map.getContainer().clientHeight;
+  const boxes = [];
+  st.pts.slice().sort((a, b)=> (b.ele || 0) - (a.ele || 0)).forEach(x=>{
+    const sp = map.project([x.lon, x.lat]);
+    if(sp.x < 8 || sp.y < 170 || sp.x > w - 8 || sp.y > h - 70) return;
+    const bw = 46, bh = 28, box = [sp.x - bw/2, sp.y - bh/2, sp.x + bw/2, sp.y + bh/2];
+    if(boxes.some(b=> b[0] < box[2] && box[0] < b[2] && b[1] < box[3] && box[1] < b[3])) return;
+    boxes.push(box);
+    const el = document.createElement('button');
+    el.type = 'button'; el.className = 'fsm-wxv'; el.style.setProperty('--c', fsWxColor(p, x.v));
+    el.textContent = fsWxFmt(p, x.v);
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxCard(map, x); });
+    st.markers.push(new maplibregl.Marker({element: el}).setLngLat([x.lon, x.lat]).addTo(map));
+  });
+}
+function fsmWxCard(map, x){
+  const st = map._fsm.wx, p = st.param;
+  const extra = x.props ? fsImisRowsHtml(x.props) : '';
+  st.card.innerHTML = `<button type="button" class="x" aria-label="Schliessen">×</button>
+    <b class="n">${esc(x.name || 'Station')}</b><span class="s">${x.src}${x.ele ? ' · ' + Math.round(x.ele) + ' m' : ''}</span>
+    <div class="big" style="color:${fsWxColor(p, x.v)}">${fsWxFmt(p, x.v)}<small>${p.id === 'temp' ? '' : ' ' + p.unit}</small> <em>${p.label}</em></div>${extra}
+    <button type="button" class="cond">Bedingungen hier ansehen</button>`;
+  st.card.hidden = false;
+  st.card.querySelector('.x').addEventListener('click', ()=>{ st.card.hidden = true; });
+  st.card.querySelector('.cond').addEventListener('click', ()=> fsOpenConditions(x.lat, x.lon, x.ele, x.name));
+}
+// «Bedingungen» für einen beliebigen Ort als Fenster
+function fsOpenConditions(lat, lon, ele, name){
+  const ov = document.createElement('div');
+  ov.className = 'fs-cond-sheet';
+  const draw = ()=>{ ov.querySelector('.in').innerHTML = `<button type="button" class="x-btn" aria-label="Schliessen">×</button><p class="fs-cond-where">${esc(name || 'Gewählter Ort')}${ele ? ' · ' + Math.round(ele) + ' m' : ''}</p>` + fsConditionsHtml(lat, lon, ele) + meteoForecastOnlyHtml(lat, lon); ov.querySelector('.x-btn').addEventListener('click', ()=> closeTopOverlayLayer()); };
+  ov.innerHTML = '<div class="in"></div>';
+  document.body.appendChild(ov);
+  draw();
+  const prevRender = window.__fsCondRedraw;
+  window.__fsCondRedraw = ()=>{ if(document.body.contains(ov)) draw(); };
+  // Die Prognose lädt separat; kurz nachzeichnen, bis alles da ist
+  let tries = 0;
+  const iv = setInterval(()=>{ if(!document.body.contains(ov) || ++tries > 20){ clearInterval(iv); return; } if(ov.textContent.includes('Lädt')) draw(); else clearInterval(iv); }, 1000);
+  ov.addEventListener('click', e=>{ if(e.target === ov) closeTopOverlayLayer(); });
+  pushOverlayLayer(()=>{ clearInterval(iv); ov.remove(); window.__fsCondRedraw = prevRender || null; });
+}
+function meteoForecastWidgetHtml(lat, lon, alt){
   if(!isFinite(lat) || !isFinite(lon)) return '';
-  return meteoForecastOnlyHtml(lat, lon) + fsPastWeatherHtml(lat, lon) + fsImisNearHtml(lat, lon) + fsWebcamsNearHtml(lat, lon);
+  // Bedingungen (Rückblick, gemessen, Webcams) zuerst, dann die Prognose
+  return fsConditionsHtml(lat, lon, alt) + meteoForecastOnlyHtml(lat, lon);
 }
 /* ===== Wetter-Rückblick: die letzten drei Tage am Ort (Open-Meteo, Modellwerte) =====
    Für die Beurteilung vor Ort: wie viel Regen/Neuschnee in den letzten Tagen, wie warm.
