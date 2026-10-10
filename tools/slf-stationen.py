@@ -10,6 +10,13 @@ from datetime import datetime, timedelta, timezone
 
 BASE = 'https://measurement-api.slf.ch/public/api/imis'
 OUT = sys.argv[1] if len(sys.argv) > 1 else 'slf-stationen.json'
+# Die Schnittstelle liefert nur die letzten 24 Stunden. Für 72-h-Werte merken wir uns einen
+# stündlichen Verlauf (8 Tage) in slf-verlauf.json im selben Branch und führen ihn jedes Mal weiter.
+HIST_OUT = OUT.replace('slf-stationen.json', 'slf-verlauf.json')
+import os
+REPO = os.environ.get('GITHUB_REPOSITORY', 'domepfa/Firnspur')
+HIST_URL = f'https://raw.githubusercontent.com/{REPO}/daten/slf-verlauf.json'
+HIST = {}
 
 def get(url):
     for i in range(3):
@@ -49,6 +56,29 @@ def field(rows, *prefixes):
                 return k
     return None
 
+def hist_merge(code, rows, k_hs, k_ta):
+    # stündliche Werte [Stunde seit 1970, HS, TA] — vorhandene behalten, neue ergänzen, 8 Tage
+    h = {int(e[0]): e for e in HIST.get(code, [])}
+    for r in rows:
+        t = parse_time(pick(r, 'measure_date', 'date', 'timestamp'))
+        if not t or t.minute != 0:
+            continue
+        hr = int(t.timestamp() // 3600)
+        h[hr] = [hr, num(r.get(k_hs)) if k_hs else None, num(r.get(k_ta)) if k_ta else None]
+    if not h:
+        return []
+    newest = max(h)
+    lst = [h[k] for k in sorted(h) if k > newest - 8 * 24]
+    HIST[code] = lst
+    return lst
+
+def hist_at(lst, hours_back, idx):
+    if not lst:
+        return None
+    target = lst[-1][0] - hours_back
+    best = min(lst, key=lambda e: abs(e[0] - target))
+    return best[idx] if abs(best[0] - target) <= 2 and best[idx] is not None else None
+
 def station_summary(st):
     code = pick(st, 'code', 'station_code', 'id')
     rows = get(f'{BASE}/station/{code}/measurements')
@@ -83,7 +113,11 @@ def station_summary(st):
         vals = [v for v in vals if v is not None]
         return round(fn(vals), 1) if vals else None
     hs = num(last.get(k_hs)) if k_hs else None
-    hs24, hs72 = at(24, k_hs), at(72, k_hs)
+    lst = hist_merge(code, rows, k_hs, k_ta)
+    hs24 = at(24, k_hs)
+    if hs24 is None: hs24 = hist_at(lst, 24, 1)
+    hs72 = hist_at(lst, 72, 1)
+    ta72 = [e[2] for e in lst if e[2] is not None and e[0] > (lst[-1][0] - 72 if lst else 0)]
     out = {
         'code': code, 'name': pick(st, 'label', 'name', 'station_name') or code,
         'lat': num(pick(st, 'lat', 'latitude')), 'lon': num(pick(st, 'lon', 'longitude', 'lng')),
@@ -93,12 +127,20 @@ def station_summary(st):
         'dhs72': round(hs - hs72, 1) if hs is not None and hs72 is not None else None,
         'hn1d': num(last.get(k_hn)) if k_hn else None,
         'ta': num(last.get(k_ta)) if k_ta else None,
-        'taMin72': window(72, k_ta, min), 'taMax72': window(72, k_ta, max),
+        'taMin72': round(min(ta72), 1) if ta72 else window(72, k_ta, min),
+        'taMax72': round(max(ta72), 1) if ta72 else window(72, k_ta, max),
+        'hours': (lst[-1][0] - lst[0][0]) if lst else 0,
         'vwMax24': window(24, k_vw, max),
     }
     return out
 
 def main():
+    global HIST
+    try:
+        HIST = get(HIST_URL) or {}
+        print('Verlauf geladen:', len(HIST), 'Stationen')
+    except Exception as e:
+        print('Noch kein Verlauf:', e); HIST = {}
     stations = get(f'{BASE}/stations')
     if isinstance(stations, dict):
         stations = pick(stations, 'stations', 'data', 'items') or []
@@ -122,6 +164,8 @@ def main():
     data = {'updated': datetime.now(timezone.utc).isoformat(), 'quelle': 'WSL-Institut für Schnee- und Lawinenforschung SLF, CC BY 4.0', 'stations': res}
     with open(OUT, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
+    with open(HIST_OUT, 'w', encoding='utf-8') as f:
+        json.dump(HIST, f, separators=(',', ':'))
     print(len(res), 'Stationen gespeichert')
     if not res:
         sys.exit(1)
