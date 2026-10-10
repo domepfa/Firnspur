@@ -5432,8 +5432,8 @@ const FSM_OVERLAYS = [
   // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt; Daten für «Wetter-Messwerte»
   {id:'slfstationen', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
   // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
-  {id:'wetter', label:'Wetter-Messwerte', icon:'therm', wetter:true},
-  {id:'webcams', label:'Webcams (MeteoSchweiz)', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
+  {id:'wetter', label:'Wetter', icon:'therm', wetter:true},
+  {id:'webcams', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
 ];
 const FSM_BASES = [
   {id:'karte', label:'Karte'},
@@ -5679,7 +5679,10 @@ function fsPointPopupHtml(o, p){
 async function fsmLoadPoints(map, o){
   map._fsm.pt[o.id] = [];
   let j;
-  try{ j = await fsPointsFetch(o); }catch(e){ showToast(o.label + ' gerade nicht verfügbar (Internet?).', true); delete map._fsm.pt[o.id]; return; }
+  try{ j = await fsPointsFetch(o); }catch(e){
+    if(o.kind === 'webcam' && WINDY_API_KEY){ j = {features:[]}; }
+    else{ showToast(o.label + ' gerade nicht verfügbar (Internet?).', true); delete map._fsm.pt[o.id]; return; }
+  }
   if(!map._fsm || !map.getStyle()) return;
   const list = [];
   (j.features || []).forEach(f=>{
@@ -5706,7 +5709,38 @@ async function fsmLoadPoints(map, o){
     list.push(m);
   });
   map._fsm.pt[o.id] = list;
+  if(o.kind === 'webcam' && WINDY_API_KEY){ fsmWindyCams(map, o); return; }
   if(!list.length) showToast(o.label + ': gerade keine Werte verfügbar.', true);
+}
+// Windy-Webcams im sichtbaren Ausschnitt, nachgeladen beim Verschieben (zusätzlich zu MeteoSchweiz)
+async function fsmWindyCams(map, o){
+  const st = map._fsm.windy = map._fsm.windy || {seen: new Set(), tm: null};
+  if(!st.wired){
+    st.wired = true;
+    map.on('moveend', ()=>{ clearTimeout(st.tm); st.tm = setTimeout(()=>{ if(fsmOverlayOn(map, o.id)) fsmWindyCams(map, o); }, 500); });
+  }
+  const c = map.getCenter(), b = map.getBounds();
+  const km = Math.max(5, Math.min(250, Math.round(fsGeoDist(c.lat, c.lng, b.getNorth(), b.getEast()) / 1000)));
+  try{
+    const r = await fetch('https://api.windy.com/webcams/api/v3/webcams?nearby=' + c.lat.toFixed(4) + ',' + c.lng.toFixed(4) + ',' + km + '&include=images,location,urls&limit=50', {headers:{'x-windy-api-key': WINDY_API_KEY}});
+    if(!r.ok) return;
+    const j = await r.json();
+    if(!map._fsm || !map.getStyle()) return;
+    (j.webcams || []).forEach(w=>{
+      const id = w.webcamId || w.id, loc = w.location || {};
+      if(!id || st.seen.has(id) || !isFinite(loc.latitude) || !isFinite(loc.longitude)) return;
+      st.seen.add(id);
+      const img = w.images && w.images.current && (w.images.current.preview || w.images.current.thumbnail);
+      const href = (w.urls && (w.urls.detail || w.urls.provider)) || 'https://www.windy.com/webcams/' + id;
+      const name = esc(w.title || 'Webcam');
+      const pop = `<div class="fs-cam-pop"><b>${name}</b>${loc.city ? `<span>${esc(loc.city)}</span>` : ''}
+        ${img ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"><img src="${esc(img)}" alt="Webcam ${name}" loading="lazy"/></a>` : ''}
+        <a class="fs-cam-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">Bei Windy.com ansehen ↗</a></div>`;
+      const m = fsmAddMarker(map, loc.latitude, loc.longitude, `<div class="fsm-cam">${fsIconHtml('camera')}</div>`, {popup: pop});
+      m.getElement().style.display = fsmOverlayOn(map, o.id) ? '' : 'none';
+      (map._fsm.pt[o.id] = map._fsm.pt[o.id] || []).push(m);
+    });
+  }catch(e){}
 }
 function fsmOverlayOn(map, id){ return !!(map && map._fsm && map._fsm.overlays[id]); }
 async function fsmLoadSlf(map, lid){
