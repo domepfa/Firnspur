@@ -5606,6 +5606,24 @@ function fsmSetOverlay(map, id, on, silent){
 }
 // MeteoSchweiz-Punkte (Webcams, Temperatur, Niederschlag) laden, kurz zwischenspeichern
 const fsPtCache = {};
+// Schweizer Landeskoordinaten (LV95 bzw. LV03) in Längen-/Breitengrad (Näherungsformel swisstopo, ~1 m)
+function fsLv95ToWgs(e, n){
+  if(e < 2000000){ e += 2000000; n += 1000000; } // LV03 → LV95
+  const y = (e - 2600000) / 1e6, x = (n - 1200000) / 1e6;
+  const lon = 2.6779094 + 4.728982 * y + 0.791484 * y * x + 0.1306 * y * x * x - 0.0436 * y * y * y;
+  const lat = 16.9023892 + 3.238272 * x - 0.270978 * y * y - 0.002528 * x * x - 0.0447 * y * y * x - 0.0140 * x * x * x;
+  return [lon * 100 / 36, lat * 100 / 36];
+}
+// GeoJSON von MeteoSchweiz kommt in LV95 (EPSG:2056): Punkte nach WGS84 umrechnen
+function fsNormalizePoints(j){
+  (j.features || []).forEach(f=>{
+    const g = f.geometry;
+    if(!g || g.type !== 'Point' || !Array.isArray(g.coordinates)) return;
+    const [a, b] = g.coordinates;
+    if(Math.abs(a) > 1000 && Math.abs(b) > 1000) g.coordinates = fsLv95ToWgs(a, b);
+  });
+  return j;
+}
 async function fsPointsFetch(o){
   const c = fsPtCache[o.id];
   if(c && Date.now() - c.at < (o.maxAge || 300e3)) return c.data;
@@ -5613,6 +5631,7 @@ async function fsPointsFetch(o){
   if(!r.ok) throw new Error('nicht verfügbar');
   let j = await r.json();
   if(o.kind === 'imis') j = {type:'FeatureCollection', updated: j.updated, features: (j.stations || []).map(st=>({type:'Feature', geometry:{type:'Point', coordinates:[st.lon, st.lat]}, properties: st}))};
+  else fsNormalizePoints(j);
   fsPtCache[o.id] = {at: Date.now(), data: j};
   return j;
 }
@@ -5685,6 +5704,7 @@ async function fsmLoadPoints(map, o){
     list.push(m);
   });
   map._fsm.pt[o.id] = list;
+  if(!list.length) showToast(o.label + ': gerade keine Werte verfügbar.', true);
 }
 function fsmOverlayOn(map, id){ return !!(map && map._fsm && map._fsm.overlays[id]); }
 async function fsmLoadSlf(map, lid){
