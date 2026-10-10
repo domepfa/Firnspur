@@ -1439,7 +1439,7 @@ function tourDetailHtml(id){
     </div>` : ''}
     ${fsTravelHtml(t)}
     <!-- Wetter nach den Infos (Spezielles, Aufstieg, Anfahrt sind beim Planen wichtiger) -->
-    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon)}</div>` : ''}
+    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon, t.targetAltitude)}</div>` : ''}
     <div class="detail-section" id="tour-map-section-${t.id}">
       <h4>${fsTourRoutes(t).length ? 'Routen & Standorte' : 'Standort' + (t.points && t.points.length>1?'e':'')}</h4>
       ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
