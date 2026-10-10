@@ -9105,7 +9105,7 @@ function meteoFormatDayLabel(dateKey){
 /* ===== Bedingungen: alles für die Planung an einem Ort (Tour, Gebiet) =====
    Zusammenfassung in einem Satz, Lawinengefahr, Niederschlag/Neuschnee der letzten 3 Tage (Modell
    am Gipfel), gemessene Werte der nächsten SLF- und MeteoSchweiz-Stationen, Webcams, Prognose. */
-const WINDY_API_KEY = ''; // Windy-Webcams: Schlüssel von api.windy.com/keys (leer = nur MeteoSchweiz-Kameras)
+const WINDY_API_KEY = 'JwRDc13gnvDtVTHbGqmQTN224CTyNjpJ'; // Windy-Webcams: Schlüssel von api.windy.com/keys (leer = nur MeteoSchweiz-Kameras)
 const FS_MS = (layer)=> 'https://data.geo.admin.ch/ch.meteoschweiz.' + layer + '/ch.meteoschweiz.' + layer + '_de.json';
 // Messgrössen für Karte (B) und Bedingungen (C). src: ms = MeteoSchweiz-Datei, slf = eigene SLF-Datei
 const FS_WX_PARAMS = [
@@ -9231,7 +9231,7 @@ async function fsWebcamsNear(lat, lon){
       const r = await fetch('https://api.windy.com/webcams/api/v3/webcams?nearby=' + lat + ',' + lon + ',30&include=images,location,urls&limit=8', {headers:{'x-windy-api-key': WINDY_API_KEY}});
       if(r.ok){
         const j = await r.json();
-        const list = (j.webcams || []).map(w=>({name: w.title || 'Webcam', img: w.images && w.images.current && (w.images.current.preview || w.images.current.thumbnail), href: (w.urls && (w.urls.detail || w.urls.provider)) || 'https://www.windy.com/webcams/' + w.webcamId, src:'Windy Webcams'}));
+        const list = (j.webcams || []).map(w=>({name: w.title || 'Webcam', img: w.images && w.images.current && (w.images.current.preview || w.images.current.thumbnail), href: (w.urls && (w.urls.detail || w.urls.provider)) || 'https://www.windy.com/webcams/' + w.webcamId, src:'Webcams von Windy.com'}));
         if(list.length) return list;
       }
     }catch(e){}
