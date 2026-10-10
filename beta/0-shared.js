@@ -5429,6 +5429,8 @@ const FSM_OVERLAYS = [
   {id:'slf', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
   {id:'sperrungen', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln — siehe fsmLoadPoints
+  // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt
+  {id:'slfstationen', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3},
   {id:'webcams', label:'Webcams (MeteoSchweiz)', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3},
   {id:'temp', label:'Temperatur (aktuell)', icon:'therm', points:'https://data.geo.admin.ch/ch.meteoschweiz.messwerte-lufttemperatur-10min/ch.meteoschweiz.messwerte-lufttemperatur-10min_de.json', kind:'temp', maxAge:5*60e3},
   {id:'regen', label:'Niederschlag (letzte 10 Min.)', icon:'drop', points:'https://data.geo.admin.ch/ch.meteoschweiz.messwerte-niederschlag-10min/ch.meteoschweiz.messwerte-niederschlag-10min_de.json', kind:'regen', maxAge:5*60e3}
@@ -5609,7 +5611,8 @@ async function fsPointsFetch(o){
   if(c && Date.now() - c.at < (o.maxAge || 300e3)) return c.data;
   const r = await fetch(o.points);
   if(!r.ok) throw new Error('nicht verfügbar');
-  const j = await r.json();
+  let j = await r.json();
+  if(o.kind === 'imis') j = {type:'FeatureCollection', updated: j.updated, features: (j.stations || []).map(st=>({type:'Feature', geometry:{type:'Point', coordinates:[st.lon, st.lat]}, properties: st}))};
   fsPtCache[o.id] = {at: Date.now(), data: j};
   return j;
 }
@@ -5619,8 +5622,27 @@ function fsLinksOf(props){
   return {img: urls.find(u=> /\.(jpe?g|png|webp)(\?|$)/i.test(u)) || null, link: urls.find(u=> !/\.(jpe?g|png|webp)(\?|$)/i.test(u)) || null};
 }
 function fsTempColor(v){ return v <= -10 ? '#5B3FA8' : v <= -5 ? '#3B5BDB' : v <= 0 ? '#4DABF7' : v <= 5 ? '#63C5B5' : v <= 10 ? '#8BC34A' : v <= 15 ? '#E8C547' : v <= 20 ? '#F59F00' : v <= 25 ? '#F76707' : '#E03131'; }
+// SLF-Station: Schneehöhe und Veränderung, Temperatur, Wind
+function fsImisRowsHtml(p){
+  const sg = (v)=> v == null ? '' : (v > 0 ? '+' : '') + Math.round(v) + ' cm';
+  const rows = [];
+  if(p.hs != null) rows.push(['Schneehöhe', Math.round(p.hs) + ' cm']);
+  if(p.dhs24 != null) rows.push(['Veränderung 24 h', sg(p.dhs24)]);
+  if(p.dhs72 != null && p.hours >= 70) rows.push(['Veränderung 72 h', sg(p.dhs72)]);
+  if(p.ta != null) rows.push(['Temperatur jetzt', p.ta.toFixed(1) + ' °C']);
+  if(p.taMin72 != null && p.taMax72 != null) rows.push([(p.hours >= 70 ? '72 h' : '24 h') + ' min / max', Math.round(p.taMin72) + '° / ' + Math.round(p.taMax72) + '°']);
+  if(p.vwMax24 != null) rows.push(['Windspitze 24 h', Math.round(p.vwMax24 * 3.6) + ' km/h']);
+  return rows.map(r=> `<div class="fs-imis-row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
+}
+function fsImisTime(p){
+  if(!p.time) return '';
+  try{ return new Date(p.time).toLocaleString('de-CH', {weekday:'short', hour:'2-digit', minute:'2-digit'}); }catch(e){ return ''; }
+}
 function fsPointPopupHtml(o, p){
   const name = esc(p.station_name || p.name || p.label || '');
+  if(o.kind === 'imis'){
+    return `<div class="fs-cam-pop fs-imis-pop"><b>${name}</b><span>SLF-Station ${esc(p.code || '')}${p.ele ? ' · ' + Math.round(p.ele) + ' m' : ''}${fsImisTime(p) ? ' · ' + fsImisTime(p) : ''}</span>${fsImisRowsHtml(p)}</div>`;
+  }
   if(o.kind === 'webcam'){
     const l = fsLinksOf(p);
     return `<div class="fs-cam-pop"><b>${name || 'Webcam'}</b>${p.altitude ? `<span>${esc(String(p.altitude))} m ü. M.</span>` : ''}
@@ -5645,6 +5667,12 @@ async function fsmLoadPoints(map, o){
     const [lon, lat] = g.coordinates;
     let html;
     if(o.kind === 'webcam') html = `<div class="fsm-cam">${fsIconHtml('camera')}</div>`;
+    else if(o.kind === 'imis'){
+      // Schneehöhe als Wert, Neuschnee (Zunahme 24 h) violett hervorgehoben; ohne Schneemessung die Temperatur
+      if(p.hs != null) html = `<div class="fsm-val" style="--c:${p.dhs24 >= 10 ? '#7048E8' : p.hs > 0 ? '#1864AB' : '#868E96'}">${Math.round(p.hs)}${p.dhs24 >= 5 ? ' <small>+' + Math.round(p.dhs24) + '</small>' : ''}</div>`;
+      else if(p.ta != null) html = `<div class="fsm-val" style="--c:${fsTempColor(p.ta)}">${Math.round(p.ta)}°</div>`;
+      else return;
+    }
     else{
       const v = typeof p.value === 'number' ? p.value : parseFloat(p.value);
       if(!isFinite(v) || v < -90) return;
@@ -9054,7 +9082,7 @@ function meteoFormatDayLabel(dateKey){
 
 function meteoForecastWidgetHtml(lat, lon){
   if(!isFinite(lat) || !isFinite(lon)) return '';
-  return meteoForecastOnlyHtml(lat, lon) + fsPastWeatherHtml(lat, lon) + fsWebcamsNearHtml(lat, lon);
+  return meteoForecastOnlyHtml(lat, lon) + fsPastWeatherHtml(lat, lon) + fsImisNearHtml(lat, lon) + fsWebcamsNearHtml(lat, lon);
 }
 /* ===== Wetter-Rückblick: die letzten drei Tage am Ort (Open-Meteo, Modellwerte) =====
    Für die Beurteilung vor Ort: wie viel Regen/Neuschnee in den letzten Tagen, wie warm.
@@ -9093,6 +9121,26 @@ function fsPastWeatherHtml(lat, lon){
     <p class="wx-sum">Letzte 3 Tage: <b>${rainSum.toFixed(0)} mm</b> Niederschlag${snowSum >= 0.5 ? `, davon etwa <b>${Math.round(snowSum)} cm Neuschnee</b>` : ''}</p>
     <div class="wx-days">${cells}</div>
     <p class="wx-src">Open-Meteo (Modell MeteoSchweiz), gerechnet für ${ele || 'diesen Punkt'} — keine Messung. Heute: bisher und Prognose.</p>
+  </div>`;
+}
+/* ===== Schnee in der Nähe: SLF-Messstationen (gemessen, nicht gerechnet) ===== */
+function fsImisNearHtml(lat, lon){
+  const o = FSM_OVERLAYS.find(x=> x.id === 'slfstationen');
+  if(!o) return '';
+  const c = fsPtCache.slfstationen;
+  if(!c){
+    if(!state._imisLoading){ state._imisLoading = true; fsPointsFetch(o).then(()=> render()).catch(()=>{}); }
+    return '';
+  }
+  // Die zwei nächsten Stationen mit Schneemessung (bis 25 km), höhere bei gleicher Distanz bevorzugt
+  const near = (c.data.features || []).map(f=>{
+    const p = f.properties || {}; return {p, d: fsGeoDist(lat, lon, p.lat, p.lon)};
+  }).filter(x=> x.d < 25000 && x.p.hs != null).sort((a, b)=> (a.d - (a.p.ele || 0) * 2) - (b.d - (b.p.ele || 0) * 2)).slice(0, 2);
+  if(!near.length) return '';
+  return `<div class="detail-section fs-imis">
+    <h4>Schnee in der Nähe <span class="wx-where">SLF-Messstationen</span></h4>
+    ${near.map(x=> `<div class="fs-imis-card"><div class="fs-imis-head"><b>${esc(x.p.name)}</b><span>${x.p.ele ? Math.round(x.p.ele) + ' m · ' : ''}${fsFmtKm(x.d)} entfernt${fsImisTime(x.p) ? ' · ' + fsImisTime(x.p) : ''}</span></div>${fsImisRowsHtml(x.p)}</div>`).join('')}
+    <p class="wx-src">Gemessen von den IMIS-Stationen des SLF (CC BY 4.0), alle 30 Minuten aktualisiert.</p>
   </div>`;
 }
 /* ===== Webcams in der Nähe (MeteoSchweiz) ===== */

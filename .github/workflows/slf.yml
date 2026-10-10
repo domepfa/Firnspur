@@ -31,9 +31,9 @@ jobs:
           cd "$RUNNER_TEMP"
           rm -rf daten && mkdir daten && cd daten
           git init -q -b daten
-          cp ../slf-stationen.json .
+          cp ../slf-stationen.json ../slf-verlauf.json .
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add slf-stationen.json
+          git add slf-stationen.json slf-verlauf.json
           git commit -qm "SLF-Messstationen $(date -u +%Y-%m-%dT%H:%MZ)"
           git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" daten
