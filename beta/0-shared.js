@@ -9173,8 +9173,8 @@ function fsConditionsHtml(lat, lon, alt){
   let c = state._cond[key];
   if(!c){
     c = state._cond[key] = {status:'loading'};
-    const elev = parseFloat(alt);
-    const om = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + (isFinite(elev) ? '&elevation=' + elev : '') + '&daily=precipitation_sum,snowfall_sum,temperature_2m_max,temperature_2m_min,freezing_level_height_max&past_days=3&forecast_days=1&timezone=Europe%2FZurich';
+    const elev = parseFloat(String(alt || '').replace(/['’\s]/g, ''));
+    const om = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + (isFinite(elev) && elev > 200 && elev < 5000 ? '&elevation=' + Math.round(elev) : '') + '&daily=precipitation_sum,snowfall_sum,temperature_2m_max,temperature_2m_min&hourly=freezing_level_height&past_days=3&forecast_days=1&timezone=Europe%2FZurich';
     const pOm = fetch(om).then(r=> r.ok ? r.json() : null).catch(()=> null);
     const pNs = fsWxPoints(FS_WX_PARAMS[0]), pHs = fsWxPoints(FS_WX_PARAMS[1]), pRain = fsWxPoints(FS_WX_PARAMS[2]);
     if(!fsSlfDangerPromise) fsSlfDangerPromise = fetchSlfDangerRegions().catch(()=> null);
@@ -9196,7 +9196,9 @@ function fsConditionsHtml(lat, lon, alt){
     const yRain = d.precipitation_sum[n - 2] || 0;
     sent = snow >= 1 ? `Etwa <b>${Math.round(snow)} cm Neuschnee</b> in den letzten 3 Tagen` : rain >= 1 ? `<b>${Math.round(rain)} mm Niederschlag</b> in den letzten 3 Tagen` : '<b>Die letzten 3 Tage trocken</b>';
     if(snow >= 1 || rain >= 1) sent += yRain < 0.2 ? ', gestern trocken' : `, gestern ${yRain.toFixed(1)} mm`;
-    const fz = d.freezing_level_height_max && d.freezing_level_height_max[n - 2];
+    // Nullgradgrenze gibt es nur stündlich: Maximum von gestern
+    const fh = c.om.hourly && c.om.hourly.freezing_level_height;
+    const fz = fh ? Math.max(0, ...fh.slice(24 * (n - 2), 24 * (n - 1)).filter(v=> v != null)) : 0;
     if(fz) sent += `. Nullgradgrenze gestern bis ${Math.round(fz / 100) * 100} m`;
     sent += '.';
     const names = ['Vor 3 Tagen', 'Vorgestern', 'Gestern', 'Heute'], off = 4 - n;
