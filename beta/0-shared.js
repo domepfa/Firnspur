@@ -9337,31 +9337,42 @@ async function fsmWxStart(map){
 }
 // Prognose: 24 Schritte à 3 Stunden ab der nächsten vollen Stunde
 function fsWxStepTime(i){ const d = new Date(); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1 + i * 3); return d.getTime(); }
-// Raster über den sichtbaren Ausschnitt; Punkte auf 0.05° gerundet, damit der Zwischenspeicher greift
-function fsmWxGrid(map){
+// Echte Orte statt Raster: Gipfel und Hütten aus der Gipfelliste. Pro Bildschirmzelle der höchste,
+// danach nur, was sich nicht überlappt. Gerechnet wird auf der Höhe des Orts.
+async function fsmWxGrid(map){
   const cont = map.getContainer(), w = cont.clientWidth, h = cont.clientHeight, st = map._fsm.wx;
-  const top = st.head ? st.head.offsetTop + st.head.offsetHeight + 24 : 170, bottom = h - 90;
-  const cols = 4, rows = Math.max(3, Math.min(6, Math.round((bottom - top) / 105)));
-  const step = Math.max(0.02, Math.min(0.5, (map.unproject([w, 0]).lng - map.unproject([0, 0]).lng) / cols));
-  const r = v => Math.round(v / step) * step;
-  const out = [], seen = new Set();
-  for(let y = 0; y < rows; y++) for(let x = 0; x < cols; x++){
-    const ll = map.unproject([(x + 0.5) * w / cols, top + (y + 0.5) * (bottom - top) / rows]);
-    const lat = +r(ll.lat).toFixed(4), lon = +r(ll.lng).toFixed(4), k = lat + ',' + lon;
-    if(!seen.has(k)){ seen.add(k); out.push({lat, lon, k}); }
-  }
-  return out;
+  let peaks = [];
+  try{ peaks = await fsPeaksLoad(); }catch(e){ return []; }
+  const top = st.head && !st.head.hidden ? st.head.offsetTop + st.head.offsetHeight + 30 : 170, bottom = h - 100;
+  const ctl = cont.querySelector('.fsm-ctlbox'), ctlB = ctl ? ctl.offsetTop + ctl.offsetHeight + 24 : 260;
+  const b = map.getBounds(), cw = 110, ch = 92, cells = {};
+  peaks.forEach(pk=>{
+    if(pk.kind === 'p' || !pk.name || pk.lat < b.getSouth() || pk.lat > b.getNorth() || pk.lon < b.getWest() || pk.lon > b.getEast()) return;
+    const sp = map.project([pk.lon, pk.lat]);
+    if(sp.x < 46 || sp.x > w - 46 || sp.y < top || sp.y > bottom || (sp.x > w - 96 && (sp.y < ctlB || sp.y > h - 170))) return;
+    const k = Math.floor(sp.x / cw) + ':' + Math.floor(sp.y / ch);
+    if(!cells[k] || pk.ele > cells[k].pk.ele) cells[k] = {pk, sp};
+  });
+  const boxes = [], out = [];
+  Object.values(cells).sort((x, y)=> y.pk.ele - x.pk.ele).forEach(({pk, sp})=>{
+    const box = [sp.x - 46, sp.y - 20, sp.x + 46, sp.y + 34];
+    if(boxes.some(q=> q[0] < box[2] && box[0] < q[2] && q[1] < box[3] && box[1] < q[3])) return;
+    boxes.push(box);
+    out.push({lat: pk.lat, lon: pk.lon, ele: pk.ele, name: pk.name, k: pk.lat.toFixed(5) + ',' + pk.lon.toFixed(5)});
+  });
+  return out.slice(0, 40);
 }
 async function fsmWxForecastLoad(map){
   const st = map._fsm.wx;
   if(!st || !st.param || !st.param.forecast) return;
-  const grid = fsmWxGrid(map), now = Date.now();
+  const grid = await fsmWxGrid(map), now = Date.now();
+  if(!st.param || !st.param.forecast) return;
   st.grid = grid;
   const miss = grid.filter(g=> !st.fc[g.k] || now - st.fc[g.k].at > 60*60e3);
   fsmWxPlace(map);
   if(!miss.length) return;
   try{
-    const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + miss.map(g=> g.lat).join(',') + '&longitude=' + miss.map(g=> g.lon).join(',') + '&hourly=temperature_2m,weather_code,precipitation,snowfall,freezing_level_height&forecast_days=4&timezone=Europe%2FZurich&timeformat=unixtime';
+    const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + miss.map(g=> g.lat).join(',') + '&longitude=' + miss.map(g=> g.lon).join(',') + '&elevation=' + miss.map(g=> g.ele).join(',') + '&hourly=temperature_2m,weather_code,precipitation,snowfall,freezing_level_height&forecast_days=4&timezone=Europe%2FZurich&timeformat=unixtime';
     const r = await fetch(u);
     if(!r.ok) throw new Error(r.status);
     let j = await r.json();
@@ -9392,18 +9403,18 @@ function fsmWxPlace(map){
   const p = st.param, cont = map.getContainer(), w = cont.clientWidth, h = cont.clientHeight;
   const top = st.head && !st.head.hidden ? st.head.offsetTop + st.head.offsetHeight + 14 : 120;
   const ctl = cont.querySelector('.fsm-ctlbox'), ctlB = ctl ? ctl.offsetTop + ctl.offsetHeight + 10 : 240;
-  const free = (sp)=> !(sp.x < 14 || sp.y < top || sp.x > w - 14 || sp.y > h - 90 || (sp.x > w - 74 && sp.y < ctlB));
+  const free = (sp)=> !(sp.x < 14 || sp.y < top || sp.x > w - 14 || sp.y > h - 90 || (sp.x > w - 74 && (sp.y < ctlB || sp.y > h - 160)));
   const add = (el, ll)=> st.markers.push(new maplibregl.Marker({element: el}).setLngLat(ll).addTo(map));
   if(p.forecast){
     const ts = fsWxStepTime(st.fcStep || 0);
     (st.grid || []).forEach(g=>{
       const fc = st.fc[g.k]; if(!fc) return;
       const v = fsWxFcAt(fc, ts); if(!v) return;
-      const sp = map.project([g.lon, g.lat]); if(!free(sp) || sp.x < 36 || sp.x > w - 36) return;
+      const sp = map.project([g.lon, g.lat]); if(!free(sp) || sp.x < 40 || sp.x > w - 40) return;
       const el = document.createElement('button');
       el.type = 'button'; el.className = 'fsm-wxf';
-      el.innerHTML = fsIconHtml(fsWxCodeIcon(v.code)) + `<b style="color:${fsWxColor(FS_WX_PARAMS.find(x=> x.id === 'temp'), v.temp)}">${Math.round(v.temp)}°</b>`;
-      el.setAttribute('aria-label', Math.round(v.temp) + ' Grad');
+      el.innerHTML = `<span class="v">${fsIconHtml(fsWxCodeIcon(v.code))}<b style="color:${fsWxColor(FS_WX_PARAMS.find(x=> x.id === 'temp'), v.temp)}">${Math.round(v.temp)}°</b></span><span class="nm">${esc(g.name)}</span>`;
+      el.setAttribute('aria-label', g.name + ': ' + Math.round(v.temp) + ' Grad');
       el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxFcCard(map, g, fc, v, ts); });
       add(el, [g.lon, g.lat]);
     });
@@ -9451,11 +9462,11 @@ function fsmWxFcCard(map, g, fc, v, ts){
   if(v.sn >= 0.5) rows.push(['Neuschnee 3 h', Math.round(v.sn) + ' cm']);
   if(v.fz) rows.push(['Nullgradgrenze', Math.round(v.fz / 100) * 100 + ' m']);
   st.card.innerHTML = `<button type="button" class="x" aria-label="Schliessen">×</button>
-    <b class="n">${fsWxHourLabel(ts)}</b><span class="s">Prognose Open-Meteo${fc.ele ? ' · gerechnet für ' + Math.round(fc.ele) + ' m' : ''}</span>
+    <b class="n">${esc(g.name || '')} · ${fsWxHourLabel(ts)}</b><span class="s">Prognose Open-Meteo · gerechnet für ${Math.round(g.ele || fc.ele)} m</span>
     <div class="big">${fsIconHtml(fsWxCodeIcon(v.code))}${Math.round(v.temp)}° <em>${esc(info.label)}</em></div>
     ${rows.map(r=> `<div class="fs-imis-row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('')}
     <button type="button" class="cond">Bedingungen hier ansehen</button>`;
-  fsmWxCardWire(st, g.lat, g.lon, fc.ele, 'Gewählter Ort');
+  fsmWxCardWire(st, g.lat, g.lon, g.ele || fc.ele, g.name || 'Gewählter Ort');
 }
 function fsmWxCardWire(st, lat, lon, ele, name){
   st.card.hidden = false;

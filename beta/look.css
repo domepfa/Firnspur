@@ -1740,7 +1740,9 @@ html.fs-filter-open body{ overflow:hidden; }
 .fsm-wx-head .menu button{ min-height:44px; padding:0 10px; border:none; border-radius:12px; background:none; font:inherit; font-size:14.5px; font-weight:700; color:var(--ink); text-align:left; cursor:pointer; }
 .fsm-wx-head .menu button.on{ background:var(--ice-light); color:var(--accent-ink); }
 .fsm-wxv.z{ min-width:0; width:12px; height:12px; padding:0; background:#ADB5BD; border-width:2px; box-shadow:0 1px 3px rgba(15,30,39,.35); }
-.fsm-wxf{ display:flex; align-items:center; gap:3px; height:32px; padding:0 9px 0 6px; border:none; border-radius:999px; background:rgba(255,255,255,.95); box-shadow:0 1px 6px rgba(15,30,39,.35); font:inherit; font-size:14px; font-weight:800; cursor:pointer; color:var(--ink); }
+.fsm-wxf{ display:flex; flex-direction:column; align-items:center; gap:1px; padding:0; border:none; background:none; font:inherit; cursor:pointer; color:var(--ink); }
+.fsm-wxf .v{ display:flex; align-items:center; gap:3px; height:30px; padding:0 9px 0 6px; border-radius:999px; background:rgba(255,255,255,.95); box-shadow:0 1px 6px rgba(15,30,39,.35); font-size:14px; font-weight:800; }
+.fsm-wxf .nm{ max-width:96px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; font-weight:800; color:#fff; text-shadow:0 0 3px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.6); }
 .fsm-wxf .fs-i{ width:20px; height:20px; color:#4A5A64; }
 .fsm-wx-card .big .fs-i{ width:28px; height:28px; margin-right:6px; vertical-align:-4px; color:#4A5A64; }
 .fsm-wxv{ min-width:38px; height:26px; padding:0 7px; border-radius:999px; background:var(--c); color:#fff; border:2px solid #fff; font:inherit; font-size:12.5px; font-weight:800; line-height:22px; text-align:center; box-shadow:0 1px 5px rgba(15,30,39,.4); cursor:pointer; text-shadow:0 0 2px rgba(0,0,0,.35); }
@@ -1752,4 +1754,4 @@ html.fs-filter-open body{ overflow:hidden; }
 .fsm-wx-card .big small{ font-size:15px; }
 .fsm-wx-card .big em{ font-style:normal; font-size:13px; font-weight:700; color:var(--ink-soft); }
 .fsm-wx-card .cond{ margin-top:10px; min-height:46px; border:none; border-radius:999px; background:var(--ice-deep); color:#fff; font:inherit; font-size:14.5px; font-weight:800; cursor:pointer; }
-html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxf, html.fs-dark .fsm-wx-card{ background:var(--paper); color:var(--ink); }
+html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxf .v, html.fs-dark .fsm-wx-card{ background:var(--paper); color:var(--ink); }
