@@ -5428,8 +5428,10 @@ const FSM_OVERLAYS = [
   {id:'hangneigung', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
   {id:'slf', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
   {id:'sperrungen', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
-  {id:'temp', label:'Temperatur (aktuell)', icon:'therm', tiles:[FSM_WMTS('ch.meteoschweiz.messwerte-lufttemperatur-10min','png')]},
-  {id:'regen', label:'Niederschlag (aktuell)', icon:'drop', tiles:[FSM_WMTS('ch.meteoschweiz.messwerte-niederschlag-10min','png')]}
+  // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln — siehe fsmLoadPoints
+  {id:'webcams', label:'Webcams (MeteoSchweiz)', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3},
+  {id:'temp', label:'Temperatur (aktuell)', icon:'therm', points:'https://data.geo.admin.ch/ch.meteoschweiz.messwerte-lufttemperatur-10min/ch.meteoschweiz.messwerte-lufttemperatur-10min_de.json', kind:'temp', maxAge:5*60e3},
+  {id:'regen', label:'Niederschlag (letzte 10 Min.)', icon:'drop', points:'https://data.geo.admin.ch/ch.meteoschweiz.messwerte-niederschlag-10min/ch.meteoschweiz.messwerte-niederschlag-10min_de.json', kind:'regen', maxAge:5*60e3}
 ];
 const FSM_BASES = [
   {id:'karte', label:'Karte'},
@@ -5575,7 +5577,12 @@ function fsmSetOverlay(map, id, on, silent){
   const o = FSM_OVERLAYS.find(x=> x.id === id);
   if(!o) return;
   const lid = 'ov-' + id;
-  if(on && !map.getLayer(lid)){
+  if(o.points){
+    // Punkte als HTML-Marker (Messwerte, Webcams)
+    map._fsm.pt = map._fsm.pt || {};
+    if(on && !map._fsm.pt[id]) fsmLoadPoints(map, o);
+    (map._fsm.pt[id] || []).forEach(m=>{ m.getElement().style.display = on ? '' : 'none'; });
+  }else if(on && !map.getLayer(lid)){
     if(o.geojson){
       map.addSource(lid, {type:'geojson', data:{type:'FeatureCollection', features:[]}});
       map.addLayer({id:lid, type:'fill', source:lid, paint:{'fill-color':['get','color'], 'fill-opacity':0.45, 'fill-outline-color':'#555'}}, 'fsm-anchor-names');
@@ -5594,6 +5601,62 @@ function fsmSetOverlay(map, id, on, silent){
     fsmSavePrefs(p);
   }
   fsmSyncPanel(map);
+}
+// MeteoSchweiz-Punkte (Webcams, Temperatur, Niederschlag) laden, kurz zwischenspeichern
+const fsPtCache = {};
+async function fsPointsFetch(o){
+  const c = fsPtCache[o.id];
+  if(c && Date.now() - c.at < (o.maxAge || 300e3)) return c.data;
+  const r = await fetch(o.points);
+  if(!r.ok) throw new Error('nicht verfügbar');
+  const j = await r.json();
+  fsPtCache[o.id] = {at: Date.now(), data: j};
+  return j;
+}
+// Alle http-Links eines Objekts (Bild zuerst), unabhängig vom genauen Feldnamen
+function fsLinksOf(props){
+  const urls = Object.values(props || {}).filter(v=> typeof v === 'string' && /^https?:\/\//.test(v));
+  return {img: urls.find(u=> /\.(jpe?g|png|webp)(\?|$)/i.test(u)) || null, link: urls.find(u=> !/\.(jpe?g|png|webp)(\?|$)/i.test(u)) || null};
+}
+function fsTempColor(v){ return v <= -10 ? '#5B3FA8' : v <= -5 ? '#3B5BDB' : v <= 0 ? '#4DABF7' : v <= 5 ? '#63C5B5' : v <= 10 ? '#8BC34A' : v <= 15 ? '#E8C547' : v <= 20 ? '#F59F00' : v <= 25 ? '#F76707' : '#E03131'; }
+function fsPointPopupHtml(o, p){
+  const name = esc(p.station_name || p.name || p.label || '');
+  if(o.kind === 'webcam'){
+    const l = fsLinksOf(p);
+    return `<div class="fs-cam-pop"><b>${name || 'Webcam'}</b>${p.altitude ? `<span>${esc(String(p.altitude))} m ü. M.</span>` : ''}
+      ${l.img ? `<a href="${esc(l.img)}" target="_blank" rel="noopener noreferrer"><img src="${esc(l.img)}" alt="Webcam ${name}" loading="lazy"/></a>` : ''}
+      ${l.link ? `<a class="fs-cam-link" href="${esc(l.link)}" target="_blank" rel="noopener noreferrer">Webcam öffnen ↗</a>` : ''}
+      ${!l.img && !l.link ? `<a class="fs-cam-link" href="https://www.meteoschweiz.admin.ch" target="_blank" rel="noopener noreferrer">Bei MeteoSchweiz ansehen ↗</a>` : ''}</div>`;
+  }
+  const unit = o.kind === 'temp' ? '°C' : 'mm';
+  const v = typeof p.value === 'number' ? p.value : parseFloat(p.value);
+  const ts = p.reference_ts || p.date || '';
+  return `<div class="fs-cam-pop"><b>${name}</b><span>${isFinite(v) ? v.toFixed(1) + ' ' + unit : 'kein Wert'}${o.kind === 'regen' ? ' in 10 Min.' : ''}</span>${ts ? `<span>${esc(String(ts).replace('T', ' ').slice(0, 16))}</span>` : ''}</div>`;
+}
+async function fsmLoadPoints(map, o){
+  map._fsm.pt[o.id] = [];
+  let j;
+  try{ j = await fsPointsFetch(o); }catch(e){ showToast(o.label + ' gerade nicht verfügbar (Internet?).', true); delete map._fsm.pt[o.id]; return; }
+  if(!map._fsm || !map.getStyle()) return;
+  const list = [];
+  (j.features || []).forEach(f=>{
+    const g = f.geometry; if(!g || g.type !== 'Point') return;
+    const p = f.properties || {};
+    const [lon, lat] = g.coordinates;
+    let html;
+    if(o.kind === 'webcam') html = `<div class="fsm-cam">${fsIconHtml('camera')}</div>`;
+    else{
+      const v = typeof p.value === 'number' ? p.value : parseFloat(p.value);
+      if(!isFinite(v) || v < -90) return;
+      html = o.kind === 'temp'
+        ? `<div class="fsm-val" style="--c:${fsTempColor(v)}">${Math.round(v)}°</div>`
+        : (v > 0 ? `<div class="fsm-val" style="--c:#1971C2">${v.toFixed(1)}</div>` : `<div class="fsm-val fsm-val-0"></div>`);
+    }
+    const m = fsmAddMarker(map, lat, lon, html, {popup: fsPointPopupHtml(o, p)});
+    m.getElement().style.display = fsmOverlayOn(map, o.id) ? '' : 'none';
+    list.push(m);
+  });
+  map._fsm.pt[o.id] = list;
 }
 function fsmOverlayOn(map, id){ return !!(map && map._fsm && map._fsm.overlays[id]); }
 async function fsmLoadSlf(map, lid){
@@ -8991,6 +9054,73 @@ function meteoFormatDayLabel(dateKey){
 
 function meteoForecastWidgetHtml(lat, lon){
   if(!isFinite(lat) || !isFinite(lon)) return '';
+  return meteoForecastOnlyHtml(lat, lon) + fsPastWeatherHtml(lat, lon) + fsWebcamsNearHtml(lat, lon);
+}
+/* ===== Wetter-Rückblick: die letzten drei Tage am Ort (Open-Meteo, Modellwerte) =====
+   Für die Beurteilung vor Ort: wie viel Regen/Neuschnee in den letzten Tagen, wie warm.
+   Open-Meteo rechnet mit dem Modell von MeteoSchweiz (ICON-CH), frei und ohne Schlüssel. */
+function fsPastWeatherHtml(lat, lon){
+  const key = lat.toFixed(3) + ',' + lon.toFixed(3);
+  state._pastWx = state._pastWx || {};
+  const e = state._pastWx[key];
+  if(!e){
+    state._pastWx[key] = {status:'loading'};
+    const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&daily=precipitation_sum,snowfall_sum,temperature_2m_max,temperature_2m_min&past_days=3&forecast_days=1&timezone=Europe%2FZurich';
+    fetch(u).then(r=>{ if(!r.ok) throw new Error('nicht verfügbar'); return r.json(); }).then(j=>{
+      state._pastWx[key] = {status:'ok', data:j}; render();
+    }).catch(err=>{ state._pastWx[key] = {status:'error'}; render(); });
+    return '';
+  }
+  if(e.status !== 'ok' || !e.data || !e.data.daily) return '';
+  const d = e.data.daily, n = (d.time || []).length;
+  if(n < 2) return '';
+  const names = ['Vor 3 Tagen', 'Vorgestern', 'Gestern', 'Heute'];
+  const off = 4 - n;
+  let rainSum = 0, snowSum = 0;
+  const cells = d.time.map((t, i)=>{
+    const pr = d.precipitation_sum[i] || 0, sn = d.snowfall_sum[i] || 0;
+    if(i < n - 1){ rainSum += pr; snowSum += sn; }
+    return `<div class="wx-day${i === n - 1 ? ' wx-today' : ''}">
+      <div class="wx-d">${names[i + off] || t}</div>
+      <div class="wx-t"><b>${Math.round(d.temperature_2m_max[i])}°</b> <span>${Math.round(d.temperature_2m_min[i])}°</span></div>
+      <div class="wx-p">${pr >= 0.1 ? pr.toFixed(1) + ' mm' : 'trocken'}</div>
+      ${sn >= 0.5 ? `<div class="wx-sn">${Math.round(sn)} cm Schnee</div>` : ''}
+    </div>`;
+  }).join('');
+  const ele = e.data.elevation != null ? Math.round(e.data.elevation) + ' m' : '';
+  return `<div class="detail-section wx-strip wx-past">
+    <h4>Wetter der letzten Tage <span class="wx-where">${ele}</span></h4>
+    <p class="wx-sum">Letzte 3 Tage: <b>${rainSum.toFixed(0)} mm</b> Niederschlag${snowSum >= 0.5 ? `, davon etwa <b>${Math.round(snowSum)} cm Neuschnee</b>` : ''}</p>
+    <div class="wx-days">${cells}</div>
+    <p class="wx-src">Open-Meteo (Modell MeteoSchweiz), gerechnet für ${ele || 'diesen Punkt'} — keine Messung. Heute: bisher und Prognose.</p>
+  </div>`;
+}
+/* ===== Webcams in der Nähe (MeteoSchweiz) ===== */
+function fsWebcamsNearHtml(lat, lon){
+  const o = FSM_OVERLAYS.find(x=> x.id === 'webcams');
+  if(!o) return '';
+  const c = fsPtCache.webcams;
+  if(!c){
+    if(!state._camLoading){ state._camLoading = true; fsPointsFetch(o).then(()=> render()).catch(()=>{}); }
+    return '';
+  }
+  const near = (c.data.features || []).filter(f=> f.geometry && f.geometry.type === 'Point').map(f=>{
+    const [lo, la] = f.geometry.coordinates;
+    return {f, d: fsGeoDist(lat, lon, la, lo)};
+  }).filter(x=> x.d < 25000).sort((a, b)=> a.d - b.d).slice(0, 3);
+  if(!near.length) return '';
+  return `<div class="detail-section fs-cams">
+    <h4>Webcams in der Nähe</h4>
+    ${near.map(x=>{
+      const p = x.f.properties || {}, l = fsLinksOf(p), href = l.img || l.link;
+      const name = esc(p.station_name || p.name || 'Webcam');
+      return href ? `<a class="fs-cam-row" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${l.img ? `<img src="${esc(l.img)}" alt="" loading="lazy"/>` : fsIconHtml('camera')}<span><b>${name}</b><small>${fsFmtKm(x.d)} entfernt</small></span></a>`
+        : `<div class="fs-cam-row">${fsIconHtml('camera')}<span><b>${name}</b><small>${fsFmtKm(x.d)} entfernt</small></span></div>`;
+    }).join('')}
+    <p class="wx-src">MeteoSchweiz-Wetterkameras</p>
+  </div>`;
+}
+function meteoForecastOnlyHtml(lat, lon){
   const key = meteoCacheKey(lat, lon);
   const entry = (state._meteoForecastCache || {})[key];
   if(!entry || entry.status === 'loading'){
