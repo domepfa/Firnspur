@@ -586,7 +586,7 @@ function hutFormHtml(existing){
         <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(h.subregion||'')}"/>
       </div>
       <div class="field"><label>Gebiet (optional)</label>
-        <select name="gebietId"><option value="">— keins —</option>${state.gebiete.map(g=>`<option value="${g.id}" ${h.gebietId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select>
+        <select name="gebietId"><option value="">— keins —</option>${state.gebiete.map(g=>`<option value="${g.id}" ${h.gebietId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}${h.gebietId && !state.gebiete.some(g=> g.id === h.gebietId) ? `<option value="${esc(h.gebietId)}" selected>Gebiet aus der anderen App (bleibt)</option>` : ''}</select>
         <div class="hint">Fasst Touren &amp; Hütten derselben Region zusammen. Fehlt das Gebiet? Erst unter „Gebiete" anlegen.</div>
       </div>
       <div class="field"><label>Höhe (m ü. M.)</label><input name="altitude" value="${esc(h.altitude||'')}" placeholder="z. B. 1834"/></div>
