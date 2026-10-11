@@ -7249,7 +7249,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       const gpxHint = document.createElement('p');
       gpxHint.className = 'hint';
       gpxHint.style.marginBottom = '4px';
-      gpxHint.textContent = '🔴 Rot: dein hochgeladener GPX-Track — im Linie-Modus einen Punkt ziehen zum Verschieben, lange drücken/Rechtsklick zum Entfernen, Karte antippen fügt einen Punkt am Ende hinzu.';
+      gpxHint.textContent = '🔴 Rot: dein GPX-Track, bleibt unverändert. Linie und Route zeichnen eine eigene, zusätzliche Linie. Punkte des GPX verschieben: «GPX-Track bearbeiten».';
       wrapDiv.appendChild(gpxHint);
     }
     refTracks.forEach(rt=>{
@@ -7297,6 +7297,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     replaceGpxOriginalBtn.type = 'button'; replaceGpxOriginalBtn.className = 'btn secondary'; replaceGpxOriginalBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; display:none;';
     replaceGpxOriginalBtn.textContent = '💾 Original-GPX-Datei ersetzen';
     lineActionsRow.appendChild(replaceGpxOriginalBtn);
+    // Den eigenen GPX-Track nur nach ausdrücklichem Wechsel bearbeiten (Punkte verschieben/entfernen).
+    // Sonst zeichnet die Linie immer eine eigene, zusätzliche Route — der GPX-Track bleibt unberührt.
+    const gpxEditBtn = document.createElement('button');
+    gpxEditBtn.type = 'button'; gpxEditBtn.className = 'btn secondary'; gpxEditBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; display:none;';
+    lineActionsRow.appendChild(gpxEditBtn);
     wrapDiv.appendChild(lineActionsRow);
 
     // Route-Modus als eigene, grün getönte Karte (passend zur grünen Routen-Farbe auf der Karte) —
@@ -7386,10 +7391,22 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // Ist ein eigener GPX-Track hochgeladen, wird DIESER zur bearbeitbaren Linie (statt einer separaten,
     // nicht bearbeitbaren Referenzlinie plus einer zweiten Karte nur zum Korrigieren) — usingGpxTrack
     // steuert, wohin persistTrack() schreibt und ob der "Original ersetzen"-Knopf sichtbar ist.
-    let usingGpxTrack = !!gpxTrackFromHidden;
-    let manualTrack = gpxTrackFromHidden ? gpxTrackFromHidden.map(p=>[p[0], p[1]]) : [];
-    if(!usingGpxTrack && manualTrackHidden){
+    // Früher wurde der GPX-Track automatisch zur Linie — Zeichnen hängte an ihn an und eine berechnete
+    // Route ersetzte ihn. Jetzt: GPX nur sichtbar (rot), bearbeitbar erst über «GPX-Track bearbeiten».
+    let usingGpxTrack = false;
+    let gpxTrack = gpxTrackFromHidden ? gpxTrackFromHidden.map(p=>[p[0], p[1]]) : null;
+    let savedManual = null;
+    let manualTrack = [];
+    if(manualTrackHidden){
       try{ manualTrack = JSON.parse(manualTrackHidden.value || '[]'); }catch(e){ manualTrack = []; }
+    }
+    function enterGpxEdit(){
+      if(!gpxTrack || usingGpxTrack) return;
+      savedManual = manualTrack; manualTrack = gpxTrack.map(p=>[p[0], p[1]]); usingGpxTrack = true;
+    }
+    function exitGpxEdit(){
+      if(!usingGpxTrack) return;
+      gpxTrack = manualTrack; manualTrack = savedManual || []; savedManual = null; usingGpxTrack = false;
     }
     let mode = 'point';
 
@@ -7453,7 +7470,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     let undoStack = (manualTrackHidden && manualTrackHidden._undoStack) || [];
     function pushUndo(){
       const rv = (id)=>{ const el = document.getElementById(id); return el ? el.value : null; };
-      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats, usingGpxTrack,
+      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats, usingGpxTrack, gpxTrack, savedManual,
         routes: {alt: rv('route-alt-tracks'), mn: rv('route-manual-name'), mt: rv('route-manual-type'), tn: rv('route-track-name'), tt: rv('route-track-type')}}));
       if(undoStack.length > 25) undoStack.shift();
       if(manualTrackHidden) manualTrackHidden._undoStack = undoStack;
@@ -7479,6 +7496,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       manualTrack = snap.manualTrack;
       routeWaypoints = snap.routeWaypoints;
       usingGpxTrack = !!snap.usingGpxTrack;
+      if('gpxTrack' in snap){ gpxTrack = snap.gpxTrack; savedManual = snap.savedManual; }
+      { const g = usingGpxTrack ? manualTrack : gpxTrack; if(gpxHiddenInput && g && g.length) gpxHiddenInput.value = JSON.stringify(g); }
+      if(manualTrackHidden) manualTrackHidden.value = JSON.stringify(usingGpxTrack ? (savedManual || []) : manualTrack);
       if(snap.routes){
         // Routenliste (weitere Routen, Name/Art) mit zurücksetzen
         [['route-alt-tracks','alt'],['route-manual-name','mn'],['route-manual-type','mt'],['route-track-name','tn'],['route-track-type','tt']].forEach(([id, k])=>{
@@ -7512,6 +7532,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       markModalDirty();
       const target = usingGpxTrack ? gpxHiddenInput : manualTrackHidden;
       if(target) target.value = JSON.stringify(manualTrack);
+      if(usingGpxTrack) gpxTrack = manualTrack;
       document.dispatchEvent(new CustomEvent('fs-track-changed'));
     }
     // Blendet den "Original ersetzen"-Knopf ein/aus, je nachdem ob die Linie aktuell (noch) der
@@ -7589,6 +7610,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
     function redrawLine(){
       lineLayer.clearLayers();
+      if(!usingGpxTrack && gpxTrack && gpxTrack.length > 1){
+        FL.polyline(gpxTrack, {color:'#ffffff', weight:6, opacity:0.6, interactive:false}).addTo(lineLayer);
+        FL.polyline(gpxTrack, {color:'#E8384F', weight:3.5, opacity:0.9, interactive:false}).addTo(lineLayer);
+      }
+      gpxEditBtn.style.display = (gpxTrack && gpxTrack.length > 1 && gpxConfig) ? '' : 'none';
+      gpxEditBtn.textContent = usingGpxTrack ? '✓ GPX-Track fertig bearbeitet' : 'GPX-Track bearbeiten';
+      undoBtn.style.display = clearLineBtn.style.display = usingGpxTrack ? 'none' : '';
       if(manualTrack.length){
         // Deutlich breitere, unsichtbare Klickfläche unter der sichtbaren Linie — auf einer
         // schmalen 4px-Linie mit dem Finger genau zu treffen ist auf dem Handy sehr schwierig.
@@ -7780,6 +7808,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
 
     function setMode(newMode){
+      if(newMode !== 'line' && usingGpxTrack){ exitGpxEdit(); updateGpxReplaceBtn(); }
       mode = newMode;
       [['point',pointModeBtn],['line',lineModeBtn],['route',routeModeBtn]].forEach(([key,btn])=>{
         const active = mode===key;
@@ -7799,6 +7828,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     lineModeBtn.addEventListener('click', ()=> setMode('line'));
     routeModeBtn.addEventListener('click', ()=> setMode('route'));
     undoBtn.addEventListener('click', ()=>{
+      if(usingGpxTrack) return;
       pushUndo();
       manualTrack.pop();
       setLastRouteStats(null);
@@ -7808,6 +7838,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       persistTrack();
     });
     clearLineBtn.addEventListener('click', ()=>{
+      if(usingGpxTrack || !manualTrack.length) return;
+      if(!confirm('Gezeichnete Linie löschen? (Ein GPX-Track bleibt erhalten.)')) return;
       pushUndo();
       manualTrack.length = 0;
       setLastRouteStats(null);
@@ -7816,9 +7848,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       redrawLine();
       persistTrack();
     });
-    finishBtn.addEventListener('click', ()=> setMode('point'));
+    finishBtn.addEventListener('click', ()=>{ if(usingGpxTrack){ exitGpxEdit(); updateGpxReplaceBtn(); renderRouteMeta(); } setMode('point'); });
+    gpxEditBtn.addEventListener('click', ()=>{
+      pushUndo();
+      if(usingGpxTrack) exitGpxEdit(); else{ enterGpxEdit(); showToast('GPX-Punkte verschieben oder antippen zum Entfernen. Neue Linien erst nach «fertig».'); }
+      setLastRouteStats(null); routeStatsEl.style.display = 'none'; routeStatsEl.innerHTML = '';
+      updateGpxReplaceBtn(); redrawLine(); renderRouteMeta();
+    });
     replaceGpxOriginalBtn.addEventListener('click', async ()=>{
-      if(!gpxConfig || manualTrack.length < 2) return;
+      if(!gpxConfig || !usingGpxTrack || manualTrack.length < 2) return;
+      if(!confirm('Die Original-GPX-Datei durch den bearbeiteten Track ersetzen? Die bisherige Datei wird als frühere Version gesichert.')) return;
       // gpxConfig.id: fixes Kürzel für Fälle, in denen die ID schon als JS-Variable bekannt ist
       // (z. B. Schnell-Bearbeiten in der Detailansicht) und kein eigenes verstecktes Feld dafür
       // angelegt werden muss — sonst wie gehabt über idHiddenId aus dem Formular gelesen.
@@ -7855,6 +7894,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // statt dass man erst wissen muss, dass eine Route technisch auch nur eine "Linie" ist.
     function clearCalculatedRoute(){
       pushUndo();
+      if(usingGpxTrack) exitGpxEdit();
       manualTrack = [];
       setLastRouteStats(null);
       redrawLine();
@@ -7888,8 +7928,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         // Eine neu berechnete Route ersetzt "die Linie" komplett — war das bisher der eigene
         // GPX-Track, wird dessen Feld hier explizit geleert, statt eine veraltete Kopie stehen zu
         // lassen (persistTrack() schreibt ab jetzt wieder in manualTrackHidden statt gpxHiddenInput).
-        if(usingGpxTrack && gpxHiddenInput) gpxHiddenInput.value = '';
-        usingGpxTrack = false;
+        // Eine berechnete Route ersetzt nur die eigene Linie, nie den GPX-Track
+        if(usingGpxTrack) exitGpxEdit();
         manualTrack = calculated.coords;
         setLastRouteStats(calculated);
         redrawLine();
@@ -7933,6 +7973,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     });
 
     function addLineAt(lat, lon){
+      // Beim Bearbeiten des GPX-Tracks nie Punkte anhängen
+      if(usingGpxTrack){ showToast('Zuerst «GPX-Track fertig bearbeitet», dann eine neue Linie zeichnen.', true); return; }
       pushUndo();
       manualTrack.push([lat, lon]);
       setLastRouteStats(null);
