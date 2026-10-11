@@ -871,6 +871,7 @@ async function submitTourForm(form, existing){
   t.gebietId = form.gebietId || '';
   t.tourLink = form.tourLink;
   t.gpxLink = form.gpxLink || '';
+  fsApplyLinksFromForm(t, form, existing);
   try{ t.trackSimplified = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ t.trackSimplified = null; }
   try{ t.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ t.manualTrack = []; }
   const routeUploads = fsApplyRoutesFromForm(t, form, existing);
@@ -1315,6 +1316,7 @@ function tourFormHtml(existing){
         <div id="camptocamp-search-box" style="margin-top:10px; display:none;"></div>
       </div>
       <div class="field"><label>Link zu einer GPX-Datei (optional)</label><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></div>
+      ${fsMoreLinksFieldHtml(t)}
       <div class="field" id="fs-tracks-field"><label>GPX-Tracks &amp; Routen</label>
         <input type="file" id="gpx-file-input" accept=".gpx,application/gpx+xml" hidden/>
         <input type="hidden" name="trackSimplified" id="track-simplified-hidden" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
@@ -1427,8 +1429,8 @@ function tourDetailHtml(id){
       ['Mit Hund', DOG_LABELS[t.dog] || ''],
       ['Beste Monate', MONTHS.filter(m=>(t.bestMonths||[]).includes(m.key)).map(m=>m.label).join(', ')]
     ])}
-    ${(hut || gebiet || t.tourLink) ? `<div class="fs-links">
-      ${fsTourLinkChipHtml(t.tourLink)}
+    ${(hut || gebiet || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">
+      ${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}
       ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
       ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">⛰️ Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
     </div>` : ''}
