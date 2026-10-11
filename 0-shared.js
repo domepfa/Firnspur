@@ -13376,6 +13376,59 @@ function fsTourLinkChipHtml(url){
   let host = ''; try{ host = new URL(url).hostname.replace(/^www\./, ''); }catch(e){}
   return `<a class="hut-link-chip fs-tourlink" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${fsIconHtml('link')}<span>Tourbeschreibung${host ? ' · ' + esc(host) : ''}</span> ↗</a>`;
 }
+/* ===== Weitere Links: nie einen Link durch einen neuen ersetzen =====
+   t.moreLinks: zusätzliche Links (Tourbeschreibungen, GPX). Kommt ein zweiter Link dazu oder wird
+   der Link im Formular geändert, bleibt der bisherige hier erhalten. */
+function fsMoreLinksList(t){ return (t && Array.isArray(t.moreLinks)) ? t.moreLinks.filter(u=> typeof u === 'string' && u.trim()) : []; }
+function fsAddLink(t, field, url){
+  url = (url || '').trim();
+  if(!url) return;
+  if(!t[field]){ t[field] = url; return; }
+  if([t.tourLink, t.gpxLink].concat(fsMoreLinksList(t)).includes(url)) return;
+  t.moreLinks = fsMoreLinksList(t).concat(url);
+}
+// Beim Speichern eines Formulars: geänderte Links nicht verlieren, weitere Links übernehmen
+function fsApplyLinksFromForm(t, form, existing){
+  if(form.moreLinks !== undefined){ try{ t.moreLinks = JSON.parse(form.moreLinks || '[]').filter(u=> typeof u === 'string' && u.trim()).map(u=> u.trim()); }catch(e){} }
+  ['tourLink', 'gpxLink'].forEach(f=>{
+    const old = existing && existing[f] ? String(existing[f]).trim() : '';
+    if(old && (t[f] || '').trim() !== old && ![t.tourLink, t.gpxLink].concat(fsMoreLinksList(t)).includes(old)) t.moreLinks = fsMoreLinksList(t).concat(old);
+  });
+  t.moreLinks = Array.from(new Set(fsMoreLinksList(t)));
+}
+function fsMoreLinksChipsHtml(t){
+  return fsMoreLinksList(t).map(u=>{
+    let host = ''; try{ host = new URL(u).hostname.replace(/^www\./, ''); }catch(e){}
+    return `<a class="hut-link-chip fs-tourlink" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${fsIconHtml('link')}<span>${/\.gpx(\?|$)/i.test(u) ? 'GPX' : 'Link'}${host ? ' · ' + esc(host) : ''}</span> ↗</a>`;
+  }).join('');
+}
+function fsMoreLinksFieldHtml(t){
+  const list = fsMoreLinksList(t);
+  return `<div class="field fs-more-links"><label>Weitere Links</label>
+    <input type="hidden" name="moreLinks" class="fs-more-links-hidden" value='${esc(JSON.stringify(list))}'/>
+    <div class="fs-more-links-list">${list.map(u=> fsMoreLinkRowHtml(u)).join('')}</div>
+    <button type="button" class="btn secondary" data-fs-add-link onclick="fsAddLinkRow(this)">+ Weiteren Link</button>
+    <div class="hint">Ein geänderter Link bleibt hier erhalten — nichts geht verloren.</div></div>`;
+}
+function fsMoreLinkRowHtml(u){
+  return `<div class="fs-more-link-row"><input type="url" class="fs-more-link" value="${esc(u || '')}" placeholder="https://…" oninput="fsMoreLinkInput(this)"/><button type="button" class="fs-icon-btn" data-fs-del-link onclick="fsDelLinkRow(this)" aria-label="Link entfernen">${fsIconHtml('trash')}</button></div>`;
+}
+function fsSyncMoreLinks(box){
+  const hid = box.querySelector('.fs-more-links-hidden');
+  if(hid) hid.value = JSON.stringify(Array.from(box.querySelectorAll('.fs-more-link')).map(i=> i.value.trim()).filter(Boolean));
+}
+// Direkt am Element verdrahtet (die Maske hält Klicks vom document fern)
+function fsAddLinkRow(btn){
+  const box = btn.closest('.fs-more-links');
+  box.querySelector('.fs-more-links-list').insertAdjacentHTML('beforeend', fsMoreLinkRowHtml(''));
+  const ins = box.querySelectorAll('.fs-more-link'); ins[ins.length - 1].focus();
+}
+function fsDelLinkRow(btn){
+  const box = btn.closest('.fs-more-links'), row = btn.closest('.fs-more-link-row');
+  if(row.querySelector('.fs-more-link').value.trim() && !confirm('Diesen Link entfernen?')) return;
+  row.remove(); fsSyncMoreLinks(box); if(typeof markModalDirty === 'function') markModalDirty();
+}
+function fsMoreLinkInput(inp){ fsSyncMoreLinks(inp.closest('.fs-more-links')); if(typeof markModalDirty === 'function') markModalDirty(); }
 function fsMenuItemHtml(icon, label, attrs, href){
   if(href) return `<a class="fs-more-item" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${fsIconHtml(icon)}<span>${label}</span></a>`;
   return `<button type="button" class="fs-more-item" ${attrs}>${fsIconHtml(icon)}<span>${label}</span></button>`;
@@ -14118,7 +14171,8 @@ function applySharedImageToSektor(sektorId, blob){
 async function submitShareImportGpxLink(tourId, link){
   const t = state.tours.find(x=>x.id===tourId);
   if(!t){ showToast('Tour nicht gefunden.', true); return; }
-  t.gpxLink = link;
+  // Ein vorhandener GPX-Link bleibt, der neue kommt unter «Weitere Links» dazu
+  fsAddLink(t, 'gpxLink', link);
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
   closeModal(false, true, true);
