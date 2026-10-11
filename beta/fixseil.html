@@ -1000,27 +1000,27 @@ async function loadAll(){
   const unsyncedTours = dedupeById([
     ...state.tours.filter(x=>x._unsynced),
     ...((cached && cached.tours) ? cached.tours.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!tours.find(y=>y.id===x.id));
+  ]).filter(x=> fsKeepUnsynced(x, tours, TOURS_PATH));
   const unsyncedHuts = dedupeById([
     ...state.huts.filter(x=>x._unsynced),
     ...((cached && cached.huts) ? cached.huts.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!huts.find(y=>y.id===x.id));
+  ]).filter(x=> fsKeepUnsynced(x, huts, HUTS_PATH));
   const unsyncedSektoren = dedupeById([
     ...state.sektoren.filter(x=>x._unsynced),
     ...((cached && cached.sektoren) ? cached.sektoren.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!sektoren.find(y=>y.id===x.id));
+  ]).filter(x=> fsKeepUnsynced(x, sektoren, SEKTOREN_PATH));
   const unsyncedKlettergebiete = dedupeById([
     ...state.klettergebiete.filter(x=>x._unsynced),
     ...((cached && cached.klettergebiete) ? cached.klettergebiete.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!klettergebiete.find(y=>y.id===x.id));
+  ]).filter(x=> fsKeepUnsynced(x, klettergebiete, KLETTERGEBIETE_PATH));
   const unsyncedGipfel = dedupeById([
     ...state.gipfel.filter(x=>x._unsynced),
     ...((cached && cached.gipfel) ? cached.gipfel.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!gipfel.find(y=>y.id===x.id));
+  ]).filter(x=> fsKeepUnsynced(x, gipfel, GIPFEL_PATH));
   const unsyncedAgenda = dedupeById([
     ...state.agenda.filter(x=>x._unsynced),
     ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!agenda.find(y=>y.id===x.id));
+  ]).filter(x=> fsKeepUnsynced(x, agenda, AGENDA_PATH));
 
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
@@ -1772,7 +1772,7 @@ async function submitTourRouteForm(form){
   let manual = [];
   try{ manual = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ manual = []; }
   const routeData = {
-    id: form.routeId || uid('tr'),
+    id: form.routeId || form.routeIdForTrack || uid('tr'),
     name: (form.name||'').trim(),
     elevation: form.elevation||'',
     elevationUp: form.elevationUp||'',
@@ -2879,7 +2879,7 @@ async function submitSektorRouteForm(form){
   let manual = [];
   try{ manual = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ manual = []; }
   const routeData = {
-    id: form.routeId || uid('sr'),
+    id: form.routeId || form.routeIdForTrack || uid('sr'),
     name: (form.name||'').trim(),
     elevation: form.elevation||'',
     elevationUp: form.elevationUp||'',

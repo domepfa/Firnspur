@@ -720,19 +720,19 @@ async function loadAll(){
   const unsyncedTours = dedupeById([
     ...state.tours.filter(x=>x._unsynced),
     ...((cached && cached.tours) ? cached.tours.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!tours.find(y=>y.id===x.id));
+  ]).filter(x=> fsKeepUnsynced(x, tours, OWN_TOURS_PATH));
   const unsyncedHuts = dedupeById([
     ...state.huts.filter(x=>x._unsynced),
     ...((cached && cached.huts) ? cached.huts.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!huts.find(y=>y.id===x.id));
+  ]).filter(x=> fsKeepUnsynced(x, huts, 'huts'));
   const unsyncedGebiete = dedupeById([
     ...state.gebiete.filter(x=>x._unsynced),
     ...((cached && cached.gebiete) ? cached.gebiete.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!gebiete.find(y=>y.id===x.id));
+  ]).filter(x=> fsKeepUnsynced(x, gebiete, GEBIETE_PATH));
   const unsyncedAgenda = dedupeById([
     ...state.agenda.filter(x=>x._unsynced),
     ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
-  ]).filter(x=>!agenda.find(y=>y.id===x.id));
+  ]).filter(x=> fsKeepUnsynced(x, agenda, AGENDA_PATH));
 
   state.tours = [...unsyncedTours, ...tours];
   state.huts = [...unsyncedHuts, ...huts];
