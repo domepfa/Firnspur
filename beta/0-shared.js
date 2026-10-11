@@ -276,6 +276,7 @@ async function fsSafeSet(path, value, v){
     Object.assign(value, result);
     fsBaseRemember(path, result); fsBaseUnpin(path);
     fsBaseStamp.set(path, result.updatedAt);
+    dlog('Sicher gespeichert ' + (g.ok && g.etag && !fsEtagOff ? 'mit' : 'ohne') + ' Versionskennung: ' + path);
     return true;
   }
   dlog('Speichern nach mehreren Versuchen aufgegeben (ständig geändert): ' + path, 'err');
