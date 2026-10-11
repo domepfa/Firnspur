@@ -76,7 +76,20 @@ function fbPathOk(path){
    anderes den Eintrag geändert, seit dieses Gerät ihn geladen hat, fragt die App nach, statt
    still dessen Änderungen zu überschreiben. */
 const FS_VERSIONED = ['tours', 'huts', 'gebiete', 'agenda', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete', 'fixseil/gipfel', 'fixseil/huts', 'wandern/tours', 'wandern/gebiete',
-  'gpxTracks', 'fixseil/gpxTracks', 'wandern/gpxTracks'];
+  'gpxTracks', 'fixseil/gpxTracks', 'wandern/gpxTracks',
+  'hutGpxTracksSummer', 'hutGpxTracksWinter', 'hutAccessRouteGpxTracks', 'mslAccessRouteGpxTracks', 'mslDescentRouteGpxTracks',
+  'sektorAccessRouteGpxTracks', 'sektorDescentRouteGpxTracks'];
+// GPX-Originaldateien aus einem Formular: erst beim Speichern des Eintrags hochladen, beim Verwerfen
+// des Formulars fallen lassen (siehe confirmDiscardIfDirty). So passen Linie und Datei immer zusammen.
+const fsPendingFiles = new Map(); // Pfad → Wert
+function fsQueueFile(path, value){ fsPendingFiles.set(path, value); }
+function fsDropPendingFiles(){ fsPendingFiles.clear(); }
+async function fsFlushPendingFiles(){
+  const list = Array.from(fsPendingFiles.entries()); fsPendingFiles.clear();
+  const res = await Promise.all(list.map(([p, v])=> fbSet(p, v).catch(()=> false)));
+  if(res.some(x=> !x)){ list.forEach(([p, v], i)=>{ if(!res[i]) fsPendingFiles.set(p, v); }); if(typeof showToast === 'function') showToast('Eine GPX-Originaldatei konnte nicht gespeichert werden (Internet?).', true); }
+}
+const FS_FILE_COLLS = ['gpxTracks', 'fixseil/gpxTracks', 'wandern/gpxTracks', 'hutGpxTracksSummer', 'hutGpxTracksWinter', 'hutAccessRouteGpxTracks', 'mslAccessRouteGpxTracks', 'mslDescentRouteGpxTracks', 'sektorAccessRouteGpxTracks', 'sektorDescentRouteGpxTracks'];
 const fsBaseStamp = new Map(); // Pfad → updatedAt beim Laden
 function fsVersionedSplit(path){
   const i = String(path).lastIndexOf('/');
@@ -137,6 +150,7 @@ async function fbSet(path, value){
     });
     if(!res.ok){ dlog('Firebase PUT fehlgeschlagen ('+res.status+'): '+path, 'err'); return false; }
     if(v) fsBaseStamp.set(path, value.updatedAt);
+    if(v && !FS_FILE_COLLS.includes(v.coll) && fsPendingFiles.size) fsFlushPendingFiles();
     return true;
   }catch(e){
     dlog('Firebase PUT Fehler für "'+path+'": '+(e && e.message ? e.message : e), 'err');
@@ -228,6 +242,17 @@ function favoriteToggleButtonHtml(id){
 
 /* ================= Basis-Hilfsfunktionen ================= */
 function uid(prefix){ return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8); }
+// Offline geänderter Eintrag (_unsynced) beim Laden: nicht durch die Fassung aus der Datenbank
+// ersetzen. Ist die lokale Änderung neuer, gewinnt sie (die Datenbank-Fassung fliegt aus list und wird
+// beim erneuten Speichern unter versions/ gesichert). Ist die Datenbank neuer, wurde der Eintrag auch
+// anderswo geändert: lokal behalten, aber fbSet fragt beim Speichern nach (Basisstempel leer).
+function fsKeepUnsynced(x, list, coll){
+  const i = list.findIndex(y=> y.id === x.id);
+  if(i < 0) return true;
+  if(coll && (x.updatedAt || '') <= (list[i].updatedAt || '')) fsBaseStamp.set(coll + '/' + x.id, '');
+  list.splice(i, 1);
+  return true;
+}
 function dedupeById(arr){
   const map = new Map();
   arr.forEach(x=>{ if(x && x.id) map.set(x.id, x); });
@@ -6970,7 +6995,7 @@ function fsRoutesEditorRender(){
     if(del) del.addEventListener('click', async ()=>{
       if(key === 'track'){
         if(!confirm('Diesen GPX-Track entfernen? Die Originaldatei wird als frühere Version gesichert.')) return;
-        await removeGpxTrack(GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status', null);
+        await removeGpxTrack(GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status', null, true);
         const st = document.getElementById('gpx-upload-status'); if(st) st.textContent = '';
         fsRoutesEditorRender();
         return;
@@ -8182,6 +8207,11 @@ function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simpl
       }
       const simplified = simplifyTrackForStorage(points, 200);
       const simplifiedInput = document.getElementById(simplifiedHiddenId);
+      if(simplifiedInput && simplifiedInput.value && !confirm('Es gibt schon einen GPX-Track. Durch diese Datei ersetzen?\n\nDie bisherige Datei wird beim Speichern als frühere Version gesichert.')){
+        fileInputEl.value = '';
+        if(statusEl) statusEl.textContent = 'Nicht ersetzt.';
+        return;
+      }
       if(simplifiedInput) simplifiedInput.value = JSON.stringify(simplified.map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]));
       markModalDirty();
       document.dispatchEvent(new CustomEvent('fs-track-changed'));
@@ -8191,13 +8221,8 @@ function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simpl
       let trackId = tourIdInput.value;
       if(!trackId){ trackId = uid('t'); tourIdInput.value = trackId; }
 
-      if(statusEl) statusEl.textContent = 'Original wird hochgeladen…';
-      const ok = await fbSet(trackPathPrefix + '/' + trackId, { gpx: gpxText, uploadedAt: new Date().toISOString(), fileName: file.name }).catch(()=>false);
-      if(statusEl){
-        statusEl.textContent = ok
-          ? `✓ GPX übernommen: ${points.length} Punkte aufgezeichnet, für die Karte auf ${simplified.length} Punkte vereinfacht. Original bleibt zum Download verfügbar.`
-          : 'Vereinfachte Linie übernommen, Original konnte aber nicht hochgeladen werden (Internetverbindung prüfen).';
-      }
+      fsQueueFile(trackPathPrefix + '/' + trackId, { gpx: gpxText, uploadedAt: new Date().toISOString(), fileName: file.name });
+      if(statusEl) statusEl.textContent = `✓ GPX übernommen: ${points.length} Punkte, für die Karte auf ${simplified.length} vereinfacht. Das Original wird beim Speichern abgelegt.`;
     }catch(err){
       if(statusEl) statusEl.textContent = 'Fehler beim Verarbeiten der GPX-Datei: ' + (err && err.message ? err.message : err);
     }
@@ -8208,7 +8233,8 @@ function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simpl
 // Ein einmal hochgeladener GPX-Track liess sich bisher nur durch eine neue Datei überschreiben,
 // nicht vollständig entfernen. Löscht sowohl die vereinfachte Linie (im Formular, wird beim
 // Speichern übernommen) als auch die Originaldatei in der Cloud.
-async function removeGpxTrack(trackPathPrefix, tourIdHiddenId, simplifiedHiddenId, statusId, removeBtnId){
+async function removeGpxTrack(trackPathPrefix, tourIdHiddenId, simplifiedHiddenId, statusId, removeBtnId, asked){
+  if(!asked && !confirm('GPX-Track entfernen? Wird erst mit «Speichern» übernommen.')) return false;
   const tourIdInput = document.getElementById(tourIdHiddenId);
   const trackId = tourIdInput ? tourIdInput.value : '';
   const simplifiedInput = document.getElementById(simplifiedHiddenId);
@@ -8219,8 +8245,11 @@ async function removeGpxTrack(trackPathPrefix, tourIdHiddenId, simplifiedHiddenI
   if(statusEl) statusEl.textContent = 'Track wird entfernt…';
   const removeBtn = removeBtnId ? document.getElementById(removeBtnId) : null;
   if(removeBtn) removeBtn.style.display = 'none';
-  if(trackId) await fbDelete(trackPathPrefix + '/' + trackId).catch(()=>{});
-  if(statusEl) statusEl.textContent = 'Noch kein Track hochgeladen.';
+  // Die Originaldatei bleibt liegen (ohne Linie wird sie nirgends angeboten); ein vorgemerkter,
+  // noch nicht gespeicherter Upload wird verworfen. So geht beim Abbrechen nichts verloren.
+  if(trackId) fsPendingFiles.delete(trackPathPrefix + '/' + trackId);
+  if(statusEl) statusEl.textContent = 'Track entfernt — wird mit «Speichern» übernommen.';
+  return true;
 }
 
 /* ================= Routenplaner (OpenRouteService) =================
@@ -10351,7 +10380,7 @@ function resetModalDirty(){ modalIsDirty = false; paintModalDirty(); }
 function confirmDiscardIfDirty(){
   if(!modalIsDirty || !modalDirtyTrackingKey()) return true;
   const ok = confirm('Ungespeicherte Änderungen verwerfen?');
-  if(ok) modalIsDirty = false;
+  if(ok){ modalIsDirty = false; fsDropPendingFiles(); }
   return ok;
 }
 
@@ -14749,7 +14778,7 @@ async function submitAccessRouteForm(form){
   let manual = [];
   try{ manual = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ manual = []; }
   const routeData = {
-    id: form.routeId || uid('ar'),
+    id: form.routeId || form.routeIdForTrack || uid('ar'),
     name: (form.name||'').trim(),
     season: form.season || '',
     elevation: form.elevation||'',
