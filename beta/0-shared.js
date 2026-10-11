@@ -52,7 +52,8 @@ async function fbGet(path){
     const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam);
     if(!res.ok){ dlog('Firebase GET fehlgeschlagen ('+res.status+'): '+path, 'err'); return null; }
     const data = await res.json();
-    if(FS_VERSIONED.includes(path) && data && typeof data === 'object') Object.keys(data).forEach(id=> fsBaseStamp.set(path + '/' + id, (data[id] && data[id].updatedAt) || ''));
+    if(FS_VERSIONED.includes(path) && data && typeof data === 'object') Object.keys(data).forEach(id=>{ fsBaseStamp.set(path + '/' + id, (data[id] && data[id].updatedAt) || ''); fsBaseRemember(path + '/' + id, data[id]); });
+    else{ const v = fsVersionedSplit(path); if(v && !FS_FILE_COLLS.includes(v.coll) && data && typeof data === 'object'){ fsBaseStamp.set(path, data.updatedAt || ''); fsBaseRemember(path, data); } }
     return data;
   }catch(e){
     dlog('Firebase GET Fehler für "'+path+'": '+(e && e.message ? e.message : e), 'err');
@@ -111,52 +112,194 @@ async function fsSaveVersion(v, cur, reason){
     if(!res.ok) dlog('Version nicht gesichert (' + res.status + '): ' + v.key + '/' + v.id, 'err');
   }catch(e){ dlog('Version nicht gesichert: ' + (e && e.message ? e.message : e), 'err'); }
 }
-async function fbSet(path, value){
-  if(!fbPathOk(path)){ dlog('Speichern blockiert (ungültiger Pfad): "' + path + '"', 'err'); return false; }
+/* ===== Sicher speichern: drei Fassungen vergleichen =====
+   Wie bei Git: Ausgangsstand (beim Laden gesehen) + meine Fassung + aktueller Stand in der Datenbank.
+   Gespeichert werden nur MEINE Änderungen, eingetragen in den aktuellen Stand. Listen (Begehungen,
+   Fotos, Punkte, Routen …) werden pro Eintrag zusammengeführt. Haben beide dasselbe Feld verschieden
+   geändert, wird nachgefragt. Geschrieben wird nur, wenn sich der Stand seit dem Lesen nicht geändert
+   hat (Firebase-ETag); sonst von vorn. Offline wird der Ausgangsstand im Gerät festgehalten. */
+const fsBase = new Map(); // Pfad → JSON der zuletzt gesehenen Datenbank-Fassung
+let fsEtagOff = false;    // Browser darf die Versionskennung nicht nutzen → ohne sie weiter
+function fsBaseRemember(path, obj){ try{ fsBase.set(path, JSON.stringify(obj === undefined ? null : obj)); }catch(e){} }
+function fsBaseGet(path){
+  try{ const p = localStorage.getItem('fs-base:' + path); if(p != null) return JSON.parse(p); }catch(e){}
+  const m = fsBase.get(path);
+  return m === undefined ? undefined : JSON.parse(m);
+}
+// Offline: den Ausgangsstand vor der ERSTEN lokalen Änderung festhalten (spätere Änderungen nicht)
+function fsBasePin(path){
+  try{ if(localStorage.getItem('fs-base:' + path) == null && fsBase.has(path)) localStorage.setItem('fs-base:' + path, fsBase.get(path)); }catch(e){}
+}
+function fsBaseUnpin(path){ try{ localStorage.removeItem('fs-base:' + path); }catch(e){} }
+function fsEq(a, b){ return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b); }
+function fsIsPlainObj(o){ return o !== null && typeof o === 'object' && !Array.isArray(o); }
+function fsIsCoordList(a){ return Array.isArray(a) && a.length > 0 && Array.isArray(a[0]); }
+// Liste pro Eintrag zusammenführen (Schlüssel: id, sonst by/date/lat/lon/…, siehe fsImportKey)
+function fsMergeList(b, m, t){
+  b = Array.isArray(b) ? b : []; m = Array.isArray(m) ? m : []; t = Array.isArray(t) ? t : [];
+  const bMap = new Map(b.map(x=> [fsImportKey(x), x])), mMap = new Map(m.map(x=> [fsImportKey(x), x]));
+  const out = [], used = new Set();
+  t.forEach(x=>{
+    const k = fsImportKey(x);
+    if(used.has(k)) return;
+    used.add(k);
+    const inB = bMap.has(k), inM = mMap.has(k);
+    if(inB && !inM) return;                                              // von mir entfernt
+    if(inM && (!inB || !fsEq(mMap.get(k), bMap.get(k)))) out.push(mMap.get(k)); // von mir geändert oder beide neu
+    else out.push(x);
+  });
+  m.forEach(x=>{
+    const k = fsImportKey(x);
+    if(used.has(k)) return;
+    used.add(k);
+    if(!bMap.has(k) || !fsEq(x, bMap.get(k))) out.push(x);               // neu von mir, oder von mir geändert und anderswo entfernt
+  });
+  return out;
+}
+function fsMergeField(b, m, t, path, conflicts){
+  // Fehlt ein Feld in meiner Fassung ganz, habe ich es nicht angefasst (bewusstes Leeren setzt '' oder [])
+  if(m === undefined) return t;
+  if(fsEq(m, b)) return t;
+  if(fsEq(t, b)) return m;
+  if(fsEq(m, t)) return m;
+  if(Array.isArray(m) && Array.isArray(t) && !fsIsCoordList(m) && !fsIsCoordList(t) && (b == null || Array.isArray(b))) return fsMergeList(b, m, t);
+  if(fsIsPlainObj(m) && fsIsPlainObj(t) && (b == null || fsIsPlainObj(b))) return fsMerge3(b || {}, m, t, path, conflicts);
+  conflicts.push({path, mine: m, theirs: t});
+  return m;
+}
+function fsMerge3(b, m, t, prefix, conflicts){
+  const out = {};
+  new Set([...Object.keys(b || {}), ...Object.keys(m || {}), ...Object.keys(t || {})]).forEach(k=>{
+    if(!prefix && (k === 'updatedAt' || k === 'updatedBy')){ if(t && t[k] !== undefined) out[k] = t[k]; return; }
+    if(!prefix && k[0] === '_'){ if(m && m[k] !== undefined) out[k] = m[k]; return; } // nur lokal
+    const v = fsMergeField(b ? b[k] : undefined, m ? m[k] : undefined, t ? t[k] : undefined, prefix ? prefix + '.' + k : k, conflicts);
+    if(v !== undefined && v !== null) out[k] = v;
+    else if(v === null && ((m && m[k] === null) || (t && t[k] === null))) out[k] = null;
+  });
+  return out;
+}
+const FS_FIELD_LABELS = {name:'Name', tourName:'Name', notes:'Notizen', description:'Beschreibung', crux:'Schlüsselstelle', special:'Spezielles',
+  ascent:'Aufstieg', descent:'Abstieg/Abfahrt', approach:'Anfahrt', tourLink:'Link zur Tour', gpxLink:'GPX-Link', trackSimplified:'GPX-Track',
+  manualTrack:'Gezeichnete Linie', targetAltitude:'Gipfelhöhe', elevationGain:'Höhenmeter Aufstieg', elevationLoss:'Höhenmeter Abstieg',
+  duration:'Zeitbedarf', descentDuration:'Zeit Abstieg', difficulty:'Schwierigkeit', region:'Region', status:'Status', date:'Datum', title:'Titel'};
+function fsConflictShort(v){
+  if(v === undefined || v === null || v === '') return '(leer)';
+  if(fsIsCoordList(v)) return 'Linie mit ' + v.length + ' Punkten';
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  return s.length > 140 ? s.slice(0, 140) + ' …' : s;
+}
+function fsSetPath(obj, path, val){
+  const parts = path.split('.'); let o = obj;
+  for(let i = 0; i < parts.length - 1; i++){ if(!fsIsPlainObj(o[parts[i]])) o[parts[i]] = {}; o = o[parts[i]]; }
+  if(val === undefined) delete o[parts[parts.length - 1]]; else o[parts[parts.length - 1]] = val;
+}
+// Rückfrage pro Feld, das beide verschieden geändert haben
+function fsResolveConflicts(result, conflicts, cur){
+  const who = (cur && cur.updatedBy) || 'jemand anderes';
+  const title = (cur && (cur.name || cur.tourName || cur.title)) || 'Dieser Eintrag';
+  conflicts.forEach(c=>{
+    const top = c.path.split('.')[0];
+    const label = FS_FIELD_LABELS[top] || top;
+    const keepMine = window.confirm(`«${title}»: ${label} wurde inzwischen auch von ${who} geändert.\n\nDeine Fassung:\n${fsConflictShort(c.mine)}\n\nAndere Fassung:\n${fsConflictShort(c.theirs)}\n\nOK: deine behalten\nAbbrechen: die andere übernehmen\n(Beide bleiben unter «Frühere Versionen» erhalten.)`);
+    if(!keepMine) fsSetPath(result, c.path, c.theirs);
+  });
+}
+// Liest den aktuellen Stand mit Versionskennung; fällt ohne Kennung zurück, falls der Browser sie nicht darf
+async function fsGetWithEtag(path){
+  if(!fsEtagOff){
+    try{
+      const r = await fsRawFetch(path, {headers:{'X-Firebase-ETag':'true'}});
+      if(r.ok){ const etag = r.headers.get('ETag'); if(!etag) fsEtagOff = true; return {ok:true, cur: await r.json(), etag}; }
+      return {ok:false, status:r.status};
+    }catch(e){ fsEtagOff = true; } // evtl. CORS: ohne Kennung nochmals versuchen
+  }
   try{
-    const v = value && typeof value === 'object' && !Array.isArray(value) ? fsVersionedSplit(path) : null;
-    if(v){
-      let cur = null;
-      try{ const r = await fsRawFetch(path); if(r.ok) cur = await r.json(); }catch(e){ cur = null; }
-      if(cur && typeof cur === 'object'){
-        const base = fsBaseStamp.get(path);
-        const curStamp = cur.updatedAt || '';
-        // Jemand anderes hat seit dem Laden gespeichert (Termine ausgenommen: dort tragen sich
-        // oft mehrere gleichzeitig ein, das wäre nur lästig)
-        if(v.coll !== 'agenda' && base !== undefined && curStamp && curStamp !== base){
+    const r = await fsRawFetch(path);
+    if(r.ok) return {ok:true, cur: await r.json(), etag:null};
+    return {ok:false, status:r.status};
+  }catch(e){ return {ok:false, offline:true}; }
+}
+async function fsPutWithEtag(path, value, etag){
+  const body = JSON.stringify(value);
+  if(etag && !fsEtagOff){
+    try{ return await fsRawFetch(path, {method:'PUT', headers:{'Content-Type':'application/json', 'if-match': etag}, body}); }
+    catch(e){ fsEtagOff = true; }
+  }
+  return fsRawFetch(path, {method:'PUT', headers:{'Content-Type':'application/json'}, body});
+}
+async function fsSafeSet(path, value, v){
+  for(let attempt = 0; attempt < 4; attempt++){
+    const g = await fsGetWithEtag(path);
+    if(!g.ok){
+      if(g.offline) fsBasePin(path);
+      // Ohne Lesen kein sicheres Zusammenführen — trotzdem versuchen, wenn nur das Lesen scheiterte
+      if(!g.offline && g.status !== 404){ dlog('Lesen vor dem Speichern fehlgeschlagen (' + g.status + '): ' + path, 'err'); return false; }
+    }
+    const cur = g.ok ? g.cur : null;
+    let result = JSON.parse(JSON.stringify(value));
+    if(cur && typeof cur === 'object'){
+      const base = fsBaseGet(path);
+      if(base !== undefined){
+        const conflicts = [];
+        result = fsMerge3(base || {}, result, cur, '', conflicts);
+        if(conflicts.length) fsResolveConflicts(result, conflicts, cur);
+      }else{
+        // Ausgangsstand unbekannt (z. B. offline geöffnet): bisherige Prüfung per Zeitstempel
+        const stampBase = fsBaseStamp.get(path), curStamp = cur.updatedAt || '';
+        if(v.coll !== 'agenda' && stampBase !== undefined && curStamp && curStamp !== stampBase){
           const who = cur.updatedBy || 'jemand anderes';
           const when = new Date(curStamp).toLocaleString('de-CH', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
-          const keep = window.confirm(`«${cur.name || cur.tourName || 'Dieser Eintrag'}» wurde inzwischen von ${who} geändert (${when}).\n\nOK: deine Fassung speichern — die andere bleibt unter «Frühere Versionen» erhalten.\nAbbrechen: nicht speichern und die neuere Fassung laden.`);
-          if(!keep){
-            Object.keys(value).forEach(k=> delete value[k]);
-            Object.assign(value, cur);
-            fsBaseStamp.set(path, curStamp);
+          if(!window.confirm(`«${cur.name || cur.tourName || 'Dieser Eintrag'}» wurde inzwischen von ${who} geändert (${when}).\n\nOK: deine Fassung speichern — die andere bleibt unter «Frühere Versionen» erhalten.\nAbbrechen: nicht speichern und die neuere Fassung laden.`)){
+            Object.keys(value).forEach(k=> delete value[k]); Object.assign(value, cur);
+            fsBaseRemember(path, cur); fsBaseStamp.set(path, curStamp); fsBaseUnpin(path);
             if(typeof showToast === 'function') showToast('Nicht gespeichert — die neuere Fassung ist geladen.');
             if(typeof render === 'function') setTimeout(render, 0);
             return true;
           }
         }
-        // Termine: Teilnehmende nie aus einem veralteten Stand überschreiben — die eigene Anmeldung
-        // kommt aus dieser Fassung, alle anderen aus der Datenbank
         if(v.coll === 'agenda' && Array.isArray(cur.participants)){
           const me = (typeof state !== 'undefined' && state.myName) || '';
-          value.participants = cur.participants.filter(p=> p && p.by && p.by !== me).concat((value.participants || []).filter(p=> p && p.by === me));
+          result.participants = cur.participants.filter(p=> p && p.by && p.by !== me).concat((result.participants || []).filter(p=> p && p.by === me));
         }
-        if(JSON.stringify(cur) !== JSON.stringify(value)) await fsSaveVersion(v, cur, 'vor dem Speichern');
       }
-      value.updatedAt = new Date().toISOString();
-      if(typeof state !== 'undefined' && state.myName) value.updatedBy = state.myName;
+      if(!fsEq(cur, result)) await fsSaveVersion(v, cur, 'vor dem Speichern');
     }
-    await ensureValidAuthToken();
-    const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
-    const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam, {
-      method:'PUT',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(value)
-    });
+    result.updatedAt = new Date().toISOString();
+    if(typeof state !== 'undefined' && state.myName) result.updatedBy = state.myName;
+    let res;
+    try{ res = await fsPutWithEtag(path, result, g.ok ? g.etag : null); }
+    catch(e){ fsBasePin(path); throw e; }
+    if(res.status === 412){ dlog('Inzwischen geändert, führe erneut zusammen: ' + path); continue; }
+    if(!res.ok){ dlog('Firebase PUT fehlgeschlagen (' + res.status + '): ' + path, 'err'); fsBasePin(path); return false; }
+    // Die gespeicherte Fassung wird zur lokalen (inkl. der Änderungen anderer)
+    Object.keys(value).forEach(k=>{ if(!(k in result)) delete value[k]; });
+    Object.assign(value, result);
+    fsBaseRemember(path, result); fsBaseUnpin(path);
+    fsBaseStamp.set(path, result.updatedAt);
+    dlog('Sicher gespeichert ' + (g.ok && g.etag && !fsEtagOff ? 'mit' : 'ohne') + ' Versionskennung: ' + path);
+    return true;
+  }
+  dlog('Speichern nach mehreren Versuchen aufgegeben (ständig geändert): ' + path, 'err');
+  return false;
+}
+async function fbSet(path, value){
+  if(!fbPathOk(path)){ dlog('Speichern blockiert (ungültiger Pfad): "' + path + '"', 'err'); return false; }
+  try{
+    const v = value && typeof value === 'object' && !Array.isArray(value) ? fsVersionedSplit(path) : null;
+    // Einträge (Touren, Hütten, Termine …): sicher zusammenführen
+    if(v && !FS_FILE_COLLS.includes(v.coll)){
+      const ok = await fsSafeSet(path, value, v);
+      if(ok && fsPendingFiles.size) fsFlushPendingFiles();
+      return ok;
+    }
+    // Dateien (GPX-Originale): alte Fassung sichern, dann ersetzen
+    if(v){
+      let cur = null;
+      try{ const r = await fsRawFetch(path); if(r.ok) cur = await r.json(); }catch(e){ cur = null; }
+      if(cur && typeof cur === 'object' && JSON.stringify(cur) !== JSON.stringify(value)) await fsSaveVersion(v, cur, 'vor dem Speichern');
+    }
+    const res = await fsRawFetch(path, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(value)});
     if(!res.ok){ dlog('Firebase PUT fehlgeschlagen ('+res.status+'): '+path, 'err'); return false; }
-    if(v) fsBaseStamp.set(path, value.updatedAt);
-    if(v && !FS_FILE_COLLS.includes(v.coll) && fsPendingFiles.size) fsFlushPendingFiles();
     return true;
   }catch(e){
     dlog('Firebase PUT Fehler für "'+path+'": '+(e && e.message ? e.message : e), 'err');

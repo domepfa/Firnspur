@@ -40,6 +40,9 @@ aus anderen Apps übernehmen.
   Formular bearbeiten und speichern (kein Feld geht verloren, alte Fassung unter `versions/`),
   danach offline weiter nutzbar mit der Änderung. Ausgabe: «8 von 8 ok» oder nur die Fehler
   (`-v` für Details).
+- `node tools/sync-test.mjs` (oder `… main`): sicheres Speichern (`fsSafeSet` in `0-shared.js`):
+  Zusammenführen der drei Fassungen, Rückfrage bei gleichem Feld, Versionskennung (412), Listen,
+  offline und neu laden. Ausgabe «N von N ok». Bei jeder Änderung an Speichern/Laden laufen lassen.
 - Bei jeder Code-Änderung laufen lassen; bei reinen Text- oder CSS-Änderungen nicht nötig.
 - Screenshots (`SMOKE_OUT=<Ordner>`) nur machen und anschauen, wenn sich das Aussehen ändert –
   Bilder kosten viele Token.
@@ -65,6 +68,9 @@ aus anderen Apps übernehmen.
 
 ## Daten
 - Offline nutzbar: lokale Kopie pro Gerät, Rettung fehlender Einträge beim Laden.
+- Gespeichert wird über `fbSet` → `fsSafeSet`: Ausgangsstand (beim Laden) + eigene Fassung + aktueller
+  Stand werden zusammengeführt, nur eigene Änderungen kommen dazu. Fehlt ein Feld ganz, gilt es als
+  unverändert; bewusstes Leeren setzt `''` bzw. `[]`. Nie direkt an `fbSet` vorbei schreiben.
 - Nie eine ganze Sammlung schreiben oder löschen; jeder Pfad endet mit einer gültigen ID
   (`fbPathOk`). Vor jedem Überschreiben sichert `fbSet` die alte Fassung unter `versions/`.
 - Import ergänzt, ersetzt nie (`fsImportMerge`).
