@@ -136,6 +136,12 @@ async function fbSet(path, value){
             return true;
           }
         }
+        // Termine: Teilnehmende nie aus einem veralteten Stand überschreiben — die eigene Anmeldung
+        // kommt aus dieser Fassung, alle anderen aus der Datenbank
+        if(v.coll === 'agenda' && Array.isArray(cur.participants)){
+          const me = (typeof state !== 'undefined' && state.myName) || '';
+          value.participants = cur.participants.filter(p=> p && p.by && p.by !== me).concat((value.participants || []).filter(p=> p && p.by === me));
+        }
         if(JSON.stringify(cur) !== JSON.stringify(value)) await fsSaveVersion(v, cur, 'vor dem Speichern');
       }
       value.updatedAt = new Date().toISOString();
@@ -330,9 +336,26 @@ function fsImportPrep(list, prefix, nameField){
 function fsImportIsEmpty(v){
   return v === '' || v === null || v === undefined || (Array.isArray(v) && !v.length) || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length);
 }
+// Import ergänzt nur: leere Felder werden gefüllt, Listen vereinigt (Begehungen, Fotos, Routen,
+// Punkte …), vorhandene Texte und Linien bleiben. Eine ältere Exportdatei kann so nichts zurückdrehen.
+function fsImportKey(x){
+  if(x === null || typeof x !== 'object') return 'v:' + JSON.stringify(x);
+  if(x.id) return 'id:' + x.id;
+  const parts = [x.by, x.date, x.lat, x.lon, x.storagePath, x.url].filter(v=> v !== undefined && v !== null && v !== '');
+  return parts.length ? 'k:' + parts.join('|') : 'j:' + JSON.stringify(x);
+}
 function fsImportMerge(existing, incoming){
   const out = Object.assign({}, existing);
-  Object.keys(incoming || {}).forEach(k=>{ if(k !== 'id' && !fsImportIsEmpty(incoming[k])) out[k] = incoming[k]; });
+  Object.keys(incoming || {}).forEach(k=>{
+    if(k === 'id' || fsImportIsEmpty(incoming[k])) return;
+    const cur = out[k], inc = incoming[k];
+    if(fsImportIsEmpty(cur)){ out[k] = inc; return; }
+    // Linien (Listen von Koordinaten) nie mischen — die vorhandene bleibt
+    if(Array.isArray(cur) && Array.isArray(inc) && !Array.isArray(cur[0]) && !Array.isArray(inc[0])){
+      const seen = new Set(cur.map(fsImportKey));
+      out[k] = cur.concat(inc.filter(x=> !seen.has(fsImportKey(x))));
+    }
+  });
   out.id = existing.id;
   return out;
 }
@@ -347,7 +370,7 @@ function fsImportConfirm(rows){
     if(upd.length) lines.push(`${label} ergänzt (${upd.length}): ${upd.map(nm).slice(0, 8).join(', ')}${upd.length > 8 ? ' …' : ''}`);
   });
   if(!lines.length) return;
-  const ok = window.confirm('Import prüfen:\n\n' + lines.join('\n') + '\n\nBestehende Einträge werden nur ergänzt — vorhandene Punkte, Tracks, Fotos und Routen bleiben erhalten. Die bisherige Fassung wird zusätzlich unter «Frühere Versionen» gesichert.\n\nImportieren?');
+  const ok = window.confirm('Import prüfen:\n\n' + lines.join('\n') + '\n\nBestehende Einträge werden nur ergänzt: leere Felder gefüllt, Listen (Begehungen, Fotos, Routen, Punkte) um Neues erweitert. Vorhandene Texte, Linien und Einträge bleiben. Die bisherige Fassung wird zusätzlich unter «Frühere Versionen» gesichert.\n\nImportieren?');
   if(!ok) throw new Error('Import abgebrochen — nichts wurde verändert.');
 }
 function fsRescueCollect(appKey, cacheKeys){
@@ -6864,7 +6887,7 @@ async function removeAltTrack(tourId, altId){
   if(!tour || !Array.isArray(tour.altTracks)) return false;
   tour.altTracks = tour.altTracks.filter(a=>a.id!==altId);
   const ok1 = await saveTourCloud(tour).catch(()=>false);
-  const ok2 = await fbDelete(GPX_TRACKS_PATH + 'Alt/' + tourId + '/' + altId).catch(()=>false);
+  const ok2 = true; // Originaldatei bleibt liegen (siehe fsApplyRoutesFromForm)
   if(state.modal && state.modal.type==='edit-tour' && state.modal.payload && state.modal.payload.id===tourId) render();
   return ok1 && ok2;
 }
@@ -7049,7 +7072,7 @@ function fsWireRoutesEditor(){
 }
 document.addEventListener('fs-track-changed', ()=> fsRoutesEditorRender());
 // Beim Speichern: Routen-Felder aus dem Formular übernehmen, neue GPX-Originale hochladen,
-// Originale entfernter Routen löschen.
+// Originale entfernter Routen bleiben liegen.
 function fsApplyRoutesFromForm(t, form, prev){
   if(form.altTracks === undefined) return [];
   t.trackName = form.trackName || ''; t.trackType = form.trackType || '';
@@ -7060,8 +7083,8 @@ function fsApplyRoutesFromForm(t, form, prev){
     if(a._gpx) uploads.push(fbSet(GPX_TRACKS_PATH + 'Alt/' + t.id + '/' + a.id, {gpx:a._gpx, uploadedAt:new Date().toISOString(), fileName:a._file || 'route.gpx'}).catch(()=>false));
     const c = {...a}; delete c._gpx; delete c._file; return c;
   });
-  const keep = new Set(t.altTracks.map(a=>a.id));
-  ((prev && prev.altTracks) || []).forEach(a=>{ if(!keep.has(a.id)) uploads.push(fbDelete(GPX_TRACKS_PATH + 'Alt/' + t.id + '/' + a.id).catch(()=>false)); });
+  // Originale entfernter Routen bleiben liegen (nicht versioniert, und «Rückgängig» bzw. Abbrechen
+  // im Konfliktdialog brächten sonst die Route ohne ihre Datei zurück)
   return uploads;
 }
 
@@ -11572,11 +11595,12 @@ function removeTopoImageLocal(hiddenListId, imageId){
   const hiddenInput = document.getElementById(hiddenListId);
   let images = [];
   try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
-  const removed = images.find(img=>img.id===imageId);
+  if(!confirm('Dieses Bild entfernen? Wird erst mit «Speichern» übernommen.')) return;
   images = images.filter(img=>img.id!==imageId);
   if(hiddenInput) hiddenInput.value = JSON.stringify(images);
   markModalDirty();
-  if(removed && removed.storagePath) deleteTopoImageFile(removed.storagePath).catch(()=>{});
+  // Die Bilddatei bleibt im Speicher: beim Abbrechen zeigt der Eintrag sie weiter, und ein Sektor
+  // kann dieselbe Datei verwenden. Nicht mehr verknüpfte Dateien kosten kaum Platz.
   const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
   if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
 }
