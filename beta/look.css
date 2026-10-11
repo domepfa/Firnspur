@@ -1755,3 +1755,7 @@ html.fs-filter-open body{ overflow:hidden; }
 .fsm-wx-card .big em{ font-style:normal; font-size:13px; font-weight:700; color:var(--ink-soft); }
 .fsm-wx-card .cond{ margin-top:10px; min-height:46px; border:none; border-radius:999px; background:var(--ice-deep); color:#fff; font:inherit; font-size:14.5px; font-weight:800; cursor:pointer; }
 html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxf .v, html.fs-dark .fsm-wx-card{ background:var(--paper); color:var(--ink); }
+/* Weitere Links im Formular */
+.fs-more-links-list{ display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+.fs-more-link-row{ display:flex; gap:6px; align-items:center; }
+.fs-more-link-row input{ flex:1; min-width:0; }
