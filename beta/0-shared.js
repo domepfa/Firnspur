@@ -131,7 +131,18 @@ function fsBasePin(path){
   try{ if(localStorage.getItem('fs-base:' + path) == null && fsBase.has(path)) localStorage.setItem('fs-base:' + path, fsBase.get(path)); }catch(e){}
 }
 function fsBaseUnpin(path){ try{ localStorage.removeItem('fs-base:' + path); }catch(e){} }
-function fsEq(a, b){ return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b); }
+// Vergleich wie Firebase speichert: leere Liste, leeres Objekt, '' und null = fehlt; Reihenfolge der Felder egal
+function fsCanon(v){
+  if(v === undefined || v === null || v === '') return null;
+  if(Array.isArray(v)){ const a = v.map(fsCanon); return a.length ? a : null; }
+  if(typeof v === 'object'){
+    const o = {};
+    Object.keys(v).sort().forEach(k=>{ const c = fsCanon(v[k]); if(c !== null) o[k] = c; });
+    return Object.keys(o).length ? o : null;
+  }
+  return v;
+}
+function fsEq(a, b){ return JSON.stringify(fsCanon(a)) === JSON.stringify(fsCanon(b)); }
 function fsIsPlainObj(o){ return o !== null && typeof o === 'object' && !Array.isArray(o); }
 function fsIsCoordList(a){ return Array.isArray(a) && a.length > 0 && Array.isArray(a[0]); }
 // Liste pro Eintrag zusammenführen (Schlüssel: id, sonst by/date/lat/lon/…, siehe fsImportKey)
@@ -181,10 +192,16 @@ function fsMerge3(b, m, t, prefix, conflicts){
 const FS_FIELD_LABELS = {name:'Name', tourName:'Name', notes:'Notizen', description:'Beschreibung', crux:'Schlüsselstelle', special:'Spezielles',
   ascent:'Aufstieg', descent:'Abstieg/Abfahrt', approach:'Anfahrt', tourLink:'Link zur Tour', gpxLink:'GPX-Link', trackSimplified:'GPX-Track',
   manualTrack:'Gezeichnete Linie', targetAltitude:'Gipfelhöhe', elevationGain:'Höhenmeter Aufstieg', elevationLoss:'Höhenmeter Abstieg',
-  duration:'Zeitbedarf', descentDuration:'Zeit Abstieg', difficulty:'Schwierigkeit', region:'Region', status:'Status', date:'Datum', title:'Titel'};
+  duration:'Zeitbedarf', descentDuration:'Zeit Abstieg', difficulty:'Schwierigkeit', region:'Region', status:'Status', date:'Datum', title:'Titel',
+  material:'Material', exposition:'Exposition', gefahren:'Gefahren', glacier:'Gletscher', crevasseRisk:'Spaltengefahr', ropeType:'Seil',
+  ropeLength:'Seillänge', climbGrade:'Klettergrad', subregion:'Teilgebiet', approachTypes:'Anfahrt', stayTypes:'Übernachtung', points:'Punkte',
+  completions:'Begehungen', topoImages:'Topo-Bilder', altTracks:'Weitere Routen', moreLinks:'Weitere Links', hutId:'Hütte', gebietId:'Gebiet',
+  summitIds:'Gipfel', participants:'Teilnehmende', conditions:'Verhältnisse', routeName:'Route'};
 function fsConflictShort(v){
   if(v === undefined || v === null || v === '') return '(leer)';
   if(fsIsCoordList(v)) return 'Linie mit ' + v.length + ' Punkten';
+  if(Array.isArray(v) && !v.length) return '(leer)';
+  if(Array.isArray(v) && v.every(x=> typeof x !== 'object')) return v.join(', ');
   const s = typeof v === 'string' ? v : JSON.stringify(v);
   return s.length > 140 ? s.slice(0, 140) + ' …' : s;
 }
@@ -195,7 +212,8 @@ function fsSetPath(obj, path, val){
 }
 // Rückfrage pro Feld, das beide verschieden geändert haben
 function fsResolveConflicts(result, conflicts, cur){
-  const who = (cur && cur.updatedBy) || 'jemand anderes';
+  const me = (typeof state !== 'undefined' && state.myName) || '';
+  const who = cur && cur.updatedBy ? (cur.updatedBy === me ? 'dir auf einem anderen Gerät' : cur.updatedBy) : 'jemand anderes';
   const title = (cur && (cur.name || cur.tourName || cur.title)) || 'Dieser Eintrag';
   conflicts.forEach(c=>{
     const top = c.path.split('.')[0];
