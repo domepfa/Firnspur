@@ -26,7 +26,7 @@ const ok = (name, cond, info) => { results.push({ name, ok: !!cond, info }); if 
 const src = fs.readFileSync(path.join(root, which, '0-shared.js'), 'utf8');
 const grab = n => { const i = src.indexOf('function ' + n + '('); if (i < 0) throw new Error('fehlt: ' + n);
   let d = 0; for (let k = src.indexOf('{', i); k < src.length; k++) { if (src[k] === '{') d++; if (src[k] === '}' && !--d) return src.slice(i, k + 1); } };
-const M = new Function(['fsImportKey', 'fsEq', 'fsIsPlainObj', 'fsIsCoordList', 'fsMergeList', 'fsMergeField', 'fsMerge3'].map(grab).join('\n') + '\nreturn fsMerge3;')();
+const M = new Function(['fsImportKey', 'fsCanon', 'fsEq', 'fsIsPlainObj', 'fsIsCoordList', 'fsMergeList', 'fsMergeField', 'fsMerge3'].map(grab).join('\n') + '\nreturn fsMerge3;')();
 const merge = (b, m, t) => { const c = []; const r = M(b, m, t, '', c); return { r, c }; };
 {
   const b = { name: 'A', notes: 'x', completions: [{ by: 'P', date: '1' }], points: [{ lat: 1, lon: 1, label: 'P1' }], trackSimplified: [[1, 1], [2, 2]] };
@@ -49,6 +49,12 @@ const merge = (b, m, t) => { const c = []; const r = M(b, m, t, '', c); return {
   ok('Merge: Punkt umbenannt + anderswo Punkt dazu', x.r.points.length === 2 && x.r.points[0].label === 'neu', JSON.stringify(x.r.points));
   x = merge({ phones: { A: '1' } }, { phones: { A: '1', B: '2' } }, { phones: { A: '1', C: '3' } });
   ok('Merge: verschachtelte Objekte', x.r.phones.B === '2' && x.r.phones.C === '3', JSON.stringify(x.r));
+  x = merge({ ...b, material: [] }, { ...b, material: ['Pickel'] }, { ...b });
+  ok('Merge: leere Liste = fehlendes Feld (wie Firebase)', x.r.material && x.r.material[0] === 'Pickel' && !x.c.length, JSON.stringify(x.c));
+  x = merge({ ...b, notes: '' }, { ...b, notes: 'neu' }, { ...b, notes: undefined });
+  ok('Merge: leerer Text = fehlendes Feld', x.r.notes === 'neu' && !x.c.length, JSON.stringify(x.c));
+  x = merge({ points: [{ lat: 1, lon: 1, label: 'P' }] }, { points: [{ label: 'P', lon: 1, lat: 1 }] }, { points: [{ lat: 1, lon: 1, label: 'P' }, { lat: 2, lon: 2 }] });
+  ok('Merge: Reihenfolge der Felder egal', x.r.points.length === 2 && !x.c.length, JSON.stringify(x.r.points));
   x = merge(b, { ...b, name: 'B', _unsynced: true }, { ...b, updatedAt: 'T2', updatedBy: 'Q' });
   ok('Merge: Stempel von dort, lokale Felder von hier', x.r.updatedBy === 'Q' && x.r._unsynced === true && x.r.name === 'B', JSON.stringify(x.r));
 }
@@ -72,7 +78,10 @@ async function scenario(name, fn) {
   await ctx.addInitScript(() => { try { if (!localStorage.getItem('bergtouren-auth')) localStorage.setItem('bergtouren-auth', JSON.stringify({ idToken: 't', refreshToken: 't', expiresAt: Date.now() + 36e5 })); localStorage.setItem('bergtouren-name', 'Ich'); } catch (e) {} });
   const db = { tours: Object.fromEntries(vorlage.tours.map(t => [t.id, JSON.parse(JSON.stringify(t))])), huts: Object.fromEntries((vorlage.huts || []).map(h => [h.id, h])) };
   const getK = k => k.split('/').reduce((o, s) => (o == null ? undefined : o[s]), db);
-  const setK = (k, v) => { const s = k.split('/'); let o = db; s.slice(0, -1).forEach(x => { o = o[x] ||= {}; }); o[s[s.length - 1]] = v; };
+  // Wie Firebase: leere Listen/Objekte und null werden nicht gespeichert
+  const fbNorm = v => { if (v === null || v === undefined) return undefined; if (Array.isArray(v)) { const a = v.map(fbNorm).filter(x => x !== undefined); return a.length ? a : undefined; }
+    if (typeof v === 'object') { const o = {}; for (const [k, x] of Object.entries(v)) { const c = fbNorm(x); if (c !== undefined) o[k] = c; } return Object.keys(o).length ? o : undefined; } return v; };
+  const setK = (k, v) => { const s = k.split('/'); let o = db; s.slice(0, -1).forEach(x => { o = o[x] ||= {}; }); const n = fbNorm(v); if (n === undefined) delete o[s[s.length - 1]]; else o[s[s.length - 1]] = n; };
   const etag = v => '"' + crypto.createHash('md5').update(JSON.stringify(v ?? null)).digest('hex') + '"';
   const env = { online: true, beforePut: null, dialogs: [], answer: true, puts: [] };
   await ctx.route('**/*', route => {
@@ -111,6 +120,14 @@ await scenario('Andere Felder', async ({ db, env, saveVia }) => {
   const d = db.get(TP);
   ok('Andere Felder: gespeichert ohne Rückfrage', r && !env.dialogs.length, env.dialogs.join(' | '));
   ok('Andere Felder: mein Name + deren Notiz + deren Begehung', d.name === 'Neu von mir' && d.notes === 'von B' && d.completions.some(c => c.by === 'B'), JSON.stringify({ n: d.name, no: d.notes, c: d.completions }));
+});
+await scenario('Zweimal speichern', async ({ db, env, saveVia }) => {
+  await saveVia("t.material = [];");
+  await saveVia("t.material = ['Spaltenrettungsset']; t.notes = '';");
+  await saveVia("t.notes = 'Notiz';");
+  const d = db.get(TP);
+  ok('Zweimal speichern: keine Rückfrage mit sich selbst', !env.dialogs.length, env.dialogs.join(' | '));
+  ok('Zweimal speichern: Werte richtig', d.material && d.material[0] === 'Spaltenrettungsset' && d.notes === 'Notiz', JSON.stringify({ m: d.material, n: d.notes }));
 });
 await scenario('Gleiches Feld', async ({ db, env, saveVia }) => {
   db.set(TP, { ...db.get(TP), name: 'Name von B', updatedBy: 'B', updatedAt: '2026-10-11T00:00:00Z' });
