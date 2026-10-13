@@ -1374,6 +1374,22 @@ function fsHomeFitAll(){
   fsHomeMap.fitBounds(b, {padding:{top:60, bottom:40, left:40, right:70}, maxZoom: pts.length > 1 ? 11 : 8, duration: 0});
   setTimeout(()=>{ fsHomeFitting = false; }, 300);
 }
+// Vorschaubild in den Listeneinträgen: erstes Topo/Foto des Eintrags (falls vorhanden)
+function fsCardThumbs(sheet){
+  const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
+  sheet.querySelectorAll('.card[data-id]').forEach(card=>{
+    if(card._fsThumb) return;
+    card._fsThumb = true;
+    const x = all.find(o=> o && o.id === card.getAttribute('data-id'));
+    const img = x && Array.isArray(x.topoImages) && x.topoImages.find(i=> i && i.url);
+    if(!img) return;
+    const box = document.createElement('div');
+    box.className = 'fs-card-thumb';
+    box.innerHTML = topoImageBoxHtml(img, 76, 76, '', 'border-radius:14px;');
+    card.classList.add('has-thumb');
+    card.insertBefore(box, card.firstChild);
+  });
+}
 // Liste auf den Kartenausschnitt beschränken (DOM-weit, gilt für alle Listen mit .card[data-id])
 function fsHomeFilter(){
   const sheet = document.querySelector('.fs-sheet');
@@ -1386,6 +1402,7 @@ function fsHomeFilter(){
   }
   fsHomeVisible = vis;
   let shown = 0, total = 0;
+  fsCardThumbs(sheet);
   sheet.querySelectorAll('.card').forEach(card=>{
     if(card.parentElement && card.parentElement.closest('.card')) return; // verschachtelte Karten: über die äussere
     const ids = [];
@@ -1401,8 +1418,10 @@ function fsHomeFilter(){
   if(!vis || shown === total){ if(bar) bar.remove(); return; }
   if(!bar){
     bar = document.createElement('div'); bar.className = 'fs-home-count';
-    const tb = sheet.querySelector('.toolbar');
-    if(tb && tb.parentNode === sheet) sheet.insertBefore(bar, tb.nextSibling); else sheet.insertBefore(bar, sheet.firstChild);
+    // nach der letzten Werkzeugzeile (Suchen/Filter) einfügen
+    let tb = sheet.querySelector('.toolbar');
+    while(tb && tb.nextElementSibling && tb.nextElementSibling.classList.contains('toolbar')) tb = tb.nextElementSibling;
+    if(tb && tb.parentNode) tb.parentNode.insertBefore(bar, tb.nextSibling); else sheet.insertBefore(bar, sheet.firstChild);
   }
   const word = fsHomePts.kind === 'hut' ? 'Hütten' : (fsHomePts.kind === 'gebiet' || fsHomePts.kind === 'klettergebiet') ? 'Gebiete' : 'Touren';
   bar.innerHTML = `<span><b>${shown}</b> von ${total} ${word} im Kartenausschnitt</span><button type="button" class="fs-home-all">Alle anzeigen</button>`;
