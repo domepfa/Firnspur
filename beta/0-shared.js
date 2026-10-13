@@ -15272,3 +15272,9 @@ function toggleEmergencyCard(){
   if(state.modal && state.modal.type==='emergency'){ closeModal(); }
   else{ state.modal = {type:'emergency'}; render(); }
 }
+
+/* ===== Diagnose einblenden: Adresse mit ?diagnose öffnen ===== */
+(function(){
+  const show = ()=>{ if(/[?&]diagnose\b/.test(location.search)){ const b = document.getElementById('debug-toggle-btn'); if(b) b.style.display = 'block'; } };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show); else show();
+})();
