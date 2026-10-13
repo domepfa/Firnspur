@@ -81,6 +81,8 @@ aus anderen Apps übernehmen.
   (`fsSplitForSuggestion`). Annehmen/Ablehnen pro Feld nur durch den Eigentümer (`fsSugDecide`).
 - Nie eine ganze Sammlung schreiben oder löschen; jeder Pfad endet mit einer gültigen ID
   (`fbPathOk`). Vor jedem Überschreiben sichert `fbSet` die alte Fassung unter `versions/`.
+- Gemeinsame Orte (alle Apps): `orte/<id>` mit Art, Notiz, Foto, Stand-Datum; Touren verweisen mit
+  `orte: [id]` darauf (Baustein «Orte» in `0-shared.js`, `fsOrte*`). Ohne Eigentümer, frei änderbar.
 - Import ergänzt, ersetzt nie (`fsImportMerge`).
 - Datenbank-Regeln stehen in `database.rules.json` und müssen zu den Pfaden passen
   (Änderungen in der Firebase-Konsole einfügen).
