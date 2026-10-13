@@ -14573,9 +14573,16 @@ function fsmOrteDraw(map){
   if(!map || !map._fsm || !window.maplibregl) return;
   (map._fsm.orteMk || []).forEach(m=> m.remove());
   map._fsm.orteMk = [];
-  if(!fsmOverlayOn(map, 'orte')) return;
+  // Ebene an: alle Orte; sonst nur die Orte der gezeigten Tour (map._fsm.orteIds)
+  const only = fsmOverlayOn(map, 'orte') ? null : (map._fsm.orteIds || []);
+  if(only && !only.length) return;
   fsmOrteMaps.add(map);
-  fsOrteAll().forEach(o=>{
+  if(!map._fsOrteZoomWired){
+    map._fsOrteZoomWired = true;
+    const sync = ()=> map.getContainer().classList.toggle('fsm-ort-names', map.getZoom() >= 14);
+    map.on('zoom', sync); sync();
+  }
+  fsOrteAll().filter(o=> !only || only.indexOf(o.id) >= 0).forEach(o=>{
     if(!isFinite(o.lat) || !isFinite(o.lon)) return;
     const k = fsOrtKind(o.kind);
     const el = document.createElement('button');
@@ -14583,7 +14590,7 @@ function fsmOrteDraw(map){
     el.setAttribute('aria-label', k.label + ': ' + o.name);
     el.innerHTML = fsIconHtml(k.icon) + `<span>${esc(o.name)}</span>`;
     el.addEventListener('click', (e)=>{ e.stopPropagation(); fsOpenOrt(o.id); });
-    map._fsm.orteMk.push(new maplibregl.Marker({element: el, anchor: 'center'}).setLngLat([+o.lon, +o.lat]).addTo(map));
+    map._fsm.orteMk.push(new maplibregl.Marker({element: el, anchor: 'left', offset: [-13, 0]}).setLngLat([+o.lon, +o.lat]).addTo(map));
   });
 }
 function fsmOrteRefresh(){
@@ -15137,6 +15144,7 @@ function fsTourHasContextData(t){
   if(!t) return false;
   if(tourHasMapData(t)) return true;
   if([...(t.accessRoutes||[]), ...(t.descentRoutes||[])].some(fsRouteCoords)) return true;
+  if(fsTourOrte(t).some(o=> isFinite(o.lat) && isFinite(o.lon))) return true;
   const hut = fsTourHut(t);
   return !!(hut && ((hut.points && hut.points.length) || (hut.accessRoutes||[]).some(fsRouteCoords)));
 }
@@ -15271,6 +15279,10 @@ function fsShowContextMap(t){
           legend.appendChild(b);
         });
       }
+      // Orte der Tour immer zeigen, auch ohne eingeschaltete Ebene «Orte»
+      map._fsm.orteIds = Array.isArray(t.orte) ? t.orte.slice() : [];
+      fsmOrteDraw(map);
+      fsTourOrte(t).forEach(o=>{ if(isFinite(o.lat) && isFinite(o.lon)) all.push([+o.lat, +o.lon]); });
       if(all.length){
         map._fsCoords = all;
         fsFitContextMap();
