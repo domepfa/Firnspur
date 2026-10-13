@@ -73,9 +73,9 @@ const browser = await chromium.launch();
 const tour0 = vorlage.tours.find(t => t.name);
 const TP = 'tours/' + tour0.id;
 
-async function scenario(name, fn) {
+async function scenario(name, fn, me = 'Dome') {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
-  await ctx.addInitScript(() => { try { if (!localStorage.getItem('bergtouren-auth')) localStorage.setItem('bergtouren-auth', JSON.stringify({ idToken: 't', refreshToken: 't', expiresAt: Date.now() + 36e5 })); localStorage.setItem('bergtouren-name', 'Ich'); } catch (e) {} });
+  await ctx.addInitScript(n => { try { if (!localStorage.getItem('bergtouren-auth')) localStorage.setItem('bergtouren-auth', JSON.stringify({ idToken: 't', refreshToken: 't', expiresAt: Date.now() + 36e5 })); localStorage.setItem('firnspurbeta-myname', n); localStorage.setItem('firnspur-myname', n); } catch (e) {} }, me);
   const db = { tours: Object.fromEntries(vorlage.tours.map(t => [t.id, JSON.parse(JSON.stringify(t))])), huts: Object.fromEntries((vorlage.huts || []).map(h => [h.id, h])) };
   const getK = k => k.split('/').reduce((o, s) => (o == null ? undefined : o[s]), db);
   // Wie Firebase: leere Listen/Objekte und null werden nicht gespeichert
@@ -106,7 +106,7 @@ async function scenario(name, fn) {
   page.on('pageerror', e => errs.push(e.message));
   page.on('dialog', d => { if (d.type() === 'beforeunload') return d.accept(); env.dialogs.push(d.message()); env.answer ? d.accept() : d.dismiss(); });
   await page.goto(base + which + 'index.html'); await page.waitForTimeout(2500);
-  await page.evaluate(() => { state.myName = 'Ich'; });
+  await page.evaluate(n => { state.myName = n; }, me);
   const saveVia = async (mut) => page.evaluate(async ([id, m]) => { const t = state.tours.find(x => x.id === id); new Function('t', m)(t); return await saveTourCloud(t); }, [tour0.id, mut]);
   try { await fn({ page, db: { get: getK, set: setK }, env, saveVia }); }
   catch (e) { ok(name + ' (Ablauf)', false, e.message.split('\n')[0]); }
@@ -191,6 +191,52 @@ await scenario('Notbremse: Feld geleert', async ({ db, env, saveVia }) => {
   await saveVia("t.crux = '';");
   ok('Notbremse: geleertes Feld wird nachgefragt und bleibt', env.dialogs.length === 1 && db.get(TP).crux === tour0.crux, env.dialogs.join(' | '));
 });
+
+// Eigentümer und Vorschläge: Tour gehört «Dome» (Vorlage ohne echten Ersteller)
+const SUGP = 'suggestions/tours/' + tour0.id;
+await scenario('Vorschlag statt Änderung', async ({ db, env, saveVia }) => {
+  const r = await saveVia("t.name = 'Anders benannt'; t.crux = 'Neue Schlüsselstelle';");
+  const d = db.get(TP), sug = Object.values(db.get(SUGP) || {});
+  ok('Vorschlag: Tour bleibt unverändert', d.name === tour0.name && d.crux === tour0.crux, JSON.stringify({ n: d.name, c: d.crux }));
+  ok('Vorschlag: gespeichert mit beiden Feldern', sug.length === 1 && sug[0].by === 'Anna' && sug[0].changes.name === 'Anders benannt' && sug[0].changes.crux && sug[0].status === 'offen', JSON.stringify(sug));
+  ok('Vorschlag: keine Rückfrage', !env.dialogs.length, env.dialogs.join(' | '));
+}, 'Anna');
+await scenario('Ergänzen direkt', async ({ db, saveVia }) => {
+  await saveVia("t.notes = 'Neue Notiz'; t.completions = [{by:'Anna', date:'2026-10-01'}]; t.stayTypes = [...(t.stayTypes||[]), 'huette'];");
+  const d = db.get(TP), sug = db.get(SUGP);
+  ok('Ergänzen: leeres Feld, Begehung und Listeneintrag direkt', d.notes === 'Neue Notiz' && d.completions.length === 1 && d.stayTypes.includes('huette') && !sug, JSON.stringify({ n: d.notes, c: d.completions, st: d.stayTypes, sug }));
+}, 'Anna');
+await scenario('Entfernen fremder Einträge', async ({ db, env, saveVia }) => {
+  await saveVia("t.material = [];");
+  const d = db.get(TP), sug = Object.values(db.get(SUGP) || {});
+  ok('Entfernen: Liste bleibt, Vorschlag entsteht', d.material.length === 2 && sug.length === 1 && sug[0].changes && 'material' in sug[0].changes, JSON.stringify({ m: d.material, sug, dlg: env.dialogs }));
+}, 'Anna');
+await scenario('Löschen als Vorschlag', async ({ db, saveVia }) => {
+  await saveVia("t.deletedAt = new Date().toISOString(); t.deletedBy = 'Anna';");
+  const d = db.get(TP), sug = Object.values(db.get(SUGP) || {});
+  ok('Löschen: Tour bleibt, Vorschlag «löschen»', !d.deletedAt && sug.length === 1 && sug[0].changes.deletedAt, JSON.stringify({ del: d.deletedAt, sug }));
+}, 'Anna');
+await scenario('Eigentümer übernimmt', async ({ page, db, env }) => {
+  db.set(SUGP + '/s_test', { id: 's_test', by: 'Anna', at: '2026-10-13T08:00:00Z', changes: { name: 'Vorschlag Name', crux: 'Vorschlag Crux' }, before: { name: tour0.name, crux: tour0.crux }, status: 'offen' });
+  await page.reload(); await page.waitForTimeout(3000);
+  await page.evaluate(() => { state.myName = 'Dome'; });
+  await page.evaluate(async id => { await fsSugDecide(id, 's_test', 'name', true); }, tour0.id);
+  env.answer = true;
+  await page.evaluate(async id => { await fsSugDecide(id, 's_test', 'crux', false); }, tour0.id);
+  const d = db.get(TP), s = db.get(SUGP + '/s_test');
+  ok('Übernehmen: Name übernommen, Crux abgelehnt', d.name === 'Vorschlag Name' && d.crux === tour0.crux, JSON.stringify({ n: d.name, c: d.crux }));
+  ok('Übernehmen: Vorschlag erledigt', s && s.status === 'abgelehnt' && !s.changes, JSON.stringify(s));
+});
+await scenario('Mitbearbeiter und offen', async ({ db, saveVia }) => {
+  db.set(TP, { ...db.get(TP), editors: ['Beat'] });
+  await saveVia("t.name = 'Von Beat';");
+  ok('Mitbearbeiter ändert direkt', db.get(TP).name === 'Von Beat' && !db.get(SUGP), JSON.stringify(db.get(SUGP)));
+}, 'Beat');
+await scenario('Eigentümerfelder geschützt', async ({ db, saveVia }) => {
+  await saveVia("t.open = true; t.editors = ['Anna'];");
+  const d = db.get(TP);
+  ok('Nur der Eigentümer stellt Rechte ein', d.open !== true && !(d.editors || []).length, JSON.stringify({ o: d.open, e: d.editors }));
+}, 'Anna');
 
 await browser.close(); server.close();
 const bad = results.filter(r => !r.ok);

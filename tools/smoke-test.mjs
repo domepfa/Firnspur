@@ -121,7 +121,7 @@ for (const t of targets) {
     const { path: coll, tour } = t.edit, newName = tour.name + ' geprüft';
     puts.length = 0;
     const opened = await page.evaluate(id => {
-      state.myName = state.myName || 'Rauchtest';
+      state.myName = typeof FS_DEFAULT_OWNER !== 'undefined' ? FS_DEFAULT_OWNER : (state.myName || 'Rauchtest');
       const tour = state.tours.find(x => x.id === id);
       if (!tour) return false;
       state.modal = { type: 'edit-tour', payload: tour }; render();

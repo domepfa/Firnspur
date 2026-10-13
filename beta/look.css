@@ -1759,3 +1759,11 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxf .v, html.fs-dark .fsm-wx-card{ 
 .fs-more-links-list{ display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
 .fs-more-link-row{ display:flex; gap:6px; align-items:center; }
 .fs-more-link-row input{ flex:1; min-width:0; }
+/* Vorschläge (Eigentümer) */
+.fs-sug-card{ padding:12px 14px; border-radius:16px; background:var(--ice-light); border:1px dashed var(--ice-deep); margin-bottom:8px; }
+.fs-sug-h{ margin:0 0 2px !important; font-weight:800; color:var(--accent-ink); }
+.fs-sug-row{ display:flex; flex-direction:column; gap:2px; padding:8px 0; border-top:1px solid rgba(15,30,39,.08); font-size:13.5px; }
+.fs-sug-row .old{ color:var(--ink-soft); text-decoration:line-through; white-space:pre-wrap; }
+.fs-sug-row .new{ color:var(--ink); font-weight:700; white-space:pre-wrap; }
+.fs-sug-btns{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; }
+.fs-sug-btns .btn{ min-height:44px; }
