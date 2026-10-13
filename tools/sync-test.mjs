@@ -206,6 +206,20 @@ await scenario('Ergänzen direkt', async ({ db, saveVia }) => {
   const d = db.get(TP), sug = db.get(SUGP);
   ok('Ergänzen: leeres Feld, Begehung und Listeneintrag direkt', d.notes === 'Neue Notiz' && d.completions.length === 1 && d.stayTypes.includes('huette') && !sug, JSON.stringify({ n: d.notes, c: d.completions, st: d.stayTypes, sug }));
 }, 'Anna');
+await scenario('Erfahrungen', async ({ db, env, saveVia }) => {
+  db.set(TP, { ...db.get(TP), erfahrungen: [{ id: 'e_dome', by: 'Dome', date: '2026-01-01', text: 'Von Dome' }] });
+  await saveVia("t.erfahrungen = [...(t.erfahrungen||[]), {id:'e_a1', by:'Anna', date:'2026-10-01', text:'Erste'}];");
+  await saveVia("t.erfahrungen = [...(t.erfahrungen||[]), {id:'e_a2', by:'Anna', date:'2026-10-02', text:'Zweite'}];");
+  let d = db.get(TP), ids = (d.erfahrungen || []).map(e => e.id).join(',');
+  ok('Erfahrungen: zwei neue direkt, alte bleibt', ids === 'e_dome,e_a1,e_a2' && !db.get(SUGP), ids);
+  await saveVia("t.erfahrungen = t.erfahrungen.filter(e => e.id !== 'e_a1');");
+  d = db.get(TP); ids = (d.erfahrungen || []).map(e => e.id).join(',');
+  ok('Erfahrungen: eigene entfernen direkt', ids === 'e_dome,e_a2' && !db.get(SUGP), ids);
+  await saveVia("t.erfahrungen = t.erfahrungen.filter(e => e.id !== 'e_dome');");
+  d = db.get(TP); ids = (d.erfahrungen || []).map(e => e.id).join(',');
+  const sug = Object.values(db.get(SUGP) || {});
+  ok('Erfahrungen: fremde entfernen wird Vorschlag', ids === 'e_dome,e_a2' && sug.length === 1, JSON.stringify({ ids, sug, dlg: env.dialogs }));
+}, 'Anna');
 await scenario('Entfernen fremder Einträge', async ({ db, env, saveVia }) => {
   await saveVia("t.material = [];");
   const d = db.get(TP), sug = Object.values(db.get(SUGP) || {});

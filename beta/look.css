@@ -1907,3 +1907,20 @@ html.fs-search-open .fs-search-btn{ display:none !important; }
 .fsm-ort-hold button{ display:flex; align-items:center; gap:8px; min-height:44px; padding:0 14px; border:none; border-radius:12px;
   background:var(--ice-deep); color:#fff; font:inherit; font-size:14px; font-weight:700; cursor:pointer; }
 .fsm-ort-hold .fs-i{ width:18px; height:18px; }
+
+/* ===== Erfahrungen (Logbuch) ===== */
+.modal.fs-detail:not(.fs-editing) .fs-td-editonly{ display:none; }
+.fs-erf{ padding:12px 14px; border:1px solid var(--line); border-radius:14px; margin:0 0 10px; background:var(--paper); }
+.fs-erf header{ display:flex; justify-content:space-between; gap:10px; margin:0 0 4px; font-size:13px; color:var(--ink-soft); }
+.fs-erf header b{ color:var(--ink); font-size:14px; }
+.fs-erf p{ margin:0; font-size:15px; line-height:1.45; white-space:pre-wrap; }
+.fs-erf-acts{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:8px; margin-top:10px; }
+.modal.fs-detail:not(.fs-editing) .fs-erf-acts{ display:none; }
+.fs-erf-acts .btn{ min-height:44px; font-size:13.5px; }
+.fs-erf-acts .btn.danger{ color:var(--danger); }
+.fs-erf-thumbs{ display:flex; gap:6px; }
+.fs-erf-thumbs img{ width:64px; height:64px; object-fit:cover; border-radius:10px; }
+.fs-erf-fields{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:6px; }
+.fs-erf-fields button{ min-height:44px; padding:0 4px; border:1px solid var(--line); border-radius:12px; background:var(--paper); color:var(--ink-soft); font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
+.fs-erf-fields button.on{ background:var(--ice-deep); border-color:var(--ice-deep); color:#fff; }
+.fs-td-jump button{ font-size:11.5px; }

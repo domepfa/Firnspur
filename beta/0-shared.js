@@ -10698,7 +10698,7 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'delete-access-route','delete-tour-route','delete-sektor-route','delete-calculated-route',
   'remove-completion','remove-alt-track',
   'quick-edit-toggle','toggle-tour-status','set-tour-status','toggle-hut-status',
-  'fs-ort-link','fs-ort-edit','fs-ort-unlink','fs-ort-delete',
+  'fs-ort-link','fs-ort-edit','fs-ort-unlink','fs-ort-delete','fs-erf-new','fs-erf-apply','fs-erf-delete',
   'open-complete-tour','open-complete-hut','mark-done',
   'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
   'convert-msl-to-klettergarten'
@@ -14479,26 +14479,182 @@ document.addEventListener('click', (e)=>{
   else fsOpenOrt(el.getAttribute('data-ort'), el.getAttribute('data-tour'));
 }, true);
 
+/* ===== Erfahrungen: Logbuch pro Tour =====
+   Liste «erfahrungen» in der Tour: {id, by, date, at, text, photos}. Eine neue Erfahrung ist eine
+   Ergänzung (darf jede/r direkt), die eigene darf man selbst entfernen; alles andere läuft über
+   Eigentümer und Vorschläge (fsSafeSet). «In Beschreibung übernehmen» ändert ein Textfeld der Tour –
+   beim Eigentümer direkt, sonst als Vorschlag. */
+const FS_ERF_MAX_PHOTOS = 3;
+function fsErfFields(){
+  return [['special', 'Spezielles'], ['ascent', 'Aufstieg'], ['descent', fsAppKey() === 'firnspur' ? 'Abfahrt' : 'Abstieg'],
+    ['crux', 'Schlüsselstelle'], ['approach', 'Anfahrt']];
+}
+function fsErfList(t){
+  return (Array.isArray(t.erfahrungen) ? t.erfahrungen : []).filter(e=> e && e.id)
+    .slice().sort((a, b)=> ((b.date || '') + (b.at || '')).localeCompare((a.date || '') + (a.at || '')));
+}
+function fsErfMine(e){ return !!(e && state.myName && fsNameKey(e.by) === fsNameKey(state.myName)); }
+function fsErfEntryHtml(t, e){
+  const photos = Array.isArray(e.photos) ? e.photos.filter(p=> p && p.url) : [];
+  return `<article class="fs-erf">
+    <header><b>${esc(e.by || '?')}</b><span>${esc(fmtDateOnly(e.date) || '')}</span></header>
+    <p>${esc(e.text || '')}</p>
+    ${photos.length ? topoImagesGalleryHtml(photos) : ''}
+    <div class="fs-erf-acts">
+      <button type="button" class="btn secondary" data-act="fs-erf-apply" data-id="${esc(t.id)}" data-erf="${esc(e.id)}" aria-label="In die Beschreibung übernehmen">In Text übernehmen</button>
+      ${(fsErfMine(e) || fsCanEditDirect(t)) ? `<button type="button" class="btn secondary danger" data-act="fs-erf-delete" data-id="${esc(t.id)}" data-erf="${esc(e.id)}">Entfernen</button>` : ''}
+    </div>
+  </article>`;
+}
+// Abschnitt in der Tourenansicht; ohne Einträge nur im Bearbeiten-Modus sichtbar (editOnly)
+function fsTourErfSection(t){
+  const list = fsErfList(t);
+  const html = `${list.map(e=> fsErfEntryHtml(t, e)).join('')}
+    <button type="button" class="btn secondary fs-ort-addbtn" data-act="fs-erf-new" data-id="${esc(t.id)}">${fsIconHtml('plus')}Erfahrung schreiben</button>`;
+  return list.length ? html : {html, editOnly: true};
+}
+async function fsErfSaveTour(t, msg){
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  const ok = await saveTourCloud(t).catch(()=> false);
+  t._unsynced = !ok;
+  if(!ok && typeof markUnsaved === 'function') markUnsaved();
+  if(typeof render === 'function') render();
+  showToast(ok ? msg : 'Lokal gespeichert, wird später hochgeladen.', !ok);
+  return ok;
+}
+function fsErfMake(text, date, by, photos){
+  return {id: uid('e'), by: (by || state.myName || '').trim(), date: date || fsToday(), at: new Date().toISOString(), text: String(text || '').trim(), photos: photos || []};
+}
+function fsOpenErfForm(tourId){
+  const t = (state.tours || []).find(x=> x.id === tourId);
+  if(!t) return;
+  const e = fsErfMake('', fsToday());
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-td-h">Erfahrung schreiben</h3>
+    <p class="fs-ort-stand">${esc(t.name)}${t.routeName ? ' – ' + esc(t.routeName) : ''}</p>
+    <label class="fs-ort-lbl" for="fs-erf-date">Datum der Tour</label>
+    <input id="fs-erf-date" type="date" value="${esc(e.date)}">
+    <label class="fs-ort-lbl" for="fs-erf-text">Was war anders, neu oder gut zu wissen?</label>
+    <textarea id="fs-erf-text" rows="5" placeholder="z. B. Parkplatz neu gebührenpflichtig, Rinne bis Mitte Mai gut eingeschneit …"></textarea>
+    <label class="fs-ort-lbl">Fotos (bis ${FS_ERF_MAX_PHOTOS})</label>
+    <div class="fs-ort-photo-row"><span data-photos class="fs-erf-thumbs"></span>
+      <label class="btn secondary">${fsIconHtml('camera')}Foto wählen<input type="file" accept="image/*" hidden data-file></label></div>
+    <p class="fs-ort-msg" data-msg></p>
+    <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Abbrechen</button><button type="button" class="btn" data-save>Speichern</button></div>`);
+  const q = s=> ov.querySelector(s);
+  const drawPhotos = ()=>{ q('[data-photos]').innerHTML = e.photos.map(p=> `<img src="${esc(p.url)}" alt="">`).join(''); };
+  q('[data-file]').addEventListener('change', async (ev)=>{
+    const f = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if(!f) return;
+    if(e.photos.length >= FS_ERF_MAX_PHOTOS){ q('[data-msg]').textContent = 'Höchstens ' + FS_ERF_MAX_PHOTOS + ' Fotos.'; return; }
+    q('[data-msg]').textContent = 'Foto wird hochgeladen …';
+    try{
+      const blob = await compressImageFile(f, 1200, 0.78);
+      const imgId = uid('img');
+      const storagePath = `${TOPO_IMAGES_PATH}/${t.id}/${imgId}.jpg`;
+      const url = await uploadTopoImageBlob(blob, storagePath);
+      e.photos.push({id: imgId, url, storagePath});
+      drawPhotos(); q('[data-msg]').textContent = '';
+    }catch(err){ q('[data-msg]').textContent = 'Foto konnte nicht hochgeladen werden (Internet?).'; }
+  });
+  q('[data-save]').addEventListener('click', async ()=>{
+    e.text = q('#fs-erf-text').value.trim();
+    e.date = q('#fs-erf-date').value || fsToday();
+    if(!e.text && !e.photos.length){ q('[data-msg]').textContent = 'Bitte etwas schreiben oder ein Foto wählen.'; q('#fs-erf-text').focus(); return; }
+    closeTopOverlayLayer();
+    t.erfahrungen = [...(Array.isArray(t.erfahrungen) ? t.erfahrungen : []), e];
+    await fsErfSaveTour(t, 'Erfahrung gespeichert.');
+  });
+  setTimeout(()=>{ try{ q('#fs-erf-text').focus(); }catch(err){} }, 50);
+}
+// Erfahrung in ein Textfeld der Beschreibung übernehmen (vorgefüllt, anpassbar)
+function fsOpenErfApply(tourId, erfId){
+  const t = (state.tours || []).find(x=> x.id === tourId);
+  const e = t && fsErfList(t).find(x=> x.id === erfId);
+  if(!e) return;
+  const fields = fsErfFields();
+  const owner = fsCanEditDirect(t);
+  const proposal = (k)=>{ const cur = String(t[k] || '').trim(); const add = e.text + ' (' + (e.by || '?') + ', ' + fmtDateOnly(e.date) + ')'; return cur ? cur + '\n\n' + add : add; };
+  let field = fields[0][0];
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-td-h">In Beschreibung übernehmen</h3>
+    <p class="fs-ort-stand">${owner ? 'Die Beschreibung wird direkt geändert.' : 'Wird als Vorschlag an den Eigentümer geschickt.'}</p>
+    <label class="fs-ort-lbl">Feld</label>
+    <div class="fs-erf-fields">${fields.map(([k, l], i)=> `<button type="button" data-field="${k}" class="${i ? '' : 'on'}" aria-pressed="${!i}">${esc(l)}</button>`).join('')}</div>
+    <label class="fs-ort-lbl" for="fs-erf-ap">Neuer Text</label>
+    <textarea id="fs-erf-ap" rows="8">${esc(proposal(field))}</textarea>
+    <p class="fs-ort-msg" data-msg></p>
+    <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Abbrechen</button><button type="button" class="btn" data-save>${owner ? 'Übernehmen' : 'Vorschlagen'}</button></div>`);
+  const q = s=> ov.querySelector(s);
+  ov.querySelectorAll('[data-field]').forEach(b=> b.addEventListener('click', ()=>{
+    field = b.getAttribute('data-field');
+    ov.querySelectorAll('[data-field]').forEach(x=>{ const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
+    q('#fs-erf-ap').value = proposal(field);
+  }));
+  q('[data-save]').addEventListener('click', async ()=>{
+    const v = q('#fs-erf-ap').value.trim();
+    if(v === String(t[field] || '').trim()){ q('[data-msg]').textContent = 'Der Text ist unverändert.'; return; }
+    closeTopOverlayLayer();
+    t[field] = v;
+    await fsErfSaveTour(t, owner ? 'In die Beschreibung übernommen.' : 'Vorschlag gespeichert.');
+  });
+}
+async function fsErfDelete(tourId, erfId){
+  const t = (state.tours || []).find(x=> x.id === tourId);
+  if(!t || !confirm('Diese Erfahrung entfernen?')) return;
+  t.erfahrungen = (Array.isArray(t.erfahrungen) ? t.erfahrungen : []).filter(x=> x && x.id !== erfId);
+  await fsErfSaveTour(t, 'Erfahrung entfernt.');
+}
+// «Als erledigt markieren»: optionales Feld, wird als Erfahrung gespeichert
+function fsCompletionNoteFieldHtml(){
+  return `<div class="field"><label for="fs-complete-note">Was war anders oder neu? (optional)</label>
+    <textarea id="fs-complete-note" rows="3" placeholder="Wird als Erfahrung bei der Tour gespeichert"></textarea></div>`;
+}
+function fsCompletionNoteTake(t, by, date){
+  const el = document.getElementById('fs-complete-note');
+  const text = el ? el.value.trim() : '';
+  if(!t || !text) return false;
+  t.erfahrungen = [...(Array.isArray(t.erfahrungen) ? t.erfahrungen : []), fsErfMake(text, date, by)];
+  return true;
+}
+document.addEventListener('click', (ev)=>{
+  const el = ev.target.closest && ev.target.closest('[data-act="fs-erf-new"],[data-act="fs-erf-apply"],[data-act="fs-erf-delete"]');
+  if(!el) return;
+  ev.stopPropagation();
+  const act = el.getAttribute('data-act'), id = el.getAttribute('data-id'), erf = el.getAttribute('data-erf');
+  if(act === 'fs-erf-new') fsOpenErfForm(id);
+  else if(act === 'fs-erf-apply') fsOpenErfApply(id, erf);
+  else fsErfDelete(id, erf);
+}, true);
+
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
    Reihenfolge: Bilder · Kennzahlen/Status · Beschreibung · Orte · Bedingungen · Anreise · Mehr.
    Leere Abschnitte fallen weg; die Sprungleiste zeigt nur, was es gibt. */
 // [Schlüssel, Titel, kurzer Name in der Sprungleiste, Icon]
 const FS_TD_SECTIONS = [
-  ['beschreibung', 'Beschreibung', 'Info', 'note'], ['orte', 'Orte', 'Orte', 'pin'],
+  ['beschreibung', 'Beschreibung', 'Info', 'note'], ['erfahrungen', 'Erfahrungen', 'Logbuch', 'users'], ['orte', 'Orte', 'Orte', 'pin'],
   ['bedingungen', 'Bedingungen', 'Wetter', 'partly'], ['anreise', 'Anreise', 'Anreise', 'car'],
   ['mehr', 'Mehr', 'Mehr', 'more']
 ];
 function fsTdSection(key, id, inner, title){
+  // inner: HTML oder {html, editOnly} – editOnly: nur im Bearbeiten-Modus sichtbar (z. B. leeres Logbuch)
+  const editOnly = !!(inner && typeof inner === 'object' && inner.editOnly);
+  if(inner && typeof inner === 'object') inner = inner.html;
   if(!inner || !String(inner).trim()) return '';
   const label = title || (FS_TD_SECTIONS.find(x=> x[0] === key) || [key, key])[1];
   // Gleichlautende Unterüberschrift (z. B. «Bedingungen», «Anreise» aus den Bausteinen) einmal weglassen
   inner = String(inner).replace(new RegExp('<h4([^>]*)>\\s*' + label + '\\s*</h4>', 'i'), '');
-  return `<section class="fs-td-sec" id="td-${key}-${esc(id)}" data-td="${key}"><h3 class="fs-td-h">${label}</h3>${inner}</section>`;
+  return `<section class="fs-td-sec${editOnly ? ' fs-td-editonly' : ''}" id="td-${key}-${esc(id)}" data-td="${key}"><h3 class="fs-td-h">${label}</h3>${inner}</section>`;
 }
 // sections: {beschreibung:'html', orte:'html', …} – gibt Sprungleiste + Abschnitte zurück
 function fsTdBodyHtml(id, sections){
-  const present = FS_TD_SECTIONS.filter(([k])=> sections[k] && String(sections[k]).trim());
-  const jump = present.length > 1 ? `<nav class="fs-td-jump" aria-label="Abschnitte" style="--n:${present.length}">${present.map(([k, l, short, icon])=>
+  const htmlOf = v=> (v && typeof v === 'object') ? v.html : v;
+  const present = FS_TD_SECTIONS.filter(([k])=> htmlOf(sections[k]) && String(htmlOf(sections[k])).trim());
+  // Leiste nur mit Abschnitten, die im Lesemodus sichtbar sind
+  const shown = present.filter(([k])=> !(sections[k] && typeof sections[k] === 'object' && sections[k].editOnly));
+  const jump = shown.length > 1 ? `<nav class="fs-td-jump" aria-label="Abschnitte" style="--n:${shown.length}">${shown.map(([k, l, short, icon])=>
     `<button type="button" data-act="fs-goto" data-target="td-${k}-${esc(id)}" aria-label="${l}">${fsIconHtml(icon)}<span>${short}</span></button>`).join('')}</nav>` : '';
   return jump + present.map(([k])=> fsTdSection(k, id, sections[k])).join('');
 }
