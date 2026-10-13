@@ -1284,6 +1284,104 @@ function mapStripCloseOpenPopups(){
 // Neuer Look (Schritt 2): Karte als "Bühne" oben, die Liste liegt als Blatt darüber und schiebt
 // sich beim Scrollen über die Karte (siehe .fs-stage/.fs-sheet in look.css) — die Übersichtskarte
 // ist damit immer sichtbar statt erst nach einem Klick.
+/* ===== Startansicht: echte Karte, Liste = Kartenausschnitt =====
+   Die Bühne der Listen (Touren, Hütten, Gebiete) zeigt die swisstopo-Karte statt der Skizze. Die
+   Karte wird einmal erzeugt und bei jedem render() nur in den neuen Platzhalter umgehängt
+   (Ausschnitt bleibt). Die Liste darunter zeigt nur, was im Ausschnitt liegt; «Alle anzeigen» hebt
+   das auf. Ohne Internet bleibt die Skizze darunter sichtbar. */
+let fsHomePts = null;      // {kind, openAct, points:[{id,lat,lon,label}]} aus dem letzten mapStripHtml
+let fsHomeEl = null, fsHomeMap = null, fsHomeKey = '', fsHomeMarkers = [], fsHomeVisible = null, fsHomeAll = true, fsHomeFitting = false;
+function fsHomeMount(){
+  const slot = document.querySelector('.fs-home-slot');
+  if(!slot || !fsHomePts || typeof maplibregl === 'undefined' && !window.fsmEnsureLoaded) return;
+  if(!fsHomeEl){
+    fsHomeEl = document.createElement('div');
+    fsHomeEl.className = 'fs-home-map';
+    fsHomeEl.innerHTML = '<div class="fs-home-map-inner" id="fs-home-map-inner"></div>';
+  }
+  if(fsHomeEl.parentNode !== slot){ slot.appendChild(fsHomeEl); if(fsHomeMap) setTimeout(()=> fsHomeMap.resize(), 0); }
+  if(fsHomeEl.classList.contains('ready')) slot.classList.add('has-map');
+  if(!fsHomeMap){
+    fsmEnsureLoaded().then(()=>{
+      if(fsHomeMap) return;
+      fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52});
+      fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
+      fsHomeMap.on('moveend', ()=>{ if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
+      fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
+      fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl) sl.classList.add('has-map'); });
+    }).catch(()=>{ /* offline: Skizze bleibt */ });
+  }else fsHomeSync();
+}
+// Marker zu den aktuellen Punkten der Liste
+function fsHomeSync(){
+  if(!fsHomeMap || !fsHomeMap._fsmLoaded || !fsHomePts) return;
+  const key = fsHomePts.kind + '|' + fsHomePts.points.map(p=> p.id + ':' + p.lat.toFixed(4) + ',' + p.lon.toFixed(4)).join(';');
+  if(key !== fsHomeKey){
+    const kindChanged = fsHomeKey.split('|')[0] !== fsHomePts.kind;
+    fsHomeKey = key;
+    fsHomeMarkers.forEach(m=> m.remove()); fsHomeMarkers = [];
+    fsHomePts.points.forEach(p=>{
+      const el = document.createElement('button');
+      el.type = 'button'; el.className = 'fs-home-pin';
+      el.setAttribute('data-act', fsHomePts.openAct); el.setAttribute('data-id', p.id);
+      el.innerHTML = `<i></i><span>${esc(p.label || '')}</span>`;
+      fsHomeMarkers.push(new maplibregl.Marker({element: el, anchor: 'left', offset: [-7, 0]}).setLngLat([p.lon, p.lat]).addTo(fsHomeMap));
+    });
+    if(kindChanged || fsHomeAll) fsHomeFitAll();
+  }
+  fsHomeFilter();
+}
+function fsHomeFitAll(){
+  if(!fsHomeMap || !fsHomePts) return;
+  const pts = fsHomePts.points;
+  fsHomeAll = true; fsHomeFitting = true;
+  if(!pts.length){ fsHomeMap.jumpTo({center:[8.2275, 46.8182], zoom:6.6}); return; }
+  const b = new maplibregl.LngLatBounds();
+  pts.forEach(p=> b.extend([p.lon, p.lat]));
+  fsHomeMap.fitBounds(b, {padding:{top:60, bottom:40, left:40, right:70}, maxZoom: pts.length > 1 ? 11 : 8, duration: 0});
+  setTimeout(()=>{ fsHomeFitting = false; }, 300);
+}
+// Liste auf den Kartenausschnitt beschränken (DOM-weit, gilt für alle Listen mit .card[data-id])
+function fsHomeFilter(){
+  const sheet = document.querySelector('.fs-sheet');
+  if(!sheet || !fsHomePts) return;
+  const act = fsHomePts.openAct;
+  let vis = null;
+  if(!fsHomeAll && fsHomeMap){
+    const b = fsHomeMap.getBounds();
+    vis = new Set(fsHomePts.points.filter(p=> b.contains([p.lon, p.lat])).map(p=> p.id));
+  }
+  fsHomeVisible = vis;
+  let shown = 0, total = 0;
+  sheet.querySelectorAll('.card').forEach(card=>{
+    if(card.parentElement && card.parentElement.closest('.card')) return; // verschachtelte Karten: über die äussere
+    const ids = [];
+    if(card.getAttribute('data-act') === act && card.getAttribute('data-id')) ids.push(card.getAttribute('data-id'));
+    card.querySelectorAll('[data-act="' + act + '"][data-id]').forEach(x=> ids.push(x.getAttribute('data-id')));
+    if(!ids.length) return;
+    total++;
+    const on = !vis || ids.some(id=> vis.has(id));
+    card.classList.toggle('fs-home-hidden', !on);
+    if(on) shown++;
+  });
+  let bar = sheet.querySelector('.fs-home-count');
+  if(!vis){ if(bar) bar.remove(); return; }
+  if(!bar){
+    bar = document.createElement('div'); bar.className = 'fs-home-count';
+    const tb = sheet.querySelector('.toolbar');
+    if(tb && tb.parentNode === sheet) sheet.insertBefore(bar, tb.nextSibling); else sheet.insertBefore(bar, sheet.firstChild);
+  }
+  const word = fsHomePts.kind === 'hut' ? 'Hütten' : (fsHomePts.kind === 'gebiet' || fsHomePts.kind === 'klettergebiet') ? 'Gebiete' : 'Touren';
+  bar.innerHTML = `<span><b>${shown}</b> von ${total} ${word} im Kartenausschnitt</span><button type="button" class="fs-home-all">Alle anzeigen</button>`;
+  bar.querySelector('.fs-home-all').onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); };
+}
+(function(){
+  if(typeof MutationObserver === 'undefined') return;
+  let t = null;
+  const mo = new MutationObserver(()=>{ clearTimeout(t); t = setTimeout(()=>{ if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } }, 30); });
+  const start = ()=> mo.observe(document.body, {childList:true, subtree:true});
+  if(document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+})();
 function stageLayoutHtml(mapHtml, sheetHtml){
   return `<div class="fs-stage">${mapHtml}</div><div class="fs-sheet">${sheetHtml}</div>`;
 }
@@ -1296,7 +1394,8 @@ function mapStripHtml(opts){
   const linkLabel = (kind==='klettergebiet' || kind==='gebiet') ? 'Zum Gebiet' : kind==='hut' ? 'Zur Hütte' : 'Zur Tour';
   const openClusterId = state._mapStripOpenClusterId;
   const pinScale = 1 / view.zoom;
-  return `
+  fsHomePts = {kind, openAct, points: (points || []).filter(p=> p && isFinite(p.lat) && isFinite(p.lon))};
+  return `<div class="fs-home-slot">
     <div class="map-strip">
       <div class="map-strip-head">
         <span class="map-strip-label">🗺️ ${esc(label)}</span>
@@ -1340,6 +1439,7 @@ function mapStripHtml(opts){
         <div class="map-strip-compass"><div class="n"></div>N</div>
         ${!positioned.length ? `<div class="map-strip-empty">${esc(emptyText || '')}</div>` : ''}
       </div>
+    </div>
     </div>
   `;
 }
