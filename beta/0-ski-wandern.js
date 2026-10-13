@@ -490,6 +490,7 @@ function completeFormHtml(kind, id){
     ${item ? `<p style="font-size:14px; color:var(--ink-soft); margin:0 0 14px 0;">${esc(item.name)}</p>` : ''}
     <div class="field"><label>Name</label><input type="text" id="complete-name-input" value="${esc(state.myName||'')}" placeholder="z. B. Simone" autofocus/></div>
     <div class="field"><label>Datum</label><input type="date" id="complete-date-input" value="${today}"/></div>
+    ${kind==='tour' ? fsCompletionNoteFieldHtml() : ''}
     <div class="form-actions">
       <button class="btn secondary" data-act="close-modal">Abbrechen</button>
       <button class="btn" data-act="submit-complete" data-kind="${kind}" data-id="${id}">Bestätigen</button>
@@ -795,6 +796,7 @@ async function submitCompleteTour(id, name, date){
   if(!t) return;
   if(!Array.isArray(t.completions)) t.completions = [];
   t.completions.push({by: (name||'').trim() || state.myName, date: date});
+  fsCompletionNoteTake(t, (name||'').trim() || state.myName, date);
   t.completed = true;
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;

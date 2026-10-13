@@ -83,6 +83,9 @@ aus anderen Apps übernehmen.
   (`fbPathOk`). Vor jedem Überschreiben sichert `fbSet` die alte Fassung unter `versions/`.
 - Gemeinsame Orte (alle Apps): `orte/<id>` mit Art, Notiz, Foto, Stand-Datum; Touren verweisen mit
   `orte: [id]` darauf (Baustein «Orte» in `0-shared.js`, `fsOrte*`). Ohne Eigentümer, frei änderbar.
+- Erfahrungen (Logbuch): Liste `erfahrungen` in der Tour (`id, by, date, at, text, photos`), Baustein
+  «Erfahrungen» in `0-shared.js` (`fsErf*`). Neue und eigene Einträge direkt, Übernehmen in die
+  Beschreibung beim Eigentümer direkt, sonst als Vorschlag.
 - Import ergänzt, ersetzt nie (`fsImportMerge`).
 - Datenbank-Regeln stehen in `database.rules.json` und müssen zu den Pfaden passen
   (Änderungen in der Firebase-Konsole einfügen).

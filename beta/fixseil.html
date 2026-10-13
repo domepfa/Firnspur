@@ -3834,6 +3834,7 @@ function completionModalHtml(payload){
     <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 14px 0;">Trag ein, wer die Tour/Hütte wann erledigt hat. Das lässt sich beliebig oft wiederholen, z. B. wenn mehrere Leute sie machen.</p>
     <div class="field"><label>Name</label><input type="text" id="completion-name" value="${esc(state.myName||'')}" placeholder="z. B. Simone" autofocus/></div>
     <div class="field"><label>Datum</label><input type="date" id="completion-date" value="${today}"/></div>
+    ${payload.kind==='tour' ? fsCompletionNoteFieldHtml() : ''}
     <div class="form-error" id="completion-error" style="display:none;"></div>
     <div class="form-actions">
       <button class="btn secondary" data-act="close-modal">Abbrechen</button>
@@ -4167,6 +4168,7 @@ function tourDetailHtml(id){
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${!isMsl && t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
 `,
+      erfahrungen: fsTourErfSection(t),
       orte: `
     <div class="detail-section" id="tour-map-section-${t.id}">
       ${fsTourOrteHtml(t)}
@@ -4554,6 +4556,7 @@ async function submitCompletion(kind, id, name, date){
     if(!t) return;
     t.completions = t.completions || [];
     t.completions.push(entry);
+    fsCompletionNoteTake(t, n, entry.date);
     closeModal();
     state.modal = {type:'tour-detail', payload:id};
     render();
