@@ -292,7 +292,8 @@ function fsSplitForSuggestion(cur, result, me){
       const removed = c.filter(x=> !rKeys.has(fsImportKey(x)) && !(x && typeof x === 'object' && fsNameKey(x.by || x.uploadedBy || x.addedBy) === meK && meK));
       const cMap = new Map(c.map(x=> [fsImportKey(x), x]));
       const changed = r.filter(x=> cMap.has(fsImportKey(x)) && !fsEq(cMap.get(fsImportKey(x)), x) && !(x && typeof x === 'object' && fsNameKey(x.by) === meK && meK));
-      if(!removed.length && !changed.length) return;                                       // nur hinzugefügt
+      const reordered = !removed.length && r.length >= c.length && c.some((x, i)=> fsImportKey(x) !== fsImportKey(r[i]));
+      if(!removed.length && !changed.length && !reordered) return;                         // nur hinzugefügt
       changes[k] = r.length ? r : FS_SUG_EMPTY; before[k] = c;
       // direkt: bisherige Einträge (unverändert) + meine neuen
       result[k] = c.concat(r.filter(x=> !cMap.has(fsImportKey(x))));
@@ -5897,6 +5898,8 @@ const FSM_OVERLAYS = [
   {id:'hangneigung', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
   {id:'slf', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
   {id:'sperrungen', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
+  // Wildruhezonen und eidg. Wildschutzgebiete (BAFU); antippen zeigt Name und Bestimmungen
+  {id:'wildschutz', label:'Wildschutz (Wildruhezonen)', icon:'alert', opacity:0.75, tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.bafu.wrz-wildruhezonen_portal,ch.bafu.bundesinventare-jagdbanngebiete&STYLES=,&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln — siehe fsmLoadPoints
   // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt; Daten für «Wetter-Messwerte»
   {id:'slfstationen', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
@@ -6412,6 +6415,10 @@ async function fsmHandleInfoClick(map, ll, opts){
     const f = await identifyWegsperrungAt(null, ll, fsmIdentifyView(map));
     if(f){ fsmPopup(map, lngLat, buildWegsperrungPopupContent(f)); return true; }
   }
+  if(fsmOverlayOn(map, 'wildschutz')){
+    const list = await identifyWildschutzAt(ll, fsmIdentifyView(map));
+    if(list){ fsmPopup(map, lngLat, buildWildschutzPopupHtml(list)); return true; }
+  }
   if(fsmOverlayOn(map, 'slf')){
     const hit = map.queryRenderedFeatures(map.project([ll.lng, ll.lat]), {layers:['ov-slf']})[0];
     if(hit){ fsmPopup(map, lngLat, `<b>Lawinengefahr: Stufe ${esc(hit.properties.label)}</b><br/><a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`); return true; }
@@ -6881,6 +6888,37 @@ async function identifyWegsperrungAt(map, latlng, view){
     const data = await res.json();
     return (data.results && data.results.length) ? data.results[0] : null;
   }catch(e){ return null; }
+}
+// Wildruhezonen und Wildschutzgebiete an der angetippten Stelle (Flächen: Toleranz 0)
+async function identifyWildschutzAt(latlng, view){
+  try{
+    const params = new URLSearchParams({
+      geometryType: 'esriGeometryPoint', geometry: latlng.lng + ',' + latlng.lat, geometryFormat: 'geojson',
+      layers: 'all:ch.bafu.wrz-wildruhezonen_portal,ch.bafu.bundesinventare-jagdbanngebiete', tolerance: '0',
+      mapExtent: view.extent.join(','), imageDisplay: view.size[0] + ',' + view.size[1] + ',96',
+      sr: '4326', returnGeometry: 'false', lang: 'de'
+    });
+    const res = await fetch('https://api3.geo.admin.ch/rest/services/all/MapServer/identify?' + params.toString());
+    if(!res.ok) return null;
+    const data = await res.json();
+    return (data.results && data.results.length) ? data.results : null;
+  }catch(e){ return null; }
+}
+function buildWildschutzPopupHtml(list){
+  const v = x=> (x === undefined || x === null) ? '' : String(x).trim();
+  // Felder laut geo.admin.ch: Wildruhezonen wrz_name, kanton, schutzs_de, wegtyp_de, einschraenkungen;
+  // Wildschutzgebiete gebietsname, objektnummer, typ_de, refobjblatt (Objektblatt als PDF)
+  return `<div class="fs-cam-pop">${list.slice(0, 3).map(f=>{
+    const a = f.properties || f.attributes || {};
+    if(String(f.layerBodId || '').includes('wildruhe')){
+      return `<b>${esc(v(a.wrz_name) || 'Wildruhezone')}</b><span>Wildruhezone${v(a.kanton) ? ' · ' + esc(v(a.kanton)) : ''}${v(a.schutzs_de) ? ' · ' + esc(v(a.schutzs_de)) : ''}</span>
+        ${v(a.wegtyp_de) ? `<span>${esc(v(a.wegtyp_de))}</span>` : ''}${v(a.einschraenkungen) ? `<span>${esc(v(a.einschraenkungen))}</span>` : ''}`;
+    }
+    return `<b>${esc(v(a.gebietsname) || 'Wildschutzgebiet')}</b><span>Eidg. Wildschutzgebiet${v(a.objektnummer) ? ' Nr. ' + esc(v(a.objektnummer)) : ''}</span>
+      ${v(a.typ_de) ? `<span>${esc(v(a.typ_de))}</span>` : ''}
+      ${v(a.refobjblatt) ? `<a class="fs-cam-link" href="${esc(v(a.refobjblatt))}" target="_blank" rel="noopener noreferrer">Objektblatt mit Bestimmungen ↗</a>` : ''}`;
+  }).join('<hr style="border:none; border-top:1px solid var(--line-soft); margin:6px 0;"/>')}
+  <a class="fs-cam-link" href="https://www.respektiere-deine-grenzen.ch" target="_blank" rel="noopener noreferrer">Zeiten und Regeln: respektiere-deine-grenzen.ch ↗</a></div>`;
 }
 // Wanderrouten von SchweizMobil (Wanderland, ASTRA): ganze Etappen mit Name und Nummer als Linie.
 async function identifyWanderrouteAt(latlng, view){
@@ -12007,11 +12045,26 @@ function topoImageThumbsHtml(images, hiddenListId){
       Bild ${i+1}${img.cropRect ? ' · ✂️' : ''}
       <button type="button" data-act="crop-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="Ausschnitt festlegen — nur dieser Teil wird in Listen/Details gezeigt, das Originalbild bleibt erhalten" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">✂️</button>
       <button type="button" data-act="rotate-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="90° drehen — z. B. wenn quer statt hoch hochgeladen" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">🔄</button>
+      ${i > 0 ? `<button type="button" class="fs-topo-move" onclick="moveTopoImageLocal('${hiddenListId}','${esc(img.id)}',-1)" aria-label="Nach vorne">←</button>` : ''}
+      ${i < images.length - 1 ? `<button type="button" class="fs-topo-move" onclick="moveTopoImageLocal('${hiddenListId}','${esc(img.id)}',1)" aria-label="Nach hinten">→</button>` : ''}
       <button type="button" data-act="remove-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">×</button>
     </span>`
   ).join('')}</div>`;
 }
 
+// Reihenfolge der Topos ändern (Bild 1 wird in Listen und Details zuerst gezeigt)
+function moveTopoImageLocal(hiddenListId, imageId, dir){
+  const hiddenInput = document.getElementById(hiddenListId);
+  let images = [];
+  try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : []; }catch(e){ images = []; }
+  const i = images.findIndex(img=> img.id === imageId), j = i + dir;
+  if(i < 0 || j < 0 || j >= images.length) return;
+  [images[i], images[j]] = [images[j], images[i]];
+  if(hiddenInput) hiddenInput.value = JSON.stringify(images);
+  markModalDirty();
+  const thumbContainer = document.getElementById(hiddenListId + '-thumbs');
+  if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
+}
 function removeTopoImageLocal(hiddenListId, imageId){
   const hiddenInput = document.getElementById(hiddenListId);
   let images = [];
