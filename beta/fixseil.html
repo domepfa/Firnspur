@@ -929,6 +929,7 @@ function loadLocalSnapshot(){
 }
 
 async function loadAll(){
+  fsOrteLoad(); // gemeinsame Orte (alle Apps), parallel
   state.loading = true; render();
   const [toursObj, hutsObjResult, agendaObj, sektorenObj, klettergebieteObj, gipfelObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH), fbGet(SEKTOREN_PATH), fbGet(KLETTERGEBIETE_PATH), fbGet(GIPFEL_PATH) ]);
   let hutsObj = hutsObjResult;
@@ -4168,6 +4169,7 @@ function tourDetailHtml(id){
 `,
       orte: `
     <div class="detail-section" id="tour-map-section-${t.id}">
+      ${fsTourOrteHtml(t)}
       ${!fsTourHasContextData(t) ? `<p class="fs-nomap-hint">Noch nichts auf der Karte — Stift gedrückt halten, um Punkte oder eine Route zu setzen.</p>` : ''}
       ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${fsRoutesListHtml(t)}

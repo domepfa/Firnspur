@@ -77,7 +77,7 @@ function fbPathOk(path){
    abgelegt (nur hinzufügen, nie überschreiben) und lässt sich in der App zurückholen. Hat jemand
    anderes den Eintrag geändert, seit dieses Gerät ihn geladen hat, fragt die App nach, statt
    still dessen Änderungen zu überschreiben. */
-const FS_VERSIONED = ['tours', 'huts', 'gebiete', 'agenda', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete', 'fixseil/gipfel', 'fixseil/huts', 'wandern/tours', 'wandern/gebiete',
+const FS_VERSIONED = ['tours', 'huts', 'gebiete', 'agenda', 'orte', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete', 'fixseil/gipfel', 'fixseil/huts', 'wandern/tours', 'wandern/gebiete',
   'gpxTracks', 'fixseil/gpxTracks', 'wandern/gpxTracks',
   'hutGpxTracksSummer', 'hutGpxTracksWinter', 'hutAccessRouteGpxTracks', 'mslAccessRouteGpxTracks', 'mslDescentRouteGpxTracks',
   'sektorAccessRouteGpxTracks', 'sektorDescentRouteGpxTracks'];
@@ -10690,6 +10690,7 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'delete-access-route','delete-tour-route','delete-sektor-route','delete-calculated-route',
   'remove-completion','remove-alt-track',
   'quick-edit-toggle','toggle-tour-status','set-tour-status','toggle-hut-status',
+  'fs-ort-link','fs-ort-edit','fs-ort-unlink','fs-ort-delete',
   'open-complete-tour','open-complete-hut','mark-done',
   'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
   'convert-msl-to-klettergarten'
@@ -14123,6 +14124,298 @@ function fsMenuItemHtml(icon, label, attrs, href){
 function tourHasMapData(t){
   return !!((t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length));
 }
+/* ===== Orte: gemeinsame Orte für alle Apps (Parkplatz, Maut, Biwak …) =====
+   Sammlung «orte/<id>», von Skitour, Hochtour/Klettern und Wandern gemeinsam genutzt. Eine Tour
+   verweist mit «orte: [id, …]» darauf. Jeder Ort hat ein Stand-Datum (beim Ändern automatisch heute,
+   von Hand änderbar). Gespeichert wird über fbSet (Zusammenführen, alte Fassung unter versions/). */
+const FS_ORT_KINDS = [
+  {key:'parkplatz', label:'Parkplatz', icon:'parking'},
+  {key:'maut', label:'Maut / Fahrverbot', short:'Maut', icon:'barrier'},
+  {key:'haltestelle', label:'Haltestelle', icon:'bus'},
+  {key:'biwak', label:'Biwak', icon:'tent'},
+  {key:'wasser', label:'Wasser', icon:'drop'},
+  {key:'toilette', label:'Toilette', icon:'wc'},
+  {key:'einstieg', label:'Einstieg', icon:'entry'},
+  {key:'ausstieg', label:'Ausstieg', icon:'exit'},
+  {key:'gipfel', label:'Gipfel', icon:'mountain'},
+  {key:'gefahr', label:'Gefahr', icon:'alert'},
+  {key:'rast', label:'Rast', icon:'food'},
+  {key:'abzweigung', label:'Abzweigung', icon:'compass'},
+  {key:'rueckzug', label:'Rückzug', icon:'undo'},
+  {key:'', label:'Anderer Ort', icon:'pin'}
+];
+const FS_ORTE_PATH = 'orte';
+const FS_ORT_NEAR_KM = 5;
+function fsOrtKind(k){ return FS_ORT_KINDS.find(x=> x.key === (k || '')) || FS_ORT_KINDS[FS_ORT_KINDS.length - 1]; }
+function fsToday(){ const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function fsOrteCacheKey(){ return (location.pathname.indexOf('/beta/') >= 0 ? 'firnspurbeta' : 'firnspur') + '-orte'; }
+function fsOrteAll(){ return (typeof state !== 'undefined' && state.orte) || []; }
+function fsOrtById(id){ return fsOrteAll().find(o=> o.id === id) || null; }
+function fsOrteCacheWrite(){ try{ localStorage.setItem(fsOrteCacheKey(), JSON.stringify(fsOrteAll())); }catch(e){} }
+function fsOrteCacheRead(){ try{ return JSON.parse(localStorage.getItem(fsOrteCacheKey()) || '[]') || []; }catch(e){ return []; } }
+async function fsOrteLoad(){
+  const cached = fsOrteCacheRead();
+  if(!state.orte) state.orte = cached;
+  const obj = await fbGet(FS_ORTE_PATH);
+  if(obj === null){ return; } // offline oder leer: Gerätespeicher behalten
+  const list = Object.values(obj || {}).filter(o=> o && o.id && !o.deletedAt);
+  const unsynced = dedupeById([...state.orte.filter(o=> o._unsynced), ...cached.filter(o=> o._unsynced)]).filter(o=> fsKeepUnsynced(o, list, FS_ORTE_PATH));
+  state.orte = [...unsynced, ...list];
+  fsOrteCacheWrite();
+  if(typeof render === 'function') render();
+  unsynced.forEach(o=> fsOrtPush(o));
+}
+async function fsOrtPush(o){
+  const clean = Object.assign({}, o); delete clean._unsynced;
+  const ok = await fbSet(FS_ORTE_PATH + '/' + o.id, clean).catch(()=> false);
+  o._unsynced = !ok;
+  fsOrteCacheWrite();
+  return ok;
+}
+async function fsOrtSave(o){
+  if(!o || !String(o.name || '').trim()) return false;
+  o.updatedAt = new Date().toISOString();
+  o.updatedBy = state.myName || '';
+  const list = fsOrteAll();
+  const i = list.findIndex(x=> x.id === o.id);
+  if(i >= 0) list[i] = o; else list.unshift(o);
+  state.orte = list;
+  o._unsynced = true;
+  fsOrteCacheWrite();
+  const ok = await fsOrtPush(o);
+  if(typeof render === 'function') render();
+  showToast(ok ? 'Ort gespeichert.' : 'Ort lokal gespeichert, wird später hochgeladen.', !ok);
+  return ok;
+}
+async function fsOrtDelete(o){
+  if(!confirm('Ort «' + o.name + '» löschen? Er verschwindet bei allen Touren.')) return false;
+  o.deletedAt = new Date().toISOString();
+  o.updatedBy = state.myName || '';
+  const ok = await fsOrtPush(o);
+  state.orte = fsOrteAll().filter(x=> x.id !== o.id);
+  fsOrteCacheWrite();
+  if(typeof render === 'function') render();
+  showToast(ok ? 'Ort gelöscht.' : 'Löschen nicht synchronisiert (Internet?).', !ok);
+  return ok;
+}
+// Touren dieser App, die einen Ort nutzen
+function fsOrtTours(id){ return (state.tours || []).filter(t=> Array.isArray(t.orte) && t.orte.indexOf(id) >= 0); }
+function fsTourOrte(t){ return (Array.isArray(t.orte) ? t.orte : []).map(fsOrtById).filter(Boolean); }
+function fsKm(a, b){
+  const R = 6371, r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+// Bezugspunkte einer Tour: Punkte, sonst Anfang der Linie
+function fsTourAnchors(t){
+  const pts = (t.points || []).filter(p=> isFinite(p.lat) && isFinite(p.lon)).map(p=> ({lat:+p.lat, lon:+p.lon}));
+  const line = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack || []);
+  if(line.length){ const a = line[0], z = line[line.length - 1]; [a, z].forEach(q=>{ const lat = Array.isArray(q) ? q[0] : q.lat, lon = Array.isArray(q) ? q[1] : (q.lon != null ? q.lon : q.lng); if(isFinite(lat) && isFinite(lon)) pts.push({lat:+lat, lon:+lon}); }); }
+  return pts;
+}
+function fsOrteNear(t, km){
+  const anchors = fsTourAnchors(t);
+  const linked = Array.isArray(t.orte) ? t.orte : [];
+  return fsOrteAll().filter(o=> linked.indexOf(o.id) < 0 && isFinite(o.lat) && isFinite(o.lon))
+    .map(o=> ({o, d: anchors.length ? Math.min(...anchors.map(a=> fsKm(a, o))) : Infinity}))
+    .filter(x=> x.d <= (km || FS_ORT_NEAR_KM)).sort((a, b)=> a.d - b.d).map(x=> x.o);
+}
+function fsStandText(o){
+  if(!o.stand) return '';
+  const m = /^(\d{4})-(\d{2})/.exec(o.stand);
+  return m ? 'Stand ' + m[2] + '/' + m[1] : 'Stand ' + o.stand;
+}
+function fsOrtSubline(o, tourId){
+  const others = fsOrtTours(o.id).filter(t=> t.id !== tourId).length;
+  return [fsOrtKind(o.kind).label, fsStandText(o), others ? 'auch bei ' + others + (others === 1 ? ' weiteren Tour' : ' weiteren Touren') : ''].filter(Boolean).join(' · ');
+}
+function fsOrtRowHtml(o, tourId, act){
+  return `<button type="button" class="fs-ort-row" data-act="${act || 'fs-ort-open'}" data-ort="${esc(o.id)}" data-tour="${esc(tourId || '')}">
+    <span class="fs-ort-ic">${fsIconHtml(fsOrtKind(o.kind).icon)}</span>
+    <span class="fs-ort-tx"><b>${esc(o.name)}</b><small>${esc(fsOrtSubline(o, tourId))}</small></span>
+    ${o._unsynced ? `<span class="fs-ort-flag" title="Noch nicht hochgeladen">${fsIconHtml('offline')}</span>` : ''}
+  </button>`;
+}
+// Abschnitt «Orte» in der Tourenansicht: gemeinsame Orte oben, Knopf zum Verknüpfen im Bearbeiten-Modus
+function fsTourOrteHtml(t){
+  const list = fsTourOrte(t);
+  return `<div class="fs-orte">
+    ${list.map(o=> fsOrtRowHtml(o, t.id)).join('')}
+    <button type="button" class="btn secondary fs-ort-addbtn" data-act="fs-ort-link" data-id="${esc(t.id)}">${fsIconHtml('plus')}Ort verknüpfen oder neu erfassen</button>
+  </div>`;
+}
+async function fsTourSetOrte(t, ids){
+  t.orte = ids;
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  const ok = await saveTourCloud(t).catch(()=> false);
+  t._unsynced = !ok;
+  if(typeof render === 'function') render();
+  return ok;
+}
+function fsSheet(html, onClose){
+  const ov = document.createElement('div');
+  ov.className = 'fs-cond-sheet fs-ort-sheet';
+  ov.innerHTML = `<div class="in" role="dialog">${html}</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e=>{ if(e.target === ov) closeTopOverlayLayer(); });
+  ov.querySelectorAll('[data-close]').forEach(b=> b.addEventListener('click', ()=> closeTopOverlayLayer()));
+  pushOverlayLayer(()=>{ ov.remove(); if(onClose) onClose(); });
+  return ov;
+}
+// Ort ansehen (aus der Tour oder später von der Karte)
+function fsOpenOrt(id, tourId){
+  const o = fsOrtById(id);
+  if(!o) return;
+  const k = fsOrtKind(o.kind);
+  const tours = fsOrtTours(o.id);
+  const t = tourId ? (state.tours || []).find(x=> x.id === tourId) : null;
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <p class="fs-ort-kind">${fsIconHtml(k.icon)}${esc(k.label)}</p>
+    <h3 class="fs-td-h">${esc(o.name)}</h3>
+    ${o.stand ? `<p class="fs-ort-stand">Stand ${esc(fmtDateOnly(o.stand))}${o.updatedBy ? ' · ' + esc(o.updatedBy) : ''}</p>` : ''}
+    ${o.photo && o.photo.url ? `<img class="fs-ort-photo" src="${esc(o.photo.url)}" alt="">` : ''}
+    ${o.note ? `<p class="fs-ort-note">${esc(o.note)}</p>` : ''}
+    <div class="fs-ort-btns">
+      ${isFinite(o.lat) ? `<a class="btn secondary" href="https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lon}" target="_blank" rel="noopener noreferrer">${fsIconHtml('car')}Navigieren</a>` : ''}
+      ${isFinite(o.lat) ? `<button type="button" class="btn secondary" data-ort-cond>${fsIconHtml('partly')}Bedingungen</button>` : ''}
+    </div>
+    ${tours.length ? `<h4 class="fs-ort-h4">Genutzt von</h4><div class="fs-ort-tours">${tours.map(x=> `<button type="button" data-ort-tour="${esc(x.id)}">${esc(x.name)}${x.routeName ? ' – ' + esc(x.routeName) : ''}</button>`).join('')}</div>` : ''}
+    <div class="fs-ort-btns fs-ort-edit">
+      <button type="button" class="btn secondary" data-act="fs-ort-edit">Bearbeiten</button>
+      ${t ? `<button type="button" class="btn secondary" data-act="fs-ort-unlink">Von Tour lösen</button>` : ''}
+      <button type="button" class="btn secondary danger" data-act="fs-ort-delete">Löschen</button>
+    </div>`);
+  const q = s=> ov.querySelector(s);
+  if(q('[data-ort-cond]')) q('[data-ort-cond]').addEventListener('click', ()=> fsOpenConditions(o.lat, o.lon, o.ele, o.name));
+  ov.querySelectorAll('[data-ort-tour]').forEach(b=> b.addEventListener('click', ()=>{
+    closeTopOverlayLayer();
+    state.modal = {type:'tour-detail', payload: b.getAttribute('data-ort-tour')}; render();
+  }));
+  q('[data-act="fs-ort-edit"]').addEventListener('click', ()=>{ closeTopOverlayLayer(); fsOpenOrtForm(Object.assign({}, o)); });
+  if(q('[data-act="fs-ort-unlink"]')) q('[data-act="fs-ort-unlink"]').addEventListener('click', async ()=>{
+    closeTopOverlayLayer();
+    await fsTourSetOrte(t, (t.orte || []).filter(x=> x !== o.id));
+    showToast('Ort von der Tour gelöst.');
+  });
+  q('[data-act="fs-ort-delete"]').addEventListener('click', async ()=>{
+    if(await fsOrtDelete(o)) closeTopOverlayLayer();
+  });
+}
+// Verknüpfen: Orte in der Nähe, Tourpunkte übernehmen, neuen Ort erfassen
+function fsOpenOrtLink(tourId){
+  const t = (state.tours || []).find(x=> x.id === tourId);
+  if(!t) return;
+  const near = fsOrteNear(t);
+  const pts = (t.points || []).map((p, i)=> ({p, i})).filter(x=> isFinite(x.p.lat) && isFinite(x.p.lon));
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-td-h">Ort verknüpfen</h3>
+    <h4 class="fs-ort-h4">In der Nähe (bis ${FS_ORT_NEAR_KM} km)</h4>
+    ${near.length ? near.map(o=> fsOrtRowHtml(o, tourId, 'fs-ort-pick')).join('') : `<p class="fs-ort-empty">Noch keine gemeinsamen Orte in der Nähe.</p>`}
+    ${pts.length ? `<h4 class="fs-ort-h4">Tourpunkt zum gemeinsamen Ort machen</h4>
+      ${pts.map(({p, i})=> `<button type="button" class="fs-ort-row" data-pt="${i}"><span class="fs-ort-ic">${fsIconHtml(fsOrtKind(MAP_POINT_TO_ORT[p.category || ''] || '').icon)}</span><span class="fs-ort-tx"><b>${esc(p.label || 'Punkt')}</b><small>${esc((MAP_POINT_CATEGORIES[p.category || ''] || MAP_POINT_CATEGORIES['']).label)}</small></span></button>`).join('')}` : ''}
+    <button type="button" class="btn fs-ort-new">${fsIconHtml('plus')}Neuen Ort erfassen</button>`);
+  ov.querySelectorAll('[data-act="fs-ort-pick"]').forEach(b=> b.addEventListener('click', async ()=>{
+    closeTopOverlayLayer();
+    await fsTourSetOrte(t, [...(t.orte || []), b.getAttribute('data-ort')]);
+    showToast('Ort verknüpft.');
+  }));
+  ov.querySelectorAll('[data-pt]').forEach(b=> b.addEventListener('click', ()=>{
+    const i = +b.getAttribute('data-pt'), p = t.points[i];
+    closeTopOverlayLayer();
+    fsOpenOrtForm({id: uid('o'), name: p.label || '', kind: MAP_POINT_TO_ORT[p.category || ''] || '', lat: +p.lat, lon: +p.lon, note: p.note || ''}, async (o)=>{
+      // Punkt wird zum Ort: aus den Tourpunkten nehmen, damit er nicht doppelt erscheint
+      t.points = (t.points || []).filter((_, j)=> j !== i);
+      await fsTourSetOrte(t, [...(t.orte || []), o.id]);
+    });
+  }));
+  ov.querySelector('.fs-ort-new').addEventListener('click', ()=>{
+    closeTopOverlayLayer();
+    const a = fsTourAnchors(t)[0] || {};
+    fsOpenOrtForm({id: uid('o'), name: '', kind: '', lat: a.lat, lon: a.lon}, async (o)=>{ await fsTourSetOrte(t, [...(t.orte || []), o.id]); });
+  });
+}
+const MAP_POINT_TO_ORT = {parkplatz:'parkplatz', haltestelle:'haltestelle', biwak:'biwak', wasser:'wasser', toilette:'toilette', gipfel:'gipfel', gefahr:'gefahr', rast:'rast', abzweigung:'abzweigung', rueckzug:'rueckzug'};
+// Formular: Art, Name, Notiz, Stand, Position, Foto
+function fsOpenOrtForm(o, onSaved){
+  const isNew = !fsOrtById(o.id);
+  const before = JSON.stringify([o.name, o.kind, o.note, o.lat, o.lon, o.photo && o.photo.url]);
+  let standTouched = false;
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-td-h">${isNew ? 'Neuer Ort' : 'Ort bearbeiten'}</h3>
+    <label class="fs-ort-lbl">Art</label>
+    <div class="fs-ort-kinds">${FS_ORT_KINDS.map(k=> `<button type="button" data-kind="${k.key}" class="${(o.kind || '') === k.key ? 'on' : ''}" aria-pressed="${(o.kind || '') === k.key}">${fsIconHtml(k.icon)}<span>${esc(k.short || k.label)}</span></button>`).join('')}</div>
+    <label class="fs-ort-lbl" for="fs-ort-name">Name</label>
+    <input id="fs-ort-name" type="text" value="${esc(o.name || '')}" placeholder="z. B. Parkplatz Engstlenalp" autocomplete="off">
+    <label class="fs-ort-lbl" for="fs-ort-note">Notiz</label>
+    <textarea id="fs-ort-note" rows="3" placeholder="Gebühr, Öffnungszeiten, Zufahrt …">${esc(o.note || '')}</textarea>
+    <label class="fs-ort-lbl" for="fs-ort-stand">Stand</label>
+    <input id="fs-ort-stand" type="date" value="${esc(o.stand || fsToday())}">
+    <label class="fs-ort-lbl">Position</label>
+    <div class="fs-ort-pos"><span data-pos>${isFinite(o.lat) ? (+o.lat).toFixed(5) + ', ' + (+o.lon).toFixed(5) : 'noch keine'}</span>
+      <button type="button" class="btn secondary" data-gps>${fsIconHtml('gps')}Mein Standort</button></div>
+    <label class="fs-ort-lbl">Foto</label>
+    <div class="fs-ort-photo-row"><span data-photo>${o.photo && o.photo.url ? `<img src="${esc(o.photo.url)}" alt="">` : ''}</span>
+      <label class="btn secondary">${fsIconHtml('camera')}${o.photo && o.photo.url ? 'Foto ersetzen' : 'Foto wählen'}<input type="file" accept="image/*" hidden data-file></label></div>
+    <p class="fs-ort-msg" data-msg></p>
+    <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Abbrechen</button><button type="button" class="btn" data-save>Speichern</button></div>`);
+  const q = s=> ov.querySelector(s);
+  ov.querySelectorAll('[data-kind]').forEach(b=> b.addEventListener('click', ()=>{
+    o.kind = b.getAttribute('data-kind');
+    ov.querySelectorAll('[data-kind]').forEach(x=>{ const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
+    const nameEl = q('#fs-ort-name');
+    if(!nameEl.value.trim() && o.kind) nameEl.placeholder = fsOrtKind(o.kind).label + ' …';
+  }));
+  q('#fs-ort-stand').addEventListener('input', ()=>{ standTouched = true; });
+  q('[data-gps]').addEventListener('click', ()=>{
+    if(!navigator.geolocation){ q('[data-msg]').textContent = 'Standort nicht verfügbar.'; return; }
+    q('[data-msg]').textContent = 'Standort wird bestimmt …';
+    navigator.geolocation.getCurrentPosition(pos=>{
+      o.lat = +pos.coords.latitude.toFixed(6); o.lon = +pos.coords.longitude.toFixed(6);
+      q('[data-pos]').textContent = o.lat.toFixed(5) + ', ' + o.lon.toFixed(5);
+      q('[data-msg]').textContent = '';
+    }, ()=>{ q('[data-msg]').textContent = 'Standort konnte nicht bestimmt werden.'; }, {enableHighAccuracy:true, timeout:15000});
+  });
+  q('[data-file]').addEventListener('change', async (e)=>{
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    q('[data-msg]').textContent = 'Foto wird hochgeladen …';
+    try{
+      const blob = await compressImageFile(f, 1200, 0.78);
+      const imgId = uid('img');
+      const storagePath = `${TOPO_IMAGES_PATH}/${o.id}/${imgId}.jpg`;
+      const url = await uploadTopoImageBlob(blob, storagePath);
+      o.photo = {id: imgId, url, storagePath};
+      q('[data-photo]').innerHTML = `<img src="${esc(url)}" alt="">`;
+      q('[data-msg]').textContent = '';
+    }catch(err){ q('[data-msg]').textContent = 'Foto konnte nicht hochgeladen werden (Internet?).'; }
+  });
+  q('[data-save]').addEventListener('click', async ()=>{
+    o.name = q('#fs-ort-name').value.trim();
+    o.note = q('#fs-ort-note').value.trim();
+    if(!o.name){ q('[data-msg]').textContent = 'Bitte einen Namen eingeben.'; q('#fs-ort-name').focus(); return; }
+    if(!isFinite(o.lat) || !isFinite(o.lon)){ q('[data-msg]').textContent = 'Bitte eine Position setzen (Mein Standort).'; return; }
+    const changed = JSON.stringify([o.name, o.kind, o.note, o.lat, o.lon, o.photo && o.photo.url]) !== before;
+    // Stand: von Hand gesetzt gilt; sonst beim Erfassen und bei jeder Änderung heute
+    if(standTouched) o.stand = q('#fs-ort-stand').value || fsToday();
+    else if(isNew || changed || !o.stand) o.stand = fsToday();
+    if(isNew){ o.createdAt = new Date().toISOString(); o.createdBy = state.myName || ''; }
+    closeTopOverlayLayer();
+    await fsOrtSave(o);
+    if(onSaved) await onSaved(o);
+  });
+  if(isNew) setTimeout(()=>{ try{ q('#fs-ort-name').focus(); }catch(e){} }, 50);
+}
+// Knöpfe in der Tourenansicht (Capture, weil das Dialogfenster Klicks sonst stoppt)
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="fs-ort-open"],[data-act="fs-ort-link"]');
+  if(!el || el.closest('.fs-ort-sheet')) return;
+  e.stopPropagation();
+  if(el.getAttribute('data-act') === 'fs-ort-link') fsOpenOrtLink(el.getAttribute('data-id'));
+  else fsOpenOrt(el.getAttribute('data-ort'), el.getAttribute('data-tour'));
+}, true);
+
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
    Reihenfolge: Bilder · Kennzahlen/Status · Beschreibung · Orte · Bedingungen · Anreise · Mehr.
    Leere Abschnitte fallen weg; die Sprungleiste zeigt nur, was es gibt. */
@@ -14910,6 +15203,9 @@ async function submitShareImportGpxLink(tourId, link){
    Emoji in Textknoten durch schlichte Strich-Icons im gleichen Stil. Eingabefelder, Textareas und
    Attribute bleiben unangetastet; in <option> (kann kein SVG) wird das Emoji einfach weggelassen. */
 const FS_ICON_PATHS = {
+  wc: 'M7 3.5a1.5 1.5 0 1 0 0 .01M17 3.5a1.5 1.5 0 1 0 0 .01M5 8h4l-.5 6h-3zM6 14v6M8 14v6M15 8h4l1.5 7h-7zM16 15v5M18 15v5M12 3v18',
+  entry: 'M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4',
+  exit: 'M14 7l5 5-5 5M19 12H8M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5',
   layers: 'M12 3 2 8l10 5 10-5-10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5',
   more: 'M5 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM12 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM19 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
