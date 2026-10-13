@@ -1156,6 +1156,21 @@ function esc(s){
 // gesetzten Kartenpunkt, fällt sonst auf den Startpunkt eines GPS-/GPX-Tracks zurück -- so
 // erscheinen auch Touren, die nur per Live-GPS-Aufzeichnung oder GPX-Upload einen Streckenverlauf
 // haben (trackSimplified/manualTrack), aber (noch) keinen eigenen Punkt gesetzt bekamen.
+// Gipfel einer Tour: Punkt der Art «Gipfel», sonst höchster Punkt der Linie (falls mit Höhe),
+// sonst der Punkt der Linie, der am weitesten vom Start entfernt ist.
+function fsTourSummitPoint(t){
+  const g = (t.points || []).find(p=> p && p.category === 'gipfel' && isFinite(p.lat) && isFinite(p.lon));
+  if(g) return {lat: +g.lat, lon: +g.lon};
+  const line = (t.trackSimplified && t.trackSimplified.length > 1) ? t.trackSimplified : ((t.manualTrack && t.manualTrack.length > 1) ? t.manualTrack : null);
+  if(!line) return null;
+  const ll = line.map(q=> Array.isArray(q) ? {lat:+q[0], lon:+q[1], ele: q[2] != null ? +q[2] : NaN} : {lat:+q.lat, lon:+(q.lon != null ? q.lon : q.lng), ele: q.ele != null ? +q.ele : NaN}).filter(q=> isFinite(q.lat) && isFinite(q.lon));
+  if(ll.length < 2) return null;
+  const withEle = ll.filter(q=> isFinite(q.ele));
+  if(withEle.length > ll.length / 2) return withEle.reduce((a, b)=> b.ele > a.ele ? b : a);
+  const s0 = ll[0];
+  const d = q=> (q.lat - s0.lat) ** 2 + ((q.lon - s0.lon) * Math.cos(s0.lat * Math.PI / 180)) ** 2;
+  return ll.reduce((a, b)=> d(b) > d(a) ? b : a);
+}
 function tourMapPoint(t){
   if(t.points && t.points.length) return {lat: t.points[0].lat, lon: t.points[0].lon};
   if(t.trackSimplified && t.trackSimplified.length) return {lat: t.trackSimplified[0][0], lon: t.trackSimplified[0][1]};
@@ -15345,7 +15360,8 @@ function fsShowAreaContextMap(a){
           tg.items.push(fsmAddLine(map, r.coords, {color: col, dash: r.src === 'alt', label: t.name}));
           r.coords.forEach(c=> all.push(c));
         });
-        const p = tourMapPoint(t);
+        // Beschriftung beim Gipfel statt am Start, sonst liegen alle Namen auf dem Parkplatz
+        const p = fsTourSummitPoint(t) || tourMapPoint(t);
         if(!p) return;
         const m = fsmAddMarker(map, p.lat, p.lon, `<button type="button" class="fs-area-pin" style="--c:${col}"><span class="sw"></span>${esc(t.name)}</button>`, {anchor:'bottom'});
         m.getElement().addEventListener('click', (e)=>{ e.stopPropagation(); if(typeof openTourDetail === 'function') openTourDetail(t.id); });
