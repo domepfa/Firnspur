@@ -238,6 +238,15 @@ await scenario('Eigentümerfelder geschützt', async ({ db, saveVia }) => {
   ok('Nur der Eigentümer stellt Rechte ein', d.open !== true && !(d.editors || []).length, JSON.stringify({ o: d.open, e: d.editors }));
 }, 'Anna');
 
+await scenario('Frühere Fassung zurückholen', async ({ page, db, env, saveVia }) => {
+  const old = { ...db.get(TP), name: 'Alter Name', _versionAt: '2026-10-10T08:00:00Z' };
+  db.set('versions/tours/' + tour0.id + '/2026-10-10T08-00-00-000Z', old);
+  await saveVia("t.name = 'Neuer Name'; t.notes = 'Später ergänzt';");
+  await page.evaluate(async id => { fsOpenVersions(id, 'tours/' + id, null); await new Promise(r => setTimeout(r, 800)); [...document.querySelectorAll('.fs-ver-row')].find(r => r.textContent.includes('Alter Name')).querySelector('[data-ver]').click(); await new Promise(r => setTimeout(r, 1500)); }, tour0.id);
+  const d = db.get(TP);
+  ok('Zurückholen: alter Name, später Ergänztes wieder leer', d.name === 'Alter Name' && !d.notes, JSON.stringify({ n: d.name, no: d.notes, dlg: env.dialogs.map(x => x.slice(0, 60)) }));
+});
+
 await browser.close(); server.close();
 const bad = results.filter(r => !r.ok);
 if (!verbose) bad.forEach(r => console.log('FAIL ' + r.name + (r.info ? ' – ' + r.info : '')));
