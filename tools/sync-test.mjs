@@ -220,6 +220,12 @@ await scenario('Erfahrungen', async ({ db, env, saveVia }) => {
   const sug = Object.values(db.get(SUGP) || {});
   ok('Erfahrungen: fremde entfernen wird Vorschlag', ids === 'e_dome,e_a2' && sug.length === 1, JSON.stringify({ ids, sug, dlg: env.dialogs }));
 }, 'Anna');
+await scenario('Admin', async ({ db, env, saveVia }) => {
+  db.set(TP, { ...db.get(TP), owner: 'Anna' });
+  await saveVia("t.name = 'Vom Admin geändert'; t.material = [];");
+  const d = db.get(TP);
+  ok('Admin: fremde Tour direkt geändert, kein Vorschlag', d.name === 'Vom Admin geändert' && !d.material && !db.get(SUGP), JSON.stringify({ n: d.name, m: d.material, sug: db.get(SUGP), dlg: env.dialogs }));
+});
 await scenario('Entfernen fremder Einträge', async ({ db, env, saveVia }) => {
   await saveVia("t.material = [];");
   const d = db.get(TP), sug = Object.values(db.get(SUGP) || {});
