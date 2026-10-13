@@ -1820,3 +1820,5 @@ html.fs-search-open .fs-search-btn{ display:none !important; }
 .fs-sheet .card .stat-row{ margin-top:4px; }
 .fs-sheet .card.has-thumb{ position:relative; padding-left:102px; min-height:100px; }
 .fs-card-thumb{ position:absolute; left:12px; top:12px; width:76px; height:76px; border-radius:14px; overflow:hidden; background:var(--ice-light); }
+/* Titelbild füllt den ganzen Titelbereich, die Bereichsleiste liegt darüber */
+.hero::before{ top:8px; bottom:0; height:auto; -webkit-mask-image:none; mask-image:none; }
