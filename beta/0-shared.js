@@ -10215,8 +10215,8 @@ function fsOpenConditions(lat, lon, ele, name){
 }
 function meteoForecastWidgetHtml(lat, lon, alt){
   if(!isFinite(lat) || !isFinite(lon)) return '';
-  // Bedingungen (Rückblick, gemessen, Webcams) zuerst, dann die Prognose
-  return fsConditionsHtml(lat, lon, alt) + meteoForecastOnlyHtml(lat, lon);
+  // Prognose zuerst (wichtigste Frage am Tag X), dann Rückblick, gemessen, Webcams
+  return meteoForecastOnlyHtml(lat, lon) + fsConditionsHtml(lat, lon, alt);
 }
 /* ===== Wetter-Rückblick: die letzten drei Tage am Ort (Open-Meteo, Modellwerte) =====
    Für die Beurteilung vor Ort: wie viel Regen/Neuschnee in den letzten Tagen, wie warm.
@@ -14126,9 +14126,11 @@ function tourHasMapData(t){
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
    Reihenfolge: Bilder · Kennzahlen/Status · Beschreibung · Orte · Bedingungen · Anreise · Mehr.
    Leere Abschnitte fallen weg; die Sprungleiste zeigt nur, was es gibt. */
+// [Schlüssel, Titel, kurzer Name in der Sprungleiste, Icon]
 const FS_TD_SECTIONS = [
-  ['beschreibung', 'Beschreibung'], ['orte', 'Orte'], ['bedingungen', 'Bedingungen'],
-  ['anreise', 'Anreise'], ['mehr', 'Mehr']
+  ['beschreibung', 'Beschreibung', 'Info', 'note'], ['orte', 'Orte', 'Orte', 'pin'],
+  ['bedingungen', 'Bedingungen', 'Wetter', 'partly'], ['anreise', 'Anreise', 'Anreise', 'car'],
+  ['mehr', 'Mehr', 'Mehr', 'more']
 ];
 function fsTdSection(key, id, inner, title){
   if(!inner || !String(inner).trim()) return '';
@@ -14140,8 +14142,8 @@ function fsTdSection(key, id, inner, title){
 // sections: {beschreibung:'html', orte:'html', …} – gibt Sprungleiste + Abschnitte zurück
 function fsTdBodyHtml(id, sections){
   const present = FS_TD_SECTIONS.filter(([k])=> sections[k] && String(sections[k]).trim());
-  const jump = present.length > 1 ? `<nav class="fs-td-jump" aria-label="Abschnitte">${present.map(([k, l])=>
-    `<button type="button" data-act="fs-goto" data-target="td-${k}-${esc(id)}">${l}</button>`).join('')}</nav>` : '';
+  const jump = present.length > 1 ? `<nav class="fs-td-jump" aria-label="Abschnitte" style="--n:${present.length}">${present.map(([k, l, short, icon])=>
+    `<button type="button" data-act="fs-goto" data-target="td-${k}-${esc(id)}" aria-label="${l}">${fsIconHtml(icon)}<span>${short}</span></button>`).join('')}</nav>` : '';
   return jump + present.map(([k])=> fsTdSection(k, id, sections[k])).join('');
 }
 function fsTdImagesHtml(t){
