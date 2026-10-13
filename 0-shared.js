@@ -971,7 +971,7 @@ function fsGpxRepairOffer(appKey, lineTours, altFix, orphanData){
       if(!cb || !cb.checked){ ignore.add(o.id); continue; }
       const line = fsGpxToSimplified(o.d.gpx);
       if(!line) continue;
-      const t = {id: o.id, name: o.name, trackSimplified: line, status: 'entwurf', createdBy: state.myName || '', createdAt: o.d.uploadedAt || new Date().toISOString()};
+      const t = {id: o.id, name: o.name, trackSimplified: line, status: 'idee', createdBy: state.myName || '', createdAt: o.d.uploadedAt || new Date().toISOString()};
       if(appKey === 'fixseil') t.tourCategory = 'hochtour';
       if(appKey === 'wandern') t.tourCategory = 'wanderung';
       const saved = await saveTourCloud(t).catch(()=> false);
@@ -5711,7 +5711,7 @@ function renderStandaloneMap(containerId){
           manualTrack: plannerResult ? plannerResult.coords : [],
           hutId: '', tourLink: '', gpxLink: '',
           crux: '', special: '', approach: '', ascent: '', descent: '',
-          status: 'entwurf', conditions: null, completions: [],
+          status: 'idee', conditions: null, completions: [],
           createdBy: state.myName, createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(), updatedBy: state.myName
         };
@@ -10215,8 +10215,8 @@ function fsOpenConditions(lat, lon, ele, name){
 }
 function meteoForecastWidgetHtml(lat, lon, alt){
   if(!isFinite(lat) || !isFinite(lon)) return '';
-  // Bedingungen (Rückblick, gemessen, Webcams) zuerst, dann die Prognose
-  return fsConditionsHtml(lat, lon, alt) + meteoForecastOnlyHtml(lat, lon);
+  // Prognose zuerst (wichtigste Frage am Tag X), dann Rückblick, gemessen, Webcams
+  return meteoForecastOnlyHtml(lat, lon) + fsConditionsHtml(lat, lon, alt);
 }
 /* ===== Wetter-Rückblick: die letzten drei Tage am Ort (Open-Meteo, Modellwerte) =====
    Für die Beurteilung vor Ort: wie viel Regen/Neuschnee in den letzten Tagen, wie warm.
@@ -10544,20 +10544,62 @@ function wireLoginScreen(){
   input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptLogin(); });
 }
 
-/* ================= Tour-Status: Entwurf / Vollständig ================= */
-async function toggleTourStatus(id){
+/* ================= Tour-Status: Idee / in Recherche / bereit =================
+   Alte Werte werden nur anders gelesen, nicht umgeschrieben: entwurf → Idee, vollstaendig → bereit. */
+const FS_TOUR_STATUS = [
+  {key:'idee', label:'Idee', icon:'dot'},
+  {key:'recherche', label:'in Recherche', icon:'search'},
+  {key:'bereit', label:'bereit', icon:'checkc'}
+];
+function fsTourStatus(t){
+  const s = t && t.status;
+  if(s === 'vollstaendig') return 'bereit';
+  return FS_TOUR_STATUS.some(x=> x.key === s) ? s : 'idee';
+}
+function fsTourStatusMeta(t){
+  const k = fsTourStatus(t);
+  return FS_TOUR_STATUS.find(x=> x.key === k);
+}
+// Formularwert übernehmen; bedeutet er dasselbe wie der alte Wert, bleibt der alte stehen
+// (sonst würde jedes Speichern «entwurf» → «idee» als Änderung bzw. Vorschlag zählen).
+function fsTourStatusFromForm(oldStatus, formValue){
+  if(!FS_TOUR_STATUS.some(x=> x.key === formValue)) return oldStatus;
+  return fsTourStatus({status: oldStatus}) === formValue ? oldStatus : formValue;
+}
+function fsTourStatusOptionsHtml(t){
+  const cur = fsTourStatus(t);
+  return FS_TOUR_STATUS.map(s=> `<option value="${s.key}" ${s.key === cur ? 'selected' : ''}>${s.label}</option>`).join('');
+}
+async function toggleTourStatus(id, value){
   const t = state.tours.find(x=>x.id===id);
   if(!t) return;
-  t.status = (t.status === 'vollstaendig') ? 'entwurf' : 'vollstaendig';
+  const cur = fsTourStatus(t);
+  let next = value;
+  if(!FS_TOUR_STATUS.some(x=> x.key === next)){
+    const i = FS_TOUR_STATUS.findIndex(x=> x.key === cur);
+    next = FS_TOUR_STATUS[(i + 1) % FS_TOUR_STATUS.length].key;
+  }
+  if(next === cur) return;
+  t.status = next;
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
   const ok = await saveTourCloud(t).catch(()=>false);
   t._unsynced = !ok;
   render();
-  showToast(t.status === 'vollstaendig' ? '✅ Als vollständig markiert.' : '📝 Als Entwurf markiert.', !ok);
+  showToast('Status: ' + fsTourStatusMeta(t).label, !ok);
 }
 function tourStatusLabel(t){
-  return (!t.status || t.status==='entwurf') ? '📝 Entwurf' : '✅ Vollständig';
+  const m = fsTourStatusMeta(t);
+  return `<span class="fs-status-lbl is-${m.key}">${fsIconHtml(m.icon)}${m.label}</span>`;
+}
+// Tourenansicht: im Lesemodus nur der Status, im Bearbeiten-Modus drei Knöpfe zum Setzen.
+function fsTourStatusHtml(t){
+  const cur = fsTourStatus(t);
+  return `<div class="fs-status-row">
+    <span class="fs-status-pill">${tourStatusLabel(t)}</span>
+    <div class="fs-status-seg" role="group" aria-label="Status">${FS_TOUR_STATUS.map(s=>
+      `<button type="button" class="${s.key === cur ? 'on' : ''}" data-act="set-tour-status" data-id="${esc(t.id)}" data-value="${s.key}" aria-pressed="${s.key === cur}">${fsIconHtml(s.icon)}<span>${s.label}</span></button>`).join('')}</div>
+  </div>`;
 }
 async function toggleHutStatus(id){
   const h = state.huts.find(x=>x.id===id);
@@ -10647,7 +10689,7 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'edit-from-map',
   'delete-access-route','delete-tour-route','delete-sektor-route','delete-calculated-route',
   'remove-completion','remove-alt-track',
-  'quick-edit-toggle','toggle-tour-status','toggle-hut-status',
+  'quick-edit-toggle','toggle-tour-status','set-tour-status','toggle-hut-status',
   'open-complete-tour','open-complete-hut','mark-done',
   'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
   'convert-msl-to-klettergarten'
@@ -14081,24 +14123,43 @@ function fsMenuItemHtml(icon, label, attrs, href){
 function tourHasMapData(t){
   return !!((t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length));
 }
-function tourActionsHtml(t, moreItems){
+/* ===== Tourenansicht: Abschnitte und Sprungleiste =====
+   Reihenfolge: Bilder · Kennzahlen/Status · Beschreibung · Orte · Bedingungen · Anreise · Mehr.
+   Leere Abschnitte fallen weg; die Sprungleiste zeigt nur, was es gibt. */
+// [Schlüssel, Titel, kurzer Name in der Sprungleiste, Icon]
+const FS_TD_SECTIONS = [
+  ['beschreibung', 'Beschreibung', 'Info', 'note'], ['orte', 'Orte', 'Orte', 'pin'],
+  ['bedingungen', 'Bedingungen', 'Wetter', 'partly'], ['anreise', 'Anreise', 'Anreise', 'car'],
+  ['mehr', 'Mehr', 'Mehr', 'more']
+];
+function fsTdSection(key, id, inner, title){
+  if(!inner || !String(inner).trim()) return '';
+  const label = title || (FS_TD_SECTIONS.find(x=> x[0] === key) || [key, key])[1];
+  // Gleichlautende Unterüberschrift (z. B. «Bedingungen», «Anreise» aus den Bausteinen) einmal weglassen
+  inner = String(inner).replace(new RegExp('<h4([^>]*)>\\s*' + label + '\\s*</h4>', 'i'), '');
+  return `<section class="fs-td-sec" id="td-${key}-${esc(id)}" data-td="${key}"><h3 class="fs-td-h">${label}</h3>${inner}</section>`;
+}
+// sections: {beschreibung:'html', orte:'html', …} – gibt Sprungleiste + Abschnitte zurück
+function fsTdBodyHtml(id, sections){
+  const present = FS_TD_SECTIONS.filter(([k])=> sections[k] && String(sections[k]).trim());
+  const jump = present.length > 1 ? `<nav class="fs-td-jump" aria-label="Abschnitte" style="--n:${present.length}">${present.map(([k, l, short, icon])=>
+    `<button type="button" data-act="fs-goto" data-target="td-${k}-${esc(id)}" aria-label="${l}">${fsIconHtml(icon)}<span>${short}</span></button>`).join('')}</nav>` : '';
+  return jump + present.map(([k])=> fsTdSection(k, id, sections[k])).join('');
+}
+function fsTdImagesHtml(t){
+  return (t.topoImages && t.topoImages.length) ? `<div class="fs-td-images">${topoImagesGalleryHtml(t.topoImages)}</div>` : '';
+}
+// «Mehr»: Tour starten, für unterwegs laden, Menüpunkte als Liste
+function fsTourMoreHtml(t, moreItems){
   const hasOffline = tourHasMapData(t) || (t.topoImages && t.topoImages.length);
   const items = (moreItems || []).filter(Boolean);
   items.push(fsMenuItemHtml('clock', 'Frühere Versionen', `data-act="fs-versions" data-id="${esc(t.id)}"`));
   const onTour = fsGetOnTour();
   const active = !!(onTour && String(onTour.id) === String(t.id));
   return `<div class="fs-actions">
-    <button type="button" class="fs-start-btn${active ? ' on' : ''}" data-act="${active ? 'fs-end-tour' : 'fs-start-tour'}" data-id="${t.id}">${fsIconHtml(active ? 'flag' : 'gps')}<span>${active ? 'Unterwegs · Tour beenden' : 'Tour starten'}</span></button>
-    ${!fsTourHasContextData(t) ? `<p class="fs-nomap-hint">Noch nichts auf der Karte — Stift gedrückt halten, um Punkte oder eine Route zu setzen.</p>` : ''}
     ${hasOffline ? `<div class="fs-primary">${offlineSectionHtml(t.id)}</div>` : ''}
-    <div class="fs-tiles">
-      ${tourHasMapData(t) ? fsTileHtml('map', 'Karte', `data-act="fs-goto-map" data-id="${t.id}"`) : ''}
-      ${(t.points && t.points.length) ? fsTileHtml('partly', 'Wetter', `data-act="fs-goto" data-target="tour-meteo-${t.id}"`) : ''}
-      ${items.length ? `<details class="fs-more">
-        <summary class="fs-tile">${fsIconHtml('more')}<span>Mehr</span></summary>
-        <div class="fs-more-menu">${items.join('')}</div>
-      </details>` : ''}
-    </div>
+    <div class="fs-more-list">${items.join('')}</div>
+    <button type="button" class="fs-start-btn${active ? ' on' : ''}" data-act="${active ? 'fs-end-tour' : 'fs-start-tour'}" data-id="${t.id}">${fsIconHtml(active ? 'flag' : 'gps')}<span>${active ? 'Unterwegs · Tour beenden' : 'Tour starten'}</span></button>
   </div>`;
 }
 // "Auf einen Blick": Schlüsselstelle zuerst (das Wichtigste für die Entscheidung im Gelände),
@@ -14157,6 +14218,14 @@ document.addEventListener('click', (e)=>{
     if(target) target.scrollIntoView({behavior:'smooth', block:'start'});
   }
 }, true); // Capture: Dialoge stoppen Klicks mit data-stop, bevor sie hier unten ankämen
+// Status setzen (Knöpfe im Bearbeiten-Modus). Nach dem Halten-Mechanismus registriert, damit
+// dessen Capture-Listener den Klick zuerst prüfen kann.
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="set-tour-status"]');
+  if(!el) return;
+  e.stopPropagation();
+  toggleTourStatus(el.getAttribute('data-id'), el.getAttribute('data-value'));
+}, true);
 // "Mehr"-Menü schliessen: nach einer Auswahl oder beim Tippen daneben.
 document.addEventListener('click', (e)=>{
   document.querySelectorAll('details.fs-more[open]').forEach(d=>{

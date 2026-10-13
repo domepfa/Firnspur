@@ -853,7 +853,7 @@ function mergeImportedData(json){
 async function submitTourForm(form, existing){
   // Stand vor dem Speichern — für "Rückgängig" im Hinweis danach.
   const undoPrev = snapshotForUndo(existing && existing.id ? state.tours.find(x=>x.id===existing.id) : null);
-  const t = (existing && existing.id) ? {...existing} : {id: (form.tourIdForTrack || uid('t')), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null, status:'entwurf'};
+  const t = (existing && existing.id) ? {...existing} : {id: (form.tourIdForTrack || uid('t')), createdBy: state.myName, createdAt: new Date().toISOString(), conditions:null, status:'idee'};
   t.name = form.name.trim();
   t.routeName = form.routeName || '';
   t.difficulty = form.difficulty;
@@ -886,7 +886,7 @@ async function submitTourForm(form, existing){
   try{ t.points = form.points ? JSON.parse(form.points) : []; }catch(e){ t.points = []; }
   t.ascent = form.ascent;
   t.descent = form.descent;
-  if(form.status==='entwurf' || form.status==='vollstaendig') t.status = form.status;
+  t.status = fsTourStatusFromForm(t.status, form.status);
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
 
@@ -994,7 +994,7 @@ function filteredTours(){
     list = list.filter(t=>(t.stayTypes||[]).some(v=>state.activeStayTypeFilters.has(v)));
   }
   if(state.activeStatusFilters.size){
-    list = list.filter(t=>state.activeStatusFilters.has(t.status||'entwurf'));
+    list = list.filter(t=>state.activeStatusFilters.has(fsTourStatus(t)));
   }
   if(state.activeGlacierFilter){
     list = list.filter(t=>t.glacier===state.activeGlacierFilter);
@@ -1044,8 +1044,7 @@ function tourenViewHtml(){
       </div>
       <div class="field"><label>Status</label>
         <div class="chips">
-          <button class="chip ${state.activeStatusFilters.has('entwurf')?'on':''}" style="${state.activeStatusFilters.has('entwurf')?'background:var(--ice-deep)':''}" data-act="filter-status" data-value="entwurf">📝 Entwurf</button>
-          <button class="chip ${state.activeStatusFilters.has('vollstaendig')?'on':''}" style="${state.activeStatusFilters.has('vollstaendig')?'background:var(--ice-deep)':''}" data-act="filter-status" data-value="vollstaendig">✅ Vollständig</button>
+          ${FS_TOUR_STATUS.map(st=>`<button class="chip ${state.activeStatusFilters.has(st.key)?'on':''}" style="${state.activeStatusFilters.has(st.key)?'background:var(--ice-deep)':''}" data-act="filter-status" data-value="${st.key}">${st.label}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Gletscher</label>
@@ -1360,8 +1359,7 @@ function tourFormHtml(existing){
       </div>
       <div class="field"><label>Status</label>
         <select name="status">
-          <option value="entwurf" ${(!t.status || t.status==='entwurf')?'selected':''}>📝 Entwurf</option>
-          <option value="vollstaendig" ${t.status==='vollstaendig'?'selected':''}>✅ Vollständig</option>
+          ${fsTourStatusOptionsHtml(t)}
         </select>
       </div>
       <div class="form-actions">
@@ -1411,9 +1409,10 @@ function tourDetailHtml(id){
         <button class="x-btn" data-act="close-modal">×</button>
       </div>
     </div>
+    ${fsTdImagesHtml(t)}
     ${t.routeName ? `<h2 style="margin:0 0 6px 0; color:var(--ink-soft);">${esc(t.routeName)}</h2>` : ''}
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
-    <p class="fs-status-line" style="font-size:13px; color:var(--ink-soft); margin:0 0 10px 0;">${tourStatusLabel(t)}</p>
+    ${fsTourStatusHtml(t)}
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abfahrt</div></div>` : ''}
@@ -1426,28 +1425,21 @@ function tourDetailHtml(id){
       ['Material', (t.material||[]).join(', ')],
       ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')]
     ])}
-    ${fsSuggestionsHtml(t)}
     ${(hut || gebiet || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">
       ${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}
       ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
       ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">⛰️ Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
     </div>` : ''}
+    ${fsSuggestionsHtml(t)}
+    ${fsTdBodyHtml(t.id, {
+      beschreibung: `
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
     ${t.descent ? `<div class="detail-section"><h4>Abfahrt</h4><p>${esc(t.descent)}</p></div>` : ''}
-    ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
-      <h4>Anfahrt</h4>
-      ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length)) ? `<div class="chips" style="margin-bottom:8px;">
-        ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}
-        ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${STAY_TYPE_LABELS[v]}</span>`).join('')}
-      </div>` : ''}
-      ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
-    </div>` : ''}
-    ${fsTravelHtml(t)}
-    <!-- Wetter nach den Infos (Spezielles, Aufstieg, Anfahrt sind beim Planen wichtiger) -->
-    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon, t.targetAltitude)}</div>` : ''}
+`,
+      orte: `
     <div class="detail-section" id="tour-map-section-${t.id}">
-      <h4>${fsTourRoutes(t).length ? 'Routen & Standorte' : 'Standort' + (t.points && t.points.length>1?'e':'')}</h4>
+      ${!fsTourHasContextData(t) ? `<p class="fs-nomap-hint">Noch nichts auf der Karte — Stift gedrückt halten, um Punkte oder eine Route zu setzen.</p>` : ''}
       ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${fsRoutesListHtml(t)}
       ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
@@ -1466,8 +1458,22 @@ function tourDetailHtml(id){
       <h4>GPX-Link</h4>
       <p style="margin:0 0 8px 0;"><a href="${esc(t.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(t.gpxLink)}</a></p>
     </div>` : ''}
-    <!-- Aktionen nach den Infos: geplant und angeschaut wird häufiger als heruntergeladen -->
-    ${tourActionsHtml(t, [
+`,
+      bedingungen: `
+    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon, t.targetAltitude)}</div>` : ''}
+`,
+      anreise: `
+    ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
+      ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length)) ? `<div class="chips" style="margin-bottom:8px;">
+        ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}
+        ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${STAY_TYPE_LABELS[v]}</span>`).join('')}
+      </div>` : ''}
+      ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
+    </div>` : ''}
+    ${fsTravelHtml(t)}
+`,
+      mehr: `
+    ${fsTourMoreHtml(t, [
       t.trackSimplified ? fsMenuItemHtml('download', 'GPX herunterladen', `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}"`) : '',
       (!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? fsMenuItemHtml('download', 'Route als GPX', `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}"`) : '',
       fsMenuItemHtml('upload', 'Exportieren / teilen', `data-act="export-tour" data-id="${t.id}"`),
@@ -1500,6 +1506,8 @@ function tourDetailHtml(id){
       </div>` : `<p class="fs-empty" style="margin:0; font-size:13px; color:var(--ink-soft);">Noch niemand hat diese Tour als abgeschlossen markiert.</p>`}
     </div>
 
+`
+    })}
     <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}${t.updatedAt && t.updatedAt!==t.createdAt ? ` · zuletzt bearbeitet von ${esc(t.updatedBy||'?')} · ${fmtDate(t.updatedAt)}` : ''}</div>
 
   </div>`;
