@@ -1767,3 +1767,4 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxf .v, html.fs-dark .fsm-wx-card{ 
 .fs-sug-row .new{ color:var(--ink); font-weight:700; white-space:pre-wrap; }
 .fs-sug-btns{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; }
 .fs-sug-btns .btn{ min-height:44px; }
+.fs-topo-move{ min-width:34px; min-height:34px; border:none; border-radius:10px; background:#fff; color:var(--ink); font-size:16px; font-weight:800; cursor:pointer; }
