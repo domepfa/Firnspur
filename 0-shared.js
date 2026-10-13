@@ -779,9 +779,12 @@ function fsRescueCollect(appKey, cacheKeys){
 }
 /* ================= Frühere Versionen einer Tour ansehen und zurückholen ================= */
 function fsOwnToursPath(){ return {firnspur: 'tours', fixseil: 'fixseil/tours', wandern: 'wandern/tours'}[fsAppKey()] || 'tours'; }
-async function fsOpenVersions(id){
-  const path = fsOwnToursPath() + '/' + id;
+// Frühere Versionen eines Eintrags (Tour, Termin …). path: Datenbankpfad; bei Touren zusätzlich die
+// früheren GPX-Originaldateien (gpxPath) – Zurückholen stellt Datei UND Linie wieder her.
+async function fsOpenVersions(id, path, gpxPath){
+  path = path || (fsOwnToursPath() + '/' + id);
   const v = fsVersionedSplit(path);
+  const isAgenda = v && v.coll === 'agenda';
   const box = document.createElement('div');
   box.id = 'fs-versions';
   box.className = 'fs-rescue';
@@ -789,41 +792,81 @@ async function fsOpenVersions(id){
   box.addEventListener('click', e=>{ if(e.target === box) box.remove(); });
   document.body.appendChild(box);
   const card = box.querySelector('.fs-rescue-card');
-  const data = await fbGet('versions/' + v.key + '/' + id);
+  const gv = gpxPath ? fsVersionedSplit(gpxPath) : null;
+  const [data, gdata, gcur] = await Promise.all([
+    fbGet('versions/' + v.key + '/' + id),
+    gv ? fbGet('versions/' + gv.key + '/' + gv.id) : null,
+    gv ? fbGet(gpxPath) : null
+  ]);
   const list = data && typeof data === 'object' ? Object.keys(data).sort().reverse().map(k=> Object.assign({_key: k}, data[k])) : [];
+  const glist = gdata && typeof gdata === 'object' ? Object.keys(gdata).sort().reverse().map(k=> Object.assign({_key: k}, gdata[k])).filter(x=> x && x.gpx && (!gcur || x.gpx !== gcur.gpx)) : [];
   const cnt = (a)=> Array.isArray(a) ? a.length : 0;
-  const sum = x=> [
+  const sum = x=> isAgenda ? [
+    x.startDate ? fmtDateShort(x.startDate) : '',
+    cnt(x.participants) ? cnt(x.participants) + ' dabei' : '',
+    x.status || ''
+  ].filter(Boolean).join(' · ') : ([
     cnt(x.points) ? cnt(x.points) + ' Punkte' : '',
     cnt(x.trackSimplified) || cnt(x.manualTrack) ? 'Linie' : '',
     cnt(x.altTracks) ? cnt(x.altTracks) + ' weitere Routen' : '',
     cnt(x.topoImages) ? cnt(x.topoImages) + ' Fotos' : '',
+    cnt(x.completions) ? cnt(x.completions) + ' Begehungen' : '',
     x.deletedAt ? 'im Papierkorb' : ''
-  ].filter(Boolean).join(' · ') || 'ohne Kartendaten';
+  ].filter(Boolean).join(' · ') || 'ohne Kartendaten');
   const when = iso=> iso ? new Date(iso).toLocaleString('de-CH', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}) : '?';
+  const gpts = x=>{ try{ return parseGpxTrackPoints(x.gpx).length; }catch(e){ return 0; } };
   card.innerHTML = `<h3>${fsIconHtml('clock')} Frühere Versionen</h3>
     ${list.length ? `<p class="fs-rescue-muted">Vor jedem Speichern wird die bisherige Fassung hier abgelegt. Zurückholen sichert die aktuelle Fassung ebenfalls zuerst.</p>
     <div class="fs-ver-list">${list.slice(0, 30).map((x, i)=> `<div class="fs-ver-row">
       <div><b>${esc(when(x._versionAt))}</b>${x._versionBy ? ' · gespeichert von ' + esc(x._versionBy) : ''}<br/>
-        <span>${esc(x.name || '')}</span> <span class="fs-rescue-muted">${esc(sum(x))}${x.updatedBy ? ' · Stand von ' + esc(x.updatedBy) : ''}</span></div>
+        <span>${esc(x.name || x.title || '')}</span> <span class="fs-rescue-muted">${esc(sum(x))}${x.updatedBy ? ' · Stand von ' + esc(x.updatedBy) : ''}</span></div>
       <button type="button" class="btn secondary" data-ver="${i}">Zurückholen</button>
     </div>`).join('')}</div>` : `<p>Noch keine früheren Versionen. Ab jetzt wird vor jeder Änderung die bisherige Fassung gesichert.</p>`}
+    ${glist.length ? `<h4 style="margin:16px 0 6px;">Frühere GPX-Dateien</h4>
+    <p class="fs-rescue-muted">Zurückholen ersetzt die GPX-Datei und die Linie der Tour; die jetzige Datei wird vorher gesichert.</p>
+    <div class="fs-ver-list">${glist.slice(0, 20).map((x, i)=> `<div class="fs-ver-row">
+      <div><b>${esc(when(x._versionAt || x.uploadedAt))}</b><br/><span>${esc(x.fileName || 'track.gpx')}</span> <span class="fs-rescue-muted">${gpts(x)} Punkte</span></div>
+      <button type="button" class="btn secondary" data-gver="${i}">Zurückholen</button>
+    </div>`).join('')}</div>` : ''}
     <div class="fs-rescue-actions" style="margin-top:12px;"><button type="button" class="btn secondary" data-close>Schliessen</button></div>`;
   card.querySelector('[data-close]').onclick = ()=> box.remove();
+  const findObj = ()=>{
+    const lists = isAgenda ? [state.agenda] : [state.tours, state.trashedTours];
+    let obj = null; lists.filter(Array.isArray).forEach(l=>{ const f = l.find(y=> y.id === id); if(f) obj = f; });
+    return obj;
+  };
   card.querySelectorAll('[data-ver]').forEach(b=> b.onclick = async ()=>{
     const old = list[+b.getAttribute('data-ver')];
     if(!window.confirm(`Fassung vom ${when(old._versionAt)} zurückholen?\n\nDie jetzige Fassung wird vorher als Version gesichert.`)) return;
     b.disabled = true; b.textContent = '…';
-    const restored = {};
+    const obj = findObj();
+    const restored = obj || {};
+    // Felder der alten Fassung übernehmen; was die alte Fassung nicht kannte, wird geleert
+    Object.keys(restored).forEach(k=>{ if(!k.startsWith('_') && !(k in old) && !['id', 'owner', 'editors', 'open', 'createdAt', 'createdBy'].includes(k)) restored[k] = Array.isArray(restored[k]) ? [] : ''; });
     Object.keys(old).forEach(k=>{ if(!k.startsWith('_')) restored[k] = old[k]; });
     restored.id = id;
     const ok = await fbSet(path, restored);
     if(!ok){ b.disabled = false; b.textContent = 'Zurückholen'; showToast('Zurückholen fehlgeschlagen (keine Verbindung?).', true); return; }
-    const lists = [state.tours, state.trashedTours].filter(Array.isArray);
-    let obj = null; lists.forEach(l=>{ const f = l.find(y=> y.id === id); if(f) obj = f; });
-    if(obj){ Object.keys(obj).forEach(k=> delete obj[k]); Object.assign(obj, restored); }
     box.remove();
     render();
     showToast('Frühere Fassung zurückgeholt.');
+  });
+  card.querySelectorAll('[data-gver]').forEach(b=> b.onclick = async ()=>{
+    const old = glist[+b.getAttribute('data-gver')];
+    if(!window.confirm(`GPX-Datei «${old.fileName || 'track.gpx'}» vom ${when(old._versionAt || old.uploadedAt)} zurückholen?\n\nDatei und Linie der Tour werden ersetzt, die jetzige Datei wird vorher gesichert.`)) return;
+    b.disabled = true; b.textContent = '…';
+    const pts = parseGpxTrackPoints(old.gpx);
+    const okF = await fbSet(gpxPath, {gpx: old.gpx, uploadedAt: new Date().toISOString(), fileName: old.fileName || 'track.gpx'});
+    const t = findObj();
+    let okT = true;
+    if(t && pts.length){
+      t.trackSimplified = simplifyTrackForStorage(pts, 200).map(p=> [Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]);
+      okT = await saveTourCloud(t).catch(()=> false);
+    }
+    if(!okF || !okT){ b.disabled = false; b.textContent = 'Zurückholen'; showToast('Zurückholen fehlgeschlagen (keine Verbindung?).', true); return; }
+    box.remove();
+    render();
+    showToast('GPX-Datei und Linie zurückgeholt.');
   });
 }
 document.addEventListener('click', (e)=>{
@@ -831,7 +874,8 @@ document.addEventListener('click', (e)=>{
   if(!b) return;
   e.preventDefault(); e.stopPropagation();
   const det = b.closest('details'); if(det) det.open = false;
-  fsOpenVersions(b.getAttribute('data-id'));
+  const id = b.getAttribute('data-id'), path = b.getAttribute('data-path');
+  fsOpenVersions(id, path, path ? null : (typeof GPX_TRACKS_PATH !== 'undefined' ? GPX_TRACKS_PATH + '/' + id : null));
 }, true);
 /* ================= GPX-Dateien wieder mit ihren Touren verbinden =================
    Die Original-GPX liegen getrennt von den Touren (gpxTracks/<tourId>, gpxTracksAlt/<tourId>/<altId>).
@@ -2022,6 +2066,7 @@ function agendaDetailHtml(id){
       <button class="btn secondary" data-act="toggle-participation" data-id="${a.id}">${joined ? '↺ Absagen (nicht mehr dabei)' : '✓ Ich bin dabei'}</button>
       <button class="btn secondary" data-act="edit-agenda" data-id="${a.id}">✏️ Bearbeiten</button>
       <button class="btn secondary" data-act="print-tourenzettel" data-id="${a.id}">📋 Tourenzettel teilen</button>
+      <button class="btn secondary" data-act="fs-versions" data-id="${a.id}" data-path="${esc(AGENDA_PATH + '/' + a.id)}">${fsIconHtml('clock')} Frühere Versionen</button>
     </div>
     <div id="delete-agenda-zone" style="margin-top:22px; padding-top:16px; border-top:1px solid var(--line); text-align:right;">
       <button type="button" id="delete-agenda-trigger" data-id="${a.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Termin löschen</button>
