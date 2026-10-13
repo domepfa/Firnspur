@@ -79,6 +79,8 @@ aus anderen Apps übernehmen.
   Andere dürfen ergänzen (leere Felder, neue Listeneinträge, eigene Einträge entfernen); Ändern,
   Entfernen und Löschen wird in `fsSafeSet` zum Vorschlag unter `suggestions/<Sammlung>/<TourId>/<Id>`
   (`fsSplitForSuggestion`). Annehmen/Ablehnen pro Feld nur durch den Eigentümer (`fsSugDecide`).
+- Admins (`FS_ADMINS` in `0-shared.js`, erkannt am Namen): ändern und löschen jede Tour direkt und
+  entscheiden Vorschläge bei allen Touren.
 - Nie eine ganze Sammlung schreiben oder löschen; jeder Pfad endet mit einer gültigen ID
   (`fbPathOk`). Vor jedem Überschreiben sichert `fbSet` die alte Fassung unter `versions/`.
 - Gemeinsame Orte (alle Apps): `orte/<id>` mit Art, Notiz, Foto, Stand-Datum; Touren verweisen mit

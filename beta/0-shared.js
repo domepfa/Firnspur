@@ -257,6 +257,10 @@ function fsDetectLosses(cur, res){
    suggestions/<Sammlung>/<TourId>/<Id>; die Tour bleibt so, bis der Eigentümer annimmt.
    Gilt nicht, wenn der Eigentümer die Tour auf «alle dürfen ändern» (open) gestellt hat. */
 const FS_DEFAULT_OWNER = 'Dome';
+// Admins: dürfen jede Tour direkt ändern und löschen und Vorschläge überall annehmen/ablehnen.
+// Erkannt am eingegebenen Namen (wie Eigentümer), nicht an einem eigenen Login.
+const FS_ADMINS = ['Dome'];
+function fsIsAdmin(me){ const k = fsNameKey(me !== undefined ? me : (typeof state !== 'undefined' && state.myName)); return !!k && FS_ADMINS.some(a=> fsNameKey(a) === k); }
 const FS_OWNED_COLLS = ['tours', 'fixseil/tours', 'wandern/tours'];
 const FS_OWNER_FIELDS = ['owner', 'editors', 'open'];
 const FS_SUG_EMPTY = '(leer)'; // Firebase speichert leere Listen nicht — «leeren» als Marker
@@ -269,11 +273,13 @@ function fsCanEditDirect(t, me){
   if(!t) return true;
   me = fsNameKey(me !== undefined ? me : (typeof state !== 'undefined' && state.myName));
   if(!me) return false;
+  if(fsIsAdmin(me)) return true;
   if(t.open === true) return true;
   if(fsNameKey(fsOwnerOf(t)) === me) return true;
   return Array.isArray(t.editors) && t.editors.some(e=> fsNameKey(e) === me);
 }
-function fsIsOwner(t, me){ return fsNameKey(fsOwnerOf(t)) === fsNameKey(me !== undefined ? me : (typeof state !== 'undefined' && state.myName)); }
+// Eigentümer-Rechte (Vorschläge entscheiden, Eigentümerfelder): Eigentümer oder Admin
+function fsIsOwner(t, me){ const m = me !== undefined ? me : (typeof state !== 'undefined' && state.myName); return fsNameKey(fsOwnerOf(t)) === fsNameKey(m) || fsIsAdmin(m); }
 function fsSugKey(coll){ return coll.replace(/\//g, '_'); }
 // Trennt meine Änderungen (result gegenüber cur) in direkt erlaubte und Vorschläge.
 // Gibt {changes, before} zurück und setzt die vorgeschlagenen Felder in result auf den Stand von cur.
