@@ -874,6 +874,7 @@ async function submitTourForm(form, existing){
   t.tourLink = form.tourLink;
   t.gpxLink = form.gpxLink || '';
   fsApplyLinksFromForm(t, form, existing);
+  fsApplyOwnerFromForm(t, form);
   try{ t.trackSimplified = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ t.trackSimplified = null; }
   try{ t.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ t.manualTrack = []; }
   const routeUploads = fsApplyRoutesFromForm(t, form, existing);
@@ -1240,6 +1241,7 @@ function tourFormHtml(existing){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${isEditing?'Tour bearbeiten':'Neue Skitour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="tour-form" novalidate>
+      ${fsOwnerFieldHtml(t)}
       <div class="row2">
         <div class="field"><label>Gipfel / Bergmassiv *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Titlis"/></div>
         <div class="field"><label>Route</label><input name="routeName" value="${esc(t.routeName||'')}" placeholder="z. B. von Engstlenalp"/></div>
@@ -1423,6 +1425,7 @@ function tourDetailHtml(id){
       ['Material', (t.material||[]).join(', ')],
       ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')]
     ])}
+    ${fsSuggestionsHtml(t)}
     ${(hut || gebiet || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">
       ${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}
       ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}

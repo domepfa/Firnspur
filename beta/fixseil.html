@@ -1558,6 +1558,7 @@ async function submitTourForm(form, existing){
   t.tourLink = form.tourLink;
   t.gpxLink = form.gpxLink || '';
   fsApplyLinksFromForm(t, form, existing);
+  fsApplyOwnerFromForm(t, form);
   try{ t.trackSimplified = form.trackSimplified ? JSON.parse(form.trackSimplified) : null; }catch(e){ t.trackSimplified = null; }
   try{ t.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ t.manualTrack = []; }
   const routeUploads = fsApplyRoutesFromForm(t, form, existing);
@@ -3863,6 +3864,7 @@ function tourFormHtml(existing){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${(existing&&existing.id)?'Tour bearbeiten':'Neue Tour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="tour-form" novalidate>
+      ${fsOwnerFieldHtml(t)}
       <div class="field"><label>Tourtyp</label>
         <div class="chips">
           <button type="button" class="chip type-chip ${(t.tourCategory||'hochtour')==='hochtour'?'on':''}" style="${(t.tourCategory||'hochtour')==='hochtour'?'background:var(--ice-deep)':''}" data-type="hochtour">🏔️ Hochtour</button>
@@ -4158,6 +4160,7 @@ function tourDetailHtml(id){
       ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')]
     ])}
     ${(t.topoImages && t.topoImages.length) ? `<div class="detail-section" style="margin-bottom:14px;"><h4>Topo</h4>${topoImagesGalleryHtml(t.topoImages)}</div>` : ''}
+    ${fsSuggestionsHtml(t)}
     ${(hut || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button>` : ''}</div>` : ''}
     ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
     ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}

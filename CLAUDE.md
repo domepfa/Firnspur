@@ -74,6 +74,10 @@ aus anderen Apps übernehmen.
 - Notbremse (`fsDetectLosses`): würde beim Speichern Grösseres verschwinden (Feld leer, Linie weg,
   mehrere Listeneinträge, Text stark gekürzt), fragt die App; «Abbrechen» speichert ohne den Verlust.
   Touren und Hütten ohne Namen lehnen App und Datenbank-Regel ab.
+- Eigentümer (Touren): `owner` (sonst `createdBy`, sonst `FS_DEFAULT_OWNER`), `editors`, `open`.
+  Andere dürfen ergänzen (leere Felder, neue Listeneinträge, eigene Einträge entfernen); Ändern,
+  Entfernen und Löschen wird in `fsSafeSet` zum Vorschlag unter `suggestions/<Sammlung>/<TourId>/<Id>`
+  (`fsSplitForSuggestion`). Annehmen/Ablehnen pro Feld nur durch den Eigentümer (`fsSugDecide`).
 - Nie eine ganze Sammlung schreiben oder löschen; jeder Pfad endet mit einer gültigen ID
   (`fbPathOk`). Vor jedem Überschreiben sichert `fbSet` die alte Fassung unter `versions/`.
 - Import ergänzt, ersetzt nie (`fsImportMerge`).
