@@ -122,12 +122,12 @@ await scenario('Andere Felder', async ({ db, env, saveVia }) => {
   ok('Andere Felder: mein Name + deren Notiz + deren Begehung', d.name === 'Neu von mir' && d.notes === 'von B' && d.completions.some(c => c.by === 'B'), JSON.stringify({ n: d.name, no: d.notes, c: d.completions }));
 });
 await scenario('Zweimal speichern', async ({ db, env, saveVia }) => {
-  await saveVia("t.material = [];");
-  await saveVia("t.material = ['Spaltenrettungsset']; t.notes = '';");
+  await saveVia("t.stayTypes = [];");
+  await saveVia("t.stayTypes = ['huette']; t.notes = '';");
   await saveVia("t.notes = 'Notiz';");
   const d = db.get(TP);
   ok('Zweimal speichern: keine Rückfrage mit sich selbst', !env.dialogs.length, env.dialogs.join(' | '));
-  ok('Zweimal speichern: Werte richtig', d.material && d.material[0] === 'Spaltenrettungsset' && d.notes === 'Notiz', JSON.stringify({ m: d.material, n: d.notes }));
+  ok('Zweimal speichern: Werte richtig', d.stayTypes && d.stayTypes[0] === 'huette' && d.notes === 'Notiz', JSON.stringify({ m: d.stayTypes, n: d.notes }));
 });
 await scenario('Gleiches Feld', async ({ db, env, saveVia }) => {
   db.set(TP, { ...db.get(TP), name: 'Name von B', updatedBy: 'B', updatedAt: '2026-10-11T00:00:00Z' });
@@ -167,6 +167,29 @@ await scenario('Offline', async ({ page, db, env, saveVia }) => {
   await page.reload(); await page.waitForTimeout(4000);
   const d = db.get(TP);
   ok('Offline: nach dem Neuladen zusammengeführt', d.name === 'Offline von mir' && d.notes === 'online von B', JSON.stringify({ n: d.name, no: d.notes, dlg: env.dialogs }));
+});
+
+await scenario('Notbremse: Liste leer', async ({ db, env, saveVia }) => {
+  env.answer = false; // «Abbrechen»: Änderungen speichern, Verlorenes behalten
+  await saveVia("t.material = []; t.name = 'Neu';");
+  const d = db.get(TP);
+  ok('Notbremse: Rückfrage bei mehreren entfernten Einträgen', env.dialogs.length === 1 && /Material/.test(env.dialogs[0]), env.dialogs.join(' | '));
+  ok('Notbremse: Abbrechen behält Liste, speichert Rest', d.name === 'Neu' && d.material && d.material.length === 2, JSON.stringify({ n: d.name, m: d.material }));
+});
+await scenario('Notbremse: Text gekürzt', async ({ db, env, saveVia }) => {
+  await saveVia("t.ascent = 'Ein langer Aufstiegsbeschrieb mit vielen Details zur Route, Spalten und Varianten.';");
+  await saveVia("t.ascent = 'kurz';");
+  ok('Notbremse: Rückfrage bei stark gekürztem Text', env.dialogs.length === 1 && /gekürzt/.test(env.dialogs[0]), env.dialogs.join(' | '));
+  ok('Notbremse: OK speichert gekürzt', db.get(TP).ascent === 'kurz');
+});
+await scenario('Notbremse: einzelner Eintrag', async ({ db, env, saveVia }) => {
+  await saveVia("t.gefahren = ['Lawinenhang'];");
+  ok('Notbremse: einzeln entfernt ohne Rückfrage', !env.dialogs.length && db.get(TP).gefahren.length === 1, env.dialogs.join(' | '));
+});
+await scenario('Notbremse: Feld geleert', async ({ db, env, saveVia }) => {
+  env.answer = false;
+  await saveVia("t.crux = '';");
+  ok('Notbremse: geleertes Feld wird nachgefragt und bleibt', env.dialogs.length === 1 && db.get(TP).crux === tour0.crux, env.dialogs.join(' | '));
 });
 
 await browser.close(); server.close();

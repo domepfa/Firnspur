@@ -222,6 +222,33 @@ function fsResolveConflicts(result, conflicts, cur){
     if(!keepMine) fsSetPath(result, c.path, c.theirs);
   });
 }
+// Notbremse: Was ginge beim Speichern gegenüber dem aktuellen Stand verloren? Erfasst grössere
+// Verluste (ausgefülltes Feld wird leer, Linie fällt weg oder schrumpft stark, mehrere Listeneinträge
+// auf einmal, langer Text stark gekürzt). Einzelne entfernte Listeneinträge gelten als bewusst.
+const FS_LOSS_IGNORE = new Set(['updatedAt', 'updatedBy', 'deletedAt', 'deletedBy', 'status', 'conditions', 'summitIdsParked',
+  'hutId', 'gebietId', 'sektorId', 'klettergebietId', 'createdAt', 'createdBy']);
+function fsDetectLosses(cur, res){
+  const out = [];
+  Object.keys(cur || {}).forEach(k=>{
+    if(k[0] === '_' || FS_LOSS_IGNORE.has(k)) return;
+    const c = cur[k], r = res ? res[k] : undefined, label = FS_FIELD_LABELS[k] || k;
+    if(fsCanon(c) === null) return;
+    if(fsIsCoordList(c)){
+      const n = Array.isArray(r) ? r.length : 0;
+      if(n < c.length * 0.5) out.push({key:k, restore:c, text: n ? `${label}: von ${c.length} auf ${n} Punkte gekürzt` : `${label} (${c.length} Punkte)`});
+      return;
+    }
+    if(Array.isArray(c)){
+      const keep = new Set((Array.isArray(r) ? r : []).map(fsImportKey));
+      const lost = c.filter(x=> !keep.has(fsImportKey(x)));
+      if(lost.length >= 2) out.push({key:k, restore:(Array.isArray(r) ? r : []).concat(lost), text: `${label}: ${lost.length} Einträge`});
+      return;
+    }
+    if(fsCanon(r) === null){ out.push({key:k, restore:c, text: `${label}${typeof c === 'string' && c.length > 30 ? ' (' + c.length + ' Zeichen)' : ''}`}); return; }
+    if(typeof c === 'string' && typeof r === 'string' && c.length >= 40 && r.length < c.length * 0.5) out.push({key:k, restore:c, text: `${label}: von ${c.length} auf ${r.length} Zeichen gekürzt`});
+  });
+  return out;
+}
 // Liest den aktuellen Stand mit Versionskennung; fällt ohne Kennung zurück, falls der Browser sie nicht darf
 async function fsGetWithEtag(path){
   if(!fsEtagOff){
@@ -280,7 +307,19 @@ async function fsSafeSet(path, value, v){
           result.participants = cur.participants.filter(p=> p && p.by && p.by !== me).concat((result.participants || []).filter(p=> p && p.by === me));
         }
       }
+      const losses = fsDetectLosses(cur, result);
+      if(losses.length){
+        const title = cur.name || cur.tourName || cur.title || 'Dieser Eintrag';
+        const go = window.confirm(`«${title}»: Beim Speichern würde Folgendes entfernt:\n\n– ${losses.map(l=> l.text).join('\n– ')}\n\nOK: so speichern (die bisherige Fassung bleibt unter «Frühere Versionen»)\nAbbrechen: deine Änderungen speichern, diese Angaben aber behalten`);
+        if(!go){ losses.forEach(l=>{ result[l.key] = l.restore; }); dlog('Notbremse: Verlust verhindert (' + losses.map(l=> l.key).join(', ') + '): ' + path); }
+      }
       if(!fsEq(cur, result)) await fsSaveVersion(v, cur, 'vor dem Speichern');
+    }
+    // Wie die Datenbank-Regel: Touren und Hütten nie ohne Namen
+    if(/(^|\/)(tours|huts)$/.test(v.coll) && !(typeof result.name === 'string' && result.name.trim())){
+      dlog('Speichern blockiert (kein Name): ' + path, 'err');
+      if(typeof showToast === 'function') showToast('Nicht gespeichert: Der Eintrag hat keinen Namen.', true);
+      return false;
     }
     result.updatedAt = new Date().toISOString();
     if(typeof state !== 'undefined' && state.myName) result.updatedBy = state.myName;
