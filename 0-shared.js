@@ -52,6 +52,7 @@ async function fbGet(path){
     const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam);
     if(!res.ok){ dlog('Firebase GET fehlgeschlagen ('+res.status+'): '+path, 'err'); return null; }
     const data = await res.json();
+    if(typeof FS_OWNED_COLLS !== 'undefined' && FS_OWNED_COLLS.includes(path) && path === fsTourColl()) setTimeout(()=> fsSugLoad(path), 0);
     if(FS_VERSIONED.includes(path) && data && typeof data === 'object') Object.keys(data).forEach(id=>{ fsBaseStamp.set(path + '/' + id, (data[id] && data[id].updatedAt) || ''); fsBaseRemember(path + '/' + id, data[id]); });
     else{ const v = fsVersionedSplit(path); if(v && !FS_FILE_COLLS.includes(v.coll) && data && typeof data === 'object'){ fsBaseStamp.set(path, data.updatedAt || ''); fsBaseRemember(path, data); } }
     return data;
@@ -249,6 +250,170 @@ function fsDetectLosses(cur, res){
   });
   return out;
 }
+/* ===== Eigentümer und Vorschläge (Touren) =====
+   Eine Tour gehört ihrem Ersteller (owner, sonst createdBy; ohne Angabe FS_DEFAULT_OWNER). Wer nicht
+   Eigentümer oder Mitbearbeiter ist, darf ERGÄNZEN (leeres Feld füllen, Listeneinträge hinzufügen,
+   eigene Einträge entfernen) direkt. ÄNDERN oder ENTFERNEN von Bestehendem wird ein Vorschlag unter
+   suggestions/<Sammlung>/<TourId>/<Id>; die Tour bleibt so, bis der Eigentümer annimmt.
+   Gilt nicht, wenn der Eigentümer die Tour auf «alle dürfen ändern» (open) gestellt hat. */
+const FS_DEFAULT_OWNER = 'Dome';
+const FS_OWNED_COLLS = ['tours', 'fixseil/tours', 'wandern/tours'];
+const FS_OWNER_FIELDS = ['owner', 'editors', 'open'];
+const FS_SUG_EMPTY = '(leer)'; // Firebase speichert leere Listen nicht — «leeren» als Marker
+function fsNameKey(n){ return String(n || '').trim().toLowerCase(); }
+function fsOwnerOf(t){
+  const o = (t && (t.owner || t.createdBy)) || '';
+  return (!o || o === 'Name') ? FS_DEFAULT_OWNER : o;
+}
+function fsCanEditDirect(t, me){
+  if(!t) return true;
+  me = fsNameKey(me !== undefined ? me : (typeof state !== 'undefined' && state.myName));
+  if(!me) return false;
+  if(t.open === true) return true;
+  if(fsNameKey(fsOwnerOf(t)) === me) return true;
+  return Array.isArray(t.editors) && t.editors.some(e=> fsNameKey(e) === me);
+}
+function fsIsOwner(t, me){ return fsNameKey(fsOwnerOf(t)) === fsNameKey(me !== undefined ? me : (typeof state !== 'undefined' && state.myName)); }
+function fsSugKey(coll){ return coll.replace(/\//g, '_'); }
+// Trennt meine Änderungen (result gegenüber cur) in direkt erlaubte und Vorschläge.
+// Gibt {changes, before} zurück und setzt die vorgeschlagenen Felder in result auf den Stand von cur.
+function fsSplitForSuggestion(cur, result, me){
+  const changes = {}, before = {};
+  const meK = fsNameKey(me);
+  new Set([...Object.keys(cur || {}), ...Object.keys(result || {})]).forEach(k=>{
+    if(k[0] === '_' || k === 'updatedAt' || k === 'updatedBy' || k === 'createdAt' || k === 'createdBy') return;
+    const c = cur[k], r = result[k];
+    if(fsEq(c, r)) return;
+    if(FS_OWNER_FIELDS.includes(k)){ if(c === undefined) delete result[k]; else result[k] = c; return; } // nur der Eigentümer
+    if(k !== 'deletedAt' && k !== 'deletedBy' && fsCanon(c) === null) return;              // leeres Feld füllen = ergänzen
+    if(k === 'deletedBy') return;
+    if(Array.isArray(c) && Array.isArray(r) && !fsIsCoordList(c) && !fsIsCoordList(r)){
+      const rKeys = new Set(r.map(fsImportKey));
+      const removed = c.filter(x=> !rKeys.has(fsImportKey(x)) && !(x && typeof x === 'object' && fsNameKey(x.by || x.uploadedBy || x.addedBy) === meK && meK));
+      const cMap = new Map(c.map(x=> [fsImportKey(x), x]));
+      const changed = r.filter(x=> cMap.has(fsImportKey(x)) && !fsEq(cMap.get(fsImportKey(x)), x) && !(x && typeof x === 'object' && fsNameKey(x.by) === meK && meK));
+      if(!removed.length && !changed.length) return;                                       // nur hinzugefügt
+      changes[k] = r.length ? r : FS_SUG_EMPTY; before[k] = c;
+      // direkt: bisherige Einträge (unverändert) + meine neuen
+      result[k] = c.concat(r.filter(x=> !cMap.has(fsImportKey(x))));
+      return;
+    }
+    changes[k] = fsCanon(r) === null ? FS_SUG_EMPTY : r; before[k] = c === undefined ? null : c;
+    if(c === undefined) delete result[k]; else result[k] = c;
+  });
+  if(changes.deletedAt === FS_SUG_EMPTY){ delete changes.deletedAt; delete before.deletedAt; }
+  return {changes, before};
+}
+async function fsSaveSuggestion(coll, id, cur, changes, before){
+  const me = (typeof state !== 'undefined' && state.myName) || 'Unbekannt';
+  const sid = 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const sug = {id: sid, by: me, at: new Date().toISOString(), entryName: cur.name || '', changes, before, status: 'offen'};
+  const ok = await fbSet('suggestions/' + fsSugKey(coll) + '/' + id + '/' + sid, sug).catch(()=> false);
+  if(ok){ (fsSug[coll] = fsSug[coll] || {})[id] = Object.assign({}, (fsSug[coll] || {})[id], {[sid]: sug}); }
+  return ok;
+}
+// Geladene Vorschläge: fsSug[coll][tourId][sid]
+const fsSug = {};
+const fsSugLoading = {};
+let fsSugAnnounced = false;
+async function fsSugLoad(coll){
+  if(fsSugLoading[coll]) return fsSugLoading[coll];
+  fsSugLoading[coll] = fbGet('suggestions/' + fsSugKey(coll)).then(d=>{
+    fsSug[coll] = d || {};
+    if(!fsSugAnnounced && typeof state !== 'undefined' && state.myName){
+      const mine = fsSugOpenForOwner(coll);
+      if(mine.length){ fsSugAnnounced = true; setTimeout(()=> showToast(mine.length === 1 ? '1 Vorschlag zur Prüfung: ' + mine[0].name : mine.length + ' Vorschläge zur Prüfung, z.B. bei ' + mine[0].name), 1500); }
+    }
+    if(typeof render === 'function') render();
+  }).catch(()=>{}).finally(()=>{ setTimeout(()=>{ fsSugLoading[coll] = null; }, 60000); });
+  return fsSugLoading[coll];
+}
+function fsSugOpen(coll, id){
+  const all = (fsSug[coll] || {})[id] || {};
+  return Object.values(all).filter(s=> s && s.status === 'offen' && s.changes && Object.keys(s.changes).length).sort((a, b)=> (a.at || '').localeCompare(b.at || ''));
+}
+function fsSugOpenForOwner(coll){
+  const out = [];
+  Object.keys(fsSug[coll] || {}).forEach(id=>{
+    const t = (state.tours || []).find(x=> x.id === id);
+    if(t && fsIsOwner(t) && fsSugOpen(coll, id).length) out.push(t);
+  });
+  return out;
+}
+function fsTourColl(){ return typeof OWN_TOURS_PATH !== 'undefined' ? OWN_TOURS_PATH : 'tours'; }
+function fsSugValHtml(v){ return esc(fsConflictShort(v)); }
+// Box in der Tourenansicht: offene Vorschläge, für alle sichtbar
+function fsSuggestionsHtml(t){
+  if(!t || !t.id) return '';
+  const coll = fsTourColl();
+  if(!fsSug[coll]) fsSugLoad(coll);
+  const list = fsSugOpen(coll, t.id);
+  if(!list.length) return '';
+  const owner = fsIsOwner(t), me = fsNameKey(state.myName);
+  return `<div class="detail-section fs-sug">${list.map(s=>{
+    const fields = Object.keys(s.changes);
+    const when = new Date(s.at).toLocaleString('de-CH', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+    return `<div class="fs-sug-card">
+      <p class="fs-sug-h">Offener Vorschlag von ${esc(s.by)} · ${when}</p>
+      <p class="hint" style="margin:0 0 6px;">Noch nicht übernommen — wartet auf ${esc(fsOwnerOf(t))}.</p>
+      ${fields.map(f=> `<div class="fs-sug-row">
+        <b>${esc(FS_FIELD_LABELS[f] || f)}</b>
+        ${f === 'deletedAt' ? '' : `<span class="old">bisher: ${fsSugValHtml(s.before ? s.before[f] : null)}</span>`}
+        <span class="new">neu: ${f === 'deletedAt' ? (s.changes[f] === FS_SUG_EMPTY ? 'Tour wiederherstellen' : 'Tour löschen') : fsSugValHtml(s.changes[f])}</span>
+        ${owner ? `<div class="fs-sug-btns"><button type="button" class="btn" onclick="fsSugDecide('${esc(t.id)}','${esc(s.id)}','${esc(f)}',true)">Übernehmen</button><button type="button" class="btn secondary" onclick="fsSugDecide('${esc(t.id)}','${esc(s.id)}','${esc(f)}',false)">Ablehnen</button></div>` : ''}
+      </div>`).join('')}
+      ${owner && fields.length > 1 ? `<button type="button" class="btn" style="width:100%; margin-top:6px;" onclick="fsSugDecide('${esc(t.id)}','${esc(s.id)}','*',true)">Alles übernehmen</button>` : ''}
+      ${!owner && fsNameKey(s.by) === me ? `<button type="button" class="btn secondary" style="width:100%; margin-top:6px;" onclick="fsSugWithdraw('${esc(t.id)}','${esc(s.id)}')">Vorschlag zurückziehen</button>` : ''}
+    </div>`;
+  }).join('')}</div>`;
+}
+async function fsSugWrite(coll, id, s){
+  if(!Object.keys(s.changes || {}).length && s.status === 'offen') s.status = 'erledigt';
+  return fbSet('suggestions/' + fsSugKey(coll) + '/' + id + '/' + s.id, s).catch(()=> false);
+}
+async function fsSugDecide(tourId, sid, field, accept){
+  const coll = fsTourColl(), t = state.tours.find(x=> x.id === tourId);
+  const s = ((fsSug[coll] || {})[tourId] || {})[sid];
+  if(!t || !s || !fsIsOwner(t)) return;
+  const fields = field === '*' ? Object.keys(s.changes) : [field];
+  if(accept && fields.includes('deletedAt') && !confirm('Vorschlag annehmen und die Tour löschen (in den Papierkorb)?')) return;
+  if(!accept && !confirm(fields.length > 1 ? 'Diese Vorschläge ablehnen?' : 'Diesen Vorschlag ablehnen?')) return;
+  if(accept){
+    fields.forEach(f=>{ const v = s.changes[f]; if(v === FS_SUG_EMPTY || v === null || v === undefined) t[f] = Array.isArray(s.before && s.before[f]) ? [] : ''; else t[f] = v; if(f === 'deletedAt'){ t.deletedBy = s.by; } });
+    const ok = await saveTourCloud(t).catch(()=> false);
+    if(!ok){ showToast('Konnte nicht speichern (Internet?).', true); return; }
+  }
+  fields.forEach(f=>{ delete s.changes[f]; if(s.before) delete s.before[f]; });
+  s.decidedAt = new Date().toISOString(); s.decidedBy = state.myName;
+  if(!Object.keys(s.changes).length) s.status = accept ? 'angenommen' : 'abgelehnt';
+  await fsSugWrite(coll, tourId, s);
+  showToast(accept ? 'Übernommen.' : 'Abgelehnt.');
+  render();
+}
+async function fsSugWithdraw(tourId, sid){
+  const coll = fsTourColl(), s = ((fsSug[coll] || {})[tourId] || {})[sid];
+  if(!s || !confirm('Vorschlag zurückziehen?')) return;
+  s.status = 'zurückgezogen';
+  await fsSugWrite(coll, tourId, s);
+  render();
+}
+// Formular: Eigentümer stellt ein, wer direkt ändern darf; alle anderen sehen den Hinweis
+function fsOwnerFieldHtml(t){
+  if(!t || !t.id || !(state.tours || []).some(x=> x.id === t.id)) return ''; // neue Tour: gehört mir
+  if(!fsIsOwner(t)){
+    return fsCanEditDirect(t) ? '' : `<div class="field fs-owner-note"><p class="hint" style="margin:0;">Diese Tour gehört ${esc(fsOwnerOf(t))}. Ergänzungen (leere Felder füllen, neue Begehungen, Fotos, Links) gehen direkt; Änderungen an Bestehendem werden als Vorschlag gespeichert, bis ${esc(fsOwnerOf(t))} sie übernimmt.</p></div>`;
+  }
+  return `<div class="field"><label>Wer darf diese Tour direkt ändern?</label>
+    <select name="ownerOpen"><option value="">Nur ich und Mitbearbeiter</option><option value="1" ${t.open === true ? 'selected' : ''}>Alle direkt</option></select>
+    <input type="text" name="ownerEditors" value="${esc((t.editors || []).join(', '))}" placeholder="Mitbearbeiter, z.B. Anna, Beat" style="margin-top:8px;"/>
+    <div class="hint">Alle anderen dürfen ergänzen; Änderungen an Bestehendem kommen als Vorschlag zu dir.</div></div>`;
+}
+function fsApplyOwnerFromForm(t, form){
+  if(!t.owner) t.owner = fsOwnerOf(t);
+  if(form.ownerOpen === undefined || !fsIsOwner(t)) return;
+  t.open = form.ownerOpen === '1';
+  t.editors = String(form.ownerEditors || '').split(',').map(x=> x.trim()).filter(Boolean);
+}
 // Liest den aktuellen Stand mit Versionskennung; fällt ohne Kennung zurück, falls der Browser sie nicht darf
 async function fsGetWithEtag(path){
   if(!fsEtagOff){
@@ -307,6 +472,16 @@ async function fsSafeSet(path, value, v){
           result.participants = cur.participants.filter(p=> p && p.by && p.by !== me).concat((result.participants || []).filter(p=> p && p.by === me));
         }
       }
+      // Eigentümer: Änderungen anderer an Bestehendem werden ein Vorschlag
+      if(FS_OWNED_COLLS.includes(v.coll) && !fsCanEditDirect(cur)){
+        const sp = fsSplitForSuggestion(cur, result, (typeof state !== 'undefined' && state.myName) || '');
+        if(Object.keys(sp.changes).length){
+          const okS = await fsSaveSuggestion(v.coll, v.id, cur, sp.changes, sp.before);
+          const labels = Object.keys(sp.changes).map(k=> FS_FIELD_LABELS[k] || k).join(', ');
+          setTimeout(()=> showToast(okS ? 'Als Vorschlag an ' + fsOwnerOf(cur) + ' geschickt: ' + labels + '.' : 'Vorschlag konnte nicht gespeichert werden (Internet?).', !okS), 400);
+          dlog('Vorschlag statt Änderung (' + labels + '): ' + path);
+        }
+      }
       const losses = fsDetectLosses(cur, result);
       if(losses.length){
         const title = cur.name || cur.tourName || cur.title || 'Dieser Eintrag';
@@ -315,6 +490,7 @@ async function fsSafeSet(path, value, v){
       }
       if(!fsEq(cur, result)) await fsSaveVersion(v, cur, 'vor dem Speichern');
     }
+    if(FS_OWNED_COLLS.includes(v.coll) && !(cur && typeof cur === 'object') && !result.owner && typeof state !== 'undefined' && state.myName) result.owner = state.myName;
     // Wie die Datenbank-Regel: Touren und Hütten nie ohne Namen
     if(/(^|\/)(tours|huts)$/.test(v.coll) && !(typeof result.name === 'string' && result.name.trim())){
       dlog('Speichern blockiert (kein Name): ' + path, 'err');
