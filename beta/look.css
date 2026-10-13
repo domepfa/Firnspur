@@ -1899,11 +1899,13 @@ html.fs-search-open .fs-search-btn{ display:none !important; }
 .fs-ort-photo-row img{ width:72px; height:72px; object-fit:cover; border-radius:12px; display:block; }
 .fs-ort-msg{ min-height:1em; margin:10px 0 0; font-size:13.5px; color:var(--signal-deep); }
 .fs-ort-sheet .in{ max-width:620px; margin:0 auto; }
-/* Orte auf der Karte */
-.fsm-ort{ display:flex; align-items:center; gap:5px; height:32px; padding:0 9px 0 6px; border:2px solid #fff; border-radius:16px;
-  background:var(--ice-deep); color:#fff; font:inherit; font-size:12px; font-weight:700; box-shadow:0 2px 8px rgba(15,30,39,.35); cursor:pointer; }
-.fsm-ort .fs-i{ width:18px; height:18px; flex-shrink:0; }
-.fsm-ort span{ max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* Orte auf der Karte: kleines weisses Rund mit Strich-Icon, Name erst nah (ab Zoom 14) und dezent */
+.fsm-ort{ display:flex; align-items:center; gap:4px; height:26px; padding:0; border:none; background:none; font:inherit; cursor:pointer; }
+.fsm-ort .fs-i{ box-sizing:border-box; width:26px; height:26px; padding:4px; flex-shrink:0; border-radius:50%; background:#fff; color:var(--ice-deep);
+  border:1.5px solid var(--ice-deep); box-shadow:0 1px 4px rgba(15,30,39,.25); }
+.fsm-ort span{ display:none; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:1px 6px; border-radius:8px;
+  background:rgba(255,255,255,.85); color:var(--ink); font-size:11px; font-weight:700; }
+.fsm-ort-names .fsm-ort span{ display:block; }
 .fsm-ort-hold button{ display:flex; align-items:center; gap:8px; min-height:44px; padding:0 14px; border:none; border-radius:12px;
   background:var(--ice-deep); color:#fff; font:inherit; font-size:14px; font-weight:700; cursor:pointer; }
 .fsm-ort-hold .fs-i{ width:18px; height:18px; }
