@@ -958,6 +958,7 @@ function shellHtml(){
           ${state.myName ? `<span>Angemeldet als <strong>${esc(state.myName)}</strong></span><button data-act="change-name">Namen ändern</button>` : `<button data-act="change-name">Namen setzen</button>`}
           <button data-act="export-data">📤 Exportieren</button>
           <button data-act="import-data">📥 Importieren</button>
+          <button data-act="view-abgeschlossen">✓ Erledigte Touren</button>
           <button data-act="view-papierkorb">🗑️ Papierkorb${papierkorbTrashCount() ? ` (${papierkorbTrashCount()})` : ''}</button>
         </div>
       </details>
@@ -966,7 +967,7 @@ function shellHtml(){
       <button class="tab ${state.view==='gebiete'?'active':''}" data-act="view-gebiete">⛰️ Gebiete</button>
       <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">🎿 Touren</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
-      <button class="tab ${state.view==='abgeschlossen'?'active':''}" data-act="view-abgeschlossen">✓ Done</button>
+      ${state.view==='abgeschlossen' ? `<button class="tab active" data-act="view-abgeschlossen">✓ Erledigt</button>` : ''}
     </div></div>
   </div>
   <main>
@@ -1016,7 +1017,7 @@ function tourenViewHtml(){
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar toolbar-row">
-      <button type="button" class="btn secondary" id="tour-filter-toggle-btn">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+      <button type="button" class="btn secondary" id="tour-filter-toggle-btn">${fsIconHtml('sliders')} Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
       <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">⭐ Nur Merkliste</button>
       ${sortControlHtml('tour', TOUR_SORT_OPTIONS, state.tourSortBy, state.tourSortDir)}
     </div>
