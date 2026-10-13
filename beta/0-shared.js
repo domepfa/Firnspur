@@ -6156,6 +6156,8 @@ const FSM_OVERLAYS = [
   {id:'hangneigung', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
   {id:'slf', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
   {id:'sperrungen', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
+  // ÖV-Haltestellen (BAV); antippen zeigt Name, Fahrplan und «als Ort übernehmen»
+  {id:'oev', label:'ÖV-Haltestellen', icon:'bus', tiles:[FSM_WMTS('ch.bav.haltestellen-oev','png')]},
   // Wildruhezonen und eidg. Wildschutzgebiete (BAFU); antippen zeigt Name und Bestimmungen
   {id:'wildschutz', label:'Wildschutz (Wildruhezonen)', icon:'alert', opacity:0.75, tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.bafu.wrz-wildruhezonen_portal,ch.bafu.bundesinventare-jagdbanngebiete&STYLES=,&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln — siehe fsmLoadPoints
@@ -6690,6 +6692,10 @@ async function fsmHandleInfoClick(map, ll, opts){
     const f = await identifyWegsperrungAt(null, ll, fsmIdentifyView(map));
     if(f){ fsmPopup(map, lngLat, buildWegsperrungPopupContent(f)); return true; }
   }
+  if(fsmOverlayOn(map, 'oev')){
+    const list = await identifyHaltestelleAt(ll, fsmIdentifyView(map));
+    if(list){ fsmPopup(map, lngLat, buildHaltestellePopup(list)); return true; }
+  }
   if(fsmOverlayOn(map, 'wildschutz')){
     const list = await identifyWildschutzAt(ll, fsmIdentifyView(map));
     if(list){ fsmPopup(map, lngLat, buildWildschutzPopupHtml(list)); return true; }
@@ -7163,6 +7169,53 @@ async function identifyWegsperrungAt(map, latlng, view){
     const data = await res.json();
     return (data.results && data.results.length) ? data.results[0] : null;
   }catch(e){ return null; }
+}
+// ÖV-Haltestellen in der Nähe des Tipps (Punkte: etwas Toleranz), je Name nur einmal
+async function identifyHaltestelleAt(latlng, view){
+  try{
+    const params = new URLSearchParams({
+      geometryType: 'esriGeometryPoint', geometry: latlng.lng + ',' + latlng.lat, geometryFormat: 'geojson',
+      layers: 'all:ch.bav.haltestellen-oev', tolerance: '14',
+      mapExtent: view.extent.join(','), imageDisplay: view.size[0] + ',' + view.size[1] + ',96',
+      sr: '4326', returnGeometry: 'true', lang: 'de'
+    });
+    const res = await fetch('https://api3.geo.admin.ch/rest/services/all/MapServer/identify?' + params.toString());
+    if(!res.ok) return null;
+    const data = await res.json();
+    const seen = new Set(), out = [];
+    (data.results || []).forEach(f=>{
+      const a = f.properties || f.attributes || {};
+      const name = String(a.haltestelle || a.label || '').trim();
+      if(!name || seen.has(name)) return;
+      seen.add(name);
+      let g = f.geometry && f.geometry.coordinates;
+      if(Array.isArray(g) && Array.isArray(g[0])) g = g[0]; // MultiPoint
+      const ok = Array.isArray(g) && isFinite(g[0]) && isFinite(g[1]);
+      out.push({name, lon: ok ? +g[0] : latlng.lng, lat: ok ? +g[1] : latlng.lat});
+    });
+    return out.length ? out.slice(0, 3) : null;
+  }catch(e){ return null; }
+}
+function buildHaltestellePopup(list){
+  const wrap = document.createElement('div');
+  wrap.className = 'fs-cam-pop fs-oev-pop';
+  list.forEach((h, i)=>{
+    if(i) wrap.insertAdjacentHTML('beforeend', '<hr style="border:none; border-top:1px solid var(--line-soft); margin:6px 0;"/>');
+    const q = encodeURIComponent(h.name);
+    wrap.insertAdjacentHTML('beforeend', `<b>${fsIconHtml('bus')} ${esc(h.name)}</b>
+      <a class="fs-cam-link" href="https://search.ch/fahrplan/?to=${q}" target="_blank" rel="noopener noreferrer">Verbindung hierhin ↗</a>
+      <a class="fs-cam-link" href="https://search.ch/fahrplan/?from=${q}" target="_blank" rel="noopener noreferrer">Verbindung von hier ↗</a>`);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'fs-oev-take';
+    b.innerHTML = fsIconHtml('plus') + 'Als Ort übernehmen';
+    b.addEventListener('click', ()=>{
+      const near = fsOrteAll().find(o=> o.kind === 'haltestelle' && isFinite(o.lat) && fsKm(o, h) < 0.15);
+      if(near){ fsOpenOrt(near.id); return; }
+      fsOpenOrtForm({id: uid('o'), name: h.name, kind: 'haltestelle', lat: +h.lat.toFixed(6), lon: +h.lon.toFixed(6)});
+    });
+    wrap.appendChild(b);
+  });
+  return wrap;
 }
 // Wildruhezonen und Wildschutzgebiete an der angetippten Stelle (Flächen: Toleranz 0)
 async function identifyWildschutzAt(latlng, view){

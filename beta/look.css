@@ -1924,3 +1924,9 @@ html.fs-search-open .fs-search-btn{ display:none !important; }
 .fs-erf-fields button{ min-height:44px; padding:0 4px; border:1px solid var(--line); border-radius:12px; background:var(--paper); color:var(--ink-soft); font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
 .fs-erf-fields button.on{ background:var(--ice-deep); border-color:var(--ice-deep); color:#fff; }
 .fs-td-jump button{ font-size:11.5px; }
+/* ÖV-Haltestelle antippen */
+.fs-oev-pop b{ display:flex; align-items:center; gap:6px; }
+.fs-oev-pop b .fs-i{ width:16px; height:16px; }
+.fs-oev-take{ display:flex; align-items:center; justify-content:center; gap:6px; width:100%; min-height:44px; margin-top:8px; border:none; border-radius:12px;
+  background:var(--ice-light); color:var(--ice-deep); font:inherit; font-size:14px; font-weight:700; cursor:pointer; }
+.fs-oev-take .fs-i{ width:16px; height:16px; }
