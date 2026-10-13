@@ -10,6 +10,7 @@ aus anderen Apps übernehmen.
 - Neues zuerst in `beta/` bauen und im Browser testen (Handygrösse, Screenshot anschauen).
   In die Haupt-App erst nach Freigabe: `bash tools/promote-beta.sh`.
 - Jeder Schritt ein eigener PR mit Squash-Merge.
+- Zweck und Umbau-Plan der App stehen in `docs/konzept.md` – neue Funktionen daran ausrichten.
 
 ## Dateien
 - `index.html` (Skitour), `fixseil.html` (Hochtour/Klettern), `wandern.html` (Wandern):
