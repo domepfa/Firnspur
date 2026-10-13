@@ -71,6 +71,9 @@ aus anderen Apps übernehmen.
 - Gespeichert wird über `fbSet` → `fsSafeSet`: Ausgangsstand (beim Laden) + eigene Fassung + aktueller
   Stand werden zusammengeführt, nur eigene Änderungen kommen dazu. Fehlt ein Feld ganz, gilt es als
   unverändert; bewusstes Leeren setzt `''` bzw. `[]`. Nie direkt an `fbSet` vorbei schreiben.
+- Notbremse (`fsDetectLosses`): würde beim Speichern Grösseres verschwinden (Feld leer, Linie weg,
+  mehrere Listeneinträge, Text stark gekürzt), fragt die App; «Abbrechen» speichert ohne den Verlust.
+  Touren und Hütten ohne Namen lehnen App und Datenbank-Regel ab.
 - Nie eine ganze Sammlung schreiben oder löschen; jeder Pfad endet mit einer gültigen ID
   (`fbPathOk`). Vor jedem Überschreiben sichert `fbSet` die alte Fassung unter `versions/`.
 - Import ergänzt, ersetzt nie (`fsImportMerge`).
