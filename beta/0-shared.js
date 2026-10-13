@@ -1306,6 +1306,7 @@ function fsHomeMount(){
       if(fsHomeMap) return;
       fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52});
       fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
+      fsmWireOrtHold(fsHomeMap);
       fsHomeMap.on('moveend', ()=>{ if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
       fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
       fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl) sl.classList.add('has-map'); });
@@ -4800,6 +4801,7 @@ function renderStandaloneMap(containerId){
       // SAC-Skitouren / Sperrungen / Lawinengefahr (je nach eingeschalteten Ebenen)
       await fsmHandleInfoClick(map._ml, e.latlng);
     });
+    fsmWireOrtHold(map._ml);
 
     // Alle eigenen Touren (Punkte & Tracks) auf der Karte anzeigen — analog zur Skitouren-Ebene,
     // aber immer sichtbar (das ist ja der Zweck dieser Übersichtskarte), nach Tourenart farblich
@@ -6076,6 +6078,8 @@ const FSM_OVERLAYS = [
   {id:'slfstationen', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
   // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
   {id:'wetter', label:'Wetter', icon:'therm', wetter:true},
+  // Gemeinsame Orte (Parkplatz, Maut, Biwak …), siehe Baustein «Orte»
+  {id:'orte', label:'Orte', icon:'pin', orte:true},
   {id:'webcams', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
 ];
 const FSM_BASES = [
@@ -6224,6 +6228,9 @@ function fsmSetOverlay(map, id, on, silent){
   const lid = 'ov-' + id;
   if(o.wetter){
     if(on) fsmWxStart(map); else fsmWxStop(map);
+  }else if(o.orte){
+    map._fsm.overlays[id] = !!on;
+    fsmOrteDraw(map);
   }else if(o.points){
     // Punkte als HTML-Marker (Messwerte, Webcams)
     map._fsm.pt = map._fsm.pt || {};
@@ -14163,6 +14170,7 @@ async function fsOrteLoad(){
   state.orte = [...unsynced, ...list];
   fsOrteCacheWrite();
   if(typeof render === 'function') render();
+  fsmOrteRefresh();
   unsynced.forEach(o=> fsOrtPush(o));
 }
 async function fsOrtPush(o){
@@ -14184,6 +14192,7 @@ async function fsOrtSave(o){
   fsOrteCacheWrite();
   const ok = await fsOrtPush(o);
   if(typeof render === 'function') render();
+  fsmOrteRefresh();
   showToast(ok ? 'Ort gespeichert.' : 'Ort lokal gespeichert, wird später hochgeladen.', !ok);
   return ok;
 }
@@ -14195,6 +14204,7 @@ async function fsOrtDelete(o){
   state.orte = fsOrteAll().filter(x=> x.id !== o.id);
   fsOrteCacheWrite();
   if(typeof render === 'function') render();
+  fsmOrteRefresh();
   showToast(ok ? 'Ort gelöscht.' : 'Löschen nicht synchronisiert (Internet?).', !ok);
   return ok;
 }
@@ -14406,6 +14416,58 @@ function fsOpenOrtForm(o, onSaved){
     if(onSaved) await onSaved(o);
   });
   if(isNew) setTimeout(()=>{ try{ q('#fs-ort-name').focus(); }catch(e){} }, 50);
+}
+// Ebene «Orte» auf den Karten: ein Strich-Icon pro Ort, antippen öffnet das Blatt
+const fsmOrteMaps = new Set();
+function fsmOrteDraw(map){
+  if(!map || !map._fsm || !window.maplibregl) return;
+  (map._fsm.orteMk || []).forEach(m=> m.remove());
+  map._fsm.orteMk = [];
+  if(!fsmOverlayOn(map, 'orte')) return;
+  fsmOrteMaps.add(map);
+  fsOrteAll().forEach(o=>{
+    if(!isFinite(o.lat) || !isFinite(o.lon)) return;
+    const k = fsOrtKind(o.kind);
+    const el = document.createElement('button');
+    el.type = 'button'; el.className = 'fsm-ort';
+    el.setAttribute('aria-label', k.label + ': ' + o.name);
+    el.innerHTML = fsIconHtml(k.icon) + `<span>${esc(o.name)}</span>`;
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); fsOpenOrt(o.id); });
+    map._fsm.orteMk.push(new maplibregl.Marker({element: el, anchor: 'center'}).setLngLat([+o.lon, +o.lat]).addTo(map));
+  });
+}
+function fsmOrteRefresh(){
+  fsmOrteMaps.forEach(m=>{
+    if(!m._fsm || !document.body.contains(m.getContainer())){ fsmOrteMaps.delete(m); return; }
+    fsmOrteDraw(m);
+  });
+}
+// Lange auf die Karte drücken (bzw. Rechtsklick): «Ort hier erfassen»
+function fsmWireOrtHold(ml){
+  if(!ml || ml._fsOrtHold) return;
+  ml._fsOrtHold = true;
+  const offer = (ll)=>{
+    if(navigator.vibrate) try{ navigator.vibrate(25); }catch(e){}
+    const wrap = document.createElement('div');
+    wrap.className = 'fsm-ort-hold';
+    wrap.innerHTML = `<button type="button">${fsIconHtml('plus')}Ort hier erfassen</button>`;
+    wrap.querySelector('button').addEventListener('click', ()=>{
+      if(ml._fsm && ml._fsm.popup) ml._fsm.popup.remove();
+      fsOpenOrtForm({id: uid('o'), name: '', kind: '', lat: +ll.lat.toFixed(6), lon: +ll.lng.toFixed(6)});
+    });
+    fsmPopup(ml, ll, wrap, 8);
+  };
+  ml.on('contextmenu', (e)=>{ if(e.originalEvent && e.originalEvent._fsmHandled) return; offer(e.lngLat); });
+  let timer = null, start = null;
+  const cancel = ()=>{ if(timer){ clearTimeout(timer); timer = null; } };
+  ml.on('touchstart', (e)=>{
+    cancel();
+    if(!e.originalEvent || e.originalEvent.touches.length !== 1) return;
+    start = e.point; const ll = e.lngLat;
+    timer = setTimeout(()=>{ timer = null; offer(ll); }, 650);
+  });
+  ml.on('touchmove', (e)=>{ if(start && Math.hypot(e.point.x - start.x, e.point.y - start.y) > 10) cancel(); });
+  ['touchend', 'touchcancel', 'movestart', 'zoomstart'].forEach(ev=> ml.on(ev, cancel));
 }
 // Knöpfe in der Tourenansicht (Capture, weil das Dialogfenster Klicks sonst stoppt)
 document.addEventListener('click', (e)=>{
