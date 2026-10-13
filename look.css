@@ -1818,8 +1818,10 @@ html.fs-search-open .fs-search-btn{ display:none !important; }
 .fs-sheet .card > h3{ font-family:var(--font-ui) !important; font-size:14px !important; font-weight:700; margin:0 !important; }
 .fs-sheet .card .excerpt{ font-size:13px; margin:2px 0 0; }
 .fs-sheet .card .stat-row{ margin-top:4px; }
-.fs-sheet .card.has-thumb{ position:relative; padding-left:102px; min-height:100px; }
-.fs-card-thumb{ position:absolute; left:12px; top:12px; width:76px; height:76px; border-radius:14px; overflow:hidden; background:var(--ice-light); }
+/* Vorschaubild immer rechts, unter dem Stern; Text daneben bleibt links bündig */
+.fs-sheet .card.has-thumb{ position:relative; min-height:136px; }
+.fs-sheet .card.has-thumb > :not(:first-child):not(.fs-card-thumb){ margin-right:92px; }
+.fs-card-thumb{ position:absolute; right:14px; top:52px; width:76px; height:76px; border-radius:14px; overflow:hidden; background:var(--ice-light); }
 /* Titelbild füllt den ganzen Titelbereich, die Bereichsleiste liegt darüber */
 .hero::before{ top:8px; bottom:0; height:auto; -webkit-mask-image:none; mask-image:none; }
 
@@ -1851,3 +1853,82 @@ html.fs-search-open .fs-search-btn{ display:none !important; }
 .fs-td-sec:first-of-type{ border-top:none; }
 .fs-td-h{ font-family:var(--font-display); font-weight:400; font-size:24px; line-height:1.15; color:var(--ink); margin:0 0 8px; }
 .fs-more-list{ display:flex; flex-direction:column; border:1px solid var(--line-soft); border-radius:16px; padding:4px; }
+
+/* ===== Orte: gemeinsame Orte (Liste in der Tour, Blatt, Formular) ===== */
+.fs-orte{ display:flex; flex-direction:column; gap:8px; margin:0 0 12px; }
+.fs-ort-row{ display:flex; align-items:center; gap:12px; width:100%; min-height:56px; padding:8px 12px; border:1px solid var(--line); border-radius:14px;
+  background:var(--paper); color:var(--ink); font:inherit; text-align:left; cursor:pointer; }
+.fs-ort-sheet .fs-ort-row{ margin-bottom:8px; }
+.fs-ort-ic{ flex-shrink:0; width:38px; height:38px; border-radius:12px; background:var(--ice-light); color:var(--ice-deep); display:flex; align-items:center; justify-content:center; }
+.fs-ort-ic .fs-i{ width:20px; height:20px; }
+.fs-ort-tx{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.fs-ort-tx b{ font-size:15px; font-weight:700; }
+.fs-ort-tx small{ font-size:12.5px; color:var(--ink-soft); }
+.fs-ort-flag{ color:var(--signal-deep); }
+.fs-ort-flag .fs-i{ width:18px; height:18px; }
+.fs-ort-addbtn{ min-height:48px; display:flex; align-items:center; justify-content:center; gap:8px; }
+.fs-ort-addbtn .fs-i{ width:18px; height:18px; }
+.fs-ort-kind{ display:flex; align-items:center; gap:6px; margin:0 0 2px; color:var(--ice-deep); font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
+.fs-ort-kind .fs-i{ width:16px; height:16px; }
+.fs-ort-stand{ margin:0 0 10px; color:var(--ink-soft); font-size:13px; }
+.fs-ort-note{ margin:0 0 12px; font-size:15px; line-height:1.45; white-space:pre-wrap; }
+.fs-ort-photo{ display:block; width:100%; max-height:260px; object-fit:cover; border-radius:14px; margin:0 0 12px; }
+.fs-ort-h4{ margin:14px 0 8px; font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); }
+.fs-ort-empty{ margin:0 0 8px; font-size:13.5px; color:var(--ink-soft); }
+.fs-ort-btns{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; margin:12px 0 0; }
+.fs-ort-btns .btn{ min-height:48px; display:flex; align-items:center; justify-content:center; gap:6px; text-decoration:none; }
+.fs-ort-btns .btn .fs-i{ width:18px; height:18px; }
+.fs-ort-btns .btn.danger{ color:var(--danger); }
+.fs-ort-tours{ display:flex; flex-wrap:wrap; gap:6px; }
+.fs-ort-tours button{ min-height:40px; padding:0 12px; border:none; border-radius:999px; background:var(--ice-light); color:var(--ice-deep); font:inherit; font-size:13.5px; font-weight:700; cursor:pointer; }
+.fs-ort-new{ width:100%; min-height:52px; margin-top:12px; display:flex; align-items:center; justify-content:center; gap:8px; }
+.fs-ort-new .fs-i{ width:18px; height:18px; }
+.fs-ort-lbl{ display:block; margin:12px 0 6px; font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); }
+.fs-ort-sheet input[type=text], .fs-ort-sheet input[type=date], .fs-ort-sheet textarea{ width:100%; box-sizing:border-box; min-height:48px; padding:10px 12px;
+  border:1px solid var(--line); border-radius:12px; background:var(--paper); color:var(--ink); font:inherit; font-size:16px; }
+.fs-ort-kinds{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px; }
+.fs-ort-kinds button{ min-height:62px; padding:4px 2px; border:1px solid var(--line); border-radius:12px; background:var(--paper); color:var(--ink-soft);
+  font:inherit; font-size:11.5px; font-weight:700; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; cursor:pointer; }
+.fs-ort-kinds button span{ max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fs-ort-kinds button .fs-i{ width:20px; height:20px; }
+.fs-ort-kinds button.on{ background:var(--ice-deep); border-color:var(--ice-deep); color:#fff; }
+.fs-ort-pos, .fs-ort-photo-row{ display:flex; align-items:center; gap:10px; justify-content:space-between; }
+.fs-ort-pos span{ font-size:14px; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.fs-ort-pos .btn, .fs-ort-photo-row .btn{ min-height:48px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; }
+.fs-ort-pos .btn .fs-i, .fs-ort-photo-row .btn .fs-i{ width:18px; height:18px; }
+.fs-ort-photo-row img{ width:72px; height:72px; object-fit:cover; border-radius:12px; display:block; }
+.fs-ort-msg{ min-height:1em; margin:10px 0 0; font-size:13.5px; color:var(--signal-deep); }
+.fs-ort-sheet .in{ max-width:620px; margin:0 auto; }
+/* Orte auf der Karte: kleines weisses Rund mit Strich-Icon, Name erst nah (ab Zoom 14) und dezent */
+.fsm-ort{ display:flex; align-items:center; gap:4px; height:26px; padding:0; border:none; background:none; font:inherit; cursor:pointer; }
+.fsm-ort .fs-i{ box-sizing:border-box; width:26px; height:26px; padding:4px; flex-shrink:0; border-radius:50%; background:#fff; color:var(--ice-deep);
+  border:1.5px solid var(--ice-deep); box-shadow:0 1px 4px rgba(15,30,39,.25); }
+.fsm-ort span{ display:none; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:1px 6px; border-radius:8px;
+  background:rgba(255,255,255,.85); color:var(--ink); font-size:11px; font-weight:700; }
+.fsm-ort-names .fsm-ort span{ display:block; }
+.fsm-ort-hold button{ display:flex; align-items:center; gap:8px; min-height:44px; padding:0 14px; border:none; border-radius:12px;
+  background:var(--ice-deep); color:#fff; font:inherit; font-size:14px; font-weight:700; cursor:pointer; }
+.fsm-ort-hold .fs-i{ width:18px; height:18px; }
+
+/* ===== Erfahrungen (Logbuch) ===== */
+.modal.fs-detail:not(.fs-editing) .fs-td-editonly{ display:none; }
+.fs-erf{ padding:12px 14px; border:1px solid var(--line); border-radius:14px; margin:0 0 10px; background:var(--paper); }
+.fs-erf header{ display:flex; justify-content:space-between; gap:10px; margin:0 0 4px; font-size:13px; color:var(--ink-soft); }
+.fs-erf header b{ color:var(--ink); font-size:14px; }
+.fs-erf p{ margin:0; font-size:15px; line-height:1.45; white-space:pre-wrap; }
+.fs-erf-acts{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:8px; margin-top:10px; }
+.modal.fs-detail:not(.fs-editing) .fs-erf-acts{ display:none; }
+.fs-erf-acts .btn{ min-height:44px; font-size:13.5px; }
+.fs-erf-acts .btn.danger{ color:var(--danger); }
+.fs-erf-thumbs{ display:flex; gap:6px; }
+.fs-erf-thumbs img{ width:64px; height:64px; object-fit:cover; border-radius:10px; }
+.fs-erf-fields{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:6px; }
+.fs-erf-fields button{ min-height:44px; padding:0 4px; border:1px solid var(--line); border-radius:12px; background:var(--paper); color:var(--ink-soft); font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
+.fs-erf-fields button.on{ background:var(--ice-deep); border-color:var(--ice-deep); color:#fff; }
+.fs-td-jump button{ font-size:11.5px; }
+/* ÖV-Haltestelle antippen */
+.fs-oev-pop b{ display:flex; align-items:center; gap:6px; }
+.fs-oev-pop b .fs-i{ width:16px; height:16px; }
+.fs-oev-take{ display:flex; align-items:center; justify-content:center; gap:6px; width:100%; min-height:44px; margin-top:8px; border:none; border-radius:12px;
+  background:var(--ice-light); color:var(--ice-deep); font:inherit; font-size:14px; font-weight:700; cursor:pointer; }
+.fs-oev-take .fs-i{ width:16px; height:16px; }

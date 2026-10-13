@@ -77,7 +77,7 @@ function fbPathOk(path){
    abgelegt (nur hinzufügen, nie überschreiben) und lässt sich in der App zurückholen. Hat jemand
    anderes den Eintrag geändert, seit dieses Gerät ihn geladen hat, fragt die App nach, statt
    still dessen Änderungen zu überschreiben. */
-const FS_VERSIONED = ['tours', 'huts', 'gebiete', 'agenda', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete', 'fixseil/gipfel', 'fixseil/huts', 'wandern/tours', 'wandern/gebiete',
+const FS_VERSIONED = ['tours', 'huts', 'gebiete', 'agenda', 'orte', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete', 'fixseil/gipfel', 'fixseil/huts', 'wandern/tours', 'wandern/gebiete',
   'gpxTracks', 'fixseil/gpxTracks', 'wandern/gpxTracks',
   'hutGpxTracksSummer', 'hutGpxTracksWinter', 'hutAccessRouteGpxTracks', 'mslAccessRouteGpxTracks', 'mslDescentRouteGpxTracks',
   'sektorAccessRouteGpxTracks', 'sektorDescentRouteGpxTracks'];
@@ -257,6 +257,10 @@ function fsDetectLosses(cur, res){
    suggestions/<Sammlung>/<TourId>/<Id>; die Tour bleibt so, bis der Eigentümer annimmt.
    Gilt nicht, wenn der Eigentümer die Tour auf «alle dürfen ändern» (open) gestellt hat. */
 const FS_DEFAULT_OWNER = 'Dome';
+// Admins: dürfen jede Tour direkt ändern und löschen und Vorschläge überall annehmen/ablehnen.
+// Erkannt am eingegebenen Namen (wie Eigentümer), nicht an einem eigenen Login.
+const FS_ADMINS = ['Dome'];
+function fsIsAdmin(me){ const k = fsNameKey(me !== undefined ? me : (typeof state !== 'undefined' && state.myName)); return !!k && FS_ADMINS.some(a=> fsNameKey(a) === k); }
 const FS_OWNED_COLLS = ['tours', 'fixseil/tours', 'wandern/tours'];
 const FS_OWNER_FIELDS = ['owner', 'editors', 'open'];
 const FS_SUG_EMPTY = '(leer)'; // Firebase speichert leere Listen nicht — «leeren» als Marker
@@ -269,11 +273,13 @@ function fsCanEditDirect(t, me){
   if(!t) return true;
   me = fsNameKey(me !== undefined ? me : (typeof state !== 'undefined' && state.myName));
   if(!me) return false;
+  if(fsIsAdmin(me)) return true;
   if(t.open === true) return true;
   if(fsNameKey(fsOwnerOf(t)) === me) return true;
   return Array.isArray(t.editors) && t.editors.some(e=> fsNameKey(e) === me);
 }
-function fsIsOwner(t, me){ return fsNameKey(fsOwnerOf(t)) === fsNameKey(me !== undefined ? me : (typeof state !== 'undefined' && state.myName)); }
+// Eigentümer-Rechte (Vorschläge entscheiden, Eigentümerfelder): Eigentümer oder Admin
+function fsIsOwner(t, me){ const m = me !== undefined ? me : (typeof state !== 'undefined' && state.myName); return fsNameKey(fsOwnerOf(t)) === fsNameKey(m) || fsIsAdmin(m); }
 function fsSugKey(coll){ return coll.replace(/\//g, '_'); }
 // Trennt meine Änderungen (result gegenüber cur) in direkt erlaubte und Vorschläge.
 // Gibt {changes, before} zurück und setzt die vorgeschlagenen Felder in result auf den Stand von cur.
@@ -1306,6 +1312,7 @@ function fsHomeMount(){
       if(fsHomeMap) return;
       fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52});
       fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
+      fsmWireOrtHold(fsHomeMap);
       fsHomeMap.on('moveend', ()=>{ if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
       fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
       fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl) sl.classList.add('has-map'); });
@@ -1330,6 +1337,81 @@ function fsHomeSync(){
     if(kindChanged || fsHomeAll) fsHomeFitAll();
   }
   fsHomeFilter();
+  fsHomeRoutesSync();
+}
+/* ===== Startkarte: Routen der Touren =====
+   Übersicht: nur Pins. Ab mittlerem Zoom die Linien der Touren im Ausschnitt, dünn und halb
+   durchsichtig. Eine Tour antippen: ihre Linie kräftig, die anderen blasser, dazu ihre Punkte. */
+const FS_HOME_ROUTE_MINZOOM = 10.5;
+let fsHomeSel = null, fsHomeSelMarkers = [], fsHomeRoutesKey = '';
+function fsHomeAccent(){
+  try{ return getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1F5F8B'; }catch(e){ return '#1F5F8B'; }
+}
+function fsHomeTourLines(t){
+  const toLL = q=> Array.isArray(q) ? [+q[1], +q[0]] : [+(q.lon != null ? q.lon : q.lng), +q.lat];
+  return fsTourRoutes(t).map(r=> (r.coords || []).map(toLL).filter(c=> isFinite(c[0]) && isFinite(c[1]))).filter(c=> c.length > 1);
+}
+function fsHomeRoutesSync(){
+  const map = fsHomeMap;
+  if(!map || !map._fsmLoaded || !map.getStyle()) return;
+  const isTours = !!fsHomePts && (fsHomePts.kind === 'tour' || fsHomePts.kind === 'msl');
+  const on = isTours && fsmOverlayOn(map, 'tourrouten');
+  const ids = on ? fsHomePts.points.map(p=> p.id) : [];
+  const tById = new Map((state.tours || []).map(t=> [t.id, t]));
+  // Schlüssel: welche Touren + Stand ihrer Linien (neu zeichnen nur bei Änderungen)
+  const key = ids.map(id=>{ const t = tById.get(id); return id + ':' + (t ? (t.updatedAt || '') + ':' + fsTourRoutes(t).map(r=> (r.coords || []).length).join('.') : ''); }).join(',');
+  if(!map.getSource('fs-home-routes')){
+    map.addSource('fs-home-routes', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+    const color = fsHomeAccent();
+    map.addLayer({id:'fs-home-routes', type:'line', source:'fs-home-routes', minzoom: FS_HOME_ROUTE_MINZOOM,
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color': color, 'line-width': 3, 'line-opacity': 0.65}});
+    map.addLayer({id:'fs-home-route-sel', type:'line', source:'fs-home-routes', filter:['==', ['get', 'id'], ''],
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color': color, 'line-width': 5, 'line-opacity': 1}});
+  }
+  if(key !== fsHomeRoutesKey){
+    fsHomeRoutesKey = key;
+    const features = [];
+    ids.forEach(id=>{ const t = tById.get(id); if(t) fsHomeTourLines(t).forEach(c=> features.push({type:'Feature', properties:{id}, geometry:{type:'LineString', coordinates:c}})); });
+    map.getSource('fs-home-routes').setData({type:'FeatureCollection', features});
+  }
+  const sel = on ? (fsHomeSel || '') : '';
+  map.setFilter('fs-home-route-sel', ['==', ['get', 'id'], sel]);
+  map.setPaintProperty('fs-home-routes', 'line-opacity', sel ? 0.3 : 0.65);
+  // Punkte nur der gewählten Tour
+  fsHomeSelMarkers.forEach(m=> m.remove()); fsHomeSelMarkers = [];
+  const t = sel ? (state.tours || []).find(x=> x.id === sel) : null;
+  if(t) (t.points || []).forEach(pt=>{
+    if(!isFinite(pt.lat) || !isFinite(pt.lon)) return;
+    const el = document.createElement('div');
+    el.className = 'fs-home-tpt';
+    el.innerHTML = fsmCategoryMarkerHtml(pt.category || '');
+    el.title = pt.label || '';
+    fsHomeSelMarkers.push(new maplibregl.Marker({element: el, anchor: 'bottom'}).setLngLat([+pt.lon, +pt.lat]).addTo(map));
+  });
+}
+// «Grosse Karte»: denselben Ausschnitt wie die Startkarte im Vollbild zeigen
+// (Leaflet-Ersatz FL zählt den Zoom um 1 höher als MapLibre, siehe FMap.prototype.setView)
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="open-standalone-map"]');
+  if(!el || !fsHomeMap || !fsHomeEl || !fsHomeEl.isConnected || !fsHomeEl.classList.contains('ready')) return;
+  try{ const c = fsHomeMap.getCenter(); lastStandaloneMapView = {center: [c.lat, c.lng], zoom: fsHomeMap.getZoom() + 1}; fsBigMapKeepView = true; }catch(err){}
+}, true);
+let fsBigMapKeepView = false;
+function fsHomeSelect(id){
+  fsHomeSel = id || null;
+  fsHomeRoutesSync();
+  if(!fsHomeSel || !fsHomeMap || !fsmOverlayOn(fsHomeMap, 'tourrouten')) return;
+  const t = (state.tours || []).find(x=> x.id === fsHomeSel);
+  const lines = t ? fsHomeTourLines(t) : [];
+  const pts = [];
+  lines.forEach(l=> l.forEach(c=> pts.push(c)));
+  ((t && t.points) || []).forEach(p=>{ if(isFinite(p.lat) && isFinite(p.lon)) pts.push([+p.lon, +p.lat]); });
+  if(pts.length < 2) return;
+  const b = new maplibregl.LngLatBounds(pts[0], pts[0]);
+  pts.forEach(c=> b.extend(c));
+  const card = fsHomeEl && fsHomeEl.querySelector('.fs-home-card');
+  fsHomeFitting = true;
+  fsHomeMap.fitBounds(b, {padding:{top: 70, left: 40, right: 70, bottom: (card && !card.hidden ? card.offsetHeight : 0) + 40}, maxZoom: 14, duration: 600});
 }
 // Kurzinfo unten auf der Karte; «öffnen» löst dieselbe Aktion aus wie ein Eintrag in der Liste
 function fsHomeCard(p){
@@ -1339,7 +1421,7 @@ function fsHomeCard(p){
     card = document.createElement('div'); card.className = 'fs-home-card';
     ['click','pointerdown','touchstart','mousedown'].forEach(ev=> card.addEventListener(ev, e=> e.stopPropagation()));
     fsHomeEl.appendChild(card);
-    if(fsHomeMap) fsHomeMap.on('click', ()=>{ card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); });
+    if(fsHomeMap) fsHomeMap.on('click', ()=>{ card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); });
   }
   const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
   const x = all.find(o=> o && o.id === p.id) || {name: p.label};
@@ -1354,7 +1436,7 @@ function fsHomeCard(p){
     ${facts.length ? `<div class="f">${facts.map(f=> `<span>${esc(String(f))}</span>`).join('')}</div>` : ''}
     <button type="button" class="open" data-act="${act}" data-id="${esc(p.id)}">${btnLabel}</button>`;
   card.hidden = false;
-  card.querySelector('.x').addEventListener('click', ()=>{ card.hidden = true; });
+  card.querySelector('.x').addEventListener('click', ()=>{ card.hidden = true; fsHomeSelect(null); });
   // Öffnen über den Eintrag der Liste (dieselbe Aktion wie dort), sonst über den Knopf selbst
   card.querySelector('.open').addEventListener('click', (e)=>{
     const li = document.querySelector('.fs-sheet .card[data-act="' + act + '"][data-id="' + CSS.escape(p.id) + '"]');
@@ -1363,6 +1445,7 @@ function fsHomeCard(p){
   fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(y=> y.classList.remove('on'));
   const idx = fsHomePts.points.indexOf(p);
   if(idx >= 0 && fsHomeMarkers[idx]) fsHomeMarkers[idx].getElement().classList.add('on');
+  fsHomeSelect(p.id);
 }
 function fsHomeFitAll(){
   if(!fsHomeMap || !fsHomePts) return;
@@ -1382,12 +1465,13 @@ function fsCardThumbs(sheet){
     card._fsThumb = true;
     const x = all.find(o=> o && o.id === card.getAttribute('data-id'));
     const img = x && Array.isArray(x.topoImages) && x.topoImages.find(i=> i && i.url);
-    if(!img) return;
+    // Hat die Karte schon ein eigenes Bild (z. B. Klettergebiet), keine zweite Vorschau
+    if(!img || card.querySelector('img')) return;
     const box = document.createElement('div');
     box.className = 'fs-card-thumb';
     box.innerHTML = topoImageBoxHtml(img, 76, 76, '', 'border-radius:14px;');
     card.classList.add('has-thumb');
-    card.insertBefore(box, card.firstChild);
+    card.appendChild(box);
   });
 }
 // Liste auf den Kartenausschnitt beschränken (DOM-weit, gilt für alle Listen mit .card[data-id])
@@ -4800,6 +4884,7 @@ function renderStandaloneMap(containerId){
       // SAC-Skitouren / Sperrungen / Lawinengefahr (je nach eingeschalteten Ebenen)
       await fsmHandleInfoClick(map._ml, e.latlng);
     });
+    fsmWireOrtHold(map._ml);
 
     // Alle eigenen Touren (Punkte & Tracks) auf der Karte anzeigen — analog zur Skitouren-Ebene,
     // aber immer sichtbar (das ist ja der Zweck dieser Übersichtskarte), nach Tourenart farblich
@@ -5209,9 +5294,11 @@ function renderStandaloneMap(containerId){
     // separate Kopie statt presentCategories selbst umzusortieren).
     const zOrderedCategories = [...presentCategories.filter(k=>k==='zustieg'), ...presentCategories.filter(k=>k!=='zustieg')];
     zOrderedCategories.forEach(key=> categoryLayers[key].addTo(map));
-    if(allBoundsItems.length){
+    // Von der Startkarte aus geöffnet: deren Ausschnitt behalten, nicht auf alle Touren zoomen
+    if(allBoundsItems.length && !fsBigMapKeepView){
       map.fitBounds(FL.featureGroup(allBoundsItems).getBounds(), {padding:[30,30]});
     }
+    fsBigMapKeepView = false;
     map.on('zoomend', ()=>{
       const r = radiusForZoom(map.getZoom());
       pointMarkers.forEach(m=> m.setRadius(r));
@@ -6069,6 +6156,8 @@ const FSM_OVERLAYS = [
   {id:'hangneigung', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
   {id:'slf', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
   {id:'sperrungen', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
+  // ÖV-Haltestellen (BAV); antippen zeigt Name, Fahrplan und «als Ort übernehmen»
+  {id:'oev', label:'ÖV-Haltestellen', icon:'bus', tiles:[FSM_WMTS('ch.bav.haltestellen-oev','png')]},
   // Wildruhezonen und eidg. Wildschutzgebiete (BAFU); antippen zeigt Name und Bestimmungen
   {id:'wildschutz', label:'Wildschutz (Wildruhezonen)', icon:'alert', opacity:0.75, tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.bafu.wrz-wildruhezonen_portal,ch.bafu.bundesinventare-jagdbanngebiete&STYLES=,&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln — siehe fsmLoadPoints
@@ -6076,6 +6165,10 @@ const FSM_OVERLAYS = [
   {id:'slfstationen', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
   // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
   {id:'wetter', label:'Wetter', icon:'therm', wetter:true},
+  // Nur Startkarte: Linien der Touren im Ausschnitt (ab mittlerem Zoom), siehe fsHomeRoutesSync
+  {id:'tourrouten', label:'Routen der Touren', icon:'map', homeOnly:true},
+  // Gemeinsame Orte (Parkplatz, Maut, Biwak …), siehe Baustein «Orte»
+  {id:'orte', label:'Orte', icon:'pin', orte:true},
   {id:'webcams', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
 ];
 const FSM_BASES = [
@@ -6130,6 +6223,12 @@ function fsmPrefs(){
   try{ p = JSON.parse(localStorage.getItem('fs-map-layers') || 'null'); }catch(e){}
   p = Object.assign({base:'karte', on:[]}, p || {});
   // Wander-App: die antippbaren Wanderrouten einmalig einschalten (danach gilt die eigene Wahl)
+  // Routen der Touren auf der Startkarte: einmalig einschalten (danach gilt die eigene Wahl)
+  if(!p.trDefault){
+    p.trDefault = true;
+    if(!p.on.includes('tourrouten')) p.on.push('tourrouten');
+    fsmSavePrefs(p);
+  }
   if(fsAppKey() === 'wandern' && !p.wrDefault){
     p.wrDefault = true;
     if(!p.on.includes('wanderrouten')) p.on.push('wanderrouten');
@@ -6138,7 +6237,8 @@ function fsmPrefs(){
   return p;
 }
 function fsmSavePrefs(p){ try{ localStorage.setItem('fs-map-layers', JSON.stringify(p)); }catch(e){} }
-function fsmOverlaysForApp(){ return FSM_OVERLAYS.filter(o=> !o.hidden && (!o.skitourOnly || fsAppKey() === 'firnspur')); }
+function fsmIsHomeMap(map){ try{ return !!map && map.getContainer().id === 'fs-home-map-inner'; }catch(e){ return false; } }
+function fsmOverlaysForApp(map){ return FSM_OVERLAYS.filter(o=> !o.hidden && (!o.skitourOnly || fsAppKey() === 'firnspur') && (!o.homeOnly || fsmIsHomeMap(map))); }
 // Leerer Grundstil: Grundkarten als Raster, zwei unsichtbare "Anker" für die Reihenfolge
 // (Ebenen < Namen < eigene Linien/Punkte).
 function fsmBaseStyle(){
@@ -6180,7 +6280,7 @@ function fsmWhenLoaded(map, fn){ if(map._fsmLoaded) fn(); else map.once('load', 
 function fsmApplyPrefs(map){
   const p = fsmPrefs();
   fsmSetBase(map, p.base, true);
-  fsmOverlaysForApp().forEach(o=> fsmSetOverlay(map, o.id, p.on.includes(o.id), true));
+  fsmOverlaysForApp(map).forEach(o=> fsmSetOverlay(map, o.id, p.on.includes(o.id), true));
 }
 function fsmSetBase(map, base, silent){
   if(!map._fsmLoaded) return;
@@ -6224,6 +6324,12 @@ function fsmSetOverlay(map, id, on, silent){
   const lid = 'ov-' + id;
   if(o.wetter){
     if(on) fsmWxStart(map); else fsmWxStop(map);
+  }else if(o.orte){
+    map._fsm.overlays[id] = !!on;
+    fsmOrteDraw(map);
+  }else if(o.homeOnly){
+    map._fsm.overlays[id] = !!on;
+    if(fsmIsHomeMap(map)) setTimeout(fsHomeRoutesSync, 0);
   }else if(o.points){
     // Punkte als HTML-Marker (Messwerte, Webcams)
     map._fsm.pt = map._fsm.pt || {};
@@ -6473,7 +6579,7 @@ function fsmSyncPanel(map){
   const p = fsmPrefs();
   const base = map._fsm.base || p.base;
   panel.innerHTML = `<div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
-    ${fsmOverlaysForApp().map(o=>`<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`).join('')}`;
+    ${fsmOverlaysForApp(map).map(o=>`<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`).join('')}`;
   panel.querySelectorAll('[data-base]').forEach(b=> b.addEventListener('click', ()=> fsmSetBase(map, b.getAttribute('data-base'))));
   panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=> fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked)));
   if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
@@ -6585,6 +6691,10 @@ async function fsmHandleInfoClick(map, ll, opts){
   if(fsmOverlayOn(map, 'sperrungen')){
     const f = await identifyWegsperrungAt(null, ll, fsmIdentifyView(map));
     if(f){ fsmPopup(map, lngLat, buildWegsperrungPopupContent(f)); return true; }
+  }
+  if(fsmOverlayOn(map, 'oev')){
+    const list = await identifyHaltestelleAt(ll, fsmIdentifyView(map));
+    if(list){ fsmPopup(map, lngLat, buildHaltestellePopup(list)); return true; }
   }
   if(fsmOverlayOn(map, 'wildschutz')){
     const list = await identifyWildschutzAt(ll, fsmIdentifyView(map));
@@ -7059,6 +7169,53 @@ async function identifyWegsperrungAt(map, latlng, view){
     const data = await res.json();
     return (data.results && data.results.length) ? data.results[0] : null;
   }catch(e){ return null; }
+}
+// ÖV-Haltestellen in der Nähe des Tipps (Punkte: etwas Toleranz), je Name nur einmal
+async function identifyHaltestelleAt(latlng, view){
+  try{
+    const params = new URLSearchParams({
+      geometryType: 'esriGeometryPoint', geometry: latlng.lng + ',' + latlng.lat, geometryFormat: 'geojson',
+      layers: 'all:ch.bav.haltestellen-oev', tolerance: '14',
+      mapExtent: view.extent.join(','), imageDisplay: view.size[0] + ',' + view.size[1] + ',96',
+      sr: '4326', returnGeometry: 'true', lang: 'de'
+    });
+    const res = await fetch('https://api3.geo.admin.ch/rest/services/all/MapServer/identify?' + params.toString());
+    if(!res.ok) return null;
+    const data = await res.json();
+    const seen = new Set(), out = [];
+    (data.results || []).forEach(f=>{
+      const a = f.properties || f.attributes || {};
+      const name = String(a.haltestelle || a.label || '').trim();
+      if(!name || seen.has(name)) return;
+      seen.add(name);
+      let g = f.geometry && f.geometry.coordinates;
+      if(Array.isArray(g) && Array.isArray(g[0])) g = g[0]; // MultiPoint
+      const ok = Array.isArray(g) && isFinite(g[0]) && isFinite(g[1]);
+      out.push({name, lon: ok ? +g[0] : latlng.lng, lat: ok ? +g[1] : latlng.lat});
+    });
+    return out.length ? out.slice(0, 3) : null;
+  }catch(e){ return null; }
+}
+function buildHaltestellePopup(list){
+  const wrap = document.createElement('div');
+  wrap.className = 'fs-cam-pop fs-oev-pop';
+  list.forEach((h, i)=>{
+    if(i) wrap.insertAdjacentHTML('beforeend', '<hr style="border:none; border-top:1px solid var(--line-soft); margin:6px 0;"/>');
+    const q = encodeURIComponent(h.name);
+    wrap.insertAdjacentHTML('beforeend', `<b>${fsIconHtml('bus')} ${esc(h.name)}</b>
+      <a class="fs-cam-link" href="https://search.ch/fahrplan/?to=${q}" target="_blank" rel="noopener noreferrer">Verbindung hierhin ↗</a>
+      <a class="fs-cam-link" href="https://search.ch/fahrplan/?from=${q}" target="_blank" rel="noopener noreferrer">Verbindung von hier ↗</a>`);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'fs-oev-take';
+    b.innerHTML = fsIconHtml('plus') + 'Als Ort übernehmen';
+    b.addEventListener('click', ()=>{
+      const near = fsOrteAll().find(o=> o.kind === 'haltestelle' && isFinite(o.lat) && fsKm(o, h) < 0.15);
+      if(near){ fsOpenOrt(near.id); return; }
+      fsOpenOrtForm({id: uid('o'), name: h.name, kind: 'haltestelle', lat: +h.lat.toFixed(6), lon: +h.lon.toFixed(6)});
+    });
+    wrap.appendChild(b);
+  });
+  return wrap;
 }
 // Wildruhezonen und Wildschutzgebiete an der angetippten Stelle (Flächen: Toleranz 0)
 async function identifyWildschutzAt(latlng, view){
@@ -10690,6 +10847,7 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'delete-access-route','delete-tour-route','delete-sektor-route','delete-calculated-route',
   'remove-completion','remove-alt-track',
   'quick-edit-toggle','toggle-tour-status','set-tour-status','toggle-hut-status',
+  'fs-ort-link','fs-ort-edit','fs-ort-unlink','fs-ort-delete','fs-erf-new','fs-erf-apply','fs-erf-delete',
   'open-complete-tour','open-complete-hut','mark-done',
   'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
   'convert-msl-to-klettergarten'
@@ -14123,26 +14281,536 @@ function fsMenuItemHtml(icon, label, attrs, href){
 function tourHasMapData(t){
   return !!((t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length));
 }
+/* ===== Orte: gemeinsame Orte für alle Apps (Parkplatz, Maut, Biwak …) =====
+   Sammlung «orte/<id>», von Skitour, Hochtour/Klettern und Wandern gemeinsam genutzt. Eine Tour
+   verweist mit «orte: [id, …]» darauf. Jeder Ort hat ein Stand-Datum (beim Ändern automatisch heute,
+   von Hand änderbar). Gespeichert wird über fbSet (Zusammenführen, alte Fassung unter versions/). */
+const FS_ORT_KINDS = [
+  {key:'parkplatz', label:'Parkplatz', icon:'parking'},
+  {key:'maut', label:'Maut / Fahrverbot', short:'Maut', icon:'barrier'},
+  {key:'haltestelle', label:'Haltestelle', icon:'bus'},
+  {key:'biwak', label:'Biwak', icon:'tent'},
+  {key:'wasser', label:'Wasser', icon:'drop'},
+  {key:'toilette', label:'Toilette', icon:'wc'},
+  {key:'einstieg', label:'Einstieg', icon:'entry'},
+  {key:'ausstieg', label:'Ausstieg', icon:'exit'},
+  {key:'gipfel', label:'Gipfel', icon:'mountain'},
+  {key:'gefahr', label:'Gefahr', icon:'alert'},
+  {key:'rast', label:'Rast', icon:'food'},
+  {key:'abzweigung', label:'Abzweigung', icon:'compass'},
+  {key:'rueckzug', label:'Rückzug', icon:'undo'},
+  {key:'', label:'Anderer Ort', icon:'pin'}
+];
+const FS_ORTE_PATH = 'orte';
+const FS_ORT_NEAR_KM = 5;
+function fsOrtKind(k){ return FS_ORT_KINDS.find(x=> x.key === (k || '')) || FS_ORT_KINDS[FS_ORT_KINDS.length - 1]; }
+function fsToday(){ const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function fsOrteCacheKey(){ return (location.pathname.indexOf('/beta/') >= 0 ? 'firnspurbeta' : 'firnspur') + '-orte'; }
+function fsOrteAll(){ return (typeof state !== 'undefined' && state.orte) || []; }
+function fsOrtById(id){ return fsOrteAll().find(o=> o.id === id) || null; }
+function fsOrteCacheWrite(){ try{ localStorage.setItem(fsOrteCacheKey(), JSON.stringify(fsOrteAll())); }catch(e){} }
+function fsOrteCacheRead(){ try{ return JSON.parse(localStorage.getItem(fsOrteCacheKey()) || '[]') || []; }catch(e){ return []; } }
+async function fsOrteLoad(){
+  const cached = fsOrteCacheRead();
+  if(!state.orte) state.orte = cached;
+  const obj = await fbGet(FS_ORTE_PATH);
+  if(obj === null){ return; } // offline oder leer: Gerätespeicher behalten
+  const list = Object.values(obj || {}).filter(o=> o && o.id && !o.deletedAt);
+  const unsynced = dedupeById([...state.orte.filter(o=> o._unsynced), ...cached.filter(o=> o._unsynced)]).filter(o=> fsKeepUnsynced(o, list, FS_ORTE_PATH));
+  state.orte = [...unsynced, ...list];
+  fsOrteCacheWrite();
+  if(typeof render === 'function') render();
+  fsmOrteRefresh();
+  unsynced.forEach(o=> fsOrtPush(o));
+}
+async function fsOrtPush(o){
+  const clean = Object.assign({}, o); delete clean._unsynced;
+  const ok = await fbSet(FS_ORTE_PATH + '/' + o.id, clean).catch(()=> false);
+  o._unsynced = !ok;
+  fsOrteCacheWrite();
+  return ok;
+}
+async function fsOrtSave(o){
+  if(!o || !String(o.name || '').trim()) return false;
+  o.updatedAt = new Date().toISOString();
+  o.updatedBy = state.myName || '';
+  const list = fsOrteAll();
+  const i = list.findIndex(x=> x.id === o.id);
+  if(i >= 0) list[i] = o; else list.unshift(o);
+  state.orte = list;
+  o._unsynced = true;
+  fsOrteCacheWrite();
+  const ok = await fsOrtPush(o);
+  if(typeof render === 'function') render();
+  fsmOrteRefresh();
+  showToast(ok ? 'Ort gespeichert.' : 'Ort lokal gespeichert, wird später hochgeladen.', !ok);
+  return ok;
+}
+async function fsOrtDelete(o){
+  if(!confirm('Ort «' + o.name + '» löschen? Er verschwindet bei allen Touren.')) return false;
+  o.deletedAt = new Date().toISOString();
+  o.updatedBy = state.myName || '';
+  const ok = await fsOrtPush(o);
+  state.orte = fsOrteAll().filter(x=> x.id !== o.id);
+  fsOrteCacheWrite();
+  if(typeof render === 'function') render();
+  fsmOrteRefresh();
+  showToast(ok ? 'Ort gelöscht.' : 'Löschen nicht synchronisiert (Internet?).', !ok);
+  return ok;
+}
+// Touren dieser App, die einen Ort nutzen
+function fsOrtTours(id){ return (state.tours || []).filter(t=> Array.isArray(t.orte) && t.orte.indexOf(id) >= 0); }
+function fsTourOrte(t){ return (Array.isArray(t.orte) ? t.orte : []).map(fsOrtById).filter(Boolean); }
+function fsKm(a, b){
+  const R = 6371, r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+// Bezugspunkte einer Tour: Punkte, sonst Anfang der Linie
+function fsTourAnchors(t){
+  const pts = (t.points || []).filter(p=> isFinite(p.lat) && isFinite(p.lon)).map(p=> ({lat:+p.lat, lon:+p.lon}));
+  const line = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack || []);
+  if(line.length){ const a = line[0], z = line[line.length - 1]; [a, z].forEach(q=>{ const lat = Array.isArray(q) ? q[0] : q.lat, lon = Array.isArray(q) ? q[1] : (q.lon != null ? q.lon : q.lng); if(isFinite(lat) && isFinite(lon)) pts.push({lat:+lat, lon:+lon}); }); }
+  return pts;
+}
+function fsOrteNear(t, km){
+  const anchors = fsTourAnchors(t);
+  const linked = Array.isArray(t.orte) ? t.orte : [];
+  return fsOrteAll().filter(o=> linked.indexOf(o.id) < 0 && isFinite(o.lat) && isFinite(o.lon))
+    .map(o=> ({o, d: anchors.length ? Math.min(...anchors.map(a=> fsKm(a, o))) : Infinity}))
+    .filter(x=> x.d <= (km || FS_ORT_NEAR_KM)).sort((a, b)=> a.d - b.d).map(x=> x.o);
+}
+function fsStandText(o){
+  if(!o.stand) return '';
+  const m = /^(\d{4})-(\d{2})/.exec(o.stand);
+  return m ? 'Stand ' + m[2] + '/' + m[1] : 'Stand ' + o.stand;
+}
+function fsOrtSubline(o, tourId){
+  const others = fsOrtTours(o.id).filter(t=> t.id !== tourId).length;
+  return [fsOrtKind(o.kind).label, fsStandText(o), others ? 'auch bei ' + others + (others === 1 ? ' weiteren Tour' : ' weiteren Touren') : ''].filter(Boolean).join(' · ');
+}
+function fsOrtRowHtml(o, tourId, act){
+  return `<button type="button" class="fs-ort-row" data-act="${act || 'fs-ort-open'}" data-ort="${esc(o.id)}" data-tour="${esc(tourId || '')}">
+    <span class="fs-ort-ic">${fsIconHtml(fsOrtKind(o.kind).icon)}</span>
+    <span class="fs-ort-tx"><b>${esc(o.name)}</b><small>${esc(fsOrtSubline(o, tourId))}</small></span>
+    ${o._unsynced ? `<span class="fs-ort-flag" title="Noch nicht hochgeladen">${fsIconHtml('offline')}</span>` : ''}
+  </button>`;
+}
+// Abschnitt «Orte» in der Tourenansicht: gemeinsame Orte oben, Knopf zum Verknüpfen im Bearbeiten-Modus
+function fsTourOrteHtml(t){
+  const list = fsTourOrte(t);
+  return `<div class="fs-orte">
+    ${list.map(o=> fsOrtRowHtml(o, t.id)).join('')}
+    <button type="button" class="btn secondary fs-ort-addbtn" data-act="fs-ort-link" data-id="${esc(t.id)}">${fsIconHtml('plus')}Ort verknüpfen oder neu erfassen</button>
+  </div>`;
+}
+async function fsTourSetOrte(t, ids){
+  t.orte = ids;
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  const ok = await saveTourCloud(t).catch(()=> false);
+  t._unsynced = !ok;
+  if(typeof render === 'function') render();
+  return ok;
+}
+function fsSheet(html, onClose){
+  const ov = document.createElement('div');
+  ov.className = 'fs-cond-sheet fs-ort-sheet';
+  ov.innerHTML = `<div class="in" role="dialog">${html}</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e=>{ if(e.target === ov) closeTopOverlayLayer(); });
+  ov.querySelectorAll('[data-close]').forEach(b=> b.addEventListener('click', ()=> closeTopOverlayLayer()));
+  pushOverlayLayer(()=>{ ov.remove(); if(onClose) onClose(); });
+  return ov;
+}
+// Ort ansehen (aus der Tour oder später von der Karte)
+function fsOpenOrt(id, tourId){
+  const o = fsOrtById(id);
+  if(!o) return;
+  const k = fsOrtKind(o.kind);
+  const tours = fsOrtTours(o.id);
+  const t = tourId ? (state.tours || []).find(x=> x.id === tourId) : null;
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <p class="fs-ort-kind">${fsIconHtml(k.icon)}${esc(k.label)}</p>
+    <h3 class="fs-td-h">${esc(o.name)}</h3>
+    ${o.stand ? `<p class="fs-ort-stand">Stand ${esc(fmtDateOnly(o.stand))}${o.updatedBy ? ' · ' + esc(o.updatedBy) : ''}</p>` : ''}
+    ${o.photo && o.photo.url ? `<img class="fs-ort-photo" src="${esc(o.photo.url)}" alt="">` : ''}
+    ${o.note ? `<p class="fs-ort-note">${esc(o.note)}</p>` : ''}
+    <div class="fs-ort-btns">
+      ${isFinite(o.lat) ? `<a class="btn secondary" href="https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lon}" target="_blank" rel="noopener noreferrer">${fsIconHtml('car')}Navigieren</a>` : ''}
+      ${isFinite(o.lat) ? `<button type="button" class="btn secondary" data-ort-cond>${fsIconHtml('partly')}Bedingungen</button>` : ''}
+    </div>
+    ${tours.length ? `<h4 class="fs-ort-h4">Genutzt von</h4><div class="fs-ort-tours">${tours.map(x=> `<button type="button" data-ort-tour="${esc(x.id)}">${esc(x.name)}${x.routeName ? ' – ' + esc(x.routeName) : ''}</button>`).join('')}</div>` : ''}
+    <div class="fs-ort-btns fs-ort-edit">
+      <button type="button" class="btn secondary" data-act="fs-ort-edit">Bearbeiten</button>
+      ${t ? `<button type="button" class="btn secondary" data-act="fs-ort-unlink">Von Tour lösen</button>` : ''}
+      <button type="button" class="btn secondary danger" data-act="fs-ort-delete">Löschen</button>
+    </div>`);
+  const q = s=> ov.querySelector(s);
+  if(q('[data-ort-cond]')) q('[data-ort-cond]').addEventListener('click', ()=> fsOpenConditions(o.lat, o.lon, o.ele, o.name));
+  ov.querySelectorAll('[data-ort-tour]').forEach(b=> b.addEventListener('click', ()=>{
+    closeTopOverlayLayer();
+    state.modal = {type:'tour-detail', payload: b.getAttribute('data-ort-tour')}; render();
+  }));
+  q('[data-act="fs-ort-edit"]').addEventListener('click', ()=>{ closeTopOverlayLayer(); fsOpenOrtForm(Object.assign({}, o)); });
+  if(q('[data-act="fs-ort-unlink"]')) q('[data-act="fs-ort-unlink"]').addEventListener('click', async ()=>{
+    closeTopOverlayLayer();
+    await fsTourSetOrte(t, (t.orte || []).filter(x=> x !== o.id));
+    showToast('Ort von der Tour gelöst.');
+  });
+  q('[data-act="fs-ort-delete"]').addEventListener('click', async ()=>{
+    if(await fsOrtDelete(o)) closeTopOverlayLayer();
+  });
+}
+// Verknüpfen: Orte in der Nähe, Tourpunkte übernehmen, neuen Ort erfassen
+function fsOpenOrtLink(tourId){
+  const t = (state.tours || []).find(x=> x.id === tourId);
+  if(!t) return;
+  const near = fsOrteNear(t);
+  const pts = (t.points || []).map((p, i)=> ({p, i})).filter(x=> isFinite(x.p.lat) && isFinite(x.p.lon));
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-td-h">Ort verknüpfen</h3>
+    <h4 class="fs-ort-h4">In der Nähe (bis ${FS_ORT_NEAR_KM} km)</h4>
+    ${near.length ? near.map(o=> fsOrtRowHtml(o, tourId, 'fs-ort-pick')).join('') : `<p class="fs-ort-empty">Noch keine gemeinsamen Orte in der Nähe.</p>`}
+    ${pts.length ? `<h4 class="fs-ort-h4">Tourpunkt zum gemeinsamen Ort machen</h4>
+      ${pts.map(({p, i})=> `<button type="button" class="fs-ort-row" data-pt="${i}"><span class="fs-ort-ic">${fsIconHtml(fsOrtKind(MAP_POINT_TO_ORT[p.category || ''] || '').icon)}</span><span class="fs-ort-tx"><b>${esc(p.label || 'Punkt')}</b><small>${esc((MAP_POINT_CATEGORIES[p.category || ''] || MAP_POINT_CATEGORIES['']).label)}</small></span></button>`).join('')}` : ''}
+    <button type="button" class="btn fs-ort-new">${fsIconHtml('plus')}Neuen Ort erfassen</button>`);
+  ov.querySelectorAll('[data-act="fs-ort-pick"]').forEach(b=> b.addEventListener('click', async ()=>{
+    closeTopOverlayLayer();
+    await fsTourSetOrte(t, [...(t.orte || []), b.getAttribute('data-ort')]);
+    showToast('Ort verknüpft.');
+  }));
+  ov.querySelectorAll('[data-pt]').forEach(b=> b.addEventListener('click', ()=>{
+    const i = +b.getAttribute('data-pt'), p = t.points[i];
+    closeTopOverlayLayer();
+    fsOpenOrtForm({id: uid('o'), name: p.label || '', kind: MAP_POINT_TO_ORT[p.category || ''] || '', lat: +p.lat, lon: +p.lon, note: p.note || ''}, async (o)=>{
+      // Punkt wird zum Ort: aus den Tourpunkten nehmen, damit er nicht doppelt erscheint
+      t.points = (t.points || []).filter((_, j)=> j !== i);
+      await fsTourSetOrte(t, [...(t.orte || []), o.id]);
+    });
+  }));
+  ov.querySelector('.fs-ort-new').addEventListener('click', ()=>{
+    closeTopOverlayLayer();
+    const a = fsTourAnchors(t)[0] || {};
+    fsOpenOrtForm({id: uid('o'), name: '', kind: '', lat: a.lat, lon: a.lon}, async (o)=>{ await fsTourSetOrte(t, [...(t.orte || []), o.id]); });
+  });
+}
+const MAP_POINT_TO_ORT = {parkplatz:'parkplatz', haltestelle:'haltestelle', biwak:'biwak', wasser:'wasser', toilette:'toilette', gipfel:'gipfel', gefahr:'gefahr', rast:'rast', abzweigung:'abzweigung', rueckzug:'rueckzug'};
+// Formular: Art, Name, Notiz, Stand, Position, Foto
+function fsOpenOrtForm(o, onSaved){
+  const isNew = !fsOrtById(o.id);
+  const before = JSON.stringify([o.name, o.kind, o.note, o.lat, o.lon, o.photo && o.photo.url]);
+  let standTouched = false;
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-td-h">${isNew ? 'Neuer Ort' : 'Ort bearbeiten'}</h3>
+    <label class="fs-ort-lbl">Art</label>
+    <div class="fs-ort-kinds">${FS_ORT_KINDS.map(k=> `<button type="button" data-kind="${k.key}" class="${(o.kind || '') === k.key ? 'on' : ''}" aria-pressed="${(o.kind || '') === k.key}">${fsIconHtml(k.icon)}<span>${esc(k.short || k.label)}</span></button>`).join('')}</div>
+    <label class="fs-ort-lbl" for="fs-ort-name">Name</label>
+    <input id="fs-ort-name" type="text" value="${esc(o.name || '')}" placeholder="z. B. Parkplatz Engstlenalp" autocomplete="off">
+    <label class="fs-ort-lbl" for="fs-ort-note">Notiz</label>
+    <textarea id="fs-ort-note" rows="3" placeholder="Gebühr, Öffnungszeiten, Zufahrt …">${esc(o.note || '')}</textarea>
+    <label class="fs-ort-lbl" for="fs-ort-stand">Stand</label>
+    <input id="fs-ort-stand" type="date" value="${esc(o.stand || fsToday())}">
+    <label class="fs-ort-lbl">Position</label>
+    <div class="fs-ort-pos"><span data-pos>${isFinite(o.lat) ? (+o.lat).toFixed(5) + ', ' + (+o.lon).toFixed(5) : 'noch keine'}</span>
+      <button type="button" class="btn secondary" data-gps>${fsIconHtml('gps')}Mein Standort</button></div>
+    <label class="fs-ort-lbl">Foto</label>
+    <div class="fs-ort-photo-row"><span data-photo>${o.photo && o.photo.url ? `<img src="${esc(o.photo.url)}" alt="">` : ''}</span>
+      <label class="btn secondary">${fsIconHtml('camera')}${o.photo && o.photo.url ? 'Foto ersetzen' : 'Foto wählen'}<input type="file" accept="image/*" hidden data-file></label></div>
+    <p class="fs-ort-msg" data-msg></p>
+    <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Abbrechen</button><button type="button" class="btn" data-save>Speichern</button></div>`);
+  const q = s=> ov.querySelector(s);
+  ov.querySelectorAll('[data-kind]').forEach(b=> b.addEventListener('click', ()=>{
+    o.kind = b.getAttribute('data-kind');
+    ov.querySelectorAll('[data-kind]').forEach(x=>{ const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
+    const nameEl = q('#fs-ort-name');
+    if(!nameEl.value.trim() && o.kind) nameEl.placeholder = fsOrtKind(o.kind).label + ' …';
+  }));
+  q('#fs-ort-stand').addEventListener('input', ()=>{ standTouched = true; });
+  q('[data-gps]').addEventListener('click', ()=>{
+    if(!navigator.geolocation){ q('[data-msg]').textContent = 'Standort nicht verfügbar.'; return; }
+    q('[data-msg]').textContent = 'Standort wird bestimmt …';
+    navigator.geolocation.getCurrentPosition(pos=>{
+      o.lat = +pos.coords.latitude.toFixed(6); o.lon = +pos.coords.longitude.toFixed(6);
+      q('[data-pos]').textContent = o.lat.toFixed(5) + ', ' + o.lon.toFixed(5);
+      q('[data-msg]').textContent = '';
+    }, ()=>{ q('[data-msg]').textContent = 'Standort konnte nicht bestimmt werden.'; }, {enableHighAccuracy:true, timeout:15000});
+  });
+  q('[data-file]').addEventListener('change', async (e)=>{
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    q('[data-msg]').textContent = 'Foto wird hochgeladen …';
+    try{
+      const blob = await compressImageFile(f, 1200, 0.78);
+      const imgId = uid('img');
+      const storagePath = `${TOPO_IMAGES_PATH}/${o.id}/${imgId}.jpg`;
+      const url = await uploadTopoImageBlob(blob, storagePath);
+      o.photo = {id: imgId, url, storagePath};
+      q('[data-photo]').innerHTML = `<img src="${esc(url)}" alt="">`;
+      q('[data-msg]').textContent = '';
+    }catch(err){ q('[data-msg]').textContent = 'Foto konnte nicht hochgeladen werden (Internet?).'; }
+  });
+  q('[data-save]').addEventListener('click', async ()=>{
+    o.name = q('#fs-ort-name').value.trim();
+    o.note = q('#fs-ort-note').value.trim();
+    if(!o.name){ q('[data-msg]').textContent = 'Bitte einen Namen eingeben.'; q('#fs-ort-name').focus(); return; }
+    if(!isFinite(o.lat) || !isFinite(o.lon)){ q('[data-msg]').textContent = 'Bitte eine Position setzen (Mein Standort).'; return; }
+    const changed = JSON.stringify([o.name, o.kind, o.note, o.lat, o.lon, o.photo && o.photo.url]) !== before;
+    // Stand: von Hand gesetzt gilt; sonst beim Erfassen und bei jeder Änderung heute
+    if(standTouched) o.stand = q('#fs-ort-stand').value || fsToday();
+    else if(isNew || changed || !o.stand) o.stand = fsToday();
+    if(isNew){ o.createdAt = new Date().toISOString(); o.createdBy = state.myName || ''; }
+    closeTopOverlayLayer();
+    await fsOrtSave(o);
+    if(onSaved) await onSaved(o);
+  });
+  if(isNew) setTimeout(()=>{ try{ q('#fs-ort-name').focus(); }catch(e){} }, 50);
+}
+// Ebene «Orte» auf den Karten: ein Strich-Icon pro Ort, antippen öffnet das Blatt
+const fsmOrteMaps = new Set();
+function fsmOrteDraw(map){
+  if(!map || !map._fsm || !window.maplibregl) return;
+  (map._fsm.orteMk || []).forEach(m=> m.remove());
+  map._fsm.orteMk = [];
+  // Ebene an: alle Orte; sonst nur die Orte der gezeigten Tour (map._fsm.orteIds)
+  const only = fsmOverlayOn(map, 'orte') ? null : (map._fsm.orteIds || []);
+  if(only && !only.length) return;
+  fsmOrteMaps.add(map);
+  if(!map._fsOrteZoomWired){
+    map._fsOrteZoomWired = true;
+    const sync = ()=> map.getContainer().classList.toggle('fsm-ort-names', map.getZoom() >= 14);
+    map.on('zoom', sync); sync();
+  }
+  fsOrteAll().filter(o=> !only || only.indexOf(o.id) >= 0).forEach(o=>{
+    if(!isFinite(o.lat) || !isFinite(o.lon)) return;
+    const k = fsOrtKind(o.kind);
+    const el = document.createElement('button');
+    el.type = 'button'; el.className = 'fsm-ort';
+    el.setAttribute('aria-label', k.label + ': ' + o.name);
+    el.innerHTML = fsIconHtml(k.icon) + `<span>${esc(o.name)}</span>`;
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); fsOpenOrt(o.id); });
+    map._fsm.orteMk.push(new maplibregl.Marker({element: el, anchor: 'left', offset: [-13, 0]}).setLngLat([+o.lon, +o.lat]).addTo(map));
+  });
+}
+function fsmOrteRefresh(){
+  fsmOrteMaps.forEach(m=>{
+    if(!m._fsm || !document.body.contains(m.getContainer())){ fsmOrteMaps.delete(m); return; }
+    fsmOrteDraw(m);
+  });
+}
+// Lange auf die Karte drücken (bzw. Rechtsklick): «Ort hier erfassen»
+function fsmWireOrtHold(ml){
+  if(!ml || ml._fsOrtHold) return;
+  ml._fsOrtHold = true;
+  const offer = (ll)=>{
+    if(navigator.vibrate) try{ navigator.vibrate(25); }catch(e){}
+    const wrap = document.createElement('div');
+    wrap.className = 'fsm-ort-hold';
+    wrap.innerHTML = `<button type="button">${fsIconHtml('plus')}Ort hier erfassen</button>`;
+    wrap.querySelector('button').addEventListener('click', ()=>{
+      if(ml._fsm && ml._fsm.popup) ml._fsm.popup.remove();
+      fsOpenOrtForm({id: uid('o'), name: '', kind: '', lat: +ll.lat.toFixed(6), lon: +ll.lng.toFixed(6)});
+    });
+    fsmPopup(ml, ll, wrap, 8);
+  };
+  ml.on('contextmenu', (e)=>{ if(e.originalEvent && e.originalEvent._fsmHandled) return; offer(e.lngLat); });
+  let timer = null, start = null;
+  const cancel = ()=>{ if(timer){ clearTimeout(timer); timer = null; } };
+  ml.on('touchstart', (e)=>{
+    cancel();
+    if(!e.originalEvent || e.originalEvent.touches.length !== 1) return;
+    start = e.point; const ll = e.lngLat;
+    timer = setTimeout(()=>{ timer = null; offer(ll); }, 650);
+  });
+  ml.on('touchmove', (e)=>{ if(start && Math.hypot(e.point.x - start.x, e.point.y - start.y) > 10) cancel(); });
+  ['touchend', 'touchcancel', 'movestart', 'zoomstart'].forEach(ev=> ml.on(ev, cancel));
+}
+// Knöpfe in der Tourenansicht (Capture, weil das Dialogfenster Klicks sonst stoppt)
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="fs-ort-open"],[data-act="fs-ort-link"]');
+  if(!el || el.closest('.fs-ort-sheet')) return;
+  e.stopPropagation();
+  if(el.getAttribute('data-act') === 'fs-ort-link') fsOpenOrtLink(el.getAttribute('data-id'));
+  else fsOpenOrt(el.getAttribute('data-ort'), el.getAttribute('data-tour'));
+}, true);
+
+/* ===== Erfahrungen: Logbuch pro Tour =====
+   Liste «erfahrungen» in der Tour: {id, by, date, at, text, photos}. Eine neue Erfahrung ist eine
+   Ergänzung (darf jede/r direkt), die eigene darf man selbst entfernen; alles andere läuft über
+   Eigentümer und Vorschläge (fsSafeSet). «In Beschreibung übernehmen» ändert ein Textfeld der Tour –
+   beim Eigentümer direkt, sonst als Vorschlag. */
+const FS_ERF_MAX_PHOTOS = 3;
+function fsErfFields(){
+  return [['special', 'Spezielles'], ['ascent', 'Aufstieg'], ['descent', fsAppKey() === 'firnspur' ? 'Abfahrt' : 'Abstieg'],
+    ['crux', 'Schlüsselstelle'], ['approach', 'Anfahrt']];
+}
+function fsErfList(t){
+  return (Array.isArray(t.erfahrungen) ? t.erfahrungen : []).filter(e=> e && e.id)
+    .slice().sort((a, b)=> ((b.date || '') + (b.at || '')).localeCompare((a.date || '') + (a.at || '')));
+}
+function fsErfMine(e){ return !!(e && state.myName && fsNameKey(e.by) === fsNameKey(state.myName)); }
+function fsErfEntryHtml(t, e){
+  const photos = Array.isArray(e.photos) ? e.photos.filter(p=> p && p.url) : [];
+  return `<article class="fs-erf">
+    <header><b>${esc(e.by || '?')}</b><span>${esc(fmtDateOnly(e.date) || '')}</span></header>
+    <p>${esc(e.text || '')}</p>
+    ${photos.length ? topoImagesGalleryHtml(photos) : ''}
+    <div class="fs-erf-acts">
+      <button type="button" class="btn secondary" data-act="fs-erf-apply" data-id="${esc(t.id)}" data-erf="${esc(e.id)}" aria-label="In die Beschreibung übernehmen">In Text übernehmen</button>
+      ${(fsErfMine(e) || fsCanEditDirect(t)) ? `<button type="button" class="btn secondary danger" data-act="fs-erf-delete" data-id="${esc(t.id)}" data-erf="${esc(e.id)}">Entfernen</button>` : ''}
+    </div>
+  </article>`;
+}
+// Abschnitt in der Tourenansicht; ohne Einträge nur im Bearbeiten-Modus sichtbar (editOnly)
+function fsTourErfSection(t){
+  const list = fsErfList(t);
+  const html = `${list.map(e=> fsErfEntryHtml(t, e)).join('')}
+    <button type="button" class="btn secondary fs-ort-addbtn" data-act="fs-erf-new" data-id="${esc(t.id)}">${fsIconHtml('plus')}Erfahrung schreiben</button>`;
+  return list.length ? html : {html, editOnly: true};
+}
+async function fsErfSaveTour(t, msg){
+  t.updatedAt = new Date().toISOString();
+  t.updatedBy = state.myName;
+  const ok = await saveTourCloud(t).catch(()=> false);
+  t._unsynced = !ok;
+  if(!ok && typeof markUnsaved === 'function') markUnsaved();
+  if(typeof render === 'function') render();
+  showToast(ok ? msg : 'Lokal gespeichert, wird später hochgeladen.', !ok);
+  return ok;
+}
+function fsErfMake(text, date, by, photos){
+  return {id: uid('e'), by: (by || state.myName || '').trim(), date: date || fsToday(), at: new Date().toISOString(), text: String(text || '').trim(), photos: photos || []};
+}
+function fsOpenErfForm(tourId){
+  const t = (state.tours || []).find(x=> x.id === tourId);
+  if(!t) return;
+  const e = fsErfMake('', fsToday());
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-td-h">Erfahrung schreiben</h3>
+    <p class="fs-ort-stand">${esc(t.name)}${t.routeName ? ' – ' + esc(t.routeName) : ''}</p>
+    <label class="fs-ort-lbl" for="fs-erf-date">Datum der Tour</label>
+    <input id="fs-erf-date" type="date" value="${esc(e.date)}">
+    <label class="fs-ort-lbl" for="fs-erf-text">Was war anders, neu oder gut zu wissen?</label>
+    <textarea id="fs-erf-text" rows="5" placeholder="z. B. Parkplatz neu gebührenpflichtig, Rinne bis Mitte Mai gut eingeschneit …"></textarea>
+    <label class="fs-ort-lbl">Fotos (bis ${FS_ERF_MAX_PHOTOS})</label>
+    <div class="fs-ort-photo-row"><span data-photos class="fs-erf-thumbs"></span>
+      <label class="btn secondary">${fsIconHtml('camera')}Foto wählen<input type="file" accept="image/*" hidden data-file></label></div>
+    <p class="fs-ort-msg" data-msg></p>
+    <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Abbrechen</button><button type="button" class="btn" data-save>Speichern</button></div>`);
+  const q = s=> ov.querySelector(s);
+  const drawPhotos = ()=>{ q('[data-photos]').innerHTML = e.photos.map(p=> `<img src="${esc(p.url)}" alt="">`).join(''); };
+  q('[data-file]').addEventListener('change', async (ev)=>{
+    const f = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if(!f) return;
+    if(e.photos.length >= FS_ERF_MAX_PHOTOS){ q('[data-msg]').textContent = 'Höchstens ' + FS_ERF_MAX_PHOTOS + ' Fotos.'; return; }
+    q('[data-msg]').textContent = 'Foto wird hochgeladen …';
+    try{
+      const blob = await compressImageFile(f, 1200, 0.78);
+      const imgId = uid('img');
+      const storagePath = `${TOPO_IMAGES_PATH}/${t.id}/${imgId}.jpg`;
+      const url = await uploadTopoImageBlob(blob, storagePath);
+      e.photos.push({id: imgId, url, storagePath});
+      drawPhotos(); q('[data-msg]').textContent = '';
+    }catch(err){ q('[data-msg]').textContent = 'Foto konnte nicht hochgeladen werden (Internet?).'; }
+  });
+  q('[data-save]').addEventListener('click', async ()=>{
+    e.text = q('#fs-erf-text').value.trim();
+    e.date = q('#fs-erf-date').value || fsToday();
+    if(!e.text && !e.photos.length){ q('[data-msg]').textContent = 'Bitte etwas schreiben oder ein Foto wählen.'; q('#fs-erf-text').focus(); return; }
+    closeTopOverlayLayer();
+    t.erfahrungen = [...(Array.isArray(t.erfahrungen) ? t.erfahrungen : []), e];
+    await fsErfSaveTour(t, 'Erfahrung gespeichert.');
+  });
+  setTimeout(()=>{ try{ q('#fs-erf-text').focus(); }catch(err){} }, 50);
+}
+// Erfahrung in ein Textfeld der Beschreibung übernehmen (vorgefüllt, anpassbar)
+function fsOpenErfApply(tourId, erfId){
+  const t = (state.tours || []).find(x=> x.id === tourId);
+  const e = t && fsErfList(t).find(x=> x.id === erfId);
+  if(!e) return;
+  const fields = fsErfFields();
+  const owner = fsCanEditDirect(t);
+  const proposal = (k)=>{ const cur = String(t[k] || '').trim(); const add = e.text + ' (' + (e.by || '?') + ', ' + fmtDateOnly(e.date) + ')'; return cur ? cur + '\n\n' + add : add; };
+  let field = fields[0][0];
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-td-h">In Beschreibung übernehmen</h3>
+    <p class="fs-ort-stand">${owner ? 'Die Beschreibung wird direkt geändert.' : 'Wird als Vorschlag an den Eigentümer geschickt.'}</p>
+    <label class="fs-ort-lbl">Feld</label>
+    <div class="fs-erf-fields">${fields.map(([k, l], i)=> `<button type="button" data-field="${k}" class="${i ? '' : 'on'}" aria-pressed="${!i}">${esc(l)}</button>`).join('')}</div>
+    <label class="fs-ort-lbl" for="fs-erf-ap">Neuer Text</label>
+    <textarea id="fs-erf-ap" rows="8">${esc(proposal(field))}</textarea>
+    <p class="fs-ort-msg" data-msg></p>
+    <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Abbrechen</button><button type="button" class="btn" data-save>${owner ? 'Übernehmen' : 'Vorschlagen'}</button></div>`);
+  const q = s=> ov.querySelector(s);
+  ov.querySelectorAll('[data-field]').forEach(b=> b.addEventListener('click', ()=>{
+    field = b.getAttribute('data-field');
+    ov.querySelectorAll('[data-field]').forEach(x=>{ const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
+    q('#fs-erf-ap').value = proposal(field);
+  }));
+  q('[data-save]').addEventListener('click', async ()=>{
+    const v = q('#fs-erf-ap').value.trim();
+    if(v === String(t[field] || '').trim()){ q('[data-msg]').textContent = 'Der Text ist unverändert.'; return; }
+    closeTopOverlayLayer();
+    t[field] = v;
+    await fsErfSaveTour(t, owner ? 'In die Beschreibung übernommen.' : 'Vorschlag gespeichert.');
+  });
+}
+async function fsErfDelete(tourId, erfId){
+  const t = (state.tours || []).find(x=> x.id === tourId);
+  if(!t || !confirm('Diese Erfahrung entfernen?')) return;
+  t.erfahrungen = (Array.isArray(t.erfahrungen) ? t.erfahrungen : []).filter(x=> x && x.id !== erfId);
+  await fsErfSaveTour(t, 'Erfahrung entfernt.');
+}
+// «Als erledigt markieren»: optionales Feld, wird als Erfahrung gespeichert
+function fsCompletionNoteFieldHtml(){
+  return `<div class="field"><label for="fs-complete-note">Was war anders oder neu? (optional)</label>
+    <textarea id="fs-complete-note" rows="3" placeholder="Wird als Erfahrung bei der Tour gespeichert"></textarea></div>`;
+}
+function fsCompletionNoteTake(t, by, date){
+  const el = document.getElementById('fs-complete-note');
+  const text = el ? el.value.trim() : '';
+  if(!t || !text) return false;
+  t.erfahrungen = [...(Array.isArray(t.erfahrungen) ? t.erfahrungen : []), fsErfMake(text, date, by)];
+  return true;
+}
+document.addEventListener('click', (ev)=>{
+  const el = ev.target.closest && ev.target.closest('[data-act="fs-erf-new"],[data-act="fs-erf-apply"],[data-act="fs-erf-delete"]');
+  if(!el) return;
+  ev.stopPropagation();
+  const act = el.getAttribute('data-act'), id = el.getAttribute('data-id'), erf = el.getAttribute('data-erf');
+  if(act === 'fs-erf-new') fsOpenErfForm(id);
+  else if(act === 'fs-erf-apply') fsOpenErfApply(id, erf);
+  else fsErfDelete(id, erf);
+}, true);
+
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
    Reihenfolge: Bilder · Kennzahlen/Status · Beschreibung · Orte · Bedingungen · Anreise · Mehr.
    Leere Abschnitte fallen weg; die Sprungleiste zeigt nur, was es gibt. */
 // [Schlüssel, Titel, kurzer Name in der Sprungleiste, Icon]
 const FS_TD_SECTIONS = [
-  ['beschreibung', 'Beschreibung', 'Info', 'note'], ['orte', 'Orte', 'Orte', 'pin'],
+  ['beschreibung', 'Beschreibung', 'Info', 'note'], ['erfahrungen', 'Erfahrungen', 'Logbuch', 'users'], ['orte', 'Orte', 'Orte', 'pin'],
   ['bedingungen', 'Bedingungen', 'Wetter', 'partly'], ['anreise', 'Anreise', 'Anreise', 'car'],
   ['mehr', 'Mehr', 'Mehr', 'more']
 ];
 function fsTdSection(key, id, inner, title){
+  // inner: HTML oder {html, editOnly} – editOnly: nur im Bearbeiten-Modus sichtbar (z. B. leeres Logbuch)
+  const editOnly = !!(inner && typeof inner === 'object' && inner.editOnly);
+  if(inner && typeof inner === 'object') inner = inner.html;
   if(!inner || !String(inner).trim()) return '';
   const label = title || (FS_TD_SECTIONS.find(x=> x[0] === key) || [key, key])[1];
   // Gleichlautende Unterüberschrift (z. B. «Bedingungen», «Anreise» aus den Bausteinen) einmal weglassen
   inner = String(inner).replace(new RegExp('<h4([^>]*)>\\s*' + label + '\\s*</h4>', 'i'), '');
-  return `<section class="fs-td-sec" id="td-${key}-${esc(id)}" data-td="${key}"><h3 class="fs-td-h">${label}</h3>${inner}</section>`;
+  return `<section class="fs-td-sec${editOnly ? ' fs-td-editonly' : ''}" id="td-${key}-${esc(id)}" data-td="${key}"><h3 class="fs-td-h">${label}</h3>${inner}</section>`;
 }
 // sections: {beschreibung:'html', orte:'html', …} – gibt Sprungleiste + Abschnitte zurück
 function fsTdBodyHtml(id, sections){
-  const present = FS_TD_SECTIONS.filter(([k])=> sections[k] && String(sections[k]).trim());
-  const jump = present.length > 1 ? `<nav class="fs-td-jump" aria-label="Abschnitte" style="--n:${present.length}">${present.map(([k, l, short, icon])=>
+  const htmlOf = v=> (v && typeof v === 'object') ? v.html : v;
+  const present = FS_TD_SECTIONS.filter(([k])=> htmlOf(sections[k]) && String(htmlOf(sections[k])).trim());
+  // Leiste nur mit Abschnitten, die im Lesemodus sichtbar sind
+  const shown = present.filter(([k])=> !(sections[k] && typeof sections[k] === 'object' && sections[k].editOnly));
+  const jump = shown.length > 1 ? `<nav class="fs-td-jump" aria-label="Abschnitte" style="--n:${shown.length}">${shown.map(([k, l, short, icon])=>
     `<button type="button" data-act="fs-goto" data-target="td-${k}-${esc(id)}" aria-label="${l}">${fsIconHtml(icon)}<span>${short}</span></button>`).join('')}</nav>` : '';
   return jump + present.map(([k])=> fsTdSection(k, id, sections[k])).join('');
 }
@@ -14476,6 +15144,7 @@ function fsTourHasContextData(t){
   if(!t) return false;
   if(tourHasMapData(t)) return true;
   if([...(t.accessRoutes||[]), ...(t.descentRoutes||[])].some(fsRouteCoords)) return true;
+  if(fsTourOrte(t).some(o=> isFinite(o.lat) && isFinite(o.lon))) return true;
   const hut = fsTourHut(t);
   return !!(hut && ((hut.points && hut.points.length) || (hut.accessRoutes||[]).some(fsRouteCoords)));
 }
@@ -14610,6 +15279,10 @@ function fsShowContextMap(t){
           legend.appendChild(b);
         });
       }
+      // Orte der Tour immer zeigen, auch ohne eingeschaltete Ebene «Orte»
+      map._fsm.orteIds = Array.isArray(t.orte) ? t.orte.slice() : [];
+      fsmOrteDraw(map);
+      fsTourOrte(t).forEach(o=>{ if(isFinite(o.lat) && isFinite(o.lon)) all.push([+o.lat, +o.lon]); });
       if(all.length){
         map._fsCoords = all;
         fsFitContextMap();
@@ -14910,6 +15583,9 @@ async function submitShareImportGpxLink(tourId, link){
    Emoji in Textknoten durch schlichte Strich-Icons im gleichen Stil. Eingabefelder, Textareas und
    Attribute bleiben unangetastet; in <option> (kann kein SVG) wird das Emoji einfach weggelassen. */
 const FS_ICON_PATHS = {
+  wc: 'M7 3.5a1.5 1.5 0 1 0 0 .01M17 3.5a1.5 1.5 0 1 0 0 .01M5 8h4l-.5 6h-3zM6 14v6M8 14v6M15 8h4l1.5 7h-7zM16 15v5M18 15v5M12 3v18',
+  entry: 'M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4',
+  exit: 'M14 7l5 5-5 5M19 12H8M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5',
   layers: 'M12 3 2 8l10 5 10-5-10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5',
   more: 'M5 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM12 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM19 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
