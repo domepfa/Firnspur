@@ -1408,10 +1408,29 @@ function fsHomeFilter(){
   bar.innerHTML = `<span><b>${shown}</b> von ${total} ${word} im Kartenausschnitt</span><button type="button" class="fs-home-all">Alle anzeigen</button>`;
   bar.querySelector('.fs-home-all').onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); };
 }
+// Suchfeld in den Listen eingeklappt: Lupen-Knopf neben «Filter». Offen-Zustand als Klasse an <html>,
+// damit das Feld beim Neuzeichnen (bei jedem Buchstaben) sofort sichtbar bleibt und den Cursor behält.
+function fsSearchSetOpen(on){ document.documentElement.classList.toggle('fs-search-open', !!on); }
+function fsSearchCollapse(){
+  const sheet = document.querySelector('.fs-sheet');
+  const inp = sheet && sheet.querySelector('.search-input');
+  if(!inp || inp._fsCollapsed) return;
+  inp._fsCollapsed = true;
+  const tb = inp.closest('.toolbar');
+  const row = (tb && tb.nextElementSibling && tb.nextElementSibling.classList.contains('toolbar-row')) ? tb.nextElementSibling : tb;
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'btn secondary fs-search-btn'; btn.setAttribute('aria-label', 'Suchen');
+  btn.innerHTML = fsIconHtml('search') + '<span>Suchen</span>';
+  row.insertBefore(btn, row.firstChild);
+  tb.classList.add('fs-search-tb');
+  btn.addEventListener('click', ()=>{ fsSearchSetOpen(true); inp.focus(); });
+  inp.addEventListener('blur', ()=> setTimeout(()=>{ const cur = document.querySelector('.fs-sheet .search-input'); if(cur && !cur.value && document.activeElement !== cur) fsSearchSetOpen(false); }, 200));
+  if(inp.value) fsSearchSetOpen(true);
+}
 (function(){
   if(typeof MutationObserver === 'undefined') return;
   let t = null;
-  const mo = new MutationObserver(()=>{ clearTimeout(t); t = setTimeout(()=>{ if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } }, 30); });
+  const mo = new MutationObserver(()=>{ clearTimeout(t); t = setTimeout(()=>{ fsSearchCollapse(); if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } }, 30); });
   const start = ()=> mo.observe(document.body, {childList:true, subtree:true});
   if(document.body) start(); else document.addEventListener('DOMContentLoaded', start);
 })();
@@ -15330,7 +15349,7 @@ function gebietListControlsHtml(allList, opts){
   const active = g.regions.size;
   const scan = opts && opts.scan;
   return `<div class="toolbar toolbar-row">
-      <button type="button" class="btn secondary ${g.open?'on':''}" data-act="gebiet-filter-toggle">🔍 Filter${active ? ` (${active})` : ''}</button>
+      <button type="button" class="btn secondary ${g.open?'on':''}" data-act="gebiet-filter-toggle">${fsIconHtml('sliders')} Filter${active ? ` (${active})` : ''}</button>
       <button type="button" class="btn secondary ${g.onlyFav?'on':''}" data-act="gebiet-fav">⭐ Nur Merkliste</button>
       <div class="sort-control">
         <select data-act="gebiet-sort-by" aria-label="Gebiete sortieren nach">
@@ -15639,7 +15658,7 @@ function huettenViewHtml(){
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar toolbar-row">
-      <button type="button" class="btn secondary" id="hut-filter-toggle-btn">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+      <button type="button" class="btn secondary" id="hut-filter-toggle-btn">${fsIconHtml('sliders')} Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
       ${sortControlHtml('hut', HUT_SORT_OPTIONS, state.hutSortBy, state.hutSortDir)}
     </div>
     <div id="hut-filter-panel" style="display:${state.hutFilterPanelOpen ? '' : 'none'}; margin-bottom:14px;">

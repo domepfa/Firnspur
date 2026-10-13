@@ -1029,7 +1029,7 @@ function tourenViewHtml(){
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar toolbar-row">
-      <button type="button" class="btn secondary" id="tour-filter-toggle-btn">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+      <button type="button" class="btn secondary" id="tour-filter-toggle-btn">${fsIconHtml('sliders')} Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
       <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">⭐ Nur Merkliste</button>
       ${sortControlHtml('tour', TOUR_SORT_OPTIONS, state.tourSortBy, state.tourSortDir)}
     </div>
