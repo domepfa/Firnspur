@@ -1331,6 +1331,81 @@ function fsHomeSync(){
     if(kindChanged || fsHomeAll) fsHomeFitAll();
   }
   fsHomeFilter();
+  fsHomeRoutesSync();
+}
+/* ===== Startkarte: Routen der Touren =====
+   Übersicht: nur Pins. Ab mittlerem Zoom die Linien der Touren im Ausschnitt, dünn und halb
+   durchsichtig. Eine Tour antippen: ihre Linie kräftig, die anderen blasser, dazu ihre Punkte. */
+const FS_HOME_ROUTE_MINZOOM = 10.5;
+let fsHomeSel = null, fsHomeSelMarkers = [], fsHomeRoutesKey = '';
+function fsHomeAccent(){
+  try{ return getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1F5F8B'; }catch(e){ return '#1F5F8B'; }
+}
+function fsHomeTourLines(t){
+  const toLL = q=> Array.isArray(q) ? [+q[1], +q[0]] : [+(q.lon != null ? q.lon : q.lng), +q.lat];
+  return fsTourRoutes(t).map(r=> (r.coords || []).map(toLL).filter(c=> isFinite(c[0]) && isFinite(c[1]))).filter(c=> c.length > 1);
+}
+function fsHomeRoutesSync(){
+  const map = fsHomeMap;
+  if(!map || !map._fsmLoaded || !map.getStyle()) return;
+  const isTours = !!fsHomePts && (fsHomePts.kind === 'tour' || fsHomePts.kind === 'msl');
+  const on = isTours && fsmOverlayOn(map, 'tourrouten');
+  const ids = on ? fsHomePts.points.map(p=> p.id) : [];
+  const tById = new Map((state.tours || []).map(t=> [t.id, t]));
+  // Schlüssel: welche Touren + Stand ihrer Linien (neu zeichnen nur bei Änderungen)
+  const key = ids.map(id=>{ const t = tById.get(id); return id + ':' + (t ? (t.updatedAt || '') + ':' + fsTourRoutes(t).map(r=> (r.coords || []).length).join('.') : ''); }).join(',');
+  if(!map.getSource('fs-home-routes')){
+    map.addSource('fs-home-routes', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+    const color = fsHomeAccent();
+    map.addLayer({id:'fs-home-routes', type:'line', source:'fs-home-routes', minzoom: FS_HOME_ROUTE_MINZOOM,
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color': color, 'line-width': 3, 'line-opacity': 0.65}});
+    map.addLayer({id:'fs-home-route-sel', type:'line', source:'fs-home-routes', filter:['==', ['get', 'id'], ''],
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color': color, 'line-width': 5, 'line-opacity': 1}});
+  }
+  if(key !== fsHomeRoutesKey){
+    fsHomeRoutesKey = key;
+    const features = [];
+    ids.forEach(id=>{ const t = tById.get(id); if(t) fsHomeTourLines(t).forEach(c=> features.push({type:'Feature', properties:{id}, geometry:{type:'LineString', coordinates:c}})); });
+    map.getSource('fs-home-routes').setData({type:'FeatureCollection', features});
+  }
+  const sel = on ? (fsHomeSel || '') : '';
+  map.setFilter('fs-home-route-sel', ['==', ['get', 'id'], sel]);
+  map.setPaintProperty('fs-home-routes', 'line-opacity', sel ? 0.3 : 0.65);
+  // Punkte nur der gewählten Tour
+  fsHomeSelMarkers.forEach(m=> m.remove()); fsHomeSelMarkers = [];
+  const t = sel ? (state.tours || []).find(x=> x.id === sel) : null;
+  if(t) (t.points || []).forEach(pt=>{
+    if(!isFinite(pt.lat) || !isFinite(pt.lon)) return;
+    const el = document.createElement('div');
+    el.className = 'fs-home-tpt';
+    el.innerHTML = fsmCategoryMarkerHtml(pt.category || '');
+    el.title = pt.label || '';
+    fsHomeSelMarkers.push(new maplibregl.Marker({element: el, anchor: 'bottom'}).setLngLat([+pt.lon, +pt.lat]).addTo(map));
+  });
+}
+// «Grosse Karte»: denselben Ausschnitt wie die Startkarte im Vollbild zeigen
+// (Leaflet-Ersatz FL zählt den Zoom um 1 höher als MapLibre, siehe FMap.prototype.setView)
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="open-standalone-map"]');
+  if(!el || !fsHomeMap || !fsHomeEl || !fsHomeEl.isConnected || !fsHomeEl.classList.contains('ready')) return;
+  try{ const c = fsHomeMap.getCenter(); lastStandaloneMapView = {center: [c.lat, c.lng], zoom: fsHomeMap.getZoom() + 1}; fsBigMapKeepView = true; }catch(err){}
+}, true);
+let fsBigMapKeepView = false;
+function fsHomeSelect(id){
+  fsHomeSel = id || null;
+  fsHomeRoutesSync();
+  if(!fsHomeSel || !fsHomeMap || !fsmOverlayOn(fsHomeMap, 'tourrouten')) return;
+  const t = (state.tours || []).find(x=> x.id === fsHomeSel);
+  const lines = t ? fsHomeTourLines(t) : [];
+  const pts = [];
+  lines.forEach(l=> l.forEach(c=> pts.push(c)));
+  ((t && t.points) || []).forEach(p=>{ if(isFinite(p.lat) && isFinite(p.lon)) pts.push([+p.lon, +p.lat]); });
+  if(pts.length < 2) return;
+  const b = new maplibregl.LngLatBounds(pts[0], pts[0]);
+  pts.forEach(c=> b.extend(c));
+  const card = fsHomeEl && fsHomeEl.querySelector('.fs-home-card');
+  fsHomeFitting = true;
+  fsHomeMap.fitBounds(b, {padding:{top: 70, left: 40, right: 70, bottom: (card && !card.hidden ? card.offsetHeight : 0) + 40}, maxZoom: 14, duration: 600});
 }
 // Kurzinfo unten auf der Karte; «öffnen» löst dieselbe Aktion aus wie ein Eintrag in der Liste
 function fsHomeCard(p){
@@ -1340,7 +1415,7 @@ function fsHomeCard(p){
     card = document.createElement('div'); card.className = 'fs-home-card';
     ['click','pointerdown','touchstart','mousedown'].forEach(ev=> card.addEventListener(ev, e=> e.stopPropagation()));
     fsHomeEl.appendChild(card);
-    if(fsHomeMap) fsHomeMap.on('click', ()=>{ card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); });
+    if(fsHomeMap) fsHomeMap.on('click', ()=>{ card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); });
   }
   const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
   const x = all.find(o=> o && o.id === p.id) || {name: p.label};
@@ -1355,7 +1430,7 @@ function fsHomeCard(p){
     ${facts.length ? `<div class="f">${facts.map(f=> `<span>${esc(String(f))}</span>`).join('')}</div>` : ''}
     <button type="button" class="open" data-act="${act}" data-id="${esc(p.id)}">${btnLabel}</button>`;
   card.hidden = false;
-  card.querySelector('.x').addEventListener('click', ()=>{ card.hidden = true; });
+  card.querySelector('.x').addEventListener('click', ()=>{ card.hidden = true; fsHomeSelect(null); });
   // Öffnen über den Eintrag der Liste (dieselbe Aktion wie dort), sonst über den Knopf selbst
   card.querySelector('.open').addEventListener('click', (e)=>{
     const li = document.querySelector('.fs-sheet .card[data-act="' + act + '"][data-id="' + CSS.escape(p.id) + '"]');
@@ -1364,6 +1439,7 @@ function fsHomeCard(p){
   fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(y=> y.classList.remove('on'));
   const idx = fsHomePts.points.indexOf(p);
   if(idx >= 0 && fsHomeMarkers[idx]) fsHomeMarkers[idx].getElement().classList.add('on');
+  fsHomeSelect(p.id);
 }
 function fsHomeFitAll(){
   if(!fsHomeMap || !fsHomePts) return;
@@ -5212,9 +5288,11 @@ function renderStandaloneMap(containerId){
     // separate Kopie statt presentCategories selbst umzusortieren).
     const zOrderedCategories = [...presentCategories.filter(k=>k==='zustieg'), ...presentCategories.filter(k=>k!=='zustieg')];
     zOrderedCategories.forEach(key=> categoryLayers[key].addTo(map));
-    if(allBoundsItems.length){
+    // Von der Startkarte aus geöffnet: deren Ausschnitt behalten, nicht auf alle Touren zoomen
+    if(allBoundsItems.length && !fsBigMapKeepView){
       map.fitBounds(FL.featureGroup(allBoundsItems).getBounds(), {padding:[30,30]});
     }
+    fsBigMapKeepView = false;
     map.on('zoomend', ()=>{
       const r = radiusForZoom(map.getZoom());
       pointMarkers.forEach(m=> m.setRadius(r));
@@ -6079,6 +6157,8 @@ const FSM_OVERLAYS = [
   {id:'slfstationen', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
   // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
   {id:'wetter', label:'Wetter', icon:'therm', wetter:true},
+  // Nur Startkarte: Linien der Touren im Ausschnitt (ab mittlerem Zoom), siehe fsHomeRoutesSync
+  {id:'tourrouten', label:'Routen der Touren', icon:'map', homeOnly:true},
   // Gemeinsame Orte (Parkplatz, Maut, Biwak …), siehe Baustein «Orte»
   {id:'orte', label:'Orte', icon:'pin', orte:true},
   {id:'webcams', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
@@ -6135,6 +6215,12 @@ function fsmPrefs(){
   try{ p = JSON.parse(localStorage.getItem('fs-map-layers') || 'null'); }catch(e){}
   p = Object.assign({base:'karte', on:[]}, p || {});
   // Wander-App: die antippbaren Wanderrouten einmalig einschalten (danach gilt die eigene Wahl)
+  // Routen der Touren auf der Startkarte: einmalig einschalten (danach gilt die eigene Wahl)
+  if(!p.trDefault){
+    p.trDefault = true;
+    if(!p.on.includes('tourrouten')) p.on.push('tourrouten');
+    fsmSavePrefs(p);
+  }
   if(fsAppKey() === 'wandern' && !p.wrDefault){
     p.wrDefault = true;
     if(!p.on.includes('wanderrouten')) p.on.push('wanderrouten');
@@ -6143,7 +6229,8 @@ function fsmPrefs(){
   return p;
 }
 function fsmSavePrefs(p){ try{ localStorage.setItem('fs-map-layers', JSON.stringify(p)); }catch(e){} }
-function fsmOverlaysForApp(){ return FSM_OVERLAYS.filter(o=> !o.hidden && (!o.skitourOnly || fsAppKey() === 'firnspur')); }
+function fsmIsHomeMap(map){ try{ return !!map && map.getContainer().id === 'fs-home-map-inner'; }catch(e){ return false; } }
+function fsmOverlaysForApp(map){ return FSM_OVERLAYS.filter(o=> !o.hidden && (!o.skitourOnly || fsAppKey() === 'firnspur') && (!o.homeOnly || fsmIsHomeMap(map))); }
 // Leerer Grundstil: Grundkarten als Raster, zwei unsichtbare "Anker" für die Reihenfolge
 // (Ebenen < Namen < eigene Linien/Punkte).
 function fsmBaseStyle(){
@@ -6185,7 +6272,7 @@ function fsmWhenLoaded(map, fn){ if(map._fsmLoaded) fn(); else map.once('load', 
 function fsmApplyPrefs(map){
   const p = fsmPrefs();
   fsmSetBase(map, p.base, true);
-  fsmOverlaysForApp().forEach(o=> fsmSetOverlay(map, o.id, p.on.includes(o.id), true));
+  fsmOverlaysForApp(map).forEach(o=> fsmSetOverlay(map, o.id, p.on.includes(o.id), true));
 }
 function fsmSetBase(map, base, silent){
   if(!map._fsmLoaded) return;
@@ -6232,6 +6319,9 @@ function fsmSetOverlay(map, id, on, silent){
   }else if(o.orte){
     map._fsm.overlays[id] = !!on;
     fsmOrteDraw(map);
+  }else if(o.homeOnly){
+    map._fsm.overlays[id] = !!on;
+    if(fsmIsHomeMap(map)) setTimeout(fsHomeRoutesSync, 0);
   }else if(o.points){
     // Punkte als HTML-Marker (Messwerte, Webcams)
     map._fsm.pt = map._fsm.pt || {};
@@ -6481,7 +6571,7 @@ function fsmSyncPanel(map){
   const p = fsmPrefs();
   const base = map._fsm.base || p.base;
   panel.innerHTML = `<div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
-    ${fsmOverlaysForApp().map(o=>`<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`).join('')}`;
+    ${fsmOverlaysForApp(map).map(o=>`<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`).join('')}`;
   panel.querySelectorAll('[data-base]').forEach(b=> b.addEventListener('click', ()=> fsmSetBase(map, b.getAttribute('data-base'))));
   panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=> fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked)));
   if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
