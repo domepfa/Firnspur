@@ -1383,12 +1383,13 @@ function fsCardThumbs(sheet){
     card._fsThumb = true;
     const x = all.find(o=> o && o.id === card.getAttribute('data-id'));
     const img = x && Array.isArray(x.topoImages) && x.topoImages.find(i=> i && i.url);
-    if(!img) return;
+    // Hat die Karte schon ein eigenes Bild (z. B. Klettergebiet), keine zweite Vorschau
+    if(!img || card.querySelector('img')) return;
     const box = document.createElement('div');
     box.className = 'fs-card-thumb';
     box.innerHTML = topoImageBoxHtml(img, 76, 76, '', 'border-radius:14px;');
     card.classList.add('has-thumb');
-    card.insertBefore(box, card.firstChild);
+    card.appendChild(box);
   });
 }
 // Liste auf den Kartenausschnitt beschränken (DOM-weit, gilt für alle Listen mit .card[data-id])
