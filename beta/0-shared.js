@@ -1323,13 +1323,46 @@ function fsHomeSync(){
     fsHomePts.points.forEach(p=>{
       const el = document.createElement('button');
       el.type = 'button'; el.className = 'fs-home-pin';
-      el.setAttribute('data-act', fsHomePts.openAct); el.setAttribute('data-id', p.id);
       el.innerHTML = `<i></i><span>${esc(p.label || '')}</span>`;
+      el.addEventListener('click', (e)=>{ e.stopPropagation(); fsHomeCard(p); });
       fsHomeMarkers.push(new maplibregl.Marker({element: el, anchor: 'left', offset: [-7, 0]}).setLngLat([p.lon, p.lat]).addTo(fsHomeMap));
     });
     if(kindChanged || fsHomeAll) fsHomeFitAll();
   }
   fsHomeFilter();
+}
+// Kurzinfo unten auf der Karte; «öffnen» löst dieselbe Aktion aus wie ein Eintrag in der Liste
+function fsHomeCard(p){
+  if(!fsHomeEl) return;
+  let card = fsHomeEl.querySelector('.fs-home-card');
+  if(!card){
+    card = document.createElement('div'); card.className = 'fs-home-card';
+    ['click','pointerdown','touchstart','mousedown'].forEach(ev=> card.addEventListener(ev, e=> e.stopPropagation()));
+    fsHomeEl.appendChild(card);
+    if(fsHomeMap) fsHomeMap.on('click', ()=>{ card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); });
+  }
+  const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
+  const x = all.find(o=> o && o.id === p.id) || {name: p.label};
+  const kind = fsHomePts.kind, act = fsHomePts.openAct;
+  const d = x.difficulty || x.climbGrade || x.mandatoryDifficulty || '';
+  const facts = [d, x.targetAltitude ? x.targetAltitude + ' m' : (x.altitude ? x.altitude + ' m' : ''), x.elevationGain ? '↑ ' + x.elevationGain + ' Hm' : '', x.duration ? x.duration + ' h' : ''].filter(Boolean);
+  const btnLabel = kind === 'hut' ? 'Hütte öffnen' : (kind === 'gebiet' || kind === 'klettergebiet') ? 'Gebiet öffnen' : 'Tour öffnen';
+  card.innerHTML = `<button type="button" class="x" aria-label="Schliessen">×</button>
+    <b class="n">${esc(x.name || p.label || '')}</b>
+    ${x.routeName ? `<span class="s">${esc(x.routeName)}</span>` : ''}
+    <span class="s">${esc([x.region, x.subregion].filter(Boolean).join(' – '))}</span>
+    ${facts.length ? `<div class="f">${facts.map(f=> `<span>${esc(String(f))}</span>`).join('')}</div>` : ''}
+    <button type="button" class="open" data-act="${act}" data-id="${esc(p.id)}">${btnLabel}</button>`;
+  card.hidden = false;
+  card.querySelector('.x').addEventListener('click', ()=>{ card.hidden = true; });
+  // Öffnen über den Eintrag der Liste (dieselbe Aktion wie dort), sonst über den Knopf selbst
+  card.querySelector('.open').addEventListener('click', (e)=>{
+    const li = document.querySelector('.fs-sheet .card[data-act="' + act + '"][data-id="' + CSS.escape(p.id) + '"]');
+    if(li){ e.preventDefault(); card.hidden = true; li.click(); }
+  });
+  fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(y=> y.classList.remove('on'));
+  const idx = fsHomePts.points.indexOf(p);
+  if(idx >= 0 && fsHomeMarkers[idx]) fsHomeMarkers[idx].getElement().classList.add('on');
 }
 function fsHomeFitAll(){
   if(!fsHomeMap || !fsHomePts) return;
@@ -1365,7 +1398,7 @@ function fsHomeFilter(){
     if(on) shown++;
   });
   let bar = sheet.querySelector('.fs-home-count');
-  if(!vis){ if(bar) bar.remove(); return; }
+  if(!vis || shown === total){ if(bar) bar.remove(); return; }
   if(!bar){
     bar = document.createElement('div'); bar.className = 'fs-home-count';
     const tb = sheet.querySelector('.toolbar');
