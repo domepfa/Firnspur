@@ -196,7 +196,7 @@ const FS_FIELD_LABELS = {name:'Name', tourName:'Name', notes:'Notizen', descript
   material:'Material', exposition:'Exposition', gefahren:'Gefahren', glacier:'Gletscher', crevasseRisk:'Spaltengefahr', ropeType:'Seil',
   ropeLength:'Seillänge', climbGrade:'Klettergrad', subregion:'Teilgebiet', approachTypes:'Anfahrt', stayTypes:'Übernachtung', points:'Punkte',
   completions:'Begehungen', topoImages:'Topo-Bilder', altTracks:'Weitere Routen', moreLinks:'Weitere Links', hutId:'Hütte', gebietId:'Gebiet',
-  summitIds:'Gipfel', participants:'Teilnehmende', conditions:'Verhältnisse', routeName:'Route'};
+  summitIds:'Gipfel', participants:'Teilnehmende', conditions:'Verhältnisse', routeName:'Routenname'};
 function fsConflictShort(v){
   if(v === undefined || v === null || v === '') return '(leer)';
   if(fsIsCoordList(v)) return 'Linie mit ' + v.length + ' Punkten';
