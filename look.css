@@ -1768,3 +1768,57 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxf .v, html.fs-dark .fsm-wx-card{ 
 .fs-sug-btns{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; }
 .fs-sug-btns .btn{ min-height:44px; }
 .fs-topo-move{ min-width:34px; min-height:34px; border:none; border-radius:10px; background:#fff; color:var(--ink); font-size:16px; font-weight:800; cursor:pointer; }
+/* ===== Startansicht: echte Karte über der Skizze ===== */
+.fs-home-slot{ position:relative; }
+.fs-home-map{ position:absolute; inset:0; z-index:4; opacity:0; transition:opacity .25s; }
+.fs-home-slot.has-map .map-strip-canvas{ visibility:hidden; }
+.fs-home-map.ready{ opacity:1; }
+.fs-home-map-inner{ position:absolute !important; inset:0; width:100%; height:100%; }
+.fs-home-slot .map-strip-head{ z-index:6; }
+.fs-home-pin{ display:flex; align-items:center; gap:5px; padding:0; border:none; background:none; font:inherit; cursor:pointer; }
+.fs-home-pin i{ display:block; width:14px; height:14px; border-radius:50%; background:var(--ice-deep); border:2.5px solid #fff; box-shadow:0 1px 4px rgba(15,30,39,.45); flex:none; }
+.fs-home-pin span{ display:none; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.94); color:var(--ink); font-size:12px; font-weight:800; box-shadow:0 1px 4px rgba(15,30,39,.25); }
+.fs-home-map.labels .fs-home-pin span{ display:block; }
+.fs-home-hidden{ display:none !important; }
+.fs-home-count{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 2px 6px; padding:0; background:none; color:var(--ink-soft); font-size:12.5px; }
+.fs-home-count b{ font-weight:800; }
+.fs-home-all{ min-height:32px; padding:0 4px; border:none; background:none; color:var(--accent-ink); font:inherit; font-size:12.5px; font-weight:800; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+.fs-home-slot.has-map{ overflow:hidden; }
+.fs-home-pin.on i{ width:18px; height:18px; background:var(--accent-ink); }
+.fs-home-pin.on span{ display:block; background:var(--ice-deep); color:#fff; }
+.fs-home-card{ position:absolute; left:10px; right:10px; bottom:38px; z-index:8; display:flex; flex-direction:column; gap:3px; padding:12px 14px; border-radius:18px; background:var(--paper); color:var(--ink); box-shadow:0 8px 28px rgba(15,30,39,.25); }
+.fs-home-card[hidden]{ display:none; }
+.fs-home-card .x{ position:absolute; top:2px; right:2px; width:44px; height:44px; border:none; background:none; font-size:22px; color:var(--ink-soft); cursor:pointer; }
+.fs-home-card .n{ font-family:var(--font-display); font-size:22px; font-weight:400; padding-right:40px; line-height:1.15; }
+.fs-home-card .s{ font-size:13px; color:var(--ink-soft); }
+.fs-home-card .f{ display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+.fs-home-card .f span{ padding:3px 10px; border-radius:999px; background:var(--ice-light); color:var(--accent-ink); font-size:12.5px; font-weight:800; }
+.fs-home-card .open{ margin-top:8px; min-height:46px; border:none; border-radius:999px; background:var(--ice-deep); color:#fff; font:inherit; font-size:15px; font-weight:800; cursor:pointer; }
+/* Suchfeld eingeklappt (fsSearchCollapse) */
+.fs-sheet .toolbar .search-input{ display:none; }
+html.fs-search-open .fs-sheet .toolbar .search-input{ display:block; }
+html:not(.fs-search-open) .fs-sheet .toolbar.fs-search-tb{ margin:0; padding:0; min-height:0; gap:0; }
+html.fs-search-open .fs-search-btn{ display:none !important; }
+.fs-search-btn{ display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+.fs-search-btn .fs-i{ width:18px; height:18px; }
+.fs-sheet .toolbar-row{ display:flex; gap:8px; }
+.fs-sheet .toolbar-row > .btn{ flex:1; }
+/* Karte so hoch, dass Suche/Filter und der Anfang der ersten Tour sichtbar bleiben */
+.fs-home-slot.has-map{ height:max(300px, calc(100dvh - 380px)); }
+/* Schmaleres Titelbild: mehr Platz für die Karte */
+.hero{ padding-top:40px; }
+.hero::before{ height:88px; }
+.hero-top{ margin-top:-34px; }
+.brand h1{ padding-top:14px; font-size:30px; }
+.tabs{ margin-top:8px; }
+/* Kompakte Listeneinträge (Startansicht) */
+.fs-sheet .card{ padding:12px 14px; margin-bottom:10px; }
+.fs-sheet .card h3{ font-size:22px; }
+.fs-sheet .card .meta-line, .fs-sheet .card .conditions-note{ display:none !important; }
+.fs-sheet .card > h3{ font-family:var(--font-ui) !important; font-size:14px !important; font-weight:700; margin:0 !important; }
+.fs-sheet .card .excerpt{ font-size:13px; margin:2px 0 0; }
+.fs-sheet .card .stat-row{ margin-top:4px; }
+.fs-sheet .card.has-thumb{ position:relative; padding-left:102px; min-height:100px; }
+.fs-card-thumb{ position:absolute; left:12px; top:12px; width:76px; height:76px; border-radius:14px; overflow:hidden; background:var(--ice-light); }
+/* Titelbild füllt den ganzen Titelbereich, die Bereichsleiste liegt darüber */
+.hero::before{ top:8px; bottom:0; height:auto; -webkit-mask-image:none; mask-image:none; }

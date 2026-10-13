@@ -1284,6 +1284,175 @@ function mapStripCloseOpenPopups(){
 // Neuer Look (Schritt 2): Karte als "Bühne" oben, die Liste liegt als Blatt darüber und schiebt
 // sich beim Scrollen über die Karte (siehe .fs-stage/.fs-sheet in look.css) — die Übersichtskarte
 // ist damit immer sichtbar statt erst nach einem Klick.
+/* ===== Startansicht: echte Karte, Liste = Kartenausschnitt =====
+   Die Bühne der Listen (Touren, Hütten, Gebiete) zeigt die swisstopo-Karte statt der Skizze. Die
+   Karte wird einmal erzeugt und bei jedem render() nur in den neuen Platzhalter umgehängt
+   (Ausschnitt bleibt). Die Liste darunter zeigt nur, was im Ausschnitt liegt; «Alle anzeigen» hebt
+   das auf. Ohne Internet bleibt die Skizze darunter sichtbar. */
+let fsHomePts = null;      // {kind, openAct, points:[{id,lat,lon,label}]} aus dem letzten mapStripHtml
+let fsHomeEl = null, fsHomeMap = null, fsHomeKey = '', fsHomeMarkers = [], fsHomeVisible = null, fsHomeAll = true, fsHomeFitting = false;
+function fsHomeMount(){
+  const slot = document.querySelector('.fs-home-slot');
+  if(!slot || !fsHomePts || typeof maplibregl === 'undefined' && !window.fsmEnsureLoaded) return;
+  if(!fsHomeEl){
+    fsHomeEl = document.createElement('div');
+    fsHomeEl.className = 'fs-home-map';
+    fsHomeEl.innerHTML = '<div class="fs-home-map-inner" id="fs-home-map-inner"></div>';
+  }
+  if(fsHomeEl.parentNode !== slot){ slot.appendChild(fsHomeEl); if(fsHomeMap) setTimeout(()=> fsHomeMap.resize(), 0); }
+  if(fsHomeEl.classList.contains('ready')) slot.classList.add('has-map');
+  if(!fsHomeMap){
+    fsmEnsureLoaded().then(()=>{
+      if(fsHomeMap) return;
+      fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52});
+      fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
+      fsHomeMap.on('moveend', ()=>{ if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
+      fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
+      fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl) sl.classList.add('has-map'); });
+    }).catch(()=>{ /* offline: Skizze bleibt */ });
+  }else fsHomeSync();
+}
+// Marker zu den aktuellen Punkten der Liste
+function fsHomeSync(){
+  if(!fsHomeMap || !fsHomeMap._fsmLoaded || !fsHomePts) return;
+  const key = fsHomePts.kind + '|' + fsHomePts.points.map(p=> p.id + ':' + p.lat.toFixed(4) + ',' + p.lon.toFixed(4)).join(';');
+  if(key !== fsHomeKey){
+    const kindChanged = fsHomeKey.split('|')[0] !== fsHomePts.kind;
+    fsHomeKey = key;
+    fsHomeMarkers.forEach(m=> m.remove()); fsHomeMarkers = [];
+    fsHomePts.points.forEach(p=>{
+      const el = document.createElement('button');
+      el.type = 'button'; el.className = 'fs-home-pin';
+      el.innerHTML = `<i></i><span>${esc(p.label || '')}</span>`;
+      el.addEventListener('click', (e)=>{ e.stopPropagation(); fsHomeCard(p); });
+      fsHomeMarkers.push(new maplibregl.Marker({element: el, anchor: 'left', offset: [-7, 0]}).setLngLat([p.lon, p.lat]).addTo(fsHomeMap));
+    });
+    if(kindChanged || fsHomeAll) fsHomeFitAll();
+  }
+  fsHomeFilter();
+}
+// Kurzinfo unten auf der Karte; «öffnen» löst dieselbe Aktion aus wie ein Eintrag in der Liste
+function fsHomeCard(p){
+  if(!fsHomeEl) return;
+  let card = fsHomeEl.querySelector('.fs-home-card');
+  if(!card){
+    card = document.createElement('div'); card.className = 'fs-home-card';
+    ['click','pointerdown','touchstart','mousedown'].forEach(ev=> card.addEventListener(ev, e=> e.stopPropagation()));
+    fsHomeEl.appendChild(card);
+    if(fsHomeMap) fsHomeMap.on('click', ()=>{ card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); });
+  }
+  const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
+  const x = all.find(o=> o && o.id === p.id) || {name: p.label};
+  const kind = fsHomePts.kind, act = fsHomePts.openAct;
+  const d = x.difficulty || x.climbGrade || x.mandatoryDifficulty || '';
+  const facts = [d, x.targetAltitude ? x.targetAltitude + ' m' : (x.altitude ? x.altitude + ' m' : ''), x.elevationGain ? '↑ ' + x.elevationGain + ' Hm' : '', x.duration ? x.duration + ' h' : ''].filter(Boolean);
+  const btnLabel = kind === 'hut' ? 'Hütte öffnen' : (kind === 'gebiet' || kind === 'klettergebiet') ? 'Gebiet öffnen' : 'Tour öffnen';
+  card.innerHTML = `<button type="button" class="x" aria-label="Schliessen">×</button>
+    <b class="n">${esc(x.name || p.label || '')}</b>
+    ${x.routeName ? `<span class="s">${esc(x.routeName)}</span>` : ''}
+    <span class="s">${esc([x.region, x.subregion].filter(Boolean).join(' – '))}</span>
+    ${facts.length ? `<div class="f">${facts.map(f=> `<span>${esc(String(f))}</span>`).join('')}</div>` : ''}
+    <button type="button" class="open" data-act="${act}" data-id="${esc(p.id)}">${btnLabel}</button>`;
+  card.hidden = false;
+  card.querySelector('.x').addEventListener('click', ()=>{ card.hidden = true; });
+  // Öffnen über den Eintrag der Liste (dieselbe Aktion wie dort), sonst über den Knopf selbst
+  card.querySelector('.open').addEventListener('click', (e)=>{
+    const li = document.querySelector('.fs-sheet .card[data-act="' + act + '"][data-id="' + CSS.escape(p.id) + '"]');
+    if(li){ e.preventDefault(); card.hidden = true; li.click(); }
+  });
+  fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(y=> y.classList.remove('on'));
+  const idx = fsHomePts.points.indexOf(p);
+  if(idx >= 0 && fsHomeMarkers[idx]) fsHomeMarkers[idx].getElement().classList.add('on');
+}
+function fsHomeFitAll(){
+  if(!fsHomeMap || !fsHomePts) return;
+  const pts = fsHomePts.points;
+  fsHomeAll = true; fsHomeFitting = true;
+  if(!pts.length){ fsHomeMap.jumpTo({center:[8.2275, 46.8182], zoom:6.6}); return; }
+  const b = new maplibregl.LngLatBounds();
+  pts.forEach(p=> b.extend([p.lon, p.lat]));
+  fsHomeMap.fitBounds(b, {padding:{top:60, bottom:40, left:40, right:70}, maxZoom: pts.length > 1 ? 11 : 8, duration: 0});
+  setTimeout(()=>{ fsHomeFitting = false; }, 300);
+}
+// Vorschaubild in den Listeneinträgen: erstes Topo/Foto des Eintrags (falls vorhanden)
+function fsCardThumbs(sheet){
+  const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
+  sheet.querySelectorAll('.card[data-id]').forEach(card=>{
+    if(card._fsThumb) return;
+    card._fsThumb = true;
+    const x = all.find(o=> o && o.id === card.getAttribute('data-id'));
+    const img = x && Array.isArray(x.topoImages) && x.topoImages.find(i=> i && i.url);
+    if(!img) return;
+    const box = document.createElement('div');
+    box.className = 'fs-card-thumb';
+    box.innerHTML = topoImageBoxHtml(img, 76, 76, '', 'border-radius:14px;');
+    card.classList.add('has-thumb');
+    card.insertBefore(box, card.firstChild);
+  });
+}
+// Liste auf den Kartenausschnitt beschränken (DOM-weit, gilt für alle Listen mit .card[data-id])
+function fsHomeFilter(){
+  const sheet = document.querySelector('.fs-sheet');
+  if(!sheet || !fsHomePts) return;
+  const act = fsHomePts.openAct;
+  let vis = null;
+  if(!fsHomeAll && fsHomeMap){
+    const b = fsHomeMap.getBounds();
+    vis = new Set(fsHomePts.points.filter(p=> b.contains([p.lon, p.lat])).map(p=> p.id));
+  }
+  fsHomeVisible = vis;
+  let shown = 0, total = 0;
+  fsCardThumbs(sheet);
+  sheet.querySelectorAll('.card').forEach(card=>{
+    if(card.parentElement && card.parentElement.closest('.card')) return; // verschachtelte Karten: über die äussere
+    const ids = [];
+    if(card.getAttribute('data-act') === act && card.getAttribute('data-id')) ids.push(card.getAttribute('data-id'));
+    card.querySelectorAll('[data-act="' + act + '"][data-id]').forEach(x=> ids.push(x.getAttribute('data-id')));
+    if(!ids.length) return;
+    total++;
+    const on = !vis || ids.some(id=> vis.has(id));
+    card.classList.toggle('fs-home-hidden', !on);
+    if(on) shown++;
+  });
+  let bar = sheet.querySelector('.fs-home-count');
+  if(!vis || shown === total){ if(bar) bar.remove(); return; }
+  if(!bar){
+    bar = document.createElement('div'); bar.className = 'fs-home-count';
+    // nach der letzten Werkzeugzeile (Suchen/Filter) einfügen
+    let tb = sheet.querySelector('.toolbar');
+    while(tb && tb.nextElementSibling && tb.nextElementSibling.classList.contains('toolbar')) tb = tb.nextElementSibling;
+    if(tb && tb.parentNode) tb.parentNode.insertBefore(bar, tb.nextSibling); else sheet.insertBefore(bar, sheet.firstChild);
+  }
+  const word = fsHomePts.kind === 'hut' ? 'Hütten' : (fsHomePts.kind === 'gebiet' || fsHomePts.kind === 'klettergebiet') ? 'Gebiete' : 'Touren';
+  bar.innerHTML = `<span><b>${shown}</b> von ${total} ${word} im Kartenausschnitt</span><button type="button" class="fs-home-all">Alle anzeigen</button>`;
+  bar.querySelector('.fs-home-all').onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); };
+}
+// Suchfeld in den Listen eingeklappt: Lupen-Knopf neben «Filter». Offen-Zustand als Klasse an <html>,
+// damit das Feld beim Neuzeichnen (bei jedem Buchstaben) sofort sichtbar bleibt und den Cursor behält.
+function fsSearchSetOpen(on){ document.documentElement.classList.toggle('fs-search-open', !!on); }
+function fsSearchCollapse(){
+  const sheet = document.querySelector('.fs-sheet');
+  const inp = sheet && sheet.querySelector('.search-input');
+  if(!inp || inp._fsCollapsed) return;
+  inp._fsCollapsed = true;
+  const tb = inp.closest('.toolbar');
+  const row = (tb && tb.nextElementSibling && tb.nextElementSibling.classList.contains('toolbar-row')) ? tb.nextElementSibling : tb;
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'btn secondary fs-search-btn'; btn.setAttribute('aria-label', 'Suchen');
+  btn.innerHTML = fsIconHtml('search') + '<span>Suchen</span>';
+  row.insertBefore(btn, row.firstChild);
+  tb.classList.add('fs-search-tb');
+  btn.addEventListener('click', ()=>{ fsSearchSetOpen(true); inp.focus(); });
+  inp.addEventListener('blur', ()=> setTimeout(()=>{ const cur = document.querySelector('.fs-sheet .search-input'); if(cur && !cur.value && document.activeElement !== cur) fsSearchSetOpen(false); }, 200));
+  if(inp.value) fsSearchSetOpen(true);
+}
+(function(){
+  if(typeof MutationObserver === 'undefined') return;
+  let t = null;
+  const mo = new MutationObserver(()=>{ clearTimeout(t); t = setTimeout(()=>{ fsSearchCollapse(); if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } }, 30); });
+  const start = ()=> mo.observe(document.body, {childList:true, subtree:true});
+  if(document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+})();
 function stageLayoutHtml(mapHtml, sheetHtml){
   return `<div class="fs-stage">${mapHtml}</div><div class="fs-sheet">${sheetHtml}</div>`;
 }
@@ -1296,7 +1465,8 @@ function mapStripHtml(opts){
   const linkLabel = (kind==='klettergebiet' || kind==='gebiet') ? 'Zum Gebiet' : kind==='hut' ? 'Zur Hütte' : 'Zur Tour';
   const openClusterId = state._mapStripOpenClusterId;
   const pinScale = 1 / view.zoom;
-  return `
+  fsHomePts = {kind, openAct, points: (points || []).filter(p=> p && isFinite(p.lat) && isFinite(p.lon))};
+  return `<div class="fs-home-slot">
     <div class="map-strip">
       <div class="map-strip-head">
         <span class="map-strip-label">🗺️ ${esc(label)}</span>
@@ -1340,6 +1510,7 @@ function mapStripHtml(opts){
         <div class="map-strip-compass"><div class="n"></div>N</div>
         ${!positioned.length ? `<div class="map-strip-empty">${esc(emptyText || '')}</div>` : ''}
       </div>
+    </div>
     </div>
   `;
 }
@@ -15197,7 +15368,7 @@ function gebietListControlsHtml(allList, opts){
   const active = g.regions.size;
   const scan = opts && opts.scan;
   return `<div class="toolbar toolbar-row">
-      <button type="button" class="btn secondary ${g.open?'on':''}" data-act="gebiet-filter-toggle">🔍 Filter${active ? ` (${active})` : ''}</button>
+      <button type="button" class="btn secondary ${g.open?'on':''}" data-act="gebiet-filter-toggle">${fsIconHtml('sliders')} Filter${active ? ` (${active})` : ''}</button>
       <button type="button" class="btn secondary ${g.onlyFav?'on':''}" data-act="gebiet-fav">⭐ Nur Merkliste</button>
       <div class="sort-control">
         <select data-act="gebiet-sort-by" aria-label="Gebiete sortieren nach">
@@ -15506,7 +15677,7 @@ function huettenViewHtml(){
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar toolbar-row">
-      <button type="button" class="btn secondary" id="hut-filter-toggle-btn">🔍 Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+      <button type="button" class="btn secondary" id="hut-filter-toggle-btn">${fsIconHtml('sliders')} Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
       ${sortControlHtml('hut', HUT_SORT_OPTIONS, state.hutSortBy, state.hutSortDir)}
     </div>
     <div id="hut-filter-panel" style="display:${state.hutFilterPanelOpen ? '' : 'none'}; margin-bottom:14px;">
