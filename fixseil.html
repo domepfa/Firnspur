@@ -2077,7 +2077,7 @@ function sektorTopoRoutenFormHtml(sektorId){
       </div>
       <div class="field"><label>Material</label>
         <div class="chips">
-          ${MATERIAL_FIXSEIL.map(m=>`<button type="button" class="chip sektor-material-chip ${selectedMaterial.includes(m)?'on':''}" style="${selectedMaterial.includes(m)?'background:var(--ice-deep)':''}" data-value="${m}">${m}</button>`).join('')}
+          ${fsChipOptions(MATERIAL_FIXSEIL, selectedMaterial).map(m=>`<button type="button" class="chip sektor-material-chip ${selectedMaterial.includes(m)?'on':''}" style="${selectedMaterial.includes(m)?'background:var(--ice-deep)':''}" data-value="${m}">${m}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Anzahl Expressschlingen</label><input name="quickdrawCount" value="${esc(sek.quickdrawCount||'')}" placeholder="z. B. 10"/></div>
@@ -3949,12 +3949,12 @@ function tourFormHtml(existing){
         </div>
         <div class="field"><label>Exposition</label>
           <div class="chips">
-            ${EXPOSITIONS.map(x=>`<button type="button" class="chip exposition-hochtour-chip ${(t.exposition||[]).includes(x)?'on':''}" style="${(t.exposition||[]).includes(x)?'background:var(--ice-deep)':''}" data-value="${x}">${x}</button>`).join('')}
+            ${fsChipOptions(EXPOSITIONS, t.exposition).map(x=>`<button type="button" class="chip exposition-hochtour-chip ${(t.exposition||[]).includes(x)?'on':''}" style="${(t.exposition||[]).includes(x)?'background:var(--ice-deep)':''}" data-value="${x}">${x}</button>`).join('')}
           </div>
         </div>
         <div class="field"><label>Gefahren</label>
           <div class="chips">
-            ${GEFAHREN_HOCHTOUR.map(g=>`<button type="button" class="chip gefahren-hochtour-chip ${(t.gefahren||[]).includes(g)?'on':''}" style="${(t.gefahren||[]).includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
+            ${fsChipOptions(GEFAHREN_HOCHTOUR, t.gefahren).map(g=>`<button type="button" class="chip gefahren-hochtour-chip ${(t.gefahren||[]).includes(g)?'on':''}" style="${(t.gefahren||[]).includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
           </div>
         </div>
       </div>
@@ -3989,12 +3989,12 @@ function tourFormHtml(existing){
         </div>
         <div class="field"><label>Exposition</label>
           <div class="chips">
-            ${EXPOSITIONS.map(x=>`<button type="button" class="chip exposition-msl-chip ${(t.exposition||[]).includes(x)?'on':''}" style="${(t.exposition||[]).includes(x)?'background:var(--ice-deep)':''}" data-value="${x}">${x}</button>`).join('')}
+            ${fsChipOptions(EXPOSITIONS, t.exposition).map(x=>`<button type="button" class="chip exposition-msl-chip ${(t.exposition||[]).includes(x)?'on':''}" style="${(t.exposition||[]).includes(x)?'background:var(--ice-deep)':''}" data-value="${x}">${x}</button>`).join('')}
           </div>
         </div>
         <div class="field"><label>Gefahren</label>
           <div class="chips">
-            ${GEFAHREN_MSL.map(g=>`<button type="button" class="chip gefahren-msl-chip ${(t.gefahren||[]).includes(g)?'on':''}" style="${(t.gefahren||[]).includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
+            ${fsChipOptions(GEFAHREN_MSL, t.gefahren).map(g=>`<button type="button" class="chip gefahren-msl-chip ${(t.gefahren||[]).includes(g)?'on':''}" style="${(t.gefahren||[]).includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
           </div>
         </div>
       </div>
@@ -4002,7 +4002,7 @@ function tourFormHtml(existing){
       <h3 style="font-size:15px; margin:16px 0 5px 0; padding-top:10px; border-top:1px solid var(--line);">Material</h3>
       <div class="field"><label>Tourenspezifisches Material</label>
         <div class="chips">
-          ${MATERIAL_FIXSEIL.map(m=>`<button type="button" class="chip material-chip ${selectedMaterial.includes(m)?'on':''}" style="${selectedMaterial.includes(m)?'background:var(--ice-deep)':''}" data-value="${m}">${m}</button>`).join('')}
+          ${fsChipOptions(MATERIAL_FIXSEIL, selectedMaterial).map(m=>`<button type="button" class="chip material-chip ${selectedMaterial.includes(m)?'on':''}" style="${selectedMaterial.includes(m)?'background:var(--ice-deep)':''}" data-value="${m}">${m}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Anzahl Expressschlingen</label><input name="quickdrawCount" value="${esc(t.quickdrawCount||'')}" placeholder="z. B. 10"/></div>

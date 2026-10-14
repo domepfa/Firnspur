@@ -1298,7 +1298,7 @@ function tourFormHtml(existing){
       </div>
       <div class="field"><label>Gefahren</label>
         <div class="chips">
-          ${GEFAHREN_WANDERN.map(g=>`<button type="button" class="chip gefahren-chip ${selectedGefahren.includes(g)?'on':''}" style="${selectedGefahren.includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
+          ${fsChipOptions(GEFAHREN_WANDERN, selectedGefahren).map(g=>`<button type="button" class="chip gefahren-chip ${selectedGefahren.includes(g)?'on':''}" style="${selectedGefahren.includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Beste Monate</label>
