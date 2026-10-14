@@ -15418,6 +15418,19 @@ function fsShowAreaContextMap(a){
         tg.items.push(markerItem(m));
         all.push([p.lat, p.lon]);
       });
+      // Gesetzte Punkte (Gipfel, Abseilstelle, Parkplatz …) der Touren, des Gebiets und seiner
+      // Sektoren/Gipfel — wie auf der früheren Übersichtskarte
+      const pts = [];
+      (a.tours||[]).forEach(t=> (t.points||[]).forEach(p=>{ if(p && isFinite(p.lat) && isFinite(p.lon)) pts.push({lat:+p.lat, lon:+p.lon, category:p.category || '', label:p.label || '', owner:t.name}); }));
+      (a.extraPoints||[]).forEach(p=> pts.push(p));
+      if(pts.length){
+        const pg = group('Punkte', '#4A3524');
+        pts.forEach(p=>{
+          const m = fsmAddMarker(map, p.lat, p.lon, fsmCategoryMarkerHtml(p.category), {anchor:'bottom', popup: `<b>${esc(p.label || 'Punkt')}</b>${p.owner ? '<br/>' + esc(p.owner) : ''}`});
+          pg.items.push(markerItem(m));
+          all.push([p.lat, p.lon]);
+        });
+      }
       const huts = (a.huts||[]).filter(h=> h.points && h.points.length);
       if(huts.length){
         const hg = group('Hütten', FS_CTX_COLORS.hutRoute);
