@@ -1204,6 +1204,14 @@ document.addEventListener('click', async (e)=>{
   render();
   showToast(ok ? 'Hütte verknüpft.' : 'Lokal gespeichert, wird später hochgeladen.', !ok);
 }, true);
+// Auswahl-Knöpfe im Formular: Standardliste plus alle schon gespeicherten Werte, die nicht darin
+// stehen (z. B. aus einem Import oder einer anderen App). Sonst hätten sie keinen Knopf und würden
+// beim Speichern still wegfallen (das Formular übernimmt nur gedrückte Knöpfe).
+function fsChipOptions(list, selected){
+  const base = Array.isArray(list) ? list.slice() : [];
+  (Array.isArray(selected) ? selected : []).forEach(v=>{ if(v != null && String(v).trim() && base.indexOf(v) < 0) base.push(v); });
+  return base;
+}
 function tourMapPoint(t){
   if(t.points && t.points.length) return {lat: t.points[0].lat, lon: t.points[0].lon};
   if(t.trackSimplified && t.trackSimplified.length) return {lat: t.trackSimplified[0][0], lon: t.trackSimplified[0][1]};
@@ -6198,26 +6206,26 @@ const FSM_WMTS = (layer, ext)=> 'https://wmts.geo.admin.ch/1.0.0/' + layer + '/d
 const FSM_NAMES_STYLE = 'https://vectortiles.geo.admin.ch/styles/ch.swisstopo.imagerybasemap.vt/style.json';
 // Zuschaltbare Ebenen (Reihenfolge = Reihenfolge im Ebenen-Fenster)
 const FSM_OVERLAYS = [
-  {id:'wanderwege', label:'Wanderwege', icon:'walk', tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
-  {id:'wanderrouten', label:'Wanderrouten (SchweizMobil)', icon:'walk', tiles:[FSM_WMTS('ch.astra.wanderland','png')]},
-  {id:'skitouren', label:'SAC-Skitouren', icon:'snow', tiles:[FSM_WMTS('ch.swisstopo-karto.skitouren','png')]},
-  {id:'hangneigung', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
-  {id:'slf', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
-  {id:'sperrungen', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
+  {id:'wanderwege', group:'wege', label:'Wanderwege', icon:'walk', tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
+  {id:'wanderrouten', group:'wege', label:'Wanderrouten (SchweizMobil)', icon:'walk', tiles:[FSM_WMTS('ch.astra.wanderland','png')]},
+  {id:'skitouren', group:'wege', label:'SAC-Skitouren', icon:'snow', tiles:[FSM_WMTS('ch.swisstopo-karto.skitouren','png')]},
+  {id:'hangneigung', group:'gefahr', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
+  {id:'slf', group:'gefahr', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
+  {id:'sperrungen', group:'gefahr', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // ÖV-Haltestellen (BAV); antippen zeigt Name, Fahrplan und «als Ort übernehmen»
-  {id:'oev', label:'ÖV-Haltestellen', icon:'bus', tiles:[FSM_WMTS('ch.bav.haltestellen-oev','png')]},
+  {id:'oev', group:'unterwegs', label:'ÖV-Haltestellen', icon:'bus', tiles:[FSM_WMTS('ch.bav.haltestellen-oev','png')]},
   // Wildruhezonen und eidg. Wildschutzgebiete (BAFU); antippen zeigt Name und Bestimmungen
-  {id:'wildschutz', label:'Wildschutz (Wildruhezonen)', icon:'alert', opacity:0.75, tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.bafu.wrz-wildruhezonen_portal,ch.bafu.bundesinventare-jagdbanngebiete&STYLES=,&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
+  {id:'wildschutz', group:'gefahr', label:'Wildschutz (Wildruhezonen)', icon:'alert', opacity:0.75, tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.bafu.wrz-wildruhezonen_portal,ch.bafu.bundesinventare-jagdbanngebiete&STYLES=,&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln — siehe fsmLoadPoints
   // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt; Daten für «Wetter-Messwerte»
-  {id:'slfstationen', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
+  {id:'slfstationen', group:'unterwegs', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
   // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
-  {id:'wetter', label:'Wetter', icon:'therm', wetter:true},
+  {id:'wetter', group:'unterwegs', label:'Wetter', icon:'therm', wetter:true},
   // Nur Startkarte: Linien der Touren im Ausschnitt (ab mittlerem Zoom), siehe fsHomeRoutesSync
-  {id:'tourrouten', label:'Routen der Touren', icon:'map', homeOnly:true},
+  {id:'tourrouten', group:'wege', label:'Routen der Touren', icon:'map', homeOnly:true},
   // Gemeinsame Orte (Parkplatz, Maut, Biwak …), siehe Baustein «Orte»
-  {id:'orte', label:'Orte', icon:'pin', orte:true},
-  {id:'webcams', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
+  {id:'orte', group:'unterwegs', label:'Orte', icon:'pin', orte:true},
+  {id:'webcams', group:'unterwegs', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
 ];
 const FSM_BASES = [
   {id:'karte', label:'Karte'},
@@ -6318,8 +6326,8 @@ function fsmCreateMap(container, opts){
   });
   map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0, gpsOnce: !!opts.gpsOnce};
   // Tipp in die Karte schliesst das Ebenen-Fenster
-  map.on('click', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) map._fsm.panel.hidden = true; });
-  map.on('dragstart', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) map._fsm.panel.hidden = true; });
+  map.on('click', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) fsmClosePanel(map); });
+  map.on('dragstart', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden && !map._fsm.panel.classList.contains('fsm-panel-sheet')) fsmClosePanel(map); });
   map.once('load', ()=>{ map._fsmLoaded = true; fsmApplyPrefs(map); });
   if(opts.controls !== false) fsmAddControls(map);
   return map;
@@ -6570,6 +6578,33 @@ function fsmLocateOnce(map, btn){
     map.flyTo({center: ll, zoom: Math.max(map.getZoom(), 13.5), duration: 1400});
   }, ()=>{ if(btn) btn.classList.remove('busy'); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
 }
+const FSM_OVERLAY_GROUPS = [['wege', 'Wege und Routen'], ['gefahr', 'Gefahren und Schutz'], ['unterwegs', 'Unterwegs']];
+// Kleine Karte (Startkarte, Tour hinter dem Blatt): Ebenen als Blatt von unten über den ganzen
+// Bildschirm, sonst wäre ein Teil der Liste hinter dem Blatt oder abgeschnitten.
+function fsmOpenPanel(map){
+  const panel = map._fsm.panel;
+  const small = map.getContainer().clientHeight < 600;
+  panel.classList.toggle('fsm-panel-sheet', small);
+  if(small){
+    if(!map._fsm.panelBack){
+      const back = document.createElement('div');
+      back.className = 'fsm-panel-back';
+      back.addEventListener('click', ()=> fsmClosePanel(map));
+      map._fsm.panelBack = back;
+    }
+    document.body.appendChild(map._fsm.panelBack);
+    document.body.appendChild(panel);
+  }
+  panel.hidden = false;
+  fsmSyncPanel(map);
+}
+function fsmClosePanel(map){
+  const panel = map._fsm && map._fsm.panel;
+  if(!panel) return;
+  panel.hidden = true;
+  if(map._fsm.panelBack) map._fsm.panelBack.remove();
+  if(panel.parentNode !== map.getContainer()){ panel.classList.remove('fsm-panel-sheet'); map.getContainer().appendChild(panel); }
+}
 function fsmAddControls(map){
   const box = document.createElement('div');
   box.className = 'fsm-ctlbox';
@@ -6587,10 +6622,8 @@ function fsmAddControls(map){
   map._fsm.panel = panel;
   ['click','pointerdown','touchstart','wheel'].forEach(ev=>{ box.addEventListener(ev, e=> e.stopPropagation()); panel.addEventListener(ev, e=> e.stopPropagation()); });
   box.querySelector('[data-fsm="layers"]').addEventListener('click', ()=>{
-    panel.hidden = !panel.hidden;
-    // Tourenkarte: Blatt einklappen, damit das Ebenen-Fenster Platz hat
-    if(!panel.hidden && map.getContainer().closest('#fs-tour-map') && typeof fsSetSheetDetent === 'function' && fsSheetDetent !== 'peek') fsSetSheetDetent('peek');
-    fsmSyncPanel(map);
+    if(!panel.hidden){ fsmClosePanel(map); return; }
+    fsmOpenPanel(map);
   });
   box.querySelector('[data-fsm="north"]').addEventListener('click', ()=> map.easeTo({bearing:0, pitch:0, duration:500}));
   const gpsBtn = box.querySelector('[data-fsm="gps"]');
@@ -6619,15 +6652,21 @@ function fsmAddControls(map){
     needle.setAttribute('transform', 'rotate(' + (-b) + ' 12 12)');
   };
   map.on('rotate', sync); map.on('pitch', sync);
-  map.on('click', ()=>{ panel.hidden = true; });
+  map.on('click', ()=> fsmClosePanel(map));
+  map.on('remove', ()=> fsmClosePanel(map));
 }
 function fsmSyncPanel(map){
   const panel = map._fsm && map._fsm.panel;
   if(!panel || panel.hidden) return;
   const p = fsmPrefs();
   const base = map._fsm.base || p.base;
-  panel.innerHTML = `<div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
-    ${fsmOverlaysForApp(map).map(o=>`<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`).join('')}`;
+  const ovs = fsmOverlaysForApp(map);
+  const row = o=> `<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`;
+  panel.innerHTML = `${panel.classList.contains('fsm-panel-sheet') ? `<div class="fsm-sheet-head"><b>Kartenebenen</b><button type="button" class="fsm-sheet-done" data-fsm-done>Fertig</button></div>` : ''}
+    <div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
+    ${FSM_OVERLAY_GROUPS.map(([g, label])=>{ const list = ovs.filter(o=> (o.group || 'unterwegs') === g); return list.length ? `<div class="fsm-group">${label}</div>${list.map(row).join('')}` : ''; }).join('')}`;
+  const done = panel.querySelector('[data-fsm-done]');
+  if(done) done.addEventListener('click', ()=> fsmClosePanel(map));
   panel.querySelectorAll('[data-base]').forEach(b=> b.addEventListener('click', ()=> fsmSetBase(map, b.getAttribute('data-base'))));
   panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=> fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked)));
   if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
@@ -14863,9 +14902,10 @@ document.addEventListener('click', (ev)=>{
    das Passwort wird nicht gespeichert. Gezeigt wird pro Eintrag, was heute fehlt (Punkte, Routen,
    Fotos, Texte, ganze Einträge), mit der jüngsten Quelle, in der es noch vorhanden war.
    Zurückholen ergänzt nur (über fbSet, mit Version), überschreibt nichts. */
+// Hütten liegen für alle Apps unter «huts» (fixseil/huts ist der alte, übernommene Bestand und wird nicht geprüft)
 const FS_CHECK_COLLS = ['tours', 'huts', 'gebiete', 'orte', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete',
-  'fixseil/gipfel', 'fixseil/huts', 'wandern/tours', 'wandern/gebiete'];
-const FS_CHECK_APP = {'tours':'Skitour', 'huts':'Skitour · Hütte', 'gebiete':'Skitour · Gebiet', 'orte':'Ort',
+  'fixseil/gipfel', 'wandern/tours', 'wandern/gebiete'];
+const FS_CHECK_APP = {'tours':'Skitour', 'huts':'Hütte', 'gebiete':'Skitour · Gebiet', 'orte':'Ort',
   'fixseil/tours':'Hochtour/Klettern', 'fixseil/sektoren':'Klettern · Sektor', 'fixseil/klettergebiete':'Klettergebiet',
   'fixseil/gipfel':'Gipfel', 'fixseil/huts':'Hochtour · Hütte', 'wandern/tours':'Wandern', 'wandern/gebiete':'Wandern · Gebiet'};
 const FS_CHECK_SKIP = new Set(['updatedAt', 'updatedBy', 'deletedAt', 'deletedBy', 'createdAt', 'createdBy', 'status', 'conditions',
@@ -14969,8 +15009,8 @@ async function fsCheckDecrypt(name, pw){
 // Kopien im Gerätespeicher (alle Apps, Haupt-App und Beta) in dieselbe Form wie die Sicherung bringen
 function fsCheckDeviceSources(){
   const map = {firnspur: {tours:'tours', huts:'huts', gebiete:'gebiete'},
-    fixseil: {tours:'fixseil/tours', sektoren:'fixseil/sektoren', klettergebiete:'fixseil/klettergebiete', gipfel:'fixseil/gipfel', huts:'fixseil/huts'},
-    wandern: {tours:'wandern/tours', gebiete:'wandern/gebiete'}};
+    fixseil: {tours:'fixseil/tours', sektoren:'fixseil/sektoren', klettergebiete:'fixseil/klettergebiete', gipfel:'fixseil/gipfel', huts:'huts'},
+    wandern: {tours:'wandern/tours', gebiete:'wandern/gebiete', huts:'huts'}};
   const out = [];
   Object.keys(map).forEach(app=> ['', 'beta'].forEach(b=>{
     let c = null;
@@ -14988,7 +15028,36 @@ function fsCheckDeviceSources(){
     out.push({label: 'Kopie auf diesem Gerät (' + (app === 'firnspur' ? 'Skitour' : app === 'fixseil' ? 'Hochtour/Klettern' : 'Wandern') + (b ? ', Beta' : '') + (c.cachedAt ? ', ' + fmtDate(c.cachedAt) : '') + ')', at: c.cachedAt || '', data});
   }));
   try{ const o = JSON.parse(localStorage.getItem(fsOrteCacheKey()) || '[]'); if(o.length){ const d = {orte:{}}; o.forEach(x=>{ if(x && x.id) d.orte[x.id] = x; }); out.push({label:'Orte auf diesem Gerät', at:'', data:d}); } }catch(e){}
+  // Weitere Ablagen auf dem Gerät: Rettungsablage (fs-rescue-*), reichere Kopien (fs-better-*),
+  // gemerkte Ausgangsstände einzelner Einträge (fs-base:<Pfad>)
+  const put = (data, path, x)=>{ if(!x || !x.id) return; const segs = path.split('/'); let o = data; segs.forEach(sg=>{ o = o[sg] = o[sg] || {}; }); o[x.id] = x; };
+  const baseData = {};
+  let nBase = 0;
+  for(let i = 0; i < localStorage.length; i++){
+    const k = localStorage.key(i);
+    if(!k) continue;
+    let v = null;
+    try{ v = JSON.parse(localStorage.getItem(k) || 'null'); }catch(e){ v = null; }
+    if(!v || typeof v !== 'object') continue;
+    const m = /^fs-(rescue|better)-(firnspur|fixseil|wandern)$/.exec(k);
+    if(m){
+      const data = {};
+      Object.keys(v).forEach(c=>{ const path = (map[m[2]] || {})[c]; if(path && Array.isArray(v[c])) v[c].forEach(x=> put(data, path, x)); });
+      if(Object.keys(data).length) out.push({label: (m[1] === 'rescue' ? 'Rettungsablage' : 'Ablage reicherer Kopien') + ' auf diesem Gerät (' + m[2] + ')', at:'', data});
+      continue;
+    }
+    const b = /^fs-base:(.+)\/([^/]+)$/.exec(k);
+    if(b && FS_CHECK_COLLS.indexOf(b[1]) >= 0 && v.id){ put(baseData, b[1], v); nBase++; }
+  }
+  if(nBase) out.push({label: 'Gemerkte Ausgangsstände auf diesem Gerät', at:'', data: baseData});
   return out;
+}
+// Punkt, der zum gemeinsamen Ort gemacht wurde («Tourpunkt zum gemeinsamen Ort machen»): kein Verlust
+function fsCheckBecameOrt(l, co, now){
+  if(l.field !== 'points' || l.type !== 'item' || !l.value || !isFinite(l.value.lat)) return false;
+  const orte = Object.values((now && now.orte) || {}).filter(o=> o && !o.deletedAt && isFinite(o.lat) && isFinite(o.lon));
+  const linked = Array.isArray(co && co.orte) ? co.orte : [];
+  return orte.some(o=> linked.indexOf(o.id) >= 0 && fsKm({lat:+l.value.lat, lon:+l.value.lon}, o) < 0.1);
 }
 // Quellen (neueste zuerst) mit dem heutigen Stand vergleichen; je Fund die neueste Quelle
 function fsCheckCompare(sources, now){
@@ -15008,7 +15077,7 @@ function fsCheckCompare(sources, now){
           return;
         }
         if(co.deletedAt) return; // bewusst gelöscht (Papierkorb)
-        fsCheckLosses(bo, co).forEach(l=>{
+        fsCheckLosses(bo, co).filter(l=> !fsCheckBecameOrt(l, co, now)).forEach(l=>{
           const key = path + '|' + l.field + '|' + (l.type === 'item' ? fsCheckItemKey(l.value) : l.type);
           if(!found.has(key)) found.set(key, Object.assign({key, path, coll, id, name: co.name || bo.name || id, src: src.label}, l));
         });
@@ -15051,6 +15120,29 @@ async function fsOpenDataCheck(){
   document.body.appendChild(box);
   const card = box.querySelector('.fs-rescue-card');
   const close = ()=> box.remove();
+  let lastSources = [], lastNow = {};
+  // Verlauf eines Eintrags: was jede Quelle über ihn weiss (Punkte, Stand, wer zuletzt)
+  const historyHtml = (q)=>{
+    q = String(q || '').trim().toLowerCase();
+    if(q.length < 3) return '';
+    const rows = [];
+    const scan = (label, data)=> FS_CHECK_COLLS.forEach(coll=>{
+      const c = fsCheckGet(data, coll);
+      if(!c || typeof c !== 'object') return;
+      Object.values(c).forEach(x=>{
+        if(!x || typeof x !== 'object' || !String(x.name || '').toLowerCase().includes(q)) return;
+        const pts = (x.points || []).map(p=> p && (p.label || 'ohne Namen'));
+        rows.push(`<div class="fs-check-hist"><b>${esc(label)}</b><span>${esc(x.name)} · ${esc(FS_CHECK_APP[coll] || coll)}${x.deletedAt ? ' · im Papierkorb' : ''}</span>
+          <span>${pts.length ? pts.length + ' Punkte: ' + esc(pts.join(', ')) : 'keine Punkte'}${x.updatedAt ? ' · Stand ' + esc(fmtDate(x.updatedAt)) + (x.updatedBy ? ' von ' + esc(x.updatedBy) : '') : ''}</span></div>`);
+      });
+    });
+    scan('Heute in der Datenbank', lastNow);
+    lastSources.forEach(src=> scan(src.label, src.data));
+    return rows.length ? rows.join('') : '<p class="fs-rescue-muted">In keiner Quelle gefunden.</p>';
+  };
+  const historyBox = ()=> `<div class="fs-check-histbox"><label class="fs-ort-lbl" for="fs-check-q">Verlauf eines Eintrags</label>
+    <input id="fs-check-q" type="search" class="fs-check-input" placeholder="Name, z. B. Sustenlochspitz" autocomplete="off"><div data-hist></div></div>`;
+  const wireHistory = ()=>{ const i = card.querySelector('#fs-check-q'); if(i) i.addEventListener('input', ()=>{ card.querySelector('[data-hist]').innerHTML = historyHtml(i.value); }); };
   const start = ()=>{
     card.innerHTML = `<h3>${fsIconHtml('shield')} Datenprüfung</h3>
       <p>Vergleicht die täglichen Sicherungen und die Kopie auf diesem Gerät mit dem heutigen Stand – für alle Apps. Gezeigt wird, was heute fehlt, und wann es zuletzt noch da war.</p>
@@ -15089,6 +15181,7 @@ async function fsOpenDataCheck(){
           segs.slice(0, -1).forEach(s=>{ o = o[s] = o[s] || {}; });
           o[segs[segs.length - 1]] = v || {};
         }
+        lastSources = sources; lastNow = now;
         results(fsCheckCompare(sources, now), sources.length);
       }catch(e){
         msg.textContent = (e && e.message) || 'Prüfung fehlgeschlagen.';
@@ -15111,7 +15204,9 @@ async function fsOpenDataCheck(){
       <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Schliessen</button><button type="button" class="btn" data-restore>Zurückholen</button></div>`
       : `<p><b>Nichts fehlt.</b> Alles, was in den ${nSources} geprüften Quellen stand, ist auch heute vorhanden.</p>
       <p class="fs-rescue-muted">Was hier nicht auftaucht, war in keiner Sicherung und in keiner Gerätekopie enthalten – also nie in der Datenbank angekommen.</p>
-      <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Schliessen</button><button type="button" class="btn secondary" data-again>Nochmals</button></div>`}`;
+      <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Schliessen</button><button type="button" class="btn secondary" data-again>Nochmals</button></div>`}
+      ${historyBox()}`;
+    wireHistory();
     card.querySelector('[data-close]').onclick = close;
     if(card.querySelector('[data-again]')) card.querySelector('[data-again]').onclick = start;
     const rb = card.querySelector('[data-restore]');
@@ -15137,6 +15232,38 @@ document.addEventListener('click', (e)=>{
   fsOpenDataCheck();
 }, true);
 
+/* ===== Gerätespeicher schützen und Nicht-Hochgeladenes anzeigen =====
+   Der Browser darf den Speicher einer Website bei Platzmangel oder längerer Nichtnutzung löschen.
+   persist() bittet ihn, das für diese App nicht zu tun (installierte App: meist sofort gewährt).
+   Solange Änderungen nur auf dem Gerät liegen, zeigt ein Hinweis unten die Zahl und lädt auf Wunsch hoch. */
+(function fsPersistStorage(){
+  try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persisted().then(p=>{ if(!p) navigator.storage.persist().catch(()=>{}); }).catch(()=>{}); }catch(e){}
+})();
+function fsUnsyncedCount(){
+  if(typeof state === 'undefined') return 0;
+  const lists = ['tours', 'huts', 'gebiete', 'sektoren', 'klettergebiete', 'gipfel', 'agenda', 'orte'];
+  return lists.reduce((n, k)=> n + (Array.isArray(state[k]) ? state[k].filter(x=> x && x._unsynced).length : 0), 0);
+}
+function fsUnsyncedSync(){
+  const n = fsUnsyncedCount();
+  let el = document.getElementById('fs-unsynced');
+  if(!n){ if(el) el.remove(); return; }
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'fs-unsynced';
+    el.className = 'fs-unsynced';
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+    el.addEventListener('click', (e)=>{ if(e.target.closest('button') && typeof loadAll === 'function'){ e.target.closest('button').disabled = true; loadAll(); } });
+  }
+  const txt = n === 1 ? '1 Änderung noch nicht hochgeladen' : n + ' Änderungen noch nicht hochgeladen';
+  if(el.dataset.n !== String(n)){
+    el.dataset.n = String(n);
+    el.innerHTML = `${fsIconHtml('offline')}<span>${txt} – nur auf diesem Gerät</span><button type="button">Hochladen</button>`;
+  }
+}
+setInterval(fsUnsyncedSync, 4000);
+window.addEventListener('online', ()=> setTimeout(fsUnsyncedSync, 500));
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
    Reihenfolge: Bilder · Kennzahlen/Status · Beschreibung · Orte · Bedingungen · Anreise · Mehr.
    Leere Abschnitte fallen weg; die Sprungleiste zeigt nur, was es gibt. */

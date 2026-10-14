@@ -1276,17 +1276,17 @@ function tourFormHtml(existing){
       </div>
       <div class="field"><label>Exposition</label>
         <div class="chips">
-          ${EXPOSITIONS.map(x=>`<button type="button" class="chip exposition-chip ${selectedExposition.includes(x)?'on':''}" style="${selectedExposition.includes(x)?'background:var(--ice-deep)':''}" data-value="${x}">${x}</button>`).join('')}
+          ${fsChipOptions(EXPOSITIONS, selectedExposition).map(x=>`<button type="button" class="chip exposition-chip ${selectedExposition.includes(x)?'on':''}" style="${selectedExposition.includes(x)?'background:var(--ice-deep)':''}" data-value="${x}">${x}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Gefahren</label>
         <div class="chips">
-          ${GEFAHREN_SKI.map(g=>`<button type="button" class="chip gefahren-chip ${selectedGefahren.includes(g)?'on':''}" style="${selectedGefahren.includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
+          ${fsChipOptions(GEFAHREN_SKI, selectedGefahren).map(g=>`<button type="button" class="chip gefahren-chip ${selectedGefahren.includes(g)?'on':''}" style="${selectedGefahren.includes(g)?'background:var(--ice-deep)':''}" data-value="${g}">${g}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Material</label>
         <div class="chips">
-          ${MATERIAL.map(m=>`<button type="button" class="chip material-chip ${selectedMaterial.includes(m)?'on':''}" style="${selectedMaterial.includes(m)?'background:var(--ice-deep)':''}" data-value="${m}">${m}</button>`).join('')}
+          ${fsChipOptions(MATERIAL, selectedMaterial).map(m=>`<button type="button" class="chip material-chip ${selectedMaterial.includes(m)?'on':''}" style="${selectedMaterial.includes(m)?'background:var(--ice-deep)':''}" data-value="${m}">${m}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Seil – Typ</label>
