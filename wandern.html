@@ -970,6 +970,7 @@ function shellHtml(){
           <button data-act="export-data">📤 Exportieren</button>
           <button data-act="import-data">📥 Importieren</button>
           <button data-act="view-abgeschlossen">✓ Erledigte Touren</button>
+          <button data-act="fs-datacheck">Datenprüfung</button>
           <button data-act="view-papierkorb">🗑️ Papierkorb${papierkorbTrashCount() ? ` (${papierkorbTrashCount()})` : ''}</button>
         </div>
       </details>
@@ -1399,7 +1400,9 @@ function tourDetailHtml(id){
   const t = state.tours.find(x=>x.id===id);
   if(!t) return `<div class="modal" data-stop="1"><p>Tour nicht gefunden.</p></div>`;
   const d = t.difficulty ? HIKE_SCALE[t.difficulty] : null;
-  const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
+  const hutLinked = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
+  const hutGuess = hutLinked ? null : fsGuessHut(t);
+  const hut = hutLinked || hutGuess;
   const gebiet = t.gebietId ? state.gebiete.find(g=>g.id===t.gebietId) : null;
   return `<div class="modal td fs-onroute" data-stop="1">
     <div class="modal-head">
@@ -1437,6 +1440,7 @@ function tourDetailHtml(id){
       ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
       ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">⛰️ Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
     </div>` : ''}
+    ${hutGuess ? fsLinkHutBtnHtml(t, hutGuess) : ''}
     ${fsSuggestionsHtml(t)}
     ${fsTdBodyHtml(t.id, {
       beschreibung: `

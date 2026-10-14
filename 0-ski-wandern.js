@@ -220,9 +220,10 @@ function setView(v){ state.view = v; state.modal = null; modalOpenedFromStandalo
 
 function render(){
   const app = document.getElementById('app');
+  const kept = fsTakeKeptModal(); // «Karte bearbeiten» offen: Ansicht behalten
   app.innerHTML = shellHtml();
   wireGlobalHandlers();
-  if(state.modal) renderModal();
+  if(!fsRestoreKeptModal(kept) && state.modal) renderModal();
   if(!state.loading) cacheLocalSnapshot();
   syncAgendaTabButton();
 }
@@ -306,7 +307,8 @@ function fsAreaForMap(modal){
   if(!modal || modal.type !== 'gebiet-detail') return null;
   const geb = state.gebiete.find(x=>x.id===modal.payload);
   if(!geb) return null;
-  return {key: geb.id, name: geb.name, tours: gebietTouren(geb), huts: gebietHuetten(geb), points: geb.points || []};
+  const extraPoints = (geb.points || []).filter(p=> p && isFinite(p.lat) && isFinite(p.lon)).map(p=> ({lat:+p.lat, lon:+p.lon, category:p.category || '', label:p.label || '', owner: geb.name}));
+  return {key: geb.id, name: geb.name, tours: gebietTouren(geb), huts: gebietHuetten(geb), points: geb.points || [], extraPoints};
 }
 
 function gebietHuetten(geb){ return state.huts.filter(h=>h.gebietId===geb.id); }

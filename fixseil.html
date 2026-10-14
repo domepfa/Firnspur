@@ -2961,9 +2961,10 @@ function setView(v){
 /* ================= Render: shell ================= */
 function render(){
   const app = document.getElementById('app');
+  const kept = fsTakeKeptModal(); // «Karte bearbeiten» offen: Ansicht behalten
   app.innerHTML = shellHtml();
   wireGlobalHandlers();
-  if(state.modal) renderModal();
+  if(!fsRestoreKeptModal(kept) && state.modal) renderModal();
   if(!state.loading) cacheLocalSnapshot();
   syncAppSwitchBar();
 }
@@ -3004,6 +3005,7 @@ function shellHtml(){
           <button data-act="export-data">📤 Exportieren</button>
           <button data-act="import-data">📥 Importieren</button>
           <button data-act="view-abgeschlossen">✓ Erledigte Touren</button>
+          <button data-act="fs-datacheck">Datenprüfung</button>
           <button data-act="view-papierkorb">🗑️ Papierkorb${papierkorbTrashCount() ? ` (${papierkorbTrashCount()})` : ''}</button>
         </div>
       </details>
@@ -3552,7 +3554,13 @@ function fsAreaForMap(modal){
   if(!geb) return null;
   const spots = klettergebietKlettergaerten(geb).filter(sk=> sk.points && sk.points.length)
     .map(sk=>({lat: sk.points[0].lat, lon: sk.points[0].lon, label: sk.name, open: ()=> openSektorDetail(sk.id)}));
-  return {key: geb.id, name: geb.name, tours: klettergebietTouren(geb), huts: klettergebietHuetten(geb), spots, spotsLabel: 'Klettergärten', points: geb.points || []};
+  // Alle gesetzten Punkte zeigen (wie die frühere Übersichtskarte): Gebiet, alle Sektoren, Gipfel
+  const extraPoints = [];
+  const addPts = (list, owner)=> (list || []).forEach(p=>{ if(p && isFinite(p.lat) && isFinite(p.lon)) extraPoints.push({lat:+p.lat, lon:+p.lon, category:p.category || '', label:p.label || '', owner}); });
+  addPts(geb.points, geb.name);
+  state.sektoren.filter(s=> s.klettergebietId === geb.id).forEach(sk=> addPts(sk.points, sk.name));
+  (state.gipfel || []).filter(gp=> gp.klettergebietId === geb.id).forEach(gp=> addPts(gp.points, gp.name));
+  return {key: geb.id, name: geb.name, tours: klettergebietTouren(geb), huts: klettergebietHuetten(geb), spots, spotsLabel: 'Klettergärten', points: geb.points || [], extraPoints};
 }
 // Nur Sektoren mit eigener Routen-Liste zählen als "Klettergarten" -- ein Sektor ohne Kletterrouten
 // ist reine technische Klammer für seine Touren und taucht hier nicht als eigener Eintrag auf.
@@ -4109,7 +4117,9 @@ function tourDetailHtml(id){
   if(!t) return `<div class="modal" data-stop="1"><p>Tour nicht gefunden.</p></div>`;
   const isMsl = t.tourCategory==='msl';
   const d = t.difficulty ? DIFF[t.difficulty] : null;
-  const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
+  const hutLinked = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
+  const hutGuess = hutLinked ? null : fsGuessHut(t);
+  const hut = hutLinked || hutGuess;
   if(hut) migrateHutAccessRoutes(hut);
   const protectionInfo = t.protection ? PROTECTION_LEVELS.find(p=>p.value===t.protection) : null;
   const sektorTouren = t.sektorId ? state.tours.filter(x=>x.sektorId===t.sektorId) : [];
@@ -4161,6 +4171,7 @@ function tourDetailHtml(id){
       ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')]
     ])}
     ${(hut || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button>` : ''}</div>` : ''}
+    ${hutGuess ? fsLinkHutBtnHtml(t, hutGuess) : ''}
     ${fsSuggestionsHtml(t)}
     ${fsTdBodyHtml(t.id, {
       beschreibung: `
