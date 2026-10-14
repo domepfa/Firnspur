@@ -186,6 +186,14 @@ await scenario('Notbremse: einzelner Eintrag', async ({ db, env, saveVia }) => {
   await saveVia("t.gefahren = ['Lawinenhang'];");
   ok('Notbremse: einzeln entfernt ohne Rückfrage', !env.dialogs.length && db.get(TP).gefahren.length === 1, env.dialogs.join(' | '));
 });
+await scenario('Notbremse: ein Punkt', async ({ db, env, saveVia }) => {
+  db.set(TP, { ...db.get(TP), points: [{ lat: 46.1, lon: 7.1, label: 'Gipfel' }, { lat: 46.2, lon: 7.2, label: 'Abseilstelle' }] });
+  await saveVia("t.points = [{lat:46.1, lon:7.1, label:'Gipfel'}, {lat:46.2, lon:7.2, label:'Abseilstelle'}];");
+  env.answer = false;
+  await saveVia("t.points = [{lat:46.1, lon:7.1, label:'Gipfel'}];");
+  const d = db.get(TP);
+  ok('Notbremse: ein Punkt weg fragt nach, Abbrechen behält ihn', env.dialogs.length === 1 && /Abseilstelle/.test(env.dialogs[0]) && d.points.length === 2, JSON.stringify({ dlg: env.dialogs, p: d.points }));
+});
 await scenario('Notbremse: Feld geleert', async ({ db, env, saveVia }) => {
   env.answer = false;
   await saveVia("t.crux = '';");

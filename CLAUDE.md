@@ -88,6 +88,9 @@ aus anderen Apps übernehmen.
 - Erfahrungen (Logbuch): Liste `erfahrungen` in der Tour (`id, by, date, at, text, photos`), Baustein
   «Erfahrungen» in `0-shared.js` (`fsErf*`). Neue und eigene Einträge direkt, Übernehmen in die
   Beschreibung beim Eigentümer direkt, sonst als Vorschlag.
+- Datenprüfung (Menü, `fsOpenDataCheck`): entschlüsselt die täglichen Sicherungen nur auf dem Gerät,
+  vergleicht sie und die Gerätekopie mit dem heutigen Stand und holt Fehlendes ergänzend zurück.
+  Die Notbremse fragt bei Punkten, Routen, Fotos, Erfahrungen und Orten schon bei einem Eintrag.
 - Import ergänzt, ersetzt nie (`fsImportMerge`).
 - Datenbank-Regeln stehen in `database.rules.json` und müssen zu den Pfaden passen
   (Änderungen in der Firebase-Konsole einfügen).
