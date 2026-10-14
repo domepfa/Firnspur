@@ -228,6 +228,7 @@ function fsResolveConflicts(result, conflicts, cur){
 // auf einmal, langer Text stark gekürzt). Einzelne entfernte Listeneinträge gelten als bewusst.
 const FS_LOSS_IGNORE = new Set(['updatedAt', 'updatedBy', 'deletedAt', 'deletedBy', 'status', 'conditions', 'summitIdsParked',
   'hutId', 'gebietId', 'sektorId', 'klettergebietId', 'createdAt', 'createdBy']);
+const FS_LOSS_STRICT = new Set(['points', 'altTracks', 'topoImages', 'erfahrungen', 'accessRoutes', 'descentRoutes', 'kletterrouten', 'orte', 'moreLinks']);
 function fsDetectLosses(cur, res){
   const out = [];
   Object.keys(cur || {}).forEach(k=>{
@@ -242,7 +243,8 @@ function fsDetectLosses(cur, res){
     if(Array.isArray(c)){
       const keep = new Set((Array.isArray(r) ? r : []).map(fsImportKey));
       const lost = c.filter(x=> !keep.has(fsImportKey(x)));
-      if(lost.length >= 2) out.push({key:k, restore:(Array.isArray(r) ? r : []).concat(lost), text: `${label}: ${lost.length} Einträge`});
+      // Punkte, Routen, Fotos, Erfahrungen, Orte: schon ein einzelner verschwundener Eintrag fragt nach
+      if(lost.length >= (FS_LOSS_STRICT.has(k) ? 1 : 2)) out.push({key:k, restore:(Array.isArray(r) ? r : []).concat(lost), text: `${label}: ${lost.length === 1 ? '1 Eintrag' : lost.length + ' Einträge'}${k === 'points' ? ' (' + lost.map(x=> (x && x.label) || 'ohne Namen').join(', ') + ')' : ''}`});
       return;
     }
     if(fsCanon(r) === null){ out.push({key:k, restore:c, text: `${label}${typeof c === 'string' && c.length > 30 ? ' (' + c.length + ' Zeichen)' : ''}`}); return; }
@@ -820,15 +822,25 @@ async function fsOpenVersions(id, path, gpxPath){
     cnt(x.completions) ? cnt(x.completions) + ' Begehungen' : '',
     x.deletedAt ? 'im Papierkorb' : ''
   ].filter(Boolean).join(' · ') || 'ohne Kartendaten');
+  const findObj = ()=>{
+    const lists = isAgenda ? [state.agenda] : [state.tours, state.trashedTours];
+    let obj = null; lists.filter(Array.isArray).forEach(l=>{ const f = l.find(y=> y.id === id); if(f) obj = f; });
+    return obj;
+  };
   const when = iso=> iso ? new Date(iso).toLocaleString('de-CH', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}) : '?';
   const gpts = x=>{ try{ return parseGpxTrackPoints(x.gpx).length; }catch(e){ return 0; } };
   card.innerHTML = `<h3>${fsIconHtml('clock')} Frühere Versionen</h3>
     ${list.length ? `<p class="fs-rescue-muted">Vor jedem Speichern wird die bisherige Fassung hier abgelegt. Zurückholen sichert die aktuelle Fassung ebenfalls zuerst.</p>
-    <div class="fs-ver-list">${list.slice(0, 30).map((x, i)=> `<div class="fs-ver-row">
+    <div class="fs-ver-list">${list.slice(0, 30).map((x, i)=>{
+      // Was danach (nächste Fassung bzw. heute) anders war: macht sichtbar, was eine Speicherung entfernt hat
+      const after = i === 0 ? findObj() : list[i - 1];
+      const diff = isAgenda ? '' : fsCheckDiffText(x, after);
+      return `<div class="fs-ver-row">
       <div><b>${esc(when(x._versionAt))}</b>${x._versionBy ? ' · gespeichert von ' + esc(x._versionBy) : ''}<br/>
-        <span>${esc(x.name || x.title || '')}</span> <span class="fs-rescue-muted">${esc(sum(x))}${x.updatedBy ? ' · Stand von ' + esc(x.updatedBy) : ''}</span></div>
-      <button type="button" class="btn secondary" data-ver="${i}">Zurückholen</button>
-    </div>`).join('')}</div>` : `<p>Noch keine früheren Versionen. Ab jetzt wird vor jeder Änderung die bisherige Fassung gesichert.</p>`}
+        <span>${esc(x.name || x.title || '')}</span> <span class="fs-rescue-muted">${esc(sum(x))}${x.updatedBy ? ' · Stand von ' + esc(x.updatedBy) : ''}</span>
+        ${diff ? `<div class="fs-ver-diff">Danach geändert: ${esc(diff)}</div>` : ''}</div>
+      <button type="button" class="btn secondary" data-ver="${i}">Diese Fassung zurückholen</button>
+    </div>`; }).join('')}</div>` : `<p>Noch keine früheren Versionen. Ab jetzt wird vor jeder Änderung die bisherige Fassung gesichert.</p>`}
     ${glist.length ? `<h4 style="margin:16px 0 6px;">Frühere GPX-Dateien</h4>
     <p class="fs-rescue-muted">Zurückholen ersetzt die GPX-Datei und die Linie der Tour; die jetzige Datei wird vorher gesichert.</p>
     <div class="fs-ver-list">${glist.slice(0, 20).map((x, i)=> `<div class="fs-ver-row">
@@ -837,11 +849,6 @@ async function fsOpenVersions(id, path, gpxPath){
     </div>`).join('')}</div>` : ''}
     <div class="fs-rescue-actions" style="margin-top:12px;"><button type="button" class="btn secondary" data-close>Schliessen</button></div>`;
   card.querySelector('[data-close]').onclick = ()=> box.remove();
-  const findObj = ()=>{
-    const lists = isAgenda ? [state.agenda] : [state.tours, state.trashedTours];
-    let obj = null; lists.filter(Array.isArray).forEach(l=>{ const f = l.find(y=> y.id === id); if(f) obj = f; });
-    return obj;
-  };
   card.querySelectorAll('[data-ver]').forEach(b=> b.onclick = async ()=>{
     const old = list[+b.getAttribute('data-ver')];
     if(!window.confirm(`Fassung vom ${when(old._versionAt)} zurückholen?\n\nDie jetzige Fassung wird vorher als Version gesichert.`)) return;
@@ -14848,6 +14855,286 @@ document.addEventListener('click', (ev)=>{
   if(act === 'fs-erf-new') fsOpenErfForm(id);
   else if(act === 'fs-erf-apply') fsOpenErfApply(id, erf);
   else fsErfDelete(id, erf);
+}, true);
+
+/* ===== Datenprüfung: Sicherungen und Gerätekopie mit dem heutigen Stand vergleichen =====
+   Die täglichen Sicherungen (backups/firnspur-JJJJ-MM-TT.json.gpg, verschlüsselt mit dem
+   App-Passwort, siehe .github/workflows/backup.yml) werden NUR auf diesem Gerät entschlüsselt;
+   das Passwort wird nicht gespeichert. Gezeigt wird pro Eintrag, was heute fehlt (Punkte, Routen,
+   Fotos, Texte, ganze Einträge), mit der jüngsten Quelle, in der es noch vorhanden war.
+   Zurückholen ergänzt nur (über fbSet, mit Version), überschreibt nichts. */
+const FS_CHECK_COLLS = ['tours', 'huts', 'gebiete', 'orte', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete',
+  'fixseil/gipfel', 'fixseil/huts', 'wandern/tours', 'wandern/gebiete'];
+const FS_CHECK_APP = {'tours':'Skitour', 'huts':'Skitour · Hütte', 'gebiete':'Skitour · Gebiet', 'orte':'Ort',
+  'fixseil/tours':'Hochtour/Klettern', 'fixseil/sektoren':'Klettern · Sektor', 'fixseil/klettergebiete':'Klettergebiet',
+  'fixseil/gipfel':'Gipfel', 'fixseil/huts':'Hochtour · Hütte', 'wandern/tours':'Wandern', 'wandern/gebiete':'Wandern · Gebiet'};
+const FS_CHECK_SKIP = new Set(['updatedAt', 'updatedBy', 'deletedAt', 'deletedBy', 'createdAt', 'createdBy', 'status', 'conditions',
+  'completed', 'completedBy', 'completedDate', 'owner', 'editors', 'open', 'summitIdsParked']);
+const FS_OPENPGP = 'https://unpkg.com/openpgp@5.11.2/dist/openpgp.min.js';
+function fsCheckItemKey(x){
+  if(x && typeof x === 'object'){
+    if(x.id) return 'id:' + x.id;
+    if(isFinite(x.lat) && isFinite(x.lon)) return 'pt:' + (+x.lat).toFixed(5) + ',' + (+x.lon).toFixed(5);
+    if(x.url) return 'url:' + x.url;
+  }
+  return 'k:' + fsImportKey(x);
+}
+function fsCheckItemLabel(field, x){
+  const f = FS_FIELD_LABELS[field] || field;
+  if(!x || typeof x !== 'object'){
+    // Verweis auf einen anderen Eintrag (z. B. Gipfel-ID): mit Namen anzeigen
+    const sv = String(x);
+    const ref = /^[a-z]+_[a-z0-9_]+$/i.test(sv) && typeof state !== 'undefined'
+      ? [].concat(state.gipfel || [], state.tours || [], state.huts || [], state.sektoren || [], state.klettergebiete || [], state.gebiete || [], fsOrteAll()).find(o=> o && o.id === sv) : null;
+    return f + ': ' + (ref ? (ref.name || sv) : sv);
+  }
+  if(field === 'points'){
+    const cat = (MAP_POINT_CATEGORIES[x.category || ''] || MAP_POINT_CATEGORIES['']).label;
+    return 'Punkt «' + (x.label || 'ohne Namen') + '»' + (x.category ? ' (' + cat + ')' : '');
+  }
+  if(field === 'completions') return 'Begehung ' + (x.by || '?') + (x.date ? ' · ' + fmtDateOnly(x.date) : '');
+  if(field === 'erfahrungen') return 'Erfahrung ' + (x.by || '?') + (x.date ? ' · ' + fmtDateOnly(x.date) : '');
+  if(field === 'topoImages') return 'Foto' + (x.name ? ' «' + x.name + '»' : '');
+  return f + ' «' + (x.name || x.label || x.title || x.by || 'Eintrag') + '»';
+}
+// Was in «older» steht, in «newer» aber fehlt (pro Feld). Gemeinsame Grundlage für Datenprüfung
+// und Versionsliste.
+function fsCheckLosses(older, newer){
+  const out = [];
+  if(!older || typeof older !== 'object') return out;
+  newer = newer || {};
+  Object.keys(older).forEach(k=>{
+    if(k[0] === '_' || FS_CHECK_SKIP.has(k)) return;
+    const b = older[k], c = newer[k];
+    if(fsCanon(b) === null) return;
+    if(fsIsCoordList(b)){
+      const n = Array.isArray(c) ? c.length : 0;
+      if(n < b.length * 0.5) out.push({field:k, type:'line', value:b, label:(FS_FIELD_LABELS[k] || k) + (n ? ': von ' + b.length + ' auf ' + n + ' Punkte gekürzt' : ' fehlt (' + b.length + ' Punkte)'), safe: !n});
+      return;
+    }
+    if(Array.isArray(b)){
+      const have = new Set((Array.isArray(c) ? c : []).map(fsCheckItemKey));
+      const haveLabels = new Set((Array.isArray(c) ? c : []).map(x=> x && typeof x === 'object' ? String(x.label || x.name || '').trim().toLowerCase() : '').filter(Boolean));
+      b.forEach(x=>{
+        if(have.has(fsCheckItemKey(x))) return;
+        const lbl = x && typeof x === 'object' ? String(x.label || x.name || '').trim().toLowerCase() : '';
+        const similar = !!lbl && haveLabels.has(lbl); // vermutlich nur verschoben/geändert
+        out.push({field:k, type:'item', value:x, label: fsCheckItemLabel(k, x) + (similar ? ' – ähnlicher Eintrag ist noch da' : ''), safe: !similar});
+      });
+      return;
+    }
+    if(typeof b === 'string'){
+      const cs = typeof c === 'string' ? c : '';
+      if(!cs.trim()) out.push({field:k, type:'text', value:b, label:(FS_FIELD_LABELS[k] || k) + ' ist leer – vorher: «' + b.slice(0, 80) + (b.length > 80 ? '…' : '') + '»', safe:true});
+      else if(b.length >= 40 && cs.length < b.length * 0.5) out.push({field:k, type:'text', value:b, label:(FS_FIELD_LABELS[k] || k) + ' stark gekürzt (' + b.length + ' → ' + cs.length + ' Zeichen) – vorher: «' + b.slice(0, 80) + '…»', safe:false});
+      return;
+    }
+    if((c === undefined || c === null || c === '') && (typeof b === 'number' || typeof b === 'boolean')) out.push({field:k, type:'text', value:b, label:(FS_FIELD_LABELS[k] || k) + ' fehlt – vorher: ' + b, safe:true});
+  });
+  return out;
+}
+// Kurzbeschreibung der Änderungen zwischen zwei Fassungen (für die Versionsliste)
+function fsCheckDiffText(older, newer){
+  if(!older || !newer) return '';
+  const lost = fsCheckLosses(older, newer), added = fsCheckLosses(newer, older);
+  const parts = [];
+  const lostPts = lost.filter(x=> x.field === 'points'), addPts = added.filter(x=> x.field === 'points');
+  if(lostPts.length) parts.push('−' + lostPts.length + ' Punkte (' + lostPts.map(x=> (x.value && x.value.label) || '?').join(', ') + ')');
+  if(addPts.length) parts.push('+' + addPts.length + ' Punkte');
+  lost.filter(x=> x.field !== 'points').forEach(x=> parts.push('entfernt: ' + (x.type === 'item' ? fsCheckItemLabel(x.field, x.value) : (FS_FIELD_LABELS[x.field] || x.field))));
+  added.filter(x=> x.field !== 'points' && x.type === 'item').forEach(x=> parts.push('neu: ' + fsCheckItemLabel(x.field, x.value)));
+  const changed = Object.keys(Object.assign({}, older, newer)).filter(k=> k[0] !== '_' && !FS_CHECK_SKIP.has(k) && typeof (older[k] ?? newer[k]) === 'string' && String(older[k] || '') !== String(newer[k] || '') && !lost.some(l=> l.field === k) && !added.some(l=> l.field === k));
+  if(changed.length) parts.push('geändert: ' + changed.map(k=> FS_FIELD_LABELS[k] || k).join(', '));
+  return parts.join(' · ');
+}
+function fsCheckGet(obj, coll){ return coll.split('/').reduce((o, s)=> (o && typeof o === 'object') ? o[s] : undefined, obj); }
+function fsCheckPagesRoot(){ const p = location.pathname; const i = p.indexOf('/beta/'); return i >= 0 ? p.slice(0, i + 1) : p.replace(/[^/]*$/, ''); }
+async function fsCheckBackupList(){
+  try{
+    const r = await fetch('https://api.github.com/repos/domepfa/Firnspur/contents/backups');
+    if(!r.ok) throw new Error('Liste nicht verfügbar');
+    const j = await r.json();
+    return j.map(x=> x.name).filter(n=> /^firnspur-\d{4}-\d{2}-\d{2}\.json\.gpg$/.test(n)).sort().reverse();
+  }catch(e){ return []; }
+}
+async function fsCheckDecrypt(name, pw){
+  let r = await fetch(fsCheckPagesRoot() + 'backups/' + name, {cache:'no-cache'}).catch(()=> null);
+  if(!r || !r.ok) r = await fetch('https://raw.githubusercontent.com/domepfa/Firnspur/main/backups/' + name);
+  if(!r.ok) throw new Error('Sicherung nicht ladbar');
+  const bin = new Uint8Array(await r.arrayBuffer());
+  const message = await openpgp.readMessage({binaryMessage: bin});
+  const {data} = await openpgp.decrypt({message, passwords: [pw], format: 'utf8'});
+  return JSON.parse(data);
+}
+// Kopien im Gerätespeicher (alle Apps, Haupt-App und Beta) in dieselbe Form wie die Sicherung bringen
+function fsCheckDeviceSources(){
+  const map = {firnspur: {tours:'tours', huts:'huts', gebiete:'gebiete'},
+    fixseil: {tours:'fixseil/tours', sektoren:'fixseil/sektoren', klettergebiete:'fixseil/klettergebiete', gipfel:'fixseil/gipfel', huts:'fixseil/huts'},
+    wandern: {tours:'wandern/tours', gebiete:'wandern/gebiete'}};
+  const out = [];
+  Object.keys(map).forEach(app=> ['', 'beta'].forEach(b=>{
+    let c = null;
+    try{ c = JSON.parse(localStorage.getItem(app + b + '-cache') || 'null'); }catch(e){ c = null; }
+    if(!c) return;
+    const data = {};
+    Object.keys(map[app]).forEach(k=>{
+      const arr = [...(c[k] || []), ...(c['trashed' + k.charAt(0).toUpperCase() + k.slice(1)] || [])];
+      if(!arr.length) return;
+      const obj = {}; arr.forEach(x=>{ if(x && x.id) obj[x.id] = x; });
+      const segs = map[app][k].split('/'); let o = data;
+      segs.slice(0, -1).forEach(s=>{ o = o[s] = o[s] || {}; });
+      o[segs[segs.length - 1]] = obj;
+    });
+    out.push({label: 'Kopie auf diesem Gerät (' + (app === 'firnspur' ? 'Skitour' : app === 'fixseil' ? 'Hochtour/Klettern' : 'Wandern') + (b ? ', Beta' : '') + (c.cachedAt ? ', ' + fmtDate(c.cachedAt) : '') + ')', at: c.cachedAt || '', data});
+  }));
+  try{ const o = JSON.parse(localStorage.getItem(fsOrteCacheKey()) || '[]'); if(o.length){ const d = {orte:{}}; o.forEach(x=>{ if(x && x.id) d.orte[x.id] = x; }); out.push({label:'Orte auf diesem Gerät', at:'', data:d}); } }catch(e){}
+  return out;
+}
+// Quellen (neueste zuerst) mit dem heutigen Stand vergleichen; je Fund die neueste Quelle
+function fsCheckCompare(sources, now){
+  const found = new Map();
+  sources.forEach(src=>{
+    FS_CHECK_COLLS.forEach(coll=>{
+      const b = fsCheckGet(src.data, coll), c = fsCheckGet(now, coll) || {};
+      if(!b || typeof b !== 'object') return;
+      Object.keys(b).forEach(id=>{
+        const bo = b[id];
+        if(!bo || typeof bo !== 'object' || bo.deletedAt || !bo.id) return;
+        const co = c[id];
+        const path = coll + '/' + id;
+        if(!co){
+          const key = path + '|entry';
+          if(!found.has(key)) found.set(key, {key, path, coll, id, name: bo.name || bo.title || id, type:'entry', value:bo, label:'Ganzer Eintrag fehlt', safe:true, src: src.label});
+          return;
+        }
+        if(co.deletedAt) return; // bewusst gelöscht (Papierkorb)
+        fsCheckLosses(bo, co).forEach(l=>{
+          const key = path + '|' + l.field + '|' + (l.type === 'item' ? fsCheckItemKey(l.value) : l.type);
+          if(!found.has(key)) found.set(key, Object.assign({key, path, coll, id, name: co.name || bo.name || id, src: src.label}, l));
+        });
+      });
+    });
+  });
+  return Array.from(found.values());
+}
+async function fsCheckRestore(items){
+  const byPath = new Map();
+  items.forEach(it=>{ (byPath.get(it.path) || byPath.set(it.path, []).get(it.path)).push(it); });
+  let ok = 0, fail = 0;
+  for(const [path, list] of byPath){
+    const entry = list.find(x=> x.type === 'entry');
+    let cur = entry ? null : await fbGet(path);
+    let obj;
+    if(entry){ obj = JSON.parse(JSON.stringify(entry.value)); }
+    else{
+      if(!cur || typeof cur !== 'object'){ fail += list.length; continue; }
+      obj = JSON.parse(JSON.stringify(cur));
+      list.forEach(it=>{
+        if(it.type === 'item'){
+          const arr = Array.isArray(obj[it.field]) ? obj[it.field] : [];
+          if(!arr.some(x=> fsCheckItemKey(x) === fsCheckItemKey(it.value))) arr.push(it.value);
+          obj[it.field] = arr;
+        }else obj[it.field] = it.value;
+      });
+    }
+    obj.updatedAt = new Date().toISOString();
+    obj.updatedBy = (state && state.myName) || '';
+    const res = await fbSet(path, obj).catch(()=> false);
+    if(res) ok += list.length; else fail += list.length;
+  }
+  return {ok, fail};
+}
+async function fsOpenDataCheck(){
+  const box = document.createElement('div');
+  box.className = 'fs-rescue fs-check';
+  box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true"></div>`;
+  document.body.appendChild(box);
+  const card = box.querySelector('.fs-rescue-card');
+  const close = ()=> box.remove();
+  const start = ()=>{
+    card.innerHTML = `<h3>${fsIconHtml('shield')} Datenprüfung</h3>
+      <p>Vergleicht die täglichen Sicherungen und die Kopie auf diesem Gerät mit dem heutigen Stand – für alle Apps. Gezeigt wird, was heute fehlt, und wann es zuletzt noch da war.</p>
+      <p class="fs-rescue-muted">Die Sicherungen sind mit dem App-Passwort verschlüsselt. Es wird nur auf diesem Gerät zum Entschlüsseln verwendet und nicht gespeichert.</p>
+      <label class="fs-ort-lbl" for="fs-check-pw">App-Passwort</label>
+      <input id="fs-check-pw" type="password" autocomplete="off" class="fs-check-input">
+      <p class="fs-ort-msg" data-msg></p>
+      <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Schliessen</button><button type="button" class="btn" data-run>Prüfen</button></div>
+      <button type="button" class="btn secondary fs-check-dev" data-dev>Nur Gerätekopie prüfen (ohne Passwort)</button>`;
+    card.querySelector('[data-close]').onclick = close;
+    const run = async (withBackups)=>{
+      const msg = card.querySelector('[data-msg]');
+      const pw = card.querySelector('#fs-check-pw').value;
+      if(withBackups && !pw){ msg.textContent = 'Bitte das App-Passwort eingeben.'; return; }
+      card.querySelectorAll('button').forEach(b=> b.disabled = true);
+      try{
+        const sources = [];
+        if(withBackups){
+          msg.textContent = 'Lade Liste der Sicherungen …';
+          if(!window.openpgp) await new Promise((res, rej)=>{ const s = document.createElement('script'); s.src = FS_OPENPGP; s.onload = res; s.onerror = ()=> rej(new Error('Entschlüsselung nicht ladbar (Internet?)')); document.head.appendChild(s); });
+          const names = await fsCheckBackupList();
+          if(!names.length) throw new Error('Keine Sicherungen gefunden (Internet?).');
+          for(let i = 0; i < names.length; i++){
+            msg.textContent = 'Entschlüssle Sicherung ' + (i + 1) + ' von ' + names.length + ' …';
+            try{ sources.push({label: 'Sicherung vom ' + fmtDateOnly(names[i].slice(9, 19)), at: names[i].slice(9, 19), data: await fsCheckDecrypt(names[i], pw)}); }
+            catch(e){ if(i === 0) throw new Error(/passw|decrypt|session key/i.test(String(e && e.message)) ? 'Passwort stimmt nicht.' : 'Sicherung konnte nicht gelesen werden: ' + (e && e.message)); }
+          }
+        }
+        sources.push(...fsCheckDeviceSources());
+        msg.textContent = 'Lade heutigen Stand …';
+        const now = {};
+        for(const coll of FS_CHECK_COLLS){
+          const v = await fbGet(coll);
+          if(v === null && !navigator.onLine) throw new Error('Keine Verbindung zur Datenbank.');
+          const segs = coll.split('/'); let o = now;
+          segs.slice(0, -1).forEach(s=>{ o = o[s] = o[s] || {}; });
+          o[segs[segs.length - 1]] = v || {};
+        }
+        results(fsCheckCompare(sources, now), sources.length);
+      }catch(e){
+        msg.textContent = (e && e.message) || 'Prüfung fehlgeschlagen.';
+        card.querySelectorAll('button').forEach(b=> b.disabled = false);
+      }
+    };
+    card.querySelector('[data-run]').onclick = ()=> run(true);
+    card.querySelector('[data-dev]').onclick = ()=> run(false);
+  };
+  const results = (found, nSources)=>{
+    const groups = new Map();
+    found.forEach((f, i)=>{ f._i = i; (groups.get(f.path) || groups.set(f.path, []).get(f.path)).push(f); });
+    card.innerHTML = `<h3>${fsIconHtml('shield')} Datenprüfung</h3>
+      ${found.length ? `<p><b>${found.length} ${found.length === 1 ? 'Sache fehlt' : 'Sachen fehlen'}</b> in ${groups.size} ${groups.size === 1 ? 'Eintrag' : 'Einträgen'} (verglichen mit ${nSources} Quellen). Angehakt ist, was sicher ergänzt werden kann; Zurückholen fügt nur hinzu.</p>
+      <div class="fs-check-list">${Array.from(groups.values()).map(g=> `<div class="fs-check-group">
+        <div class="fs-check-head"><b>${esc(g[0].name)}</b><span>${esc(FS_CHECK_APP[g[0].coll] || g[0].coll)}</span></div>
+        ${g.map(f=> `<label class="fs-check-row"><input type="checkbox" data-i="${f._i}" ${f.safe ? 'checked' : ''}><span>${esc(f.label)}<small>zuletzt vorhanden: ${esc(f.src)}</small></span></label>`).join('')}
+      </div>`).join('')}</div>
+      <p class="fs-ort-msg" data-msg></p>
+      <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Schliessen</button><button type="button" class="btn" data-restore>Zurückholen</button></div>`
+      : `<p><b>Nichts fehlt.</b> Alles, was in den ${nSources} geprüften Quellen stand, ist auch heute vorhanden.</p>
+      <p class="fs-rescue-muted">Was hier nicht auftaucht, war in keiner Sicherung und in keiner Gerätekopie enthalten – also nie in der Datenbank angekommen.</p>
+      <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Schliessen</button><button type="button" class="btn secondary" data-again>Nochmals</button></div>`}`;
+    card.querySelector('[data-close]').onclick = close;
+    if(card.querySelector('[data-again]')) card.querySelector('[data-again]').onclick = start;
+    const rb = card.querySelector('[data-restore]');
+    if(rb) rb.onclick = async ()=>{
+      const sel = Array.from(card.querySelectorAll('input[data-i]:checked')).map(x=> found[+x.getAttribute('data-i')]);
+      if(!sel.length){ card.querySelector('[data-msg]').textContent = 'Nichts ausgewählt.'; return; }
+      if(!confirm(sel.length + ' ' + (sel.length === 1 ? 'Sache' : 'Sachen') + ' zurückholen? Die jetzige Fassung wird vorher als Version gesichert.')) return;
+      rb.disabled = true; rb.textContent = 'Wird zurückgeholt …';
+      const r = await fsCheckRestore(sel);
+      card.innerHTML = `<h3>${fsIconHtml('shield')} Datenprüfung</h3>
+        <p><b>${r.ok} zurückgeholt</b>${r.fail ? `, ${r.fail} nicht (Internet?) – bitte nochmals prüfen` : ''}.</p>
+        <div class="fs-ort-btns"><button type="button" class="btn" data-close>Fertig</button></div>`;
+      card.querySelector('[data-close]').onclick = ()=>{ close(); if(typeof loadAll === 'function') loadAll(); };
+    };
+  };
+  start();
+}
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="fs-datacheck"]');
+  if(!el) return;
+  e.stopPropagation();
+  const d = el.closest('details'); if(d) d.removeAttribute('open');
+  fsOpenDataCheck();
 }, true);
 
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
