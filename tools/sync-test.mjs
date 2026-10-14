@@ -89,6 +89,8 @@ async function scenario(name, fn, me = 'Dome') {
     if (u.startsWith(base)) return route.continue();
     if (!u.includes('firebasedatabase.app')) return route.abort();
     if (!env.online) return route.abort();
+    if (env.failGet && req.method() === 'GET' && env.failGet(new URL(u).pathname)) return route.abort();
+    if (env.failPut && req.method() === 'PUT' && env.failPut(new URL(u).pathname)) return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"test"}' });
     const key = new URL(u).pathname.replace(/^\//, '').replace(/\.json$/, '');
     const h = { 'Access-Control-Expose-Headers': 'ETag', ETag: etag(getK(key)) };
     if (req.method() === 'GET') return route.fulfill({ status: 200, contentType: 'application/json', headers: h, body: JSON.stringify(getK(key) ?? null) });
@@ -169,6 +171,77 @@ await scenario('Offline', async ({ page, db, env, saveVia }) => {
   ok('Offline: nach dem Neuladen zusammengeführt', d.name === 'Offline von mir' && d.notes === 'online von B', JSON.stringify({ n: d.name, no: d.notes, dlg: env.dialogs }));
 });
 
+await scenario('Offline gestartet', async ({ page, db, env, saveVia }) => {
+  env.online = false;
+  await page.reload(); await page.waitForTimeout(3000); // App startet ohne Netz aus der Gerätekopie
+  await page.evaluate(n => { state.myName = n; }, 'Dome');
+  const r = await saveVia("t.name = 'Offline gestartet von mir';");
+  db.set(TP, { ...db.get(TP), notes: 'inzwischen von B', updatedAt: '2026-10-11T03:00:00Z', updatedBy: 'B' });
+  env.online = true;
+  await page.reload(); await page.waitForTimeout(4000);
+  const d = db.get(TP);
+  ok('Offline gestartet: eigene Änderung und die von B bleiben', r === false && d.name === 'Offline gestartet von mir' && d.notes === 'inzwischen von B', JSON.stringify({ r, n: d.name, no: d.notes, dlg: env.dialogs }));
+});
+await scenario('Ohne Ausgangsstand', async ({ page, db, env }) => {
+  // Alte, ungesicherte Kopie im Gerät ohne festgehaltenen Ausgangsstand (z. B. aus einer älteren App-Fassung)
+  await page.evaluate(id => {
+    const k = Object.keys(localStorage).find(x => /^firnspur(beta)?-cache$/.test(x));
+    const c = JSON.parse(localStorage.getItem(k)); const t = c.tours.find(x => x.id === id);
+    t.name = 'Alte Kopie'; t.notes = ''; t._unsynced = true; localStorage.setItem(k, JSON.stringify(c));
+    Object.keys(localStorage).filter(x => x.startsWith('fs-base:')).forEach(x => localStorage.removeItem(x));
+  }, TP.split('/')[1]);
+  db.set(TP, { ...db.get(TP), notes: 'neu von B', updatedAt: '2026-10-12T03:00:00Z', updatedBy: 'B' });
+  env.answer = false;
+  await page.reload(); await page.waitForTimeout(4000);
+  const d = db.get(TP);
+  ok('Ohne Ausgangsstand: fragt nach statt still zu überschreiben, B bleibt', env.dialogs.length >= 1 && d.notes === 'neu von B', JSON.stringify({ n: d.name, no: d.notes, dlg: env.dialogs }));
+});
+await scenario('Vorschlag scheitert', async ({ db, env, saveVia }) => {
+  env.failPut = p => p.includes('/suggestions/');
+  const r = await saveVia("t.name = 'Anders benannt';");
+  const d = db.get(TP);
+  ok('Vorschlag scheitert: nicht gespeichert, Änderung bleibt auf dem Gerät', r === false && d.name === tour0.name, JSON.stringify({ r, n: d.name }));
+}, 'Anna');
+await scenario('Teilweise geladen', async ({ page, db, env }) => {
+  const before = await page.evaluate(() => state.tours.length);
+  env.failGet = p => p === '/tours.json'; // nur die Touren kommen nicht an
+  db.set(TP, { ...db.get(TP), notes: 'neu von B', updatedAt: '2026-10-12T04:00:00Z', updatedBy: 'B' });
+  await page.reload(); await page.waitForTimeout(4000);
+  const r = await page.evaluate(() => ({ n: state.tours.length, rescue: !!document.querySelector('.fs-rescue') }));
+  env.failGet = null;
+  const writes = env.puts.filter(k => k.startsWith('tours/'));
+  ok('Teilweise geladen: Touren aus der Gerätekopie, nichts überschrieben, keine Rettung angeboten', r.n === before && !r.rescue && !writes.length && db.get(TP).notes === 'neu von B', JSON.stringify({ before, r, writes }));
+});
+await scenario('Entwurf Formular', async ({ page, db, env }) => {
+  await page.evaluate(id => { const t = state.tours.find(x => x.id === id); state.modal = { type: 'edit-tour', payload: t }; render(); }, TP.split('/')[1]);
+  await page.waitForTimeout(500);
+  await page.fill('#tour-form [name="special"]', 'Lange Notiz, die nicht verloren gehen darf');
+  await page.waitForTimeout(1200);
+  await page.reload(); await page.waitForTimeout(4000); // so, als hätte der Browser den Tab beendet
+  const offered = await page.evaluate(() => !!document.querySelector('#fs-draft-offer [data-restore]'));
+  if (offered) await page.click('#fs-draft-offer [data-restore]');
+  await page.waitForTimeout(1000);
+  const val = await page.evaluate(() => (document.querySelector('#tour-form [name="special"]') || {}).value);
+  if (offered) { await page.click('#tour-save-btn'); await page.waitForTimeout(2000); }
+  ok('Entwurf Formular: nach beendetem Tab angeboten, wiederhergestellt und gespeichert', offered && val === 'Lange Notiz, die nicht verloren gehen darf' && db.get(TP).special === val, JSON.stringify({ offered, val, saved: db.get(TP).special }));
+});
+await scenario('Entwurf Karte bearbeiten', async ({ page, db, env }) => {
+  const id = TP.split('/')[1];
+  await page.evaluate(id => { state.modal = { type: 'tour-detail', payload: id }; render(); }, id);
+  await page.waitForTimeout(800);
+  await page.evaluate(id => { fsEnterEditMode(); document.getElementById('quick-edit-toggle-' + id).click(); }, id);
+  await page.waitForTimeout(2500);
+  await page.evaluate(id => { const el = document.getElementById('quick-points-hidden-' + id); const a = JSON.parse(el.value || '[]'); a.push({ lat: 46.7, lon: 8.4, label: 'Abseilstelle' }); el.value = JSON.stringify(a); markModalDirty(); }, id);
+  await page.waitForTimeout(1200);
+  await page.reload(); await page.waitForTimeout(4000);
+  const offered = await page.evaluate(() => !!document.querySelector('#fs-draft-offer [data-restore]'));
+  if (offered) await page.click('#fs-draft-offer [data-restore]');
+  await page.waitForTimeout(3000);
+  const has = await page.evaluate(id => (document.getElementById('quick-points-hidden-' + id) || {}).value || '', id);
+  if (offered) { await page.evaluate(id => document.querySelector('[data-act="quick-save"][data-id="' + id + '"]').click(), id); await page.waitForTimeout(2000); }
+  const pts = (db.get(TP).points || []).map(p => p.label);
+  ok('Entwurf Karte bearbeiten: neuer Punkt nach beendetem Tab zurück und gespeichert', offered && has.includes('Abseilstelle') && pts.includes('Abseilstelle'), JSON.stringify({ offered, has: has.slice(0, 80), pts }));
+});
 await scenario('Notbremse: Liste leer', async ({ db, env, saveVia }) => {
   env.answer = false; // «Abbrechen»: Änderungen speichern, Verlorenes behalten
   await saveVia("t.material = []; t.name = 'Neu';");
@@ -214,6 +287,26 @@ await scenario('Ergänzen direkt', async ({ db, saveVia }) => {
   const d = db.get(TP), sug = db.get(SUGP);
   ok('Ergänzen: leeres Feld, Begehung und Listeneintrag direkt', d.notes === 'Neue Notiz' && d.completions.length === 1 && d.stayTypes.includes('huette') && !sug, JSON.stringify({ n: d.notes, c: d.completions, st: d.stayTypes, sug }));
 }, 'Anna');
+await scenario('Lokale Merker', async ({ db, saveVia }) => {
+  await saveVia("t._unsynced = true; t._tmp = 1; t.notes = 'mit Merker';");
+  const d = db.get(TP);
+  ok('Lokale Merker: _-Felder landen nicht in der Datenbank', d.notes === 'mit Merker' && !Object.keys(d).some(k => k[0] === '_'), JSON.stringify(Object.keys(d).filter(k => k[0] === '_')));
+});
+await scenario('Tab beendet beim Speichern', async ({ page, env }) => {
+  env.online = false; // Antwort kommt nie zurück wie gewünscht: Speichern scheitert
+  const r = await page.evaluate(async (id) => {
+    const t = state.tours.find(x => x.id === id);
+    t.notes = 'Unterwegs geschrieben';
+    const pr = saveTourCloud(t); // nicht abwarten: so, als würde der Tab jetzt beendet
+    await new Promise(res => setTimeout(res, 0));
+    const key = Object.keys(localStorage).find(k => /-cache$/.test(k) && k.startsWith('firnspur'));
+    const c = JSON.parse(localStorage.getItem(key) || '{}');
+    const ct = (c.tours || []).find(x => x.id === id) || {};
+    const ok = await pr;
+    return { during: { notes: ct.notes, uns: ct._unsynced }, ok, after: t._unsynced };
+  }, TP.split('/')[1]);
+  ok('Tab beendet: Änderung schon vor der Antwort auf dem Gerät, als nicht hochgeladen', r.during.notes === 'Unterwegs geschrieben' && r.during.uns === true && r.ok === false && r.after === true, JSON.stringify(r));
+});
 await scenario('Erfahrungen', async ({ db, env, saveVia }) => {
   db.set(TP, { ...db.get(TP), erfahrungen: [{ id: 'e_dome', by: 'Dome', date: '2026-01-01', text: 'Von Dome' }] });
   await saveVia("t.erfahrungen = [...(t.erfahrungen||[]), {id:'e_a1', by:'Anna', date:'2026-10-01', text:'Erste'}];");
@@ -255,6 +348,18 @@ await scenario('Eigentümer übernimmt', async ({ page, db, env }) => {
   ok('Übernehmen: Name übernommen, Crux abgelehnt', d.name === 'Vorschlag Name' && d.crux === tour0.crux, JSON.stringify({ n: d.name, c: d.crux }));
   ok('Übernehmen: Vorschlag erledigt', s && s.status === 'abgelehnt' && !s.changes, JSON.stringify(s));
 });
+await scenario('Vorschlag Liste', async ({ page, db, env }) => {
+  const base = db.get(TP).material || [];
+  // Anna schlug vor, das erste Material zu entfernen; seither hat jemand «Helm» ergänzt
+  db.set(SUGP + '/s_list', { id: 's_list', by: 'Anna', at: '2026-10-13T08:00:00Z', changes: { material: base.slice(1) }, before: { material: base }, status: 'offen' });
+  db.set(TP, { ...db.get(TP), material: [...base, 'Helm (neu)'] });
+  await page.reload(); await page.waitForTimeout(3000);
+  await page.evaluate(() => { state.myName = 'Dome'; });
+  env.answer = true;
+  await page.evaluate(async id => { await fsSugDecide(id, 's_list', 'material', true); }, tour0.id);
+  const m = db.get(TP).material || [];
+  ok('Vorschlag Liste: Entfernen übernommen, seither Ergänztes bleibt', !m.includes(base[0]) && m.includes('Helm (neu)') && m.length === base.length, JSON.stringify({ base, m }));
+});
 await scenario('Mitbearbeiter und offen', async ({ db, saveVia }) => {
   db.set(TP, { ...db.get(TP), editors: ['Beat'] });
   await saveVia("t.name = 'Von Beat';");
@@ -272,7 +377,22 @@ await scenario('Frühere Fassung zurückholen', async ({ page, db, env, saveVia 
   await saveVia("t.name = 'Neuer Name'; t.notes = 'Später ergänzt';");
   await page.evaluate(async id => { fsOpenVersions(id, 'tours/' + id, null); await new Promise(r => setTimeout(r, 800)); [...document.querySelectorAll('.fs-ver-row')].find(r => r.textContent.includes('Alter Name')).querySelector('[data-ver]').click(); await new Promise(r => setTimeout(r, 1500)); }, tour0.id);
   const d = db.get(TP);
-  ok('Zurückholen: alter Name, später Ergänztes wieder leer', d.name === 'Alter Name' && !d.notes, JSON.stringify({ n: d.name, no: d.notes, dlg: env.dialogs.map(x => x.slice(0, 60)) }));
+  ok('Zurückholen: alter Name zurück, später Ergänztes bleibt (nichts geht verloren)', d.name === 'Alter Name' && d.notes === 'Später ergänzt', JSON.stringify({ n: d.name, no: d.notes, dlg: env.dialogs.map(x => x.slice(0, 60)) }));
+});
+
+await scenario('Konflikt andere übernehmen', async ({ db, env, saveVia }) => {
+  db.set(TP, { ...db.get(TP), name: 'Name von B', updatedBy: 'B', updatedAt: '2026-10-11T00:00:00Z' });
+  env.answer = false;
+  await saveVia("t.name = 'Name von mir';");
+  const vers = Object.values(db.get('versions/tours/' + tour0.id) || {});
+  ok('Konflikt «andere übernehmen»: andere gilt, eigene Fassung liegt unter Versionen', db.get(TP).name === 'Name von B' && vers.some(x => x.name === 'Name von mir'), JSON.stringify({ n: db.get(TP).name, v: vers.map(x => x.name) }));
+});
+await scenario('Papierkorb wiederherstellen', async ({ page, db }) => {
+  db.set(TP, { ...db.get(TP), deletedAt: '2026-10-01T00:00:00Z', deletedBy: 'Dome' });
+  await page.reload(); await page.waitForTimeout(2500);
+  await page.evaluate(id => { restoreTrashItem('tour', id); }, tour0.id);
+  await page.waitForTimeout(1500);
+  ok('Papierkorb: wiederhergestellt ist auch in der Datenbank nicht mehr gelöscht', !db.get(TP).deletedAt, JSON.stringify(db.get(TP).deletedAt));
 });
 
 await browser.close(); server.close();

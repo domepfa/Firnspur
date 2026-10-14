@@ -664,7 +664,7 @@ function cacheLocalSnapshot(){
       trashedTours: state.trashedTours, trashedHuts: state.trashedHuts, trashedGebiete: state.trashedGebiete,
       agenda: state.agenda, cachedAt: new Date().toISOString()
     }));
-  }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
+  }catch(e){ if(typeof fsWarnStorageFull === 'function') fsWarnStorageFull(e); }
 }
 function loadLocalSnapshot(){
   try{
@@ -677,8 +677,12 @@ function loadLocalSnapshot(){
 async function loadAll(){
   fsOrteLoad(); // gemeinsame Orte (alle Apps), parallel
   state.loading = true; render();
-  const [toursObj, hutsObj, gebieteObj, agendaObj] = await Promise.all([ fbGet('tours'), fbGet('huts'), fbGet('gebiete'), fbGet(AGENDA_PATH) ]);
+  let [toursObj, hutsObj, gebieteObj, agendaObj] = await Promise.all([ fbGet('tours'), fbGet('huts'), fbGet('gebiete'), fbGet(AGENDA_PATH) ]);
   const cached = loadLocalSnapshot();
+  if(!['tours','huts','gebiete',AGENDA_PATH].every(p=> fsGetFailed.has(p))){
+    toursObj = fsLoadOrCache('tours', toursObj, cached, 'tours'); hutsObj = fsLoadOrCache('huts', hutsObj, cached, 'huts');
+    gebieteObj = fsLoadOrCache('gebiete', gebieteObj, cached, 'gebiete'); agendaObj = fsLoadOrCache(AGENDA_PATH, agendaObj, cached, 'agenda');
+  }
 
   if(!toursObj && !hutsObj && !gebieteObj && !agendaObj){
     // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
@@ -692,6 +696,8 @@ async function loadAll(){
       state.trashedGebiete = cached.trashedGebiete || [];
       state.agenda = cached.agenda || [];
       state.offlineMode = true;
+      // Gerätekopie = zuletzt bekannter Stand der Datenbank: als Ausgangsstand für spätere Änderungen
+      fsRememberCachedBases('tours', state.tours); fsRememberCachedBases('huts', state.huts); fsRememberCachedBases('gebiete', state.gebiete); fsRememberCachedBases(AGENDA_PATH, state.agenda);
       state.offlineCachedAt = cached.cachedAt;
       showToast('Offline – zeigt den zuletzt gespeicherten Stand vom ' + fmtDate(cached.cachedAt), true);
     }else{
@@ -2548,7 +2554,8 @@ window.addEventListener('unhandledrejection', function(e){
   showToast('Es gab ein unerwartetes Problem beim Speichern. Bitte nochmal versuchen.', true);
 });
 window.addEventListener('beforeunload', function(e){
-  if(state.hasUnsavedChanges){
+  if(modalIsDirty && modalDirtyTrackingKey() && typeof fsDraftSave === 'function') fsDraftSave();
+  if(state.hasUnsavedChanges || (modalIsDirty && modalDirtyTrackingKey())){
     e.preventDefault();
     e.returnValue = '';
   }
@@ -2583,7 +2590,7 @@ document.getElementById('agenda-tab-btn').addEventListener('click', ()=>setView(
 
 if(isLoggedIn()){
   dlog('App gestartet — Version ' + APP_VERSION);
-  loadAll();
+  loadAll().then(()=> setTimeout(fsDraftOffer, 400)); // danach: nicht gespeicherte Angaben anbieten
   if(state.myName) loadFavorites();
 }else{
   document.getElementById('app').innerHTML = loginScreenHtml();

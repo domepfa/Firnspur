@@ -122,16 +122,20 @@ for (const t of targets) {
     puts.length = 0;
     // Werte ausserhalb der Auswahl-Listen (z. B. aus Import oder anderer App) müssen das Speichern
     // über das Formular überstehen – früher fielen sie still weg (Material bei Gustispitz).
-    const EXTRA = { material: 'LVS-Gerät (Test)', gefahren: 'Fremdwert (Test)', exposition: 'NNO (Test)' };
+    const EXTRA = { material: 'LVS-Gerät (Test)', gefahren: 'Fremdwert (Test)', exposition: 'NNO (Test)', approachTypes: 'heli (Test)', stayTypes: 'zelt (Test)' };
+    // Einzelwerte, die keine Option in der Auswahl haben (Hütte im Papierkorb, Schwierigkeit aus Import)
+    const SCALAR = { hutId: 'h_test_weg', difficulty: 'XX (Test)' };
+    Object.assign(tour, SCALAR);
     for (const [k, v] of Object.entries(EXTRA)) if (!(tour[k] || []).includes(v)) tour[k] = [...(Array.isArray(tour[k]) ? tour[k] : []), v];
-    const opened = await page.evaluate(([id, extra]) => {
+    const opened = await page.evaluate(([id, extra, scalar]) => {
       state.myName = typeof FS_DEFAULT_OWNER !== 'undefined' ? FS_DEFAULT_OWNER : (state.myName || 'Rauchtest');
       const tour = state.tours.find(x => x.id === id);
       if (!tour) return false;
       Object.entries(extra).forEach(([k, v]) => { if (!(tour[k] || []).includes(v)) tour[k] = [...(Array.isArray(tour[k]) ? tour[k] : []), v]; });
+      Object.assign(tour, scalar);
       state.modal = { type: 'edit-tour', payload: tour }; render();
       return !!document.getElementById('tour-save-btn');
-    }, [tour.id, EXTRA]);
+    }, [tour.id, EXTRA, SCALAR]);
     if (!opened) { problems.push('Bearbeiten: Formular für «' + tour.name + '» geht nicht auf'); return; }
     await page.fill('#tour-form [name="name"]', newName);
     await page.click('#tour-save-btn');

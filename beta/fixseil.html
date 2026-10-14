@@ -919,7 +919,7 @@ function cacheLocalSnapshot(){
       trashedTours: state.trashedTours, trashedHuts: state.trashedHuts, trashedSektoren: state.trashedSektoren, trashedKlettergebiete: state.trashedKlettergebiete, trashedGipfel: state.trashedGipfel,
       cachedAt: new Date().toISOString()
     }));
-  }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
+  }catch(e){ if(typeof fsWarnStorageFull === 'function') fsWarnStorageFull(e); }
 }
 function loadLocalSnapshot(){
   try{
@@ -931,13 +931,20 @@ function loadLocalSnapshot(){
 async function loadAll(){
   fsOrteLoad(); // gemeinsame Orte (alle Apps), parallel
   state.loading = true; render();
-  const [toursObj, hutsObjResult, agendaObj, sektorenObj, klettergebieteObj, gipfelObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH), fbGet(SEKTOREN_PATH), fbGet(KLETTERGEBIETE_PATH), fbGet(GIPFEL_PATH) ]);
+  let [toursObj, hutsObjResult, agendaObj, sektorenObj, klettergebieteObj, gipfelObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH), fbGet(SEKTOREN_PATH), fbGet(KLETTERGEBIETE_PATH), fbGet(GIPFEL_PATH) ]);
+  const hutsFailed = fsGetFailed.has(HUTS_PATH);
   let hutsObj = hutsObjResult;
   const cached = loadLocalSnapshot();
+  if(![TOURS_PATH, HUTS_PATH, AGENDA_PATH, SEKTOREN_PATH, KLETTERGEBIETE_PATH, GIPFEL_PATH].every(p=> fsGetFailed.has(p))){
+    toursObj = fsLoadOrCache(TOURS_PATH, toursObj, cached, 'tours'); hutsObj = fsLoadOrCache(HUTS_PATH, hutsObj, cached, 'huts');
+    agendaObj = fsLoadOrCache(AGENDA_PATH, agendaObj, cached, 'agenda'); sektorenObj = fsLoadOrCache(SEKTOREN_PATH, sektorenObj, cached, 'sektoren');
+    klettergebieteObj = fsLoadOrCache(KLETTERGEBIETE_PATH, klettergebieteObj, cached, 'klettergebiete'); gipfelObj = fsLoadOrCache(GIPFEL_PATH, gipfelObj, cached, 'gipfel');
+  }
 
   // Einmalige Migration: alte, getrennte Fixseil-Hütten in die neue,
-  // gemeinsame Sammlung übernehmen (nur solange noch nicht geschehen).
-  if(!localStorage.getItem('fixseil-huts-migrated')){
+  // gemeinsame Sammlung übernehmen (nur solange noch nicht geschehen; nie, wenn die Hütten gerade
+  // nicht gelesen werden konnten — sonst gälten alle als neu und würden überschrieben).
+  if(!hutsFailed && !localStorage.getItem('fixseil-huts-migrated')){
     try{
       const legacyObj = await fbGet(LEGACY_HUTS_PATH);
       const legacyHuts = legacyObj ? Object.values(legacyObj).filter(h=>h && h.id) : [];
@@ -969,6 +976,8 @@ async function loadAll(){
       state.trashedGipfel = cached.trashedGipfel || [];
       state.agenda = cached.agenda || [];
       state.offlineMode = true;
+      // Gerätekopie = zuletzt bekannter Stand der Datenbank: als Ausgangsstand für spätere Änderungen
+      fsRememberCachedBases(TOURS_PATH, state.tours); fsRememberCachedBases(HUTS_PATH, state.huts); fsRememberCachedBases(SEKTOREN_PATH, state.sektoren); fsRememberCachedBases(KLETTERGEBIETE_PATH, state.klettergebiete); fsRememberCachedBases(GIPFEL_PATH, state.gipfel); fsRememberCachedBases(AGENDA_PATH, state.agenda);
       state.offlineCachedAt = cached.cachedAt;
       showToast('Offline – zeigt den zuletzt gespeicherten Stand vom ' + fmtDate(cached.cachedAt), true);
     }else{
@@ -1549,7 +1558,7 @@ async function submitTourForm(form, existing){
     try{ t.summitIds = form.summitIds ? JSON.parse(form.summitIds) : []; }catch(e){ t.summitIds = []; }
     // Zurück von MSL: die vorher verknüpften Gipfel wieder übernehmen
     if(!t.summitIds.length && Array.isArray(t.summitIdsParked) && t.summitIdsParked.length) t.summitIds = t.summitIdsParked;
-    delete t.summitIdsParked;
+    t.summitIdsParked = []; // leeren statt entfernen (fehlendes Feld gilt beim Speichern als unverändert)
     if(!t.summitIds.length) linkTourToDefaultGipfel(t); // kein Gipfel im Formular gewählt — anhand des Namens verknüpfen
   }else if(Array.isArray(t.summitIds) && t.summitIds.length){
     // MSL zeigt keine Gipfel: Verknüpfung beiseitelegen statt löschen
@@ -1790,7 +1799,8 @@ async function submitTourRouteForm(form){
     manualTrack: manual
   };
   const idx = t[field].findIndex(r=>r.id===routeData.id);
-  if(idx>=0) t[field][idx] = routeData; else t[field].push(routeData);
+  // Felder, die das Formular nicht zeigt (z. B. aus Import oder älteren Fassungen), behalten
+  if(idx>=0) t[field][idx] = Object.assign({}, t[field][idx], routeData); else t[field].push(routeData);
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
   closeModal(false, true, true);
@@ -2897,7 +2907,8 @@ async function submitSektorRouteForm(form){
     manualTrack: manual
   };
   const idx = sek[field].findIndex(r=>r.id===routeData.id);
-  if(idx>=0) sek[field][idx] = routeData; else sek[field].push(routeData);
+  // Felder, die das Formular nicht zeigt (z. B. aus Import oder älteren Fassungen), behalten
+  if(idx>=0) sek[field][idx] = Object.assign({}, sek[field][idx], routeData); else sek[field].push(routeData);
   sek.updatedAt = new Date().toISOString();
   sek.updatedBy = state.myName;
   closeModal(false, true, true);
@@ -4807,7 +4818,7 @@ function wireDetailSwipeNavigation(){
   if(idx===-1) return;
   let startX = null, startY = null;
   modalEl.addEventListener('touchstart', (e)=>{
-    if(e.target.closest('.leaflet-container')){ startX = null; return; }
+    if(e.target.closest('.leaflet-container, .maplibregl-map')){ startX = null; return; }
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
   }, {passive:true});
@@ -6401,7 +6412,8 @@ window.addEventListener('unhandledrejection', function(e){
   showToast('Es gab ein unerwartetes Problem beim Speichern. Bitte nochmal versuchen.', true);
 });
 window.addEventListener('beforeunload', function(e){
-  if(state.hasUnsavedChanges){
+  if(modalIsDirty && modalDirtyTrackingKey() && typeof fsDraftSave === 'function') fsDraftSave();
+  if(state.hasUnsavedChanges || (modalIsDirty && modalDirtyTrackingKey())){
     e.preventDefault();
     e.returnValue = '';
   }
@@ -6443,7 +6455,7 @@ document.getElementById('agenda-tab-btn').addEventListener('click', ()=>setView(
 
 if(isLoggedIn()){
   dlog('App gestartet — Version ' + APP_VERSION);
-  loadAll();
+  loadAll().then(()=> setTimeout(fsDraftOffer, 400)); // danach: nicht gespeicherte Angaben anbieten
   if(state.myName) loadFavorites();
 }else{
   document.getElementById('app').innerHTML = loginScreenHtml();
