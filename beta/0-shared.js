@@ -14863,9 +14863,10 @@ document.addEventListener('click', (ev)=>{
    das Passwort wird nicht gespeichert. Gezeigt wird pro Eintrag, was heute fehlt (Punkte, Routen,
    Fotos, Texte, ganze Einträge), mit der jüngsten Quelle, in der es noch vorhanden war.
    Zurückholen ergänzt nur (über fbSet, mit Version), überschreibt nichts. */
+// Hütten liegen für alle Apps unter «huts» (fixseil/huts ist der alte, übernommene Bestand und wird nicht geprüft)
 const FS_CHECK_COLLS = ['tours', 'huts', 'gebiete', 'orte', 'fixseil/tours', 'fixseil/sektoren', 'fixseil/klettergebiete',
-  'fixseil/gipfel', 'fixseil/huts', 'wandern/tours', 'wandern/gebiete'];
-const FS_CHECK_APP = {'tours':'Skitour', 'huts':'Skitour · Hütte', 'gebiete':'Skitour · Gebiet', 'orte':'Ort',
+  'fixseil/gipfel', 'wandern/tours', 'wandern/gebiete'];
+const FS_CHECK_APP = {'tours':'Skitour', 'huts':'Hütte', 'gebiete':'Skitour · Gebiet', 'orte':'Ort',
   'fixseil/tours':'Hochtour/Klettern', 'fixseil/sektoren':'Klettern · Sektor', 'fixseil/klettergebiete':'Klettergebiet',
   'fixseil/gipfel':'Gipfel', 'fixseil/huts':'Hochtour · Hütte', 'wandern/tours':'Wandern', 'wandern/gebiete':'Wandern · Gebiet'};
 const FS_CHECK_SKIP = new Set(['updatedAt', 'updatedBy', 'deletedAt', 'deletedBy', 'createdAt', 'createdBy', 'status', 'conditions',
@@ -14969,8 +14970,8 @@ async function fsCheckDecrypt(name, pw){
 // Kopien im Gerätespeicher (alle Apps, Haupt-App und Beta) in dieselbe Form wie die Sicherung bringen
 function fsCheckDeviceSources(){
   const map = {firnspur: {tours:'tours', huts:'huts', gebiete:'gebiete'},
-    fixseil: {tours:'fixseil/tours', sektoren:'fixseil/sektoren', klettergebiete:'fixseil/klettergebiete', gipfel:'fixseil/gipfel', huts:'fixseil/huts'},
-    wandern: {tours:'wandern/tours', gebiete:'wandern/gebiete'}};
+    fixseil: {tours:'fixseil/tours', sektoren:'fixseil/sektoren', klettergebiete:'fixseil/klettergebiete', gipfel:'fixseil/gipfel', huts:'huts'},
+    wandern: {tours:'wandern/tours', gebiete:'wandern/gebiete', huts:'huts'}};
   const out = [];
   Object.keys(map).forEach(app=> ['', 'beta'].forEach(b=>{
     let c = null;
@@ -14990,6 +14991,13 @@ function fsCheckDeviceSources(){
   try{ const o = JSON.parse(localStorage.getItem(fsOrteCacheKey()) || '[]'); if(o.length){ const d = {orte:{}}; o.forEach(x=>{ if(x && x.id) d.orte[x.id] = x; }); out.push({label:'Orte auf diesem Gerät', at:'', data:d}); } }catch(e){}
   return out;
 }
+// Punkt, der zum gemeinsamen Ort gemacht wurde («Tourpunkt zum gemeinsamen Ort machen»): kein Verlust
+function fsCheckBecameOrt(l, co, now){
+  if(l.field !== 'points' || l.type !== 'item' || !l.value || !isFinite(l.value.lat)) return false;
+  const orte = Object.values((now && now.orte) || {}).filter(o=> o && !o.deletedAt && isFinite(o.lat) && isFinite(o.lon));
+  const linked = Array.isArray(co && co.orte) ? co.orte : [];
+  return orte.some(o=> linked.indexOf(o.id) >= 0 && fsKm({lat:+l.value.lat, lon:+l.value.lon}, o) < 0.1);
+}
 // Quellen (neueste zuerst) mit dem heutigen Stand vergleichen; je Fund die neueste Quelle
 function fsCheckCompare(sources, now){
   const found = new Map();
@@ -15008,7 +15016,7 @@ function fsCheckCompare(sources, now){
           return;
         }
         if(co.deletedAt) return; // bewusst gelöscht (Papierkorb)
-        fsCheckLosses(bo, co).forEach(l=>{
+        fsCheckLosses(bo, co).filter(l=> !fsCheckBecameOrt(l, co, now)).forEach(l=>{
           const key = path + '|' + l.field + '|' + (l.type === 'item' ? fsCheckItemKey(l.value) : l.type);
           if(!found.has(key)) found.set(key, Object.assign({key, path, coll, id, name: co.name || bo.name || id, src: src.label}, l));
         });
