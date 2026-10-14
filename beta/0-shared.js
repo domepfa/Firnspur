@@ -15028,6 +15028,28 @@ function fsCheckDeviceSources(){
     out.push({label: 'Kopie auf diesem Gerät (' + (app === 'firnspur' ? 'Skitour' : app === 'fixseil' ? 'Hochtour/Klettern' : 'Wandern') + (b ? ', Beta' : '') + (c.cachedAt ? ', ' + fmtDate(c.cachedAt) : '') + ')', at: c.cachedAt || '', data});
   }));
   try{ const o = JSON.parse(localStorage.getItem(fsOrteCacheKey()) || '[]'); if(o.length){ const d = {orte:{}}; o.forEach(x=>{ if(x && x.id) d.orte[x.id] = x; }); out.push({label:'Orte auf diesem Gerät', at:'', data:d}); } }catch(e){}
+  // Weitere Ablagen auf dem Gerät: Rettungsablage (fs-rescue-*), reichere Kopien (fs-better-*),
+  // gemerkte Ausgangsstände einzelner Einträge (fs-base:<Pfad>)
+  const put = (data, path, x)=>{ if(!x || !x.id) return; const segs = path.split('/'); let o = data; segs.forEach(sg=>{ o = o[sg] = o[sg] || {}; }); o[x.id] = x; };
+  const baseData = {};
+  let nBase = 0;
+  for(let i = 0; i < localStorage.length; i++){
+    const k = localStorage.key(i);
+    if(!k) continue;
+    let v = null;
+    try{ v = JSON.parse(localStorage.getItem(k) || 'null'); }catch(e){ v = null; }
+    if(!v || typeof v !== 'object') continue;
+    const m = /^fs-(rescue|better)-(firnspur|fixseil|wandern)$/.exec(k);
+    if(m){
+      const data = {};
+      Object.keys(v).forEach(c=>{ const path = (map[m[2]] || {})[c]; if(path && Array.isArray(v[c])) v[c].forEach(x=> put(data, path, x)); });
+      if(Object.keys(data).length) out.push({label: (m[1] === 'rescue' ? 'Rettungsablage' : 'Ablage reicherer Kopien') + ' auf diesem Gerät (' + m[2] + ')', at:'', data});
+      continue;
+    }
+    const b = /^fs-base:(.+)\/([^/]+)$/.exec(k);
+    if(b && FS_CHECK_COLLS.indexOf(b[1]) >= 0 && v.id){ put(baseData, b[1], v); nBase++; }
+  }
+  if(nBase) out.push({label: 'Gemerkte Ausgangsstände auf diesem Gerät', at:'', data: baseData});
   return out;
 }
 // Punkt, der zum gemeinsamen Ort gemacht wurde («Tourpunkt zum gemeinsamen Ort machen»): kein Verlust
@@ -15098,6 +15120,29 @@ async function fsOpenDataCheck(){
   document.body.appendChild(box);
   const card = box.querySelector('.fs-rescue-card');
   const close = ()=> box.remove();
+  let lastSources = [], lastNow = {};
+  // Verlauf eines Eintrags: was jede Quelle über ihn weiss (Punkte, Stand, wer zuletzt)
+  const historyHtml = (q)=>{
+    q = String(q || '').trim().toLowerCase();
+    if(q.length < 3) return '';
+    const rows = [];
+    const scan = (label, data)=> FS_CHECK_COLLS.forEach(coll=>{
+      const c = fsCheckGet(data, coll);
+      if(!c || typeof c !== 'object') return;
+      Object.values(c).forEach(x=>{
+        if(!x || typeof x !== 'object' || !String(x.name || '').toLowerCase().includes(q)) return;
+        const pts = (x.points || []).map(p=> p && (p.label || 'ohne Namen'));
+        rows.push(`<div class="fs-check-hist"><b>${esc(label)}</b><span>${esc(x.name)} · ${esc(FS_CHECK_APP[coll] || coll)}${x.deletedAt ? ' · im Papierkorb' : ''}</span>
+          <span>${pts.length ? pts.length + ' Punkte: ' + esc(pts.join(', ')) : 'keine Punkte'}${x.updatedAt ? ' · Stand ' + esc(fmtDate(x.updatedAt)) + (x.updatedBy ? ' von ' + esc(x.updatedBy) : '') : ''}</span></div>`);
+      });
+    });
+    scan('Heute in der Datenbank', lastNow);
+    lastSources.forEach(src=> scan(src.label, src.data));
+    return rows.length ? rows.join('') : '<p class="fs-rescue-muted">In keiner Quelle gefunden.</p>';
+  };
+  const historyBox = ()=> `<div class="fs-check-histbox"><label class="fs-ort-lbl" for="fs-check-q">Verlauf eines Eintrags</label>
+    <input id="fs-check-q" type="search" class="fs-check-input" placeholder="Name, z. B. Sustenlochspitz" autocomplete="off"><div data-hist></div></div>`;
+  const wireHistory = ()=>{ const i = card.querySelector('#fs-check-q'); if(i) i.addEventListener('input', ()=>{ card.querySelector('[data-hist]').innerHTML = historyHtml(i.value); }); };
   const start = ()=>{
     card.innerHTML = `<h3>${fsIconHtml('shield')} Datenprüfung</h3>
       <p>Vergleicht die täglichen Sicherungen und die Kopie auf diesem Gerät mit dem heutigen Stand – für alle Apps. Gezeigt wird, was heute fehlt, und wann es zuletzt noch da war.</p>
@@ -15136,6 +15181,7 @@ async function fsOpenDataCheck(){
           segs.slice(0, -1).forEach(s=>{ o = o[s] = o[s] || {}; });
           o[segs[segs.length - 1]] = v || {};
         }
+        lastSources = sources; lastNow = now;
         results(fsCheckCompare(sources, now), sources.length);
       }catch(e){
         msg.textContent = (e && e.message) || 'Prüfung fehlgeschlagen.';
@@ -15158,7 +15204,9 @@ async function fsOpenDataCheck(){
       <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Schliessen</button><button type="button" class="btn" data-restore>Zurückholen</button></div>`
       : `<p><b>Nichts fehlt.</b> Alles, was in den ${nSources} geprüften Quellen stand, ist auch heute vorhanden.</p>
       <p class="fs-rescue-muted">Was hier nicht auftaucht, war in keiner Sicherung und in keiner Gerätekopie enthalten – also nie in der Datenbank angekommen.</p>
-      <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Schliessen</button><button type="button" class="btn secondary" data-again>Nochmals</button></div>`}`;
+      <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Schliessen</button><button type="button" class="btn secondary" data-again>Nochmals</button></div>`}
+      ${historyBox()}`;
+    wireHistory();
     card.querySelector('[data-close]').onclick = close;
     if(card.querySelector('[data-again]')) card.querySelector('[data-again]').onclick = start;
     const rb = card.querySelector('[data-restore]');
