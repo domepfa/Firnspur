@@ -6206,26 +6206,26 @@ const FSM_WMTS = (layer, ext)=> 'https://wmts.geo.admin.ch/1.0.0/' + layer + '/d
 const FSM_NAMES_STYLE = 'https://vectortiles.geo.admin.ch/styles/ch.swisstopo.imagerybasemap.vt/style.json';
 // Zuschaltbare Ebenen (Reihenfolge = Reihenfolge im Ebenen-Fenster)
 const FSM_OVERLAYS = [
-  {id:'wanderwege', label:'Wanderwege', icon:'walk', tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
-  {id:'wanderrouten', label:'Wanderrouten (SchweizMobil)', icon:'walk', tiles:[FSM_WMTS('ch.astra.wanderland','png')]},
-  {id:'skitouren', label:'SAC-Skitouren', icon:'snow', tiles:[FSM_WMTS('ch.swisstopo-karto.skitouren','png')]},
-  {id:'hangneigung', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
-  {id:'slf', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
-  {id:'sperrungen', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
+  {id:'wanderwege', group:'wege', label:'Wanderwege', icon:'walk', tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
+  {id:'wanderrouten', group:'wege', label:'Wanderrouten (SchweizMobil)', icon:'walk', tiles:[FSM_WMTS('ch.astra.wanderland','png')]},
+  {id:'skitouren', group:'wege', label:'SAC-Skitouren', icon:'snow', tiles:[FSM_WMTS('ch.swisstopo-karto.skitouren','png')]},
+  {id:'hangneigung', group:'gefahr', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
+  {id:'slf', group:'gefahr', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
+  {id:'sperrungen', group:'gefahr', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // ÖV-Haltestellen (BAV); antippen zeigt Name, Fahrplan und «als Ort übernehmen»
-  {id:'oev', label:'ÖV-Haltestellen', icon:'bus', tiles:[FSM_WMTS('ch.bav.haltestellen-oev','png')]},
+  {id:'oev', group:'unterwegs', label:'ÖV-Haltestellen', icon:'bus', tiles:[FSM_WMTS('ch.bav.haltestellen-oev','png')]},
   // Wildruhezonen und eidg. Wildschutzgebiete (BAFU); antippen zeigt Name und Bestimmungen
-  {id:'wildschutz', label:'Wildschutz (Wildruhezonen)', icon:'alert', opacity:0.75, tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.bafu.wrz-wildruhezonen_portal,ch.bafu.bundesinventare-jagdbanngebiete&STYLES=,&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
+  {id:'wildschutz', group:'gefahr', label:'Wildschutz (Wildruhezonen)', icon:'alert', opacity:0.75, tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.bafu.wrz-wildruhezonen_portal,ch.bafu.bundesinventare-jagdbanngebiete&STYLES=,&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln — siehe fsmLoadPoints
   // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt; Daten für «Wetter-Messwerte»
-  {id:'slfstationen', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
+  {id:'slfstationen', group:'unterwegs', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
   // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
-  {id:'wetter', label:'Wetter', icon:'therm', wetter:true},
+  {id:'wetter', group:'unterwegs', label:'Wetter', icon:'therm', wetter:true},
   // Nur Startkarte: Linien der Touren im Ausschnitt (ab mittlerem Zoom), siehe fsHomeRoutesSync
-  {id:'tourrouten', label:'Routen der Touren', icon:'map', homeOnly:true},
+  {id:'tourrouten', group:'wege', label:'Routen der Touren', icon:'map', homeOnly:true},
   // Gemeinsame Orte (Parkplatz, Maut, Biwak …), siehe Baustein «Orte»
-  {id:'orte', label:'Orte', icon:'pin', orte:true},
-  {id:'webcams', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
+  {id:'orte', group:'unterwegs', label:'Orte', icon:'pin', orte:true},
+  {id:'webcams', group:'unterwegs', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
 ];
 const FSM_BASES = [
   {id:'karte', label:'Karte'},
@@ -6326,8 +6326,8 @@ function fsmCreateMap(container, opts){
   });
   map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0, gpsOnce: !!opts.gpsOnce};
   // Tipp in die Karte schliesst das Ebenen-Fenster
-  map.on('click', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) map._fsm.panel.hidden = true; });
-  map.on('dragstart', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) map._fsm.panel.hidden = true; });
+  map.on('click', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) fsmClosePanel(map); });
+  map.on('dragstart', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden && !map._fsm.panel.classList.contains('fsm-panel-sheet')) fsmClosePanel(map); });
   map.once('load', ()=>{ map._fsmLoaded = true; fsmApplyPrefs(map); });
   if(opts.controls !== false) fsmAddControls(map);
   return map;
@@ -6578,6 +6578,33 @@ function fsmLocateOnce(map, btn){
     map.flyTo({center: ll, zoom: Math.max(map.getZoom(), 13.5), duration: 1400});
   }, ()=>{ if(btn) btn.classList.remove('busy'); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
 }
+const FSM_OVERLAY_GROUPS = [['wege', 'Wege und Routen'], ['gefahr', 'Gefahren und Schutz'], ['unterwegs', 'Unterwegs']];
+// Kleine Karte (Startkarte, Tour hinter dem Blatt): Ebenen als Blatt von unten über den ganzen
+// Bildschirm, sonst wäre ein Teil der Liste hinter dem Blatt oder abgeschnitten.
+function fsmOpenPanel(map){
+  const panel = map._fsm.panel;
+  const small = map.getContainer().clientHeight < 600;
+  panel.classList.toggle('fsm-panel-sheet', small);
+  if(small){
+    if(!map._fsm.panelBack){
+      const back = document.createElement('div');
+      back.className = 'fsm-panel-back';
+      back.addEventListener('click', ()=> fsmClosePanel(map));
+      map._fsm.panelBack = back;
+    }
+    document.body.appendChild(map._fsm.panelBack);
+    document.body.appendChild(panel);
+  }
+  panel.hidden = false;
+  fsmSyncPanel(map);
+}
+function fsmClosePanel(map){
+  const panel = map._fsm && map._fsm.panel;
+  if(!panel) return;
+  panel.hidden = true;
+  if(map._fsm.panelBack) map._fsm.panelBack.remove();
+  if(panel.parentNode !== map.getContainer()){ panel.classList.remove('fsm-panel-sheet'); map.getContainer().appendChild(panel); }
+}
 function fsmAddControls(map){
   const box = document.createElement('div');
   box.className = 'fsm-ctlbox';
@@ -6595,10 +6622,8 @@ function fsmAddControls(map){
   map._fsm.panel = panel;
   ['click','pointerdown','touchstart','wheel'].forEach(ev=>{ box.addEventListener(ev, e=> e.stopPropagation()); panel.addEventListener(ev, e=> e.stopPropagation()); });
   box.querySelector('[data-fsm="layers"]').addEventListener('click', ()=>{
-    panel.hidden = !panel.hidden;
-    // Tourenkarte: Blatt einklappen, damit das Ebenen-Fenster Platz hat
-    if(!panel.hidden && map.getContainer().closest('#fs-tour-map') && typeof fsSetSheetDetent === 'function' && fsSheetDetent !== 'peek') fsSetSheetDetent('peek');
-    fsmSyncPanel(map);
+    if(!panel.hidden){ fsmClosePanel(map); return; }
+    fsmOpenPanel(map);
   });
   box.querySelector('[data-fsm="north"]').addEventListener('click', ()=> map.easeTo({bearing:0, pitch:0, duration:500}));
   const gpsBtn = box.querySelector('[data-fsm="gps"]');
@@ -6627,15 +6652,21 @@ function fsmAddControls(map){
     needle.setAttribute('transform', 'rotate(' + (-b) + ' 12 12)');
   };
   map.on('rotate', sync); map.on('pitch', sync);
-  map.on('click', ()=>{ panel.hidden = true; });
+  map.on('click', ()=> fsmClosePanel(map));
+  map.on('remove', ()=> fsmClosePanel(map));
 }
 function fsmSyncPanel(map){
   const panel = map._fsm && map._fsm.panel;
   if(!panel || panel.hidden) return;
   const p = fsmPrefs();
   const base = map._fsm.base || p.base;
-  panel.innerHTML = `<div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
-    ${fsmOverlaysForApp(map).map(o=>`<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`).join('')}`;
+  const ovs = fsmOverlaysForApp(map);
+  const row = o=> `<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`;
+  panel.innerHTML = `${panel.classList.contains('fsm-panel-sheet') ? `<div class="fsm-sheet-head"><b>Kartenebenen</b><button type="button" class="fsm-sheet-done" data-fsm-done>Fertig</button></div>` : ''}
+    <div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
+    ${FSM_OVERLAY_GROUPS.map(([g, label])=>{ const list = ovs.filter(o=> (o.group || 'unterwegs') === g); return list.length ? `<div class="fsm-group">${label}</div>${list.map(row).join('')}` : ''; }).join('')}`;
+  const done = panel.querySelector('[data-fsm-done]');
+  if(done) done.addEventListener('click', ()=> fsmClosePanel(map));
   panel.querySelectorAll('[data-base]').forEach(b=> b.addEventListener('click', ()=> fsmSetBase(map, b.getAttribute('data-base'))));
   panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=> fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked)));
   if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
