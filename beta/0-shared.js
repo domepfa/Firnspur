@@ -15232,6 +15232,38 @@ document.addEventListener('click', (e)=>{
   fsOpenDataCheck();
 }, true);
 
+/* ===== Gerätespeicher schützen und Nicht-Hochgeladenes anzeigen =====
+   Der Browser darf den Speicher einer Website bei Platzmangel oder längerer Nichtnutzung löschen.
+   persist() bittet ihn, das für diese App nicht zu tun (installierte App: meist sofort gewährt).
+   Solange Änderungen nur auf dem Gerät liegen, zeigt ein Hinweis unten die Zahl und lädt auf Wunsch hoch. */
+(function fsPersistStorage(){
+  try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persisted().then(p=>{ if(!p) navigator.storage.persist().catch(()=>{}); }).catch(()=>{}); }catch(e){}
+})();
+function fsUnsyncedCount(){
+  if(typeof state === 'undefined') return 0;
+  const lists = ['tours', 'huts', 'gebiete', 'sektoren', 'klettergebiete', 'gipfel', 'agenda', 'orte'];
+  return lists.reduce((n, k)=> n + (Array.isArray(state[k]) ? state[k].filter(x=> x && x._unsynced).length : 0), 0);
+}
+function fsUnsyncedSync(){
+  const n = fsUnsyncedCount();
+  let el = document.getElementById('fs-unsynced');
+  if(!n){ if(el) el.remove(); return; }
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'fs-unsynced';
+    el.className = 'fs-unsynced';
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+    el.addEventListener('click', (e)=>{ if(e.target.closest('button') && typeof loadAll === 'function'){ e.target.closest('button').disabled = true; loadAll(); } });
+  }
+  const txt = n === 1 ? '1 Änderung noch nicht hochgeladen' : n + ' Änderungen noch nicht hochgeladen';
+  if(el.dataset.n !== String(n)){
+    el.dataset.n = String(n);
+    el.innerHTML = `${fsIconHtml('offline')}<span>${txt} – nur auf diesem Gerät</span><button type="button">Hochladen</button>`;
+  }
+}
+setInterval(fsUnsyncedSync, 4000);
+window.addEventListener('online', ()=> setTimeout(fsUnsyncedSync, 500));
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
    Reihenfolge: Bilder · Kennzahlen/Status · Beschreibung · Orte · Bedingungen · Anreise · Mehr.
    Leere Abschnitte fallen weg; die Sprungleiste zeigt nur, was es gibt. */
