@@ -220,9 +220,10 @@ function setView(v){ state.view = v; state.modal = null; modalOpenedFromStandalo
 
 function render(){
   const app = document.getElementById('app');
+  const kept = fsTakeKeptModal(); // «Karte bearbeiten» offen: Ansicht behalten
   app.innerHTML = shellHtml();
   wireGlobalHandlers();
-  if(state.modal) renderModal();
+  if(!fsRestoreKeptModal(kept) && state.modal) renderModal();
   if(!state.loading) cacheLocalSnapshot();
   syncAgendaTabButton();
 }
