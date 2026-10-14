@@ -10663,8 +10663,22 @@ function fsKeepModalDuringRender(){
 }
 // #modal-root liegt in #app und wird bei render() neu gebaut: die offene Ansicht vorher herausnehmen
 // und danach (nach dem Verdrahten der Hauptansicht) unverändert wieder einsetzen.
+// Offenes Formular (Tour, Hütte, Gebiet …): ein Neuzeichnen aus dem Hintergrund (Wetter, Orte,
+// Vorschläge fertig geladen) würde es aus dem Ausgangsstand neu aufbauen – getippte Angaben und auf
+// der Formular-Karte (auch in 3D) gesetzte Punkte wären weg. Behalten, solange es dasselbe Formular
+// ist und das Neuzeichnen nicht von einer Aktion im Formular selbst kommt.
+let fsLastRenderedModal = null;
+function fsKeepFormDuringRender(){
+  if(typeof state === 'undefined' || !state.modal || state.modal !== fsLastRenderedModal) return false;
+  if(typeof DIRTY_TRACKED_MODAL_TYPES === 'undefined' || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return false;
+  const ov = document.querySelector('#modal-root > .overlay');
+  if(!ov) return false;
+  const ev = window.event;
+  if(ev && ev.isTrusted && ev.target && ev.target.nodeType === 1 && ov.contains(ev.target)) return false;
+  return true;
+}
 function fsTakeKeptModal(){
-  if(!fsKeepModalDuringRender()) return null;
+  if(!fsKeepModalDuringRender() && !fsKeepFormDuringRender()) return null;
   const ov = document.querySelector('#modal-root > .overlay');
   if(ov) ov.remove();
   return ov;
@@ -11322,6 +11336,7 @@ function modalDirtyTrackingKey(){
 // (dann wird der Dirty-Status zurückgesetzt) oder ob es sich nur um ein erneutes Rendern derselben
 // Sitzung handelt (z. B. nach Umschalten Hochtour/MSL) — dann bleibt der Status bestehen.
 function syncModalDirtyTracking(){
+  fsLastRenderedModal = (typeof state !== 'undefined' && state.modal) || null;
   const key = modalDirtyTrackingKey();
   if(key !== lastDirtyTrackedModalKey){
     modalIsDirty = false;
