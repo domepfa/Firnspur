@@ -120,13 +120,18 @@ for (const t of targets) {
   const editAndSave = async () => {
     const { path: coll, tour } = t.edit, newName = tour.name + ' geprüft';
     puts.length = 0;
-    const opened = await page.evaluate(id => {
+    // Werte ausserhalb der Auswahl-Listen (z. B. aus Import oder anderer App) müssen das Speichern
+    // über das Formular überstehen – früher fielen sie still weg (Material bei Gustispitz).
+    const EXTRA = { material: 'LVS-Gerät (Test)', gefahren: 'Fremdwert (Test)', exposition: 'NNO (Test)' };
+    for (const [k, v] of Object.entries(EXTRA)) if (!(tour[k] || []).includes(v)) tour[k] = [...(Array.isArray(tour[k]) ? tour[k] : []), v];
+    const opened = await page.evaluate(([id, extra]) => {
       state.myName = typeof FS_DEFAULT_OWNER !== 'undefined' ? FS_DEFAULT_OWNER : (state.myName || 'Rauchtest');
       const tour = state.tours.find(x => x.id === id);
       if (!tour) return false;
+      Object.entries(extra).forEach(([k, v]) => { if (!(tour[k] || []).includes(v)) tour[k] = [...(Array.isArray(tour[k]) ? tour[k] : []), v]; });
       state.modal = { type: 'edit-tour', payload: tour }; render();
       return !!document.getElementById('tour-save-btn');
-    }, tour.id);
+    }, [tour.id, EXTRA]);
     if (!opened) { problems.push('Bearbeiten: Formular für «' + tour.name + '» geht nicht auf'); return; }
     await page.fill('#tour-form [name="name"]', newName);
     await page.click('#tour-save-btn');

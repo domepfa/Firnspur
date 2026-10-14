@@ -1204,6 +1204,14 @@ document.addEventListener('click', async (e)=>{
   render();
   showToast(ok ? 'Hütte verknüpft.' : 'Lokal gespeichert, wird später hochgeladen.', !ok);
 }, true);
+// Auswahl-Knöpfe im Formular: Standardliste plus alle schon gespeicherten Werte, die nicht darin
+// stehen (z. B. aus einem Import oder einer anderen App). Sonst hätten sie keinen Knopf und würden
+// beim Speichern still wegfallen (das Formular übernimmt nur gedrückte Knöpfe).
+function fsChipOptions(list, selected){
+  const base = Array.isArray(list) ? list.slice() : [];
+  (Array.isArray(selected) ? selected : []).forEach(v=>{ if(v != null && String(v).trim() && base.indexOf(v) < 0) base.push(v); });
+  return base;
+}
 function tourMapPoint(t){
   if(t.points && t.points.length) return {lat: t.points[0].lat, lon: t.points[0].lon};
   if(t.trackSimplified && t.trackSimplified.length) return {lat: t.trackSimplified[0][0], lon: t.trackSimplified[0][1]};
