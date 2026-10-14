@@ -1171,6 +1171,32 @@ function fsTourSummitPoint(t){
   const d = q=> (q.lat - s0.lat) ** 2 + ((q.lon - s0.lon) * Math.cos(s0.lat * Math.PI / 180)) ** 2;
   return ll.reduce((a, b)=> d(b) > d(a) ? b : a);
 }
+// Hütte aus dem Text erkennen («ab Wiwannihütte»), wenn die Tour keine verknüpft hat
+function fsHutKey(n){ return String(n || '').toLowerCase().replace(/hütte|huette|cabane|capanna|rifugio|refuge|hut/g, '').replace(/[^a-zäöüéèà0-9]/g, ''); }
+function fsGuessHut(t){
+  if(!t || t.hutId || typeof state === 'undefined' || !Array.isArray(state.huts)) return null;
+  const text = [t.routeName, t.approach, t.ascent].filter(Boolean).join(' ').toLowerCase().replace(/[^a-zäöüéèà0-9]/g, '');
+  if(!text) return null;
+  const norm = n=> String(n || '').toLowerCase().replace(/[^a-zäöüéèà0-9]/g, '');
+  // ganzer Name («domhütte») oder der Kern ohne «Hütte» ab 4 Zeichen («wiwanni»)
+  return state.huts.find(h=>{ const full = norm(h && h.name), k = fsHutKey(h && h.name); return (full.length >= 4 && text.includes(full)) || (k.length >= 4 && text.includes(k)); }) || null;
+}
+function fsLinkHutBtnHtml(t, h){
+  return `<button type="button" class="btn secondary" data-act="fs-link-hut" data-id="${esc(t.id)}" data-hut="${esc(h.id)}">Hütte «${esc(h.name)}» fest verknüpfen</button>`;
+}
+document.addEventListener('click', async (e)=>{
+  const el = e.target.closest && e.target.closest('[data-act="fs-link-hut"]');
+  if(!el) return;
+  e.stopPropagation();
+  const t = (state.tours || []).find(x=> x.id === el.getAttribute('data-id'));
+  if(!t) return;
+  t.hutId = el.getAttribute('data-hut');
+  t.updatedAt = new Date().toISOString(); t.updatedBy = state.myName;
+  const ok = await saveTourCloud(t).catch(()=> false);
+  t._unsynced = !ok;
+  render();
+  showToast(ok ? 'Hütte verknüpft.' : 'Lokal gespeichert, wird später hochgeladen.', !ok);
+}, true);
 function tourMapPoint(t){
   if(t.points && t.points.length) return {lat: t.points[0].lat, lon: t.points[0].lon};
   if(t.trackSimplified && t.trackSimplified.length) return {lat: t.trackSimplified[0][0], lon: t.trackSimplified[0][1]};
@@ -10580,6 +10606,30 @@ function meteoCardForecastRowHtml(lat, lon){
 }
 
 /* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */
+// Während «Karte bearbeiten» offen ist, darf kein Neuzeichnen (z. B. Wetter oder Orte fertig geladen)
+// die Ansicht ersetzen: sonst wären neu gesetzte, noch nicht gespeicherte Punkte weg und «Speichern»
+// würde den alten Stand speichern. Die Apps rufen renderModal() darum nur, wenn das hier false ist.
+function fsKeepModalDuringRender(){
+  if(typeof state === 'undefined' || !state.modal || !state.quickEditOpenId) return false;
+  if(!/-detail$/.test(state.modal.type) || state.modal.payload !== state.quickEditOpenId) return false;
+  const bar = document.getElementById('quick-save-btn-' + state.quickEditOpenId);
+  return !!(bar && bar.isConnected && bar.style.display !== 'none');
+}
+// #modal-root liegt in #app und wird bei render() neu gebaut: die offene Ansicht vorher herausnehmen
+// und danach (nach dem Verdrahten der Hauptansicht) unverändert wieder einsetzen.
+function fsTakeKeptModal(){
+  if(!fsKeepModalDuringRender()) return null;
+  const ov = document.querySelector('#modal-root > .overlay');
+  if(ov) ov.remove();
+  return ov;
+}
+function fsRestoreKeptModal(ov){
+  const root = document.getElementById('modal-root');
+  if(!ov || !root) return false;
+  root.innerHTML = '';
+  root.appendChild(ov);
+  return true;
+}
 async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, trackSimplifiedHiddenId){
   let points = [], manualTrack = [];
   try{ const pEl = document.getElementById(pointsHiddenId); points = pEl && pEl.value ? JSON.parse(pEl.value) : []; }catch(e){ points = []; }
@@ -10862,7 +10912,7 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'delete-access-route','delete-tour-route','delete-sektor-route','delete-calculated-route',
   'remove-completion','remove-alt-track',
   'quick-edit-toggle','toggle-tour-status','set-tour-status','toggle-hut-status',
-  'fs-ort-link','fs-ort-edit','fs-ort-unlink','fs-ort-delete','fs-erf-new','fs-erf-apply','fs-erf-delete',
+  'fs-ort-link','fs-ort-edit','fs-ort-unlink','fs-ort-delete','fs-link-hut','fs-erf-new','fs-erf-apply','fs-erf-delete',
   'open-complete-tour','open-complete-hut','mark-done',
   'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
   'convert-msl-to-klettergarten'
