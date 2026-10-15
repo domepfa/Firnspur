@@ -5299,6 +5299,7 @@ function wireModalHandlers(){
   if(namePinInput) namePinInput.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitName(nameInput.value, namePinInput.value); } });
 
   const tourForm = document.getElementById('tour-form');
+  if(tourForm) fsFormSectionize(tourForm, fsTourFormSections(true));
   dlog('tour-form im DOM gefunden: ' + !!tourForm);
   if(tourForm){
     // Tourtyp-Chips (Hochtour / MSL) — blendet passenden Sicherheits-Block ein/aus

@@ -215,6 +215,7 @@ await scenario('Teilweise geladen', async ({ page, db, env }) => {
 await scenario('Entwurf Formular', async ({ page, db, env }) => {
   await page.evaluate(id => { const t = state.tours.find(x => x.id === id); state.modal = { type: 'edit-tour', payload: t }; render(); }, TP.split('/')[1]);
   await page.waitForTimeout(500);
+  await page.evaluate(() => document.querySelectorAll('details.fs-fsec').forEach(d => { d.open = true; }));
   await page.fill('#tour-form [name="special"]', 'Lange Notiz, die nicht verloren gehen darf');
   await page.waitForTimeout(1200);
   await page.reload(); await page.waitForTimeout(4000); // so, als hätte der Browser den Tab beendet
@@ -273,6 +274,7 @@ await scenario('Entwurf nach Karte bearbeiten', async ({ page, db }) => {
   // ohne Änderung an der Karte zum Formular wechseln (Karte bleibt entsperrt)
   await page.evaluate(id => { const t = state.tours.find(x => x.id === id); navigateToModal({ type: 'edit-tour', payload: t }); }, id);
   await page.waitForTimeout(600);
+  await page.evaluate(() => document.querySelectorAll('details.fs-fsec').forEach(d => { d.open = true; }));
   await page.fill('#tour-form [name="special"]', 'Text nach Karte');
   await page.waitForTimeout(1200);
   await page.reload(); await page.waitForTimeout(4000);

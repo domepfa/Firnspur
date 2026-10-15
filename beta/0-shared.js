@@ -15688,7 +15688,10 @@ function fsDraftApply(d){
     let el = f.id ? modal.querySelector('#' + CSS.escape(f.id)) : null;
     if(!el && f.name) el = modal.querySelector('[name="' + CSS.escape(f.name) + '"]');
     if(!el) return;
+    const was = f.chk ? (el.checked ? '1' : '') : el.value;
     if(f.chk) el.checked = !!f.v; else el.value = f.v;
+    // Abschnitt mit wiederhergestellter Angabe aufklappen
+    if(fire && String(was) !== String(f.v) && el.name !== 'tourIdForTrack'){ const sec = el.closest('details.fs-fsec'); if(sec) sec.open = true; }
     if(fire && el.tagName === 'SELECT') el.dispatchEvent(new Event('change', {bubbles: true}));
   }));
   (d.chips || []).forEach(c=>{
@@ -15768,6 +15771,75 @@ function fsDraftOffer(given){
     fsDraftDrop(d); try{ localStorage.setItem(fsDraftKey(d.key), JSON.stringify(Object.assign({}, d, {_sk: undefined}))); }catch(e){} fsDraftWritten.add(d.key);
     await fsDraftRestore(d); showToast('Angaben wiederhergestellt – bitte noch speichern.');
   };
+}
+
+/* ===== Formular in aufklappbaren Abschnitten =====
+   Die Felder bleiben, wie sie sind (gleiche Namen, gleiche Logik beim Speichern); nach dem Zeichnen
+   werden sie nur in Abschnitte gehängt. Offen ist zu Beginn nur der erste; der Kopf eines
+   geschlossenen Abschnitts zeigt, was darin steht. Geschlossene Felder werden mitgespeichert.
+   sections: [{key, title, sel: ['[name="crux"]', '#fs-tracks-field', …]}] – ein Feld ohne Treffer
+   bleibt beim Abschnitt des Feldes davor. */
+// Abschnitte des Tourenformulars (alle Apps; Felder, die eine App nicht hat, fallen einfach weg)
+function fsTourFormSections(climb){
+  const n = x=> '[name="' + x + '"]';
+  return [
+    {key:'grund', title:'Grunddaten', sel:[n('name'), n('routeName'), n('status'), n('tourCategory'), '#region-chips', '#subregion-field', '#summit-field', '.fs-owner-note']},
+    {key:'zahlen', title:'Kennzahlen', sel:[n('targetAltitude'), n('elevationGain'), n('elevationLoss'), n('duration'), n('descentDuration'), n('distance'), '#pitchcount-field']},
+    {key:'karte', title: climb ? 'Karte, Route & Topo' : 'Karte & Route', sel:['#fs-tracks-field', n('gpxLink'), n('points'), n('topoImages')]},
+    {key:'text', title:'Beschreibung', sel:[n('crux'), n('special'), n('ascent'), n('descent'), n('tourLink'), '.fs-more-links', '#descent-freetext-field']},
+    {key:'gelaende', title: climb ? 'Schwierigkeit & Material' : 'Gelände & Material', sel:['#hochtour-safety-fields', '#msl-safety-fields', n('glacier'), '.exposition-chip', '.gefahren-chip', '.material-chip', n('ropeType'), n('ropeLength'), n('quickdrawCount'), n('dog'), n('tourShape'), '.month-chip']},
+    {key:'anreise', title:'Anreise', sel:['#approach-type-chips', '#stay-type-chips', n('approach')]},
+    {key:'link', title:'Verknüpfungen & Rechte', sel:[n('hutId'), n('gebietId'), '#sektor-field', n('ownerOpen')]}
+  ];
+}
+function fsFormSectionize(form, sections){
+  if(!form || form.dataset.fsSec || !Array.isArray(sections) || !sections.length) return;
+  form.dataset.fsSec = '1';
+  const keep = el=> el.matches('.form-actions, .fab-save, [id^="delete-"], .form-error, [id$="-error"]');
+  const kids = Array.from(form.children).filter(el=> !keep(el));
+  if(!kids.length) return;
+  const anchor = kids[0];
+  const boxes = sections.map((sec, i)=>{
+    const d = document.createElement('details');
+    d.className = 'fs-fsec'; d.dataset.sec = sec.key;
+    if(i === 0) d.open = true;
+    d.innerHTML = `<summary><span class="fs-fsec-t">${esc(sec.title)}</span><span class="fs-fsec-i"></span></summary><div class="fs-fsec-b"></div>`;
+    return d;
+  });
+  let cur = 0;
+  kids.forEach(el=>{
+    const hit = sections.findIndex(sec=> (sec.sel || []).some(q=>{ try{ return el.matches(q) || el.querySelector(q); }catch(e){ return false; } }));
+    if(hit >= 0) cur = hit;
+    boxes[cur].querySelector('.fs-fsec-b').appendChild(el);
+  });
+  boxes.forEach(b=>{ if(b.querySelector('.fs-fsec-b').children.length) form.insertBefore(b, form.querySelector('.form-actions') || null); });
+  // Kurzinfo im Kopf: was steht drin
+  const info = b=>{
+    const body = b.querySelector('.fs-fsec-b');
+    const json = id=>{ const el = body.querySelector(id); try{ const v = el && el.value ? JSON.parse(el.value) : null; return v; }catch(e){ return null; } };
+    const parts = [];
+    const pts = json('[name="points"]'); if(Array.isArray(pts) && pts.length) parts.push(pts.length === 1 ? '1 Punkt' : pts.length + ' Punkte');
+    const man = json('[name="manualTrack"]'); if(Array.isArray(man) && man.length > 1) parts.push('Linie');
+    const trk = json('[name="trackSimplified"]'); if(Array.isArray(trk) && trk.length) parts.push('GPX');
+    const topo = json('[name="topoImages"]'); if(Array.isArray(topo) && topo.length) parts.push(topo.length === 1 ? '1 Topo' : topo.length + ' Topos');
+    let n = 0;
+    body.querySelectorAll('input, textarea, select').forEach(el=>{
+      if(!el.name || el.type === 'file' || /^(points|manualTrack|trackSimplified|topoImages|tourIdForTrack)$/.test(el.name)) return;
+      if(el.closest('[style*="display:none"], [style*="display: none"]')) return;
+      const v = (el.type === 'checkbox' || el.type === 'radio') ? (el.checked ? '1' : '') : String(el.value || '').trim();
+      if(v && v !== '[]' && v !== 'nein') n++;
+    });
+    n += Array.from(body.querySelectorAll('.chips')).filter(c=> !c.parentElement.querySelector('input[type="hidden"][name]') && c.querySelector('button.chip.on')).length;
+    if(n) parts.push(n === 1 ? '1 Angabe' : n + ' Angaben');
+    b.querySelector('.fs-fsec-i').textContent = parts.length ? parts.join(' · ') : 'leer';
+  };
+  const all = Array.from(form.querySelectorAll(':scope > details.fs-fsec'));
+  all.forEach(info);
+  let t = null;
+  const upd = ()=>{ clearTimeout(t); t = setTimeout(()=> all.forEach(info), 250); };
+  form.addEventListener('input', upd); form.addEventListener('change', upd); form.addEventListener('click', upd);
+  // Karten in einem eben geöffneten Abschnitt neu ausmessen (waren unsichtbar)
+  all.forEach(b=> b.addEventListener('toggle', ()=>{ if(b.open) setTimeout(()=>{ try{ window.dispatchEvent(new Event('resize')); }catch(e){} }, 60); }));
 }
 
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
