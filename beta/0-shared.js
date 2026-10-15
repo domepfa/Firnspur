@@ -1666,7 +1666,9 @@ function fsHomeFilter(){
   if(!sheet || !fsHomePts) return;
   const act = fsHomePts.openAct;
   let vis = null;
-  if(!fsHomeAll && fsHomeMap){
+  // Beim Suchen über alle Einträge, nicht nur den Kartenausschnitt
+  const searching = typeof state !== 'undefined' && typeof state.search === 'string' && !!state.search.trim();
+  if(!fsHomeAll && fsHomeMap && !searching){
     const b = fsHomeMap.getBounds();
     vis = new Set(fsHomePts.points.filter(p=> b.contains([p.lon, p.lat])).map(p=> p.id));
   }
