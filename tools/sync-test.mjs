@@ -395,6 +395,28 @@ await scenario('Papierkorb wiederherstellen', async ({ page, db }) => {
   ok('Papierkorb: wiederhergestellt ist auch in der Datenbank nicht mehr gelöscht', !db.get(TP).deletedAt, JSON.stringify(db.get(TP).deletedAt));
 });
 
+await scenario('Weiter ändern beim Speichern', async ({ page, db }) => {
+  const r = await page.evaluate(async id => {
+    const t = state.tours.find(x => x.id === id);
+    // Zweite Eingabe genau dann, wenn das erste Speichern schon unterwegs ist
+    const orig = fsRawFetch; let done = false;
+    fsRawFetch = (p, o) => { if (!done && o && o.method === 'PUT' && p === 'tours/' + id) { done = true; t.notes = 'Zweite Änderung während des Speicherns'; } return orig(p, o); };
+    t.name = 'Erste Änderung'; const p1 = saveTourCloud(t);
+    await p1; fsRawFetch = orig; const kept = t.notes; await saveTourCloud(t); return kept;
+  }, tour0.id);
+  const d = db.get(TP);
+  ok('Weiter ändern beim Speichern: zweite Änderung bleibt und wird gespeichert', r === 'Zweite Änderung während des Speicherns' && d.notes === r && d.name === 'Erste Änderung', JSON.stringify({ r, n: d.name, no: d.notes }));
+});
+await scenario('Offline in den Papierkorb', async ({ page, db, env }) => {
+  env.online = false;
+  await page.evaluate(id => { moveToTrash(id, state.tours, state.trashedTours, saveTourCloud); }, tour0.id);
+  await page.waitForTimeout(1500);
+  env.online = true;
+  await page.reload(); await page.waitForTimeout(3500);
+  const inList = await page.evaluate(id => ({ a: state.tours.some(x => x.id === id), t: state.trashedTours.some(x => x.id === id) }), tour0.id);
+  ok('Offline in den Papierkorb: bleibt im Papierkorb und wird nachgeholt', !inList.a && inList.t && !!db.get(TP).deletedAt, JSON.stringify({ inList, d: db.get(TP).deletedAt }));
+});
+
 await browser.close(); server.close();
 const bad = results.filter(r => !r.ok);
 if (!verbose) bad.forEach(r => console.log('FAIL ' + r.name + (r.info ? ' – ' + r.info : '')));
