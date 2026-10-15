@@ -2062,6 +2062,7 @@ function wireModalHandlers(){
   if(namePinInput) namePinInput.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitName(nameInput.value, namePinInput.value); } });
 
   const tourForm = document.getElementById('tour-form');
+  if(tourForm) fsFormSectionize(tourForm, fsTourFormSections(false));
   dlog('tour-form im DOM gefunden: ' + !!tourForm);
   if(tourForm){
     // Mehrfachauswahl-Chips (Gefahren, Monate, Anreise) — Klick schaltet "on" um
