@@ -10857,14 +10857,16 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, 
   item.updatedAt = new Date().toISOString();
   item.updatedBy = state.myName;
   const saveFn = kind==='tour' ? saveTourCloud : saveHutCloud;
-  const ok = await saveFn(item).catch(()=>false);
-  item._unsynced = !ok;
-  // Gespeichert = wieder gesperrt: Bearbeiten-Karte zu, kein "ungespeichert" mehr.
+  // Gelesen = übernommen: Karte sofort sperren (wie bei den Formularen), damit während des Hochladens
+  // nichts mehr verschoben wird, das danach verloren ginge – und kein anderes Fenster zurückgesetzt wird
   state.quickEditOpenId = null;
   resetModalDirty();
   closeModal(false, true);
   state.modal = {type: kind==='tour' ? 'tour-detail' : 'hut-detail', payload:id};
   render();
+  const ok = await saveFn(item).catch(()=>false);
+  item._unsynced = !ok;
+  if(typeof state !== 'undefined' && state.modal && state.modal.payload === id) render();
   if(ok) offerUndoAfterSave('Karte gespeichert · wieder gesperrt.', list, undoPrev, saveFn);
   else showToast('Lokal gespeichert, aber nicht synchronisiert.', true);
 }
@@ -11537,7 +11539,7 @@ function syncModalDirtyTracking(){
     // ausser er stammt aus einem früheren Start und wurde noch nicht angeboten/angenommen
     if(lastDirtyTrackedModalKey && typeof fsDraftClear === 'function'){
       if(!modalIsDirty) fsDraftClear(lastDirtyTrackedModalKey);
-      else fsDraftCheckLeft(lastDirtyTrackedModalKey); // ungespeichert verlassen? dann Wiederherstellen anbieten
+      else{ fsDraftWritten.delete(lastDirtyTrackedModalKey); /* letzte Eingaben sicherte fsTakeKeptModal vor dem Neuzeichnen */ fsDraftCheckLeft(lastDirtyTrackedModalKey); } // ungespeichert verlassen: gilt ab jetzt als älterer Entwurf (anbieten, nicht überschreiben)
     }
     modalIsDirty = false;
     lastDirtyTrackedModalKey = key;
@@ -15381,18 +15383,26 @@ async function fsCheckRestore(items){
     obj.updatedAt = new Date().toISOString();
     obj.updatedBy = (state && state.myName) || '';
     const res = await fbSet(path, obj).catch(()=> false);
-    if(res){ ok += list.length; fsCheckSyncState(path, obj); } else fail += list.length;
+    if(res){ ok += list.length; fsCheckSyncState(path, obj, list); } else fail += list.length;
   }
   return {ok, fail};
 }
 // Zurückgeholtes sofort auch in die geladene Fassung übernehmen – sonst würde das nächste Speichern aus
 // dem alten Stand (z. B. weil ein Formular offen ist und nicht neu geladen wird) es wieder entfernen
-function fsCheckSyncState(path, obj){
+function fsCheckSyncState(path, obj, items){
   const id = String(path).split('/').pop();
   const lists = [state.tours, state.huts, state.gebiete, state.sektoren, state.klettergebiete, state.gipfel, state.agenda, state.orte,
     state.trashedTours, state.trashedHuts, state.trashedGebiete, state.trashedSektoren, state.trashedKlettergebiete, state.trashedGipfel].filter(Array.isArray);
   lists.forEach(l=> l.forEach(x=>{
     if(!x || x.id !== id) return;
+    // Noch nicht hochgeladene eigene Änderung: nur das Zurückgeholte ergänzen, den Rest nicht anfassen
+    if(x._unsynced && Array.isArray(items) && !items.some(it=> it.type === 'entry')){
+      items.forEach(it=>{
+        if(it.type === 'item'){ const arr = Array.isArray(x[it.field]) ? x[it.field] : (x[it.field] = []); if(!arr.some(y=> fsCheckItemKey(y) === fsCheckItemKey(it.value))) arr.push(JSON.parse(JSON.stringify(it.value))); }
+        else if(fsCanon(x[it.field]) === null) x[it.field] = JSON.parse(JSON.stringify(it.value));
+      });
+      return;
+    }
     Object.keys(x).forEach(k=>{ if(k[0] !== '_' && !(k in obj)) delete x[k]; });
     Object.keys(obj).forEach(k=>{ if(k[0] !== '_') x[k] = JSON.parse(JSON.stringify(obj[k])); });
   }));
@@ -15657,8 +15667,9 @@ function fsDraftCheckLeft(k){
     const d = fsDraftRead(k);
     if(!d) return;
     if(fsDraftIsStale(d)){ fsDraftClear(k, true); return; }
-    if(modalIsDirty && typeof modalDirtyTrackingKey === 'function' && modalDirtyTrackingKey()) return; // gerade wieder am Bearbeiten
-    if(typeof state !== 'undefined' && state.modal && state.modal.type === 'emergency'){ fsDraftCheckLeft(k); return; } // Notfallkarte nicht überdecken
+    // Gerade wieder am Bearbeiten (oder Notfallkarte offen): später nochmals
+    if((modalIsDirty && typeof modalDirtyTrackingKey === 'function' && modalDirtyTrackingKey() && modalDirtyTrackingKey() !== k) || (typeof state !== 'undefined' && state.modal && state.modal.type === 'emergency')){ fsDraftCheckLeft(k); return; }
+    if(modalIsDirty && modalDirtyTrackingKey() === k) return; // dasselbe Fenster wieder offen
     fsDraftOffer(d);
   }, 1500);
 }
@@ -15704,7 +15715,9 @@ async function fsDraftRestore(d){
   if(ent && payload && typeof payload === 'object' && !payload.route){
     payload = Object.assign({}, ent);
     (d.fields || []).forEach(f=>{
-      const k = f.name; if(!k || f.chk || k[0] === '_' || k === 'id' || !(k in ent)) return;
+      const k = f.name; if(!k || f.chk || k[0] === '_' || k === 'id') return;
+      // Fehlt das Feld im Eintrag (leere Listen speichert Firebase nicht), nur Listen/Objekte übernehmen (erste Punkte, Linie)
+      if(!(k in ent)){ if(/^[\[{]/.test(f.v || '')){ try{ const v = JSON.parse(f.v); if(v && typeof v === 'object' && (!Array.isArray(v) || v.length)) payload[k] = v; }catch(e){} } return; }
       // Links nicht vorbelegen: das Formular verschiebt einen ersetzten Link sonst nicht mehr unter «Weitere Links»
       if(k === 'tourLink' || k === 'gpxLink') return;
       const cur = ent[k];
@@ -15731,6 +15744,8 @@ function fsDraftOffer(given){
   }
   if(!d || !d.type) return;
   if(document.getElementById('fs-draft-offer')) return;
+  // Gerade am Bearbeiten: nicht dazwischenfahren, später nochmals
+  if(modalIsDirty && typeof modalDirtyTrackingKey === 'function' && modalDirtyTrackingKey()){ setTimeout(()=> fsDraftOffer(given), 5000); return; }
   const ent = fsDraftEntity(d);
   const changed = ent && ent.updatedAt && ent.updatedAt > d.at
     ? ` Seither wurde der Eintrag ${ent.updatedBy && ent.updatedBy !== (state.myName || '') ? 'von ' + esc(ent.updatedBy) + ' ' : ''}geändert – beim Wiederherstellen gelten deine Angaben, bitte vor dem Speichern prüfen.` : '';

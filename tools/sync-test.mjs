@@ -283,6 +283,25 @@ await scenario('Entwurf nach Karte bearbeiten', async ({ page, db }) => {
   const d = db.get(TP);
   ok('Entwurf nach Karte bearbeiten: als Formular wiederhergestellt, nichts anderes geht verloren', offered && d.special === 'Text nach Karte' && d.createdAt === before.createdAt && JSON.stringify(d.completions || []) === JSON.stringify(before.completions || []) && d.name === before.name, JSON.stringify({ offered, sp: d.special, ca: [before.createdAt, d.createdAt], n: d.name }));
 });
+await scenario('Entwurf erste Punkte', async ({ page, db }) => {
+  const id = TP.split('/')[1];
+  const t0 = { ...db.get(TP) }; delete t0.points; delete t0.lat; delete t0.lon; db.set(TP, t0);
+  // Gerätekopie leeren, sonst bietet die Rettung die «fehlenden» Punkte an
+  await page.evaluate(() => Object.keys(localStorage).filter(k => /cache|fs-better|fs-rescue|fs-base/.test(k)).forEach(k => localStorage.removeItem(k)));
+  await page.reload(); await page.waitForTimeout(3000);
+  await page.evaluate(id => { const t = state.tours.find(x => x.id === id); state.modal = { type: 'edit-tour', payload: t }; render(); }, id);
+  await page.waitForTimeout(800);
+  await page.evaluate(() => { const el = document.getElementById('points-hidden'); el.value = JSON.stringify([{ lat: 46.7, lon: 8.4, label: 'Erster Punkt' }]); markModalDirty(); });
+  await page.waitForTimeout(1200);
+  await page.reload(); await page.waitForTimeout(4000);
+  const offered = await page.evaluate(() => !!document.querySelector('#fs-draft-offer [data-restore]'));
+  if (offered) await page.click('#fs-draft-offer [data-restore]');
+  await page.waitForTimeout(2500);
+  const dbg = await page.evaluate(() => ({ m: state.modal && state.modal.type, btn: !!document.getElementById('tour-save-btn'), ph: (document.getElementById('points-hidden') || {}).value, offer: !!document.getElementById('fs-draft-offer') }));
+  if (offered && dbg.btn) { await page.click('#tour-save-btn'); await page.waitForTimeout(2500); }
+  const pts = (db.get(TP).points || []).map(p => p.label);
+  ok('Entwurf erste Punkte: Tour ohne Punkte, Punkte nach beendetem Tab zurück und gespeichert', offered && pts.includes('Erster Punkt'), JSON.stringify({ offered, pts, dbg }));
+});
 await scenario('Notbremse: Liste leer', async ({ db, env, saveVia }) => {
   env.answer = false; // «Abbrechen»: Änderungen speichern, Verlorenes behalten
   await saveVia("t.material = []; t.name = 'Neu';");
