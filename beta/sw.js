@@ -42,13 +42,20 @@ async function handleShareTarget(request, redirectPage){
   return Response.redirect(redirectPage + '?shared=1', 303);
 }
 
+// Kartenbibliotheken (feste Versionen) in einem eigenen Speicher, der Updates der App übersteht –
+// sonst lud jedes Update MapLibre/Leaflet neu, und die Karte wartete beim ersten Start darauf.
+const LIB_CACHE = 'bergtouren-libs-v1';
+const isLibUrl = (u) => u.startsWith('https://unpkg.com/leaflet@1.9.4/') || u.startsWith('https://unpkg.com/maplibre-gl@4.7.1/');
+
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
+    caches.open(LIB_CACHE).then((lib) => Promise.allSettled(SHELL_ASSETS.filter(isLibUrl).map((url) =>
+      lib.match(url).then((hit) => hit || lib.add(url)).catch((err) => console.warn('SW: konnte nicht cachen:', url, err))
+    ))).then(() => caches.open(CACHE_NAME)).then((cache) => {
       // Jede Datei einzeln versuchen: schlägt eine fehl (z. B. falscher
       // Dateiname), werden die übrigen trotzdem gecacht statt gar nichts.
       return Promise.allSettled(
-        SHELL_ASSETS.map((url) =>
+        SHELL_ASSETS.filter((url) => !isLibUrl(url)).map((url) =>
           cache.add(url).catch((err) => console.warn('SW: konnte nicht cachen:', url, err))
         )
       );
@@ -84,6 +91,15 @@ self.addEventListener('fetch', (e) => {
   // Nur eigene Dateien + Leaflet cachen. Firebase-Aufrufe (andere Domain, ausser
   // Leaflet) gehen immer direkt ans Netz, damit Daten aktuell bleiben.
   if (e.request.method !== 'GET' || (url.origin !== location.origin && !isLeaflet)) return;
+
+  // Bibliotheken mit fester Version: aus dem eigenen Speicher, nur beim ersten Mal aus dem Netz
+  if (isLeaflet) {
+    e.respondWith(caches.open(LIB_CACHE).then((lib) => lib.match(e.request).then((hit) => hit || caches.match(e.request).then((old) => old || fetch(e.request).then((res) => {
+      if (res.ok || res.type === 'opaque') lib.put(e.request, res.clone());
+      return res;
+    })))));
+    return;
+  }
 
   // "Netzwerk zuerst": immer die neueste Version vom Server holen, wenn
   // Internet da ist. Nur bei fehlender Verbindung auf den Zwischenspeicher

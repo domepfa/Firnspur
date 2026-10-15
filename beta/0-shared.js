@@ -1555,6 +1555,7 @@ function fsHomeRoutesSync(){
   const key = ids.map(id=>{ const t = tById.get(id); return id + ':' + (t ? (t.updatedAt || '') + ':' + fsTourRoutes(t).map(r=> (r.coords || []).length).join('.') : ''); }).join(',');
   if(!map.getSource('fs-home-routes')){
     map.addSource('fs-home-routes', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+    map._fsHomeSelKey = null; // neue Ebenen: Auswahl wieder setzen
     const color = fsHomeAccent();
     map.addLayer({id:'fs-home-routes', type:'line', source:'fs-home-routes', minzoom: FS_HOME_ROUTE_MINZOOM,
       layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color': color, 'line-width': 3, 'line-opacity': 0.65}});
@@ -1568,11 +1569,15 @@ function fsHomeRoutesSync(){
     map.getSource('fs-home-routes').setData({type:'FeatureCollection', features});
   }
   const sel = on ? (fsHomeSel || '') : '';
+  const t = sel ? (state.tours || []).find(x=> x.id === sel) : null;
+  // Nur bei Änderung der Auswahl neu setzen (wird oft aufgerufen)
+  const selKey = sel + ':' + (t ? (t.updatedAt || '') + ':' + (t.points || []).length : '');
+  if(map._fsHomeSelKey === selKey) return;
+  map._fsHomeSelKey = selKey;
   map.setFilter('fs-home-route-sel', ['==', ['get', 'id'], sel]);
   map.setPaintProperty('fs-home-routes', 'line-opacity', sel ? 0.3 : 0.65);
   // Punkte nur der gewählten Tour
   fsHomeSelMarkers.forEach(m=> m.remove()); fsHomeSelMarkers = [];
-  const t = sel ? (state.tours || []).find(x=> x.id === sel) : null;
   if(t) (t.points || []).forEach(pt=>{
     if(!isFinite(pt.lat) || !isFinite(pt.lon)) return;
     const el = document.createElement('div');
@@ -1703,8 +1708,12 @@ function fsHomeFilter(){
     if(tb && tb.parentNode) tb.parentNode.insertBefore(bar, tb.nextSibling); else sheet.insertBefore(bar, sheet.firstChild);
   }
   const word = fsHomePts.kind === 'hut' ? 'Hütten' : (fsHomePts.kind === 'gebiet' || fsHomePts.kind === 'klettergebiet') ? 'Gebiete' : 'Touren';
-  bar.innerHTML = `<span><b>${shown}</b> von ${total} ${word} im Kartenausschnitt</span><button type="button" class="fs-home-all">Alle anzeigen</button>`;
-  bar.querySelector('.fs-home-all').onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); };
+  const k = shown + '/' + total + '/' + word;
+  if(bar.dataset.k !== k){
+    bar.dataset.k = k;
+    bar.innerHTML = `<span><b>${shown}</b> von ${total} ${word} im Kartenausschnitt</span><button type="button" class="fs-home-all">Alle anzeigen</button>`;
+    bar.querySelector('.fs-home-all').onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); };
+  }
 }
 // Suchfeld in den Listen eingeklappt: Lupen-Knopf neben «Filter». Offen-Zustand als Klasse an <html>,
 // damit das Feld beim Neuzeichnen (bei jedem Buchstaben) sofort sichtbar bleibt und den Cursor behält.
@@ -1728,7 +1737,10 @@ function fsSearchCollapse(){
 (function(){
   if(typeof MutationObserver === 'undefined') return;
   let t = null;
-  const mo = new MutationObserver(()=>{ clearTimeout(t); t = setTimeout(()=>{ fsSearchCollapse(); if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } }, 30); });
+  // Änderungen in der Karte selbst (Marker, Kacheln) und in der Zählzeile zählen nicht – sonst schaukelt sich
+  // das auf: Filter schreibt die Zeile, die Zeile löst den Filter aus, … (Karte zeichnete dauernd neu)
+  const own = n=>{ const el = n && (n.nodeType === 1 ? n : n.parentElement); return !!(el && el.closest && el.closest('.fs-home-map, .fs-home-count, .maplibregl-map, #fs-3d')); };
+  const mo = new MutationObserver((recs)=>{ if(recs.every(r=> own(r.target))) return; clearTimeout(t); t = setTimeout(()=>{ fsSearchCollapse(); if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } }, 30); });
   const start = ()=> mo.observe(document.body, {childList:true, subtree:true});
   if(document.body) start(); else document.addEventListener('DOMContentLoaded', start);
 })();
@@ -4203,8 +4215,21 @@ function fs3dMlOpen(opts){
       // Wie in 2D: alle Touren und Hütten, die Orte der Tour (Ebene «Orte» zeigt alle)
       if(!opts.edit){
         const rc = getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1F5F8B';
-        fs3dOtherRoutes(t).forEach(r=>{ try{ fsmAddLine(map, r.coords, {color: rc, dash: r.dash, width: 3}); }catch(e){} });
-        fs3dPins(t).forEach(pn=> fsmAddMarker(map, pn.lat, pn.lon, `<div class="fs3d-pin fs3d-pin-${pn.kind}"><i></i><span>${esc(pn.name)}</span></div>`, {anchor:'left', popup: fs3dPinNode(pn)}));
+        // Alle übrigen Routen in EINER Quelle mit wenigen Ebenen (pro Route eine eigene Ebene machte 3D sehr langsam)
+        try{
+          const feats = fs3dOtherRoutes(t).map(r=> ({type:'Feature', properties:{dash: r.dash ? 1 : 0}, geometry:{type:'LineString', coordinates: r.coords.map(c=> [c[1], c[0]])}}));
+          if(feats.length){
+            map.addSource('fs3d-others', {type:'geojson', data:{type:'FeatureCollection', features: feats}});
+            map.addLayer({id:'fs3d-others-case', type:'line', source:'fs3d-others', minzoom: 9, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#ffffff', 'line-width':5, 'line-opacity':0.6}});
+            map.addLayer({id:'fs3d-others', type:'line', source:'fs3d-others', minzoom: 9, filter:['==', ['get', 'dash'], 0], layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color': rc, 'line-width':3}});
+            map.addLayer({id:'fs3d-others-dash', type:'line', source:'fs3d-others', minzoom: 9, filter:['==', ['get', 'dash'], 1], paint:{'line-color': rc, 'line-width':3, 'line-dasharray':[1.8, 1.5]}});
+          }
+        }catch(e){}
+        fs3dPins(t).forEach(pn=>{
+          const m = fsmAddMarker(map, pn.lat, pn.lon, `<div class="fs3d-pin fs3d-pin-${pn.kind}"><i></i><span>${esc(pn.name)}</span></div>`, {anchor:'left'});
+          const el = m.getElement(); el.style.cursor = 'pointer';
+          el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmPopup(map, {lng: pn.lon, lat: pn.lat}, fs3dPinNode(pn), 14); });
+        });
         map._fsm.orteIds = (t && Array.isArray(t.orte)) ? t.orte : [];
         try{ fsmOrteDraw(map); }catch(e){}
       }
@@ -4553,7 +4578,9 @@ function fs3dCesiumOpen(opts){
       const near = new Cesium.DistanceDisplayCondition(0, 40000);
       const lbl = (text, dy)=> ({text, font:'600 13px sans-serif', fillColor:Cesium.Color.WHITE, outlineColor:Cesium.Color.BLACK, outlineWidth:3, style:Cesium.LabelStyle.FILL_AND_OUTLINE,
         pixelOffset:new Cesium.Cartesian2(0, dy), heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY, distanceDisplayCondition: near});
-      fs3dOtherRoutes(t).forEach(r=>{
+      // Nur Routen in der Nähe (bis ~25 km): jede am Boden haftende Linie kostet in Cesium viel
+      const near25 = r=> r.coords.some(c=> Math.abs(c[0] - opts.lat) < 0.23 && Math.abs(c[1] - opts.lon) < 0.33);
+      fs3dOtherRoutes(t).filter(near25).forEach(r=>{
         viewer.entities.add({polyline:{positions: Cesium.Cartesian3.fromDegreesArray(r.coords.flatMap(c=> [c[1], c[0]])), width:3, clampToGround:true,
           material: r.dash ? new Cesium.PolylineDashMaterialProperty({color: tourCol, dashLength:14}) : tourCol}});
       });
