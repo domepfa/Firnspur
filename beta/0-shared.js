@@ -1298,6 +1298,13 @@ function esc(s){
 function fsTourSummitPoint(t){
   const g = (t.points || []).find(p=> p && p.category === 'gipfel' && isFinite(p.lat) && isFinite(p.lon));
   if(g) return {lat: +g.lat, lon: +g.lon};
+  // Verknüpfter Gipfel (Hochtour): dessen Lage; bei mehreren (Überschreitung) der höchste
+  if(Array.isArray(t.summitIds) && t.summitIds.length && typeof state !== 'undefined' && Array.isArray(state.gipfel)){
+    const gs = t.summitIds.map(id=> state.gipfel.find(x=> x && x.id === id)).filter(Boolean)
+      .map(x=>{ const pt = (x.points || []).find(q=> q && isFinite(q.lat) && isFinite(q.lon)) || (isFinite(x.lat) && isFinite(x.lon) && x.lat !== '' ? x : null); return pt ? {lat:+pt.lat, lon:+pt.lon, alt: parseFloat(x.altitude) || 0} : null; })
+      .filter(Boolean);
+    if(gs.length) return gs.reduce((a, b2)=> b2.alt > a.alt ? b2 : a);
+  }
   const line = (t.trackSimplified && t.trackSimplified.length > 1) ? t.trackSimplified : ((t.manualTrack && t.manualTrack.length > 1) ? t.manualTrack : null);
   if(!line) return null;
   const ll = line.map(q=> Array.isArray(q) ? {lat:+q[0], lon:+q[1], ele: q[2] != null ? +q[2] : NaN} : {lat:+q.lat, lon:+(q.lon != null ? q.lon : q.lng), ele: q.ele != null ? +q.ele : NaN}).filter(q=> isFinite(q.lat) && isFinite(q.lon));
