@@ -107,9 +107,14 @@ const FS_VERSIONED = ['tours', 'huts', 'gebiete', 'agenda', 'orte', 'fixseil/tou
 const fsPendingFiles = new Map(); // Pfad → Wert
 function fsQueueFile(path, value){ fsPendingFiles.set(path, value); }
 function fsDropPendingFiles(){ fsPendingFiles.clear(); }
-async function fsFlushPendingFiles(entryId){
-  // Nur die Dateien des eben gespeicherten Eintrags (nicht die eines anderen, noch offenen Formulars)
-  const list = Array.from(fsPendingFiles.entries()).filter(([p])=> !entryId || p.split('/').pop() === entryId || p.split('/').slice(-2, -1)[0] === entryId);
+async function fsFlushPendingFiles(entryId, entry){
+  // Nur die Dateien des eben gespeicherten Eintrags (nicht die eines anderen, noch offenen Formulars).
+  // Routen-Dateien tragen die Routen-ID: gehört, wenn die Route im gespeicherten Eintrag steht.
+  let txt = ''; try{ txt = entry ? JSON.stringify(entry) : ''; }catch(e){}
+  const list = Array.from(fsPendingFiles.entries()).filter(([p])=>{
+    const id = p.split('/').pop();
+    return !entryId || id === entryId || p.split('/').slice(-2, -1)[0] === entryId || (id && txt.indexOf('"' + id + '"') >= 0);
+  });
   list.forEach(([p])=> fsPendingFiles.delete(p));
   const res = await Promise.all(list.map(([p, v])=> fbSet(p, v).catch(()=> false)));
   if(res.some(x=> !x)){ list.forEach(([p, v], i)=>{ if(!res[i]) fsPendingFiles.set(p, v); }); if(typeof showToast === 'function') showToast('Eine GPX-Originaldatei konnte nicht gespeichert werden (Internet?).', true); }
@@ -465,16 +470,18 @@ function fsApplyOwnerFromForm(t, form){
 }
 // Liest den aktuellen Stand mit Versionskennung; fällt ohne Kennung zurück, falls der Browser sie nicht darf
 async function fsGetWithEtag(path){
+  let etagFailed = false;
   if(!fsEtagOff){
     try{
       const r = await fsRawFetch(path, {headers:{'X-Firebase-ETag':'true'}});
       if(r.ok){ const etag = r.headers.get('ETag'); if(!etag) fsEtagOff = true; return {ok:true, cur: await r.json(), etag}; }
       return {ok:false, status:r.status};
-    }catch(e){ fsEtagOff = true; } // evtl. CORS: ohne Kennung nochmals versuchen
+    }catch(e){ etagFailed = true; } // evtl. CORS: ohne Kennung nochmals versuchen
   }
   try{
     const r = await fsRawFetch(path);
-    if(r.ok) return {ok:true, cur: await r.json(), etag:null};
+    // Erst wenn das Lesen ohne Kennung klappt, lag es an der Kennung (nicht am fehlenden Netz)
+    if(r.ok){ if(etagFailed) fsEtagOff = true; return {ok:true, cur: await r.json(), etag:null}; }
     return {ok:false, status:r.status};
   }catch(e){ return {ok:false, offline:true}; }
 }
@@ -504,12 +511,13 @@ async function fsSafeSet(path, value, v){
   for(let attempt = 0; attempt < 4; attempt++){
     const g = await fsGetWithEtag(path);
     if(!g.ok){
-      if(g.offline) fsBasePin(path);
-      // Ohne Lesen kein sicheres Zusammenführen — trotzdem versuchen, wenn nur das Lesen scheiterte
-      if(!g.offline && g.status !== 404){ dlog('Lesen vor dem Speichern fehlgeschlagen (' + g.status + '): ' + path, 'err'); return false; }
+      // Ohne Lesen kein sicheres Zusammenführen: nicht blind überschreiben, bleibt «noch nicht hochgeladen»
+      if(g.offline){ fsBasePin(path); dlog('Offline – später hochladen: ' + path); return false; }
+      if(g.status !== 404){ dlog('Lesen vor dem Speichern fehlgeschlagen (' + g.status + '): ' + path, 'err'); return false; }
     }
     const cur = g.ok ? g.cur : null;
     let result = JSON.parse(JSON.stringify(value));
+    const sent = JSON.parse(JSON.stringify(value)); // Stand beim Absenden: was danach lokal dazukommt, bleibt
     if(cur && typeof cur === 'object'){
       const base = fsBaseGet(path);
       if(base !== undefined){
@@ -572,8 +580,13 @@ async function fsSafeSet(path, value, v){
     if(res.status === 412){ dlog('Inzwischen geändert, führe erneut zusammen: ' + path); continue; }
     if(!res.ok){ dlog('Firebase PUT fehlgeschlagen (' + res.status + '): ' + path, 'err'); fsBasePin(path); return false; }
     // Die gespeicherte Fassung wird zur lokalen (inkl. der Änderungen anderer)
-    Object.keys(value).forEach(k=>{ if(!(k in result)) delete value[k]; });
-    Object.assign(value, result);
+    // Was während des Speicherns lokal weiter geändert wurde (zweite Eingabe, nächster Vorschlag …), bleibt:
+    // pro Feld drei Fassungen – beim Absenden, jetzt lokal, gespeichert
+    new Set([...Object.keys(value), ...Object.keys(result), ...Object.keys(sent)]).forEach(k=>{
+      if(k[0] === '_') return;
+      const nv = (k === 'updatedAt' || k === 'updatedBy') ? result[k] : fsMergeField(sent[k], value[k], result[k], k, []);
+      if(nv === undefined) delete value[k]; else value[k] = nv;
+    });
     fsBaseRemember(path, result); fsBaseUnpin(path);
     fsBaseStamp.set(path, result.updatedAt);
     dlog('Sicher gespeichert ' + (g.ok && g.etag && !fsEtagOff ? 'mit' : 'ohne') + ' Versionskennung: ' + path);
@@ -614,7 +627,7 @@ async function fbSetInner(path, value){
     // Einträge (Touren, Hütten, Termine …): sicher zusammenführen
     if(v && !FS_FILE_COLLS.includes(v.coll)){
       const ok = await fsSafeSet(path, value, v);
-      if(ok && fsPendingFiles.size) fsFlushPendingFiles(v.id);
+      if(ok && fsPendingFiles.size) fsFlushPendingFiles(v.id, value);
       return ok;
     }
     // Dateien (GPX-Originale): alte Fassung sichern, dann ersetzen
@@ -720,6 +733,18 @@ function uid(prefix){ return prefix + '_' + Date.now().toString(36) + '_' + Math
 // ersetzen. Ist die lokale Änderung neuer, gewinnt sie (die Datenbank-Fassung fliegt aus list und wird
 // beim erneuten Speichern unter versions/ gesichert). Ist die Datenbank neuer, wurde der Eintrag auch
 // anderswo geändert: lokal behalten, aber fbSet fragt beim Speichern nach (Basisstempel leer).
+// Noch nicht hochgeladene Einträge (Gerät und Gerätekopie) über die geladene Fassung legen – auch offline
+// in den Papierkorb gelegte oder daraus zurückgeholte: sie landen in der Liste, die ihr deletedAt sagt
+function fsUnsyncedSplit(coll, active, trashed, prevActive, prevTrashed, cached, ck){
+  const tk = 'trashed' + ck[0].toUpperCase() + ck.slice(1);
+  const local = dedupeById([].concat(prevActive || [], prevTrashed || [], (cached && cached[ck]) || [], (cached && cached[tk]) || []).filter(x=> x && x._unsynced));
+  local.forEach(x=>{
+    const i = trashed.findIndex(y=> y.id === x.id);
+    if(i >= 0){ trashed.splice(i, 1); fsKeepUnsynced(x, [{id: x.id}], coll); } // Ausgangsstand wie bei aktiven
+    else fsKeepUnsynced(x, active, coll);
+  });
+  return {local, active: local.filter(x=> !x.deletedAt).concat(active), trashed: local.filter(x=> x.deletedAt).concat(trashed)};
+}
 function fsKeepUnsynced(x, list, coll){
   const i = list.findIndex(y=> y.id === x.id);
   if(i < 0) return true;
@@ -14604,7 +14629,8 @@ const FS_ORT_NEAR_KM = 5;
 function fsOrtKind(k){ return FS_ORT_KINDS.find(x=> x.key === (k || '')) || FS_ORT_KINDS[FS_ORT_KINDS.length - 1]; }
 function fsToday(){ const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 function fsOrteCacheKey(){ return (location.pathname.indexOf('/beta/') >= 0 ? 'firnspurbeta' : 'firnspur') + '-orte'; }
-function fsOrteAll(){ return (typeof state !== 'undefined' && state.orte) || []; }
+function fsOrteRaw(){ return (typeof state !== 'undefined' && state.orte) || []; } // inkl. offline gelöschter, noch nicht hochgeladener
+function fsOrteAll(){ return fsOrteRaw().filter(o=> o && !o.deletedAt); }
 function fsOrtById(id){ return fsOrteAll().find(o=> o.id === id) || null; }
 // Gerätespeicher voll (oder gesperrt): einmal pro Sitzung sagen, dass Offline-Kopie fehlt
 let fsStorageWarned = false;
@@ -14617,7 +14643,7 @@ function fsWarnStorageFull(e){
 // Der Speicher wird von allen drei Apps geteilt: noch nicht hochgeladene Orte einer anderen App behalten
 function fsOrteCacheWrite(){
   try{
-    const mine = fsOrteAll(), ids = new Set(mine.map(o=> o && o.id));
+    const mine = fsOrteRaw(), ids = new Set(mine.map(o=> o && o.id));
     const others = fsOrteCacheRead().filter(o=> o && o._unsynced && !ids.has(o.id));
     localStorage.setItem(fsOrteCacheKey(), JSON.stringify(others.concat(mine)));
   }catch(e){ if(typeof dlog === 'function') dlog('Orte nicht im Gerät gesichert: ' + (e && e.message), 'err'); if(typeof fsWarnStorageFull === 'function') fsWarnStorageFull(e); }
@@ -14637,8 +14663,9 @@ async function fsOrteLoad(){
   unsynced.forEach(o=> fsOrtPush(o));
 }
 async function fsOrtPush(o){
-  const clean = Object.assign({}, o); delete clean._unsynced;
-  const ok = await fbSet(FS_ORTE_PATH + '/' + o.id, clean).catch(()=> false);
+  // Direkt das Objekt speichern (lokale _-Felder gehen nicht mit): so kommt die zusammengeführte Fassung
+  // samt Änderungen anderer zurück und gilt beim nächsten Speichern als Ausgangsstand
+  const ok = await fbSet(FS_ORTE_PATH + '/' + o.id, o).catch(()=> false);
   o._unsynced = !ok;
   fsOrteCacheWrite();
   return ok;
@@ -14647,7 +14674,7 @@ async function fsOrtSave(o){
   if(!o || !String(o.name || '').trim()) return false;
   o.updatedAt = new Date().toISOString();
   o.updatedBy = state.myName || '';
-  const list = fsOrteAll();
+  const list = fsOrteRaw().slice();
   const i = list.findIndex(x=> x.id === o.id);
   if(i >= 0) list[i] = o; else list.unshift(o);
   state.orte = list;
@@ -14664,7 +14691,8 @@ async function fsOrtDelete(o){
   o.deletedAt = new Date().toISOString();
   o.updatedBy = state.myName || '';
   const ok = await fsOrtPush(o);
-  state.orte = fsOrteAll().filter(x=> x.id !== o.id);
+  // Offline: als gelöscht und «noch nicht hochgeladen» behalten (ausgeblendet), sonst käme er beim Laden zurück
+  if(ok) state.orte = fsOrteRaw().filter(x=> x.id !== o.id);
   fsOrteCacheWrite();
   if(typeof render === 'function') render();
   fsmOrteRefresh();
@@ -15467,7 +15495,7 @@ async function fsRetryUnsynced(){
     [...state[coll], ...(state['trashed' + fsRescueCap(coll)] || [])].filter(x=> x && x._unsynced).forEach(x=> jobs.push(fn(x).catch(()=> false)));
   });
   if(typeof saveAgendaCloud === 'function') (state.agenda || []).filter(x=> x && x._unsynced).forEach(x=> jobs.push(saveAgendaCloud(x).catch(()=> false)));
-  fsOrteAll().filter(o=> o._unsynced).forEach(o=> jobs.push(fsOrtPush(o)));
+  fsOrteRaw().filter(o=> o._unsynced).forEach(o=> jobs.push(fsOrtPush(o)));
   const res = await Promise.all(jobs);
   const ok = res.filter(Boolean).length;
   if(typeof render === 'function') render();
@@ -15539,7 +15567,9 @@ function fsDraftIsStale(d){
   if(!d || !d.at || Date.now() - new Date(d.at).getTime() > 14 * 864e5) return true;
   if(typeof state === 'undefined') return false;
   const lists = [state.tours, state.huts, state.gebiete, state.sektoren, state.klettergebiete, state.gipfel, state.agenda].filter(Array.isArray);
-  for(const l of lists){ const x = l.find(y=> y && y.id === d.id); if(x) return !!(x.updatedAt && x.updatedAt >= d.at); }
+  // Erledigt nur, wenn ICH danach gespeichert habe – speichert jemand anderes, bleibt mein Entwurf
+  const me = state.myName || '';
+  for(const l of lists){ const x = l.find(y=> y && y.id === d.id); if(x) return !!(x.updatedAt && x.updatedAt >= d.at && (!x.updatedBy || x.updatedBy === me)); }
   return false;
 }
 // Fenster mit ungespeicherten Angaben wurde ohne Speichern verlassen (z. B. Notfallknopf, Wischen):

@@ -1007,41 +1007,26 @@ async function loadAll(){
   // Lokale, noch nicht synchronisierte Einträge nicht verlieren — sowohl aus dem
   // aktuellen Speicher als auch aus dem lokalen Cache (wichtig nach einem
   // Seiten-Neuladen, da der Speicher dann leer ist, der Cache aber nicht).
-  const unsyncedTours = dedupeById([
-    ...state.tours.filter(x=>x._unsynced),
-    ...((cached && cached.tours) ? cached.tours.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, tours, TOURS_PATH));
-  const unsyncedHuts = dedupeById([
-    ...state.huts.filter(x=>x._unsynced),
-    ...((cached && cached.huts) ? cached.huts.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, huts, HUTS_PATH));
-  const unsyncedSektoren = dedupeById([
-    ...state.sektoren.filter(x=>x._unsynced),
-    ...((cached && cached.sektoren) ? cached.sektoren.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, sektoren, SEKTOREN_PATH));
-  const unsyncedKlettergebiete = dedupeById([
-    ...state.klettergebiete.filter(x=>x._unsynced),
-    ...((cached && cached.klettergebiete) ? cached.klettergebiete.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, klettergebiete, KLETTERGEBIETE_PATH));
-  const unsyncedGipfel = dedupeById([
-    ...state.gipfel.filter(x=>x._unsynced),
-    ...((cached && cached.gipfel) ? cached.gipfel.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, gipfel, GIPFEL_PATH));
+  const sTours = fsUnsyncedSplit(TOURS_PATH, tours, trashedTours, state.tours, state.trashedTours, cached, 'tours');
+  const sHuts = fsUnsyncedSplit(HUTS_PATH, huts, trashedHuts, state.huts, state.trashedHuts, cached, 'huts');
+  const sSektoren = fsUnsyncedSplit(SEKTOREN_PATH, sektoren, trashedSektoren, state.sektoren, state.trashedSektoren, cached, 'sektoren');
+  const sKlettergebiete = fsUnsyncedSplit(KLETTERGEBIETE_PATH, klettergebiete, trashedKlettergebiete, state.klettergebiete, state.trashedKlettergebiete, cached, 'klettergebiete');
+  const sGipfel = fsUnsyncedSplit(GIPFEL_PATH, gipfel, trashedGipfel, state.gipfel, state.trashedGipfel, cached, 'gipfel');
   const unsyncedAgenda = dedupeById([
     ...state.agenda.filter(x=>x._unsynced),
     ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
   ]).filter(x=> fsKeepUnsynced(x, agenda, AGENDA_PATH));
 
-  state.tours = [...unsyncedTours, ...tours];
-  state.huts = [...unsyncedHuts, ...huts];
-  state.sektoren = [...unsyncedSektoren, ...sektoren];
-  state.klettergebiete = [...unsyncedKlettergebiete, ...klettergebiete];
-  state.gipfel = [...unsyncedGipfel, ...gipfel];
-  state.trashedTours = trashedTours;
-  state.trashedHuts = trashedHuts;
-  state.trashedSektoren = trashedSektoren;
-  state.trashedKlettergebiete = trashedKlettergebiete;
-  state.trashedGipfel = trashedGipfel;
+  state.tours = sTours.active;
+  state.huts = sHuts.active;
+  state.sektoren = sSektoren.active;
+  state.klettergebiete = sKlettergebiete.active;
+  state.gipfel = sGipfel.active;
+  state.trashedTours = sTours.trashed;
+  state.trashedHuts = sHuts.trashed;
+  state.trashedSektoren = sSektoren.trashed;
+  state.trashedKlettergebiete = sKlettergebiete.trashed;
+  state.trashedGipfel = sGipfel.trashed;
   state.agenda = [...unsyncedAgenda, ...agenda];
   // Fehlende Einträge aus dem Gerätespeicher retten, bevor dieser überschrieben wird
   fsRescueCollect('fixseil', ['fixseil-cache', 'fixseil' + 'beta-cache']);
@@ -1065,26 +1050,31 @@ async function loadAll(){
 
   // Wiedergefundene, noch nicht synchronisierte Einträge jetzt automatisch
   // erneut versuchen hochzuladen, da offenbar wieder eine Verbindung besteht.
+  const unsyncedTours = sTours.local;
   unsyncedTours.forEach(async t=>{
     const ok = await saveTourCloud(t).catch(()=>false);
     t._unsynced = !ok;
     if(ok) render();
   });
+  const unsyncedHuts = sHuts.local;
   unsyncedHuts.forEach(async h=>{
     const ok = await saveHutCloud(h).catch(()=>false);
     h._unsynced = !ok;
     if(ok) render();
   });
+  const unsyncedSektoren = sSektoren.local;
   unsyncedSektoren.forEach(async s=>{
     const ok = await saveSektorCloud(s).catch(()=>false);
     s._unsynced = !ok;
     if(ok) render();
   });
+  const unsyncedKlettergebiete = sKlettergebiete.local;
   unsyncedKlettergebiete.forEach(async g=>{
     const ok = await saveKlettergebietCloud(g).catch(()=>false);
     g._unsynced = !ok;
     if(ok) render();
   });
+  const unsyncedGipfel = sGipfel.local;
   unsyncedGipfel.forEach(async g=>{
     const ok = await saveGipfelCloud(g).catch(()=>false);
     g._unsynced = !ok;
