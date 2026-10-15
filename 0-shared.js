@@ -1666,7 +1666,9 @@ function fsHomeFilter(){
   if(!sheet || !fsHomePts) return;
   const act = fsHomePts.openAct;
   let vis = null;
-  if(!fsHomeAll && fsHomeMap){
+  // Beim Suchen über alle Einträge, nicht nur den Kartenausschnitt
+  const searching = typeof state !== 'undefined' && typeof state.search === 'string' && !!state.search.trim();
+  if(!fsHomeAll && fsHomeMap && !searching){
     const b = fsHomeMap.getBounds();
     vis = new Set(fsHomePts.points.filter(p=> b.contains([p.lon, p.lat])).map(p=> p.id));
   }
@@ -4017,6 +4019,51 @@ function fs3dClose(){
   const el = document.getElementById('fs-3d');
   if(el) el.remove();
 }
+/* ===== 3D zeigt dasselbe wie die 2D-Karte =====
+   Alle Touren und Hütten der App als Stecknadeln (antippen: Name, «Öffnen»), dazu die offene Tour mit
+   Linien, Punkten (Symbol und Name) und ihren Orten. Gilt für Spar (MapLibre) und Hoch (Cesium). */
+function fs3dPointOf(x){
+  if(!x) return null;
+  if(isFinite(x.lat) && isFinite(x.lon) && x.lat !== '' && x.lon !== '') return {lat: +x.lat, lon: +x.lon};
+  const p = (x.points || []).find(q=> q && isFinite(q.lat) && isFinite(q.lon));
+  return p ? {lat: +p.lat, lon: +p.lon} : null;
+}
+function fs3dPins(t){
+  const out = [];
+  (typeof state !== 'undefined' && state.tours || []).forEach(x=>{
+    if(!x || !x.id || (t && x.id === t.id)) return;
+    const p = fsTourSummitPoint(x) || fs3dPointOf(x);
+    if(p) out.push({kind:'tour', id:x.id, name: x.name || '', sub: x.routeName || '', lat:p.lat, lon:p.lon});
+  });
+  (typeof state !== 'undefined' && state.huts || []).forEach(h=>{
+    if(!h || !h.id || (t && h.id === t.id)) return;
+    const p = fs3dPointOf(h);
+    if(p) out.push({kind:'hut', id:h.id, name: h.name || '', sub:'Hütte', lat:p.lat, lon:p.lon});
+  });
+  return out;
+}
+function fs3dOrteOf(t){
+  const ids = (t && Array.isArray(t.orte)) ? t.orte : [];
+  return fsOrteAll().filter(o=> ids.indexOf(o.id) >= 0 && isFinite(o.lat) && isFinite(o.lon));
+}
+// Tour/Hütte aus der 3D-Ansicht öffnen: 3D schliessen, dann die Ansicht des Eintrags
+function fs3dOpenEntity(kind, id){
+  closeTopOverlayLayer();
+  setTimeout(()=>{
+    if(kind === 'hut'){ if(typeof openHutDetail === 'function') openHutDetail(id); }
+    else if(kind === 'ort'){ fsOpenOrt(id); }
+    else if(typeof openTourDetail === 'function') openTourDetail(id);
+  }, 60);
+}
+function fs3dPinNode(pn){
+  const node = document.createElement('div');
+  node.className = 'fs3d-pin-info';
+  node.innerHTML = `<b></b><span></span><button type="button" class="btn">Öffnen</button>`;
+  node.querySelector('b').textContent = pn.name || 'ohne Namen';
+  node.querySelector('span').textContent = pn.sub || '';
+  node.querySelector('button').addEventListener('click', (e)=>{ e.stopPropagation(); fs3dOpenEntity(pn.kind, pn.id); });
+  return node;
+}
 // Linien aller Tour-Ebenen, wie auf der Tourenkarte (Farben siehe FS_CTX_COLORS)
 function fs3dTourLines(t){
   const out = [];
@@ -4134,6 +4181,12 @@ function fs3dMlOpen(opts){
       lines.forEach(ln=>{ if(ln.coords && ln.coords.length > 1){ fsmAddLine(map, ln.coords, {color: ln.color, dash: ln.dash, width: 5}); ln.coords.forEach(c=> all.push(c)); } });
       const pts = opts.edit ? [] : (opts.points || (t && t.points) || []);
       pts.forEach(p=>{ fsmAddMarker(map, p.lat, p.lon, fsmCategoryMarkerHtml(p.category), {popup: p.label ? esc(p.label) : '', anchor:'bottom'}); all.push([p.lat, p.lon]); });
+      // Wie in 2D: alle Touren und Hütten, die Orte der Tour (Ebene «Orte» zeigt alle)
+      if(!opts.edit){
+        fs3dPins(t).forEach(pn=> fsmAddMarker(map, pn.lat, pn.lon, `<div class="fs3d-pin fs3d-pin-${pn.kind}"><i></i><span>${esc(pn.name)}</span></div>`, {anchor:'left', popup: fs3dPinNode(pn)}));
+        map._fsm.orteIds = (t && Array.isArray(t.orte)) ? t.orte : [];
+        try{ fsmOrteDraw(map); }catch(e){}
+      }
       // Blick: schräg auf alles Eigene, Richtung von der 2D-Karte übernommen, sonst Route Richtung Ziel
       let bearing = opts.heading || 0;
       if(!(Math.abs(bearing) > 0.5) && lines.length && lines[0].coords.length > 1){
@@ -4467,10 +4520,30 @@ function fs3dCesiumOpen(opts){
       positions.forEach(p=> allPts.push(p));
     }
     (opts.edit ? [] : (opts.points || (t && t.points) || [])).forEach(p=>{
-      viewer.entities.add({position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat), point:{pixelSize:12, color:Cesium.Color.fromCssColorString('#4A3524'), outlineColor:Cesium.Color.WHITE, outlineWidth:2, heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY},
+      const pc = (MAP_POINT_CATEGORIES[p.category] || MAP_POINT_CATEGORIES['']).color || '#4A3524';
+      viewer.entities.add({position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat), point:{pixelSize:13, color:Cesium.Color.fromCssColorString(pc), outlineColor:Cesium.Color.WHITE, outlineWidth:2, heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY},
         label: p.label ? {text:p.label, font:'600 13px sans-serif', fillColor:Cesium.Color.WHITE, outlineColor:Cesium.Color.BLACK, outlineWidth:3, style:Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset:new Cesium.Cartesian2(0,-18), heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY} : undefined});
       allPts.push(Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 3000));
     });
+    // Wie in 2D: alle Touren und Hütten als Stecknadeln, die Orte der Tour; antippen zeigt Name und «Öffnen»
+    if(!opts.edit){
+      const cssVar = (n, d)=>{ try{ return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || d; }catch(e){ return d; } };
+      const tourCol = Cesium.Color.fromCssColorString(cssVar('--ice-deep', '#1F5F8B'));
+      const near = new Cesium.DistanceDisplayCondition(0, 40000);
+      const lbl = (text, dy)=> ({text, font:'600 13px sans-serif', fillColor:Cesium.Color.WHITE, outlineColor:Cesium.Color.BLACK, outlineWidth:3, style:Cesium.LabelStyle.FILL_AND_OUTLINE,
+        pixelOffset:new Cesium.Cartesian2(0, dy), heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY, distanceDisplayCondition: near});
+      fs3dPins(t).forEach(pn=>{
+        const e = viewer.entities.add({position: Cesium.Cartesian3.fromDegrees(pn.lon, pn.lat), point:{pixelSize:12, color: pn.kind === 'hut' ? Cesium.Color.WHITE : tourCol, outlineColor: pn.kind === 'hut' ? tourCol : Cesium.Color.WHITE, outlineWidth: pn.kind === 'hut' ? 3 : 2,
+          heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY}, label: pn.name ? lbl(pn.name, -18) : undefined});
+        e._fsPin = pn;
+      });
+      fs3dOrteOf(t).forEach(o=>{
+        const e = viewer.entities.add({position: Cesium.Cartesian3.fromDegrees(+o.lon, +o.lat), point:{pixelSize:9, color: Cesium.Color.WHITE, outlineColor: tourCol, outlineWidth:2,
+          heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY}, label: lbl(o.name || fsOrtKind(o.kind).label, -16)});
+        e._fsPin = {kind:'ort', id:o.id, name:o.name || '', sub: fsOrtKind(o.kind).label};
+      });
+      rerender();
+    }
     // Blick: auf die ganze Tour, schräg von unten Richtung Ziel; sonst auf den Punkt
     const pitch = Cesium.Math.toRadians(-32);
     if(allPts.length > 1){
@@ -4999,6 +5072,13 @@ function fs3dCesiumOpen(opts){
       node.className = 'fs-pano-info';
       node.innerHTML = `<b>${esc(best.name)}</b><span>${best.kind === 'p' ? 'Pass · ' : best.kind === 'h' ? 'Hütte · ' : ''}${best.ele ? Math.round(best.ele) + ' m ü. M.' : ''}</span>`;
       setTimeout(()=> showPanel(node), 0);
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    // Stecknadel einer Tour/Hütte bzw. Ort antippen: Name und «Öffnen» (nach dem Gipfelschild, damit es gilt)
+    new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas).setInputAction((ev)=>{
+      if(pano || opts.edit) return;
+      let hit = null;
+      try{ const pk = viewer.scene.pick(ev.position); hit = pk && pk.id && pk.id._fsPin; }catch(e){}
+      if(hit) setTimeout(()=> showPanel(fs3dPinNode(hit)), 10);
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
     // Einmaliger Hinweis zur Bedienung
     let seen = false; try{ seen = localStorage.getItem('fs-3d-hint') === '1'; }catch(e){}
