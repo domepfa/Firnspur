@@ -15378,9 +15378,22 @@ async function fsCheckRestore(items){
     obj.updatedAt = new Date().toISOString();
     obj.updatedBy = (state && state.myName) || '';
     const res = await fbSet(path, obj).catch(()=> false);
-    if(res) ok += list.length; else fail += list.length;
+    if(res){ ok += list.length; fsCheckSyncState(path, obj); } else fail += list.length;
   }
   return {ok, fail};
+}
+// Zurückgeholtes sofort auch in die geladene Fassung übernehmen – sonst würde das nächste Speichern aus
+// dem alten Stand (z. B. weil ein Formular offen ist und nicht neu geladen wird) es wieder entfernen
+function fsCheckSyncState(path, obj){
+  const id = String(path).split('/').pop();
+  const lists = [state.tours, state.huts, state.gebiete, state.sektoren, state.klettergebiete, state.gipfel, state.agenda, state.orte,
+    state.trashedTours, state.trashedHuts, state.trashedGebiete, state.trashedSektoren, state.trashedKlettergebiete, state.trashedGipfel].filter(Array.isArray);
+  lists.forEach(l=> l.forEach(x=>{
+    if(!x || x.id !== id) return;
+    Object.keys(x).forEach(k=>{ if(k[0] !== '_' && !(k in obj)) delete x[k]; });
+    Object.keys(obj).forEach(k=>{ if(k[0] !== '_') x[k] = JSON.parse(JSON.stringify(obj[k])); });
+  }));
+  if(typeof cacheLocalSnapshot === 'function') try{ cacheLocalSnapshot(); }catch(e){}
 }
 async function fsOpenDataCheck(){
   const box = document.createElement('div');
