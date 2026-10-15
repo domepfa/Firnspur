@@ -242,6 +242,27 @@ await scenario('Entwurf Karte bearbeiten', async ({ page, db, env }) => {
   const pts = (db.get(TP).points || []).map(p => p.label);
   ok('Entwurf Karte bearbeiten: neuer Punkt nach beendetem Tab zurück und gespeichert', offered && has.includes('Abseilstelle') && pts.includes('Abseilstelle'), JSON.stringify({ offered, has: has.slice(0, 80), pts }));
 });
+await scenario('Entwurf nach Speichern weg', async ({ page }) => {
+  await page.evaluate(() => { state.modal = { type: 'edit-tour', payload: null }; render(); });
+  await page.waitForTimeout(500);
+  await page.fill('#tour-form [name="name"]', 'Ganz neue Tour');
+  await page.waitForTimeout(1200);
+  await page.click('#tour-save-btn'); await page.waitForTimeout(3000);
+  const r = await page.evaluate(() => ({ offer: !!document.getElementById('fs-draft-offer'), drafts: Object.keys(localStorage).filter(k => k.startsWith('fs-draft:')), n: state.tours.filter(t => t.name === 'Ganz neue Tour').length }));
+  ok('Entwurf nach Speichern: kein Angebot, kein Entwurf, Tour einmal da', !r.offer && !r.drafts.length && r.n === 1, JSON.stringify(r));
+});
+await scenario('Alter Entwurf bleibt', async ({ page }) => {
+  const id = TP.split('/')[1];
+  // Entwurf aus einer früheren Sitzung; das Angebot beim Start wird ignoriert, das Formular ohne Änderung geöffnet und geschlossen
+  await page.evaluate(id => { const k = fsDraftPrefix() + 'edit-tour|' + id; localStorage.setItem(k, JSON.stringify({ key: 'edit-tour|' + id, type: 'edit-tour', id, payload: { id }, name: 'X', at: new Date(Date.now() - 864e5).toISOString(), fields: [{ id: '', name: 'special', v: 'Alt, nie gespeichert' }], chips: [] })); }, id);
+  await page.evaluate(id => { const t = state.tours.find(x => x.id === id); state.modal = { type: 'edit-tour', payload: t }; render(); }, id);
+  await page.waitForTimeout(1200);
+  const offered = await page.evaluate(() => !!document.getElementById('fs-draft-offer'));
+  await page.evaluate(() => { const o = document.getElementById('fs-draft-offer'); if (o) o.remove(); closeModal(); });
+  await page.waitForTimeout(2500);
+  const still = await page.evaluate(id => !!localStorage.getItem(fsDraftPrefix() + 'edit-tour|' + id), id);
+  ok('Alter Entwurf: beim Öffnen angeboten und nicht still gelöscht', offered && still, JSON.stringify({ offered, still }));
+});
 await scenario('Notbremse: Liste leer', async ({ db, env, saveVia }) => {
   env.answer = false; // «Abbrechen»: Änderungen speichern, Verlorenes behalten
   await saveVia("t.material = []; t.name = 'Neu';");

@@ -3072,7 +3072,12 @@ function applyAgendaEditPrefill(agendaForm, a){
   if(a.days && a.days.length) return;
   const tourSelect = agendaForm.querySelector('#agenda-tour-select');
   if(tourSelect){
-    const desiredVal = a.tourRef ? `${a.tourRef.source}:${a.tourRef.id}` : 'custom';
+    let desiredVal = a.tourRef ? `${a.tourRef.source}:${a.tourRef.id}` : 'custom';
+    // 'own'/'other' hängt von der App ab, in der der Termin erstellt wurde: in der anderen App per ID suchen
+    if(a.tourRef && !Array.from(tourSelect.options).some(o=> o.value === desiredVal)){
+      const alt = Array.from(tourSelect.options).find(o=> o.value.split(':')[1] === a.tourRef.id);
+      if(alt) desiredVal = alt.value;
+    }
     tourSelect.value = desiredVal;
     if(tourSelect.value !== desiredVal) tourSelect.value = 'custom'; // Referenzierte Tour existiert nicht mehr
     tourSelect.dispatchEvent(new Event('change'));
@@ -3086,15 +3091,15 @@ function applyAgendaEditPrefill(agendaForm, a){
   if(a.anreiseType){
     const anreiseChip = agendaForm.querySelector(`.anreise-chip[data-anreise="${a.anreiseType}"]`);
     if(anreiseChip) anreiseChip.click();
-    const anreiseOrtInput = agendaForm.querySelector('input[name="anreiseOrt"]');
-    if(anreiseOrtInput) anreiseOrtInput.value = a.anreiseOrt || '';
   }
+  const anreiseOrtInput = agendaForm.querySelector('input[name="anreiseOrt"]');
+  if(anreiseOrtInput && a.anreiseOrt) anreiseOrtInput.value = a.anreiseOrt;
   if(a.endOption){
     const endChip = agendaForm.querySelector(`.end-option-chip[data-end="${a.endOption}"]`);
     if(endChip) endChip.click();
-    const endNoteInput = agendaForm.querySelector('#end-note-input');
-    if(endNoteInput) endNoteInput.value = a.endNote || '';
   }
+  const endNoteInput = agendaForm.querySelector('#end-note-input');
+  if(endNoteInput && a.endNote) endNoteInput.value = a.endNote;
 }
 // Ohne editId: leeres Formular für einen neuen Termin (bisheriges Verhalten). Mit editId: dasselbe
 // Formular, aber mit den Werten des bestehenden Termins vorbelegt (Titel/Button-Beschriftung
@@ -3650,6 +3655,14 @@ async function submitAgendaForm(form){
   // unangetastet (per Spread übernommen) — nur die im Formular editierbaren Felder werden ersetzt.
   const editId = form.agendaEditId || '';
   const existing = editId ? state.agenda.find(x=>x.id===editId) : null;
+  // Verknüpfte Tour hier nicht auffindbar (andere App, Papierkorb, noch nicht geladen) und Name unverändert:
+  // Verknüpfung und Routen behalten statt still zu lösen
+  if(!isMultiDay && existing && existing.tourRef && !tourRef && (form.tourChoice || 'custom') === 'custom' && tourName === (existing.tourName || '').trim()){
+    tourRef = existing.tourRef;
+    if(!accessRouteId) accessRouteId = existing.accessRouteId || '';
+    if(!descentRouteId) descentRouteId = existing.descentRouteId || '';
+  }
+  if(isMultiDay && existing && !endNote) endNote = existing.endNote || ''; // mehrtägig: kein Feld dafür
   const editableFields = {
     type: form.type||'ski', startDate, endDate: form.endDate||'',
     tourName, tourRef, meetingPoint: form.meetingPoint||'', note: form.note||'',
@@ -10808,6 +10821,8 @@ function fsKeepFormDuringRender(){
   return true;
 }
 function fsTakeKeptModal(){
+  // Wechselt das Fenster (Notfallknopf, Link …), zuerst die letzten Eingaben des alten sichern
+  if(typeof fsDraftFlush === 'function' && modalIsDirty && typeof fsLastRenderedModal !== 'undefined' && fsLastRenderedModal && state.modal !== fsLastRenderedModal) fsDraftFlush();
   if(!fsKeepModalDuringRender() && !fsKeepFormDuringRender()) return null;
   const ov = document.querySelector('#modal-root > .overlay');
   if(ov) ov.remove();
@@ -11462,8 +11477,10 @@ function modalDirtyTrackingKey(){
   }
   if(DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return null;
   const p = state.modal.payload;
-  const entityId = p && (p.id || (p.route && p.route.id));
-  return state.modal.type + '|' + (entityId || 'new');
+  const entityId = typeof p === 'string' ? p : p && (p.id || (p.route && p.route.id));
+  // Neue Einträge: nach dem übergeordneten Eintrag unterscheiden (neue Route dieser Hütte …)
+  const parent = p && typeof p === 'object' ? (p.hutId || p.tourId || p.sektorId || p.gebId || '') : '';
+  return state.modal.type + '|' + (entityId || ('new' + (parent ? ':' + parent : '')));
 }
 // Bei jedem Render einer Bearbeiten-Maske aufgerufen: erkennt, ob eine NEUE Sitzung begonnen hat
 // (dann wird der Dirty-Status zurückgesetzt) oder ob es sich nur um ein erneutes Rendern derselben
@@ -11475,9 +11492,11 @@ function fsKeepSelectValues(){
   if(typeof state === 'undefined' || !state.modal || typeof DIRTY_TRACKED_MODAL_TYPES === 'undefined' || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return;
   if(/agenda/.test(state.modal.type)) return; // Termine: eigene Vorbelegung (applyAgendaEditPrefill)
   const p = state.modal.payload;
-  const src = p && typeof p === 'object' ? (p.route && typeof p.route === 'object' ? p.route : p) : null;
-  if(!src) return;
   const all = [].concat(state.huts || [], state.trashedHuts || [], state.gebiete || [], state.trashedGebiete || [], state.sektoren || [], state.trashedSektoren || [], state.klettergebiete || [], state.trashedKlettergebiete || []);
+  // Nur eine ID übergeben (z. B. Topo & Routen eines Sektors): den Eintrag dazu suchen
+  const byId = typeof p === 'string' ? [].concat(state.tours || [], state.gipfel || [], all).find(x=> x && x.id === p) : null;
+  const src = byId || (p && typeof p === 'object' ? (p.route && typeof p.route === 'object' ? p.route : p) : null);
+  if(!src) return;
   document.querySelectorAll('#modal-root .overlay > .modal select[name]').forEach(sel=>{
     const cur = src[sel.name];
     if(cur === undefined || cur === null || cur === '' || typeof cur === 'object') return;
@@ -11490,8 +11509,8 @@ function fsKeepSelectValues(){
     sel.value = v;
   });
   // Auswahl-Knöpfe aus festen Listen: gespeicherte Werte ohne Knopf als eigenen, gedrückten Knopf
-  const groups = {'approach-type-chips':'approachTypes', 'stay-type-chips':'stayTypes', 'rope-type-chips':'ropeType', 'rope-length-chips':'ropeLength',
-    'staffed-months-chips':'staffedMonths', 'winterraum-months-chips':'winterraumMonths'};
+  const groups = {'approach-type-chips':'approachTypes', 'stay-type-chips':'stayTypes', 'rope-type-chips':'ropeType', 'rope-length-chips':'ropeLength'};
+  // Monate: unbekannte Werte zeigt monthChipsUnknownHtml als eigenen Knopf
   Object.keys(groups).forEach(gid=>{
     const box = document.querySelector('#modal-root .overlay > .modal #' + gid);
     const cur = src[groups[gid]];
@@ -11522,6 +11541,11 @@ function syncModalDirtyTracking(){
     modalIsDirty = false;
     lastDirtyTrackedModalKey = key;
     lastPointsEditorMapView = null;
+    // Für dieses Fenster liegt ein älterer, nie gespeicherter Entwurf: gleich anbieten
+    if(key && typeof fsDraftWritten !== 'undefined' && !fsDraftWritten.has(key)){
+      const old = fsDraftRead(key);
+      if(old && !fsDraftIsStale(old)) setTimeout(()=>{ if(lastDirtyTrackedModalKey === key && !modalIsDirty) fsDraftOffer(old); }, 400);
+    }
   }
   setTimeout(paintModalDirty, 0);
 }
@@ -12335,7 +12359,14 @@ function monthChipsRowHtml(fieldClass, fullMonths, partialMonths){
       : state==='partial' ? 'background:#E8B93E; border-color:transparent; color:#3D2E12;'
       : '';
     return `<button type="button" class="chip ${fieldClass}" data-month="${m.key}" data-state="${state}" style="${style}">${m.label}</button>`;
-  }).join('');
+  }).join('') + monthChipsUnknownHtml(fieldClass, full, partial);
+}
+// Gespeicherte Werte ohne eigenen Monats-Knopf (Import, ältere Schreibweise): als eigenen Knopf zeigen, sonst gingen sie beim Speichern verloren
+function monthChipsUnknownHtml(fieldClass, full, partial){
+  const keys = new Set(MONTHS.map(m=> m.key));
+  const seen = new Set();
+  return full.map(v=> [v, 'full']).concat(partial.map(v=> [v, 'partial'])).filter(([v])=> v && !keys.has(v) && !seen.has(v) && seen.add(v)).map(([v, st])=>
+    `<button type="button" class="chip ${fieldClass}" data-month="${esc(String(v))}" data-state="${st}" style="${st === 'full' ? 'background:var(--ok); border-color:transparent; color:#fff;' : 'background:#E8B93E; border-color:transparent; color:#3D2E12;'}">${esc(String(v))}</button>`).join('');
 }
 function monthChipsReadonlyHtml(fullMonths, partialMonths, fullColorVar){
   const full = Array.isArray(fullMonths) ? fullMonths : [];
@@ -15546,31 +15577,62 @@ function fsDraftCapture(){
   const p = state.modal.payload;
   const id = (p && (p.id || (p.route && p.route.id))) || (typeof p === 'string' ? p : '');
   const name = (modal.querySelector('[name="name"]') || {}).value || (p && p.name) || ((modal.querySelector('.modal-head h2') || {}).textContent || '').trim();
-  return {key, type: state.modal.type, id, payload: (p && typeof p === 'object') ? fsStripLocal(p) : p, quick: state.quickEditOpenId || null, name, at: new Date().toISOString(), fields, chips};
+  let agendaDays = null;
+  const dayBox = /agenda/.test(state.modal.type) ? modal.querySelector('#agenda-day-plan-container') : null;
+  if(dayBox && dayBox.dataset.mode === 'multi' && typeof collectAgendaDayPlanFromDom === 'function'){ try{ agendaDays = collectAgendaDayPlanFromDom(dayBox); }catch(e){} }
+  return {key, type: state.modal.type, id, payload: (p && typeof p === 'object') ? fsStripLocal(p) : p, quick: state.quickEditOpenId || null, name, at: new Date().toISOString(), fields, chips, agendaDays};
+}
+// Entwürfe, die in dieser Sitzung geschrieben wurden. Ältere (z. B. aus einem beendeten Tab) werden
+// nie still gelöscht oder überschrieben – nur nach Angebot und Antwort.
+const fsDraftWritten = new Set();
+// Gerade offenes Fenster sichern, auch wenn state.modal schon auf ein anderes zeigt (Notfallknopf, Link)
+function fsDraftFlush(){
+  if(!modalIsDirty || typeof fsLastRenderedModal === 'undefined' || !fsLastRenderedModal || typeof state === 'undefined') return;
+  const cur = state.modal;
+  try{ state.modal = fsLastRenderedModal; fsDraftSave(); }finally{ state.modal = cur; }
 }
 let fsDraftTimer = null;
 function fsDraftSave(){
+  clearTimeout(fsDraftTimer);
   const d = fsDraftCapture();
   if(!d) return;
-  try{ localStorage.setItem(fsDraftKey(d.key), JSON.stringify(d)); }catch(e){ dlog('Entwurf nicht gespeichert: ' + (e && e.message), 'err'); }
+  try{
+    const sk = fsDraftKey(d.key);
+    // Älterer Entwurf unter demselben Schlüssel (frühere Sitzung): beiseitelegen statt überschreiben
+    if(!fsDraftWritten.has(d.key)){
+      const old = localStorage.getItem(sk);
+      if(old){ let o = null; try{ o = JSON.parse(old); }catch(e){} if(o && o.at) localStorage.setItem(sk + '#' + o.at, old); }
+      fsDraftWritten.add(d.key);
+    }
+    localStorage.setItem(sk, JSON.stringify(d));
+  }catch(e){ dlog('Entwurf nicht gespeichert: ' + (e && e.message), 'err'); }
 }
 function fsDraftSoon(){ clearTimeout(fsDraftTimer); fsDraftTimer = setTimeout(fsDraftSave, 600); }
-function fsDraftClear(k){ clearTimeout(fsDraftTimer); try{ localStorage.removeItem(fsDraftKey(k || (typeof lastDirtyTrackedModalKey !== 'undefined' ? lastDirtyTrackedModalKey : null))); }catch(e){} }
+// Löscht nur einen in dieser Sitzung geschriebenen Entwurf (force: auch einen älteren, nach Rückfrage)
+function fsDraftClear(k, force){
+  clearTimeout(fsDraftTimer);
+  const key = k || (typeof lastDirtyTrackedModalKey !== 'undefined' ? lastDirtyTrackedModalKey : null);
+  if(!key || (!force && !fsDraftWritten.has(key))) return;
+  try{ localStorage.removeItem(fsDraftKey(key)); }catch(e){}
+  fsDraftWritten.delete(key);
+}
+function fsDraftDrop(d){ try{ localStorage.removeItem(d && d._sk ? d._sk : fsDraftKey(d.key)); }catch(e){} if(d && !d._sk) fsDraftWritten.delete(d.key); }
 function fsDraftRead(k){ try{ return JSON.parse(localStorage.getItem(fsDraftKey(k)) || 'null'); }catch(e){ return null; } }
 function fsDraftAll(){
   const out = [], pre = fsDraftPrefix();
-  try{ for(let i = 0; i < localStorage.length; i++){ const k = localStorage.key(i); if(k && k.startsWith(pre)){ try{ const d = JSON.parse(localStorage.getItem(k)); if(d && d.type) out.push(d); }catch(e){} } } }catch(e){}
+  try{ for(let i = 0; i < localStorage.length; i++){ const k = localStorage.key(i); if(k && k.startsWith(pre)){ try{ const d = JSON.parse(localStorage.getItem(k)); if(d && d.type){ if(k.indexOf('#') >= 0) d._sk = k; out.push(d); } }catch(e){} } } }catch(e){}
   return out.sort((a, b)=> (b.at || '').localeCompare(a.at || ''));
 }
-// Erledigt, wenn der Eintrag nach dem Entwurf gespeichert wurde (oder der Entwurf sehr alt ist)
+// Nach dem Speichern wird der Entwurf gelöscht; was übrig bleibt, wurde nie gespeichert. Nur sehr alte fallen weg.
 function fsDraftIsStale(d){
-  if(!d || !d.at || Date.now() - new Date(d.at).getTime() > 14 * 864e5) return true;
-  if(typeof state === 'undefined') return false;
+  return !d || !d.at || Date.now() - new Date(d.at).getTime() > 30 * 864e5;
+}
+// Wurde der Eintrag nach dem Entwurf noch geändert? (für den Hinweis im Angebot)
+function fsDraftEntity(d){
+  if(typeof state === 'undefined' || !d || !d.id) return null;
   const lists = [state.tours, state.huts, state.gebiete, state.sektoren, state.klettergebiete, state.gipfel, state.agenda].filter(Array.isArray);
-  // Erledigt nur, wenn ICH danach gespeichert habe – speichert jemand anderes, bleibt mein Entwurf
-  const me = state.myName || '';
-  for(const l of lists){ const x = l.find(y=> y && y.id === d.id); if(x) return !!(x.updatedAt && x.updatedAt >= d.at && (!x.updatedBy || x.updatedBy === me)); }
-  return false;
+  for(const l of lists){ const x = l.find(y=> y && y.id === d.id); if(x) return x; }
+  return null;
 }
 // Fenster mit ungespeicherten Angaben wurde ohne Speichern verlassen (z. B. Notfallknopf, Wischen):
 // kurz warten, ob doch gespeichert wurde, sonst Wiederherstellen anbieten
@@ -15578,15 +15640,15 @@ function fsDraftCheckLeft(k){
   setTimeout(()=>{
     const d = fsDraftRead(k);
     if(!d) return;
-    if(fsDraftIsStale(d)){ fsDraftClear(k); return; }
+    if(fsDraftIsStale(d)){ fsDraftClear(k, true); return; }
     if(modalIsDirty && typeof modalDirtyTrackingKey === 'function' && modalDirtyTrackingKey()) return; // gerade wieder am Bearbeiten
     if(typeof state !== 'undefined' && state.modal && state.modal.type === 'emergency'){ fsDraftCheckLeft(k); return; } // Notfallkarte nicht überdecken
     fsDraftOffer(d);
   }, 1500);
 }
 // Beim Wegwechseln (andere App, Bildschirm aus) sofort ablegen – danach kann der Tab beendet werden
-document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'hidden') fsDraftSave(); });
-window.addEventListener('pagehide', fsDraftSave);
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'hidden') fsDraftFlush(); });
+window.addEventListener('pagehide', fsDraftFlush);
 // Werte eines Entwurfs ins (frisch geöffnete) Fenster schreiben
 function fsDraftApply(d){
   const modal = document.querySelector('#modal-root .overlay > .modal');
@@ -15619,13 +15681,27 @@ async function fsDraftRestore(d){
     markModalDirty();
     return;
   }
-  // Formular: mit dem Stand von damals öffnen (ohne interne Merker), dann die Eingaben zurückschreiben
-  const lists = [state.tours, state.huts, state.gebiete, state.sektoren, state.klettergebiete, state.gipfel, state.agenda].filter(Array.isArray);
+  // Formular: mit dem heutigen Stand des Eintrags öffnen, die Werte des Entwurfs schon eingesetzt –
+  // so zeichnen sich auch Listen (Links, Gipfel, Knöpfe) nach dem Entwurf, nicht nur die versteckten Felder
   let payload = d.payload;
-  if(d.id && payload && typeof payload === 'object'){ for(const l of lists){ const f = l.find(x=> x && x.id === d.id); if(f){ payload = f; break; } } }
+  const ent = fsDraftEntity(d);
+  if(ent && payload && typeof payload === 'object' && !payload.route){
+    payload = Object.assign({}, ent);
+    (d.fields || []).forEach(f=>{
+      const k = f.name; if(!k || f.chk || k[0] === '_' || k === 'id') return;
+      const cur = ent[k];
+      if(Array.isArray(cur) || (cur && typeof cur === 'object') || (cur === undefined && /^[\[{]/.test(f.v || ''))){ try{ const v = JSON.parse(f.v || 'null'); if(v !== null) payload[k] = v; }catch(e){} }
+      else if(cur === undefined || typeof cur === 'string' || typeof cur === 'number') payload[k] = f.v;
+    });
+  }else if(ent && payload && typeof payload === 'object') payload = Object.assign({}, payload);
+  if(/agenda/.test(d.type) && typeof agendaDayPlanDraft !== 'undefined') agendaDayPlanDraft = d.agendaDays ? JSON.parse(JSON.stringify(d.agendaDays)) : null;
   state.modal = {type: d.type, payload}; render();
   await new Promise(r=> setTimeout(r, 300));
   fsDraftApply(d);
+  // Termin über mehrere Tage: Tagesplan aus dem Entwurf aufbauen
+  const af = document.querySelector('#modal-root .overlay > .modal form');
+  const box = af && af.querySelector('#agenda-day-plan-container');
+  if(box && d.agendaDays && typeof syncAgendaDayPlanMode === 'function'){ box.dataset.mode = ''; agendaDayPlanDraft = JSON.parse(JSON.stringify(d.agendaDays)); syncAgendaDayPlanMode(af); markModalDirty(); }
 }
 function fsDraftOffer(given){
   let d = given;
@@ -15636,17 +15712,25 @@ function fsDraftOffer(given){
   }
   if(!d || !d.type) return;
   if(document.getElementById('fs-draft-offer')) return;
+  const ent = fsDraftEntity(d);
+  const changed = ent && ent.updatedAt && ent.updatedAt > d.at
+    ? ` Seither wurde der Eintrag ${ent.updatedBy && ent.updatedBy !== (state.myName || '') ? 'von ' + esc(ent.updatedBy) + ' ' : ''}geändert – beim Wiederherstellen gelten deine Angaben, bitte vor dem Speichern prüfen.` : '';
   const box = document.createElement('div');
   box.id = 'fs-draft-offer';
   box.className = 'fs-rescue';
   box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true">
     <h3>${fsIconHtml('note')} Nicht gespeicherte Angaben</h3>
-    <p>«${esc(d.name || 'Eintrag')}» wurde zuletzt am ${esc(fmtDate(d.at))} bearbeitet, aber nicht gespeichert (z. B. weil der Browser die Seite geschlossen hat).</p>
+    <p>«${esc(d.name || 'Eintrag')}» wurde zuletzt am ${esc(fmtDate(d.at))} bearbeitet, aber nicht gespeichert (z. B. weil der Browser die Seite geschlossen hat).${changed}</p>
     <div class="fs-ort-btns"><button type="button" class="btn secondary" data-drop>Verwerfen</button><button type="button" class="btn" data-restore>Wiederherstellen</button></div>
   </div>`;
   document.body.appendChild(box);
-  box.querySelector('[data-drop]').onclick = ()=>{ if(!confirm('Diese Angaben endgültig verwerfen?')) return; fsDraftClear(d.key); box.remove(); setTimeout(()=> fsDraftOffer(), 300); };
-  box.querySelector('[data-restore]').onclick = async ()=>{ box.remove(); await fsDraftRestore(d); showToast('Angaben wiederhergestellt – bitte noch speichern.'); };
+  box.querySelector('[data-drop]').onclick = ()=>{ if(!confirm('Diese Angaben endgültig verwerfen?')) return; fsDraftDrop(d); box.remove(); setTimeout(()=> fsDraftOffer(), 300); };
+  box.querySelector('[data-restore]').onclick = async ()=>{
+    box.remove();
+    // Ab jetzt gehört der Entwurf zur laufenden Sitzung (wird beim Weiterarbeiten fortgeschrieben)
+    fsDraftDrop(d); try{ localStorage.setItem(fsDraftKey(d.key), JSON.stringify(Object.assign({}, d, {_sk: undefined}))); }catch(e){} fsDraftWritten.add(d.key);
+    await fsDraftRestore(d); showToast('Angaben wiederhergestellt – bitte noch speichern.');
+  };
 }
 
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====

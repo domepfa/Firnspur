@@ -1360,6 +1360,8 @@ function openEditTour(id){
 // Typ der neu geöffneten Ansicht markiert, damit er nie versehentlich beim Schliessen einer
 // späteren, unabhängig geöffneten Ansicht desselben Typs verwendet wird (siehe closeModal()).
 function navigateToModal(newModal, restoreView){
+  // Ungespeicherte Änderungen (Formular, «Karte bearbeiten») nicht still verlassen
+  if(modalIsDirty && modalDirtyTrackingKey() && !confirmDiscardIfDirty()) return;
   if(state.modal){
     state.modalBackStack.push({ forType: newModal.type, modal: state.modal, restoreView: restoreView });
     // Jede zusätzliche Cross-Link-Ebene bekommt ihren EIGENEN Browser-History-Eintrag, statt sich
@@ -1413,6 +1415,8 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     if(fromPopstate) pushModalHistoryIfNeeded();
     return;
   }
+  // Nach dem Speichern geschlossen: Formular gilt als erledigt, sein Entwurf ist überflüssig
+  if(skipDirtyCheck && keepHistoryLayer && typeof resetModalDirty === 'function' && modalDirtyTrackingKey()) resetModalDirty();
   // Verlassen = wieder gesperrt (Karte in der Detailansicht nicht mehr im Bearbeiten-Modus).
   state.quickEditOpenId = null;
   stopLiveGpsOnMap();
@@ -1638,7 +1642,7 @@ async function submitHutForm(form, existing){
   migrateHutAccessRoutes(h);
   h.contact = form.contact;
   h.notes = form.notes;
-  h.klettergebietId = form.klettergebietId || '';
+  if(form.klettergebietId !== undefined) h.klettergebietId = form.klettergebietId || ''; // Feld fehlt, wenn die Liste leer ist: dann bleibt die Verknüpfung
   if(form.status==='entwurf' || form.status==='vollstaendig') h.status = form.status;
   h.updatedAt = new Date().toISOString();
   h.updatedBy = state.myName;
@@ -1780,7 +1784,7 @@ async function submitTourRouteForm(form){
     id: form.routeId || form.routeIdForTrack || uid('tr'),
     name: (form.name||'').trim(),
     elevation: form.elevation||'',
-    elevationUp: form.elevationUp||'',
+    elevationUp: form.elevationUp !== undefined ? (form.elevationUp||'') : undefined, // nur beim Abstieg im Formular
     duration: form.duration||'',
     difficultyT: form.difficultyT||'',
     description: form.description||'',
@@ -1788,6 +1792,7 @@ async function submitTourRouteForm(form){
     trackSimplified: track,
     manualTrack: manual
   };
+  if(routeData.elevationUp === undefined) delete routeData.elevationUp;
   const idx = t[field].findIndex(r=>r.id===routeData.id);
   // Felder, die das Formular nicht zeigt (z. B. aus Import oder älteren Fassungen), behalten
   if(idx>=0) t[field][idx] = Object.assign({}, t[field][idx], routeData); else t[field].push(routeData);
@@ -1925,7 +1930,7 @@ async function submitSektorForm(form, existing){
   s.region = form.region || '';
   s.subregion = form.subregion || '';
   s.description = form.description || '';
-  s.klettergebietId = form.klettergebietId || '';
+  if(form.klettergebietId !== undefined) s.klettergebietId = form.klettergebietId || ''; // Feld fehlt, wenn die Liste leer ist: dann bleibt die Verknüpfung
   try{ s.points = form.points ? JSON.parse(form.points) : []; }catch(e){ s.points = []; }
   try{ s.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ s.manualTrack = []; }
   // topoImages/kletterrouten: werden nicht mehr über dieses Formular bearbeitet (siehe
@@ -2108,7 +2113,7 @@ async function submitSektorTopoRoutenForm(form){
   if(!sek) return;
   try{ sek.topoImages = form.topoImages ? JSON.parse(form.topoImages) : []; }catch(e){ sek.topoImages = []; }
   try{ sek.kletterrouten = form.kletterrouten ? JSON.parse(form.kletterrouten) : []; }catch(e){ sek.kletterrouten = []; }
-  sek.hutId = form.hutId || '';
+  if(form.hutId !== undefined) sek.hutId = form.hutId || ''; // Feld fehlt, wenn keine Hütten geladen sind: dann bleibt die Verknüpfung
   sek.protection = form.protection || '';
   sek.descentType = form.descentType || '';
   sek.material = Array.isArray(form.material) ? form.material : [];
@@ -2252,7 +2257,7 @@ async function submitGipfelForm(form, existing){
   const g = (existing && existing.id) ? {...existing} : {id: uid('gip'), createdBy: state.myName, createdAt: new Date().toISOString()};
   g.name = form.name.trim();
   g.altitude = form.altitude || '';
-  g.klettergebietId = form.klettergebietId || '';
+  if(form.klettergebietId !== undefined) g.klettergebietId = form.klettergebietId || ''; // Feld fehlt, wenn die Liste leer ist: dann bleibt die Verknüpfung
   g.region = form.region || '';
   g.subregion = form.subregion || '';
   g.updatedAt = new Date().toISOString();
@@ -2888,7 +2893,7 @@ async function submitSektorRouteForm(form){
     id: form.routeId || form.routeIdForTrack || uid('sr'),
     name: (form.name||'').trim(),
     elevation: form.elevation||'',
-    elevationUp: form.elevationUp||'',
+    elevationUp: form.elevationUp !== undefined ? (form.elevationUp||'') : undefined, // nur beim Abstieg im Formular
     duration: form.duration||'',
     difficultyT: form.difficultyT||'',
     description: form.description||'',
@@ -2896,6 +2901,7 @@ async function submitSektorRouteForm(form){
     trackSimplified: track,
     manualTrack: manual
   };
+  if(routeData.elevationUp === undefined) delete routeData.elevationUp;
   const idx = sek[field].findIndex(r=>r.id===routeData.id);
   // Felder, die das Formular nicht zeigt (z. B. aus Import oder älteren Fassungen), behalten
   if(idx>=0) sek[field][idx] = Object.assign({}, sek[field][idx], routeData); else sek[field].push(routeData);
@@ -3946,7 +3952,7 @@ function tourFormHtml(existing){
           <div class="chips">
             ${DESCENT_TYPES.map(d=>`<button type="button" class="chip descent-chip-ht ${t.descentType===d?'on':''}" style="${t.descentType===d?'background:var(--ice-deep)':''}" data-value="${d}">${d}</button>`).join('')}
           </div>
-          <input type="hidden" name="descentTypeHochtour" id="descent-hidden-ht" value="${esc((t.tourCategory||'hochtour')!=='msl' ? (t.descentType||'') : '')}"/>
+          <input type="hidden" name="descentTypeHochtour" id="descent-hidden-ht" value="${esc(t.descentType||'')}"/>
         </div>
         <div class="field"><label>Exposition</label>
           <div class="chips">

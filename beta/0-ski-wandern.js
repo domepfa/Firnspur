@@ -47,6 +47,8 @@ function openAddTourWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'e
 function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); navigateToModal({type:'edit-tour', payload:t}); }); }
 
 function navigateToModal(newModal){
+  // Ungespeicherte Änderungen (Formular, «Karte bearbeiten») nicht still verlassen
+  if(modalIsDirty && modalDirtyTrackingKey() && !confirmDiscardIfDirty()) return;
   if(state.modal){
     state.modalBackStack.push({ forType: newModal.type, modal: state.modal });
     // Jede zusätzliche Cross-Link-Ebene bekommt ihren EIGENEN Browser-History-Eintrag, statt sich
@@ -81,6 +83,8 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     if(fromPopstate) pushModalHistoryIfNeeded();
     return;
   }
+  // Nach dem Speichern geschlossen: Formular gilt als erledigt, sein Entwurf ist überflüssig
+  if(skipDirtyCheck && keepHistoryLayer && typeof resetModalDirty === 'function' && modalDirtyTrackingKey()) resetModalDirty();
   // Verlassen = wieder gesperrt (Karte in der Detailansicht nicht mehr im Bearbeiten-Modus).
   state.quickEditOpenId = null;
   stopLiveGpsOnMap();

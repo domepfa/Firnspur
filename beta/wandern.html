@@ -1303,7 +1303,7 @@ function tourFormHtml(existing){
       </div>
       <div class="field"><label>Beste Monate</label>
         <div class="chips">
-          ${MONTHS.map(m=>`<button type="button" class="chip month-chip ${selectedMonths.includes(m.key)?'on':''}" style="${selectedMonths.includes(m.key)?'background:var(--ice-deep)':''}" data-value="${m.key}">${m.label}</button>`).join('')}
+          ${MONTHS.map(m=>`<button type="button" class="chip month-chip ${selectedMonths.includes(m.key)?'on':''}" style="${selectedMonths.includes(m.key)?'background:var(--ice-deep)':''}" data-value="${m.key}">${m.label}</button>`).join('')}${selectedMonths.filter(v=> v && !MONTHS.some(m=> m.key === v)).map(v=>`<button type="button" class="chip month-chip on" style="background:var(--ice-deep)" data-value="${esc(String(v))}">${esc(String(v))}</button>`).join('')}
         </div>
       </div>
       <div class="row2">
