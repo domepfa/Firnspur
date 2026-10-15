@@ -1978,3 +1978,36 @@ html.fs-search-open .fs-search-btn{ display:none !important; }
 .fs-fsec-b{ padding:12px 14px 4px; }
 /* Startkarte: Quellenangabe (i) liegt sonst unter der Liste – oben links ist frei */
 .fs-home-map .maplibregl-ctrl-bottom-right{ top:8px; left:8px; right:auto; bottom:auto; }
+
+/* ===== 3D: Stecknadeln aller Touren und Hütten ===== */
+.fs3d-pin{ display:flex; align-items:center; gap:4px; cursor:pointer; }
+.fs3d-pin i{ display:block; width:14px; height:14px; border-radius:50%; background:var(--ice-deep); border:2.5px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); flex-shrink:0; margin-left:-7px; }
+.fs3d-pin-hut i{ background:#fff; border-color:var(--ice-deep); border-radius:3px; }
+.fs3d-pin span{ max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:700; color:#fff;
+  text-shadow:0 0 3px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.9); }
+.fs3d-pin-info{ display:flex; flex-direction:column; gap:4px; padding-right:30px; }
+.fs3d-pin-info b{ font-family:var(--font-display); font-weight:400; font-size:22px; line-height:1.15; }
+.fs3d-pin-info span{ font-size:14px; color:var(--ink-soft); font-weight:600; }
+.fs3d-pin-info span:empty{ display:none; }
+.fs3d-pin-info .btn{ margin-top:8px; min-height:48px; align-self:stretch; }
+
+/* ===== Dunkelmodus: Flächen mit fester heller Farbe =====
+   Diese Flächen hatten eine feste helle Farbe, der Text aber die Variable (im Dunkeln hell) –
+   ergab hell auf hell. Hier auf dieselben Variablen wie der Rest. Die 3D-Bedienelemente bleiben
+   bewusst hell (eigene dunkle Schrift, über dem Luftbild gut lesbar). */
+html.fs-dark .detail-chapter, html.fs-dark .wx-days, html.fs-dark .tabs-inner, html.fs-dark .fsp-sugg,
+html.fs-dark .fsp-cands button, html.fs-dark .fsp-x, html.fs-dark .fsp-icon, html.fs-dark .fsp-mode,
+html.fs-dark .bf-tabs, html.fs-dark .bf-card, html.fs-dark .bf-list, html.fs-dark .bf-editor, html.fs-dark .bf-ed-x, html.fs-dark .bf-bar,
+html.fs-dark .btn.secondary:hover, html.fs-dark .fs-popmenu button:hover, html.fs-dark .fsp-sugg-item:hover,
+html.fs-dark .card .weather-card-row[data-act="open-meteo"]:hover{ background:var(--paper-2); color:var(--ink); }
+html.fs-dark .fsp-mode button.on, html.fs-dark .bf-tabs button.on, html.fs-dark .bf-person, html.fs-dark .bf-ed-row,
+html.fs-dark .bf-ed-row input, html.fs-dark .bf-ed-row select, html.fs-dark .bf-sos2, html.fs-dark .fs-topo-move,
+html.fs-dark .btn.danger, html.fs-dark .sort-dir-btn{ background:var(--paper); color:var(--ink); }
+html.fs-dark .btn.danger{ color:#F2A59B; }
+html.fs-dark .btn.danger:hover{ background:#3A1E1C; }
+html.fs-dark .bf-planb{ background:#3A2C12; color:#F2CF8A; }
+html.fs-dark #fullscreen-map-overlay{ background:var(--cream); }
+/* Namen und Hinweise auf der Karte: dunkles Schild statt weissem */
+html.fs-dark .fs-home-pin span, html.fs-dark .fsm-ort span, html.fs-dark .fs-stage .map-strip-hint,
+html.fs-dark #add-point-toggle{ background:rgba(20,26,31,.9); color:#EEF3F6; }
+html.fs-dark .fs-3d-search-res, html.fs-dark .fs-3d-chips.fs-3d-layerpanel, html.fs-dark .fs-3d-search-row input{ color:#0F1E27; }
