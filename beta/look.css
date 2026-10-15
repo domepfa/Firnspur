@@ -1964,3 +1964,15 @@ html.fs-search-open .fs-search-btn{ display:none !important; }
 .fs-unsynced .fs-i{ width:18px; height:18px; flex-shrink:0; }
 .fs-unsynced span{ flex:1; min-width:0; }
 .fs-unsynced button{ min-height:40px; padding:0 14px; border:none; border-radius:10px; background:#6B4400; color:#fff; font:inherit; font-size:13.5px; font-weight:800; cursor:pointer; }
+
+/* ===== Formular in aufklappbaren Abschnitten ===== */
+.fs-fsec{ border:1px solid var(--line); border-radius:var(--radius); background:var(--paper); margin:0 0 10px 0; }
+.fs-fsec > summary{ list-style:none; display:flex; align-items:center; gap:10px; min-height:52px; padding:10px 44px 10px 14px; cursor:pointer; position:relative; -webkit-tap-highlight-color:transparent; }
+.fs-fsec > summary::-webkit-details-marker{ display:none; }
+.fs-fsec > summary::after{ content:''; position:absolute; right:18px; top:50%; width:9px; height:9px; border-right:2px solid var(--ink-soft); border-bottom:2px solid var(--ink-soft); transform:translateY(-70%) rotate(45deg); transition:transform .15s; }
+.fs-fsec[open] > summary::after{ transform:translateY(-30%) rotate(225deg); }
+.fs-fsec-t{ font-family:var(--font-display); font-size:19px; color:var(--ink); flex:1 1 auto; }
+.fs-fsec-i{ font-size:13px; color:var(--ink-soft); text-align:right; flex:0 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:55%; }
+.fs-fsec[open] > summary{ border-bottom:1px solid var(--line-soft); }
+.fs-fsec[open] > summary .fs-fsec-i{ visibility:hidden; }
+.fs-fsec-b{ padding:12px 14px 4px; }
