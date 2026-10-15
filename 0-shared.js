@@ -1298,6 +1298,13 @@ function esc(s){
 function fsTourSummitPoint(t){
   const g = (t.points || []).find(p=> p && p.category === 'gipfel' && isFinite(p.lat) && isFinite(p.lon));
   if(g) return {lat: +g.lat, lon: +g.lon};
+  // Verknüpfter Gipfel (Hochtour): dessen Lage; bei mehreren (Überschreitung) der höchste
+  if(Array.isArray(t.summitIds) && t.summitIds.length && typeof state !== 'undefined' && Array.isArray(state.gipfel)){
+    const gs = t.summitIds.map(id=> state.gipfel.find(x=> x && x.id === id)).filter(Boolean)
+      .map(x=>{ const pt = (x.points || []).find(q=> q && isFinite(q.lat) && isFinite(q.lon)) || (isFinite(x.lat) && isFinite(x.lon) && x.lat !== '' ? x : null); return pt ? {lat:+pt.lat, lon:+pt.lon, alt: parseFloat(x.altitude) || 0} : null; })
+      .filter(Boolean);
+    if(gs.length) return gs.reduce((a, b2)=> b2.alt > a.alt ? b2 : a);
+  }
   const line = (t.trackSimplified && t.trackSimplified.length > 1) ? t.trackSimplified : ((t.manualTrack && t.manualTrack.length > 1) ? t.manualTrack : null);
   if(!line) return null;
   const ll = line.map(q=> Array.isArray(q) ? {lat:+q[0], lon:+q[1], ele: q[2] != null ? +q[2] : NaN} : {lat:+q.lat, lon:+(q.lon != null ? q.lon : q.lng), ele: q.ele != null ? +q.ele : NaN}).filter(q=> isFinite(q.lat) && isFinite(q.lon));
@@ -4042,6 +4049,18 @@ function fs3dPins(t){
   });
   return out;
 }
+// Routen der übrigen Touren (die offene zeichnet fs3dTourLines kräftiger)
+function fs3dOtherRoutes(t){
+  const out = [];
+  (typeof state !== 'undefined' && state.tours || []).forEach(x=>{
+    if(!x || !x.id || (t && x.id === t.id)) return;
+    fsTourRoutes(x).forEach(r=>{
+      const coords = (r.coords || []).map(c=> Array.isArray(c) ? [+c[0], +c[1]] : [+c.lat, +(c.lon != null ? c.lon : c.lng)]).filter(c=> isFinite(c[0]) && isFinite(c[1]));
+      if(coords.length > 1) out.push({coords, dash: r.src === 'alt', name: x.name || ''});
+    });
+  });
+  return out;
+}
 function fs3dOrteOf(t){
   const ids = (t && Array.isArray(t.orte)) ? t.orte : [];
   return fsOrteAll().filter(o=> ids.indexOf(o.id) >= 0 && isFinite(o.lat) && isFinite(o.lon));
@@ -4183,6 +4202,8 @@ function fs3dMlOpen(opts){
       pts.forEach(p=>{ fsmAddMarker(map, p.lat, p.lon, fsmCategoryMarkerHtml(p.category), {popup: p.label ? esc(p.label) : '', anchor:'bottom'}); all.push([p.lat, p.lon]); });
       // Wie in 2D: alle Touren und Hütten, die Orte der Tour (Ebene «Orte» zeigt alle)
       if(!opts.edit){
+        const rc = getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1F5F8B';
+        fs3dOtherRoutes(t).forEach(r=>{ try{ fsmAddLine(map, r.coords, {color: rc, dash: r.dash, width: 3}); }catch(e){} });
         fs3dPins(t).forEach(pn=> fsmAddMarker(map, pn.lat, pn.lon, `<div class="fs3d-pin fs3d-pin-${pn.kind}"><i></i><span>${esc(pn.name)}</span></div>`, {anchor:'left', popup: fs3dPinNode(pn)}));
         map._fsm.orteIds = (t && Array.isArray(t.orte)) ? t.orte : [];
         try{ fsmOrteDraw(map); }catch(e){}
@@ -4532,6 +4553,10 @@ function fs3dCesiumOpen(opts){
       const near = new Cesium.DistanceDisplayCondition(0, 40000);
       const lbl = (text, dy)=> ({text, font:'600 13px sans-serif', fillColor:Cesium.Color.WHITE, outlineColor:Cesium.Color.BLACK, outlineWidth:3, style:Cesium.LabelStyle.FILL_AND_OUTLINE,
         pixelOffset:new Cesium.Cartesian2(0, dy), heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY, distanceDisplayCondition: near});
+      fs3dOtherRoutes(t).forEach(r=>{
+        viewer.entities.add({polyline:{positions: Cesium.Cartesian3.fromDegreesArray(r.coords.flatMap(c=> [c[1], c[0]])), width:3, clampToGround:true,
+          material: r.dash ? new Cesium.PolylineDashMaterialProperty({color: tourCol, dashLength:14}) : tourCol}});
+      });
       fs3dPins(t).forEach(pn=>{
         const e = viewer.entities.add({position: Cesium.Cartesian3.fromDegrees(pn.lon, pn.lat), point:{pixelSize:12, color: pn.kind === 'hut' ? Cesium.Color.WHITE : tourCol, outlineColor: pn.kind === 'hut' ? tourCol : Cesium.Color.WHITE, outlineWidth: pn.kind === 'hut' ? 3 : 2,
           heightReference:Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance:Number.POSITIVE_INFINITY}, label: pn.name ? lbl(pn.name, -18) : undefined});
