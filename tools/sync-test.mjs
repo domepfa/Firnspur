@@ -263,6 +263,26 @@ await scenario('Alter Entwurf bleibt', async ({ page }) => {
   const still = await page.evaluate(id => !!localStorage.getItem(fsDraftPrefix() + 'edit-tour|' + id), id);
   ok('Alter Entwurf: beim Öffnen angeboten und nicht still gelöscht', offered && still, JSON.stringify({ offered, still }));
 });
+await scenario('Entwurf nach Karte bearbeiten', async ({ page, db }) => {
+  const id = TP.split('/')[1];
+  const before = db.get(TP);
+  await page.evaluate(id => { state.modal = { type: 'tour-detail', payload: id }; render(); }, id);
+  await page.waitForTimeout(800);
+  await page.evaluate(id => { fsEnterEditMode(); document.getElementById('quick-edit-toggle-' + id).click(); }, id);
+  await page.waitForTimeout(1500);
+  // ohne Änderung an der Karte zum Formular wechseln (Karte bleibt entsperrt)
+  await page.evaluate(id => { const t = state.tours.find(x => x.id === id); navigateToModal({ type: 'edit-tour', payload: t }); }, id);
+  await page.waitForTimeout(600);
+  await page.fill('#tour-form [name="special"]', 'Text nach Karte');
+  await page.waitForTimeout(1200);
+  await page.reload(); await page.waitForTimeout(4000);
+  const offered = await page.evaluate(() => !!document.querySelector('#fs-draft-offer [data-restore]'));
+  if (offered) await page.click('#fs-draft-offer [data-restore]');
+  await page.waitForTimeout(1200);
+  if (offered) { await page.click('#tour-save-btn'); await page.waitForTimeout(2000); }
+  const d = db.get(TP);
+  ok('Entwurf nach Karte bearbeiten: als Formular wiederhergestellt, nichts anderes geht verloren', offered && d.special === 'Text nach Karte' && d.createdAt === before.createdAt && JSON.stringify(d.completions || []) === JSON.stringify(before.completions || []) && d.name === before.name, JSON.stringify({ offered, sp: d.special, ca: [before.createdAt, d.createdAt], n: d.name }));
+});
 await scenario('Notbremse: Liste leer', async ({ db, env, saveVia }) => {
   env.answer = false; // «Abbrechen»: Änderungen speichern, Verlorenes behalten
   await saveVia("t.material = []; t.name = 'Neu';");

@@ -800,6 +800,7 @@ function openCompleteHut(id){
 async function submitCompleteTour(id, name, date){
   const t = state.tours.find(x=>x.id===id);
   if(!t) return;
+  resetModalDirty(); // gespeichert: kein Entwurf
   if(!Array.isArray(t.completions)) t.completions = [];
   t.completions.push({by: (name||'').trim() || state.myName, date: date});
   fsCompletionNoteTake(t, (name||'').trim() || state.myName, date);
@@ -817,6 +818,7 @@ async function submitCompleteTour(id, name, date){
 async function submitCompleteHut(id, name, date){
   const h = state.huts.find(x=>x.id===id);
   if(!h) return;
+  resetModalDirty(); // gespeichert: kein Entwurf
   if(!Array.isArray(h.completions)) h.completions = [];
   h.completions.push({by: (name||'').trim() || state.myName, date: date});
   h.completed = true;

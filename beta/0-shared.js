@@ -3698,6 +3698,7 @@ async function submitAgendaForm(form){
   }else{
     state.agenda.unshift(a);
   }
+  resetModalDirty(); // gespeichert: kein «verwerfen?» und kein Entwurf
   closeModal();
   state.modal = {type:'agenda-detail', payload:a.id};
   render();
@@ -14684,7 +14685,8 @@ async function fsOrteLoad(){
   const cached = fsOrteCacheRead();
   if(!state.orte) state.orte = cached;
   const obj = await fbGet(FS_ORTE_PATH);
-  if(obj === null){ return; } // offline oder leer: Gerätespeicher behalten
+  // Offline oder leer: Gerätespeicher behalten; seine Fassung gilt als Ausgangsstand für Änderungen
+  if(obj === null){ fsRememberCachedBases(FS_ORTE_PATH, state.orte); return; }
   const list = Object.values(obj || {}).filter(o=> o && o.id && !o.deletedAt);
   const unsynced = dedupeById([...state.orte.filter(o=> o._unsynced), ...cached.filter(o=> o._unsynced)]).filter(o=> fsKeepUnsynced(o, list, FS_ORTE_PATH));
   state.orte = [...unsynced, ...list];
@@ -14793,7 +14795,7 @@ function fsSheet(html, onClose){
   document.body.appendChild(ov);
   // Eingaben gemacht: vor dem Schliessen ohne Speichern nachfragen
   ov.addEventListener('input', ()=>{ ov._dirty = true; });
-  const tryClose = ()=>{ if(ov._dirty && !ov._saved && !confirm('Eingaben verwerfen?')) return; closeTopOverlayLayer(); };
+  const tryClose = ()=>{ if(ov._dirty && !ov._saved){ if(!confirm('Eingaben verwerfen?')) return; if(ov._onDiscard) ov._onDiscard(); } closeTopOverlayLayer(); };
   ov.addEventListener('click', e=>{ if(e.target === ov) tryClose(); });
   ov.querySelectorAll('[data-close]').forEach(b=> b.addEventListener('click', tryClose));
   pushOverlayLayer(()=>{ ov.remove(); if(onClose) onClose(); });
@@ -15094,11 +15096,12 @@ function fsOpenErfForm(tourId){
   const dKey = 'fs-draft-erf:' + t.id;
   try{ const old = localStorage.getItem(dKey); if(old){ q('#fs-erf-text').value = old; ov._dirty = true; } }catch(err){}
   q('#fs-erf-text').addEventListener('input', ()=>{ try{ localStorage.setItem(dKey, q('#fs-erf-text').value); }catch(err){} });
+  ov._onDiscard = ()=>{ try{ localStorage.removeItem(dKey); }catch(err){} };
   q('[data-save]').addEventListener('click', async ()=>{
-    ov._saved = true; try{ localStorage.removeItem(dKey); }catch(err){}
     e.text = q('#fs-erf-text').value.trim();
     e.date = q('#fs-erf-date').value || fsToday();
     if(!e.text && !e.photos.length){ q('[data-msg]').textContent = 'Bitte etwas schreiben oder ein Foto wählen.'; q('#fs-erf-text').focus(); return; }
+    ov._saved = true; try{ localStorage.removeItem(dKey); }catch(err){}
     closeTopOverlayLayer();
     t.erfahrungen = [...(Array.isArray(t.erfahrungen) ? t.erfahrungen : []), e];
     await fsErfSaveTour(t, 'Erfahrung gespeichert.');
@@ -15593,7 +15596,7 @@ function fsDraftCapture(){
   let agendaDays = null;
   const dayBox = /agenda/.test(state.modal.type) ? modal.querySelector('#agenda-day-plan-container') : null;
   if(dayBox && dayBox.dataset.mode === 'multi' && typeof collectAgendaDayPlanFromDom === 'function'){ try{ agendaDays = collectAgendaDayPlanFromDom(dayBox); }catch(e){} }
-  return {key, type: state.modal.type, id, payload: (p && typeof p === 'object') ? fsStripLocal(p) : p, quick: state.quickEditOpenId || null, name, at: new Date().toISOString(), fields, chips, agendaDays};
+  return {key, type: state.modal.type, id, payload: (p && typeof p === 'object') ? fsStripLocal(p) : p, quick: key.indexOf('|quick|') >= 0 ? state.quickEditOpenId : null, name, at: new Date().toISOString(), fields, chips, agendaDays};
 }
 // Entwürfe, die in dieser Sitzung geschrieben wurden. Ältere (z. B. aus einem beendeten Tab) werden
 // nie still gelöscht oder überschrieben – nur nach Angebot und Antwort.
@@ -15701,10 +15704,12 @@ async function fsDraftRestore(d){
   if(ent && payload && typeof payload === 'object' && !payload.route){
     payload = Object.assign({}, ent);
     (d.fields || []).forEach(f=>{
-      const k = f.name; if(!k || f.chk || k[0] === '_' || k === 'id') return;
+      const k = f.name; if(!k || f.chk || k[0] === '_' || k === 'id' || !(k in ent)) return;
+      // Links nicht vorbelegen: das Formular verschiebt einen ersetzten Link sonst nicht mehr unter «Weitere Links»
+      if(k === 'tourLink' || k === 'gpxLink') return;
       const cur = ent[k];
-      if(Array.isArray(cur) || (cur && typeof cur === 'object') || (cur === undefined && /^[\[{]/.test(f.v || ''))){ try{ const v = JSON.parse(f.v || 'null'); if(v !== null) payload[k] = v; }catch(e){} }
-      else if(cur === undefined || typeof cur === 'string' || typeof cur === 'number') payload[k] = f.v;
+      if(Array.isArray(cur) || (cur && typeof cur === 'object')){ try{ const v = JSON.parse(f.v || 'null'); if(v !== null) payload[k] = v; }catch(e){} }
+      else if(typeof cur === 'string' || typeof cur === 'number') payload[k] = f.v;
     });
   }else if(ent && payload && typeof payload === 'object') payload = Object.assign({}, payload);
   if(/agenda/.test(d.type) && typeof agendaDayPlanDraft !== 'undefined') agendaDayPlanDraft = d.agendaDays ? JSON.parse(JSON.stringify(d.agendaDays)) : null;
@@ -15720,8 +15725,9 @@ function fsDraftOffer(given){
   let d = given;
   if(!d){
     const all = fsDraftAll();
-    all.filter(fsDraftIsStale).forEach(x=> fsDraftClear(x.key));
-    d = all.find(x=> !fsDraftIsStale(x));
+    all.filter(fsDraftIsStale).forEach(x=> fsDraftDrop(x));
+    // Nicht das Fenster anbieten, das gerade bearbeitet wird (Entwurf dieser Sitzung)
+    d = all.find(x=> !fsDraftIsStale(x) && (x._sk || !fsDraftWritten.has(x.key)));
   }
   if(!d || !d.type) return;
   if(document.getElementById('fs-draft-offer')) return;
@@ -16517,6 +16523,7 @@ function wireShareImportModal(){
 // direkt in den vorhandenen Upload-Ablauf ein (Zuschneiden/Komprimieren/Hochladen) — per
 // DataTransfer wird die Bild-Datei so ins Datei-Feld gelegt, als hätte man sie ausgewählt.
 function applySharedImageToSektor(sektorId, blob){
+  resetModalDirty(); // Teilen-Fenster ist erledigt
   openEditSektorTopoRouten(sektorId);
   const input = document.getElementById('sektor-topo-image-input');
   if(!input){ showToast('Sektor-Bearbeitung konnte nicht geöffnet werden.', true); return; }

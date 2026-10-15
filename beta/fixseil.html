@@ -4569,6 +4569,7 @@ async function submitCompletion(kind, id, name, date){
     return;
   }
   const entry = {by:n, date: date || new Date().toISOString().slice(0,10), addedAt: new Date().toISOString()};
+  resetModalDirty(); // gespeichert: kein «verwerfen?» und kein Entwurf
   if(kind==='tour'){
     const t = state.tours.find(x=>x.id===id);
     if(!t) return;
@@ -5277,6 +5278,7 @@ function wireModalHandlers(){
     const errBox = document.getElementById('import-error');
     try{
       const res = mergeImportedData(val);
+      resetModalDirty(); // übernommen: kein «verwerfen?» und kein Entwurf
       closeModal();
       render();
       showToast(`Importiert: ${res.addedTours} neue Touren, ${res.updatedTours} aktualisiert, ${res.addedHuts} neue Hütten, ${res.updatedHuts} aktualisiert, ${res.addedSektoren} neue Sektoren, ${res.updatedSektoren} aktualisiert, ${res.addedAgenda} neue Termine, ${res.updatedAgenda} aktualisiert.`);
@@ -5820,6 +5822,7 @@ function wireModalHandlers(){
     });
     if(yesBtn) yesBtn.addEventListener('click', ()=>{
       removeFn(yesBtn.getAttribute('data-id'));
+      resetModalDirty(); // gelöscht: Entwurf des Formulars ist hinfällig
       closeModal(false, true);
       showToast(message);
     });
