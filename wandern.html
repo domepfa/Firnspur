@@ -662,7 +662,7 @@ function cacheLocalSnapshot(){
       trashedTours: state.trashedTours, trashedHuts: state.trashedHuts, trashedGebiete: state.trashedGebiete,
       agenda: state.agenda, cachedAt: new Date().toISOString()
     }));
-  }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
+  }catch(e){ if(typeof fsWarnStorageFull === 'function') fsWarnStorageFull(e); }
 }
 function loadLocalSnapshot(){
   try{
@@ -675,8 +675,12 @@ function loadLocalSnapshot(){
 async function loadAll(){
   fsOrteLoad(); // gemeinsame Orte (alle Apps), parallel
   state.loading = true; render();
-  const [toursObj, hutsObj, gebieteObj, agendaObj] = await Promise.all([ fbGet(OWN_TOURS_PATH), fbGet('huts'), fbGet(GEBIETE_PATH), fbGet(AGENDA_PATH) ]);
+  let [toursObj, hutsObj, gebieteObj, agendaObj] = await Promise.all([ fbGet(OWN_TOURS_PATH), fbGet('huts'), fbGet(GEBIETE_PATH), fbGet(AGENDA_PATH) ]);
   const cached = loadLocalSnapshot();
+  if(![OWN_TOURS_PATH,'huts',GEBIETE_PATH,AGENDA_PATH].every(p=> fsGetFailed.has(p))){
+    toursObj = fsLoadOrCache(OWN_TOURS_PATH, toursObj, cached, 'tours'); hutsObj = fsLoadOrCache('huts', hutsObj, cached, 'huts');
+    gebieteObj = fsLoadOrCache(GEBIETE_PATH, gebieteObj, cached, 'gebiete'); agendaObj = fsLoadOrCache(AGENDA_PATH, agendaObj, cached, 'agenda');
+  }
 
   if(!toursObj && !hutsObj && !gebieteObj && !agendaObj){
     // Keine Verbindung zur Datenbank – auf lokalen Offline-Cache zurückgreifen
@@ -690,6 +694,8 @@ async function loadAll(){
       state.trashedGebiete = cached.trashedGebiete || [];
       state.agenda = cached.agenda || [];
       state.offlineMode = true;
+      // Gerätekopie = zuletzt bekannter Stand der Datenbank: als Ausgangsstand für spätere Änderungen
+      fsRememberCachedBases(fsOwnToursPath(), state.tours); fsRememberCachedBases('huts', state.huts); fsRememberCachedBases('wandern/gebiete', state.gebiete); fsRememberCachedBases(AGENDA_PATH, state.agenda);
       state.offlineCachedAt = cached.cachedAt;
       showToast('Offline – zeigt den zuletzt gespeicherten Stand vom ' + fmtDate(cached.cachedAt), true);
     }else{
@@ -718,29 +724,20 @@ async function loadAll(){
   // Lokale, noch nicht synchronisierte Einträge nicht verlieren — sowohl aus dem
   // aktuellen Speicher als auch aus dem lokalen Cache (wichtig nach einem
   // Seiten-Neuladen, da der Speicher dann leer ist, der Cache aber nicht).
-  const unsyncedTours = dedupeById([
-    ...state.tours.filter(x=>x._unsynced),
-    ...((cached && cached.tours) ? cached.tours.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, tours, OWN_TOURS_PATH));
-  const unsyncedHuts = dedupeById([
-    ...state.huts.filter(x=>x._unsynced),
-    ...((cached && cached.huts) ? cached.huts.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, huts, 'huts'));
-  const unsyncedGebiete = dedupeById([
-    ...state.gebiete.filter(x=>x._unsynced),
-    ...((cached && cached.gebiete) ? cached.gebiete.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, gebiete, GEBIETE_PATH));
+  const sTours = fsUnsyncedSplit(OWN_TOURS_PATH, tours, trashedTours, state.tours, state.trashedTours, cached, 'tours');
+  const sHuts = fsUnsyncedSplit('huts', huts, trashedHuts, state.huts, state.trashedHuts, cached, 'huts');
+  const sGebiete = fsUnsyncedSplit(GEBIETE_PATH, gebiete, trashedGebiete, state.gebiete, state.trashedGebiete, cached, 'gebiete');
   const unsyncedAgenda = dedupeById([
     ...state.agenda.filter(x=>x._unsynced),
     ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
   ]).filter(x=> fsKeepUnsynced(x, agenda, AGENDA_PATH));
 
-  state.tours = [...unsyncedTours, ...tours];
-  state.huts = [...unsyncedHuts, ...huts];
-  state.gebiete = [...unsyncedGebiete, ...gebiete];
-  state.trashedTours = trashedTours;
-  state.trashedHuts = trashedHuts;
-  state.trashedGebiete = trashedGebiete;
+  state.tours = sTours.active;
+  state.huts = sHuts.active;
+  state.gebiete = sGebiete.active;
+  state.trashedTours = sTours.trashed;
+  state.trashedHuts = sHuts.trashed;
+  state.trashedGebiete = sGebiete.trashed;
   state.agenda = [...unsyncedAgenda, ...agenda];
   // Fehlende Einträge aus dem Gerätespeicher retten, bevor dieser überschrieben wird
   fsRescueCollect('wandern', ['wandern-cache', 'wandern' + 'beta-cache']);
@@ -756,16 +753,19 @@ async function loadAll(){
 
   // Wiedergefundene, noch nicht synchronisierte Einträge jetzt automatisch
   // erneut versuchen hochzuladen, da offenbar wieder eine Verbindung besteht.
+  const unsyncedTours = sTours.local;
   unsyncedTours.forEach(async t=>{
     const ok = await saveTourCloud(t).catch(()=>false);
     t._unsynced = !ok;
     if(ok) render();
   });
+  const unsyncedHuts = sHuts.local;
   unsyncedHuts.forEach(async h=>{
     const ok = await saveHutCloud(h).catch(()=>false);
     h._unsynced = !ok;
     if(ok) render();
   });
+  const unsyncedGebiete = sGebiete.local;
   unsyncedGebiete.forEach(async g=>{
     const ok = await saveGebietCloud(g).catch(()=>false);
     g._unsynced = !ok;
@@ -1303,7 +1303,7 @@ function tourFormHtml(existing){
       </div>
       <div class="field"><label>Beste Monate</label>
         <div class="chips">
-          ${MONTHS.map(m=>`<button type="button" class="chip month-chip ${selectedMonths.includes(m.key)?'on':''}" style="${selectedMonths.includes(m.key)?'background:var(--ice-deep)':''}" data-value="${m.key}">${m.label}</button>`).join('')}
+          ${MONTHS.map(m=>`<button type="button" class="chip month-chip ${selectedMonths.includes(m.key)?'on':''}" style="${selectedMonths.includes(m.key)?'background:var(--ice-deep)':''}" data-value="${m.key}">${m.label}</button>`).join('')}${selectedMonths.filter(v=> v && !MONTHS.some(m=> m.key === v)).map(v=>`<button type="button" class="chip month-chip on" style="background:var(--ice-deep)" data-value="${esc(String(v))}">${esc(String(v))}</button>`).join('')}
         </div>
       </div>
       <div class="row2">
@@ -2041,6 +2041,7 @@ function wireModalHandlers(){
     const errBox = document.getElementById('import-error');
     try{
       const res = mergeImportedData(val);
+      resetModalDirty(); // übernommen: kein «verwerfen?» und kein Entwurf
       closeModal();
       render();
       showToast(`Importiert: ${res.addedTours} neue Touren, ${res.updatedTours} aktualisiert, ${res.addedHuts} neue Hütten, ${res.updatedHuts} aktualisiert, ${res.addedAgenda} neue Termine, ${res.updatedAgenda} aktualisiert.`);
@@ -2462,6 +2463,7 @@ function wireModalHandlers(){
     });
     if(yesBtn) yesBtn.addEventListener('click', ()=>{
       removeFn(yesBtn.getAttribute('data-id'));
+      resetModalDirty(); // gelöscht: Entwurf des Formulars ist hinfällig
       closeModal(false, true);
       showToast(message);
     });
@@ -2522,7 +2524,8 @@ window.addEventListener('unhandledrejection', function(e){
   showToast('Es gab ein unerwartetes Problem beim Speichern. Bitte nochmal versuchen.', true);
 });
 window.addEventListener('beforeunload', function(e){
-  if(state.hasUnsavedChanges){
+  if(modalIsDirty && modalDirtyTrackingKey() && typeof fsDraftSave === 'function') fsDraftSave();
+  if(state.hasUnsavedChanges || (modalIsDirty && modalDirtyTrackingKey())){
     e.preventDefault();
     e.returnValue = '';
   }
@@ -2557,7 +2560,7 @@ document.getElementById('agenda-tab-btn').addEventListener('click', ()=>setView(
 
 if(isLoggedIn()){
   dlog('App gestartet — Version ' + APP_VERSION);
-  loadAll();
+  loadAll().then(()=> setTimeout(fsDraftOffer, 400)); // danach: nicht gespeicherte Angaben anbieten
   if(state.myName) loadFavorites();
 }else{
   document.getElementById('app').innerHTML = loginScreenHtml();
