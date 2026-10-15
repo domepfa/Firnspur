@@ -15396,10 +15396,13 @@ function fsCheckSyncState(path, obj, items){
   lists.forEach(l=> l.forEach(x=>{
     if(!x || x.id !== id) return;
     // Noch nicht hochgeladene eigene Änderung: nur das Zurückgeholte ergänzen, den Rest nicht anfassen
-    if(x._unsynced && Array.isArray(items) && !items.some(it=> it.type === 'entry')){
+    if(x._unsynced && Array.isArray(items)){
       items.forEach(it=>{
         if(it.type === 'item'){ const arr = Array.isArray(x[it.field]) ? x[it.field] : (x[it.field] = []); if(!arr.some(y=> fsCheckItemKey(y) === fsCheckItemKey(it.value))) arr.push(JSON.parse(JSON.stringify(it.value))); }
-        else if(fsCanon(x[it.field]) === null) x[it.field] = JSON.parse(JSON.stringify(it.value));
+        // Ganzer Eintrag: nur fehlende Felder ergänzen, die neueren eigenen Änderungen bleiben
+        else if(it.type === 'entry') Object.keys(obj).forEach(k=>{ if(k[0] !== '_' && fsCanon(x[k]) === null) x[k] = JSON.parse(JSON.stringify(obj[k])); });
+        // Linie/Text bewusst zurückgeholt: gilt, sonst nähme das nächste Hochladen es wieder weg
+        else x[it.field] = JSON.parse(JSON.stringify(it.value));
       });
       return;
     }
