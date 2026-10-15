@@ -919,7 +919,7 @@ function cacheLocalSnapshot(){
       trashedTours: state.trashedTours, trashedHuts: state.trashedHuts, trashedSektoren: state.trashedSektoren, trashedKlettergebiete: state.trashedKlettergebiete, trashedGipfel: state.trashedGipfel,
       cachedAt: new Date().toISOString()
     }));
-  }catch(e){ /* z. B. Safari privater Modus – dann halt kein Offline-Cache */ }
+  }catch(e){ if(typeof fsWarnStorageFull === 'function') fsWarnStorageFull(e); }
 }
 function loadLocalSnapshot(){
   try{
@@ -931,13 +931,20 @@ function loadLocalSnapshot(){
 async function loadAll(){
   fsOrteLoad(); // gemeinsame Orte (alle Apps), parallel
   state.loading = true; render();
-  const [toursObj, hutsObjResult, agendaObj, sektorenObj, klettergebieteObj, gipfelObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH), fbGet(SEKTOREN_PATH), fbGet(KLETTERGEBIETE_PATH), fbGet(GIPFEL_PATH) ]);
+  let [toursObj, hutsObjResult, agendaObj, sektorenObj, klettergebieteObj, gipfelObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH), fbGet(SEKTOREN_PATH), fbGet(KLETTERGEBIETE_PATH), fbGet(GIPFEL_PATH) ]);
+  const hutsFailed = fsGetFailed.has(HUTS_PATH);
   let hutsObj = hutsObjResult;
   const cached = loadLocalSnapshot();
+  if(![TOURS_PATH, HUTS_PATH, AGENDA_PATH, SEKTOREN_PATH, KLETTERGEBIETE_PATH, GIPFEL_PATH].every(p=> fsGetFailed.has(p))){
+    toursObj = fsLoadOrCache(TOURS_PATH, toursObj, cached, 'tours'); hutsObj = fsLoadOrCache(HUTS_PATH, hutsObj, cached, 'huts');
+    agendaObj = fsLoadOrCache(AGENDA_PATH, agendaObj, cached, 'agenda'); sektorenObj = fsLoadOrCache(SEKTOREN_PATH, sektorenObj, cached, 'sektoren');
+    klettergebieteObj = fsLoadOrCache(KLETTERGEBIETE_PATH, klettergebieteObj, cached, 'klettergebiete'); gipfelObj = fsLoadOrCache(GIPFEL_PATH, gipfelObj, cached, 'gipfel');
+  }
 
   // Einmalige Migration: alte, getrennte Fixseil-Hütten in die neue,
-  // gemeinsame Sammlung übernehmen (nur solange noch nicht geschehen).
-  if(!localStorage.getItem('fixseil-huts-migrated')){
+  // gemeinsame Sammlung übernehmen (nur solange noch nicht geschehen; nie, wenn die Hütten gerade
+  // nicht gelesen werden konnten — sonst gälten alle als neu und würden überschrieben).
+  if(!hutsFailed && !localStorage.getItem('fixseil-huts-migrated')){
     try{
       const legacyObj = await fbGet(LEGACY_HUTS_PATH);
       const legacyHuts = legacyObj ? Object.values(legacyObj).filter(h=>h && h.id) : [];
@@ -969,6 +976,8 @@ async function loadAll(){
       state.trashedGipfel = cached.trashedGipfel || [];
       state.agenda = cached.agenda || [];
       state.offlineMode = true;
+      // Gerätekopie = zuletzt bekannter Stand der Datenbank: als Ausgangsstand für spätere Änderungen
+      fsRememberCachedBases(TOURS_PATH, state.tours); fsRememberCachedBases(HUTS_PATH, state.huts); fsRememberCachedBases(SEKTOREN_PATH, state.sektoren); fsRememberCachedBases(KLETTERGEBIETE_PATH, state.klettergebiete); fsRememberCachedBases(GIPFEL_PATH, state.gipfel); fsRememberCachedBases(AGENDA_PATH, state.agenda);
       state.offlineCachedAt = cached.cachedAt;
       showToast('Offline – zeigt den zuletzt gespeicherten Stand vom ' + fmtDate(cached.cachedAt), true);
     }else{
@@ -998,41 +1007,26 @@ async function loadAll(){
   // Lokale, noch nicht synchronisierte Einträge nicht verlieren — sowohl aus dem
   // aktuellen Speicher als auch aus dem lokalen Cache (wichtig nach einem
   // Seiten-Neuladen, da der Speicher dann leer ist, der Cache aber nicht).
-  const unsyncedTours = dedupeById([
-    ...state.tours.filter(x=>x._unsynced),
-    ...((cached && cached.tours) ? cached.tours.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, tours, TOURS_PATH));
-  const unsyncedHuts = dedupeById([
-    ...state.huts.filter(x=>x._unsynced),
-    ...((cached && cached.huts) ? cached.huts.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, huts, HUTS_PATH));
-  const unsyncedSektoren = dedupeById([
-    ...state.sektoren.filter(x=>x._unsynced),
-    ...((cached && cached.sektoren) ? cached.sektoren.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, sektoren, SEKTOREN_PATH));
-  const unsyncedKlettergebiete = dedupeById([
-    ...state.klettergebiete.filter(x=>x._unsynced),
-    ...((cached && cached.klettergebiete) ? cached.klettergebiete.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, klettergebiete, KLETTERGEBIETE_PATH));
-  const unsyncedGipfel = dedupeById([
-    ...state.gipfel.filter(x=>x._unsynced),
-    ...((cached && cached.gipfel) ? cached.gipfel.filter(x=>x._unsynced) : [])
-  ]).filter(x=> fsKeepUnsynced(x, gipfel, GIPFEL_PATH));
+  const sTours = fsUnsyncedSplit(TOURS_PATH, tours, trashedTours, state.tours, state.trashedTours, cached, 'tours');
+  const sHuts = fsUnsyncedSplit(HUTS_PATH, huts, trashedHuts, state.huts, state.trashedHuts, cached, 'huts');
+  const sSektoren = fsUnsyncedSplit(SEKTOREN_PATH, sektoren, trashedSektoren, state.sektoren, state.trashedSektoren, cached, 'sektoren');
+  const sKlettergebiete = fsUnsyncedSplit(KLETTERGEBIETE_PATH, klettergebiete, trashedKlettergebiete, state.klettergebiete, state.trashedKlettergebiete, cached, 'klettergebiete');
+  const sGipfel = fsUnsyncedSplit(GIPFEL_PATH, gipfel, trashedGipfel, state.gipfel, state.trashedGipfel, cached, 'gipfel');
   const unsyncedAgenda = dedupeById([
     ...state.agenda.filter(x=>x._unsynced),
     ...((cached && cached.agenda) ? cached.agenda.filter(x=>x._unsynced) : [])
   ]).filter(x=> fsKeepUnsynced(x, agenda, AGENDA_PATH));
 
-  state.tours = [...unsyncedTours, ...tours];
-  state.huts = [...unsyncedHuts, ...huts];
-  state.sektoren = [...unsyncedSektoren, ...sektoren];
-  state.klettergebiete = [...unsyncedKlettergebiete, ...klettergebiete];
-  state.gipfel = [...unsyncedGipfel, ...gipfel];
-  state.trashedTours = trashedTours;
-  state.trashedHuts = trashedHuts;
-  state.trashedSektoren = trashedSektoren;
-  state.trashedKlettergebiete = trashedKlettergebiete;
-  state.trashedGipfel = trashedGipfel;
+  state.tours = sTours.active;
+  state.huts = sHuts.active;
+  state.sektoren = sSektoren.active;
+  state.klettergebiete = sKlettergebiete.active;
+  state.gipfel = sGipfel.active;
+  state.trashedTours = sTours.trashed;
+  state.trashedHuts = sHuts.trashed;
+  state.trashedSektoren = sSektoren.trashed;
+  state.trashedKlettergebiete = sKlettergebiete.trashed;
+  state.trashedGipfel = sGipfel.trashed;
   state.agenda = [...unsyncedAgenda, ...agenda];
   // Fehlende Einträge aus dem Gerätespeicher retten, bevor dieser überschrieben wird
   fsRescueCollect('fixseil', ['fixseil-cache', 'fixseil' + 'beta-cache']);
@@ -1056,26 +1050,31 @@ async function loadAll(){
 
   // Wiedergefundene, noch nicht synchronisierte Einträge jetzt automatisch
   // erneut versuchen hochzuladen, da offenbar wieder eine Verbindung besteht.
+  const unsyncedTours = sTours.local;
   unsyncedTours.forEach(async t=>{
     const ok = await saveTourCloud(t).catch(()=>false);
     t._unsynced = !ok;
     if(ok) render();
   });
+  const unsyncedHuts = sHuts.local;
   unsyncedHuts.forEach(async h=>{
     const ok = await saveHutCloud(h).catch(()=>false);
     h._unsynced = !ok;
     if(ok) render();
   });
+  const unsyncedSektoren = sSektoren.local;
   unsyncedSektoren.forEach(async s=>{
     const ok = await saveSektorCloud(s).catch(()=>false);
     s._unsynced = !ok;
     if(ok) render();
   });
+  const unsyncedKlettergebiete = sKlettergebiete.local;
   unsyncedKlettergebiete.forEach(async g=>{
     const ok = await saveKlettergebietCloud(g).catch(()=>false);
     g._unsynced = !ok;
     if(ok) render();
   });
+  const unsyncedGipfel = sGipfel.local;
   unsyncedGipfel.forEach(async g=>{
     const ok = await saveGipfelCloud(g).catch(()=>false);
     g._unsynced = !ok;
@@ -1361,6 +1360,8 @@ function openEditTour(id){
 // Typ der neu geöffneten Ansicht markiert, damit er nie versehentlich beim Schliessen einer
 // späteren, unabhängig geöffneten Ansicht desselben Typs verwendet wird (siehe closeModal()).
 function navigateToModal(newModal, restoreView){
+  // Ungespeicherte Änderungen (Formular, «Karte bearbeiten») nicht still verlassen
+  if(modalIsDirty && modalDirtyTrackingKey() && !confirmDiscardIfDirty()) return;
   if(state.modal){
     state.modalBackStack.push({ forType: newModal.type, modal: state.modal, restoreView: restoreView });
     // Jede zusätzliche Cross-Link-Ebene bekommt ihren EIGENEN Browser-History-Eintrag, statt sich
@@ -1414,6 +1415,8 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     if(fromPopstate) pushModalHistoryIfNeeded();
     return;
   }
+  // Nach dem Speichern geschlossen: Formular gilt als erledigt, sein Entwurf ist überflüssig
+  if(skipDirtyCheck && keepHistoryLayer && typeof resetModalDirty === 'function' && modalDirtyTrackingKey()) resetModalDirty();
   // Verlassen = wieder gesperrt (Karte in der Detailansicht nicht mehr im Bearbeiten-Modus).
   state.quickEditOpenId = null;
   stopLiveGpsOnMap();
@@ -1549,7 +1552,7 @@ async function submitTourForm(form, existing){
     try{ t.summitIds = form.summitIds ? JSON.parse(form.summitIds) : []; }catch(e){ t.summitIds = []; }
     // Zurück von MSL: die vorher verknüpften Gipfel wieder übernehmen
     if(!t.summitIds.length && Array.isArray(t.summitIdsParked) && t.summitIdsParked.length) t.summitIds = t.summitIdsParked;
-    delete t.summitIdsParked;
+    t.summitIdsParked = []; // leeren statt entfernen (fehlendes Feld gilt beim Speichern als unverändert)
     if(!t.summitIds.length) linkTourToDefaultGipfel(t); // kein Gipfel im Formular gewählt — anhand des Namens verknüpfen
   }else if(Array.isArray(t.summitIds) && t.summitIds.length){
     // MSL zeigt keine Gipfel: Verknüpfung beiseitelegen statt löschen
@@ -1639,7 +1642,7 @@ async function submitHutForm(form, existing){
   migrateHutAccessRoutes(h);
   h.contact = form.contact;
   h.notes = form.notes;
-  h.klettergebietId = form.klettergebietId || '';
+  if(form.klettergebietId !== undefined) h.klettergebietId = form.klettergebietId || ''; // Feld fehlt, wenn die Liste leer ist: dann bleibt die Verknüpfung
   if(form.status==='entwurf' || form.status==='vollstaendig') h.status = form.status;
   h.updatedAt = new Date().toISOString();
   h.updatedBy = state.myName;
@@ -1781,7 +1784,7 @@ async function submitTourRouteForm(form){
     id: form.routeId || form.routeIdForTrack || uid('tr'),
     name: (form.name||'').trim(),
     elevation: form.elevation||'',
-    elevationUp: form.elevationUp||'',
+    elevationUp: form.elevationUp !== undefined ? (form.elevationUp||'') : undefined, // nur beim Abstieg im Formular
     duration: form.duration||'',
     difficultyT: form.difficultyT||'',
     description: form.description||'',
@@ -1789,8 +1792,10 @@ async function submitTourRouteForm(form){
     trackSimplified: track,
     manualTrack: manual
   };
+  if(routeData.elevationUp === undefined) delete routeData.elevationUp;
   const idx = t[field].findIndex(r=>r.id===routeData.id);
-  if(idx>=0) t[field][idx] = routeData; else t[field].push(routeData);
+  // Felder, die das Formular nicht zeigt (z. B. aus Import oder älteren Fassungen), behalten
+  if(idx>=0) t[field][idx] = Object.assign({}, t[field][idx], routeData); else t[field].push(routeData);
   t.updatedAt = new Date().toISOString();
   t.updatedBy = state.myName;
   closeModal(false, true, true);
@@ -1925,7 +1930,7 @@ async function submitSektorForm(form, existing){
   s.region = form.region || '';
   s.subregion = form.subregion || '';
   s.description = form.description || '';
-  s.klettergebietId = form.klettergebietId || '';
+  if(form.klettergebietId !== undefined) s.klettergebietId = form.klettergebietId || ''; // Feld fehlt, wenn die Liste leer ist: dann bleibt die Verknüpfung
   try{ s.points = form.points ? JSON.parse(form.points) : []; }catch(e){ s.points = []; }
   try{ s.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ s.manualTrack = []; }
   // topoImages/kletterrouten: werden nicht mehr über dieses Formular bearbeitet (siehe
@@ -2108,7 +2113,7 @@ async function submitSektorTopoRoutenForm(form){
   if(!sek) return;
   try{ sek.topoImages = form.topoImages ? JSON.parse(form.topoImages) : []; }catch(e){ sek.topoImages = []; }
   try{ sek.kletterrouten = form.kletterrouten ? JSON.parse(form.kletterrouten) : []; }catch(e){ sek.kletterrouten = []; }
-  sek.hutId = form.hutId || '';
+  if(form.hutId !== undefined) sek.hutId = form.hutId || ''; // Feld fehlt, wenn keine Hütten geladen sind: dann bleibt die Verknüpfung
   sek.protection = form.protection || '';
   sek.descentType = form.descentType || '';
   sek.material = Array.isArray(form.material) ? form.material : [];
@@ -2252,7 +2257,7 @@ async function submitGipfelForm(form, existing){
   const g = (existing && existing.id) ? {...existing} : {id: uid('gip'), createdBy: state.myName, createdAt: new Date().toISOString()};
   g.name = form.name.trim();
   g.altitude = form.altitude || '';
-  g.klettergebietId = form.klettergebietId || '';
+  if(form.klettergebietId !== undefined) g.klettergebietId = form.klettergebietId || ''; // Feld fehlt, wenn die Liste leer ist: dann bleibt die Verknüpfung
   g.region = form.region || '';
   g.subregion = form.subregion || '';
   g.updatedAt = new Date().toISOString();
@@ -2888,7 +2893,7 @@ async function submitSektorRouteForm(form){
     id: form.routeId || form.routeIdForTrack || uid('sr'),
     name: (form.name||'').trim(),
     elevation: form.elevation||'',
-    elevationUp: form.elevationUp||'',
+    elevationUp: form.elevationUp !== undefined ? (form.elevationUp||'') : undefined, // nur beim Abstieg im Formular
     duration: form.duration||'',
     difficultyT: form.difficultyT||'',
     description: form.description||'',
@@ -2896,8 +2901,10 @@ async function submitSektorRouteForm(form){
     trackSimplified: track,
     manualTrack: manual
   };
+  if(routeData.elevationUp === undefined) delete routeData.elevationUp;
   const idx = sek[field].findIndex(r=>r.id===routeData.id);
-  if(idx>=0) sek[field][idx] = routeData; else sek[field].push(routeData);
+  // Felder, die das Formular nicht zeigt (z. B. aus Import oder älteren Fassungen), behalten
+  if(idx>=0) sek[field][idx] = Object.assign({}, sek[field][idx], routeData); else sek[field].push(routeData);
   sek.updatedAt = new Date().toISOString();
   sek.updatedBy = state.myName;
   closeModal(false, true, true);
@@ -3945,7 +3952,7 @@ function tourFormHtml(existing){
           <div class="chips">
             ${DESCENT_TYPES.map(d=>`<button type="button" class="chip descent-chip-ht ${t.descentType===d?'on':''}" style="${t.descentType===d?'background:var(--ice-deep)':''}" data-value="${d}">${d}</button>`).join('')}
           </div>
-          <input type="hidden" name="descentTypeHochtour" id="descent-hidden-ht" value="${esc((t.tourCategory||'hochtour')!=='msl' ? (t.descentType||'') : '')}"/>
+          <input type="hidden" name="descentTypeHochtour" id="descent-hidden-ht" value="${esc(t.descentType||'')}"/>
         </div>
         <div class="field"><label>Exposition</label>
           <div class="chips">
@@ -4562,6 +4569,7 @@ async function submitCompletion(kind, id, name, date){
     return;
   }
   const entry = {by:n, date: date || new Date().toISOString().slice(0,10), addedAt: new Date().toISOString()};
+  resetModalDirty(); // gespeichert: kein «verwerfen?» und kein Entwurf
   if(kind==='tour'){
     const t = state.tours.find(x=>x.id===id);
     if(!t) return;
@@ -4807,7 +4815,7 @@ function wireDetailSwipeNavigation(){
   if(idx===-1) return;
   let startX = null, startY = null;
   modalEl.addEventListener('touchstart', (e)=>{
-    if(e.target.closest('.leaflet-container')){ startX = null; return; }
+    if(e.target.closest('.leaflet-container, .maplibregl-map')){ startX = null; return; }
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
   }, {passive:true});
@@ -5270,6 +5278,7 @@ function wireModalHandlers(){
     const errBox = document.getElementById('import-error');
     try{
       const res = mergeImportedData(val);
+      resetModalDirty(); // übernommen: kein «verwerfen?» und kein Entwurf
       closeModal();
       render();
       showToast(`Importiert: ${res.addedTours} neue Touren, ${res.updatedTours} aktualisiert, ${res.addedHuts} neue Hütten, ${res.updatedHuts} aktualisiert, ${res.addedSektoren} neue Sektoren, ${res.updatedSektoren} aktualisiert, ${res.addedAgenda} neue Termine, ${res.updatedAgenda} aktualisiert.`);
@@ -5813,6 +5822,7 @@ function wireModalHandlers(){
     });
     if(yesBtn) yesBtn.addEventListener('click', ()=>{
       removeFn(yesBtn.getAttribute('data-id'));
+      resetModalDirty(); // gelöscht: Entwurf des Formulars ist hinfällig
       closeModal(false, true);
       showToast(message);
     });
@@ -6401,7 +6411,8 @@ window.addEventListener('unhandledrejection', function(e){
   showToast('Es gab ein unerwartetes Problem beim Speichern. Bitte nochmal versuchen.', true);
 });
 window.addEventListener('beforeunload', function(e){
-  if(state.hasUnsavedChanges){
+  if(modalIsDirty && modalDirtyTrackingKey() && typeof fsDraftSave === 'function') fsDraftSave();
+  if(state.hasUnsavedChanges || (modalIsDirty && modalDirtyTrackingKey())){
     e.preventDefault();
     e.returnValue = '';
   }
@@ -6443,7 +6454,7 @@ document.getElementById('agenda-tab-btn').addEventListener('click', ()=>setView(
 
 if(isLoggedIn()){
   dlog('App gestartet — Version ' + APP_VERSION);
-  loadAll();
+  loadAll().then(()=> setTimeout(fsDraftOffer, 400)); // danach: nicht gespeicherte Angaben anbieten
   if(state.myName) loadFavorites();
 }else{
   document.getElementById('app').innerHTML = loginScreenHtml();

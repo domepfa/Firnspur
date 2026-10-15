@@ -50,16 +50,37 @@ async function fbGet(path){
     await ensureValidAuthToken();
     const authParam = authState.idToken ? ('?auth=' + authState.idToken) : '';
     const res = await fetch(FIREBASE_URL + '/' + path + '.json' + authParam);
-    if(!res.ok){ dlog('Firebase GET fehlgeschlagen ('+res.status+'): '+path, 'err'); return null; }
-    const data = await res.json();
+    if(!res.ok){ fsGetFailed.add(path); dlog('Firebase GET fehlgeschlagen ('+res.status+'): '+path, 'err'); return null; }
+    let data = await res.json();
+    fsGetFailed.delete(path);
+    // Lokale Merker aus der Datenbank nie übernehmen (ältere Fassungen enthielten _unsynced)
+    if(data && typeof data === 'object' && !Array.isArray(data) && !/^versions\//.test(path)){
+      if(FS_VERSIONED.includes(path) || path === 'orte') Object.keys(data).forEach(id=>{ if(data[id] && typeof data[id] === 'object') data[id] = fsStripLocal(data[id]); });
+      else if(fsVersionedSplit(path)) data = fsStripLocal(data);
+    }
     if(typeof FS_OWNED_COLLS !== 'undefined' && FS_OWNED_COLLS.includes(path) && path === fsTourColl()) setTimeout(()=> fsSugLoad(path), 0);
     if(FS_VERSIONED.includes(path) && data && typeof data === 'object') Object.keys(data).forEach(id=>{ fsBaseStamp.set(path + '/' + id, (data[id] && data[id].updatedAt) || ''); fsBaseRemember(path + '/' + id, data[id]); });
     else{ const v = fsVersionedSplit(path); if(v && !FS_FILE_COLLS.includes(v.coll) && data && typeof data === 'object'){ fsBaseStamp.set(path, data.updatedAt || ''); fsBaseRemember(path, data); } }
     return data;
   }catch(e){
+    fsGetFailed.add(path);
     dlog('Firebase GET Fehler für "'+path+'": '+(e && e.message ? e.message : e), 'err');
     return null;
   }
+}
+// Pfade, deren letztes Lesen scheiterte (Netzfehler) – im Unterschied zu «leer» (null)
+const fsGetFailed = new Set();
+// Beim Laden: Konnte EINE Sammlung nicht gelesen werden (schwaches Netz), deren Gerätekopie nehmen
+// statt sie als leer zu behandeln (sonst Rettung/Überschreiben mit alten Kopien, leere Auswahllisten).
+function fsLoadOrCache(path, obj, cached, key){
+  if(!fsGetFailed.has(path)) return obj;
+  const cap = key.charAt(0).toUpperCase() + key.slice(1);
+  const arr = [...((cached && cached[key]) || []), ...((cached && cached['trashed' + cap]) || [])].filter(x=> x && x.id);
+  fsRememberCachedBases(path, arr);
+  if(typeof showToast === 'function') setTimeout(()=> showToast('Ein Teil konnte nicht geladen werden (Internet?) – zeigt dafür die Kopie auf diesem Gerät.', true), 800);
+  dlog('Laden: ' + path + ' aus der Gerätekopie (' + arr.length + ')', 'err');
+  const out = {}; arr.forEach(x=>{ out[x.id] = x; });
+  return out;
 }
 // Schutz: nie eine ganze Sammlung überschreiben oder löschen. Jeder Schreibpfad endet mit einer
 // gültigen ID (z. B. "fixseil/tours/t_abc"); eine leere ID ("fixseil/tours/") würde sonst die
@@ -86,8 +107,15 @@ const FS_VERSIONED = ['tours', 'huts', 'gebiete', 'agenda', 'orte', 'fixseil/tou
 const fsPendingFiles = new Map(); // Pfad → Wert
 function fsQueueFile(path, value){ fsPendingFiles.set(path, value); }
 function fsDropPendingFiles(){ fsPendingFiles.clear(); }
-async function fsFlushPendingFiles(){
-  const list = Array.from(fsPendingFiles.entries()); fsPendingFiles.clear();
+async function fsFlushPendingFiles(entryId, entry){
+  // Nur die Dateien des eben gespeicherten Eintrags (nicht die eines anderen, noch offenen Formulars).
+  // Routen-Dateien tragen die Routen-ID: gehört, wenn die Route im gespeicherten Eintrag steht.
+  let txt = ''; try{ txt = entry ? JSON.stringify(entry) : ''; }catch(e){}
+  const list = Array.from(fsPendingFiles.entries()).filter(([p])=>{
+    const id = p.split('/').pop();
+    return !entryId || id === entryId || p.split('/').slice(-2, -1)[0] === entryId || (id && txt.indexOf('"' + id + '"') >= 0);
+  });
+  list.forEach(([p])=> fsPendingFiles.delete(p));
   const res = await Promise.all(list.map(([p, v])=> fbSet(p, v).catch(()=> false)));
   if(res.some(x=> !x)){ list.forEach(([p, v], i)=>{ if(!res[i]) fsPendingFiles.set(p, v); }); if(typeof showToast === 'function') showToast('Eine GPX-Originaldatei konnte nicht gespeichert werden (Internet?).', true); }
 }
@@ -109,7 +137,7 @@ async function fsSaveVersion(v, cur, reason){
     const stamp = new Date().toISOString().replace(/[.:]/g, '-');
     const by = (typeof state !== 'undefined' && state.myName) || '';
     const res = await fsRawFetch('versions/' + v.key + '/' + v.id + '/' + stamp, {method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(Object.assign({}, cur, {_versionAt: new Date().toISOString(), _versionBy: by, _versionReason: reason || ''}))});
+      body: JSON.stringify(Object.assign(fsStripLocal(cur), {_versionAt: new Date().toISOString(), _versionBy: by, _versionReason: reason || ''}))});
     if(!res.ok) dlog('Version nicht gesichert (' + res.status + '): ' + v.key + '/' + v.id, 'err');
   }catch(e){ dlog('Version nicht gesichert: ' + (e && e.message ? e.message : e), 'err'); }
 }
@@ -216,12 +244,14 @@ function fsResolveConflicts(result, conflicts, cur){
   const me = (typeof state !== 'undefined' && state.myName) || '';
   const who = cur && cur.updatedBy ? (cur.updatedBy === me ? 'dir auf einem anderen Gerät' : cur.updatedBy) : 'jemand anderes';
   const title = (cur && (cur.name || cur.tourName || cur.title)) || 'Dieser Eintrag';
+  let tookTheirs = 0;
   conflicts.forEach(c=>{
     const top = c.path.split('.')[0];
     const label = FS_FIELD_LABELS[top] || top;
     const keepMine = window.confirm(`«${title}»: ${label} wurde inzwischen auch von ${who} geändert.\n\nDeine Fassung:\n${fsConflictShort(c.mine)}\n\nAndere Fassung:\n${fsConflictShort(c.theirs)}\n\nOK: deine behalten\nAbbrechen: die andere übernehmen\n(Beide bleiben unter «Frühere Versionen» erhalten.)`);
-    if(!keepMine) fsSetPath(result, c.path, c.theirs);
+    if(!keepMine){ fsSetPath(result, c.path, c.theirs); tookTheirs++; }
   });
+  return tookTheirs;
 }
 // Notbremse: Was ginge beim Speichern gegenüber dem aktuellen Stand verloren? Erfasst grössere
 // Verluste (ausgefülltes Feld wird leer, Linie fällt weg oder schrumpft stark, mehrere Listeneinträge
@@ -388,7 +418,22 @@ async function fsSugDecide(tourId, sid, field, accept){
   if(accept && fields.includes('deletedAt') && !confirm('Vorschlag annehmen und die Tour löschen (in den Papierkorb)?')) return;
   if(!accept && !confirm(fields.length > 1 ? 'Diese Vorschläge ablehnen?' : 'Diesen Vorschlag ablehnen?')) return;
   if(accept){
-    fields.forEach(f=>{ const v = s.changes[f]; if(v === FS_SUG_EMPTY || v === null || v === undefined) t[f] = Array.isArray(s.before && s.before[f]) ? [] : ''; else t[f] = v; if(f === 'deletedAt'){ t.deletedBy = s.by; } });
+    fields.forEach(f=>{
+      const v = s.changes[f], before = s.before ? s.before[f] : undefined;
+      // Listen: nur die vorgeschlagene Änderung anwenden (entfernt/neu gegenüber damals) – Einträge,
+      // die seither dazugekommen sind, bleiben (sonst würde die alte Liste sie still entfernen)
+      if(Array.isArray(t[f]) && (Array.isArray(v) || v === FS_SUG_EMPTY) && Array.isArray(before)){
+        const sug = Array.isArray(v) ? v : [];
+        const sugK = new Set(sug.map(fsImportKey)), befK = new Set(before.map(fsImportKey));
+        const removed = new Set(before.filter(x=> !sugK.has(fsImportKey(x))).map(fsImportKey));
+        const added = sug.filter(x=> !befK.has(fsImportKey(x)));
+        const kept = t[f].filter(x=> !removed.has(fsImportKey(x)));
+        const have = new Set(kept.map(fsImportKey));
+        t[f] = kept.concat(added.filter(x=> !have.has(fsImportKey(x))));
+      }else if(v === FS_SUG_EMPTY || v === null || v === undefined) t[f] = Array.isArray(before) ? [] : '';
+      else t[f] = v;
+      if(f === 'deletedAt'){ t.deletedBy = s.by; }
+    });
     const ok = await saveTourCloud(t).catch(()=> false);
     if(!ok){ showToast('Konnte nicht speichern (Internet?).', true); return; }
   }
@@ -425,24 +470,40 @@ function fsApplyOwnerFromForm(t, form){
 }
 // Liest den aktuellen Stand mit Versionskennung; fällt ohne Kennung zurück, falls der Browser sie nicht darf
 async function fsGetWithEtag(path){
+  let etagFailed = false;
   if(!fsEtagOff){
     try{
       const r = await fsRawFetch(path, {headers:{'X-Firebase-ETag':'true'}});
       if(r.ok){ const etag = r.headers.get('ETag'); if(!etag) fsEtagOff = true; return {ok:true, cur: await r.json(), etag}; }
       return {ok:false, status:r.status};
-    }catch(e){ fsEtagOff = true; } // evtl. CORS: ohne Kennung nochmals versuchen
+    }catch(e){ etagFailed = true; } // evtl. CORS: ohne Kennung nochmals versuchen
   }
   try{
     const r = await fsRawFetch(path);
-    if(r.ok) return {ok:true, cur: await r.json(), etag:null};
+    // Erst wenn das Lesen ohne Kennung klappt, lag es an der Kennung (nicht am fehlenden Netz)
+    if(r.ok){ if(etagFailed) fsEtagOff = true; return {ok:true, cur: await r.json(), etag:null}; }
     return {ok:false, status:r.status};
   }catch(e){ return {ok:false, offline:true}; }
 }
+// Lokale Merker (_unsynced, _versionAt …) gehören nie in die Datenbank: sonst hielte ein anderes
+// Gerät die Fassung für «noch nicht hochgeladen» und überschriebe damit neuere Daten.
+function fsStripLocal(o){
+  if(!o || typeof o !== 'object' || Array.isArray(o)) return o;
+  const out = {};
+  Object.keys(o).forEach(k=>{ if(k[0] !== '_') out[k] = o[k]; });
+  return out;
+}
 async function fsPutWithEtag(path, value, etag){
-  const body = JSON.stringify(value);
+  const body = JSON.stringify(fsStripLocal(value));
   if(etag && !fsEtagOff){
     try{ return await fsRawFetch(path, {method:'PUT', headers:{'Content-Type':'application/json', 'if-match': etag}, body}); }
-    catch(e){ fsEtagOff = true; }
+    catch(e){
+      // Offline oder Netzfehler: nicht als «Versionskennung nicht unterstützt» werten
+      if(typeof navigator !== 'undefined' && navigator.onLine === false) throw e;
+      const res = await fsRawFetch(path, {method:'PUT', headers:{'Content-Type':'application/json'}, body});
+      if(res.ok) fsEtagOff = true; // ohne Kennung ging es: der Server/Browser lässt if-match nicht zu
+      return res;
+    }
   }
   return fsRawFetch(path, {method:'PUT', headers:{'Content-Type':'application/json'}, body});
 }
@@ -450,25 +511,28 @@ async function fsSafeSet(path, value, v){
   for(let attempt = 0; attempt < 4; attempt++){
     const g = await fsGetWithEtag(path);
     if(!g.ok){
-      if(g.offline) fsBasePin(path);
-      // Ohne Lesen kein sicheres Zusammenführen — trotzdem versuchen, wenn nur das Lesen scheiterte
-      if(!g.offline && g.status !== 404){ dlog('Lesen vor dem Speichern fehlgeschlagen (' + g.status + '): ' + path, 'err'); return false; }
+      // Ohne Lesen kein sicheres Zusammenführen: nicht blind überschreiben, bleibt «noch nicht hochgeladen»
+      if(g.offline){ fsBasePin(path); dlog('Offline – später hochladen: ' + path); return false; }
+      if(g.status !== 404){ dlog('Lesen vor dem Speichern fehlgeschlagen (' + g.status + '): ' + path, 'err'); return false; }
     }
     const cur = g.ok ? g.cur : null;
     let result = JSON.parse(JSON.stringify(value));
+    const sent = JSON.parse(JSON.stringify(value)); // Stand beim Absenden: was danach lokal dazukommt, bleibt
     if(cur && typeof cur === 'object'){
       const base = fsBaseGet(path);
       if(base !== undefined){
         const conflicts = [];
         result = fsMerge3(base || {}, result, cur, '', conflicts);
-        if(conflicts.length) fsResolveConflicts(result, conflicts, cur);
+        // Andere Fassung gewählt: die eigene trotzdem unter «Frühere Versionen» ablegen (wie im Dialog versprochen)
+        if(conflicts.length && fsResolveConflicts(result, conflicts, cur)) await fsSaveVersion(v, value, 'eigene Fassung, andere übernommen');
       }else{
         // Ausgangsstand unbekannt (z. B. offline geöffnet): bisherige Prüfung per Zeitstempel
         const stampBase = fsBaseStamp.get(path), curStamp = cur.updatedAt || '';
         if(v.coll !== 'agenda' && stampBase !== undefined && curStamp && curStamp !== stampBase){
           const who = cur.updatedBy || 'jemand anderes';
           const when = new Date(curStamp).toLocaleString('de-CH', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
-          if(!window.confirm(`«${cur.name || cur.tourName || 'Dieser Eintrag'}» wurde inzwischen von ${who} geändert (${when}).\n\nOK: deine Fassung speichern — die andere bleibt unter «Frühere Versionen» erhalten.\nAbbrechen: nicht speichern und die neuere Fassung laden.`)){
+          if(!window.confirm(`«${cur.name || cur.tourName || 'Dieser Eintrag'}» wurde inzwischen von ${who} geändert (${when}).\n\nOK: deine Fassung speichern — die andere bleibt unter «Frühere Versionen» erhalten.\nAbbrechen: die neuere Fassung laden — deine bleibt unter «Frühere Versionen» erhalten.`)){
+            await fsSaveVersion(v, value, 'eigene Fassung, nicht übernommen');
             Object.keys(value).forEach(k=> delete value[k]); Object.assign(value, cur);
             fsBaseRemember(path, cur); fsBaseStamp.set(path, curStamp); fsBaseUnpin(path);
             if(typeof showToast === 'function') showToast('Nicht gespeichert — die neuere Fassung ist geladen.');
@@ -487,6 +551,8 @@ async function fsSafeSet(path, value, v){
         if(Object.keys(sp.changes).length){
           const okS = await fsSaveSuggestion(v.coll, v.id, cur, sp.changes, sp.before);
           const labels = Object.keys(sp.changes).map(k=> FS_FIELD_LABELS[k] || k).join(', ');
+          // Vorschlag nicht gespeichert: auch die Tour nicht speichern, sonst wäre die Änderung nirgends mehr
+          if(!okS){ setTimeout(()=> showToast('Vorschlag konnte nicht gespeichert werden (Internet?) – bleibt auf dem Gerät und wird später nochmals versucht.', true), 400); return false; }
           setTimeout(()=> showToast(okS ? 'Als Vorschlag an ' + fsOwnerOf(cur) + ' geschickt: ' + labels + '.' : 'Vorschlag konnte nicht gespeichert werden (Internet?).', !okS), 400);
           dlog('Vorschlag statt Änderung (' + labels + '): ' + path);
         }
@@ -514,8 +580,13 @@ async function fsSafeSet(path, value, v){
     if(res.status === 412){ dlog('Inzwischen geändert, führe erneut zusammen: ' + path); continue; }
     if(!res.ok){ dlog('Firebase PUT fehlgeschlagen (' + res.status + '): ' + path, 'err'); fsBasePin(path); return false; }
     // Die gespeicherte Fassung wird zur lokalen (inkl. der Änderungen anderer)
-    Object.keys(value).forEach(k=>{ if(!(k in result)) delete value[k]; });
-    Object.assign(value, result);
+    // Was während des Speicherns lokal weiter geändert wurde (zweite Eingabe, nächster Vorschlag …), bleibt:
+    // pro Feld drei Fassungen – beim Absenden, jetzt lokal, gespeichert
+    new Set([...Object.keys(value), ...Object.keys(result), ...Object.keys(sent)]).forEach(k=>{
+      if(k[0] === '_') return;
+      const nv = (k === 'updatedAt' || k === 'updatedBy') ? result[k] : fsMergeField(sent[k], value[k], result[k], k, []);
+      if(nv === undefined) delete value[k]; else value[k] = nv;
+    });
     fsBaseRemember(path, result); fsBaseUnpin(path);
     fsBaseStamp.set(path, result.updatedAt);
     dlog('Sicher gespeichert ' + (g.ok && g.etag && !fsEtagOff ? 'mit' : 'ohne') + ' Versionskennung: ' + path);
@@ -524,14 +595,39 @@ async function fsSafeSet(path, value, v){
   dlog('Speichern nach mehreren Versuchen aufgegeben (ständig geändert): ' + path, 'err');
   return false;
 }
-async function fbSet(path, value){
+// Speichern desselben Pfads nacheinander statt gleichzeitig: sonst setzt das Ende des ersten
+// Speicherns das Objekt auf seinen Stand zurück und das zweite verliert seine Änderung.
+const fsSaveChain = new Map();
+// Gerätekopie sofort schreiben (z. B. bevor das Netz antwortet: wird der Tab dabei beendet,
+// bleibt die Änderung als «noch nicht hochgeladen» erhalten)
+function fsCacheNow(path){
+  try{ if(typeof state !== 'undefined' && !state.loading && typeof cacheLocalSnapshot === 'function') cacheLocalSnapshot(); }catch(e){}
+  try{ if(/^orte\//.test(path || '') && typeof fsOrteCacheWrite === 'function') fsOrteCacheWrite(); }catch(e){}
+}
+function fbSet(path, value){
+  const prev = fsSaveChain.get(path) || Promise.resolve();
+  const p = prev.catch(()=>{}).then(()=> fbSetNow(path, value));
+  fsSaveChain.set(path, p);
+  p.finally(()=>{ if(fsSaveChain.get(path) === p) fsSaveChain.delete(path); });
+  return p;
+}
+async function fbSetNow(path, value){
   if(!fbPathOk(path)){ dlog('Speichern blockiert (ungültiger Pfad): "' + path + '"', 'err'); return false; }
+  const v0 = value && typeof value === 'object' && !Array.isArray(value) ? fsVersionedSplit(path) : null;
+  const isEntry = !!(v0 && !FS_FILE_COLLS.includes(v0.coll));
+  // Bis das Speichern bestätigt ist, gilt der Eintrag als «noch nicht hochgeladen»
+  if(isEntry){ value._unsynced = true; fsBasePin(path); fsCacheNow(path); }
+  const ok = await fbSetInner(path, value);
+  if(isEntry){ value._unsynced = !ok; fsCacheNow(path); }
+  return ok;
+}
+async function fbSetInner(path, value){
   try{
     const v = value && typeof value === 'object' && !Array.isArray(value) ? fsVersionedSplit(path) : null;
     // Einträge (Touren, Hütten, Termine …): sicher zusammenführen
     if(v && !FS_FILE_COLLS.includes(v.coll)){
       const ok = await fsSafeSet(path, value, v);
-      if(ok && fsPendingFiles.size) fsFlushPendingFiles();
+      if(ok && fsPendingFiles.size) fsFlushPendingFiles(v.id, value);
       return ok;
     }
     // Dateien (GPX-Originale): alte Fassung sichern, dann ersetzen
@@ -637,12 +733,42 @@ function uid(prefix){ return prefix + '_' + Date.now().toString(36) + '_' + Math
 // ersetzen. Ist die lokale Änderung neuer, gewinnt sie (die Datenbank-Fassung fliegt aus list und wird
 // beim erneuten Speichern unter versions/ gesichert). Ist die Datenbank neuer, wurde der Eintrag auch
 // anderswo geändert: lokal behalten, aber fbSet fragt beim Speichern nach (Basisstempel leer).
+// Noch nicht hochgeladene Einträge (Gerät und Gerätekopie) über die geladene Fassung legen – auch offline
+// in den Papierkorb gelegte oder daraus zurückgeholte: sie landen in der Liste, die ihr deletedAt sagt
+function fsUnsyncedSplit(coll, active, trashed, prevActive, prevTrashed, cached, ck){
+  const tk = 'trashed' + ck[0].toUpperCase() + ck.slice(1);
+  const local = dedupeById([].concat(prevActive || [], prevTrashed || [], (cached && cached[ck]) || [], (cached && cached[tk]) || []).filter(x=> x && x._unsynced));
+  local.forEach(x=>{
+    const i = trashed.findIndex(y=> y.id === x.id);
+    if(i >= 0){ trashed.splice(i, 1); fsKeepUnsynced(x, [{id: x.id}], coll); } // Ausgangsstand wie bei aktiven
+    else fsKeepUnsynced(x, active, coll);
+  });
+  return {local, active: local.filter(x=> !x.deletedAt).concat(active), trashed: local.filter(x=> x.deletedAt).concat(trashed)};
+}
 function fsKeepUnsynced(x, list, coll){
   const i = list.findIndex(y=> y.id === x.id);
   if(i < 0) return true;
-  if(coll && (x.updatedAt || '') <= (list[i].updatedAt || '')) fsBaseStamp.set(coll + '/' + x.id, '');
+  if(coll){
+    const path = coll + '/' + x.id;
+    let pinned = null;
+    try{ pinned = localStorage.getItem('fs-base:' + path); }catch(e){}
+    // Ausgangsstand meiner lokalen Änderung bekannt (beim Speichern festgehalten): sauber zusammenführen.
+    // Sonst NICHT die eben geladene Fassung als Ausgangsstand nehmen (dann gälte jedes abweichende Feld
+    // als «meine Änderung» und neuere Änderungen anderer würden still zurückgesetzt) – lieber nachfragen.
+    if(pinned == null){ fsBase.delete(path); fsBaseStamp.set(path, ''); }
+  }
   list.splice(i, 1);
   return true;
+}
+// Offline gestartet: die Gerätekopie ist der zuletzt bekannte Stand der Datenbank – als Ausgangsstand
+// merken, damit spätere Änderungen beim Hochladen sauber zusammengeführt werden.
+function fsRememberCachedBases(coll, list){
+  (Array.isArray(list) ? list : []).forEach(x=>{
+    if(!x || !x.id || x._unsynced) return;
+    const path = coll + '/' + x.id;
+    if(!fsBase.has(path)) fsBaseRemember(path, fsStripLocal(x));
+    if(!fsBaseStamp.has(path)) fsBaseStamp.set(path, x.updatedAt || '');
+  });
 }
 function dedupeById(arr){
   const map = new Map();
@@ -687,8 +813,9 @@ function restoreFromTrash(id, activeList, trashedList, saveFn){
   if(idx<0) return null;
   const item = trashedList[idx];
   trashedList.splice(idx, 1);
-  delete item.deletedAt;
-  delete item.deletedBy;
+  // Leeren statt entfernen: ein fehlendes Feld gilt beim Speichern als unverändert, sonst bliebe der Eintrag in der Datenbank gelöscht
+  item.deletedAt = '';
+  item.deletedBy = '';
   activeList.unshift(item);
   saveFn(item).catch(()=>{ item._unsynced = true; });
   return item;
@@ -854,13 +981,15 @@ async function fsOpenVersions(id, path, gpxPath){
     if(!window.confirm(`Fassung vom ${when(old._versionAt)} zurückholen?\n\nDie jetzige Fassung wird vorher als Version gesichert.`)) return;
     b.disabled = true; b.textContent = '…';
     const obj = findObj();
-    const restored = obj || {};
-    // Felder der alten Fassung übernehmen; was die alte Fassung nicht kannte, wird geleert
-    Object.keys(restored).forEach(k=>{ if(!k.startsWith('_') && !(k in old) && !['id', 'owner', 'editors', 'open', 'createdAt', 'createdBy'].includes(k)) restored[k] = Array.isArray(restored[k]) ? [] : ''; });
+    // Auf einer Kopie arbeiten (scheitert das Speichern, bleibt die Tour im Speicher unverändert).
+    // Felder der alten Fassung übernehmen; was die alte Fassung nicht kannte (z. B. später dazugekommene
+    // Erfahrungen, Orte, Links – Firebase speichert auch leere Listen nicht), bleibt erhalten.
+    const restored = JSON.parse(JSON.stringify(fsStripLocal(obj || {})));
     Object.keys(old).forEach(k=>{ if(!k.startsWith('_')) restored[k] = old[k]; });
     restored.id = id;
     const ok = await fbSet(path, restored);
-    if(!ok){ b.disabled = false; b.textContent = 'Zurückholen'; showToast('Zurückholen fehlgeschlagen (keine Verbindung?).', true); return; }
+    if(!ok){ b.disabled = false; b.textContent = 'Diese Fassung zurückholen'; showToast('Zurückholen fehlgeschlagen (keine Verbindung?).', true); return; }
+    if(obj){ Object.keys(restored).forEach(k=>{ obj[k] = restored[k]; }); obj._unsynced = false; }
     box.remove();
     render();
     showToast('Frühere Fassung zurückgeholt.');
@@ -912,6 +1041,7 @@ function fsGpxToSimplified(gpx){
 }
 let fsGpxRepairRunning = false;
 async function fsGpxRepairCheck(appKey){
+  if(fsGetFailed.has(fsOwnToursPath())) return; // Touren nicht gelesen: jede GPX-Datei sähe verwaist aus
   if(fsGpxRepairRunning || typeof GPX_TRACKS_PATH === 'undefined' || !Array.isArray(state.tours)) return;
   fsGpxRepairRunning = true;
   try{
@@ -2942,7 +3072,12 @@ function applyAgendaEditPrefill(agendaForm, a){
   if(a.days && a.days.length) return;
   const tourSelect = agendaForm.querySelector('#agenda-tour-select');
   if(tourSelect){
-    const desiredVal = a.tourRef ? `${a.tourRef.source}:${a.tourRef.id}` : 'custom';
+    let desiredVal = a.tourRef ? `${a.tourRef.source}:${a.tourRef.id}` : 'custom';
+    // 'own'/'other' hängt von der App ab, in der der Termin erstellt wurde: in der anderen App per ID suchen
+    if(a.tourRef && !Array.from(tourSelect.options).some(o=> o.value === desiredVal)){
+      const alt = Array.from(tourSelect.options).find(o=> o.value.split(':')[1] === a.tourRef.id);
+      if(alt) desiredVal = alt.value;
+    }
     tourSelect.value = desiredVal;
     if(tourSelect.value !== desiredVal) tourSelect.value = 'custom'; // Referenzierte Tour existiert nicht mehr
     tourSelect.dispatchEvent(new Event('change'));
@@ -2956,15 +3091,15 @@ function applyAgendaEditPrefill(agendaForm, a){
   if(a.anreiseType){
     const anreiseChip = agendaForm.querySelector(`.anreise-chip[data-anreise="${a.anreiseType}"]`);
     if(anreiseChip) anreiseChip.click();
-    const anreiseOrtInput = agendaForm.querySelector('input[name="anreiseOrt"]');
-    if(anreiseOrtInput) anreiseOrtInput.value = a.anreiseOrt || '';
   }
+  const anreiseOrtInput = agendaForm.querySelector('input[name="anreiseOrt"]');
+  if(anreiseOrtInput && a.anreiseOrt) anreiseOrtInput.value = a.anreiseOrt;
   if(a.endOption){
     const endChip = agendaForm.querySelector(`.end-option-chip[data-end="${a.endOption}"]`);
     if(endChip) endChip.click();
-    const endNoteInput = agendaForm.querySelector('#end-note-input');
-    if(endNoteInput) endNoteInput.value = a.endNote || '';
   }
+  const endNoteInput = agendaForm.querySelector('#end-note-input');
+  if(endNoteInput && a.endNote) endNoteInput.value = a.endNote;
 }
 // Ohne editId: leeres Formular für einen neuen Termin (bisheriges Verhalten). Mit editId: dasselbe
 // Formular, aber mit den Werten des bestehenden Termins vorbelegt (Titel/Button-Beschriftung
@@ -3520,6 +3655,14 @@ async function submitAgendaForm(form){
   // unangetastet (per Spread übernommen) — nur die im Formular editierbaren Felder werden ersetzt.
   const editId = form.agendaEditId || '';
   const existing = editId ? state.agenda.find(x=>x.id===editId) : null;
+  // Verknüpfte Tour hier nicht auffindbar (andere App, Papierkorb, noch nicht geladen) und Name unverändert:
+  // Verknüpfung und Routen behalten statt still zu lösen
+  if(!isMultiDay && existing && existing.tourRef && !tourRef && (form.tourChoice || 'custom') === 'custom' && tourName === (existing.tourName || '').trim()){
+    tourRef = existing.tourRef;
+    if(!accessRouteId) accessRouteId = existing.accessRouteId || '';
+    if(!descentRouteId) descentRouteId = existing.descentRouteId || '';
+  }
+  if(isMultiDay && existing && !endNote) endNote = existing.endNote || ''; // mehrtägig: kein Feld dafür
   const editableFields = {
     type: form.type||'ski', startDate, endDate: form.endDate||'',
     tourName, tourRef, meetingPoint: form.meetingPoint||'', note: form.note||'',
@@ -3555,6 +3698,7 @@ async function submitAgendaForm(form){
   }else{
     state.agenda.unshift(a);
   }
+  resetModalDirty(); // gespeichert: kein «verwerfen?» und kein Entwurf
   closeModal();
   state.modal = {type:'agenda-detail', payload:a.id};
   render();
@@ -10678,6 +10822,8 @@ function fsKeepFormDuringRender(){
   return true;
 }
 function fsTakeKeptModal(){
+  // Wechselt das Fenster (Notfallknopf, Link …), zuerst die letzten Eingaben des alten sichern
+  if(typeof fsDraftFlush === 'function' && modalIsDirty && typeof fsLastRenderedModal !== 'undefined' && fsLastRenderedModal && state.modal !== fsLastRenderedModal) fsDraftFlush();
   if(!fsKeepModalDuringRender() && !fsKeepFormDuringRender()) return null;
   const ov = document.querySelector('#modal-root > .overlay');
   if(ov) ov.remove();
@@ -10711,14 +10857,16 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, 
   item.updatedAt = new Date().toISOString();
   item.updatedBy = state.myName;
   const saveFn = kind==='tour' ? saveTourCloud : saveHutCloud;
-  const ok = await saveFn(item).catch(()=>false);
-  item._unsynced = !ok;
-  // Gespeichert = wieder gesperrt: Bearbeiten-Karte zu, kein "ungespeichert" mehr.
+  // Gelesen = übernommen: Karte sofort sperren (wie bei den Formularen), damit während des Hochladens
+  // nichts mehr verschoben wird, das danach verloren ginge – und kein anderes Fenster zurückgesetzt wird
   state.quickEditOpenId = null;
   resetModalDirty();
   closeModal(false, true);
   state.modal = {type: kind==='tour' ? 'tour-detail' : 'hut-detail', payload:id};
   render();
+  const ok = await saveFn(item).catch(()=>false);
+  item._unsynced = !ok;
+  if(typeof state !== 'undefined' && state.modal && state.modal.payload === id) render();
   if(ok) offerUndoAfterSave('Karte gespeichert · wieder gesperrt.', list, undoPrev, saveFn);
   else showToast('Lokal gespeichert, aber nicht synchronisiert.', true);
 }
@@ -10771,7 +10919,8 @@ async function refreshAuthToken(){
       headers: {'Content-Type':'application/x-www-form-urlencoded'},
       body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(authState.refreshToken)
     });
-    if(!res.ok){ clearAuth(); return false; }
+    // Nur bei abgelehntem Schlüssel abmelden – bei Serverfehler (5xx, 429) später nochmals versuchen
+    if(!res.ok){ if(res.status === 400 || res.status === 401 || res.status === 403) clearAuth(); return false; }
     const data = await res.json();
     authState = {
       idToken: data.id_token,
@@ -11317,7 +11466,9 @@ function snapshotForUndo(existing){
    wird stattdessen nur noch nachgefragt: hat sich seit dem Öffnen der Maske etwas geändert,
    fragt closeModal() vor dem Verwerfen einmal nach ("Ungespeicherte Änderungen verwerfen?").
    Speichern und Löschen laufen unverändert direkt durch (skipDirtyCheck-Parameter). */
-const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-sektor-topo-routen','edit-klettergebiet','edit-gipfel','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda','edit-agenda'];
+// Fenster mit Eingaben: Schliessen fragt bei Änderungen nach, Neuzeichnen aus dem Hintergrund behält sie
+const DIRTY_TRACKED_MODAL_TYPES = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-sektor-topo-routen','edit-klettergebiet','edit-gipfel','edit-access-route','edit-tour-route','edit-sektor-route','add-agenda','edit-agenda',
+  'complete-tour','complete-hut','add-completion','import','share-import','klettergebiet-scan-review'];
 let modalIsDirty = false;
 let lastDirtyTrackedModalKey = null;
 function modalDirtyTrackingKey(){
@@ -11329,23 +11480,88 @@ function modalDirtyTrackingKey(){
   }
   if(DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return null;
   const p = state.modal.payload;
-  const entityId = p && (p.id || (p.route && p.route.id));
-  return state.modal.type + '|' + (entityId || 'new');
+  const entityId = typeof p === 'string' ? p : p && (p.id || (p.route && p.route.id));
+  // Neue Einträge: nach dem übergeordneten Eintrag unterscheiden (neue Route dieser Hütte …)
+  const parent = p && typeof p === 'object' ? (p.hutId || p.tourId || p.sektorId || p.gebId || '') : '';
+  return state.modal.type + '|' + (entityId || ('new' + (parent ? ':' + parent : '')));
 }
 // Bei jedem Render einer Bearbeiten-Maske aufgerufen: erkennt, ob eine NEUE Sitzung begonnen hat
 // (dann wird der Dirty-Status zurückgesetzt) oder ob es sich nur um ein erneutes Rendern derselben
 // Sitzung handelt (z. B. nach Umschalten Hochtour/MSL) — dann bleibt der Status bestehen.
+// Auswahlfeld, dessen gespeicherter Wert nicht unter den Optionen ist (Hütte im Papierkorb, Liste noch
+// nicht geladen, Schwierigkeit wie «T3+» oder «AS» aus einem Import): den Wert als eigene Option
+// einsetzen und auswählen – sonst würde beim Speichern still «keine» bzw. die erste Option gespeichert.
+function fsKeepSelectValues(){
+  if(typeof state === 'undefined' || !state.modal || typeof DIRTY_TRACKED_MODAL_TYPES === 'undefined' || DIRTY_TRACKED_MODAL_TYPES.indexOf(state.modal.type) === -1) return;
+  if(/agenda/.test(state.modal.type)) return; // Termine: eigene Vorbelegung (applyAgendaEditPrefill)
+  const p = state.modal.payload;
+  const all = [].concat(state.huts || [], state.trashedHuts || [], state.gebiete || [], state.trashedGebiete || [], state.sektoren || [], state.trashedSektoren || [], state.klettergebiete || [], state.trashedKlettergebiete || []);
+  // Nur eine ID übergeben (z. B. Topo & Routen eines Sektors): den Eintrag dazu suchen
+  const byId = typeof p === 'string' ? [].concat(state.tours || [], state.gipfel || [], all).find(x=> x && x.id === p) : null;
+  const src = byId || (p && typeof p === 'object' ? (p.route && typeof p.route === 'object' ? p.route : p) : null);
+  if(!src) return;
+  document.querySelectorAll('#modal-root .overlay > .modal select[name]').forEach(sel=>{
+    const cur = src[sel.name];
+    if(cur === undefined || cur === null || cur === '' || typeof cur === 'object') return;
+    const v = String(cur);
+    if(Array.from(sel.options).some(o=> o.value === v)) return;
+    const ref = all.find(x=> x && x.id === v);
+    const o = document.createElement('option');
+    o.value = v; o.textContent = (ref ? (ref.name || v) + (ref.deletedAt ? ' (im Papierkorb)' : '') : v) + ' – bisheriger Wert';
+    sel.appendChild(o);
+    sel.value = v;
+  });
+  // Auswahl-Knöpfe aus festen Listen: gespeicherte Werte ohne Knopf als eigenen, gedrückten Knopf
+  const groups = {'approach-type-chips':'approachTypes', 'stay-type-chips':'stayTypes', 'rope-type-chips':'ropeType', 'rope-length-chips':'ropeLength'};
+  // Monate: unbekannte Werte zeigt monthChipsUnknownHtml als eigenen Knopf
+  Object.keys(groups).forEach(gid=>{
+    const box = document.querySelector('#modal-root .overlay > .modal #' + gid);
+    const cur = src[groups[gid]];
+    if(!box || cur === undefined || cur === null || cur === '') return;
+    const chips = Array.from(box.querySelectorAll('button.chip[data-value]'));
+    if(!chips.length) return;
+    const vals = (Array.isArray(cur) ? cur : [cur]).map(String).filter(Boolean);
+    vals.forEach(v=>{
+      if(chips.some(c=> c.getAttribute('data-value') === v)) return;
+      const b = chips[0].cloneNode(false);
+      b.classList.add('on'); b.style.background = 'var(--ice-deep)';
+      b.setAttribute('data-value', v); b.textContent = v;
+      box.appendChild(b);
+    });
+  });
+}
 function syncModalDirtyTracking(){
   fsLastRenderedModal = (typeof state !== 'undefined' && state.modal) || null;
+  try{ fsKeepSelectValues(); }catch(e){}
   const key = modalDirtyTrackingKey();
   if(key !== lastDirtyTrackedModalKey){
+    // Neue Sitzung: ein Entwurf der vorherigen ist erledigt (gespeichert oder bewusst verworfen) –
+    // ausser er stammt aus einem früheren Start und wurde noch nicht angeboten/angenommen
+    if(lastDirtyTrackedModalKey && typeof fsDraftClear === 'function'){
+      if(!modalIsDirty) fsDraftClear(lastDirtyTrackedModalKey);
+      else{ fsDraftWritten.delete(lastDirtyTrackedModalKey); /* letzte Eingaben sicherte fsTakeKeptModal vor dem Neuzeichnen */ fsDraftCheckLeft(lastDirtyTrackedModalKey); } // ungespeichert verlassen: gilt ab jetzt als älterer Entwurf (anbieten, nicht überschreiben)
+    }
     modalIsDirty = false;
     lastDirtyTrackedModalKey = key;
     lastPointsEditorMapView = null;
+    // Für dieses Fenster liegt ein älterer, nie gespeicherter Entwurf: gleich anbieten
+    if(key && typeof fsDraftWritten !== 'undefined' && !fsDraftWritten.has(key)){
+      const old = fsDraftRead(key);
+      if(old && !fsDraftIsStale(old)) setTimeout(()=>{ if(lastDirtyTrackedModalKey === key && !modalIsDirty) fsDraftOffer(old); }, 400);
+    }
   }
   setTimeout(paintModalDirty, 0);
 }
-function markModalDirty(){ modalIsDirty = true; paintModalDirty(); }
+function markModalDirty(){ modalIsDirty = true; paintModalDirty(); if(typeof fsDraftSoon === 'function') fsDraftSoon(); }
+// Änderungen in einem Fenster immer erkennen – auf Dokument-Ebene in der Capture-Phase: Fenster stoppen
+// Klicks (data-stop), und ein behaltenes Fenster hängt nach dem Neuzeichnen an einem neuen #modal-root.
+['input', 'change'].forEach(t=> document.addEventListener(t, (e)=>{
+  if(e.target && e.target.closest && e.target.closest('#modal-root .modal')) markModalDirty();
+}, true));
+document.addEventListener('click', (e)=>{
+  const b = e.target && e.target.closest && e.target.closest('#modal-root .modal button.chip, #modal-root .modal form button[data-value]');
+  if(b) markModalDirty();
+}, true);
 // Zeigt "Nicht gespeichert" in der festen Leiste der Maske (CSS-Klasse fs-dirty am .modal).
 function paintModalDirty(){
   const on = modalIsDirty && !!modalDirtyTrackingKey();
@@ -11354,12 +11570,12 @@ function paintModalDirty(){
 // Gegenstück zu markModalDirty() — gebraucht nach dem programmatischen Vorbefüllen einer
 // Bearbeiten-Maske (applyAgendaEditPrefill simuliert Klicks/Change-Events, die sonst fälschlich
 // "ungespeicherte Änderungen" auslösen würden, obwohl der Nutzer noch gar nichts angefasst hat).
-function resetModalDirty(){ modalIsDirty = false; paintModalDirty(); }
+function resetModalDirty(){ modalIsDirty = false; paintModalDirty(); if(typeof fsDraftClear === 'function') fsDraftClear(); }
 // true = Schliessen darf weitergehen; false = Nutzer hat abgebrochen (Maske bleibt offen).
 function confirmDiscardIfDirty(){
   if(!modalIsDirty || !modalDirtyTrackingKey()) return true;
   const ok = confirm('Ungespeicherte Änderungen verwerfen?');
-  if(ok){ modalIsDirty = false; fsDropPendingFiles(); }
+  if(ok){ modalIsDirty = false; fsDropPendingFiles(); if(typeof fsDraftClear === 'function') fsDraftClear(); }
   return ok;
 }
 
@@ -11389,6 +11605,11 @@ document.addEventListener('click', e=>{
   const a = e.target && e.target.closest && e.target.closest('.app-switch-bar a[href]');
   if(!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey) return;
   e.preventDefault();
+  if(modalIsDirty && modalDirtyTrackingKey()){
+    // Entwurf sichern; nach der Rückkehr in diese App wird er angeboten
+    if(typeof fsDraftSave === 'function') fsDraftSave();
+    if(!confirm('Ungespeicherte Änderungen sind als Entwurf gesichert und werden beim nächsten Öffnen angeboten. Trotzdem wechseln?')) return;
+  }
   window.location.replace(a.href);
 });
 // true = popstate ist erledigt (Wächter verlassen und Rückfrage gestellt)
@@ -12141,7 +12362,14 @@ function monthChipsRowHtml(fieldClass, fullMonths, partialMonths){
       : state==='partial' ? 'background:#E8B93E; border-color:transparent; color:#3D2E12;'
       : '';
     return `<button type="button" class="chip ${fieldClass}" data-month="${m.key}" data-state="${state}" style="${style}">${m.label}</button>`;
-  }).join('');
+  }).join('') + monthChipsUnknownHtml(fieldClass, full, partial);
+}
+// Gespeicherte Werte ohne eigenen Monats-Knopf (Import, ältere Schreibweise): als eigenen Knopf zeigen, sonst gingen sie beim Speichern verloren
+function monthChipsUnknownHtml(fieldClass, full, partial){
+  const keys = new Set(MONTHS.map(m=> m.key));
+  const seen = new Set();
+  return full.map(v=> [v, 'full']).concat(partial.map(v=> [v, 'partial'])).filter(([v])=> v && !keys.has(v) && !seen.has(v) && seen.add(v)).map(([v, st])=>
+    `<button type="button" class="chip ${fieldClass}" data-month="${esc(String(v))}" data-state="${st}" style="${st === 'full' ? 'background:var(--ok); border-color:transparent; color:#fff;' : 'background:#E8B93E; border-color:transparent; color:#3D2E12;'}">${esc(String(v))}</button>`).join('');
 }
 function monthChipsReadonlyHtml(fullMonths, partialMonths, fullColorVar){
   const full = Array.isArray(fullMonths) ? fullMonths : [];
@@ -12826,6 +13054,8 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
         const storagePath = `${TOPO_IMAGES_PATH}/${tourId}/${imgId}.jpg`;
         if(statusEl) statusEl.textContent = `Bild ${images.length+1}/${TOPO_IMAGE_MAX_COUNT} wird hochgeladen…`;
         const url = await uploadTopoImageBlob(blob, storagePath);
+        // Liste neu lesen: währenddessen kann ein anderes Bild dazugekommen, entfernt oder verschoben worden sein
+        try{ images = hiddenInput && hiddenInput.value ? JSON.parse(hiddenInput.value) : images; }catch(e){}
         images.push({id: imgId, url, storagePath});
         if(hiddenInput) hiddenInput.value = JSON.stringify(images);
         markModalDirty();
@@ -13255,6 +13485,7 @@ async function scanTopoImageForRoutes(fileInputEl, hiddenInputId, containerId, s
       grad: r.grad || '',
     }));
     if(hiddenInput) hiddenInput.value = JSON.stringify(existing.concat(added));
+    markModalDirty(); // erkannte Routen sind eine Änderung: Schliessen fragt nach, Entwurf wird gesichert
     renderKletterroutenEditor(containerId, hiddenInputId);
     if(statusEl) statusEl.textContent = added.length ? `✓ ${added.length} Route(n) erkannt — bitte kurz prüfen.` : 'Keine Routen erkannt.';
     showToast(added.length ? (added.length + ' Route(n) erkannt und übernommen.') : 'Keine Routen erkannt — Foto evtl. unscharf oder falscher Ausschnitt.', !added.length);
@@ -14432,15 +14663,32 @@ const FS_ORT_NEAR_KM = 5;
 function fsOrtKind(k){ return FS_ORT_KINDS.find(x=> x.key === (k || '')) || FS_ORT_KINDS[FS_ORT_KINDS.length - 1]; }
 function fsToday(){ const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 function fsOrteCacheKey(){ return (location.pathname.indexOf('/beta/') >= 0 ? 'firnspurbeta' : 'firnspur') + '-orte'; }
-function fsOrteAll(){ return (typeof state !== 'undefined' && state.orte) || []; }
+function fsOrteRaw(){ return (typeof state !== 'undefined' && state.orte) || []; } // inkl. offline gelöschter, noch nicht hochgeladener
+function fsOrteAll(){ return fsOrteRaw().filter(o=> o && !o.deletedAt); }
 function fsOrtById(id){ return fsOrteAll().find(o=> o.id === id) || null; }
-function fsOrteCacheWrite(){ try{ localStorage.setItem(fsOrteCacheKey(), JSON.stringify(fsOrteAll())); }catch(e){} }
+// Gerätespeicher voll (oder gesperrt): einmal pro Sitzung sagen, dass Offline-Kopie fehlt
+let fsStorageWarned = false;
+function fsWarnStorageFull(e){
+  if(fsStorageWarned) return;
+  fsStorageWarned = true;
+  if(typeof dlog === 'function') dlog('Gerätespeicher: ' + (e && (e.name + ' ' + e.message)), 'err');
+  if(typeof showToast === 'function') setTimeout(()=> showToast('Gerätespeicher voll: Die Offline-Kopie konnte nicht gesichert werden. Gespeichert wird nur mit Internet.', true), 300);
+}
+// Der Speicher wird von allen drei Apps geteilt: noch nicht hochgeladene Orte einer anderen App behalten
+function fsOrteCacheWrite(){
+  try{
+    const mine = fsOrteRaw(), ids = new Set(mine.map(o=> o && o.id));
+    const others = fsOrteCacheRead().filter(o=> o && o._unsynced && !ids.has(o.id));
+    localStorage.setItem(fsOrteCacheKey(), JSON.stringify(others.concat(mine)));
+  }catch(e){ if(typeof dlog === 'function') dlog('Orte nicht im Gerät gesichert: ' + (e && e.message), 'err'); if(typeof fsWarnStorageFull === 'function') fsWarnStorageFull(e); }
+}
 function fsOrteCacheRead(){ try{ return JSON.parse(localStorage.getItem(fsOrteCacheKey()) || '[]') || []; }catch(e){ return []; } }
 async function fsOrteLoad(){
   const cached = fsOrteCacheRead();
   if(!state.orte) state.orte = cached;
   const obj = await fbGet(FS_ORTE_PATH);
-  if(obj === null){ return; } // offline oder leer: Gerätespeicher behalten
+  // Offline oder leer: Gerätespeicher behalten; seine Fassung gilt als Ausgangsstand für Änderungen
+  if(obj === null){ fsRememberCachedBases(FS_ORTE_PATH, state.orte); return; }
   const list = Object.values(obj || {}).filter(o=> o && o.id && !o.deletedAt);
   const unsynced = dedupeById([...state.orte.filter(o=> o._unsynced), ...cached.filter(o=> o._unsynced)]).filter(o=> fsKeepUnsynced(o, list, FS_ORTE_PATH));
   state.orte = [...unsynced, ...list];
@@ -14450,8 +14698,9 @@ async function fsOrteLoad(){
   unsynced.forEach(o=> fsOrtPush(o));
 }
 async function fsOrtPush(o){
-  const clean = Object.assign({}, o); delete clean._unsynced;
-  const ok = await fbSet(FS_ORTE_PATH + '/' + o.id, clean).catch(()=> false);
+  // Direkt das Objekt speichern (lokale _-Felder gehen nicht mit): so kommt die zusammengeführte Fassung
+  // samt Änderungen anderer zurück und gilt beim nächsten Speichern als Ausgangsstand
+  const ok = await fbSet(FS_ORTE_PATH + '/' + o.id, o).catch(()=> false);
   o._unsynced = !ok;
   fsOrteCacheWrite();
   return ok;
@@ -14460,7 +14709,7 @@ async function fsOrtSave(o){
   if(!o || !String(o.name || '').trim()) return false;
   o.updatedAt = new Date().toISOString();
   o.updatedBy = state.myName || '';
-  const list = fsOrteAll();
+  const list = fsOrteRaw().slice();
   const i = list.findIndex(x=> x.id === o.id);
   if(i >= 0) list[i] = o; else list.unshift(o);
   state.orte = list;
@@ -14477,7 +14726,8 @@ async function fsOrtDelete(o){
   o.deletedAt = new Date().toISOString();
   o.updatedBy = state.myName || '';
   const ok = await fsOrtPush(o);
-  state.orte = fsOrteAll().filter(x=> x.id !== o.id);
+  // Offline: als gelöscht und «noch nicht hochgeladen» behalten (ausgeblendet), sonst käme er beim Laden zurück
+  if(ok) state.orte = fsOrteRaw().filter(x=> x.id !== o.id);
   fsOrteCacheWrite();
   if(typeof render === 'function') render();
   fsmOrteRefresh();
@@ -14545,8 +14795,11 @@ function fsSheet(html, onClose){
   ov.className = 'fs-cond-sheet fs-ort-sheet';
   ov.innerHTML = `<div class="in" role="dialog">${html}</div>`;
   document.body.appendChild(ov);
-  ov.addEventListener('click', e=>{ if(e.target === ov) closeTopOverlayLayer(); });
-  ov.querySelectorAll('[data-close]').forEach(b=> b.addEventListener('click', ()=> closeTopOverlayLayer()));
+  // Eingaben gemacht: vor dem Schliessen ohne Speichern nachfragen
+  ov.addEventListener('input', ()=>{ ov._dirty = true; });
+  const tryClose = ()=>{ if(ov._dirty && !ov._saved){ if(!confirm('Eingaben verwerfen?')) return; if(ov._onDiscard) ov._onDiscard(); } closeTopOverlayLayer(); };
+  ov.addEventListener('click', e=>{ if(e.target === ov) tryClose(); });
+  ov.querySelectorAll('[data-close]').forEach(b=> b.addEventListener('click', tryClose));
   pushOverlayLayer(()=>{ ov.remove(); if(onClose) onClose(); });
   return ov;
 }
@@ -14841,10 +15094,16 @@ function fsOpenErfForm(tourId){
       drawPhotos(); q('[data-msg]').textContent = '';
     }catch(err){ q('[data-msg]').textContent = 'Foto konnte nicht hochgeladen werden (Internet?).'; }
   });
+  // Entwurf des Textes auf dem Gerät (übersteht beendeten Tab), beim Öffnen wieder einsetzen
+  const dKey = 'fs-draft-erf:' + t.id;
+  try{ const old = localStorage.getItem(dKey); if(old){ q('#fs-erf-text').value = old; ov._dirty = true; } }catch(err){}
+  q('#fs-erf-text').addEventListener('input', ()=>{ try{ localStorage.setItem(dKey, q('#fs-erf-text').value); }catch(err){} });
+  ov._onDiscard = ()=>{ try{ localStorage.removeItem(dKey); }catch(err){} };
   q('[data-save]').addEventListener('click', async ()=>{
     e.text = q('#fs-erf-text').value.trim();
     e.date = q('#fs-erf-date').value || fsToday();
     if(!e.text && !e.photos.length){ q('[data-msg]').textContent = 'Bitte etwas schreiben oder ein Foto wählen.'; q('#fs-erf-text').focus(); return; }
+    ov._saved = true; try{ localStorage.removeItem(dKey); }catch(err){}
     closeTopOverlayLayer();
     t.erfahrungen = [...(Array.isArray(t.erfahrungen) ? t.erfahrungen : []), e];
     await fsErfSaveTour(t, 'Erfahrung gespeichert.');
@@ -15124,9 +15383,33 @@ async function fsCheckRestore(items){
     obj.updatedAt = new Date().toISOString();
     obj.updatedBy = (state && state.myName) || '';
     const res = await fbSet(path, obj).catch(()=> false);
-    if(res) ok += list.length; else fail += list.length;
+    if(res){ ok += list.length; fsCheckSyncState(path, obj, list); } else fail += list.length;
   }
   return {ok, fail};
+}
+// Zurückgeholtes sofort auch in die geladene Fassung übernehmen – sonst würde das nächste Speichern aus
+// dem alten Stand (z. B. weil ein Formular offen ist und nicht neu geladen wird) es wieder entfernen
+function fsCheckSyncState(path, obj, items){
+  const id = String(path).split('/').pop();
+  const lists = [state.tours, state.huts, state.gebiete, state.sektoren, state.klettergebiete, state.gipfel, state.agenda, state.orte,
+    state.trashedTours, state.trashedHuts, state.trashedGebiete, state.trashedSektoren, state.trashedKlettergebiete, state.trashedGipfel].filter(Array.isArray);
+  lists.forEach(l=> l.forEach(x=>{
+    if(!x || x.id !== id) return;
+    // Noch nicht hochgeladene eigene Änderung: nur das Zurückgeholte ergänzen, den Rest nicht anfassen
+    if(x._unsynced && Array.isArray(items)){
+      items.forEach(it=>{
+        if(it.type === 'item'){ const arr = Array.isArray(x[it.field]) ? x[it.field] : (x[it.field] = []); if(!arr.some(y=> fsCheckItemKey(y) === fsCheckItemKey(it.value))) arr.push(JSON.parse(JSON.stringify(it.value))); }
+        // Ganzer Eintrag: nur fehlende Felder ergänzen, die neueren eigenen Änderungen bleiben
+        else if(it.type === 'entry') Object.keys(obj).forEach(k=>{ if(k[0] !== '_' && fsCanon(x[k]) === null) x[k] = JSON.parse(JSON.stringify(obj[k])); });
+        // Linie/Text bewusst zurückgeholt: gilt, sonst nähme das nächste Hochladen es wieder weg
+        else x[it.field] = JSON.parse(JSON.stringify(it.value));
+      });
+      return;
+    }
+    Object.keys(x).forEach(k=>{ if(k[0] !== '_' && !(k in obj)) delete x[k]; });
+    Object.keys(obj).forEach(k=>{ if(k[0] !== '_') x[k] = JSON.parse(JSON.stringify(obj[k])); });
+  }));
+  if(typeof cacheLocalSnapshot === 'function') try{ cacheLocalSnapshot(); }catch(e){}
 }
 async function fsOpenDataCheck(){
   const box = document.createElement('div');
@@ -15190,7 +15473,9 @@ async function fsOpenDataCheck(){
         msg.textContent = 'Lade heutigen Stand …';
         const now = {};
         for(const coll of FS_CHECK_COLLS){
-          const v = await fbGet(coll);
+          // Direkt lesen, nicht über fbGet: das würde die gemerkten Ausgangsstände offener Bearbeitungen ersetzen
+          let v = null;
+          try{ const r = await fsRawFetch(coll); v = r.ok ? await r.json() : null; }catch(e){ v = null; }
           if(v === null && !navigator.onLine) throw new Error('Keine Verbindung zur Datenbank.');
           const segs = coll.split('/'); let o = now;
           segs.slice(0, -1).forEach(s=>{ o = o[s] = o[s] || {}; });
@@ -15234,7 +15519,7 @@ async function fsOpenDataCheck(){
       card.innerHTML = `<h3>${fsIconHtml('shield')} Datenprüfung</h3>
         <p><b>${r.ok} zurückgeholt</b>${r.fail ? `, ${r.fail} nicht (Internet?) – bitte nochmals prüfen` : ''}.</p>
         <div class="fs-ort-btns"><button type="button" class="btn" data-close>Fertig</button></div>`;
-      card.querySelector('[data-close]').onclick = ()=>{ close(); if(typeof loadAll === 'function') loadAll(); };
+      card.querySelector('[data-close]').onclick = ()=>{ close(); if(typeof loadAll === 'function' && !(state.modal && modalIsDirty)) loadAll(); };
     };
   };
   start();
@@ -15259,6 +15544,23 @@ function fsUnsyncedCount(){
   const lists = ['tours', 'huts', 'gebiete', 'sektoren', 'klettergebiete', 'gipfel', 'agenda', 'orte'];
   return lists.reduce((n, k)=> n + (Array.isArray(state[k]) ? state[k].filter(x=> x && x._unsynced).length : 0), 0);
 }
+// Nur das Ausstehende hochladen (kein vollständiges Neuladen: das würde offene Formulare und
+// gemerkte Ausgangsstände durcheinanderbringen)
+async function fsRetryUnsynced(){
+  if(typeof state === 'undefined') return;
+  const jobs = [];
+  Object.keys(FS_RESCUE_COLLS).forEach(coll=>{
+    const fn = window[FS_RESCUE_COLLS[coll][1]];
+    if(typeof fn !== 'function' || !Array.isArray(state[coll])) return;
+    [...state[coll], ...(state['trashed' + fsRescueCap(coll)] || [])].filter(x=> x && x._unsynced).forEach(x=> jobs.push(fn(x).catch(()=> false)));
+  });
+  if(typeof saveAgendaCloud === 'function') (state.agenda || []).filter(x=> x && x._unsynced).forEach(x=> jobs.push(saveAgendaCloud(x).catch(()=> false)));
+  fsOrteRaw().filter(o=> o._unsynced).forEach(o=> jobs.push(fsOrtPush(o)));
+  const res = await Promise.all(jobs);
+  const ok = res.filter(Boolean).length;
+  if(typeof render === 'function') render();
+  showToast(res.length ? (ok === res.length ? 'Alles hochgeladen.' : ok + ' von ' + res.length + ' hochgeladen – der Rest später (Internet?).') : 'Nichts ausstehend.', ok !== res.length);
+}
 function fsUnsyncedSync(){
   const n = fsUnsyncedCount();
   let el = document.getElementById('fs-unsynced');
@@ -15269,7 +15571,7 @@ function fsUnsyncedSync(){
     el.className = 'fs-unsynced';
     el.setAttribute('role', 'status');
     document.body.appendChild(el);
-    el.addEventListener('click', (e)=>{ if(e.target.closest('button') && typeof loadAll === 'function'){ e.target.closest('button').disabled = true; loadAll(); } });
+    el.addEventListener('click', (e)=>{ const b = e.target.closest('button'); if(b){ b.disabled = true; fsRetryUnsynced().finally(()=>{ b.disabled = false; fsUnsyncedSync(); }); } });
   }
   const txt = n === 1 ? '1 Änderung noch nicht hochgeladen' : n + ' Änderungen noch nicht hochgeladen';
   if(el.dataset.n !== String(n)){
@@ -15279,6 +15581,195 @@ function fsUnsyncedSync(){
 }
 setInterval(fsUnsyncedSync, 4000);
 window.addEventListener('online', ()=> setTimeout(fsUnsyncedSync, 500));
+/* ===== Entwurf: nicht gespeicherte Eingaben überstehen Neuladen und beendete Tabs =====
+   Android beendet Tabs im Hintergrund, ein Neuladen leert den Speicher. Solange ein Formular oder
+   «Karte bearbeiten» ungespeicherte Änderungen hat, wird der Inhalt laufend auf dem Gerät abgelegt
+   (alle Felder, Auswahl-Knöpfe, versteckte Felder mit Punkten/Linien). Beim nächsten Start bietet
+   die App an, ihn wiederherzustellen. Nach dem Speichern oder bewussten Verwerfen wird er gelöscht. */
+function fsDraftPrefix(){ return 'fs-draft:' + (location.pathname.indexOf('/beta/') >= 0 ? 'beta-' : '') + (typeof fsAppKey === 'function' ? fsAppKey() : 'app') + ':'; }
+// Ein Entwurf pro Fenster (Formular bzw. «Karte bearbeiten» eines Eintrags)
+function fsDraftKey(k){ return fsDraftPrefix() + (k || (typeof modalDirtyTrackingKey === 'function' && modalDirtyTrackingKey()) || 'x'); }
+function fsDraftCapture(){
+  if(typeof state === 'undefined' || !state.modal || !modalIsDirty) return null;
+  const key = modalDirtyTrackingKey();
+  if(!key) return null;
+  const modal = document.querySelector('#modal-root .overlay > .modal');
+  if(!modal) return null;
+  const fields = [];
+  modal.querySelectorAll('input, textarea, select').forEach(el=>{
+    if(!el.id && !el.name) return;
+    if(el.type === 'file' || el.type === 'button' || el.type === 'submit') return;
+    fields.push({id: el.id || '', name: el.name || '', v: (el.type === 'checkbox' || el.type === 'radio') ? (el.checked ? '1' : '') : el.value, chk: el.type === 'checkbox' || el.type === 'radio'});
+  });
+  const chips = [];
+  modal.querySelectorAll('button.chip[data-value]').forEach(b=> chips.push({cls: Array.from(b.classList).filter(c=> c !== 'chip' && c !== 'on').join('.'), v: b.getAttribute('data-value'), on: b.classList.contains('on')}));
+  const p = state.modal.payload;
+  const id = (p && (p.id || (p.route && p.route.id))) || (typeof p === 'string' ? p : '');
+  const name = (modal.querySelector('[name="name"]') || {}).value || (p && p.name) || ((modal.querySelector('.modal-head h2') || {}).textContent || '').trim();
+  let agendaDays = null;
+  const dayBox = /agenda/.test(state.modal.type) ? modal.querySelector('#agenda-day-plan-container') : null;
+  if(dayBox && dayBox.dataset.mode === 'multi' && typeof collectAgendaDayPlanFromDom === 'function'){ try{ agendaDays = collectAgendaDayPlanFromDom(dayBox); }catch(e){} }
+  return {key, type: state.modal.type, id, payload: (p && typeof p === 'object') ? fsStripLocal(p) : p, quick: key.indexOf('|quick|') >= 0 ? state.quickEditOpenId : null, name, at: new Date().toISOString(), fields, chips, agendaDays};
+}
+// Entwürfe, die in dieser Sitzung geschrieben wurden. Ältere (z. B. aus einem beendeten Tab) werden
+// nie still gelöscht oder überschrieben – nur nach Angebot und Antwort.
+const fsDraftWritten = new Set();
+// Gerade offenes Fenster sichern, auch wenn state.modal schon auf ein anderes zeigt (Notfallknopf, Link)
+function fsDraftFlush(){
+  if(!modalIsDirty || typeof fsLastRenderedModal === 'undefined' || !fsLastRenderedModal || typeof state === 'undefined') return;
+  const cur = state.modal;
+  try{ state.modal = fsLastRenderedModal; fsDraftSave(); }finally{ state.modal = cur; }
+}
+let fsDraftTimer = null;
+function fsDraftSave(){
+  clearTimeout(fsDraftTimer);
+  const d = fsDraftCapture();
+  if(!d) return;
+  try{
+    const sk = fsDraftKey(d.key);
+    // Älterer Entwurf unter demselben Schlüssel (frühere Sitzung): beiseitelegen statt überschreiben
+    if(!fsDraftWritten.has(d.key)){
+      const old = localStorage.getItem(sk);
+      if(old){ let o = null; try{ o = JSON.parse(old); }catch(e){} if(o && o.at) localStorage.setItem(sk + '#' + o.at, old); }
+      fsDraftWritten.add(d.key);
+    }
+    localStorage.setItem(sk, JSON.stringify(d));
+  }catch(e){ dlog('Entwurf nicht gespeichert: ' + (e && e.message), 'err'); }
+}
+function fsDraftSoon(){ clearTimeout(fsDraftTimer); fsDraftTimer = setTimeout(fsDraftSave, 600); }
+// Löscht nur einen in dieser Sitzung geschriebenen Entwurf (force: auch einen älteren, nach Rückfrage)
+function fsDraftClear(k, force){
+  clearTimeout(fsDraftTimer);
+  const key = k || (typeof lastDirtyTrackedModalKey !== 'undefined' ? lastDirtyTrackedModalKey : null);
+  if(!key || (!force && !fsDraftWritten.has(key))) return;
+  try{ localStorage.removeItem(fsDraftKey(key)); }catch(e){}
+  fsDraftWritten.delete(key);
+}
+function fsDraftDrop(d){ try{ localStorage.removeItem(d && d._sk ? d._sk : fsDraftKey(d.key)); }catch(e){} if(d && !d._sk) fsDraftWritten.delete(d.key); }
+function fsDraftRead(k){ try{ return JSON.parse(localStorage.getItem(fsDraftKey(k)) || 'null'); }catch(e){ return null; } }
+function fsDraftAll(){
+  const out = [], pre = fsDraftPrefix();
+  try{ for(let i = 0; i < localStorage.length; i++){ const k = localStorage.key(i); if(k && k.startsWith(pre)){ try{ const d = JSON.parse(localStorage.getItem(k)); if(d && d.type){ if(k.indexOf('#') >= 0) d._sk = k; out.push(d); } }catch(e){} } } }catch(e){}
+  return out.sort((a, b)=> (b.at || '').localeCompare(a.at || ''));
+}
+// Nach dem Speichern wird der Entwurf gelöscht; was übrig bleibt, wurde nie gespeichert. Nur sehr alte fallen weg.
+function fsDraftIsStale(d){
+  return !d || !d.at || Date.now() - new Date(d.at).getTime() > 30 * 864e5;
+}
+// Wurde der Eintrag nach dem Entwurf noch geändert? (für den Hinweis im Angebot)
+function fsDraftEntity(d){
+  if(typeof state === 'undefined' || !d || !d.id) return null;
+  const lists = [state.tours, state.huts, state.gebiete, state.sektoren, state.klettergebiete, state.gipfel, state.agenda].filter(Array.isArray);
+  for(const l of lists){ const x = l.find(y=> y && y.id === d.id); if(x) return x; }
+  return null;
+}
+// Fenster mit ungespeicherten Angaben wurde ohne Speichern verlassen (z. B. Notfallknopf, Wischen):
+// kurz warten, ob doch gespeichert wurde, sonst Wiederherstellen anbieten
+function fsDraftCheckLeft(k){
+  setTimeout(()=>{
+    const d = fsDraftRead(k);
+    if(!d) return;
+    if(fsDraftIsStale(d)){ fsDraftClear(k, true); return; }
+    // Gerade wieder am Bearbeiten (oder Notfallkarte offen): später nochmals
+    if((modalIsDirty && typeof modalDirtyTrackingKey === 'function' && modalDirtyTrackingKey() && modalDirtyTrackingKey() !== k) || (typeof state !== 'undefined' && state.modal && state.modal.type === 'emergency')){ fsDraftCheckLeft(k); return; }
+    if(modalIsDirty && modalDirtyTrackingKey() === k) return; // dasselbe Fenster wieder offen
+    fsDraftOffer(d);
+  }, 1500);
+}
+// Beim Wegwechseln (andere App, Bildschirm aus) sofort ablegen – danach kann der Tab beendet werden
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'hidden') fsDraftFlush(); });
+window.addEventListener('pagehide', fsDraftFlush);
+// Werte eines Entwurfs ins (frisch geöffnete) Fenster schreiben
+function fsDraftApply(d){
+  const modal = document.querySelector('#modal-root .overlay > .modal');
+  if(!modal || !d) return false;
+  // Zweimal: zuerst mit change (abhängige Auswahl, z. B. Teilgebiet nach Region), dann still alle Werte
+  [true, false].forEach(fire=> (d.fields || []).forEach(f=>{
+    let el = f.id ? modal.querySelector('#' + CSS.escape(f.id)) : null;
+    if(!el && f.name) el = modal.querySelector('[name="' + CSS.escape(f.name) + '"]');
+    if(!el) return;
+    if(f.chk) el.checked = !!f.v; else el.value = f.v;
+    if(fire && el.tagName === 'SELECT') el.dispatchEvent(new Event('change', {bubbles: true}));
+  }));
+  (d.chips || []).forEach(c=>{
+    const sel = 'button.chip' + (c.cls ? '.' + c.cls.split('.').map(x=> CSS.escape(x)).join('.') : '') + '[data-value="' + CSS.escape(c.v) + '"]';
+    const b = modal.querySelector(sel);
+    if(b && b.classList.contains('on') !== !!c.on) b.click();
+  });
+  markModalDirty();
+  return true;
+}
+async function fsDraftRestore(d){
+  if(d.quick){
+    // «Karte bearbeiten»: Ansicht öffnen, Punkte/Linie zurückschreiben, dann die Karte öffnen
+    state.modal = {type: d.type, payload: d.id}; render();
+    await new Promise(r=> setTimeout(r, 300));
+    fsDraftApply(d);
+    try{ fsEnterEditMode(); }catch(e){}
+    const t = document.getElementById('quick-edit-toggle-' + d.id);
+    if(t){ t._fsHoldOk = true; t.click(); t._fsHoldOk = false; }
+    markModalDirty();
+    return;
+  }
+  // Formular: mit dem heutigen Stand des Eintrags öffnen, die Werte des Entwurfs schon eingesetzt –
+  // so zeichnen sich auch Listen (Links, Gipfel, Knöpfe) nach dem Entwurf, nicht nur die versteckten Felder
+  let payload = d.payload;
+  const ent = fsDraftEntity(d);
+  if(ent && payload && typeof payload === 'object' && !payload.route){
+    payload = Object.assign({}, ent);
+    (d.fields || []).forEach(f=>{
+      const k = f.name; if(!k || f.chk || k[0] === '_' || k === 'id') return;
+      // Fehlt das Feld im Eintrag (leere Listen speichert Firebase nicht), nur Listen/Objekte übernehmen (erste Punkte, Linie)
+      if(!(k in ent)){ if(/^[\[{]/.test(f.v || '')){ try{ const v = JSON.parse(f.v); if(v && typeof v === 'object' && (!Array.isArray(v) || v.length)) payload[k] = v; }catch(e){} } return; }
+      // Links nicht vorbelegen: das Formular verschiebt einen ersetzten Link sonst nicht mehr unter «Weitere Links»
+      if(k === 'tourLink' || k === 'gpxLink') return;
+      const cur = ent[k];
+      if(Array.isArray(cur) || (cur && typeof cur === 'object')){ try{ const v = JSON.parse(f.v || 'null'); if(v !== null) payload[k] = v; }catch(e){} }
+      else if(typeof cur === 'string' || typeof cur === 'number') payload[k] = f.v;
+    });
+  }else if(ent && payload && typeof payload === 'object') payload = Object.assign({}, payload);
+  if(/agenda/.test(d.type) && typeof agendaDayPlanDraft !== 'undefined') agendaDayPlanDraft = d.agendaDays ? JSON.parse(JSON.stringify(d.agendaDays)) : null;
+  state.modal = {type: d.type, payload}; render();
+  await new Promise(r=> setTimeout(r, 300));
+  fsDraftApply(d);
+  // Termin über mehrere Tage: Tagesplan aus dem Entwurf aufbauen
+  const af = document.querySelector('#modal-root .overlay > .modal form');
+  const box = af && af.querySelector('#agenda-day-plan-container');
+  if(box && d.agendaDays && typeof syncAgendaDayPlanMode === 'function'){ box.dataset.mode = ''; agendaDayPlanDraft = JSON.parse(JSON.stringify(d.agendaDays)); syncAgendaDayPlanMode(af); markModalDirty(); }
+}
+function fsDraftOffer(given){
+  let d = given;
+  if(!d){
+    const all = fsDraftAll();
+    all.filter(fsDraftIsStale).forEach(x=> fsDraftDrop(x));
+    // Nicht das Fenster anbieten, das gerade bearbeitet wird (Entwurf dieser Sitzung)
+    d = all.find(x=> !fsDraftIsStale(x) && (x._sk || !fsDraftWritten.has(x.key)));
+  }
+  if(!d || !d.type) return;
+  if(document.getElementById('fs-draft-offer')) return;
+  // Gerade am Bearbeiten: nicht dazwischenfahren, später nochmals
+  if(modalIsDirty && typeof modalDirtyTrackingKey === 'function' && modalDirtyTrackingKey()){ setTimeout(()=> fsDraftOffer(given), 5000); return; }
+  const ent = fsDraftEntity(d);
+  const changed = ent && ent.updatedAt && ent.updatedAt > d.at
+    ? ` Seither wurde der Eintrag ${ent.updatedBy && ent.updatedBy !== (state.myName || '') ? 'von ' + esc(ent.updatedBy) + ' ' : ''}geändert – beim Wiederherstellen gelten deine Angaben, bitte vor dem Speichern prüfen.` : '';
+  const box = document.createElement('div');
+  box.id = 'fs-draft-offer';
+  box.className = 'fs-rescue';
+  box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true">
+    <h3>${fsIconHtml('note')} Nicht gespeicherte Angaben</h3>
+    <p>«${esc(d.name || 'Eintrag')}» wurde zuletzt am ${esc(fmtDate(d.at))} bearbeitet, aber nicht gespeichert (z. B. weil der Browser die Seite geschlossen hat).${changed}</p>
+    <div class="fs-ort-btns"><button type="button" class="btn secondary" data-drop>Verwerfen</button><button type="button" class="btn" data-restore>Wiederherstellen</button></div>
+  </div>`;
+  document.body.appendChild(box);
+  box.querySelector('[data-drop]').onclick = ()=>{ if(!confirm('Diese Angaben endgültig verwerfen?')) return; fsDraftDrop(d); box.remove(); setTimeout(()=> fsDraftOffer(), 300); };
+  box.querySelector('[data-restore]').onclick = async ()=>{
+    box.remove();
+    // Ab jetzt gehört der Entwurf zur laufenden Sitzung (wird beim Weiterarbeiten fortgeschrieben)
+    fsDraftDrop(d); try{ localStorage.setItem(fsDraftKey(d.key), JSON.stringify(Object.assign({}, d, {_sk: undefined}))); }catch(e){} fsDraftWritten.add(d.key);
+    await fsDraftRestore(d); showToast('Angaben wiederhergestellt – bitte noch speichern.');
+  };
+}
+
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
    Reihenfolge: Bilder · Kennzahlen/Status · Beschreibung · Orte · Bedingungen · Anreise · Mehr.
    Leere Abschnitte fallen weg; die Sprungleiste zeigt nur, was es gibt. */
@@ -16050,6 +16541,7 @@ function wireShareImportModal(){
 // direkt in den vorhandenen Upload-Ablauf ein (Zuschneiden/Komprimieren/Hochladen) — per
 // DataTransfer wird die Bild-Datei so ins Datei-Feld gelegt, als hätte man sie ausgewählt.
 function applySharedImageToSektor(sektorId, blob){
+  resetModalDirty(); // Teilen-Fenster ist erledigt
   openEditSektorTopoRouten(sektorId);
   const input = document.getElementById('sektor-topo-image-input');
   if(!input){ showToast('Sektor-Bearbeitung konnte nicht geöffnet werden.', true); return; }
@@ -16767,7 +17259,8 @@ async function submitAccessRouteForm(form){
     manualTrack: manual
   };
   const idx = hut.accessRoutes.findIndex(r=>r.id===routeData.id);
-  if(idx>=0) hut.accessRoutes[idx] = routeData; else hut.accessRoutes.push(routeData);
+  // Felder, die das Formular nicht zeigt (z. B. aus Import oder älteren Fassungen), behalten
+  if(idx>=0) hut.accessRoutes[idx] = Object.assign({}, hut.accessRoutes[idx], routeData); else hut.accessRoutes.push(routeData);
   hut.updatedAt = new Date().toISOString();
   hut.updatedBy = state.myName;
   closeModal(false, true, true);

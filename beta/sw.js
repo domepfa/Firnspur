@@ -97,7 +97,8 @@ self.addEventListener('fetch', (e) => {
         ? new Request(e.request.url, {cache: 'no-cache', credentials: 'same-origin'})
         : new Request(e.request, {cache: 'no-cache'}))
       .then((networkResponse) => {
-        caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse.clone()));
+        // Nur gültige Antworten ablegen: eine Fehlerseite (404/500) würde sonst offline die App ersetzen
+        if (networkResponse.ok || networkResponse.type === 'opaque') caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse.clone()));
         return networkResponse;
       })
       .catch(() => caches.match(e.request))
