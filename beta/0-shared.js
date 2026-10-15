@@ -15785,9 +15785,9 @@ function fsTourFormSections(climb){
   return [
     {key:'grund', title:'Grunddaten', sel:[n('name'), n('routeName'), n('status'), n('tourCategory'), '#region-chips', '#subregion-field', '#summit-field', '.fs-owner-note']},
     {key:'zahlen', title:'Kennzahlen', sel:[n('targetAltitude'), n('elevationGain'), n('elevationLoss'), n('duration'), n('descentDuration'), n('distance'), '#pitchcount-field']},
+    {key:'gelaende', title: climb ? 'Schwierigkeit & Material' : 'Gelände & Material', sel:['#hochtour-safety-fields', '#msl-safety-fields', n('glacier'), '.exposition-chip', '.gefahren-chip', '.material-chip', n('ropeType'), n('ropeLength'), n('quickdrawCount'), n('dog'), n('tourShape'), '.month-chip']},
     {key:'karte', title: climb ? 'Karte, Route & Topo' : 'Karte & Route', sel:['#fs-tracks-field', n('gpxLink'), n('points'), n('topoImages')]},
     {key:'text', title:'Beschreibung', sel:[n('crux'), n('special'), n('ascent'), n('descent'), n('tourLink'), '.fs-more-links', '#descent-freetext-field']},
-    {key:'gelaende', title: climb ? 'Schwierigkeit & Material' : 'Gelände & Material', sel:['#hochtour-safety-fields', '#msl-safety-fields', n('glacier'), '.exposition-chip', '.gefahren-chip', '.material-chip', n('ropeType'), n('ropeLength'), n('quickdrawCount'), n('dog'), n('tourShape'), '.month-chip']},
     {key:'anreise', title:'Anreise', sel:['#approach-type-chips', '#stay-type-chips', n('approach')]},
     {key:'link', title:'Verknüpfungen & Rechte', sel:[n('hutId'), n('gebietId'), '#sektor-field', n('ownerOpen')]}
   ];

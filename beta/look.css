@@ -1976,3 +1976,5 @@ html.fs-search-open .fs-search-btn{ display:none !important; }
 .fs-fsec[open] > summary{ border-bottom:1px solid var(--line-soft); }
 .fs-fsec[open] > summary .fs-fsec-i{ visibility:hidden; }
 .fs-fsec-b{ padding:12px 14px 4px; }
+/* Startkarte: Quellenangabe (i) liegt sonst unter der Liste – oben links ist frei */
+.fs-home-map .maplibregl-ctrl-bottom-right{ top:8px; left:8px; right:auto; bottom:auto; }
