@@ -2050,3 +2050,7 @@ html.fs-dark .fs-slf-hit{ background:#3A2C12; color:#F2CF8A; }
 .fs-travel-go, .hut-link-chip{ min-height:44px; display:inline-flex; align-items:center; box-sizing:border-box; }
 .fs-slf .fs-slf-link{ min-height:44px; display:inline-flex; align-items:center; }
 .summit-remove-btn{ min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; }
+
+/* ===== Eine Karte für alles: Startkarte in Tour/Gebiet ===== */
+.fs-home-map.in-ctx{ opacity:1; }
+.fs-home-map.in-ctx .fs-home-pin{ opacity:.5; }
