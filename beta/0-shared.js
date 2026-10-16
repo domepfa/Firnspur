@@ -11018,11 +11018,131 @@ function fsOpenConditions(lat, lon, ele, name){
   ov.addEventListener('click', e=>{ if(e.target === ov) closeTopOverlayLayer(); });
   pushOverlayLayer(()=>{ clearInterval(iv); ov.remove(); window.__fsCondRedraw = prevRender || null; });
 }
-function meteoForecastWidgetHtml(lat, lon, alt){
+function meteoForecastWidgetHtml(lat, lon, alt, tour){
   if(!isFinite(lat) || !isFinite(lon)) return '';
   // Prognose zuerst (wichtigste Frage am Tag X), dann Rückblick, gemessen, Webcams
-  return meteoForecastOnlyHtml(lat, lon) + fsConditionsHtml(lat, lon, alt);
+  return (tour ? fsBergwetterHtml(tour) : '') + meteoForecastOnlyHtml(lat, lon) + fsConditionsHtml(lat, lon, alt);
 }
+/* ===== Bergwetter: Stunden für Gipfel, Hütte und Start einer Tour (Open-Meteo, Modell MeteoSchweiz) =====
+   Gerechnet auf der Höhe des Orts (Gipfel: Zielhöhe, Hütte: Hüttenhöhe, Start: Gelände). */
+const FS_BW_HOURS = [6, 9, 12, 15, 18, 21];
+function fsBwNum(v){ const n = parseFloat(String(v == null ? '' : v).replace(/['’\s]/g, '')); return isFinite(n) ? n : null; }
+// Die drei Orte einer Tour (fehlende werden weggelassen), von oben nach unten
+function fsBwSites(t){
+  const out = [];
+  const okLL = (p)=> p && isFinite(+p.lat) && isFinite(+p.lon) && p.lat !== '' && p.lon !== '';
+  const sum = fsTourSummitPoint(t), sumEle = fsBwNum(t.targetAltitude);
+  if(sum) out.push({k:'gipfel', label:'Gipfel', lat:+sum.lat, lon:+sum.lon, ele: sumEle || fsBwNum(sum.alt) || fsBwNum(sum.ele)});
+  const hut = t.hutId && Array.isArray(state.huts) ? state.huts.find(h=> h && h.id === t.hutId) : null;
+  if(hut){
+    const pts = (hut.points || []).filter(okLL);
+    const hp = pts.find(p=> !['parkplatz', 'haltestelle'].includes(p.category)) || pts[0];
+    if(hp) out.push({k:'huette', label:'Hütte', name: hut.name, lat:+hp.lat, lon:+hp.lon, ele: fsBwNum(hut.altitude)});
+  }
+  const pts = (t.points || []).filter(okLL);
+  let st = pts.find(p=> p.category === 'parkplatz') || pts.find(p=> p.category === 'haltestelle');
+  if(!st){
+    const line = (t.trackSimplified && t.trackSimplified.length > 1) ? t.trackSimplified : ((t.manualTrack && t.manualTrack.length > 1) ? t.manualTrack : null);
+    const q = line && line[0];
+    if(q) st = Array.isArray(q) ? {lat:q[0], lon:q[1]} : {lat:q.lat, lon: q.lon != null ? q.lon : q.lng};
+  }
+  if(!st && hut){ const hp = (hut.points || []).filter(okLL).find(p=> p.category === 'parkplatz' || p.category === 'haltestelle'); if(hp) st = hp; }
+  if(okLL(st)) out.push({k:'start', label:'Start', lat:+st.lat, lon:+st.lon, ele:null});
+  // Orte, die praktisch zusammenfallen, nur einmal
+  return out.filter((x, i)=> !out.slice(0, i).some(y=> fsGeoDist(x.lat, x.lon, y.lat, y.lon) < 300 && (x.ele == null || y.ele == null || Math.abs(x.ele - y.ele) < 150)));
+}
+async function fsBwFetch(sites){
+  const vars = 'temperature_2m,weather_code,precipitation,snowfall,wind_speed_10m,wind_direction_10m,wind_gusts_10m,freezing_level_height';
+  const q = (list, withEle)=> 'https://api.open-meteo.com/v1/forecast?latitude=' + list.map(x=> x.lat.toFixed(4)).join(',') + '&longitude=' + list.map(x=> x.lon.toFixed(4)).join(',') + (withEle ? '&elevation=' + list.map(x=> Math.round(x.ele)).join(',') : '') + '&hourly=' + vars + '&forecast_days=3&timezone=Europe%2FZurich&timeformat=unixtime';
+  const known = sites.filter(x=> x.ele != null), dem = sites.filter(x=> x.ele == null);
+  const get = async (list, withEle)=>{ if(!list.length) return []; const r = await fetch(q(list, withEle)); if(!r.ok) throw new Error('HTTP ' + r.status); const j = await r.json(); return Array.isArray(j) ? j : [j]; };
+  const [a, b] = await Promise.all([get(known, true), get(dem, false)]);
+  const res = new Map(); known.forEach((x, i)=> res.set(x, a[i])); dem.forEach((x, i)=> res.set(x, b[i]));
+  return sites.map(x=>{ const d = res.get(x); return d && d.hourly ? Object.assign({}, x, {ele: x.ele != null ? x.ele : d.elevation, H: d.hourly}) : null; }).filter(Boolean);
+}
+function fsBwKind(c){ return c >= 95 ? 'Gewitter' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? 'Schneefall' : c >= 51 ? 'Regen' : c >= 45 ? 'Nebel' : c === 3 ? 'bewölkt' : c === 2 ? 'teils bewölkt' : 'sonnig'; }
+const FS_BW_RANK = {'sonnig':0, 'teils bewölkt':1, 'bewölkt':2, 'Nebel':3, 'Regen':4, 'Schneefall':4, 'Gewitter':5};
+function fsBwDayIdx(H, dayOff){
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0); const from = d0.getTime() + dayOff * 864e5, to = from + 864e5;
+  const idx = []; H.time.forEach((t, i)=>{ const ms = t * 1000; if(ms >= from && ms < to) idx.push(i); });
+  return idx;
+}
+function fsBwSummary(site, dayOff){
+  const H = site.H, idx = fsBwDayIdx(H, dayOff), hr = (i)=> new Date(H.time[i] * 1000).getHours();
+  const day = idx.filter(i=> hr(i) >= 6 && hr(i) <= 18);
+  if(!day.length) return '';
+  const worst = (list)=>{ let k = 'sonnig'; list.forEach(i=>{ const x = fsBwKind(H.weather_code[i]); if(FS_BW_RANK[x] > FS_BW_RANK[k]) k = x; }); return k; };
+  const am = worst(day.filter(i=> hr(i) < 12)), pm = worst(day.filter(i=> hr(i) >= 12));
+  const cap = (x)=> x.charAt(0).toUpperCase() + x.slice(1);
+  const parts = [am === pm ? `${cap(am)} über den ganzen Tag` : `Am Vormittag ${am}, am Nachmittag ${pm}`];
+  const tt = day.map(i=> H.temperature_2m[i]).filter(v=> v != null);
+  const lo = Math.round(Math.min(...tt)), hi = Math.round(Math.max(...tt));
+  const ws = day.map(i=> H.wind_speed_10m[i] || 0), gs = day.map(i=> (H.wind_gusts_10m || [])[i] || 0);
+  const wmax = Math.max(...ws), gmax = Math.max(...gs), wi = day[ws.indexOf(wmax)];
+  const dirs = ['Nord','Nordost','Ost','Südost','Süd','Südwest','West','Nordwest'];
+  const dir = H.wind_direction_10m && H.wind_direction_10m[wi] != null ? dirs[Math.round(H.wind_direction_10m[wi] / 45) % 8] : '';
+  const wtxt = wmax < 15 ? 'schwacher Wind' : wmax < 30 ? 'mässiger Wind' : wmax < 50 ? 'starker Wind' : 'stürmischer Wind';
+  parts.push(`${site.label === 'Gipfel' ? 'am Gipfel' : 'auf ' + Math.round(site.ele) + ' m'} <b>${lo === hi ? lo : lo + ' bis ' + hi}°</b>, ${wtxt}${dir ? ' aus ' + dir : ''}${gmax >= 40 ? ` (Böen bis ${Math.round(gmax / 5) * 5} km/h)` : ''}`);
+  const fz = day.map(i=> (H.freezing_level_height || [])[i]).filter(v=> v != null);
+  let fzt = '';
+  if(fz.length){ const a = Math.round(Math.min(...fz) / 100) * 100, b = Math.round(Math.max(...fz) / 100) * 100; fzt = `Nullgradgrenze <b>${a === b ? a : a + '–' + b} m</b>`; }
+  const pr = idx.reduce((s2, i)=> s2 + (H.precipitation[i] || 0), 0), sn = idx.reduce((s2, i)=> s2 + ((H.snowfall || [])[i] || 0), 0);
+  let prt = '';
+  if(pr >= 0.5){
+    const first = idx.find(i=> (H.precipitation[i] || 0) >= 0.2);
+    const h0 = first != null ? hr(first) : null;
+    prt = `Niederschlag${h0 != null && h0 > 0 ? ' ab ' + h0 + ' Uhr' : ''}, ${sn >= 1 ? 'etwa ' + Math.round(sn) + ' cm Schnee' : pr.toFixed(1) + ' mm'}${site.label === 'Gipfel' ? ' am Gipfel' : ''}`;
+  }
+  if(!prt && pr >= 0.1) prt = `Wenig Niederschlag (${pr.toFixed(1)} mm)`;
+  const wet = FS_BW_RANK[am] >= 4 || FS_BW_RANK[pm] >= 4;
+  return `${parts.join(', ')}.${fzt ? ' ' + fzt + '.' : ''}${prt ? ' ' + prt + '.' : wet ? '' : ' Trocken.'}`;
+}
+function fsBergwetterHtml(t){
+  if(!t || !t.id) return '';
+  const sites = fsBwSites(t);
+  if(!sites.length) return '';
+  state._bw = state._bw || {};
+  const key = t.id + ':' + sites.map(x=> x.lat.toFixed(3) + ',' + x.lon.toFixed(3) + ',' + (x.ele || '')).join(';');
+  let c = state._bw[key];
+  if(!c || (c.status === 'ok' && Date.now() - c.at > 60 * 60e3) || (c.status === 'error' && navigator.onLine !== false && Date.now() - c.at > 60e3)){
+    const prev = c && c.status === 'ok' ? c : null;
+    c = state._bw[key] = prev ? Object.assign({}, prev, {refreshing: true}) : {status:'loading'};
+    fsBwFetch(sites).then(rows=>{
+      state._bw[key] = rows.length ? {status:'ok', at: Date.now(), rows} : {status:'error', at: Date.now()};
+      render();
+    }).catch(()=>{ state._bw[key] = prev || {status:'error', at: Date.now()}; render(); });
+  }
+  const head = '<h4>Bergwetter</h4>';
+  if(c.status === 'loading') return `<div class="detail-section fs-bw">${head}<p class="hint">Lädt…</p></div>`;
+  if(c.status !== 'ok') return `<div class="detail-section fs-bw">${head}<p class="hint">${navigator.onLine === false ? 'Offline – das Bergwetter erscheint, sobald wieder Internet da ist.' : 'Bergwetter gerade nicht verfügbar.'}</p></div>`;
+  const now = new Date();
+  let day = state._bwDay != null ? state._bwDay : (now.getHours() >= 17 ? 1 : 0);
+  if(day > 2) day = 0;
+  const lab = (i)=>{ const d = new Date(); d.setDate(d.getDate() + i); return i === 0 ? 'Heute' : i === 1 ? 'Morgen' : FS_WX_DAYS[d.getDay()] + ' ' + d.getDate() + '.'; };
+  const tabs = `<div class="fs-bw-days">${[0, 1, 2].map(i=> `<button type="button" data-bw-day="${i}" class="${i === day ? 'on' : ''}">${lab(i)}</button>`).join('')}</div>`;
+  const top = c.rows[0];
+  const sum = fsBwSummary(top, day);
+  const anyPr = c.rows.some(r=> fsBwDayIdx(r.H, day).some(i=> (r.H.precipitation[i] || 0) >= 0.2));
+  const cell = (r, h)=>{
+    const idx = fsBwDayIdx(r.H, day), i = idx.find(j=> new Date(r.H.time[j] * 1000).getHours() === h);
+    if(i == null) return '<div class="c">–</div>';
+    const past = day === 0 && r.H.time[i] * 1000 < Date.now() - 90 * 60e3;
+    const p3 = [0, 1, 2].reduce((s2, o)=> s2 + ((r.H.precipitation[i - o] || 0)), 0), s3 = [0, 1, 2].reduce((s2, o)=> s2 + (((r.H.snowfall || [])[i - o] || 0)), 0);
+    return `<div class="c${past ? ' past' : ''}">${fsIconHtml(fsWxCodeIcon(r.H.weather_code[i]))}<b>${Math.round(r.H.temperature_2m[i])}°</b><span class="w">${Math.round(r.H.wind_speed_10m[i] || 0)}</span>${anyPr ? `<span class="p">${s3 >= 0.5 ? Math.round(s3) + ' cm' : p3 >= 0.2 ? p3.toFixed(1) : ''}</span>` : ''}</div>`;
+  };
+  const grid = `<div class="fs-bw-grid" style="--n:${FS_BW_HOURS.length}">
+    <div class="h"></div>${FS_BW_HOURS.map(h=> `<div class="h">${h}</div>`).join('')}
+    ${c.rows.map(r=> `<div class="lab">${esc(r.label)}<small>${r.ele != null ? Math.round(r.ele) + ' m' : ''}</small></div>${FS_BW_HOURS.map(h=> cell(r, h)).join('')}`).join('')}
+  </div>`;
+  return `<div class="detail-section fs-bw">${head}${tabs}${sum ? `<p class="fs-bw-sum">${sum}</p>` : ''}${grid}
+    <p class="wx-src">Uhrzeit oben · Temperatur · Wind in km/h${anyPr ? ' · Niederschlag in mm der letzten 3 h' : ''}. Open-Meteo (Modell MeteoSchweiz), gerechnet für die jeweilige Höhe – Modellwerte.</p></div>`;
+}
+document.addEventListener('click', (e)=>{
+  const b = e.target && e.target.closest && e.target.closest('[data-bw-day]');
+  if(!b) return;
+  state._bwDay = +b.getAttribute('data-bw-day');
+  render();
+}, true); // Capture: Fenster stoppen Klicks (data-stop)
 /* ===== Wetter-Rückblick: die letzten drei Tage am Ort (Open-Meteo, Modellwerte) =====
    Für die Beurteilung vor Ort: wie viel Regen/Neuschnee in den letzten Tagen, wie warm.
    Open-Meteo rechnet mit dem Modell von MeteoSchweiz (ICON-CH), frei und ohne Schlüssel. */
