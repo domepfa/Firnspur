@@ -2640,6 +2640,10 @@ function printTourenzettel(agendaId){
     if((tour.exposition||[]).length) factRows.push(['Exposition', tour.exposition.join(', ')]);
     if((tour.gefahren||[]).length) factRows.push(['Gefahren', tour.gefahren.join(', ')]);
   }
+  // Route im Wortlaut, Orte (z. B. Rückzug, Gefahr) mit Stand, und die neueste Erfahrung
+  const routeRows = tour ? [['Aufstieg', tour.ascent], [a.type === 'ski' ? 'Abfahrt' : 'Abstieg', tour.descent], ['Spezielles', tour.special], ['Anfahrt', tour.approach]].filter(r=> r[1] && String(r[1]).trim()) : [];
+  const orteList = tour ? fsTourOrte(tour) : [];
+  const lastErf = tour ? (fsErfList(tour).find(e=> e.text && e.text.trim()) || null) : null;
   // Umkehrzeit und Entscheidungspunkte gehören hervorgehoben, nicht nur in den Ablauf
   const critical = (brief.ablauf || []).filter(r=> r.kind === 'umkehr' || r.kind === 'entscheid');
 
@@ -2720,7 +2724,13 @@ function printTourenzettel(agendaId){
   .qr svg{width:104px;height:104px;display:block;}
   .qr p{font-size:10.5px;color:#4A5A64;margin:3px 0 0 0;text-align:center;}
   .legs div{padding:2px 0;}
-  #tz-map{height:220px;border-radius:12px;border:1.5px solid #E1E7EB;margin-top:2px;}
+  #tz-map{height:220px;border-radius:12px;border:1.5px solid #E1E7EB;margin-top:2px;background:#fff;overflow:hidden;}
+  :root{--cream:#fff;}
+  .fs-ctx-sketch{display:flex;flex-direction:column;height:100%;color:#0F1E27;padding:6px;box-sizing:border-box;}
+  .fs-ctx-sketch svg{flex:1 1 auto;width:100%;min-height:0;}
+  .fs-ctx-sketch-msg{font-size:11px;color:#4A5A64;text-align:center;margin:2px 0 0;}
+  .rt{font-size:13.5px;margin:0 0 6px 0;white-space:pre-line;}
+  .rt:last-child{margin-bottom:0;}
   #tz-drive-map{height:170px;border-radius:10px;border:1.5px solid #E1E7EB;margin-bottom:8px;}
   a{color:#0F1E27;}
   .actions{margin-top:30px;display:flex;gap:10px;flex-wrap:wrap;}
@@ -2746,6 +2756,12 @@ function printTourenzettel(agendaId){
 
   ${ablaufItems.length ? `<div class="section"><h4>${fsIconHtml('pin')} Ablauf</h4><div class="timeline">${ablaufItems.map(it=>`<div class="tl-item"><strong>${escHtml(it.label)}:</strong> ${escHtml(it.text)}</div>`).join('')}</div></div>` : ''}
 
+  ${routeRows.length ? `<div class="section"><h4>${fsIconHtml('walk')} Route</h4><div class="box">${routeRows.map(([k, v])=> `<p class="rt"><strong>${escHtml(k)}:</strong> ${escHtml(v)}</p>`).join('')}</div></div>` : ''}
+
+  ${orteList.length ? `<div class="section"><h4>${fsIconHtml('pin')} Orte</h4><div class="box" style="padding:6px 10px;"><table><tr><th>Ort</th><th>Notiz</th><th>LV95</th></tr>${orteList.map(o=> `<tr><td><strong>${escHtml(o.name || '')}</strong><br><span class="muted">${escHtml(fsOrtSubline(o, tour.id))}</span></td><td>${escHtml(o.note || '')}</td><td>${isFinite(o.lat) && isFinite(o.lon) ? escHtml(fsFmtLv95(+o.lat, +o.lon)) : ''}</td></tr>`).join('')}</table></div></div>` : ''}
+
+  ${lastErf ? `<div class="section"><h4>${fsIconHtml('users')} Letzte Erfahrung</h4><div class="box"><p class="muted" style="margin:0 0 4px 0;">${escHtml([lastErf.date ? fmtDateShort(lastErf.date) : '', lastErf.by || ''].filter(Boolean).join(' · '))}</p><p class="rt" style="margin:0;">${escHtml(lastErf.text.length > 600 ? lastErf.text.slice(0, 600) + ' …' : lastErf.text)}</p></div></div>` : ''}
+
   ${hasTravel ? `<div class="section"><h4>${fsIconHtml('car')} Anfahrt${meet ? ' ab Treffpunkt' : ''}</h4><div class="box" id="tz-travel">${meet ? '<p class="muted" style="margin:0;">Wird berechnet …</p>' : '<p class="muted" style="margin:0;">Für Route und Fahrzeit im Termin beim Treffpunkt einen Ort setzen (suchen oder auf der Karte).</p>'}</div></div>` : ''}
 
   <div class="section"><h4>${fsIconHtml('partly')} Wetter am Tourtag${wxLoc && wxLoc.label ? ' — ' + escHtml(wxLoc.label) : ''}</h4><div class="box" id="tz-weather"><p class="muted" style="margin:0;">${wxLoc ? 'Prognose wird geladen …' : 'Nur mit verlinkter Tour und Kartenpunkt verfügbar.'}</p></div></div>
@@ -2757,7 +2773,7 @@ function printTourenzettel(agendaId){
 
   <div class="section"><h4>${fsIconHtml('pack')} Material</h4>${materialList.length ? `<div class="material-box">${materialList.map(m=>`<div>☐ ${escHtml(m)}</div>`).join('')}</div>` : `<p class="muted">Keine Material-Angaben zu dieser Tour hinterlegt.</p>`}</div>
 
-  ${hasMap ? `<div class="section"><h4>${fsIconHtml('map')} Kartenausschnitt</h4><div id="tz-map"></div></div>` : ''}
+  ${hasMap ? `<div class="section"><h4>${fsIconHtml('map')} Kartenausschnitt</h4><div id="tz-map">${(()=>{ const d = fsTourSketchData(tour); return fsOfflineSketchHtml(d.lines, d.points, 'Skizze ohne Kartenhintergrund (Norden oben)'); })()}</div></div>` : ''}
 
   ${participants.length ? `<div class="section"><h4>${fsIconHtml('users')} Teilnehmende (${participants.length})</h4><div class="box" style="padding:6px 10px;"><table>
     <tr><th>Name</th><th>Natel</th><th style="text-align:center;">Da</th>${winter ? '<th style="text-align:center;">LVS ✓</th>' : ''}</tr>
@@ -2827,10 +2843,12 @@ function printTourenzettel(agendaId){
   };
   const baseLayer = map=> win.L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {maxZoom:18, attribution:'© swisstopo'}).addTo(map);
 
-  if(hasMap){
+  // Mit Netz: echte Karte statt Skizze; ohne Netz (oder wenn sie nicht lädt) bleibt die Skizze
+  if(hasMap && navigator.onLine !== false){
     leaflet().then(()=>{
       try{
         const mapEl = $('tz-map');
+        mapEl.innerHTML = '';
         const map = win.L.map(mapEl, {zoomControl:false, attributionControl:true});
         baseLayer(map);
         let bounds = [];
@@ -2846,12 +2864,9 @@ function printTourenzettel(agendaId){
         else mapEl.style.display = 'none';
       }catch(e){
         const mapEl = $('tz-map');
-        if(mapEl) mapEl.outerHTML = '<p class="muted">Karte konnte nicht geladen werden.</p>';
+        if(mapEl){ const d = fsTourSketchData(tour); mapEl.innerHTML = fsNoEmojiHtml(fsOfflineSketchHtml(d.lines, d.points, 'Skizze ohne Kartenhintergrund (Norden oben)')); }
       }
-    }).catch(()=>{
-      const mapEl = $('tz-map');
-      if(mapEl) mapEl.outerHTML = '<p class="muted">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
-    });
+    }).catch(()=>{ /* Skizze bleibt */ });
   }
 
   // Wetter am Tourtag: live laden; ohne Netz den gespeicherten Stand zeigen
@@ -11269,11 +11284,11 @@ function tourStatusLabel(t){
 /* ===== Offline: Routen-Skizze statt leerer Karte =====
    Ohne Kartenbibliothek (offline, nie geladen) zeigt die Tour ihre Linien und Punkte als einfache
    Zeichnung: Lage zueinander stimmt (Norden oben), aber ohne Hintergrund. */
-function fsOfflineSketchHtml(lines, points){
+function fsOfflineSketchHtml(lines, points, note){
   const all = [];
   lines.forEach(l=> l.coords.forEach(c=> all.push(c)));
   points.forEach(p=> all.push([p.lat, p.lon]));
-  const msg = '<p class="fs-ctx-sketch-msg">Offline – Karte nicht auf dem Gerät. Linien und Punkte ohne Hintergrund.</p>';
+  const msg = '<p class="fs-ctx-sketch-msg">' + esc(note || 'Offline – Karte nicht auf dem Gerät. Linien und Punkte ohne Hintergrund.') + '</p>';
   if(!all.length) return '<div class="fs-ctx-sketch">' + msg + '</div>';
   const lat0 = all.reduce((s2, c)=> s2 + c[0], 0) / all.length, k = Math.cos(lat0 * Math.PI / 180);
   const xs = all.map(c=> c[1] * k), ys = all.map(c=> -c[0]);
