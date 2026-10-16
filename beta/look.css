@@ -1741,6 +1741,9 @@ html.fs-filter-open body{ overflow:hidden; }
 .fsm-wxp .t{ display:block; width:2px; height:7px; background:rgba(255,255,255,.97); box-shadow:0 1px 2px rgba(15,30,39,.25); }
 .fsm-wxp .d{ display:block; width:9px; height:9px; margin-top:-1px; border-radius:50%; background:var(--ink); border:2px solid #fff; box-sizing:border-box; }
 .fsm-wxp.z .l{ opacity:.85; }
+.fsm-wxp.in .l, .fsm-wxp.in .t, .fsm-wxp.in .d{ animation:fsWxIn .3s ease-out; }
+@keyframes fsWxIn{ from{ opacity:0; } to{ opacity:1; } }
+@media (prefers-reduced-motion: reduce){ .fsm-wxp.in .l, .fsm-wxp.in .t, .fsm-wxp.in .d{ animation:none; } }
 .fsm-wx-tap{ width:18px; height:18px; border-radius:50%; border:3px solid var(--ice-deep); background:#fff; box-shadow:0 1px 4px rgba(15,30,39,.35); box-sizing:border-box; }
 .fsm-wx-card .fs-imis-row b .fs-i{ width:18px; height:18px; vertical-align:-4px; margin-right:4px; color:#4A5A64; }
 .fsm-wx-card .fs-imis-row b small{ font-weight:600; color:var(--ink-faint); }
