@@ -1507,7 +1507,7 @@ function fsHomeMount(){
   }else fsHomeSync();
 }
 // Die eine Karte der App: Startkarte, und in Tour/Gebiet ausgeliehen (fsCtxAcquire)
-let fsCtxUsesHome = false, fsCtxOn3d = null, fsCtxSnap = null;
+let fsCtxUsesHome = false, fsCtxOn3d = null, fsCtxSnap = null, fsCtxOwner = '';
 function fsHomeCreateMap(){
   fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52, on3d: (m)=>{
     if(fsCtxOn3d){ fsCtxOn3d(m); return; }
@@ -1522,8 +1522,10 @@ function fsHomeCreateMap(){
 }
 // Tour/Gebiet: die Startkarte in den Kartenbereich hinter dem Blatt hängen; was danach dazukommt
 // (Linien, Punkte, Orte der Tour) wird beim Schliessen wieder entfernt. Ausschnitt und Ebenen bleiben.
-function fsCtxAcquire(innerId, on3d){
+// owner: wer die Karte gerade hat ('ctx' = Tour/Gebiet, 'big' = Grosse Karte); nur der darf sie zurückgeben.
+function fsCtxAcquire(innerId, on3d, owner){
   const inner = document.getElementById(innerId);
+  fsCtxOwner = owner || 'ctx';
   if(!fsHomeEl){
     fsHomeEl = document.createElement('div');
     fsHomeEl.className = 'fs-home-map';
@@ -1545,7 +1547,9 @@ function fsCtxAcquire(innerId, on3d){
   });
   return map;
 }
-function fsCtxRelease(){
+function fsCtxRelease(owner){
+  if((owner || 'ctx') !== fsCtxOwner) return;
+  fsCtxOwner = '';
   const map = fsHomeMap;
   fsCtxUsesHome = false; fsCtxOn3d = null;
   if(map && map._fsm){
@@ -1553,9 +1557,10 @@ function fsCtxRelease(){
       if(map._fsm.popup){ map._fsm.popup.remove(); map._fsm.popup = null; }
       const snap = fsCtxSnap;
       if(snap && map.getStyle()){
-        // nur die eigenen Linien der Tour (own-…) entfernen, nichts von der Grundkarte
-        (map.getStyle().layers || []).map(l=> l.id).filter(id=> id.indexOf('own-') === 0 && !snap.layers.has(id)).forEach(id=>{ try{ map.removeLayer(id); }catch(e){} });
-        Object.keys(map.getStyle().sources || {}).filter(id=> id.indexOf('own-') === 0 && !snap.sources.has(id)).forEach(id=>{ try{ map.removeSource(id); }catch(e){} });
+        // nur die eigenen Linien der Tour (own-…) bzw. der Grossen Karte (fl-…) entfernen, nichts von der Grundkarte
+        const mine = (id)=> id.indexOf('own-') === 0 || id.indexOf('fl-') === 0;
+        (map.getStyle().layers || []).map(l=> l.id).filter(id=> mine(id) && !snap.layers.has(id)).forEach(id=>{ try{ map.removeLayer(id); }catch(e){} });
+        Object.keys(map.getStyle().sources || {}).filter(id=> mine(id) && !snap.sources.has(id)).forEach(id=>{ try{ map.removeSource(id); }catch(e){} });
         map._fsm.markers.splice(snap.markers).forEach(m=>{ try{ m.remove(); }catch(e){} });
       }
       map._fsm.orteIds = [];
@@ -1564,7 +1569,7 @@ function fsCtxRelease(){
     }catch(e){ dlog('Karte zurückgeben: ' + (e && e.message), 'err'); }
   }
   fsCtxSnap = null;
-  if(fsHomeEl){ fsHomeEl.classList.remove('in-ctx'); fsHomeEl.remove(); }
+  if(fsHomeEl){ fsHomeEl.classList.remove('in-ctx', 'in-big'); fsHomeEl.remove(); }
   if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); }
 }
 // Marker zu den aktuellen Punkten der Liste
@@ -1693,7 +1698,12 @@ function fsHomeCard(p){
   // Öffnen über den Eintrag der Liste (dieselbe Aktion wie dort), sonst über den Knopf selbst
   card.querySelector('.open').addEventListener('click', (e)=>{
     const li = document.querySelector('.fs-sheet .card[data-act="' + act + '"][data-id="' + CSS.escape(p.id) + '"]');
-    if(li){ e.preventDefault(); card.hidden = true; li.click(); }
+    if(li){
+      e.preventDefault(); card.hidden = true;
+      // In der Grossen Karte: erst schliessen; nach der Tour geht es zur Karte zurück
+      if(fsHomeEl.classList.contains('in-big')){ modalOpenedFromStandaloneMap = true; closeTopOverlayLayer(); }
+      li.click();
+    }
   });
   fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(y=> y.classList.remove('on'));
   const idx = fsHomePts.points.indexOf(p);
@@ -5345,12 +5355,46 @@ function fs3dCesiumOpen(opts){
 }
 
 function openStandaloneMap(){
+  // Lief der Standort schon auf der Startkarte, läuft er nach dem Schliessen weiter
+  const gpsBefore = !!(typeof gpsMarker !== 'undefined' && gpsMarker && fsHomeMap && gpsMarker._fsmMap === fsHomeMap);
   openFullscreenMap(renderStandaloneMap, function(){
     const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
     if(m){ try{ m.stopLocate(); }catch(e){} }
     // Standort-Anzeige dieser Karte beim Schliessen beenden
-    if(m && m._ml && gpsMarker && gpsMarker._fsmMap === m._ml) stopLiveGpsOnMap();
+    if(m && m._ml && gpsMarker && gpsMarker._fsmMap === m._ml && !(gpsBefore && m._ml === fsHomeMap)) stopLiveGpsOnMap();
+    // Geliehene Startkarte zurückgeben
+    if(m && m._onRemove) m.remove();
   });
+}
+// Grosse Karte = Startkarte im Vollbild, mit den Leaflet-Befehlen (FL) der Grossen Karte darüber
+let fsBigFl = null;
+function fsBigCtlTop(ml, top){
+  if(!ml || !ml._fsm) return;
+  ml._fsm.ctlTop = top;
+  ml.getContainer().querySelectorAll('.fsm-ctlbox, .fsm-panel').forEach(el=>{ el.style.top = top + 'px'; });
+}
+function fsBigAcquire(innerId, on3d){
+  if(fsBigFl) fsBigRelease(fsBigFl);
+  const ml = fsCtxAcquire(innerId, on3d, 'big');
+  fsHomeEl.classList.remove('in-ctx');
+  fsHomeEl.classList.add('in-big');
+  fsBigCtlTop(ml, 66);
+  const fm = FL.map(ml);
+  ml._fl = fm;
+  fm._onRemove = ()=> fsBigRelease(fm);
+  fsBigFl = fm;
+  return fm;
+}
+function fsBigRelease(fm){
+  if(!fm || fm._released) return;
+  fm._released = true;
+  const ml = fm._ml;
+  fm.detach();
+  ml._fsInfoBlock = null;
+  if(fsBigFl === fm) fsBigFl = null;
+  const reg = window.__activeLeafletMaps;
+  if(reg) Object.keys(reg).forEach(k=>{ if(reg[k] === fm) delete reg[k]; });
+  if(fsCtxOwner === 'big'){ fsBigCtlTop(ml, 52); fsCtxRelease('big'); }
 }
 
 function renderStandaloneMap(containerId){
@@ -5367,14 +5411,23 @@ function renderStandaloneMap(containerId){
     mapDiv.id = mapDivId;
     mapDiv.style.cssText = 'width:100%; height:100%;';
     el2.appendChild(mapDiv);
-    const map = fsmCreateFlMap(mapDivId, {ctlTop: 66, on3d: (ml)=>{ const c = ml.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom:14, heading: ml.getBearing()}); }});
+    const on3dBig = (ml)=>{ const c = ml.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom:14, heading: ml.getBearing()}); };
+    // Eine Karte für alles: die Startkarte (mit ihren Pins, Tourkarte, Routen, Wetter) ins Vollbild
+    // ausleihen und die Werkzeuge der Grossen Karte daran hängen. Ist sie gerade von einer Tour
+    // belegt, wie bisher eine eigene Karte.
+    // Tour eben geschlossen (Zurück zur Grossen Karte): deren Karte zuerst zurückgeben
+    if(fsCtxUsesHome && fsCtxOwner === 'ctx' && !state.modal && typeof fsDestroyContextMap === 'function') fsDestroyContextMap();
+    const useHome = !fsCtxUsesHome;
+    const map = useHome ? fsBigAcquire(mapDivId, on3dBig) : fsmCreateFlMap(mapDivId, {ctlTop: 66, on3d: on3dBig});
     // Markiert diese Karte als DIE Übersichtskarte (im Unterschied zu den vielen anderen, kleineren
     // Vollbild-Karten, die denselben Container über makeFullscreenButton/openFullscreenMap nutzen) —
     // ausgewertet in closeFullscreenMap(), damit der zuletzt gezeigte Ausschnitt auch dann sicher
     // festgehalten wird, wenn kein abschliessendes 'moveend' mehr ankommt (z. B. weil eine Schwung-
     // Animation nach dem Verschieben/Zoomen noch läuft und die Karte währenddessen geschlossen wird).
     map._isStandaloneMap = true;
-    if(lastStandaloneMapView) map.setView(lastStandaloneMapView.center, lastStandaloneMapView.zoom);
+    // Geliehene Startkarte: ihren Ausschnitt behalten (es ist ja dieselbe Karte)
+    if(useHome) fsBigMapKeepView = true;
+    else if(lastStandaloneMapView) map.setView(lastStandaloneMapView.center, lastStandaloneMapView.zoom);
     else map.setView([46.8182, 8.2275], 8);
     map.on('moveend', ()=>{ lastStandaloneMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
     registerMap(mapDivId, map);
@@ -5407,9 +5460,12 @@ function renderStandaloneMap(containerId){
         FL.popup().setLatLng(e.latlng).setContent(pointPlacementPopupContent(e.latlng.lat, e.latlng.lng)).openOn(map);
         return;
       }
-      // SAC-Skitouren / Sperrungen / Lawinengefahr (je nach eingeschalteten Ebenen)
-      await fsmHandleInfoClick(map._ml, e.latlng);
+      // SAC-Skitouren / Sperrungen / Lawinengefahr (je nach eingeschalteten Ebenen);
+      // die Startkarte macht das schon selbst (fsmWireInfoClicks)
+      if(!useHome) await fsmHandleInfoClick(map._ml, e.latlng);
     });
+    // Während Planer oder «Punkt setzen» auf einen Tipp warten, keine Infos der Startkarte
+    if(useHome) map._ml._fsInfoBlock = ()=> (typeof plannerExpanded !== 'undefined' && plannerExpanded) || (typeof plannerPicking !== 'undefined' && !!plannerPicking) || (typeof addPointPicking !== 'undefined' && addPointPicking);
     fsmWireOrtHold(map._ml);
 
     // Alle eigenen Touren (Punkte & Tracks) auf der Karte anzeigen — analog zur Skitouren-Ebene,
@@ -5722,6 +5778,8 @@ function renderStandaloneMap(containerId){
     // (langes Drücken), da auf dieser reinen Übersichtskarte nichts versehentlich gesetzt/verändert
     // werden kann — und langes Drücken auf manchen Mobilgeräten (z. B. iOS Safari) beim Antippen
     // eines Kartenelements ohnehin nicht zuverlässig als contextmenu-Ereignis ankommt.
+    // Was die Startkarte schon zeigt (ihre Pins mit Namen, Tourkarte, Routen), hier nicht nochmals
+    const homeIds = new Set(useHome && fsHomePts ? fsHomePts.points.map(p=> p.id) : []);
     function addMapEntity(catKey, color, track, points, popupContentFn){
       if(!categoryLayers[catKey]) categoryLayers[catKey] = FL.layerGroup();
       const layer = categoryLayers[catKey];
@@ -5762,13 +5820,13 @@ function renderStandaloneMap(containerId){
       const catKey = tourCategoryKey(t);
       const color = (TOUR_CATEGORY_META[catKey] || TOUR_CATEGORY_META.skitour).color;
       const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
-      addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id), ()=> openTourEditFromMap(t.id), t.topoImages));
+      if(!homeIds.has(t.id)) addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id), ()=> openTourEditFromMap(t.id), t.topoImages));
       if(t.points && t.points.length) searchIndex.push({name: t.name, icon:'🏔️', label:'Tour öffnen', coords:[t.points[0].lat, t.points[0].lon], openFn: ()=> openTourFromMap(t.id), editFn: ()=> openTourEditFromMap(t.id), appendPointFn: (lat,lon)=> appendPointToTourFromMap(t.id, lat, lon), topoImages: t.topoImages});
     });
     // Hütten (beide Apps) — eigener Standort/Linie, plus deren Zustiege.
     (state.huts || []).forEach(h=>{
       const track = (h.manualTrack && h.manualTrack.length) ? h.manualTrack : null;
-      addMapEntity('huette', TOUR_CATEGORY_META.huette.color, track, h.points, ()=> mapPopupContent('🛖', h.name, 'Hütte öffnen', ()=> openHutFromMap(h.id), ()=> openHutEditFromMap(h.id)));
+      if(!homeIds.has(h.id)) addMapEntity('huette', TOUR_CATEGORY_META.huette.color, track, h.points, ()=> mapPopupContent('🛖', h.name, 'Hütte öffnen', ()=> openHutFromMap(h.id), ()=> openHutEditFromMap(h.id)));
       if(h.points && h.points.length) searchIndex.push({name: h.name, icon:'🛖', label:'Hütte öffnen', coords:[h.points[0].lat, h.points[0].lon], openFn: ()=> openHutFromMap(h.id), editFn: ()=> openHutEditFromMap(h.id), appendPointFn: (lat,lon)=> appendPointToHutFromMap(h.id, lat, lon)});
       (h.accessRoutes || []).forEach(r=>{
         const rTrack = routeTrack(r);
@@ -5791,7 +5849,7 @@ function renderStandaloneMap(containerId){
       // Sektoren: Ausgangspunkt(e) plus deren Zustiege/Abstiege.
       (state.sektoren || []).forEach(sek=>{
         const track = (sek.manualTrack && sek.manualTrack.length) ? sek.manualTrack : null;
-        addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id), ()=> openSektorEditFromMap(sek.id), sek.topoImages));
+        if(!homeIds.has(sek.id)) addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id), ()=> openSektorEditFromMap(sek.id), sek.topoImages));
         if(sek.points && sek.points.length) searchIndex.push({name: sek.name, icon:'⛺', label:'Sektor öffnen', coords:[sek.points[0].lat, sek.points[0].lon], openFn: ()=> openSektorFromMap(sek.id), editFn: ()=> openSektorEditFromMap(sek.id), appendPointFn: (lat,lon)=> appendPointToSektorFromMap(sek.id, lat, lon), topoImages: sek.topoImages});
         ['accessRoutes','descentRoutes'].forEach(field=>{
           const kind = field==='descentRoutes' ? 'descent' : 'access';
@@ -5806,7 +5864,7 @@ function renderStandaloneMap(containerId){
       // (die ja bereits oben eigenständig auf der Karte erscheinen).
       (state.klettergebiete || []).forEach(geb=>{
         const track = (geb.manualTrack && geb.manualTrack.length) ? geb.manualTrack : null;
-        addMapEntity('klettergebiet', TOUR_CATEGORY_META.klettergebiet.color, track, geb.points, ()=> mapPopupContent('⛰️', geb.name, 'Klettergebiet öffnen', ()=> openKlettergebietFromMap(geb.id), ()=> openKlettergebietEditFromMap(geb.id), geb.topoImages));
+        if(!homeIds.has(geb.id)) addMapEntity('klettergebiet', TOUR_CATEGORY_META.klettergebiet.color, track, geb.points, ()=> mapPopupContent('⛰️', geb.name, 'Klettergebiet öffnen', ()=> openKlettergebietFromMap(geb.id), ()=> openKlettergebietEditFromMap(geb.id), geb.topoImages));
         if(geb.points && geb.points.length) searchIndex.push({name: geb.name, icon:'⛰️', label:'Klettergebiet öffnen', coords:[geb.points[0].lat, geb.points[0].lon], openFn: ()=> openKlettergebietFromMap(geb.id), editFn: ()=> openKlettergebietEditFromMap(geb.id), appendPointFn: (lat,lon)=> appendPointToKlettergebietFromMap(geb.id, lat, lon), topoImages: geb.topoImages});
       });
     }
@@ -7222,6 +7280,7 @@ function fsmIdentifyView(map){
 function fsmWireInfoClicks(map, opts){
   map.on('click', (e)=>{
     if(e.originalEvent && e.originalEvent._fsmHandled) return;
+    if(map._fsInfoBlock && map._fsInfoBlock()) return; // Grosse Karte: Planer/Punkt setzen wartet auf den Tipp
     fsmHandleInfoClick(map, {lat: e.lngLat.lat, lng: e.lngLat.lng}, opts);
   });
 }
@@ -7288,17 +7347,20 @@ const FL = (function(){
   function longPress(el, cb){
     let timer = null, start = null;
     const cancel = ()=>{ clearTimeout(timer); timer = null; };
-    el.addEventListener('touchstart', (ev)=>{
+    const hs = [];
+    const add = (t, f, o)=>{ el.addEventListener(t, f, o); hs.push([t, f, o]); };
+    add('touchstart', (ev)=>{
       if(ev.touches.length !== 1){ cancel(); return; }
       const t = ev.touches[0]; start = {x:t.clientX, y:t.clientY};
       cancel();
       timer = setTimeout(()=>{ timer = null; el._flLongPressAt = Date.now(); if(navigator.vibrate) try{ navigator.vibrate(12); }catch(e){} cb({clientX:start.x, clientY:start.y, preventDefault(){}, stopPropagation(){}, _flSynthetic:true}); }, 550);
     }, {passive:true});
-    el.addEventListener('touchmove', (ev)=>{ if(!start || !timer) return; const t = ev.touches[0]; if(ev.touches.length !== 1 || Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) cancel(); }, {passive:true});
-    el.addEventListener('touchend', cancel); el.addEventListener('touchcancel', cancel);
+    add('touchmove', (ev)=>{ if(!start || !timer) return; const t = ev.touches[0]; if(ev.touches.length !== 1 || Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) cancel(); }, {passive:true});
+    add('touchend', cancel); add('touchcancel', cancel);
     // Nach einem langen Drücken nicht zusätzlich als Antippen oder Browser-Menü werten
-    el.addEventListener('click', (ev)=>{ if(el._flLongPressAt && Date.now() - el._flLongPressAt < 700){ ev._fsmHandled = true; ev._flStopped = true; ev.stopPropagation(); ev.preventDefault(); } }, true);
-    el.addEventListener('contextmenu', (ev)=>{ if(el._flLongPressAt && Date.now() - el._flLongPressAt < 1500){ ev.preventDefault(); ev.stopPropagation(); ev._flDup = true; } }, true);
+    add('click', (ev)=>{ if(el._flLongPressAt && Date.now() - el._flLongPressAt < 700){ ev._fsmHandled = true; ev._flStopped = true; ev.stopPropagation(); ev.preventDefault(); } }, true);
+    add('contextmenu', (ev)=>{ if(el._flLongPressAt && Date.now() - el._flLongPressAt < 1500){ ev.preventDefault(); ev.stopPropagation(); ev._flDup = true; } }, true);
+    return ()=>{ cancel(); hs.forEach(([t, f, o])=> el.removeEventListener(t, f, o)); };
   }
   // ----- Grenzen -----
   function Bounds(a, b){ this._sw = null; this._ne = null; if(a) this.extend(a); if(b) this.extend(b); }
@@ -7518,6 +7580,10 @@ const FL = (function(){
     evented(this);
     this._ml = ml; this._layers = new Set(); this._popup = null;
     this.options = {};
+    // Alle Handler an der MapLibre-Karte merken: eine geliehene Karte (Startkarte) muss die Hülle
+    // beim Zurückgeben wieder ganz loswerden (detach)
+    const mlh = this._mlh = [];
+    const on = (t, f)=>{ ml.on(t, f); mlh.push([t, f]); };
     const corners = this._corners = {};
     ['topleft','topright','bottomleft','bottomright'].forEach(c=>{
       const d = document.createElement('div'); d.className = 'fl-corner fl-' + c; ml.getContainer().appendChild(d); corners[c] = d;
@@ -7525,20 +7591,20 @@ const FL = (function(){
     const self = this;
     // Klicks auf die Karte erst nach den Klicks auf Linien/Marker melden — wer dort
     // DomEvent.stopPropagation() aufruft, verhindert wie bei Leaflet den Karten-Klick.
-    ml.on('click', (e)=>{ const ev = self._evt(e); Promise.resolve().then(()=>{ if(e.originalEvent && (e.originalEvent._fsmHandled || e.originalEvent._flStopped)) return; self.fire('click', ev); }); });
-    ml.on('contextmenu', (e)=>{ if(e.originalEvent && (e.originalEvent._flDup || e.originalEvent._fsmHandled)) return; self.fire('contextmenu', self._evt(e)); });
-    longPress(ml.getCanvasContainer(), (ev)=>{
+    on('click', (e)=>{ const ev = self._evt(e); Promise.resolve().then(()=>{ if(e.originalEvent && (e.originalEvent._fsmHandled || e.originalEvent._flStopped)) return; self.fire('click', ev); }); });
+    on('contextmenu', (e)=>{ if(e.originalEvent && (e.originalEvent._flDup || e.originalEvent._fsmHandled)) return; self.fire('contextmenu', self._evt(e)); });
+    this._lpOff = longPress(ml.getCanvasContainer(), (ev)=>{
       const r = ml.getContainer().getBoundingClientRect();
       const pt = {x: ev.clientX - r.left, y: ev.clientY - r.top};
       const ll = ml.unproject([pt.x, pt.y]);
       self.fire('contextmenu', {latlng:{lat:ll.lat, lng:ll.lng}, containerPoint:pt, originalEvent:ev});
     });
-    ml.on('moveend', ()=> self.fire('moveend'));
-    ml.on('zoomend', ()=> self.fire('zoomend'));
-    ml.on('movestart', ()=> self.fire('movestart'));
-    ml.on('dragstart', ()=> self.fire('dragstart'));
-    ml.on('zoomstart', ()=> self.fire('zoomstart'));
-    ml.on('move', ()=> self.fire('move'));
+    on('moveend', ()=> self.fire('moveend'));
+    on('zoomend', ()=> self.fire('zoomend'));
+    on('movestart', ()=> self.fire('movestart'));
+    on('dragstart', ()=> self.fire('dragstart'));
+    on('zoomstart', ()=> self.fire('zoomstart'));
+    on('move', ()=> self.fire('move'));
     this.dragging = {enable(){ ml.dragPan.enable(); }, disable(){ ml.dragPan.disable(); }, enabled(){ return ml.dragPan.isEnabled(); }};
     this.doubleClickZoom = {enable(){ ml.doubleClickZoom.enable(); }, disable(){ ml.doubleClickZoom.disable(); }};
     this.scrollWheelZoom = {enable(){ ml.scrollZoom.enable(); }, disable(){ ml.scrollZoom.disable(); }};
@@ -7602,7 +7668,21 @@ const FL = (function(){
   FMap.prototype.distance = function(a, b){ const p = toLL(a), q = toLL(b); return new maplibregl.LngLat(p.lng, p.lat).distanceTo(new maplibregl.LngLat(q.lng, q.lat)); };
   FMap.prototype.locate = function(){ return this; };
   FMap.prototype.stopLocate = function(){ return this; };
-  FMap.prototype.remove = function(){ try{ this._ml.remove(); }catch(e){} return this; };
+  FMap.prototype.remove = function(){ if(this._onRemove){ const f = this._onRemove; this._onRemove = null; f(); return this; } try{ this._ml.remove(); }catch(e){} return this; };
+  // Hülle von einer weiterlaufenden Karte lösen: eigene Ebenen, Popup, Ecken und Handler entfernen
+  FMap.prototype.detach = function(){
+    if(this._detached) return this;
+    this._detached = true;
+    try{ this.closePopup(); }catch(e){}
+    Array.from(this._layers).forEach(l=>{ try{ this.removeLayer(l); }catch(e){} });
+    Object.values(this._corners || {}).forEach(d=>{ try{ d.remove(); }catch(e){} });
+    (this._mlh || []).forEach(([t, f])=>{ try{ this._ml.off(t, f); }catch(e){} });
+    this._mlh = [];
+    if(this._lpOff){ try{ this._lpOff(); }catch(e){} this._lpOff = null; }
+    if(this._ml._fl === this) delete this._ml._fl;
+    this._ev = {};
+    return this;
+  };
 
   return {
     // Hinweis: Zoomstufen +1 gegenüber MapLibre (512-px-Kacheln), damit bestehende Werte
@@ -10757,7 +10837,7 @@ async function fsmWxStart(map){
       if(!st.card.hidden || st.downOpen){ st.card.hidden = true; fsmWxTapClear(st); st.downOpen = false; return; }
       const oe = e.originalEvent;
       setTimeout(()=>{
-        if(!st.param || (oe && (oe._fsmHandled || oe._flStopped || oe.defaultPrevented)) || openNow()) return;
+        if(!st.param || (oe && (oe._fsmHandled || oe._flStopped || oe.defaultPrevented)) || openNow() || (map._fsInfoBlock && map._fsInfoBlock())) return;
         fsmWxTap(map, e.lngLat.lat, e.lngLat.lng);
       }, 30);
     });
