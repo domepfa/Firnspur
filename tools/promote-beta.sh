@@ -13,7 +13,7 @@
 # manifest-wandern.json angelegt und wandern.html in die Offline-Liste von sw.js aufgenommen.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-assets='0-geo-ch\.js\|icon-512\.png\|20260114_145500\.jpg\|IMG_20260811_073051812_HDR\.jpg\|msl-hero\.jpg\|wandern-hero\.jpg'
+assets='0-geo-ch\.js\|icon-512\.png\|20260114_145500\.jpg\|IMG_20260811_073051812_HDR\.jpg\|msl-hero\.jpg\|wandern-hero\.jpg\|hero-skitour\.jpg\|hero-hochtour\.jpg\|fonts/fonts\.css'
 for f in index.html fixseil.html wandern.html 0-shared.js 0-ski-wandern.js look.css; do
   sed -e "s#\.\./\($assets\)#./\1#g" \
       -e "s#'\.\./' + hs\.#'./' + hs.#g" \

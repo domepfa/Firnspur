@@ -2546,6 +2546,8 @@ function agendaDetailHtml(id){
 // die ganze App: die App-Ansicht enthält Overlays/fixe Elemente, die dabei nur stören würden — ein
 // schlankes eigenes Dokument bleibt robust und übersichtlich. Layout/Ton bewusst warm und einladend
 // (schöner Tourentag) statt bürokratisch — Notfallnummern stehen sachlich da, ohne Alarm-Rhetorik.
+// Schriften liegen in der App (offline verfügbar); für eigene Fenster die volle Adresse
+function fsFontsCssUrl(){ const l = document.querySelector('link[href*="fonts.css"]'); return l ? l.href : new URL('fonts/fonts.css', location.href).href; }
 function printTourenzettel(agendaId){
   const a = state.agenda.find(x=>x.id===agendaId);
   if(!a) return;
@@ -2687,8 +2689,7 @@ function printTourenzettel(agendaId){
   const phoneOf = name=> fsAgendaPhone(a, name);
 
   const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tourenzettel — ${escHtml(a.tourName||'Termin')}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="${escHtml(fsFontsCssUrl())}">
 <style>
   body{margin:0;background:#F3F6F8;color:#0F1E27;font-family:'Manrope',system-ui,sans-serif;}
   .serif{font-family:'Instrument Serif',Georgia,serif;}
