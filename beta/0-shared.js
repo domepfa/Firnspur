@@ -10877,7 +10877,7 @@ function fsmWxPlace(map){
     const box = [sp.x - wd / 2, sp.y - 46, sp.x + wd / 2, sp.y + 4];
     if(!free(box) || hit(box)) return false;
     boxes.push(box);
-    st.markers.push(new maplibregl.Marker({element: el, anchor: 'bottom', offset: [0, 4]}).setLngLat(ll).addTo(map));
+    st.markers.push(new maplibregl.Marker({element: el, anchor: 'bottom', offset: [0, 4], opacity: '1', opacityWhenCovered: '1'}).setLngLat(ll).addTo(map));
     return true;
   };
   const eleTxt = (e)=> e ? Math.round(e) + ' m' : '';
@@ -10928,7 +10928,7 @@ async function fsmWxTap(map, lat, lon){
   const st = map._fsm.wx, p = st.param;
   fsmWxTapClear(st);
   const dot = document.createElement('div'); dot.className = 'fsm-wx-tap';
-  st.tapMk = new maplibregl.Marker({element: dot}).setLngLat([lon, lat]).addTo(map);
+  st.tapMk = new maplibregl.Marker({element: dot, opacity: '1', opacityWhenCovered: '1'}).setLngLat([lon, lat]).addTo(map);
   const tok = st.tapTok = {};
   st.card.innerHTML = `<button type="button" class="x" aria-label="Schliessen">×</button><b class="n">Angetippte Stelle</b><span class="s">Prognose lädt…</span>`;
   st.card.hidden = false;
