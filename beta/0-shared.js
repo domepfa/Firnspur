@@ -3050,6 +3050,101 @@ async function fsSlfBulletinAt(lat, lon, dateStr){
   return {level: max.label, ratings, problems, region: regionName && regionName.name ? regionName.name : '',
     validUntil: new Date(b.validTime.endTime).toLocaleString('de-CH', {weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'})};
 }
+/* ===== Lawinenbulletin in der Tour =====
+   Das Bulletin der SLF-Region am Ort, mit Gültigkeit, Stufen je Höhe, Problemen (Exposition, Höhe) und
+   – wenn die Tour Exposition und Gipfelhöhe hat – einem Hinweis, ob sie in ein Problem fällt.
+   «Morgen», sobald das SLF das nächste Bulletin veröffentlicht hat. Nur lesen, nichts wird gespeichert. */
+let fsSlfAllPromise = null, fsSlfAllAt = 0;
+function fsSlfAll(){
+  // Regionen und Bulletins einmal laden, nach 30 Min. neu
+  if(!fsSlfAllPromise || Date.now() - fsSlfAllAt > 30 * 60000){
+    fsSlfAllAt = Date.now();
+    fsSlfAllPromise = Promise.all([fetch('https://aws.slf.ch/api/warningregion/'), fetch('https://aws.slf.ch/api/bulletin/caaml')])
+      .then(async ([a, b])=>{ if(!a.ok || !b.ok) throw new Error('SLF nicht erreichbar'); return {regions: await a.json(), bd: await b.json()}; })
+      .catch(e=>{ fsSlfAllPromise = null; throw e; });
+  }
+  return fsSlfAllPromise;
+}
+function fsSlfParse(b, rid){
+  const ratings = (b.dangerRatings || []).map(r=>{
+    const info = SLF_DANGER_LEVELS[r.mainValue];
+    if(!info) return null;
+    const e = r.elevation || {};
+    return {level: info.level, label: info.label.replace(/^\d\s*–\s*/, ''), color: info.color,
+      elev: e.lowerBound ? 'über ' + e.lowerBound + ' m' : e.upperBound ? 'unter ' + e.upperBound + ' m' : '', later: r.validTimePeriod === 'later'};
+  }).filter(Boolean).sort((x, y)=> y.level - x.level);
+  const problems = (b.avalancheProblems || []).map(pr=>{
+    const e = pr.elevation || {};
+    return {raw: pr.problemType, type: FS_SLF_PROBLEMS[pr.problemType] || pr.problemType, aspects: pr.aspects || [], lower: parseFloat(e.lowerBound) || 0, upper: parseFloat(e.upperBound) || 0,
+      later: pr.validTimePeriod === 'later'};
+  }).filter(pr=> pr.type);
+  const reg = (b.regions || []).find(r=> (r.regionID || r.id) === rid);
+  return {start: new Date(b.validTime.startTime), end: new Date(b.validTime.endTime), pub: b.publicationTime ? new Date(b.publicationTime) : null,
+    ratings, problems, region: reg && reg.name ? reg.name : '', id: b.bulletinID || ''};
+}
+// Bulletins für einen Ort: das jetzt gültige und (falls schon da) das nächste
+async function fsSlfForPoint(lat, lon){
+  const {regions, bd} = await fsSlfAll();
+  const feat = (regions.features || []).find(f=> fsPointInGeom(lon, lat, f.geometry));
+  if(!feat) return null;
+  const rid = slfRegionId(feat);
+  const list = (Array.isArray(bd) ? bd : (bd.bulletins || [])).filter(x=> x.validTime && (x.regions || []).some(r=> (r.regionID || r.id) === rid)).map(x=> fsSlfParse(x, rid))
+    .filter(x=> x.ratings.length).sort((a, b2)=> a.start - b2.start);
+  const now = new Date();
+  const cur = list.find(x=> x.start <= now && now < x.end) || null;
+  const next = list.find(x=> x.start > now) || null;
+  return (cur || next) ? {cur, next} : null;
+}
+function fsSlfFmt(d){ return d.toLocaleString('de-CH', {weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'}); }
+// Fällt die Tour (Exposition, Gipfelhöhe) in ein Problem?
+function fsSlfTourHits(t, bul){
+  if(!t || !bul) return [];
+  const expo = Array.isArray(t.exposition) ? t.exposition : [];
+  const alt = parseFloat(String(t.targetAltitude || '').replace(/['’\s]/g, ''));
+  if(!expo.length) return [];
+  return bul.problems.filter(pr=>{
+    if(pr.raw === 'favourable_situation' || pr.raw === 'no_distinct_avalanche_problem') return false;
+    const asp = !pr.aspects.length || pr.aspects.some(a=> expo.indexOf(a) >= 0);
+    const high = !pr.lower || !isFinite(alt) || alt >= pr.lower;
+    return asp && high;
+  });
+}
+function fsSlfBoxHtml(lat, lon){
+  state._slf = state._slf || {};
+  const key = lat.toFixed(2) + ',' + lon.toFixed(2);
+  const c = state._slf[key];
+  if(!c){
+    state._slf[key] = {status:'loading'};
+    fsSlfForPoint(lat, lon).then(r=>{ state._slf[key] = {status: r ? 'ok' : 'none', r}; render(); if(window.__fsCondRedraw) window.__fsCondRedraw(); })
+      .catch(()=>{ state._slf[key] = {status:'err'}; render(); if(window.__fsCondRedraw) window.__fsCondRedraw(); });
+    return '';
+  }
+  if(c.status !== 'ok') return '';
+  const {cur, next} = c.r;
+  const showNext = state._slfDay === 'next' && next || (!cur && next);
+  const bul = showNext ? next : cur;
+  const t = (state.modal && state.modal.type === 'tour-detail') ? (state.tours || []).find(x=> x.id === state.modal.payload) : null;
+  const hits = fsSlfTourHits(t, bul);
+  const asp = a=> a.map(x=> FS_SLF_ASPECTS[x] || x).join(' / ');
+  const prob = pr=> [pr.aspects.length ? (pr.aspects.length >= 8 ? 'alle Expositionen' : asp(pr.aspects)) : '', pr.lower ? 'über ' + pr.lower + ' m' : pr.upper ? 'unter ' + pr.upper + ' m' : '', pr.later ? 'im Tagesverlauf' : ''].filter(Boolean).join(' · ');
+  const seg = (cur && next) ? `<div class="fs-slf-seg"><button type="button" class="${showNext ? '' : 'on'}" data-slf-day="cur">Heute</button><button type="button" class="${showNext ? 'on' : ''}" data-slf-day="next">Morgen</button></div>` : '';
+  const expoTxt = t && Array.isArray(t.exposition) ? t.exposition.map(x=> FS_SLF_ASPECTS[x] || x).join(', ') : '';
+  return `<div class="fs-slf">
+    <div class="fs-slf-head"><b>Lawinenbulletin SLF</b><span>gültig bis ${esc(fsSlfFmt(bul.end))}</span></div>
+    ${seg}
+    ${bul.ratings.map(r=> `<div class="fs-slf-lvl"><span class="fs-slf-dot" style="--lvl:${r.color}; color:${r.level >= 3 ? '#fff' : '#0F1E27'}">${r.level}</span><div>${esc(r.label)}${r.elev || r.later ? `<small>${esc([r.elev, r.later ? 'im Tagesverlauf' : ''].filter(Boolean).join(' · '))}</small>` : ''}</div></div>`).join('')}
+    ${bul.problems.length ? `<ul class="fs-slf-prob">${bul.problems.map(pr=> `<li><span>${esc(pr.type)}</span><em>${esc(prob(pr))}</em></li>`).join('')}</ul>` : ''}
+    ${hits.length ? `<div class="fs-slf-hit"><b>Deine Tour: Exposition ${esc(expoTxt)}${t.targetAltitude ? ' · Gipfel ' + esc(String(t.targetAltitude)) + ' m' : ''}</b>Liegt laut Exposition und Gipfelhöhe im Bereich: ${esc(hits.map(h=> h.type).join(', '))}.</div>` : ''}
+    <a class="fs-slf-link" href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener noreferrer">Ganzes Bulletin beim SLF</a>
+    <p class="fs-slf-src">${esc([bul.region ? 'Region ' + bul.region : '', bul.pub ? 'Stand ' + fsSlfFmt(bul.pub) : ''].filter(Boolean).join(' · '))}</p>
+  </div>`;
+}
+document.addEventListener('click', (e)=>{
+  const b = e.target && e.target.closest && e.target.closest('[data-slf-day]');
+  if(!b) return;
+  state._slfDay = b.getAttribute('data-slf-day');
+  render(); if(window.__fsCondRedraw) window.__fsCondRedraw();
+}, true); // Capture: Fenster stoppen Klicks (data-stop)
 function openAddAgenda(){
   ensureName(async ()=>{
     if(!state.otherAppTours.length) await loadOtherAppTours();
@@ -6570,7 +6665,7 @@ function fsmPrefs(){
 }
 function fsmSavePrefs(p){ try{ localStorage.setItem('fs-map-layers', JSON.stringify(p)); }catch(e){} }
 function fsmIsHomeMap(map){ try{ return !!map && map.getContainer().id === 'fs-home-map-inner'; }catch(e){ return false; } }
-function fsmOverlaysForApp(map){ return FSM_OVERLAYS.filter(o=> !o.hidden && (!o.skitourOnly || fsAppKey() === 'firnspur') && (!o.homeOnly || fsmIsHomeMap(map))); }
+function fsmOverlaysForApp(map){ return FSM_OVERLAYS.filter(o=> !o.hidden && (!o.skitourOnly || fsAppKey() !== 'wandern') && (!o.homeOnly || fsmIsHomeMap(map))); }
 // Leerer Grundstil: Grundkarten als Raster, zwei unsichtbare "Anker" für die Reihenfolge
 // (Ebenen < Namen < eigene Linien/Punkte).
 function fsmBaseStyle(){
@@ -10488,11 +10583,13 @@ function fsConditionsHtml(lat, lon, alt){
     }).join('')}</div>`;
   }
   const chips = [];
-  if(c.danger) chips.push(`<span class="fs-cond-chip" style="background:${c.danger.color}; color:${c.danger.level >= 3 ? '#fff' : '#0F1E27'}">Lawinengefahr ${esc(c.danger.label || String(c.danger.level))}</span>`);
+  const slfBox = fsSlfBoxHtml(lat, lon);
+  if(c.danger && !slfBox) chips.push(`<span class="fs-cond-chip" style="background-color:${c.danger.color}; color:${c.danger.level >= 3 ? '#fff' : '#0F1E27'}">Lawinengefahr ${esc(c.danger.label || String(c.danger.level))}</span>`);
   const hsNear = fsNearest(c.hs, lat, lon, 25000, x=> x.src === 'SLF');
   const msNs = fsNearest(c.ns, lat, lon, 25000, x=> x.src === 'MeteoSchweiz');
   const rainNear = fsNearest(c.rain, lat, lon, 25000);
   parts.push(`<p class="fs-cond-sum">${sent || 'Für diesen Punkt sind gerade keine Modelldaten verfügbar.'}</p>`);
+  if(slfBox) parts.unshift(slfBox);
   if(chips.length) parts.push(`<div class="fs-cond-chips">${chips.join('')}</div>`);
   if(bars) parts.push(bars + `<p class="wx-src">Open-Meteo (Modell MeteoSchweiz), gerechnet für ${c.om && c.om.elevation != null ? Math.round(c.om.elevation) + ' m' : 'diesen Punkt'}${alt ? ' (Gipfel)' : ''} — Modellwerte, keine Messung.</p>`);
   // Gemessen
