@@ -5367,7 +5367,7 @@ function openStandaloneMap(){
   });
 }
 // Grosse Karte = Startkarte im Vollbild, mit den Leaflet-Befehlen (FL) der Grossen Karte darüber
-let fsBigFl = null;
+let fsBigFl = null, fsBigRestoreCtx = false, fsBigGotoView = null;
 function fsBigCtlTop(ml, top){
   if(!ml || !ml._fsm) return;
   ml._fsm.ctlTop = top;
@@ -5395,6 +5395,8 @@ function fsBigRelease(fm){
   const reg = window.__activeLeafletMaps;
   if(reg) Object.keys(reg).forEach(k=>{ if(reg[k] === fm) delete reg[k]; });
   if(fsCtxOwner === 'big'){ fsBigCtlTop(ml, 52); fsCtxRelease('big'); }
+  // Die Tour/Hütte, die die Karte abgegeben hat, ist noch offen: ihre Karte wieder zeichnen
+  if(fsBigRestoreCtx){ fsBigRestoreCtx = false; if(state.modal) setTimeout(()=>{ if(!fsCtxUsesHome) render(); }, 0); }
 }
 
 function renderStandaloneMap(containerId){
@@ -5413,22 +5415,22 @@ function renderStandaloneMap(containerId){
     el2.appendChild(mapDiv);
     const on3dBig = (ml)=>{ const c = ml.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom:14, heading: ml.getBearing()}); };
     // Eine Karte für alles: die Startkarte (mit ihren Pins, Tourkarte, Routen, Wetter) ins Vollbild
-    // ausleihen und die Werkzeuge der Grossen Karte daran hängen. Ist sie gerade von einer Tour
-    // belegt, wie bisher eine eigene Karte.
-    // Tour eben geschlossen (Zurück zur Grossen Karte): deren Karte zuerst zurückgeben
-    if(fsCtxUsesHome && fsCtxOwner === 'ctx' && !state.modal && typeof fsDestroyContextMap === 'function') fsDestroyContextMap();
-    const useHome = !fsCtxUsesHome;
-    const map = useHome ? fsBigAcquire(mapDivId, on3dBig) : fsmCreateFlMap(mapDivId, {ctlTop: 66, on3d: on3dBig});
+    // ausleihen und die Werkzeuge der Grossen Karte daran hängen. Hat eine Tour/Hütte sie gerade,
+    // gibt sie sie zuerst ab; ist das Fenster noch offen, holt es sie beim Schliessen wieder (fsBigRelease).
+    if(fsCtxUsesHome && fsCtxOwner === 'ctx' && typeof fsDestroyContextMap === 'function'){
+      if(state.modal) fsBigRestoreCtx = true;
+      fsDestroyContextMap();
+    }
+    const map = fsBigAcquire(mapDivId, on3dBig);
     // Markiert diese Karte als DIE Übersichtskarte (im Unterschied zu den vielen anderen, kleineren
     // Vollbild-Karten, die denselben Container über makeFullscreenButton/openFullscreenMap nutzen) —
     // ausgewertet in closeFullscreenMap(), damit der zuletzt gezeigte Ausschnitt auch dann sicher
     // festgehalten wird, wenn kein abschliessendes 'moveend' mehr ankommt (z. B. weil eine Schwung-
     // Animation nach dem Verschieben/Zoomen noch läuft und die Karte währenddessen geschlossen wird).
     map._isStandaloneMap = true;
-    // Geliehene Startkarte: ihren Ausschnitt behalten (es ist ja dieselbe Karte)
-    if(useHome) fsBigMapKeepView = true;
-    else if(lastStandaloneMapView) map.setView(lastStandaloneMapView.center, lastStandaloneMapView.zoom);
-    else map.setView([46.8182, 8.2275], 8);
+    // Startkarte: ihren Ausschnitt behalten (es ist ja dieselbe Karte); «Auf der Karte zeigen» springt an die Stelle
+    fsBigMapKeepView = true;
+    if(fsBigGotoView){ map.setView(fsBigGotoView.center, fsBigGotoView.zoom); fsBigGotoView = null; }
     map.on('moveend', ()=>{ lastStandaloneMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
     registerMap(mapDivId, map);
     // Ist die Skitouren- oder Wegsperrungen-Ebene eingeschaltet, zeigt ein Klick Infos zur
@@ -5460,12 +5462,10 @@ function renderStandaloneMap(containerId){
         FL.popup().setLatLng(e.latlng).setContent(pointPlacementPopupContent(e.latlng.lat, e.latlng.lng)).openOn(map);
         return;
       }
-      // SAC-Skitouren / Sperrungen / Lawinengefahr (je nach eingeschalteten Ebenen);
-      // die Startkarte macht das schon selbst (fsmWireInfoClicks)
-      if(!useHome) await fsmHandleInfoClick(map._ml, e.latlng);
+      // SAC-Skitouren / Sperrungen / Lawinengefahr: macht die Startkarte selbst (fsmWireInfoClicks)
     });
     // Während Planer oder «Punkt setzen» auf einen Tipp warten, keine Infos der Startkarte
-    if(useHome) map._ml._fsInfoBlock = ()=> (typeof plannerExpanded !== 'undefined' && plannerExpanded) || (typeof plannerPicking !== 'undefined' && !!plannerPicking) || (typeof addPointPicking !== 'undefined' && addPointPicking);
+    map._ml._fsInfoBlock = ()=> (typeof plannerExpanded !== 'undefined' && plannerExpanded) || (typeof plannerPicking !== 'undefined' && !!plannerPicking) || (typeof addPointPicking !== 'undefined' && addPointPicking);
     fsmWireOrtHold(map._ml);
 
     // Alle eigenen Touren (Punkte & Tracks) auf der Karte anzeigen — analog zur Skitouren-Ebene,
@@ -5779,7 +5779,7 @@ function renderStandaloneMap(containerId){
     // werden kann — und langes Drücken auf manchen Mobilgeräten (z. B. iOS Safari) beim Antippen
     // eines Kartenelements ohnehin nicht zuverlässig als contextmenu-Ereignis ankommt.
     // Was die Startkarte schon zeigt (ihre Pins mit Namen, Tourkarte, Routen), hier nicht nochmals
-    const homeIds = new Set(useHome && fsHomePts ? fsHomePts.points.map(p=> p.id) : []);
+    const homeIds = new Set(fsHomePts ? fsHomePts.points.map(p=> p.id) : []);
     function addMapEntity(catKey, color, track, points, popupContentFn){
       if(!categoryLayers[catKey]) categoryLayers[catKey] = FL.layerGroup();
       const layer = categoryLayers[catKey];
@@ -16589,6 +16589,7 @@ function fsGotoPoint(lat, lon, label){
   }
   if(typeof openStandaloneMap === 'function'){
     lastStandaloneMapView = {center: [lat, lon], zoom: 15};
+    fsBigGotoView = lastStandaloneMapView;
     openStandaloneMap();
   }
 }
@@ -16897,6 +16898,8 @@ function fsFitContextMap(){
   fsmFit(fsCtxMap, fsCtxMap._fsCoords, {top:70, left:30, right:70, bottom: bottom + 20}, 14);
 }
 function fsShowContextMap(t){
+  // Die Grosse Karte hat die Karte gerade: nicht wegnehmen, beim Schliessen kommt sie zurück
+  if(fsCtxOwner === 'big'){ fsBigRestoreCtx = true; return; }
   if(!fsTourHasContextData(t)){ fsDestroyContextMap(); return; }
   const key = t.id + '|' + (t.updatedAt || '') + '|' + (fsTourHut(t) ? (fsTourHut(t).updatedAt || '') : '');
   let el = document.getElementById('fs-tour-map');
@@ -16918,6 +16921,7 @@ function fsShowContextMap(t){
   document.documentElement.classList.add('fs-ctx-map');
   fsmEnsureLoaded().then(()=>{
     if(fsCtxKey !== key || !document.getElementById('fs-tour-map-inner')) return;
+    if(fsCtxOwner === 'big'){ fsBigRestoreCtx = true; return; }
     const map = fsCtxAcquire('fs-tour-map-inner', (m)=>{
       const c = m.getCenter();
       fsOpen3d({lat:c.lat, lon:c.lng, zoom:14, tour:t, heading:m.getBearing()});
@@ -17030,6 +17034,7 @@ function fsAreaHasData(a){
   return (a.points||[]).length || (a.spots||[]).length || (a.huts||[]).some(h=> h.points && h.points.length) || (a.tours||[]).some(t=> tourMapPoint(t) || fsTourRoutes(t).length);
 }
 function fsShowAreaContextMap(a){
+  if(fsCtxOwner === 'big'){ fsBigRestoreCtx = true; return; }
   if(!fsAreaHasData(a)){ fsDestroyContextMap(); return; }
   const stamp = x=> (x.updatedAt || '') + (x.id || '');
   const key = 'area|' + a.key + '|' + [...(a.tours||[]), ...(a.huts||[])].map(stamp).join(',');
@@ -17052,6 +17057,7 @@ function fsShowAreaContextMap(a){
   document.documentElement.classList.add('fs-ctx-map');
   fsmEnsureLoaded().then(()=>{
     if(fsCtxKey !== key || !document.getElementById('fs-tour-map-inner')) return;
+    if(fsCtxOwner === 'big'){ fsBigRestoreCtx = true; return; }
     const map = fsCtxAcquire('fs-tour-map-inner', (m)=>{
       const c = m.getCenter();
       const lines = [];
