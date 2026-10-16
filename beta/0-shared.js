@@ -10737,7 +10737,7 @@ const FS_WX_DAYS = ['So','Mo','Di','Mi','Do','Fr','Sa'];
 function fsWxCodeIcon(c){ return c >= 95 ? 'storm' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? 'snow' : c >= 51 ? 'rain' : c >= 45 ? 'fog' : c === 3 ? 'cloud' : c >= 1 ? 'partly' : 'sun'; }
 function fsWxHourLabel(ts){ const d = new Date(ts); const today = new Date(); const dd = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 864e5); return (dd === 0 ? 'Heute' : dd === 1 ? 'Morgen' : FS_WX_DAYS[d.getDay()]) + ' ' + d.getHours() + ' Uhr'; }
 async function fsmWxStart(map){
-  const st = map._fsm.wx = map._fsm.wx || {markers:[], pts:[], fc:{}};
+  const st = map._fsm.wx = map._fsm.wx || {mk: new Map(), pts:[], fc:{}};
   const cont = map.getContainer();
   if(!st.head){
     st.head = document.createElement('div'); st.head.className = 'fsm-wx-head';
@@ -10764,7 +10764,8 @@ async function fsmWxStart(map){
   }
   st.head.hidden = false;
   const p = fsWxParam();
-  st.param = p; st.pts = []; st.loaded = false;
+  fsmWxClear(st);
+  st.param = p; st.pts = []; st.loaded = false; st.measItems = null; st.measSel = {}; st.fcSel = st.fcSel || {};
   const tabs = `<div class="tabs" role="tablist">${FS_WX_PARAMS.map(x=> `<button type="button" role="tab" data-wx="${x.id}" class="${x.id === p.id ? 'on' : ''}" aria-selected="${x.id === p.id}">${x.short || x.label}</button>`).join('')}</div>`;
   let body;
   if(p.forecast){
@@ -10780,7 +10781,7 @@ async function fsmWxStart(map){
   st.head.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} st.card.hidden = true; fsmWxTapClear(st); fsmWxStart(map); }));
   const rng = st.head.querySelector('input[type=range]');
   if(rng){
-    const upd = ()=>{ st.fcStep = +rng.value; st.head.querySelector('.when').textContent = fsWxHourLabel(fsWxStepTime(st.fcStep)); fsmWxPlace(map); };
+    const upd = ()=>{ st.fcStep = +rng.value; st.head.querySelector('.when').textContent = fsWxHourLabel(fsWxStepTime(st.fcStep)); fsmWxPlace(map, true); };
     rng.addEventListener('input', upd); upd();
     fsmWxForecastLoad(map);
     return;
@@ -10788,44 +10789,58 @@ async function fsmWxStart(map){
   fsmWxPlace(map);
   const pts = await fsWxPoints(p);
   if(st.param !== p) return;
-  st.pts = pts; st.loaded = true;
+  st.pts = pts; st.loaded = true; st.measItems = null; st.measSel = {};
   if(!pts.length) showToast('Wetter-Messwerte gerade nicht verfügbar (Internet?).', true);
   fsmWxPlace(map);
 }
 // Prognose: 24 Schritte à 3 Stunden ab der nächsten vollen Stunde
 function fsWxStepTime(i){ const d = new Date(); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1 + i * 3); return d.getTime(); }
-// Echte Orte statt Raster: Gipfel und Hütten aus der Gipfelliste. Pro Bildschirmzelle der höchste,
-// danach nur, was sich nicht überlappt. Gerechnet wird auf der Höhe des Orts.
-async function fsmWxGrid(map){
-  const cont = map.getContainer(), w = cont.clientWidth, h = cont.clientHeight, st = map._fsm.wx;
+// Ruhige Auswahl: welche Orte ein Etikett bekommen, wird pro halber Zoomstufe einmal über alle Orte
+// bestimmt (Weltpixel, nicht Bildschirm). Beim Verschieben bleibt die Auswahl gleich; es kommen nur
+// am Rand neue dazu. Erst eine neue halbe Zoomstufe wählt neu.
+function fsWxWorld(lat, lon, z){ const sc = 512 * Math.pow(2, z), r = lat * Math.PI / 180; return [(lon + 180) / 360 * sc, (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * sc]; }
+function fsWxSelect(items, z){
+  const cell = 160, grid = new Map(), out = new Set();
+  for(const it of items){
+    const [x, y] = fsWxWorld(it.lat, it.lon, z);
+    const box = [x - it.w / 2 - 4, y - 50, x + it.w / 2 + 4, y + 6];
+    const x0 = Math.floor(box[0] / cell), x1 = Math.floor(box[2] / cell), y0 = Math.floor(box[1] / cell), y1 = Math.floor(box[3] / cell);
+    let hit = false;
+    for(let cx = x0; cx <= x1 && !hit; cx++) for(let cy = y0; cy <= y1 && !hit; cy++){
+      const l = grid.get(cx + ':' + cy);
+      if(l && l.some(q=> q[0] < box[2] && box[0] < q[2] && q[1] < box[3] && box[1] < q[3])) hit = true;
+    }
+    if(hit) continue;
+    for(let cx = x0; cx <= x1; cx++) for(let cy = y0; cy <= y1; cy++){ const k = cx + ':' + cy; if(!grid.has(k)) grid.set(k, []); grid.get(k).push(box); }
+    out.add(it.k);
+  }
+  return out;
+}
+function fsWxZoomStep(map){ return Math.max(0, Math.floor(map.getZoom() * 2 + 1e-6) / 2); }
+// Prognose-Orte: Gipfel und Hütten aus der Gipfelliste, höhere zuerst
+async function fsmWxFcItems(st){
+  if(st.fcItems) return st.fcItems;
   let peaks = [];
   try{ peaks = await fsPeaksLoad(); }catch(e){ return []; }
-  const top = st.head && !st.head.hidden ? st.head.offsetTop + st.head.offsetHeight + 30 : 170, bottom = h - 100;
-  const ctl = cont.querySelector('.fsm-ctlbox'), ctlB = ctl ? ctl.offsetTop + ctl.offsetHeight + 24 : 260;
-  const b = map.getBounds(), cw = 120, ch = 60, cells = {};
-  peaks.forEach(pk=>{
-    if(pk.kind === 'p' || !pk.name || pk.lat < b.getSouth() || pk.lat > b.getNorth() || pk.lon < b.getWest() || pk.lon > b.getEast()) return;
-    const sp = map.project([pk.lon, pk.lat]);
-    if(sp.x < 58 || sp.x > w - 58 || sp.y - 46 < top || sp.y > bottom || (sp.x > w - 120 && (sp.y - 46 < ctlB || sp.y > h - 170))) return;
-    const k = Math.floor(sp.x / cw) + ':' + Math.floor(sp.y / ch);
-    if(!cells[k] || pk.ele > cells[k].pk.ele) cells[k] = {pk, sp};
-  });
-  const boxes = [], out = [];
-  Object.values(cells).sort((x, y)=> y.pk.ele - x.pk.ele).forEach(({pk, sp})=>{
-    const box = [sp.x - 58, sp.y - 46, sp.x + 58, sp.y + 4];
-    if(boxes.some(q=> q[0] < box[2] && box[0] < q[2] && q[1] < box[3] && box[1] < q[3])) return;
-    boxes.push(box);
-    out.push({lat: pk.lat, lon: pk.lon, ele: pk.ele, name: pk.name, k: pk.lat.toFixed(5) + ',' + pk.lon.toFixed(5)});
-  });
-  return out.slice(0, 40);
+  st.fcItems = peaks.filter(pk=> pk.kind !== 'p' && pk.name).sort((x, y)=> y.ele - x.ele)
+    .map(pk=>({k: pk.lat.toFixed(5) + ',' + pk.lon.toFixed(5), lat: pk.lat, lon: pk.lon, ele: pk.ele, name: pk.name, w: fsmWxPinW('-10°', pk.name, Math.round(pk.ele) + ' m', true)}));
+  return st.fcItems;
+}
+// Orte mit Etikett im (leicht erweiterten) Ausschnitt
+function fsmWxWanted(map, items, selCache){
+  const z = fsWxZoomStep(map);
+  if(!selCache[z]) selCache[z] = fsWxSelect(items, z);
+  const sel = selCache[z], b = map.getBounds();
+  const dy = (b.getNorth() - b.getSouth()) * 0.15, dx = (b.getEast() - b.getWest()) * 0.15;
+  const S = b.getSouth() - dy, N = b.getNorth() + dy, W = b.getWest() - dx, E = b.getEast() + dx;
+  return items.filter(it=> sel.has(it.k) && it.lat > S && it.lat < N && it.lon > W && it.lon < E);
 }
 async function fsmWxForecastLoad(map){
   const st = map._fsm.wx;
   if(!st || !st.param || !st.param.forecast) return;
-  const grid = await fsmWxGrid(map), now = Date.now();
+  const items = await fsmWxFcItems(st), now = Date.now();
   if(!st.param || !st.param.forecast) return;
-  st.grid = grid;
-  const miss = grid.filter(g=> !st.fc[g.k] || now - st.fc[g.k].at > 60*60e3);
+  const miss = fsmWxWanted(map, items, st.fcSel).filter(g=> !st.fc[g.k] || now - st.fc[g.k].at > 60*60e3).slice(0, 60);
   fsmWxPlace(map);
   if(!miss.length) return;
   try{
@@ -10847,7 +10862,7 @@ function fsWxFcAt(fc, ts){
 function fsmWxStop(map){
   const st = map._fsm && map._fsm.wx;
   if(!st) return;
-  st.markers.forEach(m=> m.remove()); st.markers = [];
+  fsmWxClear(st);
   [st.head, st.card].forEach(el=>{ if(el) el.hidden = true; });
   fsmWxTapClear(st);
   st.param = null;
@@ -10861,64 +10876,62 @@ function fsmWxPinEl(val, color, name, sub, icon){
 }
 // Breite des Etiketts grob schätzen (für die Überlappungsprüfung)
 function fsmWxPinW(val, name, sub, icon){ return 22 + (icon ? 22 : 0) + Math.max(26, String(val).length * 8 + 10) + Math.min(92, Math.max(String(name || '').length * 6.6, String(sub || '').length * 5.8)); }
-// Nur so viele Etiketten, wie sich nicht überlappen; höhere Stationen zuerst (Berge sind wichtiger),
-// Nullwerte zuletzt. Unter den Knöpfen und der Kopfkarte nichts.
-function fsmWxPlace(map){
+function fsmWxClear(st){ if(st && st.mk){ st.mk.forEach(m=> m.remove()); st.mk.clear(); } }
+// Messwerte: Etiketten-Daten einmal pro Laden; Werte zuerst, Nullwerte zuletzt, höhere Stationen vor
+function fsmWxMeasItems(st){
+  if(st.measItems) return st.measItems;
+  const p = st.param, eleTxt = (e)=> e ? Math.round(e) + ' m' : '';
+  st.measItems = st.pts.map((x, i)=>{
+    const zero = fsWxIsZero(p, x), val = zero ? '0' : fsWxFmt(p, x.v);
+    const sub = zero ? eleTxt(x.ele) : [eleTxt(x.ele), x.src === 'SLF' ? 'SLF' : ''].filter(Boolean).join(' · ');
+    return {k: x.src + ':' + (x.name || '') + ':' + x.lat.toFixed(4) + ',' + x.lon.toFixed(4) + ':' + i, lat: x.lat, lon: x.lon, ele: x.ele, x, zero, val, sub, w: fsmWxPinW(val, x.name, sub)};
+  }).sort((a, c)=> (a.zero - c.zero) || ((c.ele || 0) - (a.ele || 0)));
+  return st.measItems;
+}
+// Etiketten setzen, ohne Vorhandenes neu aufzubauen: was bleibt, bleibt stehen; Neues blendet ein.
+// refresh: Inhalt der vorhandenen erneuern (Zeitschieber der Prognose).
+function fsmWxPlace(map, refresh){
   const st = map._fsm && map._fsm.wx;
   if(!st || !st.param) return;
-  st.markers.forEach(m=> m.remove()); st.markers = [];
-  const p = st.param, cont = map.getContainer(), w = cont.clientWidth, h = cont.clientHeight;
-  const top = st.head && !st.head.hidden ? st.head.offsetTop + st.head.offsetHeight + 8 : 120;
-  const ctl = cont.querySelector('.fsm-ctlbox'), ctlB = ctl ? ctl.offsetTop + ctl.offsetHeight + 8 : 240;
-  const boxes = [];
-  const hit = (box)=> boxes.some(b=> b[0] < box[2] && box[0] < b[2] && b[1] < box[3] && box[1] < b[3]);
-  const free = (box)=> !(box[0] < 6 || box[1] < top || box[2] > w - 6 || box[3] > h - 84 || (box[2] > w - 64 && (box[1] < ctlB || box[3] > h - 160)));
-  const put = (sp, wd, ll, el)=>{
-    const box = [sp.x - wd / 2, sp.y - 46, sp.x + wd / 2, sp.y + 4];
-    if(!free(box) || hit(box)) return false;
-    boxes.push(box);
-    st.markers.push(new maplibregl.Marker({element: el, anchor: 'bottom', offset: [0, 4], opacity: '1', opacityWhenCovered: '1'}).setLngLat(ll).addTo(map));
-    return true;
-  };
-  const eleTxt = (e)=> e ? Math.round(e) + ' m' : '';
+  st.mk = st.mk || new Map();
+  const p = st.param;
+  let want = [], draw;
   if(p.forecast){
     const ts = fsWxStepTime(st.fcStep || 0), tp = FS_WX_PARAMS.find(x=> x.id === 'temp');
-    (st.grid || []).forEach(g=>{
-      const fc = st.fc[g.k]; if(!fc) return;
-      const v = fsWxFcAt(fc, ts); if(!v) return;
-      const val = Math.round(v.temp) + '°', sub = eleTxt(g.ele || fc.ele), icon = fsWxCodeIcon(v.code);
-      const el = fsmWxPinEl(val, fsWxColor(tp, v.temp), g.name, sub, icon);
-      el.setAttribute('aria-label', g.name + ', ' + sub + ': ' + Math.round(v.temp) + ' Grad');
-      el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxTapClear(st); fsmWxFcCard(map, g, fc, v, ts); });
-      put(map.project([g.lon, g.lat]), fsmWxPinW(val, g.name, sub, icon), [g.lon, g.lat], el);
-    });
-    return;
+    want = st.fcItems ? fsmWxWanted(map, st.fcItems, st.fcSel).filter(g=> st.fc[g.k] && fsWxFcAt(st.fc[g.k], ts)) : [];
+    draw = (g)=>{
+      const fc = st.fc[g.k], v = fsWxFcAt(fc, ts), sub = Math.round(g.ele || fc.ele) + ' m';
+      return {el: fsmWxPinEl(Math.round(v.temp) + '°', fsWxColor(tp, v.temp), g.name, sub, fsWxCodeIcon(v.code)), label: g.name + ', ' + sub + ': ' + Math.round(v.temp) + ' Grad',
+        click: ()=> fsmWxFcCard(map, g, fc, fsWxFcAt(fc, fsWxStepTime(st.fcStep || 0)), fsWxStepTime(st.fcStep || 0))};
+    };
+  }else{
+    const items = fsmWxMeasItems(st);
+    want = fsmWxWanted(map, items, st.measSel);
+    draw = (it)=>({el: fsmWxPinEl(it.val, it.zero ? '' : fsWxColor(p, it.x.v), it.x.name, it.sub), label: (it.x.name || 'Station') + ', ' + it.sub + ': ' + (it.zero ? p.zero : it.val + ' ' + (p.unit || '')), click: ()=> fsmWxCard(map, it.x)});
   }
-  const b = map.getBounds();
-  const inView = st.pts.filter(x=> x.lat > b.getSouth() && x.lat < b.getNorth() && x.lon > b.getWest() && x.lon < b.getEast());
-  const isZero = (x)=> fsWxIsZero(p, x);
-  const zeros = [];
-  inView.slice().sort((a, c)=> (c.ele || 0) - (a.ele || 0)).forEach(x=>{
-    if(isZero(x)){ zeros.push(x); return; }
-    const val = fsWxFmt(p, x.v), sub = [eleTxt(x.ele), x.src === 'SLF' ? 'SLF' : ''].filter(Boolean).join(' · ');
-    const el = fsmWxPinEl(val, fsWxColor(p, x.v), x.name, sub);
-    el.setAttribute('aria-label', (x.name || 'Station') + ', ' + sub + ': ' + val + ' ' + (p.unit || ''));
-    el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxTapClear(st); fsmWxCard(map, x); });
-    put(map.project([x.lon, x.lat]), fsmWxPinW(val, x.name, sub), [x.lon, x.lat], el);
+  const keep = new Set(want.map(it=> it.k));
+  st.mk.forEach((m, k)=>{ if(!keep.has(k)){ m.remove(); st.mk.delete(k); } });
+  want.forEach(it=>{
+    const old = st.mk.get(it.k);
+    if(old && !refresh) return;
+    const d = draw(it);
+    if(old){ const el = old.getElement(); el.className = d.el.className; el.innerHTML = d.el.innerHTML; el.setAttribute('aria-label', d.label); el._fsClick = d.click; return; }
+    const el = d.el;
+    el.classList.add('in'); el.setAttribute('aria-label', d.label); el._fsClick = d.click;
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxTapClear(st); if(el._fsClick) el._fsClick(); });
+    st.mk.set(it.k, new maplibregl.Marker({element: el, anchor: 'bottom', offset: [0, 4], opacity: '1', opacityWhenCovered: '1'}).setLngLat([it.lon, it.lat]).addTo(map));
   });
-  zeros.forEach(x=>{
-    const sub = eleTxt(x.ele), el = fsmWxPinEl('0', '', x.name, sub);
-    el.setAttribute('aria-label', (x.name || 'Station') + ', ' + sub + ': ' + p.zero);
-    el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxTapClear(st); fsmWxCard(map, x); });
-    put(map.project([x.lon, x.lat]), fsmWxPinW('0', x.name, sub), [x.lon, x.lat], el);
-  });
+  if(p.forecast) return;
   // Hinweis, damit «alles null» nicht wie «geht nicht» aussieht
   const note = st.head && st.head.querySelector('.note');
   if(note){
+    const b = map.getBounds();
+    const inView = st.pts.filter(x=> x.lat > b.getSouth() && x.lat < b.getNorth() && x.lon > b.getWest() && x.lon < b.getEast());
+    const zeros = inView.filter(x=> fsWxIsZero(p, x)).length;
     let txt = '';
     if(st.loaded && !st.pts.length) txt = 'keine Messwerte erhalten (Internet?)';
     else if(st.loaded && !inView.length) txt = 'keine Station im Ausschnitt';
-    else if(zeros.length && p.zero) txt = zeros.length === inView.length ? `alle ${inView.length} Stationen ${p.zero}` : `${zeros.length} von ${inView.length} Stationen ${p.zero}`;
+    else if(zeros && p.zero) txt = zeros === inView.length ? `alle ${inView.length} Stationen ${p.zero}` : `${zeros} von ${inView.length} Stationen ${p.zero}`;
     note.textContent = p.label + ', gemessen' + (txt ? ' · ' + txt : '');
   }
 }
