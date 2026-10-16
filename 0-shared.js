@@ -1507,7 +1507,7 @@ function fsHomeMount(){
   }else fsHomeSync();
 }
 // Die eine Karte der App: Startkarte, und in Tour/Gebiet ausgeliehen (fsCtxAcquire)
-let fsCtxUsesHome = false, fsCtxOn3d = null, fsCtxSnap = null;
+let fsCtxUsesHome = false, fsCtxOn3d = null, fsCtxSnap = null, fsCtxOwner = '';
 function fsHomeCreateMap(){
   fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52, on3d: (m)=>{
     if(fsCtxOn3d){ fsCtxOn3d(m); return; }
@@ -1522,8 +1522,10 @@ function fsHomeCreateMap(){
 }
 // Tour/Gebiet: die Startkarte in den Kartenbereich hinter dem Blatt hängen; was danach dazukommt
 // (Linien, Punkte, Orte der Tour) wird beim Schliessen wieder entfernt. Ausschnitt und Ebenen bleiben.
-function fsCtxAcquire(innerId, on3d){
+// owner: wer die Karte gerade hat ('ctx' = Tour/Gebiet, 'big' = Grosse Karte); nur der darf sie zurückgeben.
+function fsCtxAcquire(innerId, on3d, owner){
   const inner = document.getElementById(innerId);
+  fsCtxOwner = owner || 'ctx';
   if(!fsHomeEl){
     fsHomeEl = document.createElement('div');
     fsHomeEl.className = 'fs-home-map';
@@ -1545,7 +1547,9 @@ function fsCtxAcquire(innerId, on3d){
   });
   return map;
 }
-function fsCtxRelease(){
+function fsCtxRelease(owner){
+  if((owner || 'ctx') !== fsCtxOwner) return;
+  fsCtxOwner = '';
   const map = fsHomeMap;
   fsCtxUsesHome = false; fsCtxOn3d = null;
   if(map && map._fsm){
@@ -1553,9 +1557,10 @@ function fsCtxRelease(){
       if(map._fsm.popup){ map._fsm.popup.remove(); map._fsm.popup = null; }
       const snap = fsCtxSnap;
       if(snap && map.getStyle()){
-        // nur die eigenen Linien der Tour (own-…) entfernen, nichts von der Grundkarte
-        (map.getStyle().layers || []).map(l=> l.id).filter(id=> id.indexOf('own-') === 0 && !snap.layers.has(id)).forEach(id=>{ try{ map.removeLayer(id); }catch(e){} });
-        Object.keys(map.getStyle().sources || {}).filter(id=> id.indexOf('own-') === 0 && !snap.sources.has(id)).forEach(id=>{ try{ map.removeSource(id); }catch(e){} });
+        // nur die eigenen Linien der Tour (own-…) bzw. der Grossen Karte (fl-…) entfernen, nichts von der Grundkarte
+        const mine = (id)=> id.indexOf('own-') === 0 || id.indexOf('fl-') === 0;
+        (map.getStyle().layers || []).map(l=> l.id).filter(id=> mine(id) && !snap.layers.has(id)).forEach(id=>{ try{ map.removeLayer(id); }catch(e){} });
+        Object.keys(map.getStyle().sources || {}).filter(id=> mine(id) && !snap.sources.has(id)).forEach(id=>{ try{ map.removeSource(id); }catch(e){} });
         map._fsm.markers.splice(snap.markers).forEach(m=>{ try{ m.remove(); }catch(e){} });
       }
       map._fsm.orteIds = [];
@@ -1564,7 +1569,7 @@ function fsCtxRelease(){
     }catch(e){ dlog('Karte zurückgeben: ' + (e && e.message), 'err'); }
   }
   fsCtxSnap = null;
-  if(fsHomeEl){ fsHomeEl.classList.remove('in-ctx'); fsHomeEl.remove(); }
+  if(fsHomeEl){ fsHomeEl.classList.remove('in-ctx', 'in-big'); fsHomeEl.remove(); }
   if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); }
 }
 // Marker zu den aktuellen Punkten der Liste
@@ -1693,7 +1698,12 @@ function fsHomeCard(p){
   // Öffnen über den Eintrag der Liste (dieselbe Aktion wie dort), sonst über den Knopf selbst
   card.querySelector('.open').addEventListener('click', (e)=>{
     const li = document.querySelector('.fs-sheet .card[data-act="' + act + '"][data-id="' + CSS.escape(p.id) + '"]');
-    if(li){ e.preventDefault(); card.hidden = true; li.click(); }
+    if(li){
+      e.preventDefault(); card.hidden = true;
+      // In der Grossen Karte: erst schliessen; nach der Tour geht es zur Karte zurück
+      if(fsHomeEl.classList.contains('in-big')){ modalOpenedFromStandaloneMap = true; closeTopOverlayLayer(); }
+      li.click();
+    }
   });
   fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(y=> y.classList.remove('on'));
   const idx = fsHomePts.points.indexOf(p);
@@ -5345,12 +5355,46 @@ function fs3dCesiumOpen(opts){
 }
 
 function openStandaloneMap(){
+  // Lief der Standort schon auf der Startkarte, läuft er nach dem Schliessen weiter
+  const gpsBefore = !!(typeof gpsMarker !== 'undefined' && gpsMarker && fsHomeMap && gpsMarker._fsmMap === fsHomeMap);
   openFullscreenMap(renderStandaloneMap, function(){
     const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
     if(m){ try{ m.stopLocate(); }catch(e){} }
     // Standort-Anzeige dieser Karte beim Schliessen beenden
-    if(m && m._ml && gpsMarker && gpsMarker._fsmMap === m._ml) stopLiveGpsOnMap();
+    if(m && m._ml && gpsMarker && gpsMarker._fsmMap === m._ml && !(gpsBefore && m._ml === fsHomeMap)) stopLiveGpsOnMap();
+    // Geliehene Startkarte zurückgeben
+    if(m && m._onRemove) m.remove();
   });
+}
+// Grosse Karte = Startkarte im Vollbild, mit den Leaflet-Befehlen (FL) der Grossen Karte darüber
+let fsBigFl = null;
+function fsBigCtlTop(ml, top){
+  if(!ml || !ml._fsm) return;
+  ml._fsm.ctlTop = top;
+  ml.getContainer().querySelectorAll('.fsm-ctlbox, .fsm-panel').forEach(el=>{ el.style.top = top + 'px'; });
+}
+function fsBigAcquire(innerId, on3d){
+  if(fsBigFl) fsBigRelease(fsBigFl);
+  const ml = fsCtxAcquire(innerId, on3d, 'big');
+  fsHomeEl.classList.remove('in-ctx');
+  fsHomeEl.classList.add('in-big');
+  fsBigCtlTop(ml, 66);
+  const fm = FL.map(ml);
+  ml._fl = fm;
+  fm._onRemove = ()=> fsBigRelease(fm);
+  fsBigFl = fm;
+  return fm;
+}
+function fsBigRelease(fm){
+  if(!fm || fm._released) return;
+  fm._released = true;
+  const ml = fm._ml;
+  fm.detach();
+  ml._fsInfoBlock = null;
+  if(fsBigFl === fm) fsBigFl = null;
+  const reg = window.__activeLeafletMaps;
+  if(reg) Object.keys(reg).forEach(k=>{ if(reg[k] === fm) delete reg[k]; });
+  if(fsCtxOwner === 'big'){ fsBigCtlTop(ml, 52); fsCtxRelease('big'); }
 }
 
 function renderStandaloneMap(containerId){
@@ -5367,14 +5411,23 @@ function renderStandaloneMap(containerId){
     mapDiv.id = mapDivId;
     mapDiv.style.cssText = 'width:100%; height:100%;';
     el2.appendChild(mapDiv);
-    const map = fsmCreateFlMap(mapDivId, {ctlTop: 66, on3d: (ml)=>{ const c = ml.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom:14, heading: ml.getBearing()}); }});
+    const on3dBig = (ml)=>{ const c = ml.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom:14, heading: ml.getBearing()}); };
+    // Eine Karte für alles: die Startkarte (mit ihren Pins, Tourkarte, Routen, Wetter) ins Vollbild
+    // ausleihen und die Werkzeuge der Grossen Karte daran hängen. Ist sie gerade von einer Tour
+    // belegt, wie bisher eine eigene Karte.
+    // Tour eben geschlossen (Zurück zur Grossen Karte): deren Karte zuerst zurückgeben
+    if(fsCtxUsesHome && fsCtxOwner === 'ctx' && !state.modal && typeof fsDestroyContextMap === 'function') fsDestroyContextMap();
+    const useHome = !fsCtxUsesHome;
+    const map = useHome ? fsBigAcquire(mapDivId, on3dBig) : fsmCreateFlMap(mapDivId, {ctlTop: 66, on3d: on3dBig});
     // Markiert diese Karte als DIE Übersichtskarte (im Unterschied zu den vielen anderen, kleineren
     // Vollbild-Karten, die denselben Container über makeFullscreenButton/openFullscreenMap nutzen) —
     // ausgewertet in closeFullscreenMap(), damit der zuletzt gezeigte Ausschnitt auch dann sicher
     // festgehalten wird, wenn kein abschliessendes 'moveend' mehr ankommt (z. B. weil eine Schwung-
     // Animation nach dem Verschieben/Zoomen noch läuft und die Karte währenddessen geschlossen wird).
     map._isStandaloneMap = true;
-    if(lastStandaloneMapView) map.setView(lastStandaloneMapView.center, lastStandaloneMapView.zoom);
+    // Geliehene Startkarte: ihren Ausschnitt behalten (es ist ja dieselbe Karte)
+    if(useHome) fsBigMapKeepView = true;
+    else if(lastStandaloneMapView) map.setView(lastStandaloneMapView.center, lastStandaloneMapView.zoom);
     else map.setView([46.8182, 8.2275], 8);
     map.on('moveend', ()=>{ lastStandaloneMapView = {center: map.getCenter(), zoom: map.getZoom()}; });
     registerMap(mapDivId, map);
@@ -5407,9 +5460,12 @@ function renderStandaloneMap(containerId){
         FL.popup().setLatLng(e.latlng).setContent(pointPlacementPopupContent(e.latlng.lat, e.latlng.lng)).openOn(map);
         return;
       }
-      // SAC-Skitouren / Sperrungen / Lawinengefahr (je nach eingeschalteten Ebenen)
-      await fsmHandleInfoClick(map._ml, e.latlng);
+      // SAC-Skitouren / Sperrungen / Lawinengefahr (je nach eingeschalteten Ebenen);
+      // die Startkarte macht das schon selbst (fsmWireInfoClicks)
+      if(!useHome) await fsmHandleInfoClick(map._ml, e.latlng);
     });
+    // Während Planer oder «Punkt setzen» auf einen Tipp warten, keine Infos der Startkarte
+    if(useHome) map._ml._fsInfoBlock = ()=> (typeof plannerExpanded !== 'undefined' && plannerExpanded) || (typeof plannerPicking !== 'undefined' && !!plannerPicking) || (typeof addPointPicking !== 'undefined' && addPointPicking);
     fsmWireOrtHold(map._ml);
 
     // Alle eigenen Touren (Punkte & Tracks) auf der Karte anzeigen — analog zur Skitouren-Ebene,
@@ -5722,6 +5778,8 @@ function renderStandaloneMap(containerId){
     // (langes Drücken), da auf dieser reinen Übersichtskarte nichts versehentlich gesetzt/verändert
     // werden kann — und langes Drücken auf manchen Mobilgeräten (z. B. iOS Safari) beim Antippen
     // eines Kartenelements ohnehin nicht zuverlässig als contextmenu-Ereignis ankommt.
+    // Was die Startkarte schon zeigt (ihre Pins mit Namen, Tourkarte, Routen), hier nicht nochmals
+    const homeIds = new Set(useHome && fsHomePts ? fsHomePts.points.map(p=> p.id) : []);
     function addMapEntity(catKey, color, track, points, popupContentFn){
       if(!categoryLayers[catKey]) categoryLayers[catKey] = FL.layerGroup();
       const layer = categoryLayers[catKey];
@@ -5762,13 +5820,13 @@ function renderStandaloneMap(containerId){
       const catKey = tourCategoryKey(t);
       const color = (TOUR_CATEGORY_META[catKey] || TOUR_CATEGORY_META.skitour).color;
       const track = (t.trackSimplified && t.trackSimplified.length) ? t.trackSimplified : (t.manualTrack && t.manualTrack.length ? t.manualTrack : null);
-      addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id), ()=> openTourEditFromMap(t.id), t.topoImages));
+      if(!homeIds.has(t.id)) addMapEntity(catKey, color, track, t.points, ()=> mapPopupContent('🏔️', t.name + (t.routeName ? ' – ' + t.routeName : ''), 'Tour öffnen', ()=> openTourFromMap(t.id), ()=> openTourEditFromMap(t.id), t.topoImages));
       if(t.points && t.points.length) searchIndex.push({name: t.name, icon:'🏔️', label:'Tour öffnen', coords:[t.points[0].lat, t.points[0].lon], openFn: ()=> openTourFromMap(t.id), editFn: ()=> openTourEditFromMap(t.id), appendPointFn: (lat,lon)=> appendPointToTourFromMap(t.id, lat, lon), topoImages: t.topoImages});
     });
     // Hütten (beide Apps) — eigener Standort/Linie, plus deren Zustiege.
     (state.huts || []).forEach(h=>{
       const track = (h.manualTrack && h.manualTrack.length) ? h.manualTrack : null;
-      addMapEntity('huette', TOUR_CATEGORY_META.huette.color, track, h.points, ()=> mapPopupContent('🛖', h.name, 'Hütte öffnen', ()=> openHutFromMap(h.id), ()=> openHutEditFromMap(h.id)));
+      if(!homeIds.has(h.id)) addMapEntity('huette', TOUR_CATEGORY_META.huette.color, track, h.points, ()=> mapPopupContent('🛖', h.name, 'Hütte öffnen', ()=> openHutFromMap(h.id), ()=> openHutEditFromMap(h.id)));
       if(h.points && h.points.length) searchIndex.push({name: h.name, icon:'🛖', label:'Hütte öffnen', coords:[h.points[0].lat, h.points[0].lon], openFn: ()=> openHutFromMap(h.id), editFn: ()=> openHutEditFromMap(h.id), appendPointFn: (lat,lon)=> appendPointToHutFromMap(h.id, lat, lon)});
       (h.accessRoutes || []).forEach(r=>{
         const rTrack = routeTrack(r);
@@ -5791,7 +5849,7 @@ function renderStandaloneMap(containerId){
       // Sektoren: Ausgangspunkt(e) plus deren Zustiege/Abstiege.
       (state.sektoren || []).forEach(sek=>{
         const track = (sek.manualTrack && sek.manualTrack.length) ? sek.manualTrack : null;
-        addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id), ()=> openSektorEditFromMap(sek.id), sek.topoImages));
+        if(!homeIds.has(sek.id)) addMapEntity('sektor', TOUR_CATEGORY_META.sektor.color, track, sek.points, ()=> mapPopupContent('⛺', sek.name, 'Sektor öffnen', ()=> openSektorFromMap(sek.id), ()=> openSektorEditFromMap(sek.id), sek.topoImages));
         if(sek.points && sek.points.length) searchIndex.push({name: sek.name, icon:'⛺', label:'Sektor öffnen', coords:[sek.points[0].lat, sek.points[0].lon], openFn: ()=> openSektorFromMap(sek.id), editFn: ()=> openSektorEditFromMap(sek.id), appendPointFn: (lat,lon)=> appendPointToSektorFromMap(sek.id, lat, lon), topoImages: sek.topoImages});
         ['accessRoutes','descentRoutes'].forEach(field=>{
           const kind = field==='descentRoutes' ? 'descent' : 'access';
@@ -5806,7 +5864,7 @@ function renderStandaloneMap(containerId){
       // (die ja bereits oben eigenständig auf der Karte erscheinen).
       (state.klettergebiete || []).forEach(geb=>{
         const track = (geb.manualTrack && geb.manualTrack.length) ? geb.manualTrack : null;
-        addMapEntity('klettergebiet', TOUR_CATEGORY_META.klettergebiet.color, track, geb.points, ()=> mapPopupContent('⛰️', geb.name, 'Klettergebiet öffnen', ()=> openKlettergebietFromMap(geb.id), ()=> openKlettergebietEditFromMap(geb.id), geb.topoImages));
+        if(!homeIds.has(geb.id)) addMapEntity('klettergebiet', TOUR_CATEGORY_META.klettergebiet.color, track, geb.points, ()=> mapPopupContent('⛰️', geb.name, 'Klettergebiet öffnen', ()=> openKlettergebietFromMap(geb.id), ()=> openKlettergebietEditFromMap(geb.id), geb.topoImages));
         if(geb.points && geb.points.length) searchIndex.push({name: geb.name, icon:'⛰️', label:'Klettergebiet öffnen', coords:[geb.points[0].lat, geb.points[0].lon], openFn: ()=> openKlettergebietFromMap(geb.id), editFn: ()=> openKlettergebietEditFromMap(geb.id), appendPointFn: (lat,lon)=> appendPointToKlettergebietFromMap(geb.id, lat, lon), topoImages: geb.topoImages});
       });
     }
@@ -7222,6 +7280,7 @@ function fsmIdentifyView(map){
 function fsmWireInfoClicks(map, opts){
   map.on('click', (e)=>{
     if(e.originalEvent && e.originalEvent._fsmHandled) return;
+    if(map._fsInfoBlock && map._fsInfoBlock()) return; // Grosse Karte: Planer/Punkt setzen wartet auf den Tipp
     fsmHandleInfoClick(map, {lat: e.lngLat.lat, lng: e.lngLat.lng}, opts);
   });
 }
@@ -7288,17 +7347,20 @@ const FL = (function(){
   function longPress(el, cb){
     let timer = null, start = null;
     const cancel = ()=>{ clearTimeout(timer); timer = null; };
-    el.addEventListener('touchstart', (ev)=>{
+    const hs = [];
+    const add = (t, f, o)=>{ el.addEventListener(t, f, o); hs.push([t, f, o]); };
+    add('touchstart', (ev)=>{
       if(ev.touches.length !== 1){ cancel(); return; }
       const t = ev.touches[0]; start = {x:t.clientX, y:t.clientY};
       cancel();
       timer = setTimeout(()=>{ timer = null; el._flLongPressAt = Date.now(); if(navigator.vibrate) try{ navigator.vibrate(12); }catch(e){} cb({clientX:start.x, clientY:start.y, preventDefault(){}, stopPropagation(){}, _flSynthetic:true}); }, 550);
     }, {passive:true});
-    el.addEventListener('touchmove', (ev)=>{ if(!start || !timer) return; const t = ev.touches[0]; if(ev.touches.length !== 1 || Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) cancel(); }, {passive:true});
-    el.addEventListener('touchend', cancel); el.addEventListener('touchcancel', cancel);
+    add('touchmove', (ev)=>{ if(!start || !timer) return; const t = ev.touches[0]; if(ev.touches.length !== 1 || Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) cancel(); }, {passive:true});
+    add('touchend', cancel); add('touchcancel', cancel);
     // Nach einem langen Drücken nicht zusätzlich als Antippen oder Browser-Menü werten
-    el.addEventListener('click', (ev)=>{ if(el._flLongPressAt && Date.now() - el._flLongPressAt < 700){ ev._fsmHandled = true; ev._flStopped = true; ev.stopPropagation(); ev.preventDefault(); } }, true);
-    el.addEventListener('contextmenu', (ev)=>{ if(el._flLongPressAt && Date.now() - el._flLongPressAt < 1500){ ev.preventDefault(); ev.stopPropagation(); ev._flDup = true; } }, true);
+    add('click', (ev)=>{ if(el._flLongPressAt && Date.now() - el._flLongPressAt < 700){ ev._fsmHandled = true; ev._flStopped = true; ev.stopPropagation(); ev.preventDefault(); } }, true);
+    add('contextmenu', (ev)=>{ if(el._flLongPressAt && Date.now() - el._flLongPressAt < 1500){ ev.preventDefault(); ev.stopPropagation(); ev._flDup = true; } }, true);
+    return ()=>{ cancel(); hs.forEach(([t, f, o])=> el.removeEventListener(t, f, o)); };
   }
   // ----- Grenzen -----
   function Bounds(a, b){ this._sw = null; this._ne = null; if(a) this.extend(a); if(b) this.extend(b); }
@@ -7518,6 +7580,10 @@ const FL = (function(){
     evented(this);
     this._ml = ml; this._layers = new Set(); this._popup = null;
     this.options = {};
+    // Alle Handler an der MapLibre-Karte merken: eine geliehene Karte (Startkarte) muss die Hülle
+    // beim Zurückgeben wieder ganz loswerden (detach)
+    const mlh = this._mlh = [];
+    const on = (t, f)=>{ ml.on(t, f); mlh.push([t, f]); };
     const corners = this._corners = {};
     ['topleft','topright','bottomleft','bottomright'].forEach(c=>{
       const d = document.createElement('div'); d.className = 'fl-corner fl-' + c; ml.getContainer().appendChild(d); corners[c] = d;
@@ -7525,20 +7591,20 @@ const FL = (function(){
     const self = this;
     // Klicks auf die Karte erst nach den Klicks auf Linien/Marker melden — wer dort
     // DomEvent.stopPropagation() aufruft, verhindert wie bei Leaflet den Karten-Klick.
-    ml.on('click', (e)=>{ const ev = self._evt(e); Promise.resolve().then(()=>{ if(e.originalEvent && (e.originalEvent._fsmHandled || e.originalEvent._flStopped)) return; self.fire('click', ev); }); });
-    ml.on('contextmenu', (e)=>{ if(e.originalEvent && (e.originalEvent._flDup || e.originalEvent._fsmHandled)) return; self.fire('contextmenu', self._evt(e)); });
-    longPress(ml.getCanvasContainer(), (ev)=>{
+    on('click', (e)=>{ const ev = self._evt(e); Promise.resolve().then(()=>{ if(e.originalEvent && (e.originalEvent._fsmHandled || e.originalEvent._flStopped)) return; self.fire('click', ev); }); });
+    on('contextmenu', (e)=>{ if(e.originalEvent && (e.originalEvent._flDup || e.originalEvent._fsmHandled)) return; self.fire('contextmenu', self._evt(e)); });
+    this._lpOff = longPress(ml.getCanvasContainer(), (ev)=>{
       const r = ml.getContainer().getBoundingClientRect();
       const pt = {x: ev.clientX - r.left, y: ev.clientY - r.top};
       const ll = ml.unproject([pt.x, pt.y]);
       self.fire('contextmenu', {latlng:{lat:ll.lat, lng:ll.lng}, containerPoint:pt, originalEvent:ev});
     });
-    ml.on('moveend', ()=> self.fire('moveend'));
-    ml.on('zoomend', ()=> self.fire('zoomend'));
-    ml.on('movestart', ()=> self.fire('movestart'));
-    ml.on('dragstart', ()=> self.fire('dragstart'));
-    ml.on('zoomstart', ()=> self.fire('zoomstart'));
-    ml.on('move', ()=> self.fire('move'));
+    on('moveend', ()=> self.fire('moveend'));
+    on('zoomend', ()=> self.fire('zoomend'));
+    on('movestart', ()=> self.fire('movestart'));
+    on('dragstart', ()=> self.fire('dragstart'));
+    on('zoomstart', ()=> self.fire('zoomstart'));
+    on('move', ()=> self.fire('move'));
     this.dragging = {enable(){ ml.dragPan.enable(); }, disable(){ ml.dragPan.disable(); }, enabled(){ return ml.dragPan.isEnabled(); }};
     this.doubleClickZoom = {enable(){ ml.doubleClickZoom.enable(); }, disable(){ ml.doubleClickZoom.disable(); }};
     this.scrollWheelZoom = {enable(){ ml.scrollZoom.enable(); }, disable(){ ml.scrollZoom.disable(); }};
@@ -7602,7 +7668,21 @@ const FL = (function(){
   FMap.prototype.distance = function(a, b){ const p = toLL(a), q = toLL(b); return new maplibregl.LngLat(p.lng, p.lat).distanceTo(new maplibregl.LngLat(q.lng, q.lat)); };
   FMap.prototype.locate = function(){ return this; };
   FMap.prototype.stopLocate = function(){ return this; };
-  FMap.prototype.remove = function(){ try{ this._ml.remove(); }catch(e){} return this; };
+  FMap.prototype.remove = function(){ if(this._onRemove){ const f = this._onRemove; this._onRemove = null; f(); return this; } try{ this._ml.remove(); }catch(e){} return this; };
+  // Hülle von einer weiterlaufenden Karte lösen: eigene Ebenen, Popup, Ecken und Handler entfernen
+  FMap.prototype.detach = function(){
+    if(this._detached) return this;
+    this._detached = true;
+    try{ this.closePopup(); }catch(e){}
+    Array.from(this._layers).forEach(l=>{ try{ this.removeLayer(l); }catch(e){} });
+    Object.values(this._corners || {}).forEach(d=>{ try{ d.remove(); }catch(e){} });
+    (this._mlh || []).forEach(([t, f])=>{ try{ this._ml.off(t, f); }catch(e){} });
+    this._mlh = [];
+    if(this._lpOff){ try{ this._lpOff(); }catch(e){} this._lpOff = null; }
+    if(this._ml._fl === this) delete this._ml._fl;
+    this._ev = {};
+    return this;
+  };
 
   return {
     // Hinweis: Zoomstufen +1 gegenüber MapLibre (512-px-Kacheln), damit bestehende Werte
@@ -10737,7 +10817,7 @@ const FS_WX_DAYS = ['So','Mo','Di','Mi','Do','Fr','Sa'];
 function fsWxCodeIcon(c){ return c >= 95 ? 'storm' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? 'snow' : c >= 51 ? 'rain' : c >= 45 ? 'fog' : c === 3 ? 'cloud' : c >= 1 ? 'partly' : 'sun'; }
 function fsWxHourLabel(ts){ const d = new Date(ts); const today = new Date(); const dd = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 864e5); return (dd === 0 ? 'Heute' : dd === 1 ? 'Morgen' : FS_WX_DAYS[d.getDay()]) + ' ' + d.getHours() + ' Uhr'; }
 async function fsmWxStart(map){
-  const st = map._fsm.wx = map._fsm.wx || {markers:[], pts:[], fc:{}};
+  const st = map._fsm.wx = map._fsm.wx || {mk: new Map(), pts:[], fc:{}};
   const cont = map.getContainer();
   if(!st.head){
     st.head = document.createElement('div'); st.head.className = 'fsm-wx-head';
@@ -10757,14 +10837,15 @@ async function fsmWxStart(map){
       if(!st.card.hidden || st.downOpen){ st.card.hidden = true; fsmWxTapClear(st); st.downOpen = false; return; }
       const oe = e.originalEvent;
       setTimeout(()=>{
-        if(!st.param || (oe && (oe._fsmHandled || oe._flStopped || oe.defaultPrevented)) || openNow()) return;
+        if(!st.param || (oe && (oe._fsmHandled || oe._flStopped || oe.defaultPrevented)) || openNow() || (map._fsInfoBlock && map._fsInfoBlock())) return;
         fsmWxTap(map, e.lngLat.lat, e.lngLat.lng);
       }, 30);
     });
   }
   st.head.hidden = false;
   const p = fsWxParam();
-  st.param = p; st.pts = []; st.loaded = false;
+  fsmWxClear(st);
+  st.param = p; st.pts = []; st.loaded = false; st.measItems = null; st.measSel = {}; st.fcSel = st.fcSel || {};
   const tabs = `<div class="tabs" role="tablist">${FS_WX_PARAMS.map(x=> `<button type="button" role="tab" data-wx="${x.id}" class="${x.id === p.id ? 'on' : ''}" aria-selected="${x.id === p.id}">${x.short || x.label}</button>`).join('')}</div>`;
   let body;
   if(p.forecast){
@@ -10780,7 +10861,7 @@ async function fsmWxStart(map){
   st.head.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} st.card.hidden = true; fsmWxTapClear(st); fsmWxStart(map); }));
   const rng = st.head.querySelector('input[type=range]');
   if(rng){
-    const upd = ()=>{ st.fcStep = +rng.value; st.head.querySelector('.when').textContent = fsWxHourLabel(fsWxStepTime(st.fcStep)); fsmWxPlace(map); };
+    const upd = ()=>{ st.fcStep = +rng.value; st.head.querySelector('.when').textContent = fsWxHourLabel(fsWxStepTime(st.fcStep)); fsmWxPlace(map, true); };
     rng.addEventListener('input', upd); upd();
     fsmWxForecastLoad(map);
     return;
@@ -10788,44 +10869,58 @@ async function fsmWxStart(map){
   fsmWxPlace(map);
   const pts = await fsWxPoints(p);
   if(st.param !== p) return;
-  st.pts = pts; st.loaded = true;
+  st.pts = pts; st.loaded = true; st.measItems = null; st.measSel = {};
   if(!pts.length) showToast('Wetter-Messwerte gerade nicht verfügbar (Internet?).', true);
   fsmWxPlace(map);
 }
 // Prognose: 24 Schritte à 3 Stunden ab der nächsten vollen Stunde
 function fsWxStepTime(i){ const d = new Date(); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1 + i * 3); return d.getTime(); }
-// Echte Orte statt Raster: Gipfel und Hütten aus der Gipfelliste. Pro Bildschirmzelle der höchste,
-// danach nur, was sich nicht überlappt. Gerechnet wird auf der Höhe des Orts.
-async function fsmWxGrid(map){
-  const cont = map.getContainer(), w = cont.clientWidth, h = cont.clientHeight, st = map._fsm.wx;
+// Ruhige Auswahl: welche Orte ein Etikett bekommen, wird pro halber Zoomstufe einmal über alle Orte
+// bestimmt (Weltpixel, nicht Bildschirm). Beim Verschieben bleibt die Auswahl gleich; es kommen nur
+// am Rand neue dazu. Erst eine neue halbe Zoomstufe wählt neu.
+function fsWxWorld(lat, lon, z){ const sc = 512 * Math.pow(2, z), r = lat * Math.PI / 180; return [(lon + 180) / 360 * sc, (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * sc]; }
+function fsWxSelect(items, z){
+  const cell = 160, grid = new Map(), out = new Set();
+  for(const it of items){
+    const [x, y] = fsWxWorld(it.lat, it.lon, z);
+    const box = [x - it.w / 2 - 4, y - 50, x + it.w / 2 + 4, y + 6];
+    const x0 = Math.floor(box[0] / cell), x1 = Math.floor(box[2] / cell), y0 = Math.floor(box[1] / cell), y1 = Math.floor(box[3] / cell);
+    let hit = false;
+    for(let cx = x0; cx <= x1 && !hit; cx++) for(let cy = y0; cy <= y1 && !hit; cy++){
+      const l = grid.get(cx + ':' + cy);
+      if(l && l.some(q=> q[0] < box[2] && box[0] < q[2] && q[1] < box[3] && box[1] < q[3])) hit = true;
+    }
+    if(hit) continue;
+    for(let cx = x0; cx <= x1; cx++) for(let cy = y0; cy <= y1; cy++){ const k = cx + ':' + cy; if(!grid.has(k)) grid.set(k, []); grid.get(k).push(box); }
+    out.add(it.k);
+  }
+  return out;
+}
+function fsWxZoomStep(map){ return Math.max(0, Math.floor(map.getZoom() * 2 + 1e-6) / 2); }
+// Prognose-Orte: Gipfel und Hütten aus der Gipfelliste, höhere zuerst
+async function fsmWxFcItems(st){
+  if(st.fcItems) return st.fcItems;
   let peaks = [];
   try{ peaks = await fsPeaksLoad(); }catch(e){ return []; }
-  const top = st.head && !st.head.hidden ? st.head.offsetTop + st.head.offsetHeight + 30 : 170, bottom = h - 100;
-  const ctl = cont.querySelector('.fsm-ctlbox'), ctlB = ctl ? ctl.offsetTop + ctl.offsetHeight + 24 : 260;
-  const b = map.getBounds(), cw = 120, ch = 60, cells = {};
-  peaks.forEach(pk=>{
-    if(pk.kind === 'p' || !pk.name || pk.lat < b.getSouth() || pk.lat > b.getNorth() || pk.lon < b.getWest() || pk.lon > b.getEast()) return;
-    const sp = map.project([pk.lon, pk.lat]);
-    if(sp.x < 58 || sp.x > w - 58 || sp.y - 46 < top || sp.y > bottom || (sp.x > w - 120 && (sp.y - 46 < ctlB || sp.y > h - 170))) return;
-    const k = Math.floor(sp.x / cw) + ':' + Math.floor(sp.y / ch);
-    if(!cells[k] || pk.ele > cells[k].pk.ele) cells[k] = {pk, sp};
-  });
-  const boxes = [], out = [];
-  Object.values(cells).sort((x, y)=> y.pk.ele - x.pk.ele).forEach(({pk, sp})=>{
-    const box = [sp.x - 58, sp.y - 46, sp.x + 58, sp.y + 4];
-    if(boxes.some(q=> q[0] < box[2] && box[0] < q[2] && q[1] < box[3] && box[1] < q[3])) return;
-    boxes.push(box);
-    out.push({lat: pk.lat, lon: pk.lon, ele: pk.ele, name: pk.name, k: pk.lat.toFixed(5) + ',' + pk.lon.toFixed(5)});
-  });
-  return out.slice(0, 40);
+  st.fcItems = peaks.filter(pk=> pk.kind !== 'p' && pk.name).sort((x, y)=> y.ele - x.ele)
+    .map(pk=>({k: pk.lat.toFixed(5) + ',' + pk.lon.toFixed(5), lat: pk.lat, lon: pk.lon, ele: pk.ele, name: pk.name, w: fsmWxPinW('-10°', pk.name, Math.round(pk.ele) + ' m', true)}));
+  return st.fcItems;
+}
+// Orte mit Etikett im (leicht erweiterten) Ausschnitt
+function fsmWxWanted(map, items, selCache){
+  const z = fsWxZoomStep(map);
+  if(!selCache[z]) selCache[z] = fsWxSelect(items, z);
+  const sel = selCache[z], b = map.getBounds();
+  const dy = (b.getNorth() - b.getSouth()) * 0.15, dx = (b.getEast() - b.getWest()) * 0.15;
+  const S = b.getSouth() - dy, N = b.getNorth() + dy, W = b.getWest() - dx, E = b.getEast() + dx;
+  return items.filter(it=> sel.has(it.k) && it.lat > S && it.lat < N && it.lon > W && it.lon < E);
 }
 async function fsmWxForecastLoad(map){
   const st = map._fsm.wx;
   if(!st || !st.param || !st.param.forecast) return;
-  const grid = await fsmWxGrid(map), now = Date.now();
+  const items = await fsmWxFcItems(st), now = Date.now();
   if(!st.param || !st.param.forecast) return;
-  st.grid = grid;
-  const miss = grid.filter(g=> !st.fc[g.k] || now - st.fc[g.k].at > 60*60e3);
+  const miss = fsmWxWanted(map, items, st.fcSel).filter(g=> !st.fc[g.k] || now - st.fc[g.k].at > 60*60e3).slice(0, 60);
   fsmWxPlace(map);
   if(!miss.length) return;
   try{
@@ -10847,7 +10942,7 @@ function fsWxFcAt(fc, ts){
 function fsmWxStop(map){
   const st = map._fsm && map._fsm.wx;
   if(!st) return;
-  st.markers.forEach(m=> m.remove()); st.markers = [];
+  fsmWxClear(st);
   [st.head, st.card].forEach(el=>{ if(el) el.hidden = true; });
   fsmWxTapClear(st);
   st.param = null;
@@ -10861,64 +10956,62 @@ function fsmWxPinEl(val, color, name, sub, icon){
 }
 // Breite des Etiketts grob schätzen (für die Überlappungsprüfung)
 function fsmWxPinW(val, name, sub, icon){ return 22 + (icon ? 22 : 0) + Math.max(26, String(val).length * 8 + 10) + Math.min(92, Math.max(String(name || '').length * 6.6, String(sub || '').length * 5.8)); }
-// Nur so viele Etiketten, wie sich nicht überlappen; höhere Stationen zuerst (Berge sind wichtiger),
-// Nullwerte zuletzt. Unter den Knöpfen und der Kopfkarte nichts.
-function fsmWxPlace(map){
+function fsmWxClear(st){ if(st && st.mk){ st.mk.forEach(m=> m.remove()); st.mk.clear(); } }
+// Messwerte: Etiketten-Daten einmal pro Laden; Werte zuerst, Nullwerte zuletzt, höhere Stationen vor
+function fsmWxMeasItems(st){
+  if(st.measItems) return st.measItems;
+  const p = st.param, eleTxt = (e)=> e ? Math.round(e) + ' m' : '';
+  st.measItems = st.pts.map((x, i)=>{
+    const zero = fsWxIsZero(p, x), val = zero ? '0' : fsWxFmt(p, x.v);
+    const sub = zero ? eleTxt(x.ele) : [eleTxt(x.ele), x.src === 'SLF' ? 'SLF' : ''].filter(Boolean).join(' · ');
+    return {k: x.src + ':' + (x.name || '') + ':' + x.lat.toFixed(4) + ',' + x.lon.toFixed(4) + ':' + i, lat: x.lat, lon: x.lon, ele: x.ele, x, zero, val, sub, w: fsmWxPinW(val, x.name, sub)};
+  }).sort((a, c)=> (a.zero - c.zero) || ((c.ele || 0) - (a.ele || 0)));
+  return st.measItems;
+}
+// Etiketten setzen, ohne Vorhandenes neu aufzubauen: was bleibt, bleibt stehen; Neues blendet ein.
+// refresh: Inhalt der vorhandenen erneuern (Zeitschieber der Prognose).
+function fsmWxPlace(map, refresh){
   const st = map._fsm && map._fsm.wx;
   if(!st || !st.param) return;
-  st.markers.forEach(m=> m.remove()); st.markers = [];
-  const p = st.param, cont = map.getContainer(), w = cont.clientWidth, h = cont.clientHeight;
-  const top = st.head && !st.head.hidden ? st.head.offsetTop + st.head.offsetHeight + 8 : 120;
-  const ctl = cont.querySelector('.fsm-ctlbox'), ctlB = ctl ? ctl.offsetTop + ctl.offsetHeight + 8 : 240;
-  const boxes = [];
-  const hit = (box)=> boxes.some(b=> b[0] < box[2] && box[0] < b[2] && b[1] < box[3] && box[1] < b[3]);
-  const free = (box)=> !(box[0] < 6 || box[1] < top || box[2] > w - 6 || box[3] > h - 84 || (box[2] > w - 64 && (box[1] < ctlB || box[3] > h - 160)));
-  const put = (sp, wd, ll, el)=>{
-    const box = [sp.x - wd / 2, sp.y - 46, sp.x + wd / 2, sp.y + 4];
-    if(!free(box) || hit(box)) return false;
-    boxes.push(box);
-    st.markers.push(new maplibregl.Marker({element: el, anchor: 'bottom', offset: [0, 4], opacity: '1', opacityWhenCovered: '1'}).setLngLat(ll).addTo(map));
-    return true;
-  };
-  const eleTxt = (e)=> e ? Math.round(e) + ' m' : '';
+  st.mk = st.mk || new Map();
+  const p = st.param;
+  let want = [], draw;
   if(p.forecast){
     const ts = fsWxStepTime(st.fcStep || 0), tp = FS_WX_PARAMS.find(x=> x.id === 'temp');
-    (st.grid || []).forEach(g=>{
-      const fc = st.fc[g.k]; if(!fc) return;
-      const v = fsWxFcAt(fc, ts); if(!v) return;
-      const val = Math.round(v.temp) + '°', sub = eleTxt(g.ele || fc.ele), icon = fsWxCodeIcon(v.code);
-      const el = fsmWxPinEl(val, fsWxColor(tp, v.temp), g.name, sub, icon);
-      el.setAttribute('aria-label', g.name + ', ' + sub + ': ' + Math.round(v.temp) + ' Grad');
-      el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxTapClear(st); fsmWxFcCard(map, g, fc, v, ts); });
-      put(map.project([g.lon, g.lat]), fsmWxPinW(val, g.name, sub, icon), [g.lon, g.lat], el);
-    });
-    return;
+    want = st.fcItems ? fsmWxWanted(map, st.fcItems, st.fcSel).filter(g=> st.fc[g.k] && fsWxFcAt(st.fc[g.k], ts)) : [];
+    draw = (g)=>{
+      const fc = st.fc[g.k], v = fsWxFcAt(fc, ts), sub = Math.round(g.ele || fc.ele) + ' m';
+      return {el: fsmWxPinEl(Math.round(v.temp) + '°', fsWxColor(tp, v.temp), g.name, sub, fsWxCodeIcon(v.code)), label: g.name + ', ' + sub + ': ' + Math.round(v.temp) + ' Grad',
+        click: ()=> fsmWxFcCard(map, g, fc, fsWxFcAt(fc, fsWxStepTime(st.fcStep || 0)), fsWxStepTime(st.fcStep || 0))};
+    };
+  }else{
+    const items = fsmWxMeasItems(st);
+    want = fsmWxWanted(map, items, st.measSel);
+    draw = (it)=>({el: fsmWxPinEl(it.val, it.zero ? '' : fsWxColor(p, it.x.v), it.x.name, it.sub), label: (it.x.name || 'Station') + ', ' + it.sub + ': ' + (it.zero ? p.zero : it.val + ' ' + (p.unit || '')), click: ()=> fsmWxCard(map, it.x)});
   }
-  const b = map.getBounds();
-  const inView = st.pts.filter(x=> x.lat > b.getSouth() && x.lat < b.getNorth() && x.lon > b.getWest() && x.lon < b.getEast());
-  const isZero = (x)=> fsWxIsZero(p, x);
-  const zeros = [];
-  inView.slice().sort((a, c)=> (c.ele || 0) - (a.ele || 0)).forEach(x=>{
-    if(isZero(x)){ zeros.push(x); return; }
-    const val = fsWxFmt(p, x.v), sub = [eleTxt(x.ele), x.src === 'SLF' ? 'SLF' : ''].filter(Boolean).join(' · ');
-    const el = fsmWxPinEl(val, fsWxColor(p, x.v), x.name, sub);
-    el.setAttribute('aria-label', (x.name || 'Station') + ', ' + sub + ': ' + val + ' ' + (p.unit || ''));
-    el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxTapClear(st); fsmWxCard(map, x); });
-    put(map.project([x.lon, x.lat]), fsmWxPinW(val, x.name, sub), [x.lon, x.lat], el);
+  const keep = new Set(want.map(it=> it.k));
+  st.mk.forEach((m, k)=>{ if(!keep.has(k)){ m.remove(); st.mk.delete(k); } });
+  want.forEach(it=>{
+    const old = st.mk.get(it.k);
+    if(old && !refresh) return;
+    const d = draw(it);
+    if(old){ const el = old.getElement(); el.className = d.el.className; el.innerHTML = d.el.innerHTML; el.setAttribute('aria-label', d.label); el._fsClick = d.click; return; }
+    const el = d.el;
+    el.classList.add('in'); el.setAttribute('aria-label', d.label); el._fsClick = d.click;
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxTapClear(st); if(el._fsClick) el._fsClick(); });
+    st.mk.set(it.k, new maplibregl.Marker({element: el, anchor: 'bottom', offset: [0, 4], opacity: '1', opacityWhenCovered: '1'}).setLngLat([it.lon, it.lat]).addTo(map));
   });
-  zeros.forEach(x=>{
-    const sub = eleTxt(x.ele), el = fsmWxPinEl('0', '', x.name, sub);
-    el.setAttribute('aria-label', (x.name || 'Station') + ', ' + sub + ': ' + p.zero);
-    el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxTapClear(st); fsmWxCard(map, x); });
-    put(map.project([x.lon, x.lat]), fsmWxPinW('0', x.name, sub), [x.lon, x.lat], el);
-  });
+  if(p.forecast) return;
   // Hinweis, damit «alles null» nicht wie «geht nicht» aussieht
   const note = st.head && st.head.querySelector('.note');
   if(note){
+    const b = map.getBounds();
+    const inView = st.pts.filter(x=> x.lat > b.getSouth() && x.lat < b.getNorth() && x.lon > b.getWest() && x.lon < b.getEast());
+    const zeros = inView.filter(x=> fsWxIsZero(p, x)).length;
     let txt = '';
     if(st.loaded && !st.pts.length) txt = 'keine Messwerte erhalten (Internet?)';
     else if(st.loaded && !inView.length) txt = 'keine Station im Ausschnitt';
-    else if(zeros.length && p.zero) txt = zeros.length === inView.length ? `alle ${inView.length} Stationen ${p.zero}` : `${zeros.length} von ${inView.length} Stationen ${p.zero}`;
+    else if(zeros && p.zero) txt = zeros === inView.length ? `alle ${inView.length} Stationen ${p.zero}` : `${zeros} von ${inView.length} Stationen ${p.zero}`;
     note.textContent = p.label + ', gemessen' + (txt ? ' · ' + txt : '');
   }
 }
@@ -11018,11 +11111,131 @@ function fsOpenConditions(lat, lon, ele, name){
   ov.addEventListener('click', e=>{ if(e.target === ov) closeTopOverlayLayer(); });
   pushOverlayLayer(()=>{ clearInterval(iv); ov.remove(); window.__fsCondRedraw = prevRender || null; });
 }
-function meteoForecastWidgetHtml(lat, lon, alt){
+function meteoForecastWidgetHtml(lat, lon, alt, tour){
   if(!isFinite(lat) || !isFinite(lon)) return '';
   // Prognose zuerst (wichtigste Frage am Tag X), dann Rückblick, gemessen, Webcams
-  return meteoForecastOnlyHtml(lat, lon) + fsConditionsHtml(lat, lon, alt);
+  return (tour ? fsBergwetterHtml(tour) : '') + meteoForecastOnlyHtml(lat, lon) + fsConditionsHtml(lat, lon, alt);
 }
+/* ===== Bergwetter: Stunden für Gipfel, Hütte und Start einer Tour (Open-Meteo, Modell MeteoSchweiz) =====
+   Gerechnet auf der Höhe des Orts (Gipfel: Zielhöhe, Hütte: Hüttenhöhe, Start: Gelände). */
+const FS_BW_HOURS = [6, 9, 12, 15, 18, 21];
+function fsBwNum(v){ const n = parseFloat(String(v == null ? '' : v).replace(/['’\s]/g, '')); return isFinite(n) ? n : null; }
+// Die drei Orte einer Tour (fehlende werden weggelassen), von oben nach unten
+function fsBwSites(t){
+  const out = [];
+  const okLL = (p)=> p && isFinite(+p.lat) && isFinite(+p.lon) && p.lat !== '' && p.lon !== '';
+  const sum = fsTourSummitPoint(t), sumEle = fsBwNum(t.targetAltitude);
+  if(sum) out.push({k:'gipfel', label:'Gipfel', lat:+sum.lat, lon:+sum.lon, ele: sumEle || fsBwNum(sum.alt) || fsBwNum(sum.ele)});
+  const hut = t.hutId && Array.isArray(state.huts) ? state.huts.find(h=> h && h.id === t.hutId) : null;
+  if(hut){
+    const pts = (hut.points || []).filter(okLL);
+    const hp = pts.find(p=> !['parkplatz', 'haltestelle'].includes(p.category)) || pts[0];
+    if(hp) out.push({k:'huette', label:'Hütte', name: hut.name, lat:+hp.lat, lon:+hp.lon, ele: fsBwNum(hut.altitude)});
+  }
+  const pts = (t.points || []).filter(okLL);
+  let st = pts.find(p=> p.category === 'parkplatz') || pts.find(p=> p.category === 'haltestelle');
+  if(!st){
+    const line = (t.trackSimplified && t.trackSimplified.length > 1) ? t.trackSimplified : ((t.manualTrack && t.manualTrack.length > 1) ? t.manualTrack : null);
+    const q = line && line[0];
+    if(q) st = Array.isArray(q) ? {lat:q[0], lon:q[1]} : {lat:q.lat, lon: q.lon != null ? q.lon : q.lng};
+  }
+  if(!st && hut){ const hp = (hut.points || []).filter(okLL).find(p=> p.category === 'parkplatz' || p.category === 'haltestelle'); if(hp) st = hp; }
+  if(okLL(st)) out.push({k:'start', label:'Start', lat:+st.lat, lon:+st.lon, ele:null});
+  // Orte, die praktisch zusammenfallen, nur einmal
+  return out.filter((x, i)=> !out.slice(0, i).some(y=> fsGeoDist(x.lat, x.lon, y.lat, y.lon) < 300 && (x.ele == null || y.ele == null || Math.abs(x.ele - y.ele) < 150)));
+}
+async function fsBwFetch(sites){
+  const vars = 'temperature_2m,weather_code,precipitation,snowfall,wind_speed_10m,wind_direction_10m,wind_gusts_10m,freezing_level_height';
+  const q = (list, withEle)=> 'https://api.open-meteo.com/v1/forecast?latitude=' + list.map(x=> x.lat.toFixed(4)).join(',') + '&longitude=' + list.map(x=> x.lon.toFixed(4)).join(',') + (withEle ? '&elevation=' + list.map(x=> Math.round(x.ele)).join(',') : '') + '&hourly=' + vars + '&forecast_days=3&timezone=Europe%2FZurich&timeformat=unixtime';
+  const known = sites.filter(x=> x.ele != null), dem = sites.filter(x=> x.ele == null);
+  const get = async (list, withEle)=>{ if(!list.length) return []; const r = await fetch(q(list, withEle)); if(!r.ok) throw new Error('HTTP ' + r.status); const j = await r.json(); return Array.isArray(j) ? j : [j]; };
+  const [a, b] = await Promise.all([get(known, true), get(dem, false)]);
+  const res = new Map(); known.forEach((x, i)=> res.set(x, a[i])); dem.forEach((x, i)=> res.set(x, b[i]));
+  return sites.map(x=>{ const d = res.get(x); return d && d.hourly ? Object.assign({}, x, {ele: x.ele != null ? x.ele : d.elevation, H: d.hourly}) : null; }).filter(Boolean);
+}
+function fsBwKind(c){ return c >= 95 ? 'Gewitter' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? 'Schneefall' : c >= 51 ? 'Regen' : c >= 45 ? 'Nebel' : c === 3 ? 'bewölkt' : c === 2 ? 'teils bewölkt' : 'sonnig'; }
+const FS_BW_RANK = {'sonnig':0, 'teils bewölkt':1, 'bewölkt':2, 'Nebel':3, 'Regen':4, 'Schneefall':4, 'Gewitter':5};
+function fsBwDayIdx(H, dayOff){
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0); const from = d0.getTime() + dayOff * 864e5, to = from + 864e5;
+  const idx = []; H.time.forEach((t, i)=>{ const ms = t * 1000; if(ms >= from && ms < to) idx.push(i); });
+  return idx;
+}
+function fsBwSummary(site, dayOff){
+  const H = site.H, idx = fsBwDayIdx(H, dayOff), hr = (i)=> new Date(H.time[i] * 1000).getHours();
+  const day = idx.filter(i=> hr(i) >= 6 && hr(i) <= 18);
+  if(!day.length) return '';
+  const worst = (list)=>{ let k = 'sonnig'; list.forEach(i=>{ const x = fsBwKind(H.weather_code[i]); if(FS_BW_RANK[x] > FS_BW_RANK[k]) k = x; }); return k; };
+  const am = worst(day.filter(i=> hr(i) < 12)), pm = worst(day.filter(i=> hr(i) >= 12));
+  const cap = (x)=> x.charAt(0).toUpperCase() + x.slice(1);
+  const parts = [am === pm ? `${cap(am)} über den ganzen Tag` : `Am Vormittag ${am}, am Nachmittag ${pm}`];
+  const tt = day.map(i=> H.temperature_2m[i]).filter(v=> v != null);
+  const lo = Math.round(Math.min(...tt)), hi = Math.round(Math.max(...tt));
+  const ws = day.map(i=> H.wind_speed_10m[i] || 0), gs = day.map(i=> (H.wind_gusts_10m || [])[i] || 0);
+  const wmax = Math.max(...ws), gmax = Math.max(...gs), wi = day[ws.indexOf(wmax)];
+  const dirs = ['Nord','Nordost','Ost','Südost','Süd','Südwest','West','Nordwest'];
+  const dir = H.wind_direction_10m && H.wind_direction_10m[wi] != null ? dirs[Math.round(H.wind_direction_10m[wi] / 45) % 8] : '';
+  const wtxt = wmax < 15 ? 'schwacher Wind' : wmax < 30 ? 'mässiger Wind' : wmax < 50 ? 'starker Wind' : 'stürmischer Wind';
+  parts.push(`${site.label === 'Gipfel' ? 'am Gipfel' : 'auf ' + Math.round(site.ele) + ' m'} <b>${lo === hi ? lo : lo + ' bis ' + hi}°</b>, ${wtxt}${dir ? ' aus ' + dir : ''}${gmax >= 40 ? ` (Böen bis ${Math.round(gmax / 5) * 5} km/h)` : ''}`);
+  const fz = day.map(i=> (H.freezing_level_height || [])[i]).filter(v=> v != null);
+  let fzt = '';
+  if(fz.length){ const a = Math.round(Math.min(...fz) / 100) * 100, b = Math.round(Math.max(...fz) / 100) * 100; fzt = `Nullgradgrenze <b>${a === b ? a : a + '–' + b} m</b>`; }
+  const pr = idx.reduce((s2, i)=> s2 + (H.precipitation[i] || 0), 0), sn = idx.reduce((s2, i)=> s2 + ((H.snowfall || [])[i] || 0), 0);
+  let prt = '';
+  if(pr >= 0.5){
+    const first = idx.find(i=> (H.precipitation[i] || 0) >= 0.2);
+    const h0 = first != null ? hr(first) : null;
+    prt = `Niederschlag${h0 != null && h0 > 0 ? ' ab ' + h0 + ' Uhr' : ''}, ${sn >= 1 ? 'etwa ' + Math.round(sn) + ' cm Schnee' : pr.toFixed(1) + ' mm'}${site.label === 'Gipfel' ? ' am Gipfel' : ''}`;
+  }
+  if(!prt && pr >= 0.1) prt = `Wenig Niederschlag (${pr.toFixed(1)} mm)`;
+  const wet = FS_BW_RANK[am] >= 4 || FS_BW_RANK[pm] >= 4;
+  return `${parts.join(', ')}.${fzt ? ' ' + fzt + '.' : ''}${prt ? ' ' + prt + '.' : wet ? '' : ' Trocken.'}`;
+}
+function fsBergwetterHtml(t){
+  if(!t || !t.id) return '';
+  const sites = fsBwSites(t);
+  if(!sites.length) return '';
+  state._bw = state._bw || {};
+  const key = t.id + ':' + sites.map(x=> x.lat.toFixed(3) + ',' + x.lon.toFixed(3) + ',' + (x.ele || '')).join(';');
+  let c = state._bw[key];
+  if(!c || (c.status === 'ok' && Date.now() - c.at > 60 * 60e3) || (c.status === 'error' && navigator.onLine !== false && Date.now() - c.at > 60e3)){
+    const prev = c && c.status === 'ok' ? c : null;
+    c = state._bw[key] = prev ? Object.assign({}, prev, {refreshing: true}) : {status:'loading'};
+    fsBwFetch(sites).then(rows=>{
+      state._bw[key] = rows.length ? {status:'ok', at: Date.now(), rows} : {status:'error', at: Date.now()};
+      render();
+    }).catch(()=>{ state._bw[key] = prev || {status:'error', at: Date.now()}; render(); });
+  }
+  const head = '<h4>Bergwetter</h4>';
+  if(c.status === 'loading') return `<div class="detail-section fs-bw">${head}<p class="hint">Lädt…</p></div>`;
+  if(c.status !== 'ok') return `<div class="detail-section fs-bw">${head}<p class="hint">${navigator.onLine === false ? 'Offline – das Bergwetter erscheint, sobald wieder Internet da ist.' : 'Bergwetter gerade nicht verfügbar.'}</p></div>`;
+  const now = new Date();
+  let day = state._bwDay != null ? state._bwDay : (now.getHours() >= 17 ? 1 : 0);
+  if(day > 2) day = 0;
+  const lab = (i)=>{ const d = new Date(); d.setDate(d.getDate() + i); return i === 0 ? 'Heute' : i === 1 ? 'Morgen' : FS_WX_DAYS[d.getDay()] + ' ' + d.getDate() + '.'; };
+  const tabs = `<div class="fs-bw-days">${[0, 1, 2].map(i=> `<button type="button" data-bw-day="${i}" class="${i === day ? 'on' : ''}">${lab(i)}</button>`).join('')}</div>`;
+  const top = c.rows[0];
+  const sum = fsBwSummary(top, day);
+  const anyPr = c.rows.some(r=> fsBwDayIdx(r.H, day).some(i=> (r.H.precipitation[i] || 0) >= 0.2));
+  const cell = (r, h)=>{
+    const idx = fsBwDayIdx(r.H, day), i = idx.find(j=> new Date(r.H.time[j] * 1000).getHours() === h);
+    if(i == null) return '<div class="c">–</div>';
+    const past = day === 0 && r.H.time[i] * 1000 < Date.now() - 90 * 60e3;
+    const p3 = [0, 1, 2].reduce((s2, o)=> s2 + ((r.H.precipitation[i - o] || 0)), 0), s3 = [0, 1, 2].reduce((s2, o)=> s2 + (((r.H.snowfall || [])[i - o] || 0)), 0);
+    return `<div class="c${past ? ' past' : ''}">${fsIconHtml(fsWxCodeIcon(r.H.weather_code[i]))}<b>${Math.round(r.H.temperature_2m[i])}°</b><span class="w">${Math.round(r.H.wind_speed_10m[i] || 0)}</span>${anyPr ? `<span class="p">${s3 >= 0.5 ? Math.round(s3) + ' cm' : p3 >= 0.2 ? p3.toFixed(1) : ''}</span>` : ''}</div>`;
+  };
+  const grid = `<div class="fs-bw-grid" style="--n:${FS_BW_HOURS.length}">
+    <div class="h"></div>${FS_BW_HOURS.map(h=> `<div class="h">${h}</div>`).join('')}
+    ${c.rows.map(r=> `<div class="lab">${esc(r.label)}<small>${r.ele != null ? Math.round(r.ele) + ' m' : ''}</small></div>${FS_BW_HOURS.map(h=> cell(r, h)).join('')}`).join('')}
+  </div>`;
+  return `<div class="detail-section fs-bw">${head}${tabs}${sum ? `<p class="fs-bw-sum">${sum}</p>` : ''}${grid}
+    <p class="wx-src">Uhrzeit oben · Temperatur · Wind in km/h${anyPr ? ' · Niederschlag in mm der letzten 3 h' : ''}. Open-Meteo (Modell MeteoSchweiz), gerechnet für die jeweilige Höhe – Modellwerte.</p></div>`;
+}
+document.addEventListener('click', (e)=>{
+  const b = e.target && e.target.closest && e.target.closest('[data-bw-day]');
+  if(!b) return;
+  state._bwDay = +b.getAttribute('data-bw-day');
+  render();
+}, true); // Capture: Fenster stoppen Klicks (data-stop)
 /* ===== Wetter-Rückblick: die letzten drei Tage am Ort (Open-Meteo, Modellwerte) =====
    Für die Beurteilung vor Ort: wie viel Regen/Neuschnee in den letzten Tagen, wie warm.
    Open-Meteo rechnet mit dem Modell von MeteoSchweiz (ICON-CH), frei und ohne Schlüssel. */
