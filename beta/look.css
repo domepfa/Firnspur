@@ -2030,3 +2030,9 @@ html.fs-dark .fs-3d-search-res, html.fs-dark .fs-3d-chips.fs-3d-layerpanel, html
 html.fs-dark .fs-slf-hit{ background:#3A2C12; color:#F2CF8A; }
 .fs-slf .fs-slf-link{ display:inline-block; margin-top:10px; font-size:13.5px; font-weight:700; color:var(--ice-deep); }
 .fs-slf .fs-slf-src{ font-size:12px; color:var(--ink-soft); margin:4px 0 0; line-height:1.35; }
+
+/* ===== Offline: Routen-Skizze statt leerer Karte ===== */
+.fs-ctx-sketch{ position:absolute; inset:0 0 var(--fs-sheet-h, 50%) 0; display:flex; flex-direction:column; justify-content:center; padding:56px 12px 12px; background:var(--cream); color:var(--ink); }
+.fs-ctx-sketch svg{ width:100%; flex:1 1 auto; min-height:0; }
+.fs-ctx-sketch-msg{ margin:6px 4px 0; font-size:13px; color:var(--ink-soft); text-align:center; }
+.fs-ready-offline{ margin:10px 0 4px; }

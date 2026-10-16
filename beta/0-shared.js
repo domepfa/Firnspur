@@ -10588,7 +10588,8 @@ function fsConditionsHtml(lat, lon, alt){
   const hsNear = fsNearest(c.hs, lat, lon, 25000, x=> x.src === 'SLF');
   const msNs = fsNearest(c.ns, lat, lon, 25000, x=> x.src === 'MeteoSchweiz');
   const rainNear = fsNearest(c.rain, lat, lon, 25000);
-  parts.push(`<p class="fs-cond-sum">${sent || 'Für diesen Punkt sind gerade keine Modelldaten verfügbar.'}</p>`);
+  const offline = !c.om && (navigator.onLine === false || (!c.hs && !c.ns && !c.rain)); // nichts kam an: wohl offline
+  parts.push(`<p class="fs-cond-sum">${sent || (offline ? 'Offline – Bedingungen erscheinen, sobald wieder Internet da ist.' : 'Für diesen Punkt sind gerade keine Modelldaten verfügbar.')}</p>`);
   if(slfBox) parts.unshift(slfBox);
   if(chips.length) parts.push(`<div class="fs-cond-chips">${chips.join('')}</div>`);
   if(bars) parts.push(bars + `<p class="wx-src">Open-Meteo (Modell MeteoSchweiz), gerechnet für ${c.om && c.om.elevation != null ? Math.round(c.om.elevation) + ' m' : 'diesen Punkt'}${alt ? ' (Gipfel)' : ''} — Modellwerte, keine Messung.</p>`);
@@ -10600,7 +10601,7 @@ function fsConditionsHtml(lat, lon, alt){
   if(rows.length) parts.push(`<p class="fs-cond-h">Gemessen in der Nähe</p>` + rows.map(r=> `<div class="fs-cond-row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join(''));
   // Webcams
   if(c.cams && c.cams.length) parts.push(`<p class="fs-cond-h">Webcams</p><div class="fs-cond-cams">${c.cams.map(w=> `<a href="${esc(w.href)}" target="_blank" rel="noopener noreferrer">${w.img ? `<img src="${esc(w.img)}" alt="" loading="lazy"/>` : `<span class="noimg">${fsIconHtml('camera')}</span>`}<span>${esc(w.name)}</span></a>`).join('')}</div><p class="wx-src">${c.cams[0].src}</p>`);
-  if(WINDY_API_KEY && fsWindyStatus && fsWindyStatus !== 'ok') parts.push(`<p class="wx-src">Windy: ${esc(fsWindyStatus)}</p>`);
+  if(WINDY_API_KEY && fsWindyStatus && fsWindyStatus !== 'ok' && !/fetch|Netz/i.test(fsWindyStatus)) parts.push(`<p class="wx-src">Windy: ${esc(fsWindyStatus)}</p>`);
   return `<div class="detail-section fs-cond"><h4>Bedingungen</h4>${parts.join('')}</div>`;
 }
 // Webcams in der Nähe: Windy (mit Schlüssel, viele Bergbahn-/Hüttenkameras), sonst MeteoSchweiz
@@ -10919,6 +10920,15 @@ function fsWebcamsNearHtml(lat, lon){
     <p class="wx-src">MeteoSchweiz-Wetterkameras</p>
   </div>`;
 }
+// Wieder online: fehlgeschlagene Prognosen und Bedingungen neu laden (nicht schon beim Zeichnen – sonst Schleife)
+window.addEventListener('online', ()=>{
+  try{
+    const mc = state._meteoForecastCache || {}; Object.keys(mc).forEach(k=>{ if(mc[k] && mc[k].status === 'error') delete mc[k]; });
+    const cc = state._cond || {}; Object.keys(cc).forEach(k=>{ if(cc[k] && cc[k].status === 'ok' && !cc[k].om) delete cc[k]; });
+    const sc = state._slf || {}; Object.keys(sc).forEach(k=>{ if(sc[k] && sc[k].status === 'err') delete sc[k]; });
+    if(typeof render === 'function') render();
+  }catch(e){}
+});
 function meteoForecastOnlyHtml(lat, lon){
   const key = meteoCacheKey(lat, lon);
   const entry = (state._meteoForecastCache || {})[key];
@@ -10927,6 +10937,9 @@ function meteoForecastOnlyHtml(lat, lon){
     return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Lädt…</p></div>`;
   }
   if(entry.status === 'error'){
+    // Offline: ruhiger Hinweis, und beim nächsten Zeichnen mit Netz neu versuchen
+    if(navigator.onLine === false || /fetch|network|netz/i.test(entry.message || '')){
+      return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Offline – die Prognose erscheint, sobald wieder Internet da ist.</p></div>`; }
     return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Prognose momentan nicht verfügbar (${esc(entry.message||'')}).</p></div>`;
   }
   if(!entry.days || !entry.days.length){
@@ -11253,13 +11266,45 @@ function tourStatusLabel(t){
   return `<span class="fs-status-lbl is-${m.key}">${fsIconHtml(m.icon)}${m.label}</span>`;
 }
 // Tourenansicht: im Lesemodus nur der Status, im Bearbeiten-Modus drei Knöpfe zum Setzen.
+/* ===== Offline: Routen-Skizze statt leerer Karte =====
+   Ohne Kartenbibliothek (offline, nie geladen) zeigt die Tour ihre Linien und Punkte als einfache
+   Zeichnung: Lage zueinander stimmt (Norden oben), aber ohne Hintergrund. */
+function fsOfflineSketchHtml(lines, points){
+  const all = [];
+  lines.forEach(l=> l.coords.forEach(c=> all.push(c)));
+  points.forEach(p=> all.push([p.lat, p.lon]));
+  const msg = '<p class="fs-ctx-sketch-msg">Offline – Karte nicht auf dem Gerät. Linien und Punkte ohne Hintergrund.</p>';
+  if(!all.length) return '<div class="fs-ctx-sketch">' + msg + '</div>';
+  const lat0 = all.reduce((s2, c)=> s2 + c[0], 0) / all.length, k = Math.cos(lat0 * Math.PI / 180);
+  const xs = all.map(c=> c[1] * k), ys = all.map(c=> -c[0]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const span = Math.max(maxX - minX, maxY - minY, 0.002), W = 1000, H = 600, pad = 70;
+  const sc = Math.min((W - 2 * pad) / Math.max(maxX - minX, span * 0.2), (H - 2 * pad) / Math.max(maxY - minY, span * 0.2));
+  const ox = (W - (maxX - minX) * sc) / 2, oy = (H - (maxY - minY) * sc) / 2;
+  const P = c=> ((c[1] * k - minX) * sc + ox).toFixed(1) + ',' + ((-c[0] - minY) * sc + oy).toFixed(1);
+  const svgLines = lines.map(l=>{ const pts = l.coords.map(P).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/><polyline points="${pts}" fill="none" stroke="${esc(l.color || '#E8384F')}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"${l.dash ? ' stroke-dasharray="14 12"' : ''}/>`; }).join('');
+  const svgPts = points.map(p=>{ const [x, y] = P([p.lat, p.lon]).split(',').map(Number); const col = (MAP_POINT_CATEGORIES[p.category] || MAP_POINT_CATEGORIES['']).color || '#4A3524';
+    return `<circle cx="${x}" cy="${y}" r="17" fill="${col}" stroke="#fff" stroke-width="5"/>${p.label ? `<text x="${x + 26}" y="${y + 11}" font-size="34" font-weight="700" fill="currentColor" stroke="var(--cream)" stroke-width="6" paint-order="stroke">${esc(p.label)}</text>` : ''}`; }).join('');
+  return `<div class="fs-ctx-sketch"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Skizze der Route">${svgLines}${svgPts}<text x="40" y="58" font-size="30" font-weight="800" fill="currentColor" text-anchor="middle">N</text><path d="M40 66 l-11 24 h22 z" fill="currentColor"/></svg>${msg}</div>`;
+}
+function fsTourSketchData(t){
+  const lines = fsTourRoutes(t).map(r=>{ const st = fsRouteStyle(r); return {coords: (r.coords || []).map(c=> Array.isArray(c) ? [+c[0], +c[1]] : [+c.lat, +(c.lon != null ? c.lon : c.lng)]).filter(c=> isFinite(c[0]) && isFinite(c[1])), color: st.color, dash: st.dash}; }).filter(l=> l.coords.length > 1);
+  const points = (t.points || []).filter(p=> p && isFinite(p.lat) && isFinite(p.lon)).map(p=> ({lat:+p.lat, lon:+p.lon, category: p.category || '', label: p.label || ''}));
+  fsOrteAll().filter(o=> (t.orte || []).indexOf(o.id) >= 0 && isFinite(o.lat) && isFinite(o.lon)).forEach(o=> points.push({lat:+o.lat, lon:+o.lon, category:'', label: o.name || ''}));
+  return {lines, points};
+}
+// Wieder online: Karte statt Skizze
+window.addEventListener('online', ()=>{ if(document.querySelector('.fs-ctx-sketch') && typeof fsCtxKey !== 'undefined'){ fsCtxKey = ''; if(typeof render === 'function') render(); } });
 function fsTourStatusHtml(t){
   const cur = fsTourStatus(t);
+  // Bereit: «Für unterwegs» gleich hier statt unten unter «Mehr»
+  const ready = cur === 'bereit' && (tourHasMapData(t) || (t.topoImages && t.topoImages.length));
   return `<div class="fs-status-row">
     <span class="fs-status-pill">${tourStatusLabel(t)}</span>
     <div class="fs-status-seg" role="group" aria-label="Status">${FS_TOUR_STATUS.map(s=>
       `<button type="button" class="${s.key === cur ? 'on' : ''}" data-act="set-tour-status" data-id="${esc(t.id)}" data-value="${s.key}" aria-pressed="${s.key === cur}">${fsIconHtml(s.icon)}<span>${s.label}</span></button>`).join('')}</div>
-  </div>`;
+  </div>${ready ? `<div class="fs-ready-offline">${offlineSectionHtml(t.id)}</div>` : ''}`;
 }
 async function toggleHutStatus(id){
   const h = state.huts.find(x=>x.id===id);
@@ -16105,7 +16150,7 @@ function fsTdImagesHtml(t){
 }
 // «Mehr»: Tour starten, für unterwegs laden, Menüpunkte als Liste
 function fsTourMoreHtml(t, moreItems){
-  const hasOffline = tourHasMapData(t) || (t.topoImages && t.topoImages.length);
+  const hasOffline = (tourHasMapData(t) || (t.topoImages && t.topoImages.length)) && fsTourStatus(t) !== 'bereit'; // bereit: steht oben beim Status
   const items = (moreItems || []).filter(Boolean);
   items.push(fsMenuItemHtml('clock', 'Frühere Versionen', `data-act="fs-versions" data-id="${esc(t.id)}"`));
   const onTour = fsGetOnTour();
@@ -16576,7 +16621,7 @@ function fsShowContextMap(t){
     });
   }).catch(()=>{
     const inner = document.getElementById('fs-tour-map-inner');
-    if(inner) inner.innerHTML = '<p class="fs-ctx-offline">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+    if(inner){ const d = fsTourSketchData(t); inner.innerHTML = fsOfflineSketchHtml(d.lines, d.points); }
   });
 }
 
@@ -16689,7 +16734,12 @@ function fsShowAreaContextMap(a){
     });
   }).catch(()=>{
     const inner = document.getElementById('fs-tour-map-inner');
-    if(inner) inner.innerHTML = '<p class="fs-ctx-offline">Karte konnte nicht geladen werden (keine Internetverbindung?).</p>';
+    if(inner){
+      const lines = [], points = [];
+      (a.tours || []).forEach(x=>{ const d = fsTourSketchData(x); d.lines.forEach(l=> lines.push(l)); });
+      (a.points || []).filter(p=> p && isFinite(p.lat) && isFinite(p.lon)).forEach(p=> points.push({lat:+p.lat, lon:+p.lon, category:p.category || '', label:p.label || ''}));
+      inner.innerHTML = fsOfflineSketchHtml(lines, points);
+    }
   });
 }
 
