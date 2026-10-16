@@ -2737,7 +2737,7 @@ function printTourenzettel(agendaId){
   if(materialList.length) shareTextLines.push('Material: ' + materialList.join(', '));
   if(a.costs) shareTextLines.push('Kosten: ' + a.costs);
   shareTextLines.push('Rettung 144 · REGA 1414' + (a.emergencyContact ? ' · Notfallkontakt: '+a.emergencyContact : ''));
-  const shareText = shareTextLines.join('\n');
+  const shareText = fsStripEmoji(shareTextLines.join('\n')); // geteilter Text ohne Emojis
 
   const kv = rows=> `<div class="kv">${rows.map(([k,v])=>`<div class="k">${escHtml(k)}</div><div class="v">${escHtml(v)}</div>`).join('')}</div>`;
   const participants = a.participants || [];
@@ -3024,7 +3024,7 @@ function printTourenzettel(agendaId){
           const line = drive.coords.map(c=> [c[1], c[0]]);
           win.L.polyline(line, {color:'#B5652D', weight:4}).addTo(map);
           win.L.circleMarker([meet.lat, meet.lon], {radius:6, color:'#0F1E27', fillColor:'#fff', fillOpacity:1, weight:2}).addTo(map).bindTooltip('Treffpunkt', {permanent:true, direction:'top', offset:[0,-6]});
-          win.L.circleMarker([drive.dest.lat, drive.dest.lon], {radius:6, color:'#0F1E27', fillColor:'#B5652D', fillOpacity:1, weight:2}).addTo(map).bindTooltip('🅿️', {permanent:true, direction:'top', offset:[0,-6]});
+          win.L.circleMarker([drive.dest.lat, drive.dest.lon], {radius:6, color:'#0F1E27', fillColor:'#B5652D', fillOpacity:1, weight:2}).addTo(map).bindTooltip('P', {permanent:true, direction:'top', offset:[0,-6]});
           map.fitBounds(line, {padding:[18,18]});
         }).catch(()=>{ const el = $('tz-drive-map'); if(el) el.remove(); });
       }
@@ -17111,6 +17111,22 @@ function fsNoEmojiHtml(html){
     return `<svg class="fs-i${d[2] ? ' fs-i-fill' : ''}" viewBox="0 0 24 24" aria-hidden="true"${d[1] ? ` style="color:${d[1]}"` : ''}><path d="${FS_ICON_PATHS[d[0]]}"/></svg>`;
   });
 }
+// Reiner Text ohne Emojis (Dialoge, Teilen): bekannte Emojis und übrige Bildzeichen weg, erlaubte Zeichen (→ ↑ ↓ ✓ ☐ · –) bleiben
+function fsStripEmoji(txt){
+  if(txt == null) return txt;
+  FS_EMOJI_RE.lastIndex = 0;
+  return String(txt).replace(FS_EMOJI_RE, '').replace(/(?![\u2190-\u21FF\u2713\u2610\u00B7\u2013\u2014\u00D7\u2197\u21BA\u27F2\u27F3])[\u{1F000}-\u{1FAFF}\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]/gu, '').replace(/^[ \t]+/gm, '').replace(/([^\s]) {2,}/g, '$1 ');
+}
+// Rückfrage- und Hinweisfenster des Browsers zeigen keine Symbole: Emojis vorher entfernen
+(function(){
+  ['confirm', 'alert', 'prompt'].forEach(k=>{
+    const orig = window[k];
+    if(typeof orig !== 'function' || orig._fsNoEmoji) return;
+    const w = function(msg, ...rest){ return orig.call(window, fsStripEmoji(msg), ...rest); };
+    w._fsNoEmoji = true;
+    window[k] = w;
+  });
+})();
 function fsIconHtml(name){ return `<svg class="fs-i" viewBox="0 0 24 24" aria-hidden="true"><path d="${FS_ICON_PATHS[name]}"/></svg>`; }
 const FS_SKIP_TAGS = new Set(['SCRIPT','STYLE','TEXTAREA','INPUT','SELECT','svg','title']);
 function fsReplaceEmojiInTextNode(node){
