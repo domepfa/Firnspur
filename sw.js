@@ -1,9 +1,11 @@
-const CACHE_NAME = 'bergtouren-shell-v218';
+const CACHE_NAME = 'bergtouren-shell-v219';
 const SHELL_ASSETS = [
   './', './index.html', './fixseil.html', './wandern.html', './0-shared.js', './0-ski-wandern.js', './look.css', './0-geo-ch.js',
   './manifest.json', './manifest-fixseil.json', './manifest-wandern.json', './wandern-hero.jpg',
   './share-target-index.html', './share-target-fixseil.html',
-  './20260114_145500.jpg', './IMG_20260811_073051812_HDR.jpg',
+  './hero-skitour.jpg', './hero-hochtour.jpg',
+  './fonts/fonts.css', './fonts/Manrope-normal-latin.woff2', './fonts/Manrope-normal-latin-ext.woff2',
+  './fonts/InstrumentSerif-normal-latin.woff2', './fonts/InstrumentSerif-normal-latin-ext.woff2', './fonts/InstrumentSerif-italic-latin.woff2', './fonts/InstrumentSerif-italic-latin-ext.woff2',
   './icon-512.png', './msl-hero.jpg',
   './geo-ch-hillshade-firnspur.png', './geo-ch-hillshade-fixseil.png',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
@@ -18,6 +20,7 @@ const SHELL_ASSETS = [
 // und Datei kurz im Cache ab und leitet dann auf die eigentliche App weiter, die sie dort
 // wieder abholt (siehe checkSharedContent() in 0-shared.js).
 const SHARE_CACHE = 'share-target-v1';
+let fromCacheUntil = 0; // siehe fetch: Start aus dem Speicher bei schwachem Netz
 
 async function handleShareTarget(request, redirectPage){
   try{
@@ -104,18 +107,32 @@ self.addEventListener('fetch', (e) => {
   // Internet da ist. Nur bei fehlender Verbindung auf den Zwischenspeicher
   // zurückgreifen (Offline-Fallback). Verhindert, dass nach einem Update
   // noch kurzzeitig eine alte, zwischengespeicherte Version angezeigt wird.
-  e.respondWith(
-    // cache:'no-cache': beim Server nachfragen statt den Browser-Cache (GitHub Pages: bis
-    // 10 Min.) zu nutzen — sonst kamen kurz nach einem Update alte und neue Dateien gemischt an
-    // und die App startete nicht. Kostet bei unveränderten Dateien nur ein kurzes "304".
-    fetch(e.request.mode === 'navigate'
-        ? new Request(e.request.url, {cache: 'no-cache', credentials: 'same-origin'})
-        : new Request(e.request, {cache: 'no-cache'}))
-      .then((networkResponse) => {
-        // Nur gültige Antworten ablegen: eine Fehlerseite (404/500) würde sonst offline die App ersetzen
-        if (networkResponse.ok || networkResponse.type === 'opaque') caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse.clone()));
-        return networkResponse;
-      })
-      .catch(() => caches.match(e.request))
-  );
+  // Schwaches Netz (Berg): antwortet die Seite selbst nicht innert 4 s, startet die App aus dem
+  // Speicher – und dann für diesen Start ALLE Dateien aus dem Speicher (nie alte und neue gemischt).
+  // Eine verspätete Antwort wird in dem Fall nicht abgelegt (sonst nächster Start gemischt).
+  const isNav = e.request.mode === 'navigate';
+  const net = () => fetch(isNav
+      ? new Request(e.request.url, {cache: 'no-cache', credentials: 'same-origin'})
+      : new Request(e.request, {cache: 'no-cache'}));
+  const store = (res) => {
+    // Nur gültige Antworten ablegen: eine Fehlerseite (404/500) würde sonst offline die App ersetzen
+    if ((res.ok || res.type === 'opaque') && !(Date.now() < fromCacheUntil)) caches.open(CACHE_NAME).then((cache) => cache.put(e.request, res.clone()));
+    return res;
+  };
+  if (!isNav && Date.now() < fromCacheUntil) {
+    e.respondWith(caches.match(e.request).then((hit) => hit || net()));
+    return;
+  }
+  if (isNav) {
+    e.respondWith(caches.match(e.request).then((cached) => {
+      const n = net().then(store);
+      n.catch(() => {}); // verspätet fehlgeschlagen: egal, Speicher wurde schon geliefert
+      if (!cached) return n.catch(() => caches.match(e.request));
+      let timer;
+      const slow = new Promise((resolve) => { timer = setTimeout(() => { fromCacheUntil = Date.now() + 20000; resolve(cached); }, 4000); });
+      return Promise.race([n.then((r) => { clearTimeout(timer); return r; }, () => { clearTimeout(timer); return cached; }), slow]);
+    }));
+    return;
+  }
+  e.respondWith(net().then(store).catch(() => caches.match(e.request)));
 });
