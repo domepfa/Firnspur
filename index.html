@@ -588,17 +588,17 @@ const USERS_PATH = 'users'; // appübergreifend geteilt (Namen-Passwortschutz + 
 
 /* ================= Domain meta ================= */
 const DIFF = {
-  'L':   {label:'Leicht',  color:'var(--d-L)',  desc:'Mässig steiles Gelände, keine Spitzkehren nötig.'},
-  'WS-': {label:'Wenig schwierig −', color:'var(--d-WS)', desc:'Mässig steil, einfache Spitzkehren.'},
-  'WS':  {label:'Wenig schwierig', color:'var(--d-WS)', desc:'Mässig steil bis steil, kurze Spitzkehren.'},
-  'WS+': {label:'Wenig schwierig +', color:'var(--d-WS)', desc:'Steiler, anspruchsvollere Spitzkehren.'},
-  'ZS-': {label:'Ziemlich schwierig −', color:'var(--d-ZS)', desc:'Steil, kurze anspruchsvolle Passagen.'},
-  'ZS':  {label:'Ziemlich schwierig', color:'var(--d-ZS)', desc:'Durchgehend steil, anspruchsvolle Spitzkehren.'},
-  'ZS+': {label:'Ziemlich schwierig +', color:'var(--d-ZS)', desc:'Durchgehend sehr steil, kurze Extrempassagen.'},
-  'S-':  {label:'Schwierig −', color:'var(--d-S)', desc:'Sehr steil, Passagen bis rund 35°.'},
-  'S':   {label:'Schwierig', color:'var(--d-S)', desc:'Sehr steil, Passagen bis rund 40°.'},
-  'S+':  {label:'Schwierig +', color:'var(--d-S)', desc:'Sehr steil, kurze Passagen über 40°.'},
-  'SS':  {label:'Sehr schwierig', color:'var(--d-SS)', desc:'Durchgehend sehr steil, kurze Extrempassagen.'}
+  'L':   {label:'Leicht',  color:'var(--d-L)',  desc:'Bis 30°, weiche Geländeformen, kaum Engpässe.'},
+  'WS-': {label:'Wenig schwierig −', color:'var(--d-WS)', desc:'Ab rund 30°, kurze Steilstufen, einfache Spitzkehren.'},
+  'WS':  {label:'Wenig schwierig', color:'var(--d-WS)', desc:'Ab 30°, kurze Steilstufen und Engpässe, Spitzkehren nötig.'},
+  'WS+': {label:'Wenig schwierig +', color:'var(--d-WS)', desc:'Ab 30°, längere Steilstufen, engere Spitzkehren.'},
+  'ZS-': {label:'Ziemlich schwierig −', color:'var(--d-ZS)', desc:'Ab 35°, kurze Steilstufen ohne Ausweichmöglichkeit.'},
+  'ZS':  {label:'Ziemlich schwierig', color:'var(--d-ZS)', desc:'Ab 35°, Steilstufen ohne Ausweichmöglichkeit, Abrutschen möglich.'},
+  'ZS+': {label:'Ziemlich schwierig +', color:'var(--d-ZS)', desc:'Ab 35°, längere Steilstufen, teilweise ausgesetzt.'},
+  'S-':  {label:'Schwierig −', color:'var(--d-S)', desc:'Ab 40°, steile Hänge ohne Ausweichmöglichkeit, Absturzgefahr.'},
+  'S':   {label:'Schwierig', color:'var(--d-S)', desc:'Ab 40°, anhaltend steil, oft ausgesetzt, Absturzgefahr.'},
+  'S+':  {label:'Schwierig +', color:'var(--d-S)', desc:'Ab 40°, kurze Passagen über 45°, ausgesetzt.'},
+  'SS':  {label:'Sehr schwierig', color:'var(--d-SS)', desc:'Ab 45°, sehr steil und ausgesetzt, Felsstufen möglich.'}
 };
 const DIFF_ORDER = ['L','WS-','WS','WS+','ZS-','ZS','ZS+','S-','S','S+','SS'];
 const GEFAHREN_SKI = ['Lawinenhang','Triebschnee','Steilhänge über 40°','Absturzgelände','Engpass','vereiste Passage','Gletscher/Spalten','schwierige Orientierung','Waldpassagen','Wechten'];
