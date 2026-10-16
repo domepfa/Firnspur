@@ -2082,3 +2082,7 @@ html.fs-dark .fs-slf-hit{ background:#3A2C12; color:#F2CF8A; }
 .fs-bw-grid .c .p{ font-size:11px; font-weight:700; color:#1971C2; min-height:13px; }
 .fs-bw-grid .c.past{ opacity:.45; }
 html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
+/* Grosse Karte = Startkarte im Vollbild */
+.fs-home-map.in-big{ opacity:1; }
+.fs-home-map.in-big .maplibregl-ctrl-bottom-right{ top:auto; left:auto; right:0; bottom:0; }
+.fs-home-map.in-big .fs-home-card{ bottom:calc(140px + env(safe-area-inset-bottom, 0px)); }
