@@ -1723,9 +1723,28 @@ html.fs-filter-open body{ overflow:hidden; }
 /* ===== Wetter-Messwerte auf der Karte: eine Grösse, Farbskala, Karte unten ===== */
 .fsm-wx-head{ position:absolute; top:64px; left:76px; right:62px; z-index:6; padding:4px 12px 8px; border-radius:18px; background:rgba(255,255,255,.96); box-shadow:0 2px 12px rgba(15,30,39,.2); color:var(--ink); }
 .fsm-wx-head[hidden], .fsm-wx-card[hidden]{ display:none; }
-.fsm-wx-head .sel{ display:flex; align-items:center; gap:6px; width:100%; min-height:40px; padding:0; border:none; background:none; font:inherit; font-size:15px; font-weight:800; color:var(--ink); cursor:pointer; text-align:left; }
+.fsm-wx-head .sel{ display:flex; align-items:baseline; flex-wrap:wrap; gap:0 8px; padding:8px 0 4px; font-size:15px; font-weight:800; color:var(--ink); }
+.fsm-wx-head .tabs{ display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; margin:4px -12px 6px; padding:0 12px; }
+.fsm-wx-head .tabs::-webkit-scrollbar{ display:none; }
+.fsm-wx-head .tabs button{ flex:0 0 auto; min-width:64px; min-height:44px; padding:0 12px; border:none; border-radius:12px; background:var(--line-soft); font:inherit; font-size:13.5px; font-weight:700; color:var(--ink); cursor:pointer; }
+.fsm-wx-head .tabs button.on{ background:var(--ice-deep); color:#fff; }
+.fsm-wx-head .note{ margin:0; font-size:12px; font-weight:600; line-height:1.3; color:var(--ink-soft); }
+/* Wetter-Etikett: Wert, Name, Höhe; Zeiger und Punkt zeigen die Stelle */
+.fsm-wxp{ display:flex; flex-direction:column; align-items:center; padding:0; border:none; background:none; font:inherit; cursor:pointer; color:var(--ink); }
+.fsm-wxp .l{ display:flex; align-items:center; gap:5px; height:36px; padding:0 8px 0 4px; border-radius:11px; background:rgba(255,255,255,.97); box-shadow:0 1px 6px rgba(15,30,39,.3); white-space:nowrap; }
+.fsm-wxp .v{ min-width:28px; padding:2px 5px; border-radius:7px; background:var(--c); color:#fff; font-size:13px; font-weight:800; text-align:center; text-shadow:0 0 2px rgba(0,0,0,.3); }
+.fsm-wxp.z .v{ background:#ADB5BD; }
+.fsm-wxp .n{ display:flex; flex-direction:column; max-width:92px; font-size:11.5px; font-weight:800; line-height:1.15; text-align:left; }
+.fsm-wxp .n, .fsm-wxp .n small{ overflow:hidden; text-overflow:ellipsis; }
+.fsm-wxp .n small{ font-size:10.5px; font-weight:600; color:var(--ink-faint); }
+.fsm-wxp .fs-i{ width:20px; height:20px; color:#4A5A64; }
+.fsm-wxp .t{ display:block; width:2px; height:7px; background:rgba(255,255,255,.97); box-shadow:0 1px 2px rgba(15,30,39,.25); }
+.fsm-wxp .d{ display:block; width:9px; height:9px; margin-top:-1px; border-radius:50%; background:var(--ink); border:2px solid #fff; box-sizing:border-box; }
+.fsm-wxp.z .l{ opacity:.85; }
+.fsm-wx-tap{ width:18px; height:18px; border-radius:50%; border:3px solid var(--ice-deep); background:#fff; box-shadow:0 1px 4px rgba(15,30,39,.35); box-sizing:border-box; }
+.fsm-wx-card .fs-imis-row b .fs-i{ width:18px; height:18px; vertical-align:-4px; margin-right:4px; color:#4A5A64; }
+.fsm-wx-card .fs-imis-row b small{ font-weight:600; color:var(--ink-faint); }
 .fsm-wx-head .sel .u{ font-size:12px; font-weight:700; color:var(--ink-faint); }
-.fsm-wx-head .sel .car{ margin-left:auto; font-size:14px; color:var(--ink-soft); }
 .fsm-wx-head .g{ display:flex; }
 .fsm-wx-head .g i{ display:block; flex:1; height:8px; position:relative; margin-bottom:14px; }
 .fsm-wx-head .g i:first-child{ border-radius:4px 0 0 4px; }
@@ -1734,18 +1753,7 @@ html.fs-filter-open body{ overflow:hidden; }
 .fsm-wx-head .time{ display:flex; flex-direction:column; gap:2px; }
 .fsm-wx-head .time input{ width:100%; height:32px; accent-color:var(--ice-deep); margin:0; }
 .fsm-wx-head .time .when{ font-size:13px; font-weight:800; color:var(--accent-ink); }
-.fsm-wx-head .menu{ display:none; flex-direction:column; gap:2px; margin-top:4px; padding-top:6px; border-top:1px solid var(--line-soft); }
-.fsm-wx-head.open .menu{ display:flex; }
-.fsm-wx-head.open .g, .fsm-wx-head.open .time{ display:none; }
-.fsm-wx-head .menu button{ min-height:44px; padding:0 10px; border:none; border-radius:12px; background:none; font:inherit; font-size:14.5px; font-weight:700; color:var(--ink); text-align:left; cursor:pointer; }
-.fsm-wx-head .menu button.on{ background:var(--ice-light); color:var(--accent-ink); }
-.fsm-wxv.z{ min-width:0; width:12px; height:12px; padding:0; background:#ADB5BD; border-width:2px; box-shadow:0 1px 3px rgba(15,30,39,.35); }
-.fsm-wxf{ display:flex; flex-direction:column; align-items:center; gap:1px; padding:0; border:none; background:none; font:inherit; cursor:pointer; color:var(--ink); }
-.fsm-wxf .v{ display:flex; align-items:center; gap:3px; height:30px; padding:0 9px 0 6px; border-radius:999px; background:rgba(255,255,255,.95); box-shadow:0 1px 6px rgba(15,30,39,.35); font-size:14px; font-weight:800; }
-.fsm-wxf .nm{ max-width:96px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; font-weight:800; color:#fff; text-shadow:0 0 3px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.6); }
-.fsm-wxf .fs-i{ width:20px; height:20px; color:#4A5A64; }
 .fsm-wx-card .big .fs-i{ width:28px; height:28px; margin-right:6px; vertical-align:-4px; color:#4A5A64; }
-.fsm-wxv{ min-width:38px; height:26px; padding:0 7px; border-radius:999px; background:var(--c); color:#fff; border:2px solid #fff; font:inherit; font-size:12.5px; font-weight:800; line-height:22px; text-align:center; box-shadow:0 1px 5px rgba(15,30,39,.4); cursor:pointer; text-shadow:0 0 2px rgba(0,0,0,.35); }
 .fsm-wx-card{ position:absolute; left:10px; right:10px; bottom:calc(10px + env(safe-area-inset-bottom, 0px)); z-index:1001; padding:14px 14px 12px; border-radius:20px; background:#fff; color:var(--ink); box-shadow:0 8px 28px rgba(15,30,39,.25); display:flex; flex-direction:column; gap:2px; max-height:60%; overflow-y:auto; }
 .fsm-wx-card .x{ position:absolute; top:4px; right:4px; width:44px; height:44px; border:none; background:none; font-size:24px; color:var(--ink-soft); cursor:pointer; }
 .fsm-wx-card .n{ font-size:16px; padding-right:40px; }
@@ -1754,7 +1762,7 @@ html.fs-filter-open body{ overflow:hidden; }
 .fsm-wx-card .big small{ font-size:15px; }
 .fsm-wx-card .big em{ font-style:normal; font-size:13px; font-weight:700; color:var(--ink-soft); }
 .fsm-wx-card .cond{ margin-top:10px; min-height:46px; border:none; border-radius:999px; background:var(--ice-deep); color:#fff; font:inherit; font-size:14.5px; font-weight:800; cursor:pointer; }
-html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxf .v, html.fs-dark .fsm-wx-card{ background:var(--paper); color:var(--ink); }
+html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxp .l, html.fs-dark .fsm-wxp .t, html.fs-dark .fsm-wx-card{ background:var(--paper); color:var(--ink); }
 /* Weitere Links im Formular */
 .fs-more-links-list{ display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
 .fs-more-link-row{ display:flex; gap:6px; align-items:center; }
