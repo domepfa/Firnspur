@@ -3993,6 +3993,34 @@ function emergencyCardHtml(){
       </ol>
       <p style="font-size:12.5px; color:var(--ink-faint); margin-top:8px;">Die Überlebenschance sinkt mit der Verschüttungsdauer rasch — schnelles, strukturiertes Handeln zählt.</p>
     </div>
+    ${(typeof fsAppKey === 'function' && fsAppKey() === 'wandern') ? '' : `
+    <div class="detail-section">
+      <h4>Spaltensturz (Kameradenrettung)</h4>
+      <ol style="padding-left:18px; line-height:2; margin:0;">
+        <li>Sturz halten, sich in den Schnee setzen und Seil belasten</li>
+        <li>Verankerung bauen (T-Anker, Eisschraube), Seil daran fixieren</li>
+        <li>Kontakt zur gestürzten Person aufnehmen, Zustand klären</li>
+        <li>Notruf absetzen (1414 / 112)</li>
+        <li>Selbstrettung möglich? Sonst Mannschaftszug oder Flaschenzug</li>
+        <li>Spaltenrand polstern (Pickel, Stock), damit das Seil nicht einschneidet</li>
+        <li>Verletzte Person vor Auskühlung schützen, auf Rettung warten</li>
+      </ol>
+    </div>`}
+
+    <div class="detail-section">
+      <h4>Zeichen für den Helikopter</h4>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+        <div style="border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px;">
+          <div style="font-weight:700;">Y – Ja</div>
+          <div style="font-size:13px; color:var(--ink-soft);">Beide Arme schräg hoch: Hilfe nötig</div>
+        </div>
+        <div style="border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px;">
+          <div style="font-weight:700;">N – Nein</div>
+          <div style="font-size:13px; color:var(--ink-soft);">Ein Arm schräg hoch, einer schräg runter: keine Hilfe nötig</div>
+        </div>
+      </div>
+      <p style="font-size:12.5px; color:var(--ink-faint); margin:8px 0 0 0;">Beim Landen: Rücken zum Wind, lose Gegenstände sichern, erst auf Zeichen der Crew nähern.</p>
+    </div>
   </div>`;
 }
 
@@ -17200,7 +17228,7 @@ const BRIEFING_KINDS = {
 };
 const BRIEFING_PACK_TEMPLATES = {
   ski: [
-    ['Sicherheit', [['LVS',1],['Schaufel',1],['Sonde',1],['Erste-Hilfe-Set',0],['Handy geladen',0]]],
+    ['Sicherheit', [['LVS',1],['Schaufel',1],['Sonde',1],['Erste-Hilfe-Set',0],['Handy geladen',1]]],
     ['Ski', [['Tourenski und Schuhe',0],['Felle',0],['Harscheisen',0],['Stöcke',0]]],
     ['Bekleidung', [['Daunenjacke',0],['Handschuhe, 2 Paar',0],['Mütze und Skibrille',0],['Sonnencreme',0]]],
     ['Verpflegung', [['Warmes Getränk',0],['Lunch',0]]]
@@ -17233,6 +17261,18 @@ function briefingPackFromTemplate(type, tour){
   const groups = BRIEFING_PACK_TEMPLATES[type] || BRIEFING_PACK_TEMPLATES.ski;
   const items = [];
   groups.forEach(([group, list])=> list.forEach(([label, must])=> items.push({id: briefingSlug(label), label, must: !!must, group})));
+  // Gletschertour: Seil und Spaltenrettung sind Pflicht, bei Skitouren zusätzlich Gurt.
+  if(tour && tour.glacier === 'ja'){
+    const need = type === 'ski'
+      ? [['Klettergurt',1],['Seil',1],['Spaltenrettungsset',1],['Steigeisen',0],['Pickel',0]]
+      : [['Seil',1],['Spaltenrettungsset',1]];
+    need.forEach(([label, must])=>{
+      const id = briefingSlug(label);
+      const ex = items.find(i=> i.id === id);
+      if(ex){ if(must) ex.must = true; }
+      else items.push({id, label, must: !!must, group:'Gletscher'});
+    });
+  }
   // Material der verlinkten Tour (z. B. "Spaltenrettungsset") ergänzen, falls noch nicht drin.
   const extra = [];
   if(tour && Array.isArray(tour.material)) extra.push(...tour.material);
