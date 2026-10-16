@@ -2011,3 +2011,22 @@ html.fs-dark #fullscreen-map-overlay{ background:var(--cream); }
 html.fs-dark .fs-home-pin span, html.fs-dark .fsm-ort span, html.fs-dark .fs-stage .map-strip-hint,
 html.fs-dark #add-point-toggle{ background:rgba(20,26,31,.9); color:#EEF3F6; }
 html.fs-dark .fs-3d-search-res, html.fs-dark .fs-3d-chips.fs-3d-layerpanel, html.fs-dark .fs-3d-search-row input{ color:#0F1E27; }
+
+/* ===== Lawinenbulletin in der Tour ===== */
+.fs-slf{ background:var(--paper); border:1px solid var(--line); border-radius:18px; padding:14px 14px 12px; margin:0 0 14px; }
+.fs-slf-head{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.fs-slf-head b{ font-size:15px; } .fs-slf-head span{ font-size:12.5px; color:var(--ink-soft); }
+.fs-slf-seg{ display:flex; gap:6px; margin:10px 0 8px; }
+.fs-slf-seg button{ flex:1; min-height:48px; border-radius:999px; border:1px solid var(--line); background:var(--paper); font:inherit; font-weight:700; font-size:14px; color:var(--ink); cursor:pointer; }
+.fs-slf-seg button.on{ background:var(--ice-deep); color:#fff; border-color:transparent; }
+.fs-slf-lvl{ display:flex; align-items:center; gap:10px; margin:8px 0; }
+.fs-slf-dot{ background:var(--lvl); width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:17px; flex-shrink:0; }
+.fs-slf-lvl div{ font-size:14.5px; line-height:1.3; } .fs-slf-lvl small{ display:block; color:var(--ink-soft); font-size:12.5px; }
+.fs-slf-prob{ margin:10px 0 0; padding:0; list-style:none; font-size:14px; }
+.fs-slf-prob li{ padding:7px 0; border-top:1px solid var(--line-soft); display:flex; justify-content:space-between; gap:10px; }
+.fs-slf-prob em{ font-style:normal; color:var(--ink-soft); text-align:right; }
+.fs-slf-hit{ margin-top:12px; background:#FBF0DC; color:#5B3B00; border-radius:12px; padding:10px 12px; font-size:13.5px; line-height:1.35; }
+.fs-slf-hit b{ display:block; margin-bottom:2px; }
+html.fs-dark .fs-slf-hit{ background:#3A2C12; color:#F2CF8A; }
+.fs-slf .fs-slf-link{ display:inline-block; margin-top:10px; font-size:13.5px; font-weight:700; color:var(--ice-deep); }
+.fs-slf .fs-slf-src{ font-size:12px; color:var(--ink-soft); margin:4px 0 0; line-height:1.35; }
