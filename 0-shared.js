@@ -1498,19 +1498,74 @@ function fsHomeMount(){
     fsHomeEl.className = 'fs-home-map';
     fsHomeEl.innerHTML = '<div class="fs-home-map-inner" id="fs-home-map-inner"></div>';
   }
+  // Gerade von einer Tour ausgeliehen (eine Karte für alles): nicht zurückholen
+  if(fsCtxUsesHome) return;
   if(fsHomeEl.parentNode !== slot){ slot.appendChild(fsHomeEl); if(fsHomeMap) setTimeout(()=> fsHomeMap.resize(), 0); }
   if(fsHomeEl.classList.contains('ready')) slot.classList.add('has-map');
   if(!fsHomeMap){
-    fsmEnsureLoaded().then(()=>{
-      if(fsHomeMap) return;
-      fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52});
-      fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
-      fsmWireOrtHold(fsHomeMap);
-      fsHomeMap.on('moveend', ()=>{ if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
-      fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
-      fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl) sl.classList.add('has-map'); });
-    }).catch(()=>{ /* offline: Skizze bleibt */ });
+    fsmEnsureLoaded().then(()=>{ if(!fsHomeMap) fsHomeCreateMap(); }).catch(()=>{ /* offline: Skizze bleibt */ });
   }else fsHomeSync();
+}
+// Die eine Karte der App: Startkarte, und in Tour/Gebiet ausgeliehen (fsCtxAcquire)
+let fsCtxUsesHome = false, fsCtxOn3d = null, fsCtxSnap = null;
+function fsHomeCreateMap(){
+  fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52, on3d: (m)=>{
+    if(fsCtxOn3d){ fsCtxOn3d(m); return; }
+    const c = m.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom: Math.max(12, m.getZoom()), heading: m.getBearing()});
+  }});
+  fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
+  fsmWireOrtHold(fsHomeMap);
+  fsHomeMap.on('moveend', ()=>{ if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
+  fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
+  fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl && sl.classList.contains('fs-home-slot')) sl.classList.add('has-map'); });
+  return fsHomeMap;
+}
+// Tour/Gebiet: die Startkarte in den Kartenbereich hinter dem Blatt hängen; was danach dazukommt
+// (Linien, Punkte, Orte der Tour) wird beim Schliessen wieder entfernt. Ausschnitt und Ebenen bleiben.
+function fsCtxAcquire(innerId, on3d){
+  const inner = document.getElementById(innerId);
+  if(!fsHomeEl){
+    fsHomeEl = document.createElement('div');
+    fsHomeEl.className = 'fs-home-map';
+    fsHomeEl.innerHTML = '<div class="fs-home-map-inner" id="fs-home-map-inner"></div>';
+  }
+  inner.appendChild(fsHomeEl);
+  fsHomeEl.classList.add('in-ctx');
+  fsCtxUsesHome = true;
+  fsCtxOn3d = on3d || null;
+  const map = fsHomeMap || fsHomeCreateMap();
+  // sofort neu messen (der Ausschnitt der Tour wird gleich danach eingepasst), dann nochmals nach dem Zeichnen
+  try{ map.resize(); }catch(e){}
+  setTimeout(()=>{ try{ map.resize(); }catch(e){} }, 0);
+  fsCtxSnap = null;
+  fsmWhenLoaded(map, ()=>{
+    if(!fsCtxUsesHome || fsCtxSnap) return;
+    const st = map.getStyle() || {layers:[], sources:{}};
+    fsCtxSnap = {layers: new Set((st.layers || []).map(l=> l.id)), sources: new Set(Object.keys(st.sources || {})), markers: map._fsm.markers.length};
+  });
+  return map;
+}
+function fsCtxRelease(){
+  const map = fsHomeMap;
+  fsCtxUsesHome = false; fsCtxOn3d = null;
+  if(map && map._fsm){
+    try{
+      if(map._fsm.popup){ map._fsm.popup.remove(); map._fsm.popup = null; }
+      const snap = fsCtxSnap;
+      if(snap && map.getStyle()){
+        // nur die eigenen Linien der Tour (own-…) entfernen, nichts von der Grundkarte
+        (map.getStyle().layers || []).map(l=> l.id).filter(id=> id.indexOf('own-') === 0 && !snap.layers.has(id)).forEach(id=>{ try{ map.removeLayer(id); }catch(e){} });
+        Object.keys(map.getStyle().sources || {}).filter(id=> id.indexOf('own-') === 0 && !snap.sources.has(id)).forEach(id=>{ try{ map.removeSource(id); }catch(e){} });
+        map._fsm.markers.splice(snap.markers).forEach(m=>{ try{ m.remove(); }catch(e){} });
+      }
+      map._fsm.orteIds = [];
+      fsmOrteDraw(map);
+      map._fsCoords = null;
+    }catch(e){ dlog('Karte zurückgeben: ' + (e && e.message), 'err'); }
+  }
+  fsCtxSnap = null;
+  if(fsHomeEl){ fsHomeEl.classList.remove('in-ctx'); fsHomeEl.remove(); }
+  if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); }
 }
 // Marker zu den aktuellen Punkten der Liste
 function fsHomeSync(){
@@ -16496,7 +16551,7 @@ function fsTourHasContextData(t){
   return !!(hut && ((hut.points && hut.points.length) || (hut.accessRoutes||[]).some(fsRouteCoords)));
 }
 function fsDestroyContextMap(){
-  if(fsCtxMap){ try{ fsCtxMap.remove(); }catch(e){} fsCtxMap = null; }
+  if(fsCtxMap){ if(fsCtxUsesHome && fsCtxMap === fsHomeMap) fsCtxRelease(); else { try{ fsCtxMap.remove(); }catch(e){} } fsCtxMap = null; }
   fsCtxKey = null;
   const el = document.getElementById('fs-tour-map');
   if(el) el.remove();
@@ -16534,13 +16589,11 @@ function fsShowContextMap(t){
   document.documentElement.classList.add('fs-ctx-map');
   fsmEnsureLoaded().then(()=>{
     if(fsCtxKey !== key || !document.getElementById('fs-tour-map-inner')) return;
-    const mp0 = tourMapPoint(t);
-    const map = fsmCreateMap('fs-tour-map-inner', {center: mp0 ? [mp0.lat, mp0.lon] : null, zoom: 12, on3d: (m)=>{
+    const map = fsCtxAcquire('fs-tour-map-inner', (m)=>{
       const c = m.getCenter();
       fsOpen3d({lat:c.lat, lon:c.lng, zoom:14, tour:t, heading:m.getBearing()});
-    }});
+    });
     fsCtxMap = map;
-    fsmWireInfoClicks(map, {sac:{allowAttach:false}});
     fsmWhenLoaded(map, ()=>{
       if(fsCtxMap !== map) return;
       const all = [];
@@ -16670,16 +16723,14 @@ function fsShowAreaContextMap(a){
   document.documentElement.classList.add('fs-ctx-map');
   fsmEnsureLoaded().then(()=>{
     if(fsCtxKey !== key || !document.getElementById('fs-tour-map-inner')) return;
-    const p0 = (a.points||[])[0] || (a.tours||[]).map(tourMapPoint).find(Boolean);
-    const map = fsmCreateMap('fs-tour-map-inner', {center: p0 ? [p0.lat, p0.lon] : null, zoom: 11, on3d: (m)=>{
+    const map = fsCtxAcquire('fs-tour-map-inner', (m)=>{
       const c = m.getCenter();
       const lines = [];
       (a.tours||[]).forEach((t,i)=>{ const col = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length]; fsTourRoutes(t).forEach(r=> lines.push({coords:r.coords, color:col})); });
       const pts = (a.tours||[]).map(t=>{ const p = tourMapPoint(t); return p ? {lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean);
       fsOpen3d({lat:c.lat, lon:c.lng, zoom:13, heading:m.getBearing(), title:a.name, lines, points:pts});
-    }});
+    });
     fsCtxMap = map;
-    fsmWireInfoClicks(map, {sac:{allowAttach:false}});
     fsmWhenLoaded(map, ()=>{
       if(fsCtxMap !== map) return;
       const all = [], groups = [];
