@@ -1741,6 +1741,9 @@ html.fs-filter-open body{ overflow:hidden; }
 .fsm-wxp .t{ display:block; width:2px; height:7px; background:rgba(255,255,255,.97); box-shadow:0 1px 2px rgba(15,30,39,.25); }
 .fsm-wxp .d{ display:block; width:9px; height:9px; margin-top:-1px; border-radius:50%; background:var(--ink); border:2px solid #fff; box-sizing:border-box; }
 .fsm-wxp.z .l{ opacity:.85; }
+.fsm-wxp.in .l, .fsm-wxp.in .t, .fsm-wxp.in .d{ animation:fsWxIn .3s ease-out; }
+@keyframes fsWxIn{ from{ opacity:0; } to{ opacity:1; } }
+@media (prefers-reduced-motion: reduce){ .fsm-wxp.in .l, .fsm-wxp.in .t, .fsm-wxp.in .d{ animation:none; } }
 .fsm-wx-tap{ width:18px; height:18px; border-radius:50%; border:3px solid var(--ice-deep); background:#fff; box-shadow:0 1px 4px rgba(15,30,39,.35); box-sizing:border-box; }
 .fsm-wx-card .fs-imis-row b .fs-i{ width:18px; height:18px; vertical-align:-4px; margin-right:4px; color:#4A5A64; }
 .fsm-wx-card .fs-imis-row b small{ font-weight:600; color:var(--ink-faint); }
@@ -2062,3 +2065,24 @@ html.fs-dark .fs-slf-hit{ background:#3A2C12; color:#F2CF8A; }
 /* ===== Eine Karte für alles: Startkarte in Tour/Gebiet ===== */
 .fs-home-map.in-ctx{ opacity:1; }
 .fs-home-map.in-ctx .fs-home-pin{ opacity:.5; }
+
+/* ===== Bergwetter (Tour): Stunden für Gipfel, Hütte, Start ===== */
+.fs-bw-days{ display:flex; gap:6px; margin:6px 0 10px; }
+.fs-bw-days button{ flex:1; min-height:44px; border:none; border-radius:12px; background:var(--line-soft); font:inherit; font-size:14px; font-weight:700; color:var(--ink); cursor:pointer; }
+.fs-bw-days button.on{ background:var(--ice-deep); color:#fff; }
+.fs-bw-sum{ margin:0 0 10px; font-size:14.5px; line-height:1.5; }
+.fs-bw-grid{ display:grid; grid-template-columns:64px repeat(var(--n), 1fr); align-items:stretch; font-size:12.5px; }
+.fs-bw-grid > div{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; padding:6px 0; border-top:1px solid var(--line-soft); }
+.fs-bw-grid .h{ border-top:0; padding:0 0 4px; font-weight:800; color:var(--ink-faint); }
+.fs-bw-grid .lab{ align-items:flex-start; font-weight:800; font-size:12.5px; line-height:1.15; }
+.fs-bw-grid .lab small{ font-weight:600; font-size:11px; color:var(--ink-faint); }
+.fs-bw-grid .c .fs-i{ width:20px; height:20px; color:var(--ink-soft); }
+.fs-bw-grid .c b{ font-size:13.5px; }
+.fs-bw-grid .c .w{ font-size:11px; color:var(--ink-faint); }
+.fs-bw-grid .c .p{ font-size:11px; font-weight:700; color:#1971C2; min-height:13px; }
+.fs-bw-grid .c.past{ opacity:.45; }
+html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
+/* Grosse Karte = Startkarte im Vollbild */
+.fs-home-map.in-big{ opacity:1; }
+.fs-home-map.in-big .maplibregl-ctrl-bottom-right{ top:auto; left:auto; right:0; bottom:0; }
+.fs-home-map.in-big .fs-home-card{ bottom:calc(140px + env(safe-area-inset-bottom, 0px)); }
