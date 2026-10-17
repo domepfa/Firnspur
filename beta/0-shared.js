@@ -4685,11 +4685,11 @@ function fsFlyStart(map, wrap, fl){
   setPlay(playing);
   q('play').addEventListener('click', ()=> setPlay(!playing));
   q('speed').addEventListener('click', ()=>{ speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; q('speed').textContent = speed + '×'; });
-  const seek = e=>{ const r = prof.getBoundingClientRect(); pos = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (n - 1); draw(true); };
+  const seek = e=>{ if(!prof.isConnected) return; const r = prof.getBoundingClientRect(); pos = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (n - 1); try{ draw(true); }catch(err){} };
   prof.addEventListener('pointerdown', e=>{
     e.preventDefault(); setPlay(false); seek(e);
-    const mv = ev=> seek(ev), up = ()=>{ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
-    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+    const mv = ev=> seek(ev), up = ()=>{ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   });
   prof.addEventListener('keydown', e=>{
     if(e.key === 'ArrowRight' || e.key === 'ArrowLeft'){ e.preventDefault(); pos = Math.max(0, Math.min(n - 1, pos + (e.key === 'ArrowRight' ? 1 : -1) * n / 50)); draw(true); }
@@ -4719,7 +4719,8 @@ function fsFlyStart(map, wrap, fl){
   function frame(ts){
     if(!document.getElementById('fs-3d') || fs3dMap !== map) return;
     const dt = last ? Math.min(0.1, (ts - last) / 1000) : 0; last = ts;
-    if(playing){ pos += dt * speed * (n - 1) / dur; if(pos >= n - 1){ pos = n - 1; setPlay(false); } draw(false); }
+    // Ein Fehler der Kartenbibliothek (z. B. Gelände noch nicht geladen) hält den Flug an, statt ihn abzubrechen
+    if(playing){ pos += dt * speed * (n - 1) / dur; if(pos >= n - 1){ pos = n - 1; setPlay(false); } try{ draw(false); }catch(e){ setPlay(false); } }
     requestAnimationFrame(frame);
   }
   draw(true);
@@ -7019,6 +7020,7 @@ function fsmEnsureLoaded(){
     link.rel = 'stylesheet'; link.href = FSM_LIB + 'maplibre-gl.css';
     document.head.appendChild(link);
     const sc = document.createElement('script');
+    sc.crossOrigin = 'anonymous'; // sonst meldet der Browser Fehler darin nur als «Script error.» ohne Ort
     sc.src = FSM_LIB + 'maplibre-gl.js';
     sc.onload = ()=>{ fsmRegisterOfflineProtocol(); resolve(); };
     sc.onerror = ()=>{ fsmLoadPromise = null; reject(new Error('Kartenbibliothek konnte nicht geladen werden.')); };
@@ -17924,7 +17926,7 @@ document.addEventListener('click', (e)=>{
    Im Inhalt nach oben scrollen öffnet das Blatt automatisch ganz.
    Umgesetzt über einen MutationObserver auf #modal-root, damit beide Apps (Firnspur/Fixseil)
    ohne eigene Anpassung mitmachen — alle anderen Dialoge bleiben normale Vollbild-Masken. */
-let fsSheetDetent = 'half', fsSheetTourId = null, fsSheetSavedScroll = null;
+let fsSheetDetent = 'half', fsSheetTourId = null, fsSheetSavedScroll = null, fsSheetInnerScroll = 0;
 function fsSheetHeightPx(detent){
   const vh = window.innerHeight;
   if(detent === 'peek') return 196;
@@ -18001,7 +18003,10 @@ function fsApplyTourSheetMode(){
   html.classList.add('fs-sheet-open');
   overlay.classList.add('fs-sheet-mode');
   const tourId = (typeof state !== 'undefined' && state.modal) ? String(state.modal.payload) : null;
+  // Dieselbe Tour neu gezeichnet (z. B. Heute/Morgen, Stern): an derselben Stelle bleiben
+  const keepScroll = tourId === fsSheetTourId ? fsSheetInnerScroll : 0;
   if(tourId !== fsSheetTourId){ fsSheetTourId = tourId; fsSheetDetent = 'half'; }
+  fsSheetInnerScroll = keepScroll;
   const grabber = document.createElement('button');
   grabber.type = 'button';
   grabber.className = 'fs-grabber';
@@ -18010,6 +18015,7 @@ function fsApplyTourSheetMode(){
   fsWireSheetGrabber(grabber, modal);
   modal.addEventListener('scroll', ()=>{
     if(fsSheetDetent !== 'full' && modal.scrollTop > 24) fsSetSheetDetent('full');
+    fsSheetInnerScroll = modal.scrollTop;
   }, {passive:true});
   // Wie bei Apple: Inhalt ganz oben und weiter nach unten ziehen = Blatt eine Stufe kleiner
   // (auch ohne den Griff zu treffen).
@@ -18029,6 +18035,11 @@ function fsApplyTourSheetMode(){
   }, {passive:true});
   modal.addEventListener('touchend', ()=>{ pullStartY = null; pullArmed = false; }, {passive:true});
   fsSetSheetDetent(fsSheetDetent);
+  if(keepScroll && fsSheetDetent === 'full'){
+    modal.scrollTop = keepScroll;
+    // Später nachgeladene Teile (Routen-Check, Wetter) machen das Blatt erst noch länger
+    setTimeout(()=>{ if(modal.isConnected && modal.scrollTop < keepScroll - 4) modal.scrollTop = keepScroll; }, 60);
+  }
   fsSheetShowContext();
   // Punkt der offenen Tour auf der Karte hervorheben (nach dem Rendern der Karte)
   setTimeout(()=> document.querySelectorAll('.map-strip-dot').forEach(d=> d.classList.toggle('fs-sel', d.getAttribute('data-id') === tourId)), 0);

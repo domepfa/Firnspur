@@ -2457,3 +2457,8 @@ html.fs-mapmode[data-fs-home="liste"] .fs-home-mapbtn{
   background:var(--ink); color:var(--paper); font:inherit; font-weight:800; font-size:14px; box-shadow:0 6px 18px rgba(15,30,39,.28); cursor:pointer;
 }
 .fs-home-mapbtn .fs-i{ width:18px; height:18px; }
+
+/* =====================================================================
+   Kein Neuladen durch Herunterziehen (Android/Chrome): Daten bleiben, wo sie sind
+   ===================================================================== */
+html, body{ overscroll-behavior-y:none; }

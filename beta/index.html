@@ -2512,6 +2512,8 @@ function wireModalHandlers(){
 /* ================= Global error safety net ================= */
 window.addEventListener('error', function(e){
   console.error('Unhandled error', e.error || e.message);
+  // «Script error.» ohne Angaben kommt aus fremden Skripten (Kartenbibliothek): nur protokollieren
+  if(!e.error && /^script error\.?$/i.test(e.message || '')) return;
   showToast('Es gab ein unerwartetes Problem: ' + (e.message || 'unbekannter Fehler') + '. Bitte nochmal versuchen.', true);
 });
 window.addEventListener('unhandledrejection', function(e){
