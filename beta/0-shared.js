@@ -7115,6 +7115,7 @@ function fsmCreateMap(container, opts){
 function fsmWhenLoaded(map, fn){ if(map._fsmLoaded) fn(); else map.once('load', fn); }
 function fsmApplyPrefs(map){
   const p = fsmPrefs();
+  fsmAddOverview(map);
   fsmSetBase(map, p.base, true);
   fsmOverlaysForApp(map).forEach(o=> fsmSetOverlay(map, o.id, p.on.includes(o.id), true));
 }
@@ -7127,6 +7128,32 @@ function fsmSetBase(map, base, silent){
   fsmSetNames(map, base === 'hybrid');
   if(!silent){ const p = fsmPrefs(); p.base = base; fsmSavePrefs(p); }
   fsmSyncPanel(map);
+}
+// Übersicht (weit herausgezoomt): die leichte Basiskarte von swisstopo zeigt auch die Nachbarländer.
+// Die Landeskarte endet kurz hinter der Grenze (weisse Kacheln) und wird darum erst ab Zoom ~7.5
+// eingeblendet. Nur Flächen, Linien und Schrift (ohne Symbole); nur bis Zoom 9, darüber nichts geladen.
+const FSM_OVERVIEW_STYLE = 'https://vectortiles.geo.admin.ch/styles/ch.swisstopo.lightbasemap.vt/style.json';
+let fsmOverviewStyleCache = null;
+async function fsmAddOverview(map){
+  if(navigator.onLine === false) return; // offline bleibt die Landeskarte auch in der Übersicht
+  try{
+    if(!fsmOverviewStyleCache) fsmOverviewStyleCache = fetch(FSM_OVERVIEW_STYLE).then(r=> r.json());
+    const s = await fsmOverviewStyleCache;
+    if(!map.getStyle() || map.getLayer('ov0-background')) return;
+    if(s.glyphs && !map.getStyle().glyphs) map.setGlyphs(s.glyphs);
+    Object.entries(s.sources).forEach(([id, src])=>{ if(src.type === 'vector' && !map.getSource('ov0-' + id)) map.addSource('ov0-' + id, src); });
+    s.layers.forEach(l=>{
+      if(l.minzoom >= 9 || l.id === 'place_country') return; // Landesnamen überdecken die Touren
+      const paint = l.paint || {}, layout = Object.assign({}, l.layout || {});
+      if(paint['fill-pattern'] || paint['line-pattern'] || paint['background-pattern']) return;
+      if(l.type === 'symbol'){ if(!layout['text-field']) return; delete layout['icon-image']; }
+      const nl = Object.assign({}, l, {id: 'ov0-' + l.id, layout, maxzoom: 9});
+      if(l.type !== 'background'){ if(!s.sources[l.source] || s.sources[l.source].type !== 'vector') return; nl.source = 'ov0-' + l.source; }
+      try{ map.addLayer(nl, 'base-karte'); }catch(e){}
+    });
+    // Die Landeskarte blendet beim Herauszoomen in die Übersicht über
+    map.setPaintProperty('base-karte', 'raster-opacity', ['interpolate', ['linear'], ['zoom'], 7.3, 0, 8.1, 1]);
+  }catch(e){ fsmOverviewStyleCache = null; }
 }
 // "Luftbild + Namen": Schrift, Wege, Gewässer usw. aus dem offiziellen swisstopo-Vektorstil
 // (dessen eigenes Luftbild wird weggelassen, wir haben es schon). Nur online verfügbar.
