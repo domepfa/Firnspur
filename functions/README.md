@@ -70,7 +70,7 @@ Function URL (scanZustieg(europe-west1)): https://europe-west1-firnspur.cloudfun
 Function URL (scanTour(europe-west1)): https://europe-west1-firnspur.cloudfunctions.net/scanTour
 ```
 
-Nur die neue Function ausrollen: `firebase deploy --only functions:scanTour`. Die URL steht schon in
+Alle vier ausrollen (auch die verbesserten Kletter-Scans): `firebase deploy --only functions`. Die URL steht schon in
 `0-shared.js` (`SCAN_TOUR_URL`).
 
 ## Letzter Schritt: URL(s) in die App eintragen
@@ -88,7 +88,7 @@ Danach committen/pushen wie gewohnt — die jeweiligen "📷 Foto scannen"-Knöp
 ## Kosten-Kontrolle
 
 - **Anthropic:** reines Prepaid-Guthaben, kein automatisches Nachladen (solange du das nicht
-  explizit aktivierst). Ein Kletter-Scan kostet ca. 0.004–0.005 US$ (Claude Haiku 4.5), ein
-  Tour-Scan mit `claude-opus-5-5` grob 0.05–0.15 US$ je nach Anzahl Fotos.
+  explizit aktivierst). Alle Scans nutzen `claude-opus-5-5` (vorher Haiku 4.5, das bei dichten
+  Topo-Seiten zu oft das Falsche herauslas). Ein Scan kostet grob 0.05–0.15 US$ je nach Fotos.
 - **Firebase Cloud Functions:** nur bei tatsächlichem Aufruf abgerechnet, mit grosser
   kostenloser Grundmenge pro Monat — bei normaler Nutzung faktisch 0 Fr.

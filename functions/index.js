@@ -52,9 +52,11 @@ const KLETTERROUTEN_SCHEMA = {
   additionalProperties: false,
 };
 
-const ROUTE_RULES = `- Nr: die Nummer aus dem Topo-Bild. Falls keine erkennbar, fortlaufend weiternummerieren.
+const ROUTE_RULES = `So ist eine Topo-Seite meist aufgebaut: eine Zeichnung oder ein Foto der Wand mit nummerierten Linien, dazu eine Liste «Nr. Name Grad (Länge, Haken, Erstbegeher)». Massgebend ist diese Liste; die Nummern in der Zeichnung helfen nur, sie zuzuordnen. Nicht zur Liste gehören: Zustieg, Sonnen- und Schatteninfos, Legende, Absicherungssymbole, Werbung, Seitenzahlen.
+- Nr: die Nummer aus dem Topo-Bild. Falls keine erkennbar, fortlaufend weiternummerieren.
 - Name: exakt wie im Führer abgedruckt. Nichts übersetzen oder erfinden. Falls kein Name lesbar: "Route <Nr>".
-- Grad: französisches Sportkletter-Schema (z. B. 5c, 6a+). Falls ein anderes Schema abgebildet ist, den Originalwert übernehmen und ein "?" anhängen.
+- Grad: französisches Sportkletter-Schema (z. B. 5c, 6a+). Stehen zwei Grade (z. B. «6b (6a obl.)»), nimm den höheren. UIAA-Grade (z. B. VI+) oder andere Skalen unverändert übernehmen und ein "?" anhängen. Projekte ohne Grad: "?".
+- Lies jede Zeile der Liste einzeln; keine Route doppelt, keine auslassen.
 - Erfinde nichts. Ist ein Wert nicht lesbar, schreib "?" statt zu raten.
 - Ist eine Route eindeutig eine lange Mehrseillängen-/Alpinroute (mehrere Seillängen, mit Erstbegeher/Jahr/Sterne-Bewertung statt einer einfachen Einzellänge), nimm sie NICHT in die Liste auf.`;
 
@@ -118,11 +120,15 @@ const PROMPT_ZUSTIEG = `Lies die Angaben zu EINEM Zustieg/Abstieg von diesem Fot
 - description: eine kurze Zusammenfassung (1–3 Sätze) der Wegbeschreibung auf Deutsch, NUR basierend auf tatsächlich lesbarem Text im Foto.
 Erfinde nichts. Ist ein Wert nicht lesbar oder nicht angegeben, lass das jeweilige Feld leer ("").`;
 
+// Früher Haiku 4.5: günstig, aber es las bei dichten Topo-Seiten oft das Falsche heraus. Jetzt dasselbe
+// Modell wie scanTour; lehnt es ab, übernimmt serverseitig ein anderes (fallbacks).
+const SCAN_MODEL = 'claude-opus-5-5';
 async function callClaudeVision(apiKey, imageBase64, mediaType, prompt, schema){
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create({
-    model: 'claude-haiku-4-5',
-    max_tokens: 4096,
+    model: SCAN_MODEL,
+    max_tokens: 16000,
+    fallbacks: 'default',
     messages: [{
       role: 'user',
       content: [
@@ -130,20 +136,21 @@ async function callClaudeVision(apiKey, imageBase64, mediaType, prompt, schema){
         { type: 'text', text: prompt },
       ],
     }],
-    output_config: { format: { type: 'json_schema', schema } },
-  });
+    output_config: { effort: 'high', format: { type: 'json_schema', schema } },
+  }, { headers: { 'anthropic-beta': 'server-side-fallback-2026-07-01' } });
+  if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') return null;
   const textBlock = response.content.find((b) => b.type === 'text');
   if (!textBlock) return null;
   return JSON.parse(textBlock.text);
 }
 
 // Gemeinsame Handler-Fabrik für alle Foto-Scan-Functions — nehmen ein Foto (Base64)
-// entgegen, lassen Claude (Haiku 4.5, günstigstes Modell mit Bildverständnis) die jeweiligen
+// entgegen, lassen Claude (SCAN_MODEL) die jeweiligen
 // Angaben erkennen und geben sie strukturiert zurück. cors:true erlaubt den Aufruf direkt
 // aus fixseil.html/index.html.
 function makeScanHandler(name, prompt, schema){
   return onRequest(
-    { secrets: [ANTHROPIC_API_KEY], cors: true, region: 'europe-west1', memory: '256MiB', timeoutSeconds: 60 },
+    { secrets: [ANTHROPIC_API_KEY], cors: true, region: 'europe-west1', memory: '256MiB', timeoutSeconds: 180 },
     async (req, res) => {
       if (req.method !== 'POST') { res.status(405).json({ error: 'Nur POST erlaubt.' }); return; }
       if (!(await requireAppAuth(req))) { res.status(401).json({ error: 'Nicht angemeldet.' }); return; }
@@ -183,7 +190,6 @@ exports.scanZustieg = makeScanHandler('scanZustieg', PROMPT_ZUSTIEG, ZUSTIEG_SCH
 // Jedes Feld kommt mit dem Originalzitat zurück, damit man in der App sieht, woher ein Wert stammt,
 // und nur Geprüftes übernimmt. Bis 4 Fotos (z. B. eine Doppelseite) und ein optionaler Hinweis
 // («Nr. 112», «Nordflanke»), falls mehrere Touren auf der Seite stehen.
-const SCAN_TOUR_MODEL = 'claude-opus-5-5';
 const FELD = { type: 'object', properties: { wert: { type: 'string' }, zitat: { type: 'string' } }, required: ['wert', 'zitat'], additionalProperties: false };
 const TOUR_FELDER = ['name', 'routeName', 'difficulty', 'climbGrade', 'mandatoryDifficulty', 'pitchCount', 'targetAltitude',
   'elevationGain', 'elevationLoss', 'duration', 'approach', 'ascent', 'descent', 'crux', 'special', 'quelle'];
@@ -252,7 +258,7 @@ exports.scanTour = onRequest(
     try {
       const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY.value() });
       const response = await client.messages.create({
-        model: SCAN_TOUR_MODEL,
+        model: SCAN_MODEL,
         max_tokens: 16000,
         output_config: { effort: 'high', format: { type: 'json_schema', schema: TOUR_SCHEMA } },
         // Lehnt das Modell ab, übernimmt serverseitig ein passendes anderes Modell
