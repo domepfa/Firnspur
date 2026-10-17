@@ -1819,13 +1819,6 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxp .l, html.fs-dark .fsm-wxp .t, h
 .fs-home-card .f{ display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
 .fs-home-card .f span{ padding:3px 10px; border-radius:999px; background:var(--ice-light); color:var(--accent-ink); font-size:12.5px; font-weight:800; }
 .fs-home-card .open{ margin-top:8px; min-height:46px; border:none; border-radius:999px; background:var(--ice-deep); color:#fff; font:inherit; font-size:15px; font-weight:800; cursor:pointer; }
-/* Suchfeld eingeklappt (fsSearchCollapse) */
-.fs-sheet .toolbar .search-input{ display:none; }
-html.fs-search-open .fs-sheet .toolbar .search-input{ display:block; }
-html:not(.fs-search-open) .fs-sheet .toolbar.fs-search-tb{ margin:0; padding:0; min-height:0; gap:0; }
-html.fs-search-open .fs-search-btn{ display:none !important; }
-.fs-search-btn{ display:inline-flex; align-items:center; justify-content:center; gap:6px; }
-.fs-search-btn .fs-i{ width:18px; height:18px; }
 .fs-sheet .toolbar-row{ display:flex; gap:8px; }
 .fs-sheet .toolbar-row > .btn{ flex:1; }
 /* Karte so hoch, dass Suche/Filter und der Anfang der ersten Tour sichtbar bleiben */
@@ -2100,3 +2093,50 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-home-map.in-big{ opacity:1; }
 .fs-home-map.in-big .maplibregl-ctrl-bottom-right{ top:auto; left:auto; right:0; bottom:0; }
 .fs-home-map.in-big .fs-home-card{ bottom:calc(140px + env(safe-area-inset-bottom, 0px)); }
+
+/* ===== Bibliothek: Suche neben Filter, kompakte Einträge, Status im Fuss ===== */
+.fs-sheet .toolbar.fs-search-has-row{ margin-right:132px; margin-bottom:0; }
+.fs-sheet .toolbar .search-input{ display:block; flex:1; min-width:0; min-height:46px; border-radius:999px; padding:0 16px; font-size:15px; }
+.fs-sheet .toolbar-row.fs-search-beside{ width:124px; margin:-46px 0 10px auto; }
+.fs-sheet .toolbar-row.fs-search-beside > .btn{ min-height:46px; padding:0 12px; }
+.fs-sheet .card .fs-card-done-old{ display:none !important; }
+/* Hütte/Gebiet stehen in der Tour; in der Liste nur «nicht synchronisiert» */
+.fs-sheet .card span.hut-link-chip:not([style*="FBEAE7"]){ display:none; }
+.fs-sheet .card .agenda-date-row{ display:none; }
+.fs-sheet .card .card-top{ margin-bottom:0; }
+.fs-sheet .card .stat-row{ font-size:14px; }
+.card .fs-card-foot{ display:none; }
+.fs-sheet .card .fs-card-foot{
+  display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; margin-top:6px;
+  font-size:13px; font-weight:700; color:var(--ink-soft);
+}
+.fs-card-foot .fs-status-lbl.is-bereit{ color:var(--ok); }
+.fs-card-foot .fs-status-lbl.is-recherche{ color:var(--accent-ink); }
+.fs-card-done{ display:inline-flex; align-items:center; gap:4px; color:var(--ok); }
+.fs-card-done .fs-i{ width:15px; height:15px; }
+.fs-ready-missing{ margin:8px 0 0; font-size:13.5px; color:var(--ink-soft); line-height:1.45; }
+/* Kompakte Zeile: Name · Abzeichen, Route und Region · Kennzahlen und Status */
+.fs-sheet .grid{ gap:8px; }
+.fs-sheet .grid > .card{ display:flex; flex-direction:row; flex-wrap:wrap; align-items:center; gap:3px 8px; margin:0; padding:11px 14px 12px; }
+.fs-sheet .grid > .card .card-top, .fs-sheet .grid > .card .badge-row{ display:contents; }
+.fs-sheet .grid > .card .card-top h3{ flex:1 0 100%; margin:0; padding-right:36px; font-size:21px; line-height:1.15; }
+.fs-sheet .grid > .card .badge{ font-size:12px; padding:2px 8px; }
+.fs-sheet .grid > .card > h3, .fs-sheet .grid > .card .excerpt{
+  flex:0 1 auto; min-width:0; margin:0 !important; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  font-size:13.5px !important; font-weight:600; color:var(--ink-soft);
+}
+.fs-sheet .grid > .card .excerpt{ flex:1 1 0; font-weight:500; }
+.fs-sheet .grid > .card .stat-row{ flex:1 0 auto; margin:2px 0 0; gap:12px; }
+.fs-sheet .grid > .card .fs-card-foot{ margin:2px 0 0 auto; }
+.fs-sheet .grid > .card.has-thumb{ min-height:0; padding-right:88px; }
+.fs-sheet .grid > .card.has-thumb > :not(:first-child):not(.fs-card-thumb){ margin-right:0; }
+.fs-sheet .grid > .card.has-thumb .fs-card-thumb{ top:auto; bottom:12px; width:64px; height:64px; }
+.fs-sheet .grid > .card > *{ order:4; }
+.fs-sheet .grid > .card .card-top h3{ order:0; }
+.fs-sheet .grid > .card .badge, .fs-sheet .grid > .card > h3, .fs-sheet .grid > .card .excerpt{ order:1; }
+.fs-sheet .grid > .card .stat-row{ order:2; }
+.fs-sheet .grid > .card .fs-card-foot{ order:3; }
+.fs-sheet .grid > .card > h3 + .stat-row + .excerpt::before{ content:'· '; }
+/* Zeilenumbruch vor den Kennzahlen, auch wenn Abzeichen und Route kurz sind */
+.fs-sheet .grid > .card::after{ content:''; order:1; flex-basis:100%; height:0; }
+.fs-sheet .grid > .card span.hut-link-chip[style*="FBEAE7"]{ order:3; min-height:0; margin:2px 0 0; padding:3px 10px; font-size:12px; }

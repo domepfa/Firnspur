@@ -1780,24 +1780,19 @@ function fsHomeFilter(){
     bar.querySelector('.fs-home-all').onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); };
   }
 }
-// Suchfeld in den Listen eingeklappt: Lupen-Knopf neben «Filter». Offen-Zustand als Klasse an <html>,
-// damit das Feld beim Neuzeichnen (bei jedem Buchstaben) sofort sichtbar bleibt und den Cursor behält.
-function fsSearchSetOpen(on){ document.documentElement.classList.toggle('fs-search-open', !!on); }
+// Suchfeld in den Listen immer sichtbar, in derselben Zeile wie «Filter» (nur Klassen setzen: das Feld
+// selbst nicht verschieben, sonst verliert es beim Neuzeichnen den Cursor).
 function fsSearchCollapse(){
   const sheet = document.querySelector('.fs-sheet');
   const inp = sheet && sheet.querySelector('.search-input');
   if(!inp || inp._fsCollapsed) return;
   inp._fsCollapsed = true;
   const tb = inp.closest('.toolbar');
-  const row = (tb && tb.nextElementSibling && tb.nextElementSibling.classList.contains('toolbar-row')) ? tb.nextElementSibling : tb;
-  const btn = document.createElement('button');
-  btn.type = 'button'; btn.className = 'btn secondary fs-search-btn'; btn.setAttribute('aria-label', 'Suchen');
-  btn.innerHTML = fsIconHtml('search') + '<span>Suchen</span>';
-  row.insertBefore(btn, row.firstChild);
+  const row = (tb && tb.nextElementSibling && tb.nextElementSibling.classList.contains('toolbar-row')) ? tb.nextElementSibling : null;
   tb.classList.add('fs-search-tb');
-  btn.addEventListener('click', ()=>{ fsSearchSetOpen(true); inp.focus(); });
-  inp.addEventListener('blur', ()=> setTimeout(()=>{ const cur = document.querySelector('.fs-sheet .search-input'); if(cur && !cur.value && document.activeElement !== cur) fsSearchSetOpen(false); }, 200));
-  if(inp.value) fsSearchSetOpen(true);
+  if(row){ tb.classList.add('fs-search-has-row'); row.classList.add('fs-search-beside'); }
+  inp.setAttribute('type', 'search');
+  inp.setAttribute('aria-label', 'Touren durchsuchen');
 }
 (function(){
   if(typeof MutationObserver === 'undefined') return;
@@ -2117,6 +2112,8 @@ function parseDurationHours(s){
 }
 function tourSortKey(t, by){
   if(by==='date') return t.createdAt || '';
+  if(by==='updated') return t.updatedAt || t.createdAt || '';
+  if(by==='done') return fsTourLastDoneDate(t);
   if(by==='name') return (t.name||'').toLowerCase();
   if(by==='region') return (t.region||'').toLowerCase();
   if(by==='difficulty'){ let i = t.difficulty ? DIFF_ORDER.indexOf(t.difficulty) : -1; if(i<0 && t.difficulty) i = HIKE_SCALE_ORDER.indexOf(t.difficulty); return i>=0 ? i : null; }
@@ -2141,7 +2138,9 @@ function sortHuts(list){
   return [...list].sort((a,b)=> compareValues(hutSortKey(a,by), hutSortKey(b,by), dir));
 }
 const TOUR_SORT_OPTIONS = [
-  {value:'date', label:'Datum'},
+  {value:'date', label:'Erfasst'},
+  {value:'updated', label:'Zuletzt geändert'},
+  {value:'done', label:'Zuletzt gemacht'},
   {value:'name', label:'A–Z'},
   {value:'region', label:'Region'},
   {value:'difficulty', label:'Schwierigkeit'},
@@ -11619,6 +11618,75 @@ function wireLoginScreen(){
   input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptLogin(); });
 }
 
+/* ================= Bibliothek: Suche, Gemacht-Filter, Kartenfuss =================
+   Gemeinsam für alle Tourenlisten (Skitour, Hochtour, Klettern, Wandern). */
+function fsNorm(s){ return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+// Alle Texte einer Tour (auch Punkte, Erfahrungen, Hütte, Gebiet, Gipfel, verknüpfte Orte), ohne IDs,
+// Koordinaten, Bilder und Links.
+const FS_SEARCH_SKIP = /^(id|.*Id|.*Ids|coords|manualTrack|trackSimplified|altTracks|routes|photos|topoImages|url|.*Link|.*At|owner|editors|_.*)$/;
+function fsTourSearchText(t){
+  const out = [];
+  const walk = (v, depth)=>{
+    if(v == null || depth > 4) return;
+    if(typeof v === 'string'){ if(!/^(data:|https?:)/.test(v)) out.push(v); return; }
+    if(typeof v === 'number'){ out.push(String(v)); return; }
+    if(Array.isArray(v)){ v.forEach(x=> walk(x, depth + 1)); return; }
+    if(typeof v === 'object') Object.keys(v).forEach(k=>{ if(!FS_SEARCH_SKIP.test(k)) walk(v[k], depth + 1); });
+  };
+  walk(t, 0);
+  const name = (list, id)=>{ const x = id && Array.isArray(list) ? list.find(o=> o && o.id === id) : null; if(x) out.push(x.name || ''); };
+  if(typeof state !== 'undefined'){
+    name(state.huts, t.hutId); name(state.gebiete, t.gebietId); name(state.sektoren, t.sektorId);
+    (t.summitIds || []).forEach(id=> name(state.gipfel, id));
+  }
+  const orte = t.orte || [];
+  if(orte.length) fsOrteAll().forEach(o=>{ if(orte.indexOf(o.id) >= 0) out.push(o.name || '', o.note || ''); });
+  return fsNorm(out.join(' \n '));
+}
+function fsTourMatchesSearch(t, q){
+  const words = fsNorm(q).split(/\s+/).filter(Boolean);
+  if(!words.length) return true;
+  const txt = fsTourSearchText(t);
+  return words.every(w=> txt.includes(w));
+}
+function fsTourDone(t){ return !!((t.completions && t.completions.length) || t.completed); }
+function fsTourLastDoneDate(t){
+  return (t.completions || []).reduce((m, c)=> (c && c.date && c.date > m) ? c.date : m, '') || (t.completed ? (t.completedDate || '') : '');
+}
+// Filter «Gemacht»: '' = alle, 'ja' = schon gemacht, 'nein' = noch nicht
+function fsApplyDoneFilter(list){
+  const v = state.activeDoneFilter;
+  return v ? list.filter(t=> fsTourDone(t) === (v === 'ja')) : list;
+}
+function toggleDoneFilter(v){
+  state.activeDoneFilter = (state.activeDoneFilter === v) ? '' : v;
+  render();
+}
+function fsDoneFilterHtml(){
+  const chip = (v, label)=> `<button class="chip ${state.activeDoneFilter===v?'on':''}" style="${state.activeDoneFilter===v?'background:var(--ice-deep)':''}" data-act="filter-done" data-value="${v}">${label}</button>`;
+  return `<div class="field"><label>Gemacht</label><div class="chips">${chip('ja', 'schon gemacht')}${chip('nein', 'noch nicht gemacht')}</div></div>`;
+}
+// Fuss der Listeneinträge: Status und zuletzt gemacht, in einer Zeile
+function fsCardFootHtml(t){
+  const n = (t.completions || []).length;
+  const last = n ? (t.completions || []).slice().sort((a, b)=> String(b.date || '').localeCompare(String(a.date || '')))[0] : null;
+  const done = last ? `<span class="fs-card-done">${fsIconHtml('check')}${esc(last.by || '?')}${last.date ? ' · ' + fmtDateOnly(last.date) : ''}${n > 1 ? ' (+' + (n - 1) + ')' : ''}</span>`
+    : (t.completed ? `<span class="fs-card-done">${fsIconHtml('check')}gemacht</span>` : '');
+  return `<div class="fs-card-foot">${tourStatusLabel(t)}${done}</div>`;
+}
+// Was bis «bereit» fehlt (nur Hinweis, entscheidet nichts)
+function fsTourMissingForReady(t){
+  const miss = [];
+  const msl = t.tourCategory === 'msl';
+  if(!(msl ? (t.mandatoryDifficulty || t.cruxDifficulty) : t.difficulty)) miss.push('Schwierigkeit');
+  if(!msl && !t.elevationGain) miss.push('Höhenmeter');
+  if(!t.duration) miss.push('Zeitbedarf');
+  if(!String(t.ascent || '').trim()) miss.push(msl ? 'Routenbeschreibung' : 'Aufstieg');
+  if(!String(t.approach || '').trim() && !(t.approachTypes || []).length) miss.push('Anreise');
+  if(!tourHasMapData(t)) miss.push('Route oder Punkt auf der Karte');
+  return miss;
+}
+
 /* ================= Tour-Status: Idee / in Recherche / bereit =================
    Alte Werte werden nur anders gelesen, nicht umgeschrieben: entwurf → Idee, vollstaendig → bereit. */
 const FS_TOUR_STATUS = [
@@ -11702,11 +11770,12 @@ function fsTourStatusHtml(t){
   const cur = fsTourStatus(t);
   // Bereit: «Für unterwegs» gleich hier statt unten unter «Mehr»
   const ready = cur === 'bereit' && (tourHasMapData(t) || (t.topoImages && t.topoImages.length));
+  const missing = cur !== 'bereit' ? fsTourMissingForReady(t) : [];
   return `<div class="fs-status-row">
     <span class="fs-status-pill">${tourStatusLabel(t)}</span>
     <div class="fs-status-seg" role="group" aria-label="Status">${FS_TOUR_STATUS.map(s=>
       `<button type="button" class="${s.key === cur ? 'on' : ''}" data-act="set-tour-status" data-id="${esc(t.id)}" data-value="${s.key}" aria-pressed="${s.key === cur}">${fsIconHtml(s.icon)}<span>${s.label}</span></button>`).join('')}</div>
-  </div>${ready ? `<div class="fs-ready-offline">${offlineSectionHtml(t.id)}</div>` : ''}`;
+  </div>${cur !== 'bereit' && missing.length ? `<p class="fs-ready-missing">Für «bereit» fehlt noch: ${missing.map(esc).join(' · ')}</p>` : ''}${ready ? `<div class="fs-ready-offline">${offlineSectionHtml(t.id)}</div>` : ''}`;
 }
 async function toggleHutStatus(id){
   const h = state.huts.find(x=>x.id===id);

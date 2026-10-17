@@ -868,6 +868,7 @@ let state = {
   activeStayTypeFilters: new Set(),
   activeStatusFilters: new Set(),
   activeGlacierFilter: '',
+  activeDoneFilter: '',
   activeHutRegionFilters: new Set(),
   activeHutDiffFilters: new Set(),
   activeHutApproachTypeFilters: new Set(),
@@ -2936,7 +2937,9 @@ async function deleteSektorRoute(sektorId, kind, routeId){
 
 /* ================= Sortierung ================= */
 const MSL_SORT_OPTIONS = [
-  {value:'date', label:'Datum'},
+  {value:'date', label:'Erfasst'},
+  {value:'updated', label:'Zuletzt geändert'},
+  {value:'done', label:'Zuletzt gemacht'},
   {value:'name', label:'A–Z'},
   {value:'region', label:'Region'},
   {value:'crux', label:'Schlüsselstelle'},
@@ -2954,6 +2957,7 @@ function resetTourFilters(){
   state.activeApproachTypeFilters.clear();
   state.activeStayTypeFilters.clear();
   state.activeStatusFilters.clear();
+  state.activeDoneFilter = '';
   state.activeGlacierFilter = '';
   render();
 }
@@ -3059,24 +3063,21 @@ function filteredTours(){
   if(state.activeGlacierFilter){
     list = list.filter(t=>t.glacier===state.activeGlacierFilter);
   }
+  list = fsApplyDoneFilter(list);
   if(state.search.trim()){
-    const q = state.search.trim().toLowerCase();
-    list = list.filter(t=> (t.name||'').toLowerCase().includes(q) || (t.region||'').toLowerCase().includes(q) || (t.subregion||'').toLowerCase().includes(q)
-      || (Array.isArray(t.summitIds) && t.summitIds.some(gid=>{
-        const g = state.gipfel.find(x=>x.id===gid);
-        return g && (g.name||'').toLowerCase().includes(q);
-      })));
+    const q = state.search.trim();
+    list = list.filter(t=> fsTourMatchesSearch(t, q));
   }
   return sortTours(list);
 }
 
 function tourenViewHtml(){
   const list = filteredTours();
-  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeGlacierFilter ? 1 : 0);
+  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeGlacierFilter ? 1 : 0) + (state.activeDoneFilter ? 1 : 0);
   const usedRegions = Array.from(new Set(state.tours.filter(t=>(t.tourCategory||'hochtour')==='hochtour').map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   return stageLayoutHtml(mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.map(t=>{ const p = fsTourSummitPoint(t) || tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
-      <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
+      <input class="search-input" type="text" placeholder="Suchen: Name, Region, Text, Orte …" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-tour">+ Neue Tour</button>
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
@@ -3111,6 +3112,7 @@ function tourenViewHtml(){
           ${FS_TOUR_STATUS.map(st=>`<button class="chip ${state.activeStatusFilters.has(st.key)?'on':''}" style="${state.activeStatusFilters.has(st.key)?'background:var(--ice-deep)':''}" data-act="filter-status" data-value="${st.key}">${st.label}</button>`).join('')}
         </div>
       </div>
+      ${fsDoneFilterHtml()}
       <div class="field"><label>Gletscher</label>
         <div class="chips">
           <button class="chip ${state.activeGlacierFilter==='ja'?'on':''}" style="${state.activeGlacierFilter==='ja'?'background:var(--ice-deep)':''}" data-act="filter-glacier" data-value="ja">Ja</button>
@@ -3271,9 +3273,10 @@ function filteredMslTours(){
   if(state.activeStatusFilters.size){
     list = list.filter(t=>state.activeStatusFilters.has(fsTourStatus(t)));
   }
+  list = fsApplyDoneFilter(list);
   if(state.search.trim()){
-    const q = state.search.trim().toLowerCase();
-    list = list.filter(t=> (t.name||'').toLowerCase().includes(q) || (t.region||'').toLowerCase().includes(q) || (t.subregion||'').toLowerCase().includes(q));
+    const q = state.search.trim();
+    list = list.filter(t=> fsTourMatchesSearch(t, q));
   }
   return sortTours(list);
 }
@@ -3281,10 +3284,10 @@ function filteredMslTours(){
 function mslViewHtml(){
   const list = filteredMslTours();
   const usedRegions = Array.from(new Set(state.tours.filter(t=>t.tourCategory==='msl').map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
-  const activeFilterCount = state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size;
+  const activeFilterCount = state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeDoneFilter ? 1 : 0);
   return stageLayoutHtml(mapStripHtml({label:'Touren auf der Karte', kind:'msl', points: list.map(t=>{ const p = fsTourSummitPoint(t) || tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
-      <input class="search-input" type="text" placeholder="Tour oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
+      <input class="search-input" type="text" placeholder="Suchen: Name, Region, Text, Orte …" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-msl">+ Neue MSL-Tour</button>
       <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
@@ -3314,6 +3317,7 @@ function mslViewHtml(){
           ${FS_TOUR_STATUS.map(st=>`<button class="chip ${state.activeStatusFilters.has(st.key)?'on':''}" style="${state.activeStatusFilters.has(st.key)?'background:var(--ice-deep)':''}" data-act="filter-status" data-value="${st.key}">${st.label}</button>`).join('')}
         </div>
       </div>
+      ${fsDoneFilterHtml()}
       ${activeFilterCount ? `<button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="reset-tour-filters">Filter zurücksetzen</button>` : ''}
     </div>
     ${list.length ? mslListOrGroupedHtml(list, activeFilterCount) : emptyMsl()}
@@ -3428,10 +3432,11 @@ function tourCardHtml(t, draggable, opts){
     ${t.region ? `<p class="excerpt">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${summitChipsForCardHtml(t)}
     ${hut ? `<span class="hut-link-chip">🛖 ${esc(hut.name)}</span>` : ''}
-    ${last ? `<span class="hut-link-chip" style="background:#E3EFE6; color:#2F6B44;">✓ ${esc(last.by)} · ${esc(fmtDateOnly(last.date))}${t.completions.length>1 ? ` (+${t.completions.length-1})` : ''}</span>` : ''}
+    ${last ? `<span class="hut-link-chip fs-card-done-old" style="background:#E3EFE6; color:#2F6B44;">✓ ${esc(last.by)} · ${esc(fmtDateOnly(last.date))}${t.completions.length>1 ? ` (+${t.completions.length-1})` : ''}</span>` : ''}
     ${t.crux ? `<div class="conditions-note">⚠ ${esc(t.crux)}</div>` : ''}
     ${t._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
     ${(t.topoImages && t.topoImages.length) ? `<button type="button" class="hut-link-chip" style="background:var(--signal-deep); color:#fff; border:none; cursor:pointer;" data-act="open-topo-from-card" data-id="${t.id}" data-images='${esc(JSON.stringify(t.topoImages))}'>📷 Topo ansehen</button>` : ''}
+    ${fsCardFootHtml(t)}
     <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
       <span>von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}</span>
       <span style="color:var(--ink-faint);">${tourStatusLabel(t)}</span>
@@ -4669,6 +4674,7 @@ function wireGlobalHandlers(){
     else if(act==='filter-approach-type') el.onclick = ()=>toggleApproachTypeFilter(el.getAttribute('data-value'));
     else if(act==='filter-stay-type') el.onclick = ()=>toggleStayTypeFilter(el.getAttribute('data-value'));
     else if(act==='filter-status') el.onclick = ()=>toggleStatusFilter(el.getAttribute('data-value'));
+    else if(act==='filter-done') el.onclick = ()=>toggleDoneFilter(el.getAttribute('data-value'));
     else if(act==='filter-glacier') el.onclick = ()=>toggleGlacierFilter(el.getAttribute('data-value'));
     else if(act==='filter-hut-region') el.onclick = ()=>toggleHutRegionFilter(el.getAttribute('data-region'));
     else if(act==='filter-hut-diff') el.onclick = ()=>toggleHutDiffFilter(el.getAttribute('data-code'));
