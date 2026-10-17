@@ -2443,8 +2443,8 @@ html.fs-mapmode .fs-sheet::before{ display:none; }
 html.fs-mapmode[data-fs-home="liste"] .fs-sheet{ overflow-y:auto; touch-action:pan-y; }
 html.fs-mapmode[data-fs-home="liste"] .fs-sheet .fs-grip, html.fs-mapmode[data-fs-home="liste"] .fs-sheet > .tabs{ touch-action:none; }
 .fs-grip{ display:none; }
-html.fs-mapmode .fs-grip{ display:block; position:sticky; top:0; z-index:3; height:22px; margin:0 -16px; background:var(--cream); cursor:grab; }
-html.fs-mapmode .fs-grip::after{ content:''; position:absolute; left:50%; top:9px; width:44px; height:5px; margin-left:-22px; border-radius:3px; background:var(--line); }
+html.fs-mapmode .fs-grip{ display:block; position:sticky; top:0; z-index:3; height:30px; margin:0 -16px; background:var(--cream); cursor:grab; }
+html.fs-mapmode .fs-grip::after{ content:''; position:absolute; left:50%; top:11px; width:44px; height:5px; margin-left:-22px; border-radius:3px; background:var(--line); }
 html.fs-mapmode .fs-grip:focus-visible{ outline:3px solid var(--ice-deep); outline-offset:-3px; }
 html.fs-mapmode .fs-sheet > .tabs{ margin:0 0 12px; }
 html.fs-mapmode .fs-sheet > .tabs .tab{ min-height:44px; color:var(--ink-soft); text-shadow:none; }

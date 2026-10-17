@@ -1518,7 +1518,7 @@ function fsHomeCreateMap(){
   fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
   fsmWireOrtHold(fsHomeMap);
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
-  fsHomeMap.setMaxBounds([[-6, 38], [22, 56]]);
+  fsHomeMap.setMaxBounds([[2, 42.5], [15, 50.5]]);
   fsHomeMap.on('moveend', ()=>{ if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
   fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
   fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl && sl.classList.contains('fs-home-slot')) sl.classList.add('has-map'); });
@@ -1940,40 +1940,75 @@ function fsHomeHero(sheet){
   }
 }
 // Ziehen: in «karte»/«mitte» das ganze Blatt, in «liste» nur Griff und Kopf (Segment, Suche, Filter)
+// Ziehen: in «karte»/«mitte» das ganze Blatt, in «liste» Griff und Kopf (Segment, Suche, Filter) und,
+// wenn die Liste ganz oben ist, jede Geste nach unten. Losgelassen zählt, wohin der Schwung trägt:
+// ein kräftiger Wisch darf eine Stufe überspringen, langsames Ziehen landet bei der nächsten Stufe.
 function fsHomeWireDrag(sheet){
   let st = null;
+  const D = ['karte', 'mitte', 'liste'];
   const isHead = el=> !!(el.closest('.fs-grip') || el.closest('.tabs') || el.closest('.toolbar') || el.closest('.fs-home-count'));
+  const begin = y=>{ const full = fsHomeDetentPx('liste'); st = {y0: y, base: full - fsHomeDetentPx(fsHomeDetent), full, moved: false, last: null, hist: []}; };
+  const move = y=>{
+    const dy = y - st.y0;
+    if(!st.moved){ st.moved = true; sheet.style.transition = 'none'; }
+    const max = st.full - fsHomeDetentPx('karte') + 40;
+    const ty = Math.max(-20, Math.min(max, st.base + dy));
+    sheet.style.transform = 'translateY(' + ty + 'px)';
+    document.documentElement.style.setProperty('--fs-home-vis', (st.full - ty) + 'px');
+    st.last = ty;
+    const now = performance.now();
+    st.hist.push({t: now, y}); while(st.hist.length > 2 && now - st.hist[0].t > 120) st.hist.shift();
+  };
+  const end = ()=>{
+    const s = st; st = null;
+    if(!s || !s.moved || s.last == null) return;
+    const g = sheet.querySelector('.fs-grip'); if(g){ g._dragged = true; setTimeout(()=>{ g._dragged = false; }, 0); }
+    // Kein Klick nach dem Ziehen (sonst öffnet sich die Tour unter dem Finger)
+    // (nur kurz: kommt kein Klick, darf der nächste echte Tipp nicht verschluckt werden)
+    const stop = ev=>{ ev.stopPropagation(); ev.preventDefault(); };
+    sheet.addEventListener('click', stop, {capture: true, once: true});
+    setTimeout(()=> sheet.removeEventListener('click', stop, {capture: true}), 350);
+    const a = s.hist[0], b = s.hist[s.hist.length - 1];
+    const v = (a && b && b.t > a.t) ? (b.y - a.y) / (b.t - a.t) : 0; // px/ms, positiv = nach unten
+    const aim = (s.full - s.last) - v * 220; // sichtbare Höhe, wohin der Schwung trägt
+    fsHomeDetent = D.map(d=> ({d, h: fsHomeDetentPx(d)})).reduce((m, o)=> Math.abs(o.h - aim) < Math.abs(m.h - aim) ? o : m).d;
+    fsHomeApply(true);
+  };
+  // Maus, Stift und Finger auf Griff/Kopf (bzw. überall in «karte»/«mitte»)
   sheet.addEventListener('pointerdown', e=>{
     if(e.button > 0 || e.target.closest('input, select, textarea, .fs-filter-sheet')) return;
     if(fsHomeDetent === 'liste' && !isHead(e.target)) return;
-    const full = fsHomeDetentPx('liste');
-    st = {y: e.clientY, t: performance.now(), base: full - fsHomeDetentPx(fsHomeDetent), full, moved: false, id: e.pointerId};
+    begin(e.clientY); st.id = e.pointerId; st.ptr = true;
   });
   sheet.addEventListener('pointermove', e=>{
-    if(!st || e.pointerId !== st.id) return;
-    const dy = e.clientY - st.y;
-    if(!st.moved && Math.abs(dy) < 8) return;
-    if(!st.moved){ st.moved = true; try{ sheet.setPointerCapture(e.pointerId); }catch(err){} sheet.style.transition = 'none'; }
-    const min = 0, max = st.full - fsHomeDetentPx('karte') + 40;
-    const y = Math.max(min - 20, Math.min(max, st.base + dy));
-    sheet.style.transform = 'translateY(' + y + 'px)';
-    document.documentElement.style.setProperty('--fs-home-vis', (st.full - y) + 'px');
-    st.last = y; st.v = dy / Math.max(1, performance.now() - st.t);
+    if(!st || !st.ptr || e.pointerId !== st.id) return;
+    if(!st.moved && Math.abs(e.clientY - st.y0) < 8) return;
+    if(!st.moved){ try{ sheet.setPointerCapture(e.pointerId); }catch(err){} }
+    move(e.clientY);
   });
-  const end = e=>{
-    if(!st || (e && e.pointerId !== st.id)) return;
-    const s = st; st = null;
-    if(!s.moved) return;
-    const g = sheet.querySelector('.fs-grip'); if(g){ g._dragged = true; setTimeout(()=>{ g._dragged = false; }, 0); }
-    // Kein Klick nach dem Ziehen (sonst öffnet sich die Tour unter dem Finger)
-    sheet.addEventListener('click', ev=>{ ev.stopPropagation(); ev.preventDefault(); }, {capture: true, once: true});
-    const vis = s.full - s.last, opts = ['karte', 'mitte', 'liste'].map(d=> ({d, h: fsHomeDetentPx(d)}));
-    let target = opts.reduce((m, o)=> Math.abs(o.h - vis) < Math.abs(m.h - vis) ? o : m).d;
-    if(Math.abs(s.v) > 0.6){ const i = ['karte', 'mitte', 'liste'].indexOf(fsHomeDetent); target = ['karte', 'mitte', 'liste'][Math.max(0, Math.min(2, i + (s.v < 0 ? 1 : -1)))]; }
-    fsHomeDetent = target; fsHomeApply(true);
-  };
-  sheet.addEventListener('pointerup', end);
-  sheet.addEventListener('pointercancel', end);
+  const pend = e=>{ if(st && st.ptr && e.pointerId === st.id) end(); };
+  sheet.addEventListener('pointerup', pend);
+  sheet.addEventListener('pointercancel', pend);
+  // Finger in der Liste («liste»), ganz oben, nach unten: Blatt statt Liste ziehen
+  sheet.addEventListener('touchstart', e=>{
+    if(fsHomeDetent !== 'liste' || st || e.touches.length !== 1 || isHead(e.target) || e.target.closest('input, select, textarea, .fs-filter-sheet')) return;
+    sheet._fsPull = {y: e.touches[0].clientY, top: sheet.scrollTop <= 0};
+  }, {passive: true});
+  sheet.addEventListener('touchmove', e=>{
+    const pl = sheet._fsPull;
+    if(!pl) return;
+    const y = e.touches[0].clientY;
+    if(!st){
+      if(!pl.top || y - pl.y < -4){ sheet._fsPull = null; return; }
+      if(y - pl.y < 8) return;
+      begin(pl.y);
+    }
+    e.preventDefault();
+    move(y);
+  }, {passive: false});
+  const tend = ()=>{ if(sheet._fsPull){ sheet._fsPull = null; if(st && !st.ptr) end(); } };
+  sheet.addEventListener('touchend', tend);
+  sheet.addEventListener('touchcancel', tend);
   // Suchen braucht Platz für die Tastatur
   sheet.addEventListener('focusin', e=>{ if(e.target.matches('.search-input')) fsHomeSetDetent('liste'); });
 }
@@ -7190,8 +7225,8 @@ async function fsmAddOverview(map){
       if(l.type !== 'background'){ if(!s.sources[l.source] || s.sources[l.source].type !== 'vector') return; nl.source = 'ov0-' + l.source; }
       try{ map.addLayer(nl, 'base-karte'); }catch(e){}
     });
-    // Die Landeskarte blendet beim Herauszoomen in die Übersicht über
-    map.setPaintProperty('base-karte', 'raster-opacity', ['interpolate', ['linear'], ['zoom'], 7.3, 0, 8.1, 1]);
+    // Landeskarte und Luftbild blenden beim Herauszoomen in die Übersicht über (beide enden kurz hinter der Grenze)
+    ['base-karte', 'base-luftbild'].forEach(id=> map.setPaintProperty(id, 'raster-opacity', ['interpolate', ['linear'], ['zoom'], 7.3, 0, 8.1, 1]));
   }catch(e){ fsmOverviewStyleCache = null; }
 }
 // "Luftbild + Namen": Schrift, Wege, Gewässer usw. aus dem offiziellen swisstopo-Vektorstil
