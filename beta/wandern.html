@@ -696,7 +696,7 @@ async function loadAll(){
       // Gerätekopie = zuletzt bekannter Stand der Datenbank: als Ausgangsstand für spätere Änderungen
       fsRememberCachedBases(fsOwnToursPath(), state.tours); fsRememberCachedBases('huts', state.huts); fsRememberCachedBases('wandern/gebiete', state.gebiete); fsRememberCachedBases(AGENDA_PATH, state.agenda);
       state.offlineCachedAt = cached.cachedAt;
-      showToast('Offline – zeigt den zuletzt gespeicherten Stand vom ' + fmtDate(cached.cachedAt), true);
+      // Kein Toast: das ruhige Offline-Banner oben genügt
     }else{
       showToast('Konnte nicht mit der Datenbank verbinden. Prüfe deine Internetverbindung.', true);
     }
@@ -949,8 +949,8 @@ function resetTourFilters(){
 function shellHtml(){
   return `
   ${state.offlineMode ? `
-  <div class="backup-banner" style="background:#5B6B73;">
-    📡 Offline – zeigt den Stand vom ${fmtDate(state.offlineCachedAt)}. Neue Einträge werden synchronisiert, sobald wieder Internet da ist.
+  <div class="backup-banner fs-offline-banner" role="status">
+    ${fsIconHtml('offline')} Offline · Stand ${fmtDate(state.offlineCachedAt)} · Änderungen werden später übertragen
   </div>` : ''}
   ${state.hasUnsavedChanges ? `
   <div class="backup-banner">
@@ -963,7 +963,7 @@ function shellHtml(){
         <h1>Wandern</h1>
       </div>
       <details class="who who-menu">
-        <summary aria-label="Konto und Daten">${state.myName ? esc(state.myName.trim().charAt(0).toUpperCase()) : '?'}</summary>
+        <summary aria-label="Menü: Konto, Daten und Anzeige">${fsIconHtml('menu')}${state.myName ? `<span class="who-initial" aria-hidden="true">${esc(state.myName.trim().charAt(0).toUpperCase())}</span>` : ''}</summary>
         <div class="who-row">
           ${state.myName ? `<span>Angemeldet als <strong>${esc(state.myName)}</strong></span><button data-act="change-name">Namen ändern</button>` : `<button data-act="change-name">Namen setzen</button>`}
           <button data-act="export-data">📤 Exportieren</button>

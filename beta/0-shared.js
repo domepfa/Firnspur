@@ -2041,6 +2041,8 @@ function showToast(message, isError){
   if(old) old.remove();
   const el = document.createElement('div');
   el.className = 'toast' + (isError ? ' error' : '');
+  // Screenreader: Fehler sofort, sonst höflich vorlesen
+  el.setAttribute('role', isError ? 'alert' : 'status');
   el.textContent = message;
   document.body.appendChild(el);
   setTimeout(()=>{ el.remove(); }, isError ? 5000 : 2500);
@@ -10767,7 +10769,7 @@ function fsConditionsHtml(lat, lon, alt){
   const hsNear = fsNearest(c.hs, lat, lon, 25000, x=> x.src === 'SLF');
   const msNs = fsNearest(c.ns, lat, lon, 25000, x=> x.src === 'MeteoSchweiz');
   const rainNear = fsNearest(c.rain, lat, lon, 25000);
-  const offline = !c.om && (navigator.onLine === false || (!c.hs && !c.ns && !c.rain)); // nichts kam an: wohl offline
+  const offline = !c.om && (navigator.onLine === false || (typeof state !== 'undefined' && state.offlineMode) || (!c.hs && !c.ns && !c.rain)); // nichts kam an: wohl offline
   parts.push(`<p class="fs-cond-sum">${sent || (offline ? 'Offline – Bedingungen erscheinen, sobald wieder Internet da ist.' : 'Für diesen Punkt sind gerade keine Modelldaten verfügbar.')}</p>`);
   if(slfBox) parts.unshift(slfBox);
   if(chips.length) parts.push(`<div class="fs-cond-chips">${chips.join('')}</div>`);
@@ -17340,6 +17342,7 @@ const FS_ICON_PATHS = {
   entry: 'M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4',
   exit: 'M14 7l5 5-5 5M19 12H8M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5',
   layers: 'M12 3 2 8l10 5 10-5-10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5',
+  menu: 'M4 7h16M4 12h16M4 17h16',
   more: 'M5 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM12 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM19 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
   hut: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5',

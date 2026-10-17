@@ -438,6 +438,20 @@ body:has(.overlay) .agenda-tab{ display:none; }
   -webkit-backdrop-filter:none; backdrop-filter:none;
 }
 .who-menu[open] > summary{ background:var(--ice-deep); color:#fff; }
+/* Menü-Knopf: Strich-Icon statt «?», Initial als kleines Abzeichen */
+.who-menu > summary{ position:relative; }
+.who-menu > summary .fs-i{ width:22px; height:22px; }
+.who-initial{
+  position:absolute; right:-3px; bottom:-3px; min-width:19px; height:19px; padding:0 4px; box-sizing:border-box;
+  border-radius:999px; background:var(--paper); color:var(--ink); border:1.5px solid var(--ink);
+  font-size:11px; font-weight:800; line-height:16px; text-align:center;
+}
+/* Offline ist ein normaler Zustand: ruhiges Banner statt Warnfarbe */
+.backup-banner.fs-offline-banner{
+  background:var(--ice-light); color:var(--accent-ink); border-bottom:1px solid var(--line);
+  font-size:13.5px; font-weight:600; padding:10px 16px; gap:8px; flex-wrap:nowrap; text-align:left;
+}
+.backup-banner.fs-offline-banner .fs-i{ width:18px; height:18px; flex:none; }
 .tabs{ margin-top:12px; }
 .tabs-inner{
   background:#E6EBEE; border:none;
