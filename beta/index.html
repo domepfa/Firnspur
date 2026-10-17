@@ -1488,7 +1488,7 @@ function tourDetailHtml(id){
       t.trackSimplified ? fsMenuItemHtml('download', 'GPX herunterladen', `data-act="download-gpx" data-id="${t.id}" data-name="${esc(t.name)}"`) : '',
       (!t.trackSimplified && t.manualTrack && t.manualTrack.length) ? fsMenuItemHtml('download', 'Route als GPX', `data-act="download-manual-gpx" data-track='${esc(JSON.stringify(t.manualTrack))}' data-name="${esc(t.name)}"`) : '',
       fsMenuItemHtml('upload', 'Exportieren / teilen', `data-act="export-tour" data-id="${t.id}"`),
-      fsMenuItemHtml('check', 'Als abgeschlossen markieren', `data-act="open-complete-tour" data-id="${t.id}"`)
+      fsMenuItemHtml('check', 'Nachtragen (gemacht, Erfahrung, Fotos, GPX)', `data-act="fs-nachtragen" data-id="${t.id}"`)
     ])}
     ${(() => { const related = findToursSharingPoints(t, state.tours, 300); return related.length ? `<div class="detail-section">
       <h4>Weitere Touren ab hier (${related.length})</h4>

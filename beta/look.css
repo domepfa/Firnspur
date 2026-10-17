@@ -2145,3 +2145,12 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-card-wx > span{ display:inline-flex; align-items:center; gap:3px; padding:2px 7px; border-radius:8px; background:var(--ice-light); color:var(--ink); font-size:12px; font-weight:700; white-space:nowrap; }
 .fs-card-wx .fs-i{ width:15px; height:15px; color:var(--signal-deep); }
 .fs-sheet .grid > .card[data-act="open-tour"] .fs-card-foot:has(.fs-card-wx){ flex-basis:100%; margin-left:0; }
+/* Nachtragen: mit einem Tipp, neben dem Status */
+.fs-status-row{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.fs-status-row .fs-status-seg{ flex-basis:100%; }
+.fs-nt-btn{ margin-left:auto; min-height:44px; display:inline-flex; align-items:center; gap:6px; padding:0 16px; font-size:14px; font-weight:800; }
+.fs-nt-btn .fs-i{ width:18px; height:18px; }
+.modal.fs-editing .fs-nt-btn{ display:none; }
+.fs-nt-done{ display:flex; align-items:center; gap:12px; min-height:52px; margin:12px 0 2px; padding:8px 14px; border:1px solid var(--line); border-radius:14px; background:var(--paper); font-weight:700; font-size:14.5px; cursor:pointer; }
+.fs-nt-done input{ width:24px; height:24px; flex:none; accent-color:var(--ice-deep); }
+.fs-nt-gpx{ font-size:13px; color:var(--ink-soft); }
