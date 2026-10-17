@@ -11827,13 +11827,41 @@ function fsCardWeatherHtml(t){
   return `<span class="fs-card-wx" aria-label="Wetter der nächsten Tage">${days.map(d=>
     `<span>${meteoFormatDayLabel(d.date).weekday}${meteoDayIcon(d.precipMm)}${Math.round(d.tempMax)}°</span>`).join('')}</span>`;
 }
+// Lawinen im Listeneintrag (Skitour, Hochtour; nur wenn ein SLF-Bulletin gilt): höchste Stufe der Region
+// und ob die Tour in einem Problembereich liegt – genau, wenn der Routen-Check gerechnet hat, sonst nach
+// Exposition und Gipfelhöhe der Tour. Alle Einträge teilen sich einen Abruf (fsSlfAll).
+const fsCardSlf = new Map();
+let fsCardSlfTimer = null;
+function fsCardSlfHtml(t){
+  if(typeof fsRcWithBulletin !== 'function' || !fsRcWithBulletin() || t.tourCategory === 'msl') return '';
+  const p = fsTourSummitPoint(t) || tourMapPoint(t);
+  if(!p || !isFinite(p.lat) || !isFinite(p.lon) || p.lat < 45.8 || p.lat > 47.9 || p.lon < 5.9 || p.lon > 10.6) return '';
+  const key = p.lat.toFixed(2) + ',' + p.lon.toFixed(2);
+  const c = fsCardSlf.get(key);
+  if(!c){
+    fsCardSlf.set(key, {status: 'loading'});
+    fsSlfForPoint(p.lat, p.lon).then(r=> fsCardSlf.set(key, {status: 'ok', r}), ()=> fsCardSlf.set(key, {status: 'err'}))
+      .then(()=>{ clearTimeout(fsCardSlfTimer); fsCardSlfTimer = setTimeout(()=>{ if(typeof render === 'function' && !(state.modal)) render(); }, 120); });
+    return '';
+  }
+  const bul = c.status === 'ok' && c.r ? c.r.cur : null;
+  if(!bul || !bul.ratings.length) return '';
+  const top = bul.ratings[0];
+  // Genau: Routen-Check dieser Tour schon gerechnet?
+  let hit = null;
+  const line = fsRcLine(t);
+  const rc = line ? fsRcCache.get(fsRcKey(t, line)) : null;
+  if(rc && rc.pts){ const probs = fsRcSlfProblems(bul); hit = probs.length ? probs.some(pr=> rc.pts.some(q=> fsRcInProblem(q, pr))) : false; }
+  else{ const h = fsSlfTourHits(t, bul); hit = (Array.isArray(t.exposition) && t.exposition.length) ? h.length > 0 : null; }
+  return `<span class="fs-card-slf" title="Lawinenbulletin SLF, ${esc(top.label)}"><i style="--lvl:${top.color}">${top.level}</i>${hit ? fsIconHtml('alert') + 'im Problembereich' : esc(top.label)}</span>`;
+}
 // Fuss der Listeneinträge: Wetter, Status und zuletzt gemacht, in einer Zeile
 function fsCardFootHtml(t){
   const n = (t.completions || []).length;
   const last = n ? (t.completions || []).slice().sort((a, b)=> String(b.date || '').localeCompare(String(a.date || '')))[0] : null;
   const done = last ? `<span class="fs-card-done">${fsIconHtml('check')}${esc(last.by || '?')}${last.date ? ' · ' + fmtDateOnly(last.date) : ''}${n > 1 ? ' (+' + (n - 1) + ')' : ''}</span>`
     : (t.completed ? `<span class="fs-card-done">${fsIconHtml('check')}gemacht</span>` : '');
-  return `<div class="fs-card-foot">${fsCardWeatherHtml(t)}${tourStatusLabel(t)}${done}</div>`;
+  return `<div class="fs-card-foot">${fsCardSlfHtml(t)}${fsCardWeatherHtml(t)}${tourStatusLabel(t)}${done}</div>`;
 }
 // Was bis «bereit» fehlt (nur Hinweis, entscheidet nichts)
 function fsTourMissingForReady(t){
@@ -16949,8 +16977,25 @@ async function fsRcCompute(c){
   return {pts, total, step, inCH};
 }
 function fsRcBulletin(){
-  try{ const b = JSON.parse(localStorage.getItem('fs-rc-bulletin') || 'null'); if(b && b.day === fsToday()) return b; }catch(e){}
-  return {day: fsToday(), asp: [], minEle: 0};
+  let mode = 'auto';
+  try{ mode = localStorage.getItem('fs-rc-mode') || 'auto'; }catch(e){}
+  try{ const b = JSON.parse(localStorage.getItem('fs-rc-bulletin') || 'null'); if(b && b.day === fsToday()) return Object.assign(b, {mode}); }catch(e){}
+  return {day: fsToday(), asp: [], minEle: 0, mode};
+}
+// Lawinenprobleme des Bulletins (heute oder morgen, wie in «Bedingungen» gewählt), ohne «günstig»
+function fsRcSlfBul(slf){
+  if(!slf) return null;
+  return (state._slfDay === 'next' && slf.next) || (!slf.cur && slf.next) ? slf.next : slf.cur;
+}
+function fsRcSlfProblems(bul){
+  return bul ? bul.problems.filter(pr=> pr.raw !== 'favourable_situation' && pr.raw !== 'no_distinct_avalanche_problem') : [];
+}
+function fsRcInProblem(p, pr){
+  if(p.k < 1 || p.ai == null) return false;
+  if(pr.aspects.length && pr.aspects.indexOf(FS_RC_ASP[p.ai]) < 0) return false;
+  if(pr.lower && p.ele != null && p.ele < pr.lower) return false;
+  if(pr.upper && p.ele != null && p.ele > pr.upper) return false;
+  return true;
 }
 function fsRcSetBulletin(b){ try{ localStorage.setItem('fs-rc-bulletin', JSON.stringify(b)); }catch(e){} }
 function fsRcBodyHtml(res, withBulletin){
@@ -16959,8 +17004,13 @@ function fsRcBodyHtml(res, withBulletin){
   const fmtM = m=> m >= 1000 ? (m / 1000).toFixed(1).replace('.0', '') + ' km' : Math.round(m / 10) * 10 + ' m';
   const fmtE = e=> String(Math.round(e)).replace(/\B(?=(\d{3})+(?!\d))/g, '’');
   const len = k=> pts.filter(p=> p.k >= k).length * step;
-  const b = fsRcBulletin(), crit = new Set(b.asp);
-  const isCrit = p=> withBulletin && crit.size && p.k >= 1 && p.ai != null && crit.has(FS_RC_ASP[p.ai]) && (p.ele == null || p.ele >= (b.minEle || 0));
+  const b = fsRcBulletin();
+  const bul = withBulletin ? fsRcSlfBul(res.slf) : null;
+  const auto = !!(bul && b.mode !== 'manual');
+  const probs = auto ? fsRcSlfProblems(bul) : [];
+  const crit = new Set(auto ? probs.reduce((a, pr)=> a.concat(pr.aspects.length ? pr.aspects : FS_RC_ASP), []) : b.asp);
+  const isCrit = auto ? (p=> probs.some(pr=> fsRcInProblem(p, pr)))
+    : (p=> withBulletin && crit.size && p.k >= 1 && p.ai != null && crit.has(FS_RC_ASP[p.ai]) && (p.ele == null || p.ele >= (b.minEle || 0)));
   // Profil
   const W = 600, H = 200, top = 14, chartH = 120, eles = pts.map(p=> p.ele).filter(v=> v != null);
   const mn = Math.min(...eles), mx = Math.max(...eles), span = Math.max(50, mx - mn);
@@ -16981,7 +17031,7 @@ function fsRcBodyHtml(res, withBulletin){
     <polyline points="${line}" class="fs-rc-line" fill="none" stroke-width="2.5"/>
     ${segs}
     <rect x="0" y="${top + chartH + 14}" width="${W}" height="16" class="fs-rc-bandbg"/>${band}
-    ${withBulletin && crit.size ? `<rect x="0" y="${top + chartH + 36}" width="${W}" height="16" class="fs-rc-bandbg"/>${cband}` : ''}
+    ${withBulletin && (crit.size || probs.length) ? `<rect x="0" y="${top + chartH + 36}" width="${W}" height="16" class="fs-rc-bandbg"/>${cband}` : ''}
     ${steep && steep.ele != null ? `<circle cx="${X(steep.d)}" cy="${Y(steep.ele)}" r="9" class="fs-rc-steep"/>` : ''}
     <text x="6" y="${top + 12}" class="fs-rc-t">${fmtE(mx)} m</text><text x="6" y="${top + chartH - 6}" class="fs-rc-t">${fmtE(mn)} m</text>
     <text x="${W - 6}" y="${top + chartH - 6}" class="fs-rc-t" text-anchor="end">${fmtM(total)}</text>
@@ -16994,34 +17044,56 @@ function fsRcBodyHtml(res, withBulletin){
     return `M${P(r0, a0)} L${P(r1, a0)} A${r1} ${r1} 0 0 1 ${P(r1, a1)} L${P(r0, a1)} A${r0} ${r0} 0 0 0 ${P(r0, a0)}Z`; };
   const rose = `<svg class="fs-rc-rose" viewBox="-112 -112 224 224" role="group" aria-label="Exposition der Hänge über 30°${withBulletin ? '; antippen markiert kritische Expositionen aus dem Bulletin' : ''}">
     <circle r="96" class="fs-rc-ring"/>
-    ${FS_RC_ASP.map((a, i)=> `<path d="${sec(i)}" class="fs-rc-sec${crit.has(a) ? ' crit' : ''}${byAsp[i] ? ' has' : ''}" ${withBulletin ? `data-rc-asp="${a}" role="button" tabindex="0" aria-pressed="${crit.has(a)}" aria-label="${a}: ${fmtM(byAsp[i])} über 30°"` : ''}/>`).join('')}
-    ${FS_RC_ASP.map((a, i)=>{ const an = (i * 45 - 90) * Math.PI / 180; return `<text x="${(106 * Math.cos(an)).toFixed(1)}" y="${(106 * Math.sin(an) + 4).toFixed(1)}" text-anchor="middle" class="fs-rc-al${crit.has(a) ? ' crit' : ''}">${a}</text>`; }).join('')}
+    ${FS_RC_ASP.map((a, i)=> `<path d="${sec(i)}" class="fs-rc-sec${crit.has(a) ? ' crit' : ''}${byAsp[i] ? ' has' : ''}" ${withBulletin && !auto ? `data-rc-asp="${a}" role="button" tabindex="0" aria-pressed="${crit.has(a)}" aria-label="${FS_SLF_ASPECTS[a]}: ${fmtM(byAsp[i])} über 30°"` : `aria-label="${FS_SLF_ASPECTS[a]}: ${fmtM(byAsp[i])} über 30°"`}/>`).join('')}
+    ${FS_RC_ASP.map((a, i)=>{ const an = (i * 45 - 90) * Math.PI / 180; return `<text x="${(106 * Math.cos(an)).toFixed(1)}" y="${(106 * Math.sin(an) + 4).toFixed(1)}" text-anchor="middle" class="fs-rc-al${crit.has(a) ? ' crit' : ''}">${FS_SLF_ASPECTS[a]}</text>`; }).join('')}
   </svg>`;
   const critLen = pts.filter(isCrit).length * step;
   let spots = 0; pts.forEach((p, i)=>{ if(isCrit(p) && !(i && isCrit(pts[i - 1]))) spots++; });
   const facts = [
     `<div><b>${fmtM(len(1))}</b><span>über 30°</span></div>`,
     `<div><b>${fmtM(len(2))}</b><span>über 35°</span></div>`,
-    `<div><b>${steep ? FS_RC_CLASSES[maxK - 1].label : '–'}</b><span>steilste Stelle${steep && steep.ai != null ? ' · ' + FS_RC_ASP[steep.ai] : ''}${steep && steep.ele != null ? ' · ' + fmtE(steep.ele) + ' m' : ''}</span></div>`
+    `<div><b>${steep ? FS_RC_CLASSES[maxK - 1].label : '–'}</b><span>steilste Stelle${steep && steep.ai != null ? ' · ' + FS_SLF_ASPECTS[FS_RC_ASP[steep.ai]] : ''}${steep && steep.ele != null ? ' · ' + fmtE(steep.ele) + ' m' : ''}</span></div>`
   ].join('');
   const legend = FS_RC_CLASSES.filter(c=> pts.some(p=> p.k === c.k)).map(c=> `<span><i class="fs-rc-f${c.k}"></i>${c.label} · ${fmtM(pts.filter(p=> p.k === c.k).length * step)}</span>`).join('');
   const minOpts = [0, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000];
   return `<div class="fs-rc-facts">${facts}</div>
     ${svg}
-    <div class="fs-rc-legend">${legend || '<span>Keine Hänge über 30° entlang der Linie.</span>'}${withBulletin && crit.size ? '<span><i class="fs-rc-critkey"></i>kritisch laut Bulletin</span>' : ''}</div>
+    <div class="fs-rc-legend">${legend || '<span>Keine Hänge über 30° entlang der Linie.</span>'}${withBulletin && (crit.size || probs.length) ? '<span><i class="fs-rc-critkey"></i>im Problembereich laut Bulletin</span>' : ''}</div>
     <div class="fs-rc-bottom">
       ${rose}
       <div class="fs-rc-bul">
-        ${withBulletin ? `<p class="fs-rc-h">Abgleich mit dem Lawinenbulletin</p>
-        <p class="fs-rc-note">Kritische Expositionen in der Rosette antippen, Höhe wählen. Gilt heute für alle Touren.</p>
-        <label class="fs-rc-lbl" for="fs-rc-min-${esc(String(res.key || ''))}">ab Höhe</label>
-        <select id="fs-rc-min-${esc(String(res.key || ''))}" data-rc-min>${minOpts.map(v=> `<option value="${v}" ${(b.minEle || 0) === v ? 'selected' : ''}>${v ? 'über ' + fmtE(v) + ' m' : 'alle Höhen'}</option>`).join('')}</select>
-        <p class="fs-rc-verdict ${crit.size ? (critLen ? 'warn' : 'ok') : ''}">${!crit.size ? 'Noch keine Exposition gewählt.' : critLen
-          ? `${fsIconHtml('alert')}Die Route berührt kritische Hänge über 30° auf ${fmtM(critLen)}${spots > 1 ? ' an ' + spots + ' Stellen' : ''}.`
-          : `${fsIconHtml('check')}Die Route berührt keine kritischen Hänge über 30°.`}</p>` : `<p class="fs-rc-h">Exposition der steilen Hänge</p><p class="fs-rc-note">Grösse = Strecke über 30° in dieser Richtung.</p>`}
+        ${withBulletin ? fsRcBulletinHtml(res, b, bul, auto, probs, pts, step, fmtM, fmtE, critLen, spots, minOpts) : `<p class="fs-rc-h">Exposition der steilen Hänge</p><p class="fs-rc-note">Grösse = Strecke über 30° in dieser Richtung.</p>`}
       </div>
     </div>
     <p class="fs-rc-src">${inCH ? 'Hangneigung: swisstopo (swissALTI3D), im Umkreis von wenigen Metern der Linie.' : 'Hangneigung nur in der Schweiz verfügbar.'} Höhe und Exposition geschätzt (Geländemodell ca. 30 m). Hilft bei der Planung, ersetzt keine Beurteilung vor Ort.</p>`;
+}
+function fsRcBulletinHtml(res, b, bul, auto, probs, pts, step, fmtM, fmtE, critLen, spots, minOpts){
+  const asp = a=> a.length >= 8 || !a.length ? 'alle Expositionen' : a.map(x=> FS_SLF_ASPECTS[x] || x).join(' ');
+  const seg = bul ? `<div class="fs-rc-seg" role="group" aria-label="Bulletin"><button type="button" data-rc-mode="auto" aria-pressed="${auto}">SLF-Bulletin</button><button type="button" data-rc-mode="manual" aria-pressed="${!auto}">Selbst wählen</button></div>` : '';
+  if(auto){
+    const top = bul.ratings[0];
+    const day = (res.slf.cur && res.slf.next) ? `<div class="fs-slf-seg"><button type="button" class="${bul === res.slf.next ? '' : 'on'}" data-slf-day="cur">Heute</button><button type="button" class="${bul === res.slf.next ? 'on' : ''}" data-slf-day="next">Morgen</button></div>` : '';
+    const rows = probs.map(pr=>{
+      const len = pts.filter(p=> fsRcInProblem(p, pr)).length * step;
+      return `<li><span><b>${esc(pr.type)}</b><em>${esc([asp(pr.aspects), pr.lower ? 'über ' + fmtE(pr.lower) + ' m' : pr.upper ? 'unter ' + fmtE(pr.upper) + ' m' : '', pr.later ? 'im Tagesverlauf' : ''].filter(Boolean).join(' · '))}</em></span><strong class="${len ? 'warn' : 'ok'}">${len ? fmtM(len) : 'nicht berührt'}</strong></li>`;
+    }).join('');
+    return `<p class="fs-rc-h">Lawinenbulletin SLF${bul.region ? ' · ' + esc(bul.region) : ''}</p>
+      ${seg}${day}
+      ${top ? `<p class="fs-rc-lvl"><span class="fs-slf-dot" style="--lvl:${top.color}; color:${top.level >= 3 ? '#fff' : '#0F1E27'}">${top.level}</span>${esc(top.label)}${top.elev ? ' · ' + esc(top.elev) : ''}<small>gültig bis ${esc(fsSlfFmt(bul.end))}</small></p>` : ''}
+      ${rows ? `<ul class="fs-rc-probs">${rows}</ul>` : '<p class="fs-rc-note">Keine ausgeprägten Lawinenprobleme gemeldet.</p>'}
+      ${probs.length ? `<p class="fs-rc-verdict ${critLen ? 'warn' : 'ok'}">${critLen
+        ? `${fsIconHtml('alert')}Die Route führt auf ${fmtM(critLen)}${spots > 1 ? ' an ' + spots + ' Stellen' : ''} durch Hänge über 30° im Problembereich.`
+        : `${fsIconHtml('check')}Die Route berührt keine Hänge über 30° im Problembereich.`}</p>` : ''}
+      <p class="fs-rc-note">Abgleich nach Exposition, Höhe und Neigung. Das Bulletin ganz lesen bleibt nötig.</p>`;
+  }
+  return `<p class="fs-rc-h">Abgleich mit dem Lawinenbulletin</p>
+    ${seg}
+    <p class="fs-rc-note">${bul ? '' : 'Kein aktuelles SLF-Bulletin für diese Region. '}Kritische Expositionen in der Rosette antippen, Höhe wählen. Gilt heute für alle Touren.</p>
+    <label class="fs-rc-lbl" for="fs-rc-min-${esc(String(res.key || ''))}">ab Höhe</label>
+    <select id="fs-rc-min-${esc(String(res.key || ''))}" data-rc-min>${minOpts.map(v=> `<option value="${v}" ${(b.minEle || 0) === v ? 'selected' : ''}>${v ? 'über ' + fmtE(v) + ' m' : 'alle Höhen'}</option>`).join('')}</select>
+    <p class="fs-rc-verdict ${b.asp.length ? (critLen ? 'warn' : 'ok') : ''}">${!b.asp.length ? 'Noch keine Exposition gewählt.' : critLen
+      ? `${fsIconHtml('alert')}Die Route berührt kritische Hänge über 30° auf ${fmtM(critLen)}${spots > 1 ? ' an ' + spots + ' Stellen' : ''}.`
+      : `${fsIconHtml('check')}Die Route berührt keine kritischen Hänge über 30°.`}</p>`;
 }
 function fsRcWithBulletin(){ return fsAppKey() !== 'wandern'; }
 function fsRouteCheckHtml(t){
@@ -17043,6 +17115,11 @@ async function fsRcRun(key, t){
   fsRcRunning.add(key);
   let res;
   try{ res = await fsRcCompute(c); }catch(e){ res = {error: 'Routen-Check nicht möglich.', retry: true}; }
+  // Lawinenbulletin der SLF-Region am höchsten Punkt der Route (nur Skitour/Hochtour, nur Schweiz)
+  if(!res.error && res.inCH && fsRcWithBulletin()){
+    const top = res.pts.reduce((m, p)=> (p.ele != null && (!m || p.ele > m.ele)) ? p : m, null) || res.pts[0];
+    try{ res.slf = await fsSlfForPoint(top.lat, top.lon); }catch(e){ res.slf = null; }
+  }
   fsRcRunning.delete(key);
   fsRcCache.set(key, res);
   fsRcPaint(key);
@@ -17051,6 +17128,13 @@ document.addEventListener('click', (ev)=>{
   const box = ev.target.closest && ev.target.closest('.fs-rc');
   if(!box) return;
   const key = box.getAttribute('data-rc');
+  const mode = ev.target.closest('[data-rc-mode]');
+  if(mode){
+    try{ localStorage.setItem('fs-rc-mode', mode.getAttribute('data-rc-mode')); }catch(e){}
+    Array.from(fsRcCache.keys()).forEach(fsRcPaint);
+    return;
+  }
+  if(ev.target.closest('[data-slf-day]')){ setTimeout(()=> Array.from(fsRcCache.keys()).forEach(fsRcPaint), 0); return; }
   const asp = ev.target.closest('[data-rc-asp]');
   if(asp){
     const b = fsRcBulletin(), a = asp.getAttribute('data-rc-asp');

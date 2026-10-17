@@ -2228,3 +2228,21 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-rc-verdict.warn .fs-i{ color:var(--signal-deep); }
 .fs-rc-verdict.ok .fs-i{ color:var(--ok); }
 .fs-rc-src{ margin:0; font-size:12px; color:var(--ink-faint); }
+
+/* Lawinen im Listeneintrag und Bulletin im Routen-Check */
+.fs-card-slf{ display:inline-flex; align-items:center; gap:5px; padding:2px 8px 2px 3px; border-radius:999px; background:var(--line-soft); color:var(--ink); font-size:12px; font-weight:800; }
+.fs-card-slf i{ display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--lvl); color:#0F1E27; font-style:normal; font-size:11px; font-weight:800; box-shadow:inset 0 0 0 1px rgba(15,30,39,.25); }
+.fs-card-slf .fs-i{ width:14px; height:14px; color:var(--signal-deep); }
+.fs-rc-seg{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.fs-rc-seg button{ min-height:44px; border-radius:12px; border:1px solid var(--line); background:var(--paper); font:inherit; font-size:13.5px; font-weight:800; color:var(--ink-soft); cursor:pointer; }
+.fs-rc-seg button[aria-pressed="true"]{ background:var(--ink); border-color:var(--ink); color:var(--paper); }
+.fs-rc-lvl{ margin:0; display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; font-weight:800; font-size:14.5px; }
+.fs-rc-lvl small{ flex-basis:100%; font-weight:600; font-size:12px; color:var(--ink-faint); }
+.fs-rc-probs{ list-style:none; margin:0; padding:0; display:grid; gap:6px; }
+.fs-rc-probs li{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 10px; border-radius:12px; background:var(--line-soft); }
+.fs-rc-probs li span{ display:grid; gap:1px; min-width:0; }
+.fs-rc-probs li b{ font-size:14px; }
+.fs-rc-probs li em{ font-style:normal; font-size:12.5px; color:var(--ink-soft); }
+.fs-rc-probs li strong{ font-size:13px; white-space:nowrap; }
+.fs-rc-probs li strong.warn{ color:var(--signal-deep); }
+.fs-rc-probs li strong.ok{ color:var(--ok); }
