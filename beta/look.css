@@ -1138,12 +1138,9 @@ html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-access-routes-map"]{ disp
 .fs-sac-pick strong{ font-size:14px; color:var(--ink); }
 .fs-sac-pick span{ font-size:12px; color:var(--ink-soft); }
 .fs-sac-back{ align-self:flex-start; border:none; background:none; color:var(--ice-deep); font:inherit; font-size:13px; font-weight:700; padding:0; cursor:pointer; }
-.leaflet-popup-content .fs-sac-pop p{ margin:0; }
-
-/* =====================================================================
-   Phase 2d: Kontextmenü (lange auf eine Tour-Kachel drücken)
+.leaflet-popup-content .fs-sac-pop p{ margin:0; }/* =====================================================================
    ===================================================================== */
-.card[data-act="open-tour"]{ -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; transition:transform .15s ease; }
+
 .card.fs-pressing{ transform:scale(.97); }
 .fs-ctxm-overlay{
   position:fixed; inset:0; z-index:250; padding:24px 18px calc(24px + env(safe-area-inset-bottom, 0px));
@@ -2102,9 +2099,8 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-sheet .toolbar .search-input{ display:block; flex:1; min-width:0; min-height:46px; border-radius:999px; padding:0 16px; font-size:15px; }
 .fs-sheet .toolbar-row.fs-search-beside{ width:124px; margin:-46px 0 10px auto; }
 .fs-sheet .toolbar-row.fs-search-beside > .btn{ min-height:46px; padding:0 12px; }
-.fs-sheet .card .fs-card-done-old{ display:none !important; }
-/* Hütte/Gebiet stehen in der Tour; in der Liste nur «nicht synchronisiert» */
-.fs-sheet .card[data-act="open-tour"] span.hut-link-chip:not([style*="FBEAE7"]){ display:none; }
+.fs-sheet .card .fs-card-done-old{ display:none !important; }/* Hütte/Gebiet stehen in der Tour; in der Liste nur «nicht synchronisiert» */
+
 .fs-sheet .card .agenda-date-row{ display:none; }
 .fs-sheet .card .card-top{ margin-bottom:0; }
 .fs-sheet .card .stat-row{ font-size:14px; }
@@ -2119,35 +2115,12 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-card-done .fs-i{ width:15px; height:15px; }
 .fs-ready-missing{ margin:8px 0 0; font-size:13.5px; color:var(--ink-soft); line-height:1.45; }
 /* Kompakte Zeile: Name · Abzeichen, Route und Region · Kennzahlen und Status */
-.fs-sheet .grid{ gap:8px; }
-.fs-sheet .grid > .card[data-act="open-tour"]{ display:flex; flex-direction:row; flex-wrap:wrap; align-items:center; gap:3px 8px; margin:0; padding:11px 14px 12px; }
-.fs-sheet .grid > .card[data-act="open-tour"] .card-top, .fs-sheet .grid > .card[data-act="open-tour"] .badge-row{ display:contents; }
-.fs-sheet .grid > .card[data-act="open-tour"] .card-top h3{ flex:1 0 100%; margin:0; padding-right:36px; font-size:21px; line-height:1.15; }
-.fs-sheet .grid > .card[data-act="open-tour"] .badge{ font-size:12px; padding:2px 8px; }
-.fs-sheet .grid > .card[data-act="open-tour"] > h3, .fs-sheet .grid > .card[data-act="open-tour"] .excerpt{
-  flex:0 1 auto; min-width:0; margin:0 !important; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  font-size:13.5px !important; font-weight:600; color:var(--ink-soft);
-}
-.fs-sheet .grid > .card[data-act="open-tour"] .excerpt{ flex:1 1 0; font-weight:500; }
-.fs-sheet .grid > .card[data-act="open-tour"] .stat-row{ flex:1 0 auto; margin:2px 0 0; gap:12px; }
-.fs-sheet .grid > .card[data-act="open-tour"] .fs-card-foot{ margin:2px 0 0 auto; }
-.fs-sheet .grid > .card[data-act="open-tour"].has-thumb{ min-height:0; padding-right:88px; }
-.fs-sheet .grid > .card[data-act="open-tour"].has-thumb > :not(:first-child):not(.fs-card-thumb){ margin-right:0; }
-.fs-sheet .grid > .card[data-act="open-tour"].has-thumb .fs-card-thumb{ top:auto; bottom:12px; width:64px; height:64px; }
-.fs-sheet .grid > .card[data-act="open-tour"] > *{ order:4; }
-.fs-sheet .grid > .card[data-act="open-tour"] .card-top h3{ order:0; }
-.fs-sheet .grid > .card[data-act="open-tour"] .badge, .fs-sheet .grid > .card[data-act="open-tour"] > h3, .fs-sheet .grid > .card[data-act="open-tour"] .excerpt{ order:1; }
-.fs-sheet .grid > .card[data-act="open-tour"] .stat-row{ order:2; }
-.fs-sheet .grid > .card[data-act="open-tour"] .fs-card-foot{ order:3; }
-.fs-sheet .grid > .card[data-act="open-tour"] > h3 + .stat-row + .excerpt::before{ content:'· '; }
-/* Zeilenumbruch vor den Kennzahlen, auch wenn Abzeichen und Route kurz sind */
-.fs-sheet .grid > .card[data-act="open-tour"]::after{ content:''; order:1; flex-basis:100%; height:0; }
-.fs-sheet .grid > .card[data-act="open-tour"] span.hut-link-chip[style*="FBEAE7"]{ order:3; min-height:0; margin:2px 0 0; padding:3px 10px; font-size:12px; }
+.fs-sheet .grid{ gap:8px; }/* Zeilenumbruch vor den Kennzahlen, auch wenn Abzeichen und Route kurz sind */
+
 /* Wetter der nächsten 3 Tage im Listeneintrag */
 .fs-card-wx{ display:inline-flex; gap:5px; margin-right:auto; }
 .fs-card-wx > span{ display:inline-flex; align-items:center; gap:3px; padding:2px 7px; border-radius:8px; background:var(--ice-light); color:var(--ink); font-size:12px; font-weight:700; white-space:nowrap; }
 .fs-card-wx .fs-i{ width:15px; height:15px; color:var(--signal-deep); }
-.fs-sheet .grid > .card[data-act="open-tour"] .fs-card-foot:has(.fs-card-wx){ flex-basis:100%; margin-left:0; }
 /* Nachtragen: mit einem Tipp, neben dem Status */
 .fs-status-row{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .fs-status-row .fs-status-seg{ flex-basis:100%; }
@@ -2348,4 +2321,72 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fsyb-book small{ font-size:12.5px; font-weight:700; color:var(--ink-soft); white-space:nowrap; }
 .fsyb-nav{ position:absolute; left:0; right:0; bottom:calc(16px + env(safe-area-inset-bottom, 0px)); display:flex; justify-content:space-between; padding:0 16px; pointer-events:none; z-index:3; }
 .fsyb-nav button{ pointer-events:auto; width:52px; height:52px; border-radius:50%; border:none; background:var(--paper); color:var(--ink); font-size:26px; box-shadow:var(--shadow); cursor:pointer; }
-@media (prefers-reduced-motion: reduce){ .fsyb::before, .fsyb-page.on .fsyb-photos img{ animation:none; } }
+@media (prefers-reduced-motion: reduce){ .fsyb::before, .fsyb-page.on .fsyb-photos img{ animation:none; } }/* Listeneintrag geordnet: Ziel und Schwierigkeit · Route und Region · Kennzahlen mit Gipfelhöhe · Wetter und Status.
+   Stern, «wer hat es gemacht», Topo-Knopf und Gipfel-Chips nur in der Tour. */
+
+.fs-stat-alt{ display:inline-flex; align-items:center; gap:4px; }
+.fs-stat-alt .fs-i{ width:16px; height:16px; color:var(--ink-soft); }
+
+/* ===== Listeneintrag Tour: festes Raster =====
+   Zeile 1: Name (max. 2 Zeilen) | Schwierigkeit (feste Spalte oben rechts)
+   Zeile 2: Route · Region      Zeile 3: Kennzahlen      Zeile 4: Lawinen, Wetter … Status (rechts)
+   Jede Zeile hat eine feste Höhe, auch wenn sie leer ist. Links immer ein Bild gleicher Grösse. */
+.card.fs-tc{
+  --fs-tc-gw:44px;
+  display:grid; grid-template-columns:76px minmax(0,1fr) var(--fs-tc-gw);
+  grid-template-areas:"thumb title grades" "thumb sub sub" "thumb stats stats" "foot foot foot";
+  grid-template-rows:minmax(24px, auto) 18px 22px 26px;
+  column-gap:12px; row-gap:6px; align-items:center;
+  margin:0; padding:12px 14px 12px 16px;
+}
+:root[data-disc="hoch"] .card.fs-tc{ --fs-tc-gw:92px; }
+.card.fs-tc::before, .card.fs-tc::after{ display:none !important; content:none !important; }
+.card.fs-tc > *{ order:0 !important; margin:0 !important; min-width:0; }
+/* Name */
+.card.fs-tc .fs-tc-title{
+  grid-area:title; align-self:start;
+  font-family:var(--font-display) !important; font-size:22px !important; font-weight:400; line-height:24px; color:var(--ink) !important;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; padding:0 !important;
+}
+/* Schwierigkeit: immer oben rechts, gleiche Höhe, rechtsbündig */
+.card.fs-tc .fs-tc-grades{ grid-area:grades; align-self:start; display:flex; justify-content:flex-end; gap:4px; padding-top:1px; }
+.card.fs-tc .fs-grade{
+  display:inline-block; box-sizing:border-box; min-width:44px; height:22px; padding:0 6px; border-radius:7px;
+  font-family:var(--font-ui); font-size:12.5px; font-weight:800; line-height:22px; text-align:center; white-space:nowrap;
+  color:#fff; order:0 !important;
+}
+.card.fs-tc .fs-grade.is-empty{ background:transparent !important; color:var(--ink-faint); box-shadow:inset 0 0 0 1.5px var(--line); }
+/* Route · Region */
+.card.fs-tc .fs-tc-sub{
+  grid-area:sub; font-size:13.5px; font-weight:500; line-height:18px; color:var(--ink-soft);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.card.fs-tc .fs-tc-sub b{ font-weight:700; }
+/* Kennzahlen: eine Zeile */
+.card.fs-tc .fs-tc-stats{ grid-area:stats; display:flex; gap:14px; align-items:baseline; overflow:hidden; white-space:nowrap; font-size:12.5px; color:var(--ink-faint); }
+.card.fs-tc .fs-tc-stats > span{ display:inline-flex; align-items:baseline; gap:3px; flex:none; }
+.card.fs-tc .fs-tc-stats .mono{ font-size:15.5px; font-weight:800; color:var(--ink); letter-spacing:-.01em; }
+.card.fs-tc .fs-tc-stats .fs-i{ width:15px; height:15px; align-self:center; color:var(--ink-soft); margin-right:1px; }
+.card.fs-tc .fs-tc-arr{ font-size:14px; font-weight:700; color:var(--ink-soft); }
+/* Fuss: Lawinen, Wetter, dann rechts Zeichen und Status */
+.card.fs-tc .fs-tc-foot{ grid-area:foot; display:flex; align-items:center; gap:5px; min-width:0; overflow:hidden; }
+.card.fs-tc .fs-card-wx{ margin:0; gap:5px; }
+.card.fs-tc .fs-card-wx > span{ height:24px; box-sizing:border-box; }
+.card.fs-tc .fs-card-slf{ flex:none; height:24px; box-sizing:border-box; padding:0 6px 0 3px; gap:3px; }
+.card.fs-tc .fs-card-slf:not(.is-hit){ padding-right:3px; }
+.card.fs-tc .fs-tc-marks{ margin-left:auto; display:inline-flex; align-items:center; gap:6px; flex:none; }
+.card.fs-tc .fs-tc-ic{ display:inline-grid; place-items:center; width:26px; height:26px; }
+.card.fs-tc .fs-tc-ic .fs-i{ width:20px; height:20px; }
+.card.fs-tc .fs-tc-ic.is-idee{ color:var(--ink-faint); }
+.card.fs-tc .fs-tc-ic.is-recherche{ color:var(--accent-ink); }
+.card.fs-tc .fs-tc-ic.is-bereit{ color:var(--ok); }
+.card.fs-tc .fs-tc-ic.is-done{ color:var(--ink-soft); }
+.card.fs-tc .fs-tc-ic.is-unsynced{ color:var(--danger); }
+/* Bild links: Foto/Topo, sonst Skizze der Route, sonst Zeichen der Disziplin */
+.card.fs-tc .fs-tc-thumb{ grid-area:thumb; align-self:start; width:76px; height:76px; border-radius:12px; overflow:hidden; background:var(--ice-light); display:grid; place-items:center; }
+.card.fs-tc .fs-tc-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+.card.fs-tc .fs-tc-thumb svg{ width:100%; height:100%; display:block; }
+.card.fs-tc .fs-tc-thumb.is-icon .fs-i{ width:30px; height:30px; color:var(--ice-deep); opacity:.55; }
+.fs-tc-ring{ fill:none; stroke:var(--paper); stroke-width:1.2; opacity:.9; }
+.fs-tc-route{ fill:none; stroke:var(--ice-deep); stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round; }
+.fs-tc-top{ fill:var(--paper); stroke:var(--ice-deep); stroke-width:2; }

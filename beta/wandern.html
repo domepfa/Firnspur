@@ -1093,39 +1093,10 @@ function emptyTouren(){
 
 function tourCardHtml(t){
   const d = t.difficulty ? HIKE_SCALE[t.difficulty] : null;
-  const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
-  const gebiet = t.gebietId ? state.gebiete.find(g=>g.id===t.gebietId) : null;
-  return `
-  <div class="card" data-act="open-tour" data-id="${t.id}" tabindex="0" role="button">
-    <div style="display:flex; justify-content:flex-end; margin-bottom:-6px;">
-      ${favoriteToggleButtonHtml(t.id)}
-    </div>
-    <div class="card-top">
-      <h3 style="color:var(--ice-deep);">${fsTourDone(t) ? '✓ ' : ''}${esc(t.name)}</h3>
-      <div class="badge-row">
-        ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}
-        ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
-      </div>
-    </div>
-    ${t.routeName ? `<h3 style="margin:-4px 0 0 0; color:var(--ink-soft);">${esc(t.routeName)}</h3>` : ''}
-    <div class="stat-row">
-      ${t.distance ? `<span><span class="mono">${esc(t.distance)}</span> km</span>` : ''}
-      <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
-      ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
-      ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span></span>` : ''}
-    </div>
-    ${t.region ? `<p class="excerpt">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
-    ${hut ? `<span class="hut-link-chip">🛖 ${esc(hut.name)}</span>` : ''}
-    ${gebiet ? `<span class="hut-link-chip">⛰️ ${esc(gebiet.name)}</span>` : ''}
-    ${t.crux ? `<div class="conditions-note">⚠ ${esc(t.crux)}</div>` : ''}
-    ${(t.completions && t.completions.length) ? `<div class="stat-row fs-card-done-old"><span>✓ ${t.completions.length===1 ? esc(t.completions[0].by||'?') + (t.completions[0].date ? ' · ' + fmtDateOnly(t.completions[0].date) : '') : t.completions.length + ' Einträge'}</span></div>` : ''}
-    ${t._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
-    ${fsCardFootHtml(t)}
-    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
-      <span>von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}</span>
-      <span style="color:var(--ink-faint);">${tourStatusLabel(t)}</span>
-    </div>
-  </div>`;
+  return fsTourCardHtml(t, {
+    grades: [d && {text: t.difficulty, bg: d.color, title: d.label}],
+    stats: [[fsIconHtml('ruler'), t.distance, 'km'], [FS_TC_UP, t.elevationGain, 'Hm'], [fsIconHtml('clock'), t.duration, 'h'], [fsIconHtml('mountain'), t.targetAltitude, 'm']]
+  });
 }
 
 /* ================= Hütten view ================= */

@@ -3403,46 +3403,17 @@ function emptyMsl(){
 function tourCardHtml(t, draggable, opts){
   const isMsl = t.tourCategory==='msl';
   const d = t.difficulty ? DIFF[t.difficulty] : null;
-  const hut = t.hutId ? state.huts.find(h=>h.id===t.hutId) : null;
-  const done = (t.completions && t.completions.length) || t.completed;
-  const last = latestCompletion(t.completions);
-  const hideWeather = opts && opts.hideWeather;
-  return `
-  <div class="card${draggable?' drag-card':''}" data-act="open-tour" data-id="${t.id}" ${draggable?`data-drag-tour-id="${t.id}"`:''} tabindex="0" role="button">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-      <div class="agenda-date-row" style="font-size:12px; margin-bottom:0;">${isMsl ? '🧗 MSL — Mehrseillängen' : '🏔️ Hochtour'}</div>
-      ${favoriteToggleButtonHtml(t.id)}
-    </div>
-    <div class="card-top">
-      <h3 style="color:var(--ice-deep);">${done ? '✓ ' : ''}${esc(t.name)}</h3>
-      <div class="badge-row">
-        ${isMsl
-          ? `${t.mandatoryDifficulty ? `<span class="badge climb">${esc(t.mandatoryDifficulty)}</span>` : ''}${t.pitchCount ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.pitchCount)} SL</span>` : ''}`
-          : `${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}`
-        }
-        ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
-      </div>
-    </div>
-    ${t.routeName ? `<h3 style="margin:-4px 0 0 0; color:var(--ink-soft);">${esc(t.routeName)}</h3>` : ''}
-    <div class="stat-row">
-      <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
-      ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
-      ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span>${t.descentDuration ? ' ↑' : ''}</span>` : ''}
-      ${t.descentDuration ? `<span>${t.duration ? '' : '⏱ '}<span class="mono">${esc(t.descentDuration)} h</span> ↓</span>` : ''}
-    </div>
-    ${t.region ? `<p class="excerpt">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
-    ${summitChipsForCardHtml(t)}
-    ${hut ? `<span class="hut-link-chip">🛖 ${esc(hut.name)}</span>` : ''}
-    ${last ? `<span class="hut-link-chip fs-card-done-old" style="background:#E3EFE6; color:#2F6B44;">✓ ${esc(last.by)} · ${esc(fmtDateOnly(last.date))}${t.completions.length>1 ? ` (+${t.completions.length-1})` : ''}</span>` : ''}
-    ${t.crux ? `<div class="conditions-note">⚠ ${esc(t.crux)}</div>` : ''}
-    ${t._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
-    ${(t.topoImages && t.topoImages.length) ? `<button type="button" class="hut-link-chip" style="background:var(--signal-deep); color:#fff; border:none; cursor:pointer;" data-act="open-topo-from-card" data-id="${t.id}" data-images='${esc(JSON.stringify(t.topoImages))}'>📷 Topo ansehen</button>` : ''}
-    ${fsCardFootHtml(t)}
-    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
-      <span>von ${esc(t.createdBy||'?')} · ${fmtDate(t.createdAt)}</span>
-      <span style="color:var(--ink-faint);">${tourStatusLabel(t)}</span>
-    </div>
-  </div>`;
+  const dur = [t.duration, t.descentDuration].filter(Boolean).join(' + ');
+  return fsTourCardHtml(t, {
+    cls: draggable ? 'drag-card' : '', attrs: draggable ? `data-drag-tour-id="${t.id}"` : '',
+    hideWeather: opts && opts.hideWeather,
+    grades: isMsl
+      ? [t.mandatoryDifficulty && {text: t.mandatoryDifficulty, bg: 'var(--ice-deep)', title: 'obligatorisch ' + t.mandatoryDifficulty}]
+      : [d && {text: t.difficulty, bg: d.color, title: d.label}, t.climbGrade && {text: t.climbGrade, bg: 'var(--ice-deep)', title: 'Kletterstellen ' + t.climbGrade}],
+    stats: isMsl
+      ? [[fsIconHtml('climb'), t.pitchCount, 'SL'], [FS_TC_UP, t.elevationGain, 'Hm'], [fsIconHtml('clock'), dur, 'h'], [fsIconHtml('mountain'), t.targetAltitude, 'm']]
+      : [[FS_TC_UP, t.elevationGain, 'Hm'], [fsIconHtml('clock'), dur, 'h'], [fsIconHtml('mountain'), t.targetAltitude, 'm'], [FS_TC_DN, t.elevationLoss, 'Hm']]
+  });
 }
 
 /* ================= Hütten view ================= */
