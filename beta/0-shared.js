@@ -1726,7 +1726,7 @@ function fsHomeFitAll(){
 function fsCardThumbs(sheet){
   const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
   sheet.querySelectorAll('.card[data-id]').forEach(card=>{
-    if(card._fsThumb) return;
+    if(card._fsThumb || card.classList.contains('fs-tc')) return;
     card._fsThumb = true;
     const x = all.find(o=> o && o.id === card.getAttribute('data-id'));
     const img = x && Array.isArray(x.topoImages) && x.topoImages.find(i=> i && i.url);
@@ -12143,15 +12143,71 @@ function fsCardSlfHtml(t){
   const rc = line ? fsRcCache.get(fsRcKey(t, line)) : null;
   if(rc && rc.pts){ const probs = fsRcSlfProblems(bul); hit = probs.length ? probs.some(pr=> rc.pts.some(q=> fsRcInProblem(q, pr))) : false; }
   else{ const h = fsSlfTourHits(t, bul); hit = (Array.isArray(t.exposition) && t.exposition.length) ? h.length > 0 : null; }
-  return `<span class="fs-card-slf" title="Lawinenbulletin SLF, ${esc(top.label)}"><i style="--lvl:${top.color}">${top.level}</i>${hit ? fsIconHtml('alert') + 'im Problembereich' : esc(top.label)}</span>`;
+  const lbl = 'Lawinengefahr ' + top.level + ', ' + top.label + (hit ? ', Tour im Problembereich' : '');
+  return `<span class="fs-card-slf${hit ? ' is-hit' : ''}" role="img" aria-label="${esc(lbl)}" title="${esc(lbl)}"><i style="--lvl:${top.color}">${top.level}</i>${hit ? fsIconHtml('alert') : ''}</span>`;
 }
-// Fuss der Listeneinträge: Wetter, Status und zuletzt gemacht, in einer Zeile
-function fsCardFootHtml(t){
+// Listeneintrag einer Tour, für alle Disziplinen dasselbe feste Raster:
+// Bild | Name | Schwierigkeit (oben rechts) · Route · Region · Kennzahlen · Lawinen, Wetter … Zeichen und Status.
+// Jede Zeile behält ihre Höhe, auch wenn sie leer ist. Das Bild ist immer gleich gross: Foto/Topo, sonst
+// eine Skizze der Route, sonst das Zeichen der Disziplin.
+function fsTourStatusIconHtml(t){
+  const m = fsTourStatusMeta(t);
+  return `<span class="fs-tc-ic fs-status-ic is-${m.key}" role="img" aria-label="Status: ${m.label}" title="${m.label}">${fsIconHtml(m.icon)}</span>`;
+}
+function fsCardMarksHtml(t){
   const n = (t.completions || []).length;
   const last = n ? (t.completions || []).slice().sort((a, b)=> String(b.date || '').localeCompare(String(a.date || '')))[0] : null;
-  const done = last ? `<span class="fs-card-done">${fsIconHtml('check')}${esc(last.by || '?')}${last.date ? ' · ' + fmtDateOnly(last.date) : ''}${n > 1 ? ' (+' + (n - 1) + ')' : ''}</span>`
-    : (t.completed ? `<span class="fs-card-done">${fsIconHtml('check')}gemacht</span>` : '');
-  return `<div class="fs-card-foot">${fsCardSlfHtml(t)}${fsCardWeatherHtml(t)}${tourStatusLabel(t)}${done}</div>`;
+  const doneTxt = last ? 'gemacht: ' + (last.by || '?') + (last.date ? ' · ' + fmtDateOnly(last.date) : '') + (n > 1 ? ' (+' + (n - 1) + ')' : '') : 'gemacht';
+  const done = (last || t.completed) ? `<span class="fs-tc-ic is-done" role="img" aria-label="${esc(doneTxt)}" title="${esc(doneTxt)}">${fsIconHtml('flag')}</span>` : '';
+  const sync = t._unsynced ? `<span class="fs-tc-ic is-unsynced" role="img" aria-label="nicht synchronisiert" title="nicht synchronisiert">${fsIconHtml('offline')}</span>` : '';
+  return `<span class="fs-tc-marks">${sync}${done}${fsTourStatusIconHtml(t)}</span>`;
+}
+function fsCardFootHtml(t, o){
+  return `<div class="fs-tc-foot">${fsCardSlfHtml(t)}${o && o.hideWeather ? '' : fsCardWeatherHtml(t)}${fsCardMarksHtml(t)}</div>`;
+}
+const FS_TC_UP = '<span class="fs-tc-arr">↑</span>', FS_TC_DN = '<span class="fs-tc-arr">↓</span>';
+function fsTcDiscIcon(t){
+  const k = fsAppKey();
+  return k === 'wandern' ? 'walk' : k === 'fixseil' ? (t.tourCategory === 'msl' ? 'climb' : 'mountain') : 'snow';
+}
+function fsTcThumbHtml(t){
+  const ph = (Array.isArray(t.topoImages) && t.topoImages.find(i=> i && i.url))
+    || fsErfList(t).reduce((m, e)=> m || (e.photos || []).find(p=> p && p.url), null);
+  if(ph) return `<div class="fs-tc-thumb">${topoImageBoxHtml(ph, 76, 76, 'alt=""', 'border-radius:12px;')}</div>`;
+  const r = fsTourRoutes(t)[0];
+  const c = r ? (r.coords || []).map(p=> Array.isArray(p) ? [+p[0], +p[1]] : [+p.lat, +(p.lon != null ? p.lon : p.lng)]).filter(p=> isFinite(p[0]) && isFinite(p[1])) : [];
+  if(c.length > 1){
+    const k = Math.cos(c[0][0] * Math.PI / 180), xs = c.map(p=> p[1] * k), ys = c.map(p=> -p[0]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), sp = Math.max(x1 - x0, y1 - y0, 1e-6), sc = 52 / sp;
+    const ox = (76 - (x1 - x0) * sc) / 2, oy = (76 - (y1 - y0) * sc) / 2;
+    const P = i=> ((xs[i] - x0) * sc + ox).toFixed(1) + ',' + ((ys[i] - y0) * sc + oy).toFixed(1);
+    const step = Math.max(1, Math.floor(c.length / 120)), pts = [];
+    for(let i = 0; i < c.length; i += step) pts.push(P(i));
+    pts.push(P(c.length - 1));
+    const [ex, ey] = P(c.length - 1).split(',');
+    return `<div class="fs-tc-thumb is-sketch" role="img" aria-label="Skizze der Route"><svg viewBox="0 0 76 76" aria-hidden="true">
+      <circle cx="38" cy="38" r="30" class="fs-tc-ring"/><circle cx="38" cy="38" r="18" class="fs-tc-ring"/>
+      <polyline points="${pts.join(' ')}" class="fs-tc-route"/><circle cx="${ex}" cy="${ey}" r="3.5" class="fs-tc-top"/></svg></div>`;
+  }
+  return `<div class="fs-tc-thumb is-icon" aria-hidden="true">${fsIconHtml(fsTcDiscIcon(t))}</div>`;
+}
+// grades: [{text, bg, title}] – keine ergibt ein ruhiges Platzhalter-Abzeichen; stats: [[icon, wert, einheit]]
+function fsTourCardHtml(t, o){
+  const grades = (o.grades || []).filter(g=> g && g.text);
+  const gHtml = grades.length
+    ? grades.map(g=> `<span class="badge fs-grade" style="background:${g.bg}" title="${esc(g.title || g.text)}">${esc(g.text)}</span>`).join('')
+    : `<span class="badge fs-grade is-empty" role="img" aria-label="Schwierigkeit fehlt" title="Schwierigkeit fehlt">–</span>`;
+  const sub = [t.routeName ? `<b>${esc(t.routeName)}</b>` : '', t.region ? esc(t.region) + (t.subregion ? ' – ' + esc(t.subregion) : '') : ''].filter(Boolean).join(' · ');
+  const stats = (o.stats || []).filter(x=> x && x[1]).slice(0, 3).map(x=> `<span>${x[0]}<b class="mono">${esc(x[1])}</b>${x[2] ? ' ' + x[2] : ''}</span>`).join('');
+  return `
+  <div class="card fs-tc${o.cls ? ' ' + o.cls : ''}" data-act="open-tour" data-id="${t.id}" ${o.attrs || ''} tabindex="0" role="button">
+    ${fsTcThumbHtml(t)}
+    <h3 class="fs-tc-title">${esc(t.name)}</h3>
+    <div class="fs-tc-grades">${gHtml}</div>
+    <p class="fs-tc-sub">${sub}</p>
+    <div class="fs-tc-stats">${stats}</div>
+    ${fsCardFootHtml(t, o)}
+  </div>`;
 }
 // Was bis «bereit» fehlt (nur Hinweis, entscheidet nichts)
 function fsTourMissingForReady(t){
@@ -12169,7 +12225,7 @@ function fsTourMissingForReady(t){
 /* ================= Tour-Status: Idee / in Recherche / bereit =================
    Alte Werte werden nur anders gelesen, nicht umgeschrieben: entwurf → Idee, vollstaendig → bereit. */
 const FS_TOUR_STATUS = [
-  {key:'idee', label:'Idee', icon:'dot'},
+  {key:'idee', label:'Idee', icon:'ring'},
   {key:'recherche', label:'in Recherche', icon:'search'},
   {key:'bereit', label:'bereit', icon:'checkc'}
 ];
@@ -18293,6 +18349,7 @@ const FS_ICON_PATHS = {
   menu: 'M4 7h16M4 12h16M4 17h16',
   play: 'M7 4.5v15l12-7.5z',
   pause: 'M8 5v14M16 5v14',
+  ring: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z',
   more: 'M5 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM12 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM19 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
   hut: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5',
