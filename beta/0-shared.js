@@ -15910,12 +15910,12 @@ function fsOpenNachtragen(tourId){
       const file = {gpx: gpx.text, uploadedAt: new Date().toISOString(), fileName: (gpx.name || 'track') + '.gpx'};
       if(!(t.trackSimplified && t.trackSimplified.length) && !(t.manualTrack && t.manualTrack.length)){
         t.trackSimplified = gpx.line;
-        fbSet(GPX_TRACKS_PATH + '/' + t.id, file).catch(()=> false);
+        fsQueueFile(GPX_TRACKS_PATH + '/' + t.id, file); // wird nach dem Speichern der Tour hochgeladen, bei Fehler erneut
         parts.push('GPX als Route');
       }else{
         const altId = 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
         t.altTracks = [...(Array.isArray(t.altTracks) ? t.altTracks : []), {id: altId, name, type: 'variante', trackSimplified: gpx.line}];
-        fbSet(GPX_TRACKS_PATH + 'Alt/' + t.id + '/' + altId, file).catch(()=> false);
+        fsQueueFile(GPX_TRACKS_PATH + 'Alt/' + t.id + '/' + altId, file);
         parts.push('GPX als weitere Route');
       }
     }
