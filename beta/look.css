@@ -26,6 +26,8 @@
   --ok:#2E6B3C;
   --signal:#D99A1E;
   --signal-deep:#A15C00;
+  /* Hangneigung wie auf der swisstopo-Karte (30–35/35–40/40–45/45–50/über 50°) */
+  --slope-1:#F2E50A; --slope-2:#F46F24; --slope-3:#DE055B; --slope-4:#C889BB; --slope-5:#4B4B4B;
   --shadow:0 1px 2px rgba(15,30,39,.05), 0 8px 24px rgba(15,30,39,.06);
   --shadow-lg:0 12px 36px rgba(15,30,39,.16);
   --radius:14px;
@@ -2179,3 +2181,50 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-scan-others{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
 .field label.fs-scan-row{ display:flex; text-transform:none; letter-spacing:0; font-size:14px; font-weight:500; color:var(--ink); margin-bottom:0; }
 .field label.fs-scan-row b{ text-transform:none; letter-spacing:0; }
+
+/* Routen-Check */
+.fs-rc{ margin-top:16px; padding:16px; border-radius:var(--radius-lg); border:1px solid var(--line); background:var(--paper); display:grid; gap:12px; }
+.fs-rc-title{ display:flex; align-items:center; gap:8px; margin:0; font-family:var(--font-display); font-weight:400; font-size:22px; color:var(--ink); text-transform:none; letter-spacing:0; }
+.fs-rc-title .fs-i{ width:22px; height:22px; color:var(--ice-deep); }
+.fs-rc-body{ display:grid; gap:12px; }
+.fs-rc-note{ margin:0; font-size:13.5px; color:var(--ink-soft); }
+.fs-rc-facts{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; }
+.fs-rc-facts div{ padding:10px; border-radius:14px; background:var(--line-soft); display:grid; gap:2px; }
+.fs-rc-facts b{ font-family:var(--font-display); font-weight:400; font-size:24px; line-height:1.05; }
+.fs-rc-facts span{ font-size:12px; font-weight:700; color:var(--ink-soft); }
+.fs-rc-svg{ width:100%; height:auto; display:block; }
+.fs-rc-area{ fill:var(--ice-light); }
+.fs-rc-line{ stroke:var(--ink-soft); }
+.fs-rc-k1{ stroke:var(--slope-1); } .fs-rc-k2{ stroke:var(--slope-2); } .fs-rc-k3{ stroke:var(--slope-3); } .fs-rc-k4{ stroke:var(--slope-4); } .fs-rc-k5{ stroke:var(--slope-5); }
+.fs-rc-f1{ fill:var(--slope-1); background:var(--slope-1); } .fs-rc-f2{ fill:var(--slope-2); background:var(--slope-2); } .fs-rc-f3{ fill:var(--slope-3); background:var(--slope-3); }
+.fs-rc-f4{ fill:var(--slope-4); background:var(--slope-4); } .fs-rc-f5{ fill:var(--slope-5); background:var(--slope-5); }
+.fs-rc-bandbg{ fill:var(--line-soft); }
+.fs-rc-crit{ fill:url(#fs-rc-hatch); }
+.fs-rc-critbg{ fill:var(--ink); }
+.fs-rc-hatchline{ stroke:var(--paper); }
+.fs-rc-steep{ fill:none; stroke:var(--ink); stroke-width:3; }
+.fs-rc-t{ font:700 17px var(--font-ui); fill:var(--ink-soft); }
+.fs-rc-legend{ display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12.5px; font-weight:700; color:var(--ink-soft); }
+.fs-rc-legend span{ display:inline-flex; align-items:center; gap:6px; }
+.fs-rc-legend i{ width:14px; height:14px; border-radius:4px; display:inline-block; }
+.fs-rc-critkey{ background:repeating-linear-gradient(45deg, var(--ink) 0 3px, var(--paper) 3px 6px); }
+.fs-rc-bottom{ display:grid; grid-template-columns:minmax(0, 200px) minmax(0, 1fr); gap:14px; align-items:center; }
+@media (max-width:520px){ .fs-rc-bottom{ grid-template-columns:minmax(0,1fr); justify-items:center; } .fs-rc-bul{ width:100%; } }
+.fs-rc-rose{ width:100%; max-width:220px; height:auto; }
+.fs-rc-ring{ fill:none; stroke:var(--line); stroke-dasharray:3 5; }
+.fs-rc-sec{ fill:var(--line-soft); stroke:var(--paper); stroke-width:3; }
+.fs-rc-sec.has{ fill:var(--slope-2); fill-opacity:.75; }
+.fs-rc-sec[data-rc-asp]{ cursor:pointer; }
+.fs-rc-sec.crit{ stroke:var(--ink); stroke-width:4; fill-opacity:1; }
+.fs-rc-sec.crit:not(.has){ fill:var(--ink-faint); }
+.fs-rc-al{ font:800 14px var(--font-ui); fill:var(--ink-soft); }
+.fs-rc-al.crit{ fill:var(--ink); text-decoration:underline; }
+.fs-rc-bul{ display:grid; gap:8px; }
+.fs-rc-h{ margin:0; font-weight:800; font-size:14.5px; }
+.fs-rc-lbl{ font-size:12px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-faint); }
+.fs-rc-bul select{ min-height:44px; }
+.fs-rc-verdict{ margin:0; display:flex; gap:8px; align-items:flex-start; padding:10px 12px; border-radius:12px; background:var(--line-soft); font-weight:700; font-size:14px; }
+.fs-rc-verdict .fs-i{ width:18px; height:18px; flex:none; margin-top:2px; }
+.fs-rc-verdict.warn .fs-i{ color:var(--signal-deep); }
+.fs-rc-verdict.ok .fs-i{ color:var(--ok); }
+.fs-rc-src{ margin:0; font-size:12px; color:var(--ink-faint); }
