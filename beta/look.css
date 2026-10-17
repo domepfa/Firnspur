@@ -2447,8 +2447,9 @@ html.fs-mapmode .fs-grip{ display:block; position:sticky; top:0; z-index:3; heig
 html.fs-mapmode .fs-grip::after{ content:''; position:absolute; left:50%; top:9px; width:44px; height:5px; margin-left:-22px; border-radius:3px; background:var(--line); }
 html.fs-mapmode .fs-grip:focus-visible{ outline:3px solid var(--ice-deep); outline-offset:-3px; }
 html.fs-mapmode .fs-sheet > .tabs{ margin:0 0 12px; }
-html.fs-mapmode .fs-sheet > .tabs .tab{ min-height:44px; color:var(--ink-soft); }
+html.fs-mapmode .fs-sheet > .tabs .tab{ min-height:44px; color:var(--ink-soft); text-shadow:none; }
 html.fs-mapmode .fs-sheet > .tabs .tab.active{ color:var(--ink); }
+html.fs-mapmode .fs-sheet > .tabs .tab .fs-i{ color:inherit; opacity:1; filter:none; }
 /* Knopf «Karte» in der Stufe «liste» */
 .fs-home-mapbtn{ display:none; }
 html.fs-mapmode[data-fs-home="liste"] .fs-home-mapbtn{
@@ -2501,3 +2502,34 @@ html, body{ overscroll-behavior-y:none; }
 .fs-rcf-keys i{ width:24px; height:16px; border-radius:4px; display:block; }
 .fs-rcf-keys b{ font-weight:800; color:var(--ink); }
 .fs-rcf-keys span{ color:var(--ink-soft); }
+
+/* =====================================================================
+   Startansicht, Stufe «liste»: Bergfoto als Kopf des Blatts (fsHomeHero)
+   ===================================================================== */
+.fs-sheet-hero{ display:none; }
+html.fs-mapmode[data-fs-home="liste"] .fs-sheet-hero{
+  display:block; position:relative; height:176px; margin:0 -16px 14px; overflow:hidden;
+}
+.fs-sheet-hero-img{
+  position:absolute; inset:0; background-size:cover; background-position:center 58%;
+  transform:translateY(calc(var(--fs-hero-p, 0) * 60px)) scale(calc(1 + var(--fs-hero-p, 0) * .08));
+  opacity:calc(1 - var(--fs-hero-p, 0) * .9);
+  -webkit-mask-image:linear-gradient(180deg, #000 45%, rgba(0,0,0,.5) 75%, transparent 100%);
+  mask-image:linear-gradient(180deg, #000 45%, rgba(0,0,0,.5) 75%, transparent 100%);
+}
+.fs-sheet-hero.no-img .fs-sheet-hero-img{ display:none; }
+.fs-sheet-hero-txt{
+  position:absolute; left:20px; right:20px; bottom:6px;
+  transform:translateY(calc(var(--fs-hero-p, 0) * -18px)); opacity:calc(1 - var(--fs-hero-p, 0) * 1.4);
+}
+.fs-sheet-hero-txt h2{ margin:0; font-family:var(--font-display); font-weight:400; font-size:40px; line-height:1; color:var(--ink); text-shadow:0 1px 0 rgba(243,246,248,.7); }
+.fs-sheet-hero-txt p{ margin:4px 0 0; font-size:13.5px; font-weight:700; color:var(--ink-soft); }
+/* Griff zeigt den Titel klein, sobald das Foto weggescrollt ist */
+.fs-grip-title{ display:none; }
+html.fs-mapmode[data-fs-home="liste"] .fs-grip-title{
+  display:flex; align-items:center; justify-content:center; position:absolute; left:0; right:0; top:18px; height:38px;
+  background:var(--cream); border-bottom:1px solid var(--line-soft);
+  font-family:var(--font-display); font-size:21px; line-height:1; color:var(--ink);
+  opacity:0; visibility:hidden; transition:opacity .2s, visibility .2s; pointer-events:none;
+}
+html.fs-mapmode[data-fs-home="liste"] .fs-sheet.fs-hero-gone .fs-grip-title{ opacity:1; visibility:visible; }

@@ -1886,6 +1886,7 @@ function fsHomeLayout(){
     g.addEventListener('keydown', e=>{ if(e.key === 'ArrowUp'){ e.preventDefault(); fsHomeSetDetent(fsHomeDetent === 'karte' ? 'mitte' : 'liste'); } if(e.key === 'ArrowDown'){ e.preventDefault(); fsHomeSetDetent(fsHomeDetent === 'liste' ? 'mitte' : 'karte'); } });
     sheet.prepend(g);
   }
+  fsHomeHero(sheet);
   if(!sheet._fsDrag){ sheet._fsDrag = true; fsHomeWireDrag(sheet); }
   if(bar) bar.querySelectorAll('a').forEach(a=>{ if(!a.getAttribute('aria-label')) a.setAttribute('aria-label', a.textContent.trim()); });
   // «Neue Tour» läge im verschobenen Blatt (transform) sonst ausserhalb des Bildschirms
@@ -1899,6 +1900,44 @@ function fsHomeLayout(){
     document.body.appendChild(b);
   }
   fsHomeApply(false);
+}
+// Kopf des Blatts in der Stufe «liste»: Bergfoto der App mit Titel und Bestand. Beim Scrollen zieht das
+// Foto langsamer mit und blasst aus; ist es weg, steht der Titel klein im Griff.
+function fsHomeCountsText(){
+  const k = fsAppKey(), T = state.tours || [];
+  const tours = k === 'fixseil' ? T.filter(t=> (t.tourCategory === 'msl') === (state.tourCategoryContext === 'msl')) : T;
+  const gebiete = k === 'fixseil' ? (state.sektoren || []) : (state.gebiete || []);
+  const n = (c, one, more)=> c ? c + ' ' + (c === 1 ? one : more) : '';
+  return [n(tours.length, 'Tour', 'Touren'), n(gebiete.length, 'Gebiet', 'Gebiete'), n((state.huts || []).length, 'Hütte', 'Hütten')].filter(Boolean).join(' · ');
+}
+function fsHomeHero(sheet){
+  const heroEl = document.querySelector('#app .hero');
+  const title = ((heroEl && heroEl.querySelector('h1')) || {}).textContent || '';
+  let img = 'none';
+  try{ if(heroEl) img = getComputedStyle(heroEl, '::before').backgroundImage || 'none'; }catch(e){}
+  let h = sheet.querySelector(':scope > .fs-sheet-hero');
+  if(!h){
+    h = document.createElement('div'); h.className = 'fs-sheet-hero';
+    h.innerHTML = '<div class="fs-sheet-hero-img" aria-hidden="true"></div><div class="fs-sheet-hero-txt"><h2></h2><p></p></div>';
+    const g = sheet.querySelector(':scope > .fs-grip');
+    if(g) g.after(h); else sheet.prepend(h);
+  }
+  h.querySelector('.fs-sheet-hero-img').style.backgroundImage = img;
+  h.classList.toggle('no-img', img === 'none');
+  h.querySelector('h2').textContent = title;
+  h.querySelector('p').textContent = fsHomeCountsText();
+  const g = sheet.querySelector(':scope > .fs-grip');
+  if(g){
+    let gt = g.querySelector('.fs-grip-title');
+    if(!gt){ gt = document.createElement('span'); gt.className = 'fs-grip-title'; gt.setAttribute('aria-hidden', 'true'); g.appendChild(gt); }
+    gt.textContent = title;
+  }
+  if(!sheet._fsHeroScroll){
+    sheet._fsHeroScroll = true;
+    const upd = ()=>{ const hh = h.offsetHeight || 180; const pr = Math.max(0, Math.min(1, sheet.scrollTop / Math.max(1, hh - 20))); sheet.style.setProperty('--fs-hero-p', pr.toFixed(3)); sheet.classList.toggle('fs-hero-gone', pr >= 1); };
+    sheet.addEventListener('scroll', upd, {passive: true});
+    upd();
+  }
 }
 // Ziehen: in «karte»/«mitte» das ganze Blatt, in «liste» nur Griff und Kopf (Segment, Suche, Filter)
 function fsHomeWireDrag(sheet){
