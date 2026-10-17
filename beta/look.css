@@ -2349,3 +2349,20 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fsyb-nav{ position:absolute; left:0; right:0; bottom:calc(16px + env(safe-area-inset-bottom, 0px)); display:flex; justify-content:space-between; padding:0 16px; pointer-events:none; z-index:3; }
 .fsyb-nav button{ pointer-events:auto; width:52px; height:52px; border-radius:50%; border:none; background:var(--paper); color:var(--ink); font-size:26px; box-shadow:var(--shadow); cursor:pointer; }
 @media (prefers-reduced-motion: reduce){ .fsyb::before, .fsyb-page.on .fsyb-photos img{ animation:none; } }
+/* Listeneintrag geordnet: Ziel und Schwierigkeit · Route und Region · Kennzahlen mit Gipfelhöhe · Wetter und Status.
+   Stern, «wer hat es gemacht», Topo-Knopf und Gipfel-Chips nur in der Tour. */
+.fs-sheet .grid > .card[data-act="open-tour"]::before{ content:''; order:1; flex-basis:100%; height:0; }
+.fs-sheet .grid > .card[data-act="open-tour"] .card-top h3{ flex:1 1 0; min-width:0; padding-right:0; order:0; }
+.fs-sheet .grid > .card[data-act="open-tour"] .badge{ order:0; flex:none; }
+.fs-sheet .grid > .card[data-act="open-tour"] > h3, .fs-sheet .grid > .card[data-act="open-tour"] .excerpt{ order:2; }
+.fs-sheet .grid > .card[data-act="open-tour"]::after{ order:3; }
+.fs-sheet .grid > .card[data-act="open-tour"] .stat-row{ order:4; }
+.fs-sheet .grid > .card[data-act="open-tour"] .fs-card-foot{ order:5; }
+.fs-sheet .grid > .card[data-act="open-tour"] span.hut-link-chip[style*="FBEAE7"]{ order:5; }
+.fs-sheet .grid > .card[data-act="open-tour"] > h3:empty{ display:none; }
+.fs-sheet .card[data-act="open-tour"] .fav-toggle-btn,
+.fs-sheet .card[data-act="open-tour"] .fs-card-done,
+.fs-sheet .card[data-act="open-tour"] button.hut-link-chip,
+.fs-sheet .card[data-act="open-tour"] .summit-chips{ display:none !important; }
+.fs-stat-alt{ display:inline-flex; align-items:center; gap:4px; }
+.fs-stat-alt .fs-i{ width:16px; height:16px; color:var(--ink-soft); }

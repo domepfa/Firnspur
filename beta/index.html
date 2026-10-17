@@ -1087,14 +1087,14 @@ function tourCardHtml(t){
       <h3 style="color:var(--ice-deep);">${fsTourDone(t) ? '✓ ' : ''}${esc(t.name)}</h3>
       <div class="badge-row">
         ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty}</span>` : ''}
-        ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m</span>` : ''}
       </div>
     </div>
     ${t.routeName ? `<h3 style="margin:-4px 0 0 0; color:var(--ink-soft);">${esc(t.routeName)}</h3>` : ''}
     <div class="stat-row">
-      <span>↑ <span class="mono">${esc(t.elevationGain||'–')}</span> Hm</span>
+      ${t.elevationGain ? `<span>↑ <span class="mono">${esc(t.elevationGain)}</span> Hm</span>` : ''}
       ${t.elevationLoss ? `<span>↓ <span class="mono">${esc(t.elevationLoss)}</span> Hm</span>` : ''}
       ${t.duration ? `<span>⏱ <span class="mono">${esc(t.duration)} h</span></span>` : ''}
+      ${t.targetAltitude ? `<span class="fs-stat-alt">${fsIconHtml('mountain')}<span class="mono">${esc(t.targetAltitude)}</span> m</span>` : ''}
     </div>
     ${t.region ? `<p class="excerpt">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${hut ? `<span class="hut-link-chip">🛖 ${esc(hut.name)}</span>` : ''}
