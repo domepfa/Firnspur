@@ -4368,7 +4368,7 @@ function fs3dMlOpen(opts){
       <div class="fs-3d-title">${esc(opts.title || (t ? t.name : '3D-Ansicht'))}</div>
       <button type="button" class="fs-3d-btn fs-3d-searchbtn" data-3d="search" aria-label="Suchen">${fsIconHtml('search')}</button>
     </div>
-    <div class="fs-3d-actions"${opts.edit ? ' hidden' : ''}>
+    <div class="fs-3d-actions"${opts.edit || opts.flight ? ' hidden' : ''}>
       <button type="button" class="fs-3d-chip" data-3d="pano">${fsIconHtml('mountain')}Gipfel ringsum</button>
     </div>
     ${opts.edit ? `<div class="fs-3d-edit">
@@ -4455,6 +4455,7 @@ function fs3dMlOpen(opts){
         map.jumpTo({bearing, pitch: 62});
       }
       if(opts.edit) fs3dMlWireEdit(map, opts.edit);
+      if(opts.flight) fsFlyStart(map, wrap, opts.flight);
       let searchMarker = null;
       fs3dWireSearch(wrap, (h)=>{
         if(searchMarker) searchMarker.remove();
@@ -4477,6 +4478,118 @@ function fs3dMlOpen(opts){
     const loading = document.getElementById('fs-3d-loading');
     if(loading) loading.textContent = '3D konnte nicht geladen werden (keine Internetverbindung?).';
   });
+}
+/* ===== Vorbeiflug: die 3D-Karte folgt der Route =====
+   Grundlage sind die Punkte des Routen-Checks (alle ~15 m: Höhe, Neigungsklasse, Exposition). Die Kamera
+   folgt einem geglätteten Pfad und schaut in Gehrichtung; steile Abschnitte leuchten in den Farben der
+   Hangneigung, Stellen im Problembereich des Bulletins sind gestrichelt markiert. Unten: Profil mit
+   Lauf-Strich (antippen oder ziehen springt), Abspielen/Anhalten, Tempo und was gerade unter dem Punkt
+   liegt. Nur Anzeige, nichts wird gespeichert. */
+function fsFlyOpen(t){
+  if(navigator.onLine === false){ showToast('Der Vorbeiflug braucht Internet.', true); return; }
+  const c = fsRcLine(t);
+  if(!c) return;
+  const res = fsRcCache.get(fsRcKey(t, c));
+  if(!res || !res.pts){ showToast('Der Routen-Check lädt noch – gleich nochmals versuchen.', true); return; }
+  const mid = res.pts[Math.floor(res.pts.length / 2)];
+  fs3dMlOpen({tour: t, lat: mid.lat, lon: mid.lon, zoom: 13, title: 'Vorbeiflug · ' + t.name, flight: {res, crit: fsRcCritLabels(res)}});
+}
+function fsFlyBearing(a, b){
+  const y = (b.lon - a.lon) * Math.cos(a.lat * Math.PI / 180), x = b.lat - a.lat;
+  return Math.atan2(y, x) * 180 / Math.PI;
+}
+function fsFlyStart(map, wrap, fl){
+  const {res, crit} = fl, pts = res.pts, n = pts.length, total = res.total;
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Geglätteter Kamerapfad (gleitender Mittelwert über ~±120 m)
+  const win = Math.max(2, Math.round(120 / res.step));
+  const sm = pts.map((p, i)=>{ let la = 0, lo = 0, c = 0; for(let j = Math.max(0, i - win); j <= Math.min(n - 1, i + win); j++){ la += pts[j].lat; lo += pts[j].lon; c++; } return {lat: la / c, lon: lo / c}; });
+  // Leuchtende Neigung und Problemstellen auf der Karte
+  const feats = [];
+  for(let i = 0; i < n - 1; i++){
+    if(pts[i].k) feats.push({type:'Feature', properties:{k: pts[i].k, c: crit[i] ? 1 : 0}, geometry:{type:'LineString', coordinates:[[pts[i].lon, pts[i].lat], [pts[i + 1].lon, pts[i + 1].lat]]}});
+  }
+  const css = getComputedStyle(document.documentElement), col = k=> css.getPropertyValue('--slope-' + k).trim();
+  const byK = ['match', ['get','k'], 1, col(1), 2, col(2), 3, col(3), 4, col(4), col(5)];
+  try{
+    map.addSource('fsfly', {type:'geojson', data:{type:'FeatureCollection', features: feats}});
+    map.addLayer({id:'fsfly-glow', type:'line', source:'fsfly', layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color': byK, 'line-width':18, 'line-blur':10, 'line-opacity':0.75}});
+    map.addLayer({id:'fsfly-line', type:'line', source:'fsfly', layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color': byK, 'line-width':6}});
+    map.addLayer({id:'fsfly-crit', type:'line', source:'fsfly', filter:['==', ['get','c'], 1], paint:{'line-color':'#0F1E27', 'line-width':3, 'line-dasharray':[1, 1.2], 'line-offset':7}});
+  }catch(e){}
+  const dot = fsmAddMarker(map, pts[0].lat, pts[0].lon, '<div class="fsfly-dot"></div>', {anchor:'center'});
+  // Panel unten
+  const panel = document.createElement('div');
+  panel.className = 'fsfly';
+  const W = 600, H = 92, eles = pts.map(p=> p.ele).filter(v=> v != null), mn = Math.min(...eles), mx = Math.max(...eles), span = Math.max(50, mx - mn);
+  const X = d=> (d / total * W).toFixed(1), Y = e=> (8 + 70 - (e - mn) / span * 70).toFixed(1);
+  let segs = '', cb = '';
+  for(let i = 0; i < n - 1; i++){
+    const p = pts[i], q2 = pts[i + 1];
+    if(p.k && p.ele != null && q2.ele != null) segs += `<line x1="${X(p.d)}" y1="${Y(p.ele)}" x2="${X(q2.d)}" y2="${Y(q2.ele)}" class="fs-rc-k${p.k}" stroke-width="4" stroke-linecap="round"/>`;
+    if(crit[i]) cb += `<rect x="${X(p.d)}" y="82" width="${(Math.max(res.step, q2.d - p.d) / total * W + 0.6).toFixed(1)}" height="8" class="fs-rc-crit"/>`;
+  }
+  const line = pts.filter(p=> p.ele != null).map(p=> X(p.d) + ',' + Y(p.ele)).join(' ');
+  panel.innerHTML = `<div class="fsfly-row">
+      <button type="button" class="fsfly-play" data-fly="play" aria-label="Anhalten">${fsIconHtml('pause')}</button>
+      <div class="fsfly-read" aria-live="polite"><b data-fly="ele">–</b><span data-fly="info"></span></div>
+      <button type="button" class="fsfly-speed" data-fly="speed" aria-label="Tempo">1×</button>
+    </div>
+    <div class="fsfly-alert" data-fly="alert" hidden></div>
+    <svg class="fsfly-prof" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="slider" aria-label="Position auf der Route" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
+      <defs><pattern id="fs-rc-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" class="fs-rc-critbg"/><line x1="0" y1="0" x2="0" y2="8" class="fs-rc-hatchline" stroke-width="4"/></pattern></defs>
+      <polygon points="0,78 ${line} ${W},78" class="fsfly-area"/>
+      <polyline points="${line}" fill="none" class="fsfly-pline" stroke-width="1.5"/>${segs}${cb}
+      <line data-fly="cursor" x1="0" x2="0" y1="0" y2="${H}" class="fsfly-cursor" stroke-width="2.5"/>
+    </svg>`;
+  wrap.appendChild(panel);
+  const q = sel=> panel.querySelector('[data-fly="' + sel + '"]');
+  const prof = panel.querySelector('.fsfly-prof');
+  let pos = 0, playing = !reduce, speed = 1, last = 0, bearing = fsFlyBearing(sm[0], sm[Math.min(n - 1, win)]);
+  const dur = Math.min(90, Math.max(35, total / 160)); // Sekunden für die ganze Route bei 1×
+  const setPlay = on=>{ playing = on; const b = q('play'); b.innerHTML = fsIconHtml(on ? 'pause' : 'play'); b.setAttribute('aria-label', on ? 'Anhalten' : 'Abspielen'); if(on && pos >= n - 1) pos = 0; };
+  setPlay(playing);
+  q('play').addEventListener('click', ()=> setPlay(!playing));
+  q('speed').addEventListener('click', ()=>{ speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; q('speed').textContent = speed + '×'; });
+  const seek = e=>{ const r = prof.getBoundingClientRect(); pos = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (n - 1); draw(true); };
+  prof.addEventListener('pointerdown', e=>{
+    e.preventDefault(); setPlay(false); seek(e);
+    const mv = ev=> seek(ev), up = ()=>{ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  });
+  prof.addEventListener('keydown', e=>{
+    if(e.key === 'ArrowRight' || e.key === 'ArrowLeft'){ e.preventDefault(); pos = Math.max(0, Math.min(n - 1, pos + (e.key === 'ArrowRight' ? 1 : -1) * n / 50)); draw(true); }
+  });
+  // Wer die Karte selbst bewegt, hält den Flug an
+  ['dragstart', 'rotatestart', 'pitchstart'].forEach(ev=> map.on(ev, e=>{ if(e.originalEvent) setPlay(false); }));
+  const aspDe = i=> i == null ? '' : FS_SLF_ASPECTS[FS_RC_ASP[i]];
+  const fmtE = e=> String(Math.round(e)).replace(/\B(?=(\d{3})+(?!\d))/g, '’');
+  let lastInfo = '';
+  function draw(jump){
+    const i = Math.max(0, Math.min(n - 1, Math.floor(pos))), f = pos - i, j = Math.min(n - 1, i + 1);
+    dot.setLngLat([pts[i].lon + (pts[j].lon - pts[i].lon) * f, pts[i].lat + (pts[j].lat - pts[i].lat) * f]);
+    const a = sm[i], ahead = sm[Math.min(n - 1, i + win)];
+    const target = (ahead === a) ? bearing : fsFlyBearing(a, ahead);
+    const d = ((target - bearing + 540) % 360) - 180;
+    bearing = jump ? target : bearing + d * 0.04;
+    map.jumpTo({center: [a.lon + (sm[j].lon - a.lon) * f, a.lat + (sm[j].lat - a.lat) * f], bearing, pitch: 68, zoom: 14.3});
+    q('cursor').setAttribute('x1', X(pts[i].d)); q('cursor').setAttribute('x2', X(pts[i].d));
+    prof.setAttribute('aria-valuenow', Math.round(i / Math.max(1, n - 1) * 100));
+    const p = pts[i];
+    const info = [p.d >= 1000 ? (p.d / 1000).toFixed(1) + ' km' : Math.round(p.d) + ' m', p.k ? FS_RC_CLASSES[p.k - 1].label : 'unter 30°', p.k && p.ai != null ? aspDe(p.ai) : ''].filter(Boolean).join(' · ');
+    if(info !== lastInfo){ lastInfo = info; q('ele').textContent = p.ele != null ? fmtE(p.ele) + ' m' : '–'; q('info').textContent = info; }
+    const al = q('alert');
+    if(crit[i]){ al.hidden = false; al.innerHTML = fsIconHtml('alert') + esc(crit[i]) + ' · Hang ' + FS_RC_CLASSES[p.k - 1].label + ' ' + aspDe(p.ai); }
+    else al.hidden = true;
+  }
+  function frame(ts){
+    if(!document.getElementById('fs-3d') || fs3dMap !== map) return;
+    const dt = last ? Math.min(0.1, (ts - last) / 1000) : 0; last = ts;
+    if(playing){ pos += dt * speed * (n - 1) / dur; if(pos >= n - 1){ pos = n - 1; setPlay(false); } draw(false); }
+    requestAnimationFrame(frame);
+  }
+  draw(true);
+  requestAnimationFrame(frame);
 }
 // Bearbeiten in 3D: Linie/Route = antippen, Punkt = lange drücken (wie auf der 2D-Karte)
 function fs3dMlWireEdit(map, ed){
@@ -17058,6 +17171,7 @@ function fsRcBodyHtml(res, withBulletin){
   const minOpts = [0, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000];
   return `<div class="fs-rc-facts">${facts}</div>
     ${svg}
+    <button type="button" class="btn fs-rc-fly" data-rc-fly>${fsIconHtml('play')}Vorbeiflug in 3D</button>
     <div class="fs-rc-legend">${legend || '<span>Keine Hänge über 30° entlang der Linie.</span>'}${withBulletin && (crit.size || probs.length) ? '<span><i class="fs-rc-critkey"></i>im Problembereich laut Bulletin</span>' : ''}</div>
     <div class="fs-rc-bottom">
       ${rose}
@@ -17095,6 +17209,14 @@ function fsRcBulletinHtml(res, b, bul, auto, probs, pts, step, fmtM, fmtE, critL
       ? `${fsIconHtml('alert')}Die Route berührt kritische Hänge über 30° auf ${fmtM(critLen)}${spots > 1 ? ' an ' + spots + ' Stellen' : ''}.`
       : `${fsIconHtml('check')}Die Route berührt keine kritischen Hänge über 30°.`}</p>`;
 }
+// Pro Punkt: Name des Lawinenproblems (bzw. «kritische Exposition» bei «Selbst wählen»), sonst ''
+function fsRcCritLabels(res){
+  if(!res || !res.pts || !fsRcWithBulletin()) return [];
+  const b = fsRcBulletin(), bul = fsRcSlfBul(res.slf), auto = !!(bul && b.mode !== 'manual');
+  if(auto){ const probs = fsRcSlfProblems(bul); return res.pts.map(p=>{ const pr = probs.find(x=> fsRcInProblem(p, x)); return pr ? pr.type : ''; }); }
+  const crit = new Set(b.asp);
+  return res.pts.map(p=> (crit.size && p.k >= 1 && p.ai != null && crit.has(FS_RC_ASP[p.ai]) && (p.ele == null || p.ele >= (b.minEle || 0))) ? 'kritische Exposition' : '');
+}
 function fsRcWithBulletin(){ return fsAppKey() !== 'wandern'; }
 function fsRouteCheckHtml(t){
   const c = fsRcLine(t);
@@ -17128,6 +17250,11 @@ document.addEventListener('click', (ev)=>{
   const box = ev.target.closest && ev.target.closest('.fs-rc');
   if(!box) return;
   const key = box.getAttribute('data-rc');
+  if(ev.target.closest('[data-rc-fly]')){
+    const t = (state.tours || []).find(x=> key.indexOf(x.id + ':') === 0);
+    if(t) fsFlyOpen(t);
+    return;
+  }
   const mode = ev.target.closest('[data-rc-mode]');
   if(mode){
     try{ localStorage.setItem('fs-rc-mode', mode.getAttribute('data-rc-mode')); }catch(e){}
@@ -17987,6 +18114,8 @@ const FS_ICON_PATHS = {
   exit: 'M14 7l5 5-5 5M19 12H8M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5',
   layers: 'M12 3 2 8l10 5 10-5-10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5',
   menu: 'M4 7h16M4 12h16M4 17h16',
+  play: 'M7 4.5v15l12-7.5z',
+  pause: 'M8 5v14M16 5v14',
   more: 'M5 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM12 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM19 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
   hut: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5',
