@@ -2450,7 +2450,7 @@ function klettergebietDetailHtml(id){
   return `<div class="modal td gd fs-onroute" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
-      <button class="x-btn" data-act="close-modal">×</button>
+      <div style="display:flex; align-items:flex-start; gap:4px;">${favoriteToggleButtonHtml(geb.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
     ${(gradeRange || altitude) ? `<div class="chips" style="margin-bottom:14px;">
       ${gradeRange ? `<span class="hut-link-chip">🧗 ${esc(gradeRange)}</span>` : ''}
@@ -3169,37 +3169,16 @@ function gipfelStatRangeLabel(tours, field){
 }
 
 function gipfelCardHtml(g, tours){
-  const ueberschreitungCount = tours.filter(t=>Array.isArray(t.summitIds) && t.summitIds.length>1).length;
-  const routenCount = tours.length - ueberschreitungCount;
-  const diffs = Array.from(new Set(tours.map(t=>t.difficulty).filter(d=>d && DIFF[d])))
-    .sort((a,b)=>DIFF_ORDER.indexOf(a)-DIFF_ORDER.indexOf(b));
+  const diffs = Array.from(new Set(tours.map(t=>t.difficulty).filter(d=>d && DIFF[d]))).sort((a,b)=>DIFF_ORDER.indexOf(a)-DIFF_ORDER.indexOf(b));
   const diffLabel = diffs.length ? (diffs.length===1 ? diffs[0] : `${diffs[0]}–${diffs[diffs.length-1]}`) : '';
-  const climbGrades = Array.from(new Set(tours.map(t=>t.climbGrade).filter(Boolean)))
-    .sort((a,b)=>CLIMB_ORDER.indexOf(a)-CLIMB_ORDER.indexOf(b));
+  const climbGrades = Array.from(new Set(tours.map(t=>t.climbGrade).filter(Boolean))).sort((a,b)=>CLIMB_ORDER.indexOf(a)-CLIMB_ORDER.indexOf(b));
   const climbLabel = climbGrades.length ? (climbGrades.length===1 ? climbGrades[0] : `${climbGrades[0]}–${climbGrades[climbGrades.length-1]}`) : '';
-  const gainLabel = gipfelStatRangeLabel(tours, 'elevationGain');
-  const durationLabel = gipfelStatRangeLabel(tours, 'duration');
-  const huts = Array.from(new Set(tours.map(t=>t.hutId).filter(Boolean))).map(id=>state.huts.find(h=>h.id===id)).filter(Boolean);
-  return `
-  <div class="card" data-act="open-gipfel" data-id="${g.id}" tabindex="0" role="button">
-    <div class="card-top">
-      <h3 style="color:var(--ice-deep);">🏔️ ${esc(g.name)}</h3>
-      <div class="badge-row">
-        ${diffLabel ? `<span class="badge" style="background:${DIFF[diffs[diffs.length-1]].color}">${diffLabel}</span>` : ''}
-        ${climbLabel ? `<span class="badge climb">🧗 ${esc(climbLabel)}</span>` : ''}
-        ${g.altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(g.altitude)} m</span>` : ''}
-      </div>
-    </div>
-    <div class="stat-row">
-      ${gainLabel ? `<span>↑ <span class="mono">${gainLabel}</span> Hm</span>` : ''}
-      ${durationLabel ? `<span>⏱ <span class="mono">${durationLabel} h</span></span>` : ''}
-    </div>
-    ${g.region ? `<p class="excerpt">${esc(g.region)}${g.subregion ? ' – ' + esc(g.subregion) : ''}</p>` : ''}
-    ${huts.map(h=>`<span class="hut-link-chip">🛖 ${esc(h.name)}</span>`).join('')}
-    ${routenCount ? `<span class="hut-link-chip">${routenCount} Route${routenCount===1?'':'n'}</span>` : ''}
-    ${ueberschreitungCount ? `<span class="hut-link-chip">${ueberschreitungCount} Überschreitung${ueberschreitungCount===1?'':'en'}</span>` : ''}
-    ${g._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
-  </div>`;
+  const routes = tours.length;
+  return fsListCardHtml({act: 'open-gipfel', id: g.id, thumb: fsTcThumbFor(g, 'mountain'), title: g.name,
+    grades: [diffLabel && {text: diffs[diffs.length-1], bg: DIFF[diffs[diffs.length-1]].color, title: 'Routen ' + diffLabel}, climbLabel && {text: climbLabel, bg: 'var(--ice-deep)', title: 'Kletterstellen ' + climbLabel}],
+    sub: fsTcRegion(g),
+    stats: [[fsIconHtml('mountain'), g.altitude, 'm'], [fsIconHtml('flag'), routes, routes === 1 ? 'Route' : 'Routen'], [FS_TC_UP, gipfelStatRangeLabel(tours, 'elevationGain'), 'Hm']],
+    foot: fsListFootHtml(g)});
 }
 
 // Gipfel einer Tour als Chips (bei Überschreitungen in Begehungsrichtung). Nur zeigen, wenn es
@@ -3428,31 +3407,7 @@ function emptyHuts(){
   </div>`;
 }
 
-function hutCardHtml(h){
-  migrateHutAccessRoutes(h);
-  const linkedCount = state.tours.filter(t=>t.hutId===h.id).length;
-  const routes = h.accessRoutes || [];
-  const rangeText = accessRouteDifficultyRangeHtml(routes);
-  const done = (h.completions && h.completions.length) || h.completed;
-  const last = latestCompletion(h.completions);
-  return `
-  <div class="card" data-act="open-hut" data-id="${h.id}" tabindex="0" role="button">
-    <div class="card-top">
-      <h3>🛖 ${done ? '✓ ' : ''}${esc(h.name)}</h3>
-      ${h.altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(h.altitude)} m</span>` : ''}
-    </div>
-    ${h.region ? `<p class="excerpt">${esc(h.region)}${h.subregion ? ' – ' + esc(h.subregion) : ''}</p>` : ''}
-    ${routes.length ? `<div class="stat-row"><span>🚶 ${routes.length} Zustieg${routes.length===1?'':'e'}${rangeText ? ' · ' + rangeText : ''}</span></div>` : ''}
-    ${((h.staffedMonths && h.staffedMonths.length) || (h.staffedMonthsPartial && h.staffedMonthsPartial.length)) ? `<div class="stat-row"><span>👤 bewartet: ${(h.staffedMonths||[]).length + (h.staffedMonthsPartial||[]).length} Mte.</span></div>` : `<div class="stat-row"><span>👤 unbewartet</span></div>`}
-    <span class="hut-link-chip">${linkedCount} Tour${linkedCount===1?'':'en'} ab hier</span>
-    ${last ? `<span class="hut-link-chip" style="background:#E3EFE6; color:#2F6B44;">✓ ${esc(last.by)} · ${esc(fmtDateOnly(last.date))}${h.completions.length>1 ? ` (+${h.completions.length-1})` : ''}</span>` : ''}
-    ${h._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
-    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
-      <span>von ${esc(h.createdBy||'?')} · ${fmtDate(h.createdAt)}</span>
-      <span style="color:var(--ink-faint);">${hutStatusLabel(h)}</span>
-    </div>
-  </div>`;
-}
+function hutCardHtml(h){ return fsHutCardHtml(h); }
 
 /* ================= Sektoren view (bündelt MSL-Touren mit gemeinsamem Ausgangspunkt) ================= */
 function filteredSektoren(){
@@ -3625,75 +3580,23 @@ function klettergebietCardHtml(geb){
   const tourCount = state.tours.filter(t=> sektoren.some(s=>s.id===t.sektorId)).length;
   const gradeRange = klettergebietClimbGradeRangeText(geb);
   const altitude = klettergebietAltitudeText(geb);
-  // Vorschaubild: bevorzugt das Gebiets-eigene Übersichtsbild, sonst automatisch das erste Topo
-  // eines seiner Klettergärten (dieselbe Logik wie beim Sammeln der Galerie). Als Spalte rechts
-  // neben Text/Chips, in etwa deren Höhe -- nicht als zusätzliche Banner-Zeile, die die Kachel
-  // insgesamt höher (und die Liste damit länger zum Scrollen) machen würde. Direktes Antippen
-  // öffnet die Topo-Galerie (siehe klettergebietTopoGalleryEntries), daher kein separater Chip.
   const topoEntries = klettergebietTopoGalleryEntries(geb);
-  const cardThumb = (geb.topoImages && geb.topoImages.length) ? geb.topoImages[0] : (topoEntries[0] || null);
-  const thumbHtml = cardThumb ? topoImageBoxHtml(cardThumb, 122, 122, `data-act="show-klettergebiet-topo-gallery" data-id="${geb.id}"`, 'border-radius:var(--radius); border:1px solid var(--line); cursor:pointer;') : '';
-  return `
-  <div class="card" data-act="open-klettergebiet" data-id="${geb.id}" tabindex="0" role="button" style="gap:6px;">
-    <div>${favoriteToggleButtonHtml(geb.id)}</div>
-    ${(geb.points && geb.points.length) ? meteoCardForecastRowHtml(geb.points[0].lat, geb.points[0].lon) : ''}
-    <div class="card-top">
-      <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
-      ${(gradeRange || altitude) ? `<div class="badge-row">
-        ${gradeRange ? `<span class="badge climb">🧗 ${esc(gradeRange)}</span>` : ''}
-        ${altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(altitude)}</span>` : ''}
-      </div>` : ''}
-    </div>
-    <div style="display:flex; gap:12px; align-items:flex-start;">
-      <div style="flex:1; min-width:0;">
-        ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
-        <span class="hut-link-chip">🧭 ${sektoren.length} Sektor${sektoren.length===1?'':'en'}</span>
-        <span class="hut-link-chip">${tourCount} Tour${tourCount===1?'':'en'}</span>
-        ${geb._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
-      </div>
-      ${thumbHtml}
-    </div>
-    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
-      <span>von ${esc(geb.createdBy||'?')} · ${fmtDate(geb.createdAt)}</span>
-    </div>
-  </div>`;
+  const img = (geb.topoImages && geb.topoImages.length) ? geb.topoImages[0] : (topoEntries[0] || null);
+  return fsListCardHtml({act: 'open-klettergebiet', id: geb.id, thumb: img ? fsTcImageThumb(img) : fsTcThumbFor(geb, 'climb'), title: geb.name,
+    grades: [gradeRange && {text: gradeRange, bg: 'var(--ice-deep)', title: 'Routen ' + gradeRange}], sub: fsTcRegion(geb),
+    stats: [[fsIconHtml('layers'), sektoren.length, sektoren.length === 1 ? 'Sektor' : 'Sektoren'], [fsIconHtml('climb'), tourCount, tourCount === 1 ? 'Tour' : 'Touren'], [fsIconHtml('mountain'), altitude, '']],
+    foot: fsListFootHtml(geb)});
 }
 
 function sektorCardHtml(sek){
   ensureSektorRouteArrays(sek);
-  // "Klettergarten" und "MSL" sind reine Etiketten für den Inhalt dieses Sektors, nie eine eigene
-  // Tour — ein Sektor kann beides gleichzeitig haben (siehe Sektor-Hierarchie-Vorschlag). Ein
-  // Sektor kann daneben auch Hochtouren verlinkt haben (z. B. wenn derselbe Sektor sowohl eine
-  // Grat-MSL-Route als auch normale Hochtouren auf denselben Gipfel trägt).
-  const linkedMslCount = state.tours.filter(t=>t.sektorId===sek.id && t.tourCategory==='msl').length;
-  const linkedHochtourCount = state.tours.filter(t=>t.sektorId===sek.id && t.tourCategory==='hochtour').length;
-  const accessRoutes = sek.accessRoutes || [];
-  const descentRoutes = sek.descentRoutes || [];
-  const kletterrouten = sek.kletterrouten || [];
-  const gradeRange = kletterroutenGradeRangeText(kletterrouten);
-  // Topo-Vorschaubild + Routenzahl/Grad-Spanne: damit man beim Durchblättern mehrerer Sektoren
-  // eines Klettergebiets (z. B. Sektor A–G) auf einen Blick erkennt, was einen erwartet, statt
-  // jeden einzeln öffnen zu müssen — wie ein Inhaltsverzeichnis der Führerbuch-Seite.
-  const topoThumb = (sek.topoImages && sek.topoImages.length) ? sek.topoImages[0] : null;
-  return `
-  <div class="card" data-act="open-sektor" data-id="${sek.id}" tabindex="0" role="button" style="${topoThumb ? 'display:flex; gap:12px; align-items:flex-start;' : ''}">
-    ${topoThumb ? topoImageBoxHtml(topoThumb, 60, 60, '', 'border-radius:var(--radius); border:1px solid var(--line);') : ''}
-    <div style="flex:1; min-width:0;">
-      <div class="card-top">
-        <h3 style="color:var(--ice-deep);">🧭 ${esc(sek.name)}</h3>
-      </div>
-      ${sek.region ? `<p class="excerpt">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}
-      ${kletterrouten.length ? `<span class="hut-link-chip">🏕️ ${kletterrouten.length} Route${kletterrouten.length===1?'':'n'}${gradeRange ? ' · ' + esc(gradeRange) : ''}</span>` : ''}
-      ${linkedMslCount ? `<span class="hut-link-chip">🧗 ${linkedMslCount} MSL-Tour${linkedMslCount===1?'':'en'}</span>` : ''}
-      ${linkedHochtourCount ? `<span class="hut-link-chip">🏔️ ${linkedHochtourCount} Hochtour${linkedHochtourCount===1?'':'en'}</span>` : ''}
-      ${accessRoutes.length ? `<span class="hut-link-chip">🚶 ${accessRoutes.length} Zustieg${accessRoutes.length===1?'':'e'}</span>` : ''}
-      ${descentRoutes.length ? `<span class="hut-link-chip">🔽 ${descentRoutes.length} Abstieg${descentRoutes.length===1?'':'e'}</span>` : ''}
-      ${sek._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
-      <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
-        <span>von ${esc(sek.createdBy||'?')} · ${fmtDate(sek.createdAt)}</span>
-      </div>
-    </div>
-  </div>`;
+  const msl = state.tours.filter(t=>t.sektorId===sek.id && t.tourCategory==='msl').length;
+  const kr = sek.kletterrouten || [];
+  const gradeRange = kletterroutenGradeRangeText(kr);
+  return fsListCardHtml({act: 'open-sektor', id: sek.id, thumb: fsTcThumbFor(sek, 'climb'), title: sek.name,
+    grades: [gradeRange && {text: gradeRange, bg: 'var(--ice-deep)', title: 'Routen ' + gradeRange}], sub: fsTcRegion(sek),
+    stats: [[fsIconHtml('climb'), kr.length, kr.length === 1 ? 'Route' : 'Routen'], [fsIconHtml('mountain'), msl, 'MSL'], [fsIconHtml('walk'), (sek.accessRoutes || []).length, 'Zustieg']],
+    foot: fsListFootHtml(sek)});
 }
 
 // Kleinere Variante der Sektor-Karte für die "noch nicht zugeordnet"-Liste auf der
