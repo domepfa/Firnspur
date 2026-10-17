@@ -12191,23 +12191,68 @@ function fsTcThumbHtml(t){
   }
   return `<div class="fs-tc-thumb is-icon" aria-hidden="true">${fsIconHtml(fsTcDiscIcon(t))}</div>`;
 }
-// grades: [{text, bg, title}] – keine ergibt ein ruhiges Platzhalter-Abzeichen; stats: [[icon, wert, einheit]]
-function fsTourCardHtml(t, o){
+// Gemeinsamer Listeneintrag (Touren, Hütten, Gebiete, Sektoren, Gipfel): gleiches Raster überall.
+// o: {act, id, thumb, title, grades:[{text,bg,title}], sub (HTML), stats:[[icon, wert, einheit]], foot (HTML), cls, attrs}
+function fsListCardHtml(o){
   const grades = (o.grades || []).filter(g=> g && g.text);
   const gHtml = grades.length
-    ? grades.map(g=> `<span class="badge fs-grade" style="background:${g.bg}" title="${esc(g.title || g.text)}">${esc(g.text)}</span>`).join('')
+    ? grades.map(g=> `<span class="badge fs-grade" style="background:${g.bg || 'var(--ice-deep)'}" title="${esc(g.title || g.text)}">${esc(g.text)}</span>`).join('')
     : `<span class="badge fs-grade is-empty" role="img" aria-label="Schwierigkeit fehlt" title="Schwierigkeit fehlt">–</span>`;
-  const sub = [t.routeName ? `<b>${esc(t.routeName)}</b>` : '', t.region ? esc(t.region) + (t.subregion ? ' – ' + esc(t.subregion) : '') : ''].filter(Boolean).join(' · ');
-  const stats = (o.stats || []).filter(x=> x && x[1]).slice(0, 3).map(x=> `<span>${x[0]}<b class="mono">${esc(x[1])}</b>${x[2] ? ' ' + x[2] : ''}</span>`).join('');
+  const stats = (o.stats || []).filter(x=> x && x[1] !== '' && x[1] != null && x[1] !== 0).slice(0, 3).map(x=> `<span>${x[0]}<b class="mono">${esc(x[1])}</b>${x[2] ? ' ' + x[2] : ''}</span>`).join('');
   return `
-  <div class="card fs-tc${o.cls ? ' ' + o.cls : ''}" data-act="open-tour" data-id="${t.id}" ${o.attrs || ''} tabindex="0" role="button">
-    ${fsTcThumbHtml(t)}
-    <h3 class="fs-tc-title">${esc(t.name)}</h3>
+  <div class="card fs-tc${o.cls ? ' ' + o.cls : ''}" data-act="${o.act}" data-id="${o.id}" ${o.attrs || ''} tabindex="0" role="button">
+    ${o.thumb || ''}
+    <h3 class="fs-tc-title">${esc(o.title || '')}</h3>
     <div class="fs-tc-grades">${gHtml}</div>
-    <p class="fs-tc-sub">${sub}</p>
+    <p class="fs-tc-sub">${o.sub || ''}</p>
     <div class="fs-tc-stats">${stats}</div>
-    ${fsCardFootHtml(t, o)}
+    ${o.foot || '<div class="fs-tc-foot"></div>'}
   </div>`;
+}
+// Bild für beliebige Einträge: erstes Foto/Topo, sonst Skizze einer Linie, sonst ein Zeichen
+function fsTcImageThumb(img){ return `<div class="fs-tc-thumb">${topoImageBoxHtml(img, 76, 76, 'alt=""', 'border-radius:12px;')}</div>`; }
+function fsTcIconThumb(icon){ return `<div class="fs-tc-thumb is-icon" aria-hidden="true">${fsIconHtml(icon)}</div>`; }
+function fsTcThumbFor(x, icon){
+  const img = x && Array.isArray(x.topoImages) && x.topoImages.find(i=> i && i.url);
+  if(img) return fsTcImageThumb(img);
+  const line = x && ((x.trackSimplified && x.trackSimplified.length > 1 && x.trackSimplified) || (x.manualTrack && x.manualTrack.length > 1 && x.manualTrack));
+  if(line) return fsTcThumbHtml({trackSimplified: line});
+  return fsTcIconThumb(icon);
+}
+// Kleiner Fuss für Einträge ohne Status: Wetter am ersten Punkt, nicht synchronisiert
+function fsListFootHtml(x, opts){
+  opts = opts || {};
+  const p = x && x.points && x.points.find(q=> q && isFinite(q.lat) && isFinite(q.lon));
+  const wx = p && !opts.hideWeather ? fsCardWeatherHtml({points: [p]}) : '';
+  const done = (x && ((x.completions && x.completions.length) || x.completed)) ? `<span class="fs-tc-ic is-done" role="img" aria-label="gemacht" title="gemacht">${fsIconHtml('flag')}</span>` : '';
+  const sync = x && x._unsynced ? `<span class="fs-tc-ic is-unsynced" role="img" aria-label="nicht synchronisiert" title="nicht synchronisiert">${fsIconHtml('offline')}</span>` : '';
+  const st = opts.status ? `<span class="fs-tc-ic fs-status-ic is-${opts.status.key}" role="img" aria-label="Status: ${esc(opts.status.label)}" title="${esc(opts.status.label)}">${fsIconHtml(opts.status.icon)}</span>` : '';
+  return `<div class="fs-tc-foot">${wx}<span class="fs-tc-marks">${sync}${done}${st}</span></div>`;
+}
+// Hütte: Zustiegs-Schwierigkeit oben rechts; Höhe, Touren ab hier, bewartete Monate
+function fsHutCardHtml(h){
+  if(typeof migrateHutAccessRoutes === 'function') migrateHutAccessRoutes(h);
+  const routes = h.accessRoutes || [];
+  const linked = (state.tours || []).filter(t=> t.hutId === h.id).length;
+  const months = (h.staffedMonths || []).length + (h.staffedMonthsPartial || []).length;
+  const sac = routes.map(r=> r.difficulty).filter(c=> typeof DIFF_ORDER !== 'undefined' && DIFF_ORDER.indexOf(c) >= 0).sort((a, b)=> DIFF_ORDER.indexOf(a) - DIFF_ORDER.indexOf(b));
+  const tt = routes.map(r=> r.difficultyT).filter(c=> HIKE_SCALE_ORDER.indexOf(c) >= 0).sort((a, b)=> HIKE_SCALE_ORDER.indexOf(a) - HIKE_SCALE_ORDER.indexOf(b));
+  const range = (l)=> l.length ? (l[0] === l[l.length - 1] ? l[0] : l[0] + '–' + l[l.length - 1]) : '';
+  // Bei SAC-Graden nur der höchste (WS-–ZS- wäre schwer lesbar), die Spanne steht im Titel
+  const grades = [sac.length && {text: sac[sac.length - 1], bg: (typeof DIFF !== 'undefined' && DIFF[sac[sac.length - 1]] || {}).color, title: 'Zustieg SAC ' + range(sac)},
+    tt.length && {text: range(tt), bg: 'var(--ice-deep)', title: 'Zustieg ' + range(tt)}];
+  const gebiet = h.gebietId && Array.isArray(state.gebiete) ? state.gebiete.find(g=> g.id === h.gebietId) : null;
+  const sub = [fsTcRegion(h), gebiet ? esc(gebiet.name) : ''].filter(Boolean).join(' · ');
+  const complete = h.status === 'vollstaendig';
+  return fsListCardHtml({act: 'open-hut', id: h.id, thumb: fsTcThumbFor(h, 'hut'), title: h.name, grades, sub,
+    stats: [[fsIconHtml('mountain'), h.altitude, 'm'], [fsIconHtml('flag'), linked, linked === 1 ? 'Tour' : 'Touren'], [fsIconHtml('calendar'), months, 'Mte. bewartet']],
+    foot: fsListFootHtml(h, {status: complete ? {key: 'bereit', label: 'vollständig', icon: 'checkc'} : {key: 'idee', label: 'Entwurf', icon: 'ring'}})});
+}
+const fsTcRegion = x=> x && x.region ? esc(x.region) + (x.subregion ? ' – ' + esc(x.subregion) : '') : '';
+// Tour: grades und stats legt die App fest
+function fsTourCardHtml(t, o){
+  const sub = [t.routeName ? `<b>${esc(t.routeName)}</b>` : '', fsTcRegion(t)].filter(Boolean).join(' · ');
+  return fsListCardHtml({act: 'open-tour', id: t.id, cls: o.cls, attrs: o.attrs, thumb: fsTcThumbHtml(t), title: t.name, grades: o.grades, sub, stats: o.stats, foot: fsCardFootHtml(t, o)});
 }
 // Was bis «bereit» fehlt (nur Hinweis, entscheidet nichts)
 function fsTourMissingForReady(t){

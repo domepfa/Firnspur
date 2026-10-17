@@ -1092,25 +1092,14 @@ function tourCardHtml(t){
 
 
 function gebietCardHtml(geb){
-  const touren = gebietTouren(geb);
-  const huetten = gebietHuetten(geb);
-  return `
-  <div class="card" data-act="open-gebiet" data-id="${geb.id}" tabindex="0" role="button">
-    <div>${favoriteToggleButtonHtml(geb.id)}</div>
-    <div class="card-top">
-      <h3 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h3>
-    </div>
-    ${geb.region ? `<p class="excerpt">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}
-    <div class="stat-row">
-      <span>🎿 ${touren.length} Tour${touren.length===1?'':'en'}</span>
-      <span>🛖 ${huetten.length} Hütte${huetten.length===1?'':'n'}</span>
-    </div>
-    ${(geb.points && geb.points.length) ? meteoCardForecastRowHtml(geb.points[0].lat, geb.points[0].lon) : ''}
-    ${geb._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
-    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
-      <span>von ${esc(geb.createdBy||'?')} · ${fmtDate(geb.createdAt)}</span>
-    </div>
-  </div>`;
+  const touren = gebietTouren(geb), huetten = gebietHuetten(geb);
+  const ds = touren.map(t=> t.difficulty).filter(c=> DIFF_ORDER.indexOf(c) >= 0).sort((a, b)=> DIFF_ORDER.indexOf(a) - DIFF_ORDER.indexOf(b));
+  const range = ds.length ? (ds[0] === ds[ds.length - 1] ? ds[0] : ds[0] + '–' + ds[ds.length - 1]) : '';
+  const alt = Math.max(0, ...touren.map(t=> parseFloat(String(t.targetAltitude || '').replace(/[^\d.]/g, '')) || 0));
+  return fsListCardHtml({act: 'open-gebiet', id: geb.id, thumb: fsTcThumbFor(geb, 'mountain'), title: geb.name,
+    grades: [range && {text: ds[ds.length - 1], bg: DIFF[ds[ds.length - 1]].color, title: 'Touren ' + range}], sub: fsTcRegion(geb),
+    stats: [[fsIconHtml('snow'), touren.length, touren.length === 1 ? 'Tour' : 'Touren'], [fsIconHtml('hut'), huetten.length, huetten.length === 1 ? 'Hütte' : 'Hütten'], [fsIconHtml('mountain'), alt ? String(alt) : '', 'm']],
+    foot: fsListFootHtml(geb)});
 }
 
 // Übersichtskarte eines Gebiets: fasst die eigenen Punkte des Gebiets UND die Standorte/Tracks
@@ -1175,7 +1164,7 @@ function gebietDetailHtml(id){
   return `<div class="modal td gd" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
-      <button class="x-btn" data-act="close-modal">×</button>
+      <div style="display:flex; align-items:flex-start; gap:4px;">${favoriteToggleButtonHtml(geb.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
     ${geb.description ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 10px 0;">${esc(geb.description)}</p>` : ''}
     ${hasMapData ? `<div class="detail-section fs-area-mapsec">
