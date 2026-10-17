@@ -1263,6 +1263,7 @@ function tourFormHtml(existing){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${isEditing?'Tour bearbeiten':'Neue Wanderung'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="tour-form" novalidate>
+      ${fsTourScanButtonHtml(t)}
       ${fsOwnerFieldHtml(t)}
       <div class="row2">
         <div class="field"><label>Ziel / Wanderung *</label><input required name="name" value="${esc(t.name||'')}" placeholder="z. B. Hohtürli"/></div>

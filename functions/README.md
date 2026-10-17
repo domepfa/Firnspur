@@ -16,6 +16,13 @@ Drei Cloud Functions in dieser Datei, **alle drei deployt und live**:
 - `scanZustieg` — ein einzelner Zustieg/Abstieg (Hütte, Tour oder Sektor — gleiche
   Feldstruktur überall: Name/Höhenmeter/Zeit/Wanderskala/Beschreibung).
 
+- `scanTour` — eine ganze Tour (Skitour, Hochtour, Mehrseillänge, Wanderung) aus bis zu 4 Fotos
+  einer Führerseite, eines Screenshots oder einer Notiz, optional mit Hinweis, welche Tour gemeint ist
+  («Nr. 112»). Liefert pro Feld den Wert **und das Originalzitat**; die App zeigt alles zum Prüfen,
+  nur Angehaktes kommt ins Formular «Neue Tour». Nutzt bewusst ein stärkeres Modell
+  (`claude-opus-5-5`) als die Kletter-Scans, weil es hier darum geht, das Wichtige herauszulesen.
+  **Neu – muss einmal deployt werden** (siehe unten), bis dahin meldet der Knopf «noch nicht freigeschaltet».
+
 Falls künftig eine neue Function dazukommt, zeigt ihr "📷 Foto scannen"-Knopf in der App
 bis zum nächsten Deploy eine Fehlermeldung statt zu funktionieren — das ist erwartet und
 harmlos, nichts anderes in der App ist davon betroffen.
@@ -60,7 +67,11 @@ Nach erfolgreichem Deploy zeigt die Konsole die URLs, z. B.:
 Function URL (scanKletterrouten(europe-west1)): https://europe-west1-firnspur.cloudfunctions.net/scanKletterrouten
 Function URL (scanKlettergebiet(europe-west1)): https://europe-west1-firnspur.cloudfunctions.net/scanKlettergebiet
 Function URL (scanZustieg(europe-west1)): https://europe-west1-firnspur.cloudfunctions.net/scanZustieg
+Function URL (scanTour(europe-west1)): https://europe-west1-firnspur.cloudfunctions.net/scanTour
 ```
+
+Alle vier ausrollen (auch die verbesserten Kletter-Scans): `firebase deploy --only functions`. Die URL steht schon in
+`0-shared.js` (`SCAN_TOUR_URL`).
 
 ## Letzter Schritt: URL(s) in die App eintragen
 
@@ -77,6 +88,7 @@ Danach committen/pushen wie gewohnt — die jeweiligen "📷 Foto scannen"-Knöp
 ## Kosten-Kontrolle
 
 - **Anthropic:** reines Prepaid-Guthaben, kein automatisches Nachladen (solange du das nicht
-  explizit aktivierst). Ein Scan kostet ca. 0.004–0.005 US$ (Claude Haiku 4.5).
+  explizit aktivierst). Alle Scans nutzen `claude-opus-5-5` (vorher Haiku 4.5, das bei dichten
+  Topo-Seiten zu oft das Falsche herauslas). Ein Scan kostet grob 0.05–0.15 US$ je nach Fotos.
 - **Firebase Cloud Functions:** nur bei tatsächlichem Aufruf abgerechnet, mit grosser
   kostenloser Grundmenge pro Monat — bei normaler Nutzung faktisch 0 Fr.
