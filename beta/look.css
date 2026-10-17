@@ -2177,3 +2177,5 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-scan-unklar{ display:flex; gap:8px; align-items:flex-start; padding:10px 12px; border-radius:12px; background:var(--line-soft); font-size:13.5px; }
 .fs-scan-unklar .fs-i{ width:18px; height:18px; flex:none; color:var(--signal-deep); }
 .fs-scan-others{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.field label.fs-scan-row{ display:flex; text-transform:none; letter-spacing:0; font-size:14px; font-weight:500; color:var(--ink); margin-bottom:0; }
+.field label.fs-scan-row b{ text-transform:none; letter-spacing:0; }

@@ -29,11 +29,38 @@ async function requireAppAuth(req){
   }
 }
 
+// Angaben, die Führer meist pro Sektor (oder einmal fürs ganze Gebiet) machen, nicht pro Route.
+// Die Werte passen zu den Feldern des Sektors in der App (protection, quickdrawCount, ropeLength,
+// klettergartenNotes).
+const SEKTOR_INFO_SCHEMA = {
+  type: 'object',
+  properties: {
+    absicherung: { type: 'string', enum: ['', 'sehr-gut', 'gut', 'alpin', 'ernst'] },
+    exen: { type: 'string' },
+    seil: { type: 'string', enum: ['', '30m', '40m', '50m', '60m', '70m', '80m'] },
+    routenlaenge: { type: 'string' },
+    ausrichtung: { type: 'string' },
+    hinweise: { type: 'string' },
+    zitat: { type: 'string' },
+  },
+  required: ['absicherung', 'exen', 'seil', 'routenlaenge', 'ausrichtung', 'hinweise', 'zitat'],
+  additionalProperties: false,
+};
+const SEKTOR_INFO_RULES = `Ausserdem die Angaben, die für den ganzen Sektor gelten (info). Stehen sie nur einmal für das ganze Gebiet, gelten sie für jeden Sektor. Nur übernehmen, was abgedruckt ist, sonst leer:
+- absicherung: «sehr-gut» (kurze Hakenabstände, plaisir, sehr gut gebohrt), «gut» (gut gebohrt, teils weitere Abstände), «alpin» (mobile Sicherungen nötig/sinnvoll), «ernst» (weite Abstände, wenig Haken).
+- exen: Anzahl Expressschlingen als Zahl (bei «12–14 Exen» die grössere Zahl).
+- seil: empfohlene Seillänge, aufgerundet auf 30m/40m/50m/60m/70m/80m (z. B. «2×35 m» oder «70-m-Seil» → «70m»).
+- routenlaenge: Länge der Routen bzw. Wandhöhe, z. B. «15–30 m».
+- ausrichtung: Exposition/Ausrichtung, z. B. «S» oder «SE–SW».
+- hinweise: 1–2 kurze Sätze zu Sonne/Schatten, Zustiegszeit, Fels, Saison, Besonderheiten.
+- zitat: die kurze Originalstelle, aus der diese Angaben stammen (wörtlich, höchstens etwa 150 Zeichen).`;
+
 // Rohes JSON-Schema statt Zod-Helper (client.messages.parse) — braucht keine zusätzliche
 // Abhängigkeit und funktioniert unabhängig von der installierten SDK-Version.
 const KLETTERROUTEN_SCHEMA = {
   type: 'object',
   properties: {
+    info: SEKTOR_INFO_SCHEMA,
     routes: {
       type: 'array',
       items: {
@@ -48,7 +75,7 @@ const KLETTERROUTEN_SCHEMA = {
       },
     },
   },
-  required: ['routes'],
+  required: ['info', 'routes'],
   additionalProperties: false,
 };
 
@@ -60,9 +87,9 @@ const ROUTE_RULES = `So ist eine Topo-Seite meist aufgebaut: eine Zeichnung oder
 - Erfinde nichts. Ist ein Wert nicht lesbar, schreib "?" statt zu raten.
 - Ist eine Route eindeutig eine lange Mehrseillängen-/Alpinroute (mehrere Seillängen, mit Erstbegeher/Jahr/Sterne-Bewertung statt einer einfachen Einzellänge), nimm sie NICHT in die Liste auf.`;
 
-const PROMPT_SINGLE_SEKTOR = `Lies die Kletterrouten von diesem Foto einer Führerbuch-Topo-Seite ab.\n${ROUTE_RULES}\n- Zeigt das Foto mehrere Sektoren, lies nur den am deutlichsten im Vordergrund/Bildausschnitt stehenden Sektor ein.`;
+const PROMPT_SINGLE_SEKTOR = `Lies die Kletterrouten von diesem Foto einer Führerbuch-Topo-Seite ab.\n${ROUTE_RULES}\n- Zeigt das Foto mehrere Sektoren, lies nur den am deutlichsten im Vordergrund/Bildausschnitt stehenden Sektor ein.\n${SEKTOR_INFO_RULES}`;
 
-const PROMPT_MULTI_SEKTOR = `Dieses Foto zeigt eine Führerbuch-Seite mit MEHREREN Kletter-Sektoren (Teilbereichen) desselben Gebiets, jeweils mit eigenem Namen (z. B. "Sektor A – Edelweiss") und eigener Routenliste. Erkenne JEDEN einzelnen Sektor auf dem Foto separat.\n- gebietName: der übergeordnete Name des gesamten Klettergebiets, falls auf dem Foto als Überschrift/Kapiteltitel über allen Sektoren erkennbar (z. B. "Sewen"). Falls nicht eindeutig erkennbar: leerer String "" — nichts erfinden oder aus Sektor-Namen ableiten.\nFür jeden Sektor:\n- name: der Sektor-Name exakt wie abgedruckt (z. B. "A – Edelweiss"). Falls kein Name lesbar: "Sektor <laufende Nummer>".\n- routes: die zugehörige Routenliste, nach diesen Regeln:\n${ROUTE_RULES}\nGib NUR Sektoren zurück, die auf dem Foto tatsächlich zu erkennen sind — nichts erfinden. Ein Sektor ohne lesbare Routen bekommt eine leere routes-Liste.\nWICHTIG bei unklarer Zuordnung: Ist bei einzelnen Routen nicht eindeutig erkennbar, zu welchem Sektor sie gehören (z. B. unklares Layout, überlappende Spalten, Topo-Zeichnung ohne klare Zuordnung) — rate NICHT, in welchen Sektor sie gehören. Sammle solche Routen stattdessen in einem eigenen, zusätzlichen Sektor mit dem EXAKTEN Namen "Unsortiert". Höchstens ein solcher Sektor pro Foto, nur falls tatsächlich unklare Routen vorhanden sind.`;
+const PROMPT_MULTI_SEKTOR = `Dieses Foto zeigt eine Führerbuch-Seite mit MEHREREN Kletter-Sektoren (Teilbereichen) desselben Gebiets, jeweils mit eigenem Namen (z. B. "Sektor A – Edelweiss") und eigener Routenliste. Erkenne JEDEN einzelnen Sektor auf dem Foto separat.\n- gebietName: der übergeordnete Name des gesamten Klettergebiets, falls auf dem Foto als Überschrift/Kapiteltitel über allen Sektoren erkennbar (z. B. "Sewen"). Falls nicht eindeutig erkennbar: leerer String "" — nichts erfinden oder aus Sektor-Namen ableiten.\nFür jeden Sektor:\n- name: der Sektor-Name exakt wie abgedruckt (z. B. "A – Edelweiss"). Falls kein Name lesbar: "Sektor <laufende Nummer>".\n- routes: die zugehörige Routenliste, nach diesen Regeln:\n${ROUTE_RULES}\n- info: ${SEKTOR_INFO_RULES}\nGib NUR Sektoren zurück, die auf dem Foto tatsächlich zu erkennen sind — nichts erfinden. Ein Sektor ohne lesbare Routen bekommt eine leere routes-Liste.\nWICHTIG bei unklarer Zuordnung: Ist bei einzelnen Routen nicht eindeutig erkennbar, zu welchem Sektor sie gehören (z. B. unklares Layout, überlappende Spalten, Topo-Zeichnung ohne klare Zuordnung) — rate NICHT, in welchen Sektor sie gehören. Sammle solche Routen stattdessen in einem eigenen, zusätzlichen Sektor mit dem EXAKTEN Namen "Unsortiert". Höchstens ein solcher Sektor pro Foto, nur falls tatsächlich unklare Routen vorhanden sind.`;
 
 const KLETTERGEBIET_SCHEMA = {
   type: 'object',
@@ -74,6 +101,7 @@ const KLETTERGEBIET_SCHEMA = {
         type: 'object',
         properties: {
           name: { type: 'string' },
+          info: SEKTOR_INFO_SCHEMA,
           routes: {
             type: 'array',
             items: {
@@ -88,7 +116,7 @@ const KLETTERGEBIET_SCHEMA = {
             },
           },
         },
-        required: ['name', 'routes'],
+        required: ['name', 'info', 'routes'],
         additionalProperties: false,
       },
     },

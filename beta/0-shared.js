@@ -14392,14 +14392,62 @@ async function scanTopoImageForRoutes(fileInputEl, hiddenInputId, containerId, s
       grad: r.grad || '',
     }));
     if(hiddenInput) hiddenInput.value = JSON.stringify(existing.concat(added));
+    const infoFilled = fsFillSektorFormInfo(data.info);
     markModalDirty(); // erkannte Routen sind eine Änderung: Schliessen fragt nach, Entwurf wird gesichert
     renderKletterroutenEditor(containerId, hiddenInputId);
-    if(statusEl) statusEl.textContent = added.length ? `✓ ${added.length} Route(n) erkannt — bitte kurz prüfen.` : 'Keine Routen erkannt.';
+    if(statusEl) statusEl.textContent = (added.length ? `✓ ${added.length} Route(n) erkannt` : 'Keine Routen erkannt') + (infoFilled.length ? ' · ausgefüllt: ' + infoFilled.join(', ') : '') + (added.length || infoFilled.length ? ' — bitte kurz prüfen.' : '.');
     showToast(added.length ? (added.length + ' Route(n) erkannt und übernommen.') : 'Keine Routen erkannt — Foto evtl. unscharf oder falscher Ausschnitt.', !added.length);
   }catch(e){
     if(statusEl) statusEl.textContent = '';
     showToast('Foto-Scan fehlgeschlagen: ' + (e.message || e), true);
   }
+}
+
+// Sektor-Angaben aus dem Foto-Scan (info: absicherung, exen, seil, routenlaenge, ausrichtung, hinweise,
+// zitat). Führer machen sie meist pro Sektor oder fürs ganze Gebiet; sie landen in den bestehenden
+// Sektor-Feldern Absicherung, Anzahl Exen, Seillänge und Hinweise – nur wo diese noch leer sind.
+function fsSektorInfoHas(info){ return !!(info && (info.absicherung || info.exen || info.seil || info.routenlaenge || info.ausrichtung || info.hinweise)); }
+function fsSektorInfoNotes(info){
+  return [info.ausrichtung ? 'Ausrichtung: ' + info.ausrichtung : '', info.routenlaenge ? 'Routenlänge: ' + info.routenlaenge : '', info.hinweise || ''].filter(Boolean).join(' · ');
+}
+function fsSektorInfoSummary(info){
+  const prot = (typeof PROTECTION_LEVELS !== 'undefined' && PROTECTION_LEVELS.find(p=> p.value === info.absicherung)) || null;
+  return [prot ? 'Absicherung ' + prot.label.replace(/^[●○\s]+/, '') : '', info.exen ? info.exen + ' Exen' : '', info.seil ? 'Seil ' + info.seil : '',
+    info.routenlaenge ? 'Routen ' + info.routenlaenge : '', info.ausrichtung ? 'Ausrichtung ' + info.ausrichtung : ''].filter(Boolean).join(' · ');
+}
+function fsSektorInfoReviewHtml(info, i){
+  if(!fsSektorInfoHas(info)) return '';
+  return `<label class="fs-scan-row" style="margin-top:10px;"><input type="checkbox" class="scan-sector-info" data-index="${i}" checked>
+    <span><small>Sektor-Infos übernehmen</small><b>${esc(fsSektorInfoSummary(info) || 'Hinweise')}</b>${info.hinweise ? `<em style="color:var(--ink-soft); font-weight:600;">${esc(info.hinweise)}</em>` : ''}${info.zitat ? `<q>${esc(info.zitat)}</q>` : ''}</span></label>`;
+}
+// Neuer Sektor aus dem Gebiets-Scan
+function fsApplySektorInfo(sek, info){
+  if(!fsSektorInfoHas(info)) return;
+  if(info.absicherung && !sek.protection) sek.protection = info.absicherung;
+  if(info.exen && !sek.quickdrawCount) sek.quickdrawCount = String(info.exen).replace(/[^\d]/g, '');
+  if(info.seil && !sek.ropeLength) sek.ropeLength = info.seil;
+  const notes = fsSektorInfoNotes(info);
+  if(notes) sek.klettergartenNotes = [sek.klettergartenNotes, notes].filter(Boolean).join('\n');
+}
+// Offenes Formular «Topo & Routen» eines Sektors: leere Felder füllen, Chips mitschalten
+function fsFillSektorFormInfo(info){
+  if(!fsSektorInfoHas(info)) return [];
+  const filled = [];
+  const chip = (hiddenId, chipSel, attr, val, label)=>{
+    const h = document.getElementById(hiddenId);
+    if(!h || h.value || !val) return;
+    h.value = val;
+    document.querySelectorAll(chipSel).forEach(c=>{ const on = c.getAttribute(attr) === val; c.classList.toggle('on', on); c.style.background = on ? 'var(--ice-deep)' : ''; });
+    filled.push(label);
+  };
+  chip('sektor-protection-hidden', '.sektor-protection-chip', 'data-value', info.absicherung, 'Absicherung');
+  chip('sektor-rope-length-hidden', '.sektor-rope-length-chip', 'data-rope-length', info.seil, 'Seillänge');
+  const ex = document.querySelector('#sektor-topo-routen-form [name="quickdrawCount"]');
+  if(ex && !ex.value && info.exen){ ex.value = String(info.exen).replace(/[^\d]/g, ''); filled.push('Exen'); }
+  const notes = document.querySelector('#sektor-topo-routen-form [name="klettergartenNotes"]');
+  const add = fsSektorInfoNotes(info);
+  if(notes && add && notes.value.indexOf(add) < 0){ notes.value = [notes.value.trim(), add].filter(Boolean).join('\n'); filled.push('Hinweise'); }
+  return filled;
 }
 
 // Wie scanTopoImageForRoutes, aber für ein oder mehrere Fotos mit MEHREREN Sektoren gleichzeitig
@@ -14506,6 +14554,7 @@ function klettergebietScanReviewHtml(payload){
           ${isDuplicate ? `<p style="font-size:12px; color:var(--danger); margin:6px 0 0 0;">⚠ Möglicherweise doppelt erkannt — gleicher Name wie ein anderer Sektor unten. Bitte vergleichen, dann einen verwerfen oder Routen zusammenführen.</p>` : ''}
           ${isUnsortiert ? `<p style="font-size:12px; color:var(--danger); margin:6px 0 0 0;">⚠ Diese Routen konnten nicht eindeutig einem Sektor zugeordnet werden — bitte unten mit "Route verschieben" den richtigen Sektoren zuweisen.</p>` : ''}
           ${sec._previewUrl ? `<img src="${esc(sec._previewUrl)}" alt="Foto-Vorschau" style="display:block; max-width:100%; max-height:220px; margin-top:10px; border-radius:6px; cursor:zoom-in; object-fit:contain;" onclick="showTopoImageLightbox([{url:'${esc(sec._previewUrl)}'}],0)"/>` : ''}
+          ${fsSektorInfoReviewHtml(sec.info, i)}
           <div id="scan-sector-editor-${i}" style="margin-top:10px;"></div>
           <input type="hidden" id="scan-sector-hidden-${i}" value='${esc(JSON.stringify(sec.routes||[]))}'/>
           ${sectors.length>1 ? `
@@ -14632,6 +14681,8 @@ async function submitKlettergebietScanReview(){
     const sek = { id: uid('sek'), name, klettergebietId: gebId, kletterrouten: routes, topoImages: [], createdBy: state.myName, createdAt: new Date().toISOString() };
     ensureSektorRouteArrays(sek);
     const sourceSector = payload.sectors[i];
+    const infoBox = document.querySelector('.scan-sector-info[data-index="' + i + '"]');
+    if(sourceSector && infoBox && infoBox.checked) fsApplySektorInfo(sek, sourceSector.info);
     if(sourceSector && sourceSector._sourceFile) sek._sourceFile = sourceSector._sourceFile;
     created.push(sek);
   });
