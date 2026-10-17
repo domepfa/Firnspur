@@ -11387,13 +11387,14 @@ function ensureMeteoBulkData(){
     render();
   }).catch(err=>{
     state._meteoBulkStatus = 'error';
+    state._meteoBulkErrAt = Date.now();
     _meteoBulkPromise = null;
     console.warn('Wetter-Bulkdaten konnten nicht geladen werden:', err);
   });
 }
 
 function meteoDayIcon(precipMm){
-  return precipMm >= 3 ? '🌧️' : precipMm >= 0.3 ? '🌦️' : '☀️';
+  return fsIconHtml(precipMm >= 3 ? 'rain' : precipMm >= 0.3 ? 'partly' : 'sun');
 }
 
 // Kompakte 3-Tages-Zeile fürs Kärtchen -- eigene Zeile unterhalb der Schwierigkeits-/Höhen-Chips,
@@ -11666,13 +11667,29 @@ function fsDoneFilterHtml(){
   const chip = (v, label)=> `<button class="chip ${state.activeDoneFilter===v?'on':''}" style="${state.activeDoneFilter===v?'background:var(--ice-deep)':''}" data-act="filter-done" data-value="${v}">${label}</button>`;
   return `<div class="field"><label>Gemacht</label><div class="chips">${chip('ja', 'schon gemacht')}${chip('nein', 'noch nicht gemacht')}</div></div>`;
 }
-// Fuss der Listeneinträge: Status und zuletzt gemacht, in einer Zeile
+// Wetter der nächsten 3 Tage im Listeneintrag (MeteoSchweiz, alle Punkte mit 2 Anfragen; siehe
+// meteoCardForecastData). Nach einem Fehler (offline) erst nach einer Minute wieder versuchen.
+function fsCardWeatherHtml(t){
+  const p = fsTourSummitPoint(t) || tourMapPoint(t);
+  if(!p || !isFinite(p.lat) || !isFinite(p.lon)) return '';
+  if(state._meteoBulkStatus !== 'ok'){
+    if(state._meteoBulkStatus === 'error' && Date.now() - (state._meteoBulkErrAt || 0) < 60000) return '';
+    if(state._meteoBulkStatus === 'error') state._meteoBulkErrAt = Date.now();
+    ensureMeteoBulkData();
+    return '';
+  }
+  const days = meteoCardForecastData(p.lat, p.lon).days.slice(0, 3);
+  if(!days.length) return '';
+  return `<span class="fs-card-wx" aria-label="Wetter der nächsten Tage">${days.map(d=>
+    `<span>${meteoFormatDayLabel(d.date).weekday}${meteoDayIcon(d.precipMm)}${Math.round(d.tempMax)}°</span>`).join('')}</span>`;
+}
+// Fuss der Listeneinträge: Wetter, Status und zuletzt gemacht, in einer Zeile
 function fsCardFootHtml(t){
   const n = (t.completions || []).length;
   const last = n ? (t.completions || []).slice().sort((a, b)=> String(b.date || '').localeCompare(String(a.date || '')))[0] : null;
   const done = last ? `<span class="fs-card-done">${fsIconHtml('check')}${esc(last.by || '?')}${last.date ? ' · ' + fmtDateOnly(last.date) : ''}${n > 1 ? ' (+' + (n - 1) + ')' : ''}</span>`
     : (t.completed ? `<span class="fs-card-done">${fsIconHtml('check')}gemacht</span>` : '');
-  return `<div class="fs-card-foot">${tourStatusLabel(t)}${done}</div>`;
+  return `<div class="fs-card-foot">${fsCardWeatherHtml(t)}${tourStatusLabel(t)}${done}</div>`;
 }
 // Was bis «bereit» fehlt (nur Hinweis, entscheidet nichts)
 function fsTourMissingForReady(t){

@@ -2101,7 +2101,7 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-sheet .toolbar-row.fs-search-beside > .btn{ min-height:46px; padding:0 12px; }
 .fs-sheet .card .fs-card-done-old{ display:none !important; }
 /* Hütte/Gebiet stehen in der Tour; in der Liste nur «nicht synchronisiert» */
-.fs-sheet .card span.hut-link-chip:not([style*="FBEAE7"]){ display:none; }
+.fs-sheet .card[data-act="open-tour"] span.hut-link-chip:not([style*="FBEAE7"]){ display:none; }
 .fs-sheet .card .agenda-date-row{ display:none; }
 .fs-sheet .card .card-top{ margin-bottom:0; }
 .fs-sheet .card .stat-row{ font-size:14px; }
@@ -2117,26 +2117,31 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-ready-missing{ margin:8px 0 0; font-size:13.5px; color:var(--ink-soft); line-height:1.45; }
 /* Kompakte Zeile: Name · Abzeichen, Route und Region · Kennzahlen und Status */
 .fs-sheet .grid{ gap:8px; }
-.fs-sheet .grid > .card{ display:flex; flex-direction:row; flex-wrap:wrap; align-items:center; gap:3px 8px; margin:0; padding:11px 14px 12px; }
-.fs-sheet .grid > .card .card-top, .fs-sheet .grid > .card .badge-row{ display:contents; }
-.fs-sheet .grid > .card .card-top h3{ flex:1 0 100%; margin:0; padding-right:36px; font-size:21px; line-height:1.15; }
-.fs-sheet .grid > .card .badge{ font-size:12px; padding:2px 8px; }
-.fs-sheet .grid > .card > h3, .fs-sheet .grid > .card .excerpt{
+.fs-sheet .grid > .card[data-act="open-tour"]{ display:flex; flex-direction:row; flex-wrap:wrap; align-items:center; gap:3px 8px; margin:0; padding:11px 14px 12px; }
+.fs-sheet .grid > .card[data-act="open-tour"] .card-top, .fs-sheet .grid > .card[data-act="open-tour"] .badge-row{ display:contents; }
+.fs-sheet .grid > .card[data-act="open-tour"] .card-top h3{ flex:1 0 100%; margin:0; padding-right:36px; font-size:21px; line-height:1.15; }
+.fs-sheet .grid > .card[data-act="open-tour"] .badge{ font-size:12px; padding:2px 8px; }
+.fs-sheet .grid > .card[data-act="open-tour"] > h3, .fs-sheet .grid > .card[data-act="open-tour"] .excerpt{
   flex:0 1 auto; min-width:0; margin:0 !important; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   font-size:13.5px !important; font-weight:600; color:var(--ink-soft);
 }
-.fs-sheet .grid > .card .excerpt{ flex:1 1 0; font-weight:500; }
-.fs-sheet .grid > .card .stat-row{ flex:1 0 auto; margin:2px 0 0; gap:12px; }
-.fs-sheet .grid > .card .fs-card-foot{ margin:2px 0 0 auto; }
-.fs-sheet .grid > .card.has-thumb{ min-height:0; padding-right:88px; }
-.fs-sheet .grid > .card.has-thumb > :not(:first-child):not(.fs-card-thumb){ margin-right:0; }
-.fs-sheet .grid > .card.has-thumb .fs-card-thumb{ top:auto; bottom:12px; width:64px; height:64px; }
-.fs-sheet .grid > .card > *{ order:4; }
-.fs-sheet .grid > .card .card-top h3{ order:0; }
-.fs-sheet .grid > .card .badge, .fs-sheet .grid > .card > h3, .fs-sheet .grid > .card .excerpt{ order:1; }
-.fs-sheet .grid > .card .stat-row{ order:2; }
-.fs-sheet .grid > .card .fs-card-foot{ order:3; }
-.fs-sheet .grid > .card > h3 + .stat-row + .excerpt::before{ content:'· '; }
+.fs-sheet .grid > .card[data-act="open-tour"] .excerpt{ flex:1 1 0; font-weight:500; }
+.fs-sheet .grid > .card[data-act="open-tour"] .stat-row{ flex:1 0 auto; margin:2px 0 0; gap:12px; }
+.fs-sheet .grid > .card[data-act="open-tour"] .fs-card-foot{ margin:2px 0 0 auto; }
+.fs-sheet .grid > .card[data-act="open-tour"].has-thumb{ min-height:0; padding-right:88px; }
+.fs-sheet .grid > .card[data-act="open-tour"].has-thumb > :not(:first-child):not(.fs-card-thumb){ margin-right:0; }
+.fs-sheet .grid > .card[data-act="open-tour"].has-thumb .fs-card-thumb{ top:auto; bottom:12px; width:64px; height:64px; }
+.fs-sheet .grid > .card[data-act="open-tour"] > *{ order:4; }
+.fs-sheet .grid > .card[data-act="open-tour"] .card-top h3{ order:0; }
+.fs-sheet .grid > .card[data-act="open-tour"] .badge, .fs-sheet .grid > .card[data-act="open-tour"] > h3, .fs-sheet .grid > .card[data-act="open-tour"] .excerpt{ order:1; }
+.fs-sheet .grid > .card[data-act="open-tour"] .stat-row{ order:2; }
+.fs-sheet .grid > .card[data-act="open-tour"] .fs-card-foot{ order:3; }
+.fs-sheet .grid > .card[data-act="open-tour"] > h3 + .stat-row + .excerpt::before{ content:'· '; }
 /* Zeilenumbruch vor den Kennzahlen, auch wenn Abzeichen und Route kurz sind */
-.fs-sheet .grid > .card::after{ content:''; order:1; flex-basis:100%; height:0; }
-.fs-sheet .grid > .card span.hut-link-chip[style*="FBEAE7"]{ order:3; min-height:0; margin:2px 0 0; padding:3px 10px; font-size:12px; }
+.fs-sheet .grid > .card[data-act="open-tour"]::after{ content:''; order:1; flex-basis:100%; height:0; }
+.fs-sheet .grid > .card[data-act="open-tour"] span.hut-link-chip[style*="FBEAE7"]{ order:3; min-height:0; margin:2px 0 0; padding:3px 10px; font-size:12px; }
+/* Wetter der nächsten 3 Tage im Listeneintrag */
+.fs-card-wx{ display:inline-flex; gap:5px; margin-right:auto; }
+.fs-card-wx > span{ display:inline-flex; align-items:center; gap:3px; padding:2px 7px; border-radius:8px; background:var(--ice-light); color:var(--ink); font-size:12px; font-weight:700; white-space:nowrap; }
+.fs-card-wx .fs-i{ width:15px; height:15px; color:var(--signal-deep); }
+.fs-sheet .grid > .card[data-act="open-tour"] .fs-card-foot:has(.fs-card-wx){ flex-basis:100%; margin-left:0; }
