@@ -17552,12 +17552,12 @@ function fsRcInProblem(p, pr){
   return true;
 }
 function fsRcSetBulletin(b){ try{ localStorage.setItem('fs-rc-bulletin', JSON.stringify(b)); }catch(e){} }
-function fsRcBodyHtml(res, withBulletin){
-  if(res.error) return `<p class="fs-rc-note">${esc(res.error)}</p>${res.retry ? '<button type="button" class="btn secondary" data-rc-retry>Nochmals versuchen</button>' : ''}`;
-  const {pts, total, step, inCH} = res;
-  const fmtM = m=> m >= 1000 ? (m / 1000).toFixed(1).replace('.0', '') + ' km' : Math.round(m / 10) * 10 + ' m';
-  const fmtE = e=> String(Math.round(e)).replace(/\B(?=(\d{3})+(?!\d))/g, '’');
-  const len = k=> pts.filter(p=> p.k >= k).length * step;
+const fsRcFmtM = m=> m >= 1000 ? (m / 1000).toFixed(1).replace('.0', '') + ' km' : Math.round(m / 10) * 10 + ' m';
+const fsRcFmtE = e=> String(Math.round(e)).replace(/\B(?=(\d{3})+(?!\d))/g, '’');
+const FS_RC_ASP_LONG = {N:'Nord', NE:'Nordost', E:'Ost', SE:'Südost', S:'Süd', SW:'Südwest', W:'West', NW:'Nordwest'};
+// Was Kurz- und Vollansicht gemeinsam brauchen: Bulletin-Abgleich, Längen, steilste Stelle
+function fsRcModel(res, withBulletin){
+  const {pts, step} = res;
   const b = fsRcBulletin();
   const bul = withBulletin ? fsRcSlfBul(res.slf) : null;
   const auto = !!(bul && b.mode !== 'manual');
@@ -17565,62 +17565,213 @@ function fsRcBodyHtml(res, withBulletin){
   const crit = new Set(auto ? probs.reduce((a, pr)=> a.concat(pr.aspects.length ? pr.aspects : FS_RC_ASP), []) : b.asp);
   const isCrit = auto ? (p=> probs.some(pr=> fsRcInProblem(p, pr)))
     : (p=> withBulletin && crit.size && p.k >= 1 && p.ai != null && crit.has(FS_RC_ASP[p.ai]) && (p.ele == null || p.ele >= (b.minEle || 0)));
-  // Profil
-  const W = 600, H = 200, top = 14, chartH = 120, eles = pts.map(p=> p.ele).filter(v=> v != null);
+  const flags = pts.map(p=> !!isCrit(p));
+  const maxK = Math.max(0, ...pts.map(p=> p.k));
+  let spots = 0; flags.forEach((f, i)=>{ if(f && !(i && flags[i - 1])) spots++; });
+  return {res, withBulletin, b, bul, auto, probs, crit, isCrit, flags, maxK, spots,
+    steep: maxK ? pts.find(p=> p.k === maxK) : null,
+    len: k=> pts.filter(p=> p.k >= k).length * step,
+    critLen: flags.filter(Boolean).length * step,
+    byAsp: FS_RC_ASP.map((a, i)=> pts.filter(p=> p.k >= 1 && p.ai === i).length * step),
+    showCrit: !!(withBulletin && (crit.size || probs.length))};
+}
+// Die Aussage in ganzen Sätzen: wie viel steil, wo die steilste Stelle, was das Bulletin dazu sagt
+function fsRcSummaryHtml(m){
+  const {pts, total} = m.res, fmtM = fsRcFmtM, fmtE = fsRcFmtE;
+  const st = m.steep;
+  const s1 = !m.maxK ? `Entlang der ganzen Route (${fmtM(total)}) ist kein Hang steiler als 30°.`
+    : `Auf <b>${fmtM(m.len(1))}</b> von ${fmtM(total)} führt die Route durch Hänge steiler als 30°${m.len(2) ? `, davon <b>${fmtM(m.len(2))}</b> steiler als 35°` : ''}. `
+      + `Die steilste Stelle (${FS_RC_CLASSES[m.maxK - 1].label}) liegt${st.ele != null ? ' auf ' + fmtE(st.ele) + ' m' : ''}${st.ai != null ? ', Exposition ' + FS_RC_ASP_LONG[FS_RC_ASP[st.ai]] : ''}.`;
+  let s2 = '';
+  if(m.withBulletin && m.auto){
+    const top = m.bul.ratings[0], lvl = top ? ` (Gefahrenstufe ${top.level} ${esc(top.label)})` : '';
+    const types = m.probs.filter(pr=> pts.some(p=> fsRcInProblem(p, pr))).map(pr=> esc(pr.type));
+    s2 = !m.probs.length ? `Das Lawinenbulletin${lvl} meldet keine ausgeprägten Lawinenprobleme.`
+      : m.critLen ? `Laut Lawinenbulletin${lvl} liegen <b>${fmtM(m.critLen)}</b>${m.spots > 1 ? ' an ' + m.spots + ' Stellen' : ''} im Problembereich: ${types.join(', ')}.`
+      : `Laut Lawinenbulletin${lvl} liegt keine steile Stelle der Route im Problembereich.`;
+  }else if(m.withBulletin && m.b.asp.length){
+    s2 = m.critLen ? `In den gewählten kritischen Expositionen liegen <b>${fmtM(m.critLen)}</b>${m.spots > 1 ? ' an ' + m.spots + ' Stellen' : ''}.` : 'Keine steile Stelle liegt in den gewählten kritischen Expositionen.';
+  }
+  return `<div class="fs-rc-sum${m.critLen ? ' warn' : ''}"><p>${s1}</p>${s2 ? `<p>${m.critLen ? fsIconHtml('alert') : ''}${s2}</p>` : ''}</div>`;
+}
+// Höhenprofil: Linie farbig, wo der Hang steiler als 30° ist; darunter die Bänder Steilheit und Bulletin.
+// big: Vollansicht mit Strecken-Marken, Beschriftung der Bänder und Lauf-Strich zum Antippen.
+function fsRcProfileSvg(m, big){
+  const {pts, total, step} = m.res, fmtM = fsRcFmtM, fmtE = fsRcFmtE;
+  const W = 600, top = big ? 22 : 14, chartH = big ? 190 : 120;
+  const b1 = top + chartH + (big ? 62 : 14), b2 = b1 + (big ? 60 : 22), bh = big ? 22 : 16;
+  const H = (m.showCrit ? b2 : b1) + bh + (big ? 4 : 2);
+  const eles = pts.map(p=> p.ele).filter(v=> v != null);
   const mn = Math.min(...eles), mx = Math.max(...eles), span = Math.max(50, mx - mn);
   const X = d=> (d / total * W).toFixed(1), Y = e=> (top + chartH - (e - mn) / span * chartH).toFixed(1);
   const line = pts.filter(p=> p.ele != null).map(p=> X(p.d) + ',' + Y(p.ele)).join(' ');
   let segs = '', band = '', cband = '';
   for(let i = 0; i < pts.length - 1; i++){
-    const p = pts[i], q = pts[i + 1];
-    if(p.k && p.ele != null && q.ele != null) segs += `<line x1="${X(p.d)}" y1="${Y(p.ele)}" x2="${X(q.d)}" y2="${Y(q.ele)}" class="fs-rc-k${p.k}" stroke-width="5" stroke-linecap="round"/>`;
-    if(p.k) band += `<rect x="${X(p.d)}" y="${top + chartH + 14}" width="${(Math.max(step, q.d - p.d) / total * W + 0.6).toFixed(1)}" height="16" class="fs-rc-f${p.k}"/>`;
-    if(isCrit(p)) cband += `<rect x="${X(p.d)}" y="${top + chartH + 36}" width="${(Math.max(step, q.d - p.d) / total * W + 0.6).toFixed(1)}" height="16" class="fs-rc-crit"/>`;
+    const p = pts[i], q = pts[i + 1], w = (Math.max(step, q.d - p.d) / total * W + 0.6).toFixed(1);
+    if(p.k && p.ele != null && q.ele != null) segs += `<line x1="${X(p.d)}" y1="${Y(p.ele)}" x2="${X(q.d)}" y2="${Y(q.ele)}" class="fs-rc-k${p.k}" stroke-width="${big ? 6 : 5}" stroke-linecap="round"/>`;
+    if(p.k) band += `<rect x="${X(p.d)}" y="${b1}" width="${w}" height="${bh}" class="fs-rc-f${p.k}"/>`;
+    if(m.flags[i]) cband += `<rect x="${X(p.d)}" y="${b2}" width="${w}" height="${bh}" class="fs-rc-crit"/>`;
   }
-  const maxK = Math.max(0, ...pts.map(p=> p.k));
-  const steep = maxK ? pts.find(p=> p.k === maxK) : null;
-  const svg = `<svg class="fs-rc-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Höhenprofil mit Hangneigung entlang der Route">
+  let ticks = '';
+  if(big){
+    const km = total / 1000, every = km > 16 ? 5 : km > 8 ? 2 : km > 3 ? 1 : 0.5;
+    for(let v = every; v < km - every * 0.3; v += every){
+      const x = (v * 1000 / total * W).toFixed(1);
+      ticks += `<line x1="${x}" x2="${x}" y1="${top}" y2="${top + chartH}" class="fs-rc-grid"/><text x="${x}" y="${top + chartH + 26}" text-anchor="middle" class="fs-rc-t">${String(v).replace('.', ',')} km</text>`;
+    }
+  }
+  const st = m.steep;
+  return `<svg class="fs-rc-svg${big ? ' fs-rcf-prof' : ' fs-rc-mini'}" viewBox="0 0 ${W} ${H}" ${big ? 'role="slider" tabindex="0" aria-label="Stelle auf der Route wählen" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"' : 'role="button" tabindex="0" data-rc-open aria-label="Routen-Check gross ansehen"'}>
     <defs><pattern id="fs-rc-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" class="fs-rc-critbg"/><line x1="0" y1="0" x2="0" y2="8" class="fs-rc-hatchline" stroke-width="4"/></pattern></defs>
+    ${ticks}
     <polygon points="0,${top + chartH} ${line} ${W},${top + chartH}" class="fs-rc-area"/>
     <polyline points="${line}" class="fs-rc-line" fill="none" stroke-width="2.5"/>
     ${segs}
-    <rect x="0" y="${top + chartH + 14}" width="${W}" height="16" class="fs-rc-bandbg"/>${band}
-    ${withBulletin && (crit.size || probs.length) ? `<rect x="0" y="${top + chartH + 36}" width="${W}" height="16" class="fs-rc-bandbg"/>${cband}` : ''}
-    ${steep && steep.ele != null ? `<circle cx="${X(steep.d)}" cy="${Y(steep.ele)}" r="9" class="fs-rc-steep"/>` : ''}
+    ${big ? `<text x="0" y="${b1 - 8}" class="fs-rc-bl">Steilheit neben der Route</text>` : ''}
+    <rect x="0" y="${b1}" width="${W}" height="${bh}" class="fs-rc-bandbg"/>${band}
+    ${m.showCrit ? `${big ? `<text x="0" y="${b2 - 8}" class="fs-rc-bl">Im Problembereich des Bulletins</text>` : ''}<rect x="0" y="${b2}" width="${W}" height="${bh}" class="fs-rc-bandbg"/>${cband}` : ''}
+    ${st && st.ele != null ? `<circle cx="${X(st.d)}" cy="${Y(st.ele)}" r="9" class="fs-rc-steep"/>` : ''}
     <text x="6" y="${top + 12}" class="fs-rc-t">${fmtE(mx)} m</text><text x="6" y="${top + chartH - 6}" class="fs-rc-t">${fmtE(mn)} m</text>
-    <text x="${W - 6}" y="${top + chartH - 6}" class="fs-rc-t" text-anchor="end">${fmtM(total)}</text>
+    ${big ? '' : `<text x="${W - 6}" y="${top + chartH - 6}" class="fs-rc-t" text-anchor="end">${fmtM(total)}</text>`}
+    ${big ? `<line data-rcf="cursor" x1="-10" x2="-10" y1="0" y2="${H}" class="fs-rcf-cursor" stroke-width="2.5"/>` : ''}
   </svg>`;
-  // Exposition der steilen Abschnitte
-  const byAsp = FS_RC_ASP.map((a, i)=> pts.filter(p=> p.k >= 1 && p.ai === i).length * step);
+}
+function fsRcRoseSvg(m){
+  const fmtM = fsRcFmtM, {crit, byAsp, withBulletin, auto} = m;
   const maxA = Math.max(1, ...byAsp);
   const sec = i=>{ const r0 = 22, r1 = 34 + 62 * Math.sqrt(byAsp[i] / maxA), a0 = (i * 45 - 22.5 - 90) * Math.PI / 180, a1 = (i * 45 + 22.5 - 90) * Math.PI / 180;
     const P = (r, a)=> (r * Math.cos(a)).toFixed(1) + ' ' + (r * Math.sin(a)).toFixed(1);
     return `M${P(r0, a0)} L${P(r1, a0)} A${r1} ${r1} 0 0 1 ${P(r1, a1)} L${P(r0, a1)} A${r0} ${r0} 0 0 0 ${P(r0, a0)}Z`; };
-  const rose = `<svg class="fs-rc-rose" viewBox="-112 -112 224 224" role="group" aria-label="Exposition der Hänge über 30°${withBulletin ? '; antippen markiert kritische Expositionen aus dem Bulletin' : ''}">
+  return `<svg class="fs-rc-rose" viewBox="-112 -112 224 224" role="group" aria-label="Exposition der Hänge über 30°${withBulletin ? '; antippen markiert kritische Expositionen aus dem Bulletin' : ''}">
     <circle r="96" class="fs-rc-ring"/>
     ${FS_RC_ASP.map((a, i)=> `<path d="${sec(i)}" class="fs-rc-sec${crit.has(a) ? ' crit' : ''}${byAsp[i] ? ' has' : ''}" ${withBulletin && !auto ? `data-rc-asp="${a}" role="button" tabindex="0" aria-pressed="${crit.has(a)}" aria-label="${FS_SLF_ASPECTS[a]}: ${fmtM(byAsp[i])} über 30°"` : `aria-label="${FS_SLF_ASPECTS[a]}: ${fmtM(byAsp[i])} über 30°"`}/>`).join('')}
     ${FS_RC_ASP.map((a, i)=>{ const an = (i * 45 - 90) * Math.PI / 180; return `<text x="${(106 * Math.cos(an)).toFixed(1)}" y="${(106 * Math.sin(an) + 4).toFixed(1)}" text-anchor="middle" class="fs-rc-al${crit.has(a) ? ' crit' : ''}">${FS_SLF_ASPECTS[a]}</text>`; }).join('')}
   </svg>`;
-  const critLen = pts.filter(isCrit).length * step;
-  let spots = 0; pts.forEach((p, i)=>{ if(isCrit(p) && !(i && isCrit(pts[i - 1]))) spots++; });
-  const facts = [
-    `<div><b>${fmtM(len(1))}</b><span>über 30°</span></div>`,
-    `<div><b>${fmtM(len(2))}</b><span>über 35°</span></div>`,
-    `<div><b>${steep ? FS_RC_CLASSES[maxK - 1].label : '–'}</b><span>steilste Stelle${steep && steep.ai != null ? ' · ' + FS_SLF_ASPECTS[FS_RC_ASP[steep.ai]] : ''}${steep && steep.ele != null ? ' · ' + fmtE(steep.ele) + ' m' : ''}</span></div>`
-  ].join('');
-  const legend = FS_RC_CLASSES.filter(c=> pts.some(p=> p.k === c.k)).map(c=> `<span><i class="fs-rc-f${c.k}"></i>${c.label} · ${fmtM(pts.filter(p=> p.k === c.k).length * step)}</span>`).join('');
-  const minOpts = [0, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000];
-  return `<div class="fs-rc-facts">${facts}</div>
-    ${svg}
+}
+function fsRcErrorHtml(res){
+  return `<p class="fs-rc-note">${esc(res.error)}</p>${res.retry ? '<button type="button" class="btn secondary" data-rc-retry>Nochmals versuchen</button>' : ''}`;
+}
+// In der Tour: Aussage, kleines Profil, «Gross ansehen» und «Vorbeiflug»
+function fsRcBodyHtml(res, withBulletin){
+  if(res.error) return fsRcErrorHtml(res);
+  const m = fsRcModel(res, withBulletin);
+  return `${fsRcSummaryHtml(m)}
+    ${fsRcProfileSvg(m, false)}
+    <div class="fs-rc-actions">
+      <button type="button" class="btn fs-rc-open" data-rc-open>${fsIconHtml('expand')}Gross ansehen</button>
+      <button type="button" class="btn secondary fs-rc-fly" data-rc-fly>${fsIconHtml('play')}Vorbeiflug</button>
+    </div>`;
+}
+// Vollansicht: Karte mit der eingefärbten Route, grosses Profil zum Antippen, Legende in Worten, Exposition und Bulletin
+function fsRcFullHtml(res, withBulletin){
+  if(res.error) return fsRcErrorHtml(res);
+  const m = fsRcModel(res, withBulletin), {pts, step, inCH} = res, fmtM = fsRcFmtM;
+  const say = withBulletin
+    ? ['steil – ab etwa 30° können Schneebretter anbrechen', 'sehr steil – hier lösen sich die meisten Schneebretter', 'extrem steil', 'extrem steil, oft felsdurchsetzt', 'Fels und Wände']
+    : ['steil – Trittsicherheit nötig', 'sehr steil – Ausrutschen kann gefährlich sein', 'extrem steil', 'extrem steil, oft felsdurchsetzt', 'Fels und Wände'];
+  const keys = FS_RC_CLASSES.filter(c=> pts.some(p=> p.k === c.k)).map(c=>
+    `<li><i class="fs-rc-f${c.k}"></i><b>${c.label}</b><span>${say[c.k - 1]} · ${fmtM(pts.filter(p=> p.k === c.k).length * step)}</span></li>`).join('');
+  return `${fsRcSummaryHtml(m)}
+    <p class="fs-rcf-read" data-rcf="read" aria-live="polite">${fsIconHtml('ruler')}<span>Profil oder Route antippen: zeigt Höhe, Steilheit und Exposition an dieser Stelle.</span></p>
+    ${fsRcProfileSvg(m, true)}
     <button type="button" class="btn fs-rc-fly" data-rc-fly>${fsIconHtml('play')}Vorbeiflug in 3D</button>
-    <div class="fs-rc-legend">${legend || '<span>Keine Hänge über 30° entlang der Linie.</span>'}${withBulletin && (crit.size || probs.length) ? '<span><i class="fs-rc-critkey"></i>im Problembereich laut Bulletin</span>' : ''}</div>
+    <h3 class="fs-rcf-h">So liest du das Profil</h3>
+    <p class="fs-rc-note">Die Linie zeigt die Höhe über die Strecke. Farbig ist sie dort, wo der Hang neben der Route steiler als 30° ist; das Band darunter zeigt dasselbe ohne Höhe. Der Kreis markiert die steilste Stelle.</p>
+    <ul class="fs-rcf-keys">${keys || '<li><span>Keine Hänge über 30° entlang der Linie.</span></li>'}
+      ${m.showCrit ? `<li><i class="fs-rc-critkey"></i><b>schraffiert</b><span>${m.auto ? 'Exposition und Höhe passen zu einem Lawinenproblem des Bulletins' : 'Hang in einer gewählten kritischen Exposition'}</span></li>` : ''}</ul>
+    <h3 class="fs-rcf-h">${withBulletin ? 'Exposition und Lawinenbulletin' : 'Exposition der steilen Hänge'}</h3>
+    <p class="fs-rc-note">Die Rosette zeigt, in welche Himmelsrichtung die steilen Hänge schauen. Je grösser das Feld, desto länger die Strecke.</p>
     <div class="fs-rc-bottom">
-      ${rose}
-      <div class="fs-rc-bul">
-        ${withBulletin ? fsRcBulletinHtml(res, b, bul, auto, probs, pts, step, fmtM, fmtE, critLen, spots, minOpts) : `<p class="fs-rc-h">Exposition der steilen Hänge</p><p class="fs-rc-note">Grösse = Strecke über 30° in dieser Richtung.</p>`}
-      </div>
+      ${fsRcRoseSvg(m)}
+      <div class="fs-rc-bul">${withBulletin ? fsRcBulletinHtml(res, m.b, m.bul, m.auto, m.probs, pts, step, fmtM, fsRcFmtE, m.critLen, m.spots, [0, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000]) : ''}</div>
     </div>
     <p class="fs-rc-src">${inCH ? 'Hangneigung: swisstopo (swissALTI3D), im Umkreis von wenigen Metern der Linie.' : 'Hangneigung nur in der Schweiz verfügbar.'} Höhe und Exposition geschätzt (Geländemodell ca. 30 m). Hilft bei der Planung, ersetzt keine Beurteilung vor Ort.</p>`;
+}
+function fsRcOpenFull(key){
+  const res = fsRcCache.get(key), t = (state.tours || []).find(x=> key.indexOf(x.id + ':') === 0);
+  if(!res || !res.pts || !t) return;
+  const ov = document.createElement('div');
+  ov.className = 'fs-rcf';
+  ov.innerHTML = `<div class="fs-rcf-top"><button type="button" class="fs-rcf-back" data-rcf="close">‹ Zurück</button><div class="fs-rcf-title"><small>Routen-Check</small>${esc(t.name || '')}</div></div>
+    <div class="fs-rcf-scroll"><div class="fs-rcf-map" id="fs-rcf-map"></div>
+      <div class="fs-rc fs-rc-full" data-rc="${esc(key)}" data-rc-full="1"><div class="fs-rc-body">${fsRcFullHtml(Object.assign({key}, res), fsRcWithBulletin())}</div></div></div>`;
+  document.body.appendChild(ov);
+  let map = null, dot = null, sel = -1;
+  pushOverlayLayer(()=>{ if(map){ try{ map.remove(); }catch(e){} } ov.remove(); });
+  ov.querySelector('[data-rcf="close"]').addEventListener('click', ()=> closeTopOverlayLayer());
+  const pts = res.pts, n = pts.length, fmtM = fsRcFmtM, fmtE = fsRcFmtE;
+  // Ganze Route (k = -1) und darüber zusammenhängende Abschnitte gleicher Steilheit; einzelne 15-m-Stücke
+  // fielen beim Herauszoomen der Vereinfachung zum Opfer
+  const feats = ()=>{
+    const crit = fsRcCritLabels(res), ll = p=> [p.lon, p.lat];
+    const f = [{type:'Feature', properties:{k: -1, c: 0}, geometry:{type:'LineString', coordinates: pts.map(ll)}}];
+    let run = null;
+    for(let i = 0; i < n - 1; i++){
+      const k = pts[i].k || 0, c = crit[i] ? 1 : 0;
+      if(!run || run.properties.k !== k || run.properties.c !== c){
+        run = {type:'Feature', properties:{k, c}, geometry:{type:'LineString', coordinates:[ll(pts[i])]}};
+        f.push(run);
+      }
+      run.geometry.coordinates.push(ll(pts[i + 1]));
+    }
+    return {type:'FeatureCollection', features: f};
+  };
+  // Stelle i zeigen: Lauf-Strich im Profil, Punkt auf der Karte, Werte in Worten
+  const show = (i)=>{
+    sel = Math.max(0, Math.min(n - 1, i));
+    const p = pts[sel], crit = fsRcCritLabels(res)[sel];
+    const svg = ov.querySelector('.fs-rcf-prof'), cur = ov.querySelector('[data-rcf="cursor"]');
+    if(cur){ const x = (p.d / res.total * 600).toFixed(1); cur.setAttribute('x1', x); cur.setAttribute('x2', x); }
+    if(svg) svg.setAttribute('aria-valuenow', Math.round(sel / Math.max(1, n - 1) * 100));
+    const read = ov.querySelector('[data-rcf="read"]');
+    if(read){
+      read.classList.toggle('warn', !!crit);
+      read.innerHTML = (crit ? fsIconHtml('alert') : fsIconHtml('ruler')) + '<span><b>' + fmtM(p.d) + '</b> · ' + esc([p.ele != null ? fmtE(p.ele) + ' m' : '', p.k ? FS_RC_CLASSES[p.k - 1].label : 'flacher als 30°', p.ai != null ? FS_RC_ASP_LONG[FS_RC_ASP[p.ai]] : ''].filter(Boolean).join(' · ')) + (crit ? '<em>im Problembereich: ' + esc(crit) + '</em>' : '') + '</span>';
+    }
+    if(map && dot) dot.setLngLat([p.lon, p.lat]).getElement().style.visibility = 'visible';
+  };
+  const fromX = (svg, clientX)=>{ const r = svg.getBoundingClientRect(); return Math.round(Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * (n - 1)); };
+  ov.addEventListener('pointerdown', e=>{
+    const svg = e.target.closest && e.target.closest('.fs-rcf-prof');
+    if(!svg) return;
+    e.preventDefault();
+    try{ svg.setPointerCapture(e.pointerId); }catch(err){}
+    show(fromX(svg, e.clientX));
+    const mv = ev=> show(fromX(svg, ev.clientX)), up = ()=>{ svg.removeEventListener('pointermove', mv); svg.removeEventListener('pointerup', up); svg.removeEventListener('pointercancel', up); };
+    svg.addEventListener('pointermove', mv); svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
+  });
+  ov.addEventListener('keydown', e=>{
+    if(!e.target.closest || !e.target.closest('.fs-rcf-prof') || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    e.preventDefault(); show((sel < 0 ? 0 : sel) + (e.key === 'ArrowRight' ? 1 : -1) * Math.max(1, Math.round(n / 50)));
+  });
+  // Nach dem Neuzeichnen (Bulletin, Expositionen) Stelle und Karte nachführen
+  ov.addEventListener('fs-rc-painted', ()=>{ if(sel >= 0) show(sel); try{ if(map && map.getSource('fsrcf')) map.getSource('fsrcf').setData(feats()); }catch(e){} });
+  fsmEnsureLoaded().then(()=>{
+    if(!document.body.contains(ov)) return;
+    const mid = pts[Math.floor(n / 2)];
+    map = fsmCreateMap('fs-rcf-map', {center:[mid.lat, mid.lon], zoom: 13, controls: false});
+    fsmWhenLoaded(map, ()=>{
+      const css = getComputedStyle(document.documentElement), col = k=> css.getPropertyValue('--slope-' + k).trim();
+      const byK = ['match', ['get','k'], 1, col(1), 2, col(2), 3, col(3), 4, col(4), col(5)];
+      try{
+        map.addSource('fsrcf', {type:'geojson', data: feats(), tolerance: 0.2});
+        map.addLayer({id:'fsrcf-case', type:'line', source:'fsrcf', filter:['==', ['get','k'], -1], layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#ffffff', 'line-width':10, 'line-opacity':0.85}});
+        map.addLayer({id:'fsrcf-base', type:'line', source:'fsrcf', filter:['==', ['get','k'], -1], layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color': css.getPropertyValue('--ink-soft').trim() || '#4A5A64', 'line-width':4}});
+        map.addLayer({id:'fsrcf-steep', type:'line', source:'fsrcf', filter:['>', ['get','k'], 0], layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color': byK, 'line-width':6}});
+        map.addLayer({id:'fsrcf-crit', type:'line', source:'fsrcf', filter:['==', ['get','c'], 1], paint:{'line-color':'#0F1E27', 'line-width':3, 'line-dasharray':[1, 1.2], 'line-offset':7}});
+      }catch(e){}
+      fsmFit(map, pts.map(p=> [p.lat, p.lon]), 36, 15);
+      dot = fsmAddMarker(map, mid.lat, mid.lon, '<div class="fsfly-dot"></div>', {anchor:'center'});
+      dot.getElement().style.visibility = 'hidden';
+      if(sel >= 0) show(sel);
+      // Route auf der Karte antippen: nächste Stelle
+      map.on('click', e=>{
+        let best = -1, bd = Infinity;
+        pts.forEach((p, i)=>{ const pp = map.project([p.lon, p.lat]), d = (pp.x - e.point.x) ** 2 + (pp.y - e.point.y) ** 2; if(d < bd){ bd = d; best = i; } });
+        if(best >= 0 && bd < 40 * 40) show(best);
+      });
+    });
+  }).catch(()=>{ const el = ov.querySelector('.fs-rcf-map'); if(el) el.hidden = true; });
 }
 function fsRcBulletinHtml(res, b, bul, auto, probs, pts, step, fmtM, fmtE, critLen, spots, minOpts){
   const asp = a=> a.length >= 8 || !a.length ? 'alle Expositionen' : a.map(x=> FS_SLF_ASPECTS[x] || x).join(' ');
@@ -17669,7 +17820,11 @@ function fsRouteCheckHtml(t){
 function fsRcPaint(key){
   const res = fsRcCache.get(key);
   if(!res) return;
-  document.querySelectorAll('.fs-rc[data-rc="' + CSS.escape(key) + '"] .fs-rc-body').forEach(el=>{ el.innerHTML = fsRcBodyHtml(Object.assign({key}, res), fsRcWithBulletin()); });
+  document.querySelectorAll('.fs-rc[data-rc="' + CSS.escape(key) + '"] .fs-rc-body').forEach(el=>{
+    const full = !!el.parentElement.getAttribute('data-rc-full');
+    el.innerHTML = (full ? fsRcFullHtml : fsRcBodyHtml)(Object.assign({key}, res), fsRcWithBulletin());
+    if(full) el.dispatchEvent(new CustomEvent('fs-rc-painted', {bubbles: true}));
+  });
 }
 async function fsRcRun(key, t){
   if(fsRcCache.has(key) || fsRcRunning.has(key)) return;
@@ -17691,6 +17846,7 @@ document.addEventListener('click', (ev)=>{
   const box = ev.target.closest && ev.target.closest('.fs-rc');
   if(!box) return;
   const key = box.getAttribute('data-rc');
+  if(ev.target.closest('[data-rc-open]')){ fsRcOpenFull(key); return; }
   if(ev.target.closest('[data-rc-fly]')){
     const t = (state.tours || []).find(x=> key.indexOf(x.id + ':') === 0);
     if(t) fsFlyOpen(t);
@@ -17719,7 +17875,7 @@ document.addEventListener('click', (ev)=>{
   }
 }, true); // Capture: die Tourenansicht stoppt Klicks (data-stop)
 document.addEventListener('keydown', (ev)=>{
-  if((ev.key === 'Enter' || ev.key === ' ') && ev.target.closest && ev.target.closest('[data-rc-asp]')){ ev.preventDefault(); ev.target.dispatchEvent(new MouseEvent('click', {bubbles: true})); }
+  if((ev.key === 'Enter' || ev.key === ' ') && ev.target.closest && ev.target.closest('[data-rc-asp], svg[data-rc-open]')){ ev.preventDefault(); ev.target.dispatchEvent(new MouseEvent('click', {bubbles: true})); }
 });
 document.addEventListener('change', (ev)=>{
   if(!ev.target.matches || !ev.target.matches('[data-rc-min]')) return;
