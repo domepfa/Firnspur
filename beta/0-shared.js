@@ -11876,6 +11876,183 @@ document.addEventListener('click', (ev)=>{
   fsOpenTourScan();
 }, true);
 
+/* ===== Jahresrückblick: das Tourenbuch eines Jahres als Geschichte zum Durchtippen =====
+   Aus «gemacht» (completions: wer, wann), Erfahrungen (Fotos) und den Kennzahlen der Touren – über alle
+   Disziplinen (eigene Touren plus die der anderen Apps, loadOtherAppTours). Seiten: Überblick, Disziplinen,
+   Monate, Spurenkarte, Höhepunkte, Seilschaft, Fotos, Tourenbuch. Antippen rechts/links blättert, Halten
+   hält an. Nur Lesen, nichts wird gespeichert. */
+const FS_YB_DISC = {ski:['Skitour', 'snow'], hoch:['Hochtour', 'mountain'], klet:['Klettern', 'climb'], wand:['Wandern', 'walk']};
+function fsYbDiscOf(t, own){
+  if(t.tourCategory === 'wanderung') return 'wand';
+  if(t.tourCategory === 'msl') return 'klet';
+  if(t.tourCategory === 'hochtour') return 'hoch';
+  if(own){ const k = fsAppKey(); return k === 'wandern' ? 'wand' : k === 'fixseil' ? 'hoch' : 'ski'; }
+  return 'ski';
+}
+async function fsYbTours(){
+  const own = (state.tours || []).map(t=> ({t, disc: fsYbDiscOf(t, true)}));
+  let others = [];
+  try{ if(typeof loadOtherAppTours === 'function'){ if(!(state.otherAppTours || []).length) await loadOtherAppTours(); others = state.otherAppTours || []; } }catch(e){ others = []; }
+  const seen = new Set(own.map(x=> x.t.id));
+  return own.concat(others.filter(t=> t && t.id && !seen.has(t.id)).map(t=> ({t, disc: fsYbDiscOf(t, false)})));
+}
+const fsYbNum = v=>{ const n = parseFloat(String(v || '').replace(/['’\s]/g, '').replace(/[^\d.]/g, '')); return isFinite(n) ? n : 0; };
+function fsYbEntries(all, person, year){
+  const me = person && person !== '*' ? fsNameKey(person) : null;
+  const out = [];
+  all.forEach(({t, disc})=> (t.completions || []).forEach(c=>{
+    if(!c || !c.date || String(c.date).slice(0, 4) !== String(year)) return;
+    if(me && fsNameKey(c.by || '') !== me) return;
+    out.push({t, disc, date: c.date, by: c.by || '?', hm: fsYbNum(t.elevationGain), alt: fsYbNum(t.targetAltitude)});
+  }));
+  // Gleiche Tour am gleichen Tag mit mehreren Namen = ein Tag draussen (bei «Alle»)
+  const uniq = new Map();
+  out.forEach(e=>{ const k = e.t.id + '|' + e.date; if(!uniq.has(k)) uniq.set(k, Object.assign({names: []}, e)); uniq.get(k).names.push(e.by); });
+  return Array.from(uniq.values()).sort((a, b)=> String(a.date).localeCompare(String(b.date)));
+}
+function fsYbPeople(all){
+  const m = new Map();
+  all.forEach(({t})=> (t.completions || []).forEach(c=>{ if(c && c.by && c.date){ const k = fsNameKey(c.by); if(!m.has(k)) m.set(k, {name: c.by, n: 0}); m.get(k).n++; } }));
+  return Array.from(m.values()).sort((a, b)=> b.n - a.n);
+}
+function fsYbYears(all){
+  const ys = new Set();
+  all.forEach(({t})=> (t.completions || []).forEach(c=>{ if(c && c.date) ys.add(String(c.date).slice(0, 4)); }));
+  return Array.from(ys).filter(y=> /^\d{4}$/.test(y)).sort().reverse();
+}
+const fsYbFmt = n=> String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '’');
+const FS_YB_MONTHS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+function fsYbPages(E, all, person, year){
+  const hm = E.reduce((s, e)=> s + e.hm, 0);
+  const days = new Set(E.map(e=> e.date)).size;
+  const peaks = new Set(E.map(e=> fsNameKey(e.t.name || ''))).size;
+  const pages = [];
+  const who = person === '*' ? 'Euer' : 'Dein';
+  pages.push({k:'intro', html: `<div class="fsyb-big">${year}</div><p class="fsyb-kicker">${who} Bergjahr${person !== '*' ? ', ' + esc(person) : ''}</p>
+    <div class="fsyb-stats"><div><b data-count="${E.length}">${E.length}</b><span>Touren</span></div><div><b data-count="${hm}" data-sep>${fsYbFmt(hm)}</b><span>Höhenmeter</span></div>
+    <div><b data-count="${days}">${days}</b><span>Tage draussen</span></div><div><b data-count="${peaks}">${peaks}</b><span>Ziele</span></div></div>`});
+  // Disziplinen
+  const byD = Object.keys(FS_YB_DISC).map(d=> ({d, n: E.filter(e=> e.disc === d).length, hm: E.filter(e=> e.disc === d).reduce((s, e)=> s + e.hm, 0)})).filter(x=> x.n);
+  if(byD.length){
+    const maxN = Math.max(...byD.map(x=> x.n));
+    pages.push({k:'disc', html: `<p class="fsyb-kicker">Was ${person === '*' ? 'ihr' : 'du'} gemacht ${person === '*' ? 'habt' : 'hast'}</p><div class="fsyb-discs">${byD.map((x, i)=>
+      `<div class="fsyb-disc fsyb-d-${x.d}" style="--w:${(x.n / maxN * 100).toFixed(0)}%; --i:${i}">${fsIconHtml(FS_YB_DISC[x.d][1])}<span><b>${FS_YB_DISC[x.d][0]}</b><em>${x.n} ${x.n === 1 ? 'Tour' : 'Touren'} · ${fsYbFmt(x.hm)} Hm</em></span><i></i></div>`).join('')}</div>`});
+  }
+  // Monate
+  const mon = FS_YB_MONTHS.map((m, i)=> E.filter(e=> +String(e.date).slice(5, 7) === i + 1).reduce((s, e)=> s + (e.hm || 300), 0));
+  const mx = Math.max(1, ...mon), best = mon.indexOf(Math.max(...mon));
+  pages.push({k:'months', html: `<p class="fsyb-kicker">Über das Jahr</p><h2 class="fsyb-h">Stärkster Monat: ${['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'][best]}</h2>
+    <div class="fsyb-bars">${mon.map((v, i)=> `<div class="${i === best ? 'best' : ''}" style="--h:${(v / mx * 100).toFixed(0)}%; --i:${i}"><i></i><small>${FS_YB_MONTHS[i].slice(0, 1)}</small></div>`).join('')}</div>
+    <p class="fsyb-note">Höhenmeter pro Monat${E.some(e=> !e.hm) ? ' (Touren ohne Angabe zählen mit 300 Hm)' : ''}</p>`});
+  // Spurenkarte
+  const P = E.map(e=> ({e, p: fsTourSummitPoint(e.t) || tourMapPoint(e.t)})).filter(x=> x.p && isFinite(x.p.lat) && typeof projectLatLon === 'function');
+  if(P.length && typeof GEO_CH_CANTON_PATHS !== 'undefined'){
+    const xy = P.map(x=> projectLatLon(x.p.lat, x.p.lon));
+    const VB = GEO_CH_VIEWBOX;
+    pages.push({k:'map', html: `<p class="fsyb-kicker">${P.length} Orte, in der Reihenfolge des Jahres</p>
+      <svg class="fsyb-map" viewBox="-4 -4 ${VB.w + 8} ${VB.h + 8}" role="img" aria-label="Karte der Touren ${year}">
+        <path class="fsyb-ch" d="${Object.values(GEO_CH_CANTON_PATHS).join(' ')}"/>
+        ${typeof GEO_CH_LAKE_PATHS !== 'undefined' ? `<path class="fsyb-lake" d="${Object.values(GEO_CH_LAKE_PATHS).join(' ')}"/>` : ''}
+        <polyline class="fsyb-trail" pathLength="100" points="${xy.map(p=> p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ')}"/>
+        ${xy.map((p, i)=> `<circle class="fsyb-pin fsyb-d-${P[i].e.disc}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.8" style="--i:${i}"><title>${esc(P[i].e.t.name || '')}</title></circle>`).join('')}
+      </svg>`});
+  }
+  // Höhepunkte
+  const hi = E.reduce((m, e)=> e.alt > (m ? m.alt : 0) ? e : m, null);
+  const big = E.reduce((m, e)=> e.hm > (m ? m.hm : 0) ? e : m, null);
+  const card = (lbl, e, val)=> e ? `<div class="fsyb-card"><small>${lbl}</small><b>${esc(e.t.name || '')}</b><span>${val} · ${esc(fmtDateOnly(e.date))}</span></div>` : '';
+  pages.push({k:'tops', html: `<p class="fsyb-kicker">Höhepunkte</p><div class="fsyb-cards">
+    ${card('Höchster Punkt', hi, hi ? fsYbFmt(hi.alt) + ' m' : '')}${card('Meiste Höhenmeter an einem Tag', big, big ? fsYbFmt(big.hm) + ' Hm' : '')}
+    ${card('Erste Tour', E[0], FS_YB_DISC[E[0].disc][0])}${E.length > 1 ? card('Letzte Tour', E[E.length - 1], FS_YB_DISC[E[E.length - 1].disc][0]) : ''}</div>`});
+  // Seilschaft: andere Namen am gleichen Tag auf derselben Tour
+  if(person !== '*'){
+    const pk = fsNameKey(person), cnt = new Map();
+    E.forEach(e=> (e.t.completions || []).forEach(c=>{ if(c && c.date === e.date && c.by && fsNameKey(c.by) !== pk){ const k = fsNameKey(c.by); if(!cnt.has(k)) cnt.set(k, {name: c.by, n: 0}); cnt.get(k).n++; } }));
+    const top = Array.from(cnt.values()).sort((a, b)=> b.n - a.n).slice(0, 5);
+    if(top.length) pages.push({k:'crew', html: `<p class="fsyb-kicker">Seilschaft</p><h2 class="fsyb-h">Am meisten unterwegs mit ${esc(top[0].name)}</h2>
+      <div class="fsyb-crew">${top.map((x, i)=> `<div style="--i:${i}"><span class="fsyb-av">${esc((x.name || '?').trim().charAt(0).toUpperCase())}</span><b>${esc(x.name)}</b><em>${x.n} ${x.n === 1 ? 'Tag' : 'Tage'}</em></div>`).join('')}</div>`});
+  }
+  // Fotos aus den Erfahrungen des Jahres
+  const ppk = person !== '*' ? fsNameKey(person) : null;
+  const photos = [];
+  all.forEach(({t})=> (t.erfahrungen || []).forEach(x=>{ if(x && String(x.date || '').slice(0, 4) === String(year) && (!ppk || fsNameKey(x.by || '') === ppk)) (x.photos || []).forEach(ph=>{ if(ph && ph.url) photos.push({url: ph.url, name: t.name}); }); }));
+  if(photos.length) pages.push({k:'photos', html: `<p class="fsyb-kicker">${photos.length} ${photos.length === 1 ? 'Foto' : 'Fotos'}</p><div class="fsyb-photos">${photos.slice(0, 9).map((ph, i)=>
+    `<figure style="--i:${i}"><img src="${esc(ph.url)}" alt="${esc(ph.name || '')}" loading="lazy"></figure>`).join('')}</div>`});
+  // Tourenbuch
+  pages.push({k:'book', html: `<p class="fsyb-kicker">Tourenbuch ${year}</p><ol class="fsyb-book">${E.map(e=> `<li><time>${esc(fmtDateOnly(e.date))}</time><span class="fsyb-d-${e.disc}">${fsIconHtml(FS_YB_DISC[e.disc][1])}</span><b>${esc(e.t.name || '')}${e.t.routeName ? ' <em>' + esc(e.t.routeName) + '</em>' : ''}</b>${e.hm ? `<small>${fsYbFmt(e.hm)} Hm</small>` : ''}</li>`).join('')}</ol>`});
+  return pages;
+}
+async function fsOpenYearbook(){
+  const ov = document.createElement('div');
+  ov.className = 'fsyb';
+  ov.innerHTML = '<div class="fsyb-load">Jahresrückblick wird zusammengestellt …</div>';
+  document.body.appendChild(ov);
+  pushOverlayLayer(()=>{ clearInterval(ov._timer); ov.remove(); });
+  const all = await fsYbTours();
+  const years = fsYbYears(all), people = fsYbPeople(all);
+  if(!years.length){ ov.innerHTML = `<button type="button" class="fsyb-x" data-yb="close" aria-label="Schliessen">×</button><div class="fsyb-load">Noch keine Tour als gemacht eingetragen. «Nachtragen» in einer Tour füllt den Rückblick.</div>`; ov.querySelector('[data-yb="close"]').onclick = ()=> closeTopOverlayLayer(); return; }
+  const meKey = state.myName ? fsNameKey(state.myName) : '';
+  let person = people.some(p=> fsNameKey(p.name) === meKey) ? (people.find(p=> fsNameKey(p.name) === meKey).name) : '*';
+  let year = years.find(y=> fsYbEntries(all, person, y).length) || years[0];
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let idx = 0, pages = [], paused = false;
+  const build = ()=>{
+    const E = fsYbEntries(all, person, year);
+    pages = E.length ? fsYbPages(E, all, person, year) : [{k:'empty', html: `<div class="fsyb-big">${year}</div><p class="fsyb-kicker">Keine Touren ${person === '*' ? '' : 'von ' + esc(person) + ' '}in diesem Jahr.</p>`}];
+    ov.innerHTML = `<div class="fsyb-prog">${pages.map(()=> '<i><b></b></i>').join('')}</div>
+      <div class="fsyb-top"><div class="fsyb-sel">
+        <select data-yb="year" aria-label="Jahr">${years.map(y=> `<option ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select>
+        <select data-yb="person" aria-label="Person"><option value="*" ${person === '*' ? 'selected' : ''}>Alle</option>${people.map(p=> `<option ${p.name === person ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+      </div><button type="button" class="fsyb-x" data-yb="close" aria-label="Schliessen">×</button></div>
+      <div class="fsyb-stage">${pages.map((p, i)=> `<section class="fsyb-page fsyb-p-${p.k}" data-i="${i}" aria-hidden="true">${p.html}</section>`).join('')}</div>
+      <div class="fsyb-nav"><button type="button" data-yb="prev" aria-label="Zurück">‹</button><button type="button" data-yb="next" aria-label="Weiter">›</button></div>`;
+    ov.querySelector('[data-yb="close"]').onclick = ()=> closeTopOverlayLayer();
+    ov.querySelector('[data-yb="year"]').onchange = e=>{ year = e.target.value; idx = 0; build(); };
+    ov.querySelector('[data-yb="person"]').onchange = e=>{ person = e.target.value; idx = 0; build(); };
+    ov.querySelector('[data-yb="prev"]').onclick = ()=> go(idx - 1);
+    ov.querySelector('[data-yb="next"]').onclick = ()=> go(idx + 1);
+    show(0);
+  };
+  function show(i){
+    idx = Math.max(0, Math.min(pages.length - 1, i));
+    ov.querySelectorAll('.fsyb-page').forEach((p, j)=>{ const on = j === idx; p.classList.toggle('on', false); p.setAttribute('aria-hidden', !on); if(on){ void p.offsetWidth; p.classList.add('on'); } });
+    ov.querySelectorAll('.fsyb-prog i').forEach((b, j)=>{ b.classList.toggle('done', j < idx); b.classList.toggle('now', j === idx); const bar = b.firstChild; bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = ''; });
+    // Zahlen hochzählen
+    ov.querySelectorAll('.fsyb-page.on [data-count]').forEach(el=>{
+      const to = +el.getAttribute('data-count'), sep = el.hasAttribute('data-sep'), t0 = performance.now();
+      if(reduce){ el.textContent = sep ? fsYbFmt(to) : to; return; }
+      const step = now=>{ const p = Math.min(1, (now - t0) / 1200), v = to * (1 - Math.pow(1 - p, 3)); el.textContent = sep ? fsYbFmt(v) : Math.round(v); if(p < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+    });
+    ov.classList.toggle('last', idx === pages.length - 1);
+    clearInterval(ov._timer);
+    // Automatisch weiter (nicht auf der letzten Seite und nicht bei reduzierter Bewegung)
+    if(!reduce && idx < pages.length - 1) ov._timer = setInterval(()=>{ if(!paused && document.body.contains(ov)) go(idx + 1); }, 6500);
+  }
+  function go(i){ if(i >= 0 && i < pages.length) show(i); }
+  // Antippen: linkes Drittel zurück, sonst weiter; gedrückt halten pausiert
+  let downAt = 0;
+  ov.addEventListener('pointerdown', e=>{ if(e.target.closest('select, button, .fsyb-book, a')) return; downAt = Date.now(); paused = true; ov.classList.add('paused'); });
+  ov.addEventListener('pointerup', e=>{
+    if(!downAt) return;
+    const held = Date.now() - downAt > 350; downAt = 0; paused = false; ov.classList.remove('paused');
+    if(held) return;
+    const r = ov.getBoundingClientRect();
+    go(e.clientX - r.left < r.width / 3 ? idx - 1 : idx + 1);
+  });
+  ov.addEventListener('keydown', e=>{ if(e.key === 'ArrowRight') go(idx + 1); if(e.key === 'ArrowLeft') go(idx - 1); });
+  ov.tabIndex = -1;
+  build();
+  ov.focus();
+}
+document.addEventListener('click', (ev)=>{
+  const el = ev.target.closest && ev.target.closest('[data-act="fs-yearbook"]');
+  if(!el) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const menu = el.closest('details'); if(menu) menu.open = false;
+  fsOpenYearbook();
+}, true);
+
 /* ================= Bibliothek: Suche, Gemacht-Filter, Kartenfuss =================
    Gemeinsam für alle Tourenlisten (Skitour, Hochtour, Klettern, Wandern). */
 function fsNorm(s){ return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
