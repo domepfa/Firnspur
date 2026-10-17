@@ -11387,13 +11387,14 @@ function ensureMeteoBulkData(){
     render();
   }).catch(err=>{
     state._meteoBulkStatus = 'error';
+    state._meteoBulkErrAt = Date.now();
     _meteoBulkPromise = null;
     console.warn('Wetter-Bulkdaten konnten nicht geladen werden:', err);
   });
 }
 
 function meteoDayIcon(precipMm){
-  return precipMm >= 3 ? '🌧️' : precipMm >= 0.3 ? '🌦️' : '☀️';
+  return fsIconHtml(precipMm >= 3 ? 'rain' : precipMm >= 0.3 ? 'partly' : 'sun');
 }
 
 // Kompakte 3-Tages-Zeile fürs Kärtchen -- eigene Zeile unterhalb der Schwierigkeits-/Höhen-Chips,
@@ -11666,13 +11667,29 @@ function fsDoneFilterHtml(){
   const chip = (v, label)=> `<button class="chip ${state.activeDoneFilter===v?'on':''}" style="${state.activeDoneFilter===v?'background:var(--ice-deep)':''}" data-act="filter-done" data-value="${v}">${label}</button>`;
   return `<div class="field"><label>Gemacht</label><div class="chips">${chip('ja', 'schon gemacht')}${chip('nein', 'noch nicht gemacht')}</div></div>`;
 }
-// Fuss der Listeneinträge: Status und zuletzt gemacht, in einer Zeile
+// Wetter der nächsten 3 Tage im Listeneintrag (MeteoSchweiz, alle Punkte mit 2 Anfragen; siehe
+// meteoCardForecastData). Nach einem Fehler (offline) erst nach einer Minute wieder versuchen.
+function fsCardWeatherHtml(t){
+  const p = fsTourSummitPoint(t) || tourMapPoint(t);
+  if(!p || !isFinite(p.lat) || !isFinite(p.lon)) return '';
+  if(state._meteoBulkStatus !== 'ok'){
+    if(state._meteoBulkStatus === 'error' && Date.now() - (state._meteoBulkErrAt || 0) < 60000) return '';
+    if(state._meteoBulkStatus === 'error') state._meteoBulkErrAt = Date.now();
+    ensureMeteoBulkData();
+    return '';
+  }
+  const days = meteoCardForecastData(p.lat, p.lon).days.slice(0, 3);
+  if(!days.length) return '';
+  return `<span class="fs-card-wx" aria-label="Wetter der nächsten Tage">${days.map(d=>
+    `<span>${meteoFormatDayLabel(d.date).weekday}${meteoDayIcon(d.precipMm)}${Math.round(d.tempMax)}°</span>`).join('')}</span>`;
+}
+// Fuss der Listeneinträge: Wetter, Status und zuletzt gemacht, in einer Zeile
 function fsCardFootHtml(t){
   const n = (t.completions || []).length;
   const last = n ? (t.completions || []).slice().sort((a, b)=> String(b.date || '').localeCompare(String(a.date || '')))[0] : null;
   const done = last ? `<span class="fs-card-done">${fsIconHtml('check')}${esc(last.by || '?')}${last.date ? ' · ' + fmtDateOnly(last.date) : ''}${n > 1 ? ' (+' + (n - 1) + ')' : ''}</span>`
     : (t.completed ? `<span class="fs-card-done">${fsIconHtml('check')}gemacht</span>` : '');
-  return `<div class="fs-card-foot">${tourStatusLabel(t)}${done}</div>`;
+  return `<div class="fs-card-foot">${fsCardWeatherHtml(t)}${tourStatusLabel(t)}${done}</div>`;
 }
 // Was bis «bereit» fehlt (nur Hinweis, entscheidet nichts)
 function fsTourMissingForReady(t){
@@ -11773,6 +11790,7 @@ function fsTourStatusHtml(t){
   const missing = cur !== 'bereit' ? fsTourMissingForReady(t) : [];
   return `<div class="fs-status-row">
     <span class="fs-status-pill">${tourStatusLabel(t)}</span>
+    <button type="button" class="btn secondary fs-nt-btn" data-act="fs-nachtragen" data-id="${esc(t.id)}">${fsIconHtml('plus')}Nachtragen</button>
     <div class="fs-status-seg" role="group" aria-label="Status">${FS_TOUR_STATUS.map(s=>
       `<button type="button" class="${s.key === cur ? 'on' : ''}" data-act="set-tour-status" data-id="${esc(t.id)}" data-value="${s.key}" aria-pressed="${s.key === cur}">${fsIconHtml(s.icon)}<span>${s.label}</span></button>`).join('')}</div>
   </div>${cur !== 'bereit' && missing.length ? `<p class="fs-ready-missing">Für «bereit» fehlt noch: ${missing.map(esc).join(' · ')}</p>` : ''}${ready ? `<div class="fs-ready-offline">${offlineSectionHtml(t.id)}</div>` : ''}`;
@@ -15790,7 +15808,7 @@ function fsErfEntryHtml(t, e){
 function fsTourErfSection(t){
   const list = fsErfList(t);
   const html = `${list.map(e=> fsErfEntryHtml(t, e)).join('')}
-    <button type="button" class="btn secondary fs-ort-addbtn" data-act="fs-erf-new" data-id="${esc(t.id)}">${fsIconHtml('plus')}Erfahrung schreiben</button>`;
+    <button type="button" class="btn secondary fs-ort-addbtn" data-act="fs-nachtragen" data-id="${esc(t.id)}">${fsIconHtml('plus')}Nachtragen</button>`;
   return list.length ? html : {html, editOnly: true};
 }
 async function fsErfSaveTour(t, msg){
@@ -15806,20 +15824,29 @@ async function fsErfSaveTour(t, msg){
 function fsErfMake(text, date, by, photos){
   return {id: uid('e'), by: (by || state.myName || '').trim(), date: date || fsToday(), at: new Date().toISOString(), text: String(text || '').trim(), photos: photos || []};
 }
-function fsOpenErfForm(tourId){
+// «Nachtragen» nach der Tour, mit einem Tipp (kein Gedrückthalten): gemacht (Name + Datum), Erfahrung,
+// Fotos, GPX. Alles sind Ergänzungen (neue Listeneinträge bzw. leere Linie füllen), dürfen also alle.
+function fsOpenErfForm(tourId){ fsOpenNachtragen(tourId); }
+function fsOpenNachtragen(tourId){
   const t = (state.tours || []).find(x=> x.id === tourId);
   if(!t) return;
+  if(!state.myName && typeof ensureName === 'function'){ ensureName(()=> fsOpenNachtragen(tourId)); return; }
   const e = fsErfMake('', fsToday());
+  let gpx = null; // {text, name, line}
   const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
-    <h3 class="fs-td-h">Erfahrung schreiben</h3>
+    <h3 class="fs-td-h">Nachtragen</h3>
     <p class="fs-ort-stand">${esc(t.name)}${t.routeName ? ' – ' + esc(t.routeName) : ''}</p>
     <label class="fs-ort-lbl" for="fs-erf-date">Datum der Tour</label>
     <input id="fs-erf-date" type="date" value="${esc(e.date)}">
-    <label class="fs-ort-lbl" for="fs-erf-text">Was war anders, neu oder gut zu wissen?</label>
-    <textarea id="fs-erf-text" rows="5" placeholder="z. B. Parkplatz neu gebührenpflichtig, Rinne bis Mitte Mai gut eingeschneit …"></textarea>
+    <label class="fs-nt-done"><input type="checkbox" id="fs-nt-done" checked><span>Ich war dort – als gemacht eintragen (${esc(state.myName || '?')})</span></label>
+    <label class="fs-ort-lbl" for="fs-erf-text">Was war anders, neu oder gut zu wissen? (optional)</label>
+    <textarea id="fs-erf-text" rows="4" placeholder="z. B. Parkplatz neu gebührenpflichtig, Rinne bis Mitte Mai gut eingeschneit …"></textarea>
     <label class="fs-ort-lbl">Fotos (bis ${FS_ERF_MAX_PHOTOS})</label>
     <div class="fs-ort-photo-row"><span data-photos class="fs-erf-thumbs"></span>
       <label class="btn secondary">${fsIconHtml('camera')}Foto wählen<input type="file" accept="image/*" hidden data-file></label></div>
+    <label class="fs-ort-lbl">GPX der Begehung (optional)</label>
+    <div class="fs-ort-photo-row"><span data-gpx class="fs-nt-gpx"></span>
+      <label class="btn secondary">${fsIconHtml('upload')}GPX wählen<input type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml" hidden data-gpxfile></label></div>
     <p class="fs-ort-msg" data-msg></p>
     <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Abbrechen</button><button type="button" class="btn" data-save>Speichern</button></div>`);
   const q = s=> ov.querySelector(s);
@@ -15836,8 +15863,24 @@ function fsOpenErfForm(tourId){
       const storagePath = `${TOPO_IMAGES_PATH}/${t.id}/${imgId}.jpg`;
       const url = await uploadTopoImageBlob(blob, storagePath);
       e.photos.push({id: imgId, url, storagePath});
+      ov._dirty = true;
       drawPhotos(); q('[data-msg]').textContent = '';
     }catch(err){ q('[data-msg]').textContent = 'Foto konnte nicht hochgeladen werden (Internet?).'; }
+  });
+  q('[data-gpxfile]').addEventListener('change', async (ev)=>{
+    const f = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if(!f) return;
+    try{
+      const text = await f.text();
+      const pts = parseGpxTrackPoints(text);
+      if(pts.length < 2){ q('[data-msg]').textContent = 'In dieser Datei ist keine Linie.'; return; }
+      const line = simplifyTrackForStorage(pts, 200).map(p=> [Math.round(p.lat * 1e6) / 1e6, Math.round(p.lon * 1e6) / 1e6]);
+      gpx = {text, name: f.name.replace(/\.gpx$/i, ''), line};
+      ov._dirty = true;
+      q('[data-gpx]').textContent = f.name + ' · ' + pts.length + ' Punkte';
+      q('[data-msg]').textContent = '';
+    }catch(err){ q('[data-msg]').textContent = 'GPX-Datei konnte nicht gelesen werden.'; }
   });
   // Entwurf des Textes auf dem Gerät (übersteht beendeten Tab), beim Öffnen wieder einsetzen
   const dKey = 'fs-draft-erf:' + t.id;
@@ -15847,13 +15890,37 @@ function fsOpenErfForm(tourId){
   q('[data-save]').addEventListener('click', async ()=>{
     e.text = q('#fs-erf-text').value.trim();
     e.date = q('#fs-erf-date').value || fsToday();
-    if(!e.text && !e.photos.length){ q('[data-msg]').textContent = 'Bitte etwas schreiben oder ein Foto wählen.'; q('#fs-erf-text').focus(); return; }
+    const done = q('#fs-nt-done').checked;
+    if(!done && !e.text && !e.photos.length && !gpx){ q('[data-msg]').textContent = 'Bitte «gemacht» ankreuzen, etwas schreiben oder ein Foto oder GPX wählen.'; return; }
     ov._saved = true; try{ localStorage.removeItem(dKey); }catch(err){}
     closeTopOverlayLayer();
-    t.erfahrungen = [...(Array.isArray(t.erfahrungen) ? t.erfahrungen : []), e];
-    await fsErfSaveTour(t, 'Erfahrung gespeichert.');
+    const parts = [];
+    if(done){
+      t.completions = [...(Array.isArray(t.completions) ? t.completions : []), {by: state.myName, date: e.date}];
+      if(!t.completed) t.completed = true;
+      parts.push('gemacht am ' + fmtDateOnly(e.date));
+    }
+    if(e.text || e.photos.length){
+      t.erfahrungen = [...(Array.isArray(t.erfahrungen) ? t.erfahrungen : []), e];
+      parts.push(e.text ? 'Erfahrung' : (e.photos.length === 1 ? '1 Foto' : e.photos.length + ' Fotos'));
+    }
+    if(gpx){
+      // Ohne Linie wird die GPX zur Route der Tour, sonst eine weitere Route (Variante)
+      const name = gpx.name || ('GPX ' + state.myName + ' ' + fmtDateOnly(e.date));
+      const file = {gpx: gpx.text, uploadedAt: new Date().toISOString(), fileName: (gpx.name || 'track') + '.gpx'};
+      if(!(t.trackSimplified && t.trackSimplified.length) && !(t.manualTrack && t.manualTrack.length)){
+        t.trackSimplified = gpx.line;
+        fsQueueFile(GPX_TRACKS_PATH + '/' + t.id, file); // wird nach dem Speichern der Tour hochgeladen, bei Fehler erneut
+        parts.push('GPX als Route');
+      }else{
+        const altId = 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        t.altTracks = [...(Array.isArray(t.altTracks) ? t.altTracks : []), {id: altId, name, type: 'variante', trackSimplified: gpx.line}];
+        fsQueueFile(GPX_TRACKS_PATH + 'Alt/' + t.id + '/' + altId, file);
+        parts.push('GPX als weitere Route');
+      }
+    }
+    await fsErfSaveTour(t, 'Nachgetragen: ' + parts.join(', ') + '.');
   });
-  setTimeout(()=>{ try{ q('#fs-erf-text').focus(); }catch(err){} }, 50);
 }
 // Erfahrung in ein Textfeld der Beschreibung übernehmen (vorgefüllt, anpassbar)
 function fsOpenErfApply(tourId, erfId){
@@ -15906,11 +15973,11 @@ function fsCompletionNoteTake(t, by, date){
   return true;
 }
 document.addEventListener('click', (ev)=>{
-  const el = ev.target.closest && ev.target.closest('[data-act="fs-erf-new"],[data-act="fs-erf-apply"],[data-act="fs-erf-delete"]');
+  const el = ev.target.closest && ev.target.closest('[data-act="fs-erf-new"],[data-act="fs-nachtragen"],[data-act="fs-erf-apply"],[data-act="fs-erf-delete"]');
   if(!el) return;
   ev.stopPropagation();
   const act = el.getAttribute('data-act'), id = el.getAttribute('data-id'), erf = el.getAttribute('data-erf');
-  if(act === 'fs-erf-new') fsOpenErfForm(id);
+  if(act === 'fs-erf-new' || act === 'fs-nachtragen') fsOpenNachtragen(id);
   else if(act === 'fs-erf-apply') fsOpenErfApply(id, erf);
   else fsErfDelete(id, erf);
 }, true);
