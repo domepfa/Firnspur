@@ -2246,3 +2246,26 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-rc-probs li strong{ font-size:13px; white-space:nowrap; }
 .fs-rc-probs li strong.warn{ color:var(--signal-deep); }
 .fs-rc-probs li strong.ok{ color:var(--ok); }
+
+/* Vorbeiflug */
+.fs-rc-fly{ display:flex; align-items:center; justify-content:center; gap:8px; min-height:48px; width:100%; font-weight:800; }
+.fs-rc-fly .fs-i{ width:18px; height:18px; }
+.fsfly{ position:absolute; left:0; right:0; bottom:0; z-index:6; display:grid; gap:8px; padding:12px max(14px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px));
+  background:color-mix(in srgb, var(--paper) 92%, transparent); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); border-radius:22px 22px 0 0; box-shadow:0 -8px 30px rgba(15,30,39,.25); color:var(--ink); }
+.fsfly-row{ display:grid; grid-template-columns:56px minmax(0,1fr) 56px; gap:10px; align-items:center; }
+.fsfly-play, .fsfly-speed{ width:56px; height:56px; border-radius:50%; border:none; background:var(--ice-deep); color:#fff; display:grid; place-items:center; font:inherit; font-weight:800; font-size:16px; cursor:pointer; }
+.fsfly-speed{ background:var(--line-soft); color:var(--ink); }
+.fsfly-play .fs-i{ width:24px; height:24px; fill:currentColor; }
+.fsfly-read{ display:grid; gap:1px; min-width:0; }
+.fsfly-read b{ font-family:var(--font-display); font-weight:400; font-size:30px; line-height:1; font-variant-numeric:tabular-nums; }
+.fsfly-read span{ font-size:13.5px; font-weight:700; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fsfly-alert{ display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:12px; background:var(--ink); color:var(--paper); font-weight:800; font-size:13.5px; animation:fsfly-pulse 1.4s ease-in-out infinite; }
+.fsfly-alert[hidden]{ display:none; }
+.fsfly-alert .fs-i{ width:18px; height:18px; color:var(--slope-1); }
+@keyframes fsfly-pulse{ 50%{ box-shadow:0 0 0 4px color-mix(in srgb, var(--slope-2) 55%, transparent); } }
+.fsfly-prof{ width:100%; height:84px; display:block; cursor:pointer; touch-action:none; border-radius:10px; }
+.fsfly-area{ fill:var(--ice-light); }
+.fsfly-pline{ stroke:var(--ink-soft); }
+.fsfly-cursor{ stroke:var(--ink); }
+.fsfly-dot{ width:20px; height:20px; border-radius:50%; background:var(--ice-deep); border:4px solid #fff; box-shadow:0 0 0 6px color-mix(in srgb, var(--ice-deep) 35%, transparent), 0 2px 8px rgba(0,0,0,.4); }
+@media (prefers-reduced-motion: reduce){ .fsfly-alert{ animation:none; } }
