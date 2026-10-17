@@ -1780,24 +1780,19 @@ function fsHomeFilter(){
     bar.querySelector('.fs-home-all').onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); };
   }
 }
-// Suchfeld in den Listen eingeklappt: Lupen-Knopf neben «Filter». Offen-Zustand als Klasse an <html>,
-// damit das Feld beim Neuzeichnen (bei jedem Buchstaben) sofort sichtbar bleibt und den Cursor behält.
-function fsSearchSetOpen(on){ document.documentElement.classList.toggle('fs-search-open', !!on); }
+// Suchfeld in den Listen immer sichtbar, in derselben Zeile wie «Filter» (nur Klassen setzen: das Feld
+// selbst nicht verschieben, sonst verliert es beim Neuzeichnen den Cursor).
 function fsSearchCollapse(){
   const sheet = document.querySelector('.fs-sheet');
   const inp = sheet && sheet.querySelector('.search-input');
   if(!inp || inp._fsCollapsed) return;
   inp._fsCollapsed = true;
   const tb = inp.closest('.toolbar');
-  const row = (tb && tb.nextElementSibling && tb.nextElementSibling.classList.contains('toolbar-row')) ? tb.nextElementSibling : tb;
-  const btn = document.createElement('button');
-  btn.type = 'button'; btn.className = 'btn secondary fs-search-btn'; btn.setAttribute('aria-label', 'Suchen');
-  btn.innerHTML = fsIconHtml('search') + '<span>Suchen</span>';
-  row.insertBefore(btn, row.firstChild);
+  const row = (tb && tb.nextElementSibling && tb.nextElementSibling.classList.contains('toolbar-row')) ? tb.nextElementSibling : null;
   tb.classList.add('fs-search-tb');
-  btn.addEventListener('click', ()=>{ fsSearchSetOpen(true); inp.focus(); });
-  inp.addEventListener('blur', ()=> setTimeout(()=>{ const cur = document.querySelector('.fs-sheet .search-input'); if(cur && !cur.value && document.activeElement !== cur) fsSearchSetOpen(false); }, 200));
-  if(inp.value) fsSearchSetOpen(true);
+  if(row){ tb.classList.add('fs-search-has-row'); row.classList.add('fs-search-beside'); }
+  inp.setAttribute('type', 'search');
+  inp.setAttribute('aria-label', 'Touren durchsuchen');
 }
 (function(){
   if(typeof MutationObserver === 'undefined') return;
@@ -2041,6 +2036,8 @@ function showToast(message, isError){
   if(old) old.remove();
   const el = document.createElement('div');
   el.className = 'toast' + (isError ? ' error' : '');
+  // Screenreader: Fehler sofort, sonst höflich vorlesen
+  el.setAttribute('role', isError ? 'alert' : 'status');
   el.textContent = message;
   document.body.appendChild(el);
   setTimeout(()=>{ el.remove(); }, isError ? 5000 : 2500);
@@ -2115,6 +2112,8 @@ function parseDurationHours(s){
 }
 function tourSortKey(t, by){
   if(by==='date') return t.createdAt || '';
+  if(by==='updated') return t.updatedAt || t.createdAt || '';
+  if(by==='done') return fsTourLastDoneDate(t);
   if(by==='name') return (t.name||'').toLowerCase();
   if(by==='region') return (t.region||'').toLowerCase();
   if(by==='difficulty'){ let i = t.difficulty ? DIFF_ORDER.indexOf(t.difficulty) : -1; if(i<0 && t.difficulty) i = HIKE_SCALE_ORDER.indexOf(t.difficulty); return i>=0 ? i : null; }
@@ -2139,7 +2138,9 @@ function sortHuts(list){
   return [...list].sort((a,b)=> compareValues(hutSortKey(a,by), hutSortKey(b,by), dir));
 }
 const TOUR_SORT_OPTIONS = [
-  {value:'date', label:'Datum'},
+  {value:'date', label:'Erfasst'},
+  {value:'updated', label:'Zuletzt geändert'},
+  {value:'done', label:'Zuletzt gemacht'},
   {value:'name', label:'A–Z'},
   {value:'region', label:'Region'},
   {value:'difficulty', label:'Schwierigkeit'},
@@ -10767,7 +10768,7 @@ function fsConditionsHtml(lat, lon, alt){
   const hsNear = fsNearest(c.hs, lat, lon, 25000, x=> x.src === 'SLF');
   const msNs = fsNearest(c.ns, lat, lon, 25000, x=> x.src === 'MeteoSchweiz');
   const rainNear = fsNearest(c.rain, lat, lon, 25000);
-  const offline = !c.om && (navigator.onLine === false || (!c.hs && !c.ns && !c.rain)); // nichts kam an: wohl offline
+  const offline = !c.om && (navigator.onLine === false || (typeof state !== 'undefined' && state.offlineMode) || (!c.hs && !c.ns && !c.rain)); // nichts kam an: wohl offline
   parts.push(`<p class="fs-cond-sum">${sent || (offline ? 'Offline – Bedingungen erscheinen, sobald wieder Internet da ist.' : 'Für diesen Punkt sind gerade keine Modelldaten verfügbar.')}</p>`);
   if(slfBox) parts.unshift(slfBox);
   if(chips.length) parts.push(`<div class="fs-cond-chips">${chips.join('')}</div>`);
@@ -11617,6 +11618,75 @@ function wireLoginScreen(){
   input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptLogin(); });
 }
 
+/* ================= Bibliothek: Suche, Gemacht-Filter, Kartenfuss =================
+   Gemeinsam für alle Tourenlisten (Skitour, Hochtour, Klettern, Wandern). */
+function fsNorm(s){ return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+// Alle Texte einer Tour (auch Punkte, Erfahrungen, Hütte, Gebiet, Gipfel, verknüpfte Orte), ohne IDs,
+// Koordinaten, Bilder und Links.
+const FS_SEARCH_SKIP = /^(id|.*Id|.*Ids|coords|manualTrack|trackSimplified|altTracks|routes|photos|topoImages|url|.*Link|.*At|owner|editors|_.*)$/;
+function fsTourSearchText(t){
+  const out = [];
+  const walk = (v, depth)=>{
+    if(v == null || depth > 4) return;
+    if(typeof v === 'string'){ if(!/^(data:|https?:)/.test(v)) out.push(v); return; }
+    if(typeof v === 'number'){ out.push(String(v)); return; }
+    if(Array.isArray(v)){ v.forEach(x=> walk(x, depth + 1)); return; }
+    if(typeof v === 'object') Object.keys(v).forEach(k=>{ if(!FS_SEARCH_SKIP.test(k)) walk(v[k], depth + 1); });
+  };
+  walk(t, 0);
+  const name = (list, id)=>{ const x = id && Array.isArray(list) ? list.find(o=> o && o.id === id) : null; if(x) out.push(x.name || ''); };
+  if(typeof state !== 'undefined'){
+    name(state.huts, t.hutId); name(state.gebiete, t.gebietId); name(state.sektoren, t.sektorId);
+    (t.summitIds || []).forEach(id=> name(state.gipfel, id));
+  }
+  const orte = t.orte || [];
+  if(orte.length) fsOrteAll().forEach(o=>{ if(orte.indexOf(o.id) >= 0) out.push(o.name || '', o.note || ''); });
+  return fsNorm(out.join(' \n '));
+}
+function fsTourMatchesSearch(t, q){
+  const words = fsNorm(q).split(/\s+/).filter(Boolean);
+  if(!words.length) return true;
+  const txt = fsTourSearchText(t);
+  return words.every(w=> txt.includes(w));
+}
+function fsTourDone(t){ return !!((t.completions && t.completions.length) || t.completed); }
+function fsTourLastDoneDate(t){
+  return (t.completions || []).reduce((m, c)=> (c && c.date && c.date > m) ? c.date : m, '') || (t.completed ? (t.completedDate || '') : '');
+}
+// Filter «Gemacht»: '' = alle, 'ja' = schon gemacht, 'nein' = noch nicht
+function fsApplyDoneFilter(list){
+  const v = state.activeDoneFilter;
+  return v ? list.filter(t=> fsTourDone(t) === (v === 'ja')) : list;
+}
+function toggleDoneFilter(v){
+  state.activeDoneFilter = (state.activeDoneFilter === v) ? '' : v;
+  render();
+}
+function fsDoneFilterHtml(){
+  const chip = (v, label)=> `<button class="chip ${state.activeDoneFilter===v?'on':''}" style="${state.activeDoneFilter===v?'background:var(--ice-deep)':''}" data-act="filter-done" data-value="${v}">${label}</button>`;
+  return `<div class="field"><label>Gemacht</label><div class="chips">${chip('ja', 'schon gemacht')}${chip('nein', 'noch nicht gemacht')}</div></div>`;
+}
+// Fuss der Listeneinträge: Status und zuletzt gemacht, in einer Zeile
+function fsCardFootHtml(t){
+  const n = (t.completions || []).length;
+  const last = n ? (t.completions || []).slice().sort((a, b)=> String(b.date || '').localeCompare(String(a.date || '')))[0] : null;
+  const done = last ? `<span class="fs-card-done">${fsIconHtml('check')}${esc(last.by || '?')}${last.date ? ' · ' + fmtDateOnly(last.date) : ''}${n > 1 ? ' (+' + (n - 1) + ')' : ''}</span>`
+    : (t.completed ? `<span class="fs-card-done">${fsIconHtml('check')}gemacht</span>` : '');
+  return `<div class="fs-card-foot">${tourStatusLabel(t)}${done}</div>`;
+}
+// Was bis «bereit» fehlt (nur Hinweis, entscheidet nichts)
+function fsTourMissingForReady(t){
+  const miss = [];
+  const msl = t.tourCategory === 'msl';
+  if(!(msl ? (t.mandatoryDifficulty || t.cruxDifficulty) : t.difficulty)) miss.push('Schwierigkeit');
+  if(!msl && !t.elevationGain) miss.push('Höhenmeter');
+  if(!t.duration) miss.push('Zeitbedarf');
+  if(!String(t.ascent || '').trim()) miss.push(msl ? 'Routenbeschreibung' : 'Aufstieg');
+  if(!String(t.approach || '').trim() && !(t.approachTypes || []).length) miss.push('Anreise');
+  if(!tourHasMapData(t)) miss.push('Route oder Punkt auf der Karte');
+  return miss;
+}
+
 /* ================= Tour-Status: Idee / in Recherche / bereit =================
    Alte Werte werden nur anders gelesen, nicht umgeschrieben: entwurf → Idee, vollstaendig → bereit. */
 const FS_TOUR_STATUS = [
@@ -11700,11 +11770,12 @@ function fsTourStatusHtml(t){
   const cur = fsTourStatus(t);
   // Bereit: «Für unterwegs» gleich hier statt unten unter «Mehr»
   const ready = cur === 'bereit' && (tourHasMapData(t) || (t.topoImages && t.topoImages.length));
+  const missing = cur !== 'bereit' ? fsTourMissingForReady(t) : [];
   return `<div class="fs-status-row">
     <span class="fs-status-pill">${tourStatusLabel(t)}</span>
     <div class="fs-status-seg" role="group" aria-label="Status">${FS_TOUR_STATUS.map(s=>
       `<button type="button" class="${s.key === cur ? 'on' : ''}" data-act="set-tour-status" data-id="${esc(t.id)}" data-value="${s.key}" aria-pressed="${s.key === cur}">${fsIconHtml(s.icon)}<span>${s.label}</span></button>`).join('')}</div>
-  </div>${ready ? `<div class="fs-ready-offline">${offlineSectionHtml(t.id)}</div>` : ''}`;
+  </div>${cur !== 'bereit' && missing.length ? `<p class="fs-ready-missing">Für «bereit» fehlt noch: ${missing.map(esc).join(' · ')}</p>` : ''}${ready ? `<div class="fs-ready-offline">${offlineSectionHtml(t.id)}</div>` : ''}`;
 }
 async function toggleHutStatus(id){
   const h = state.huts.find(x=>x.id===id);
@@ -17340,6 +17411,7 @@ const FS_ICON_PATHS = {
   entry: 'M10 17l5-5-5-5M15 12H3M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4',
   exit: 'M14 7l5 5-5 5M19 12H8M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5',
   layers: 'M12 3 2 8l10 5 10-5-10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5',
+  menu: 'M4 7h16M4 12h16M4 17h16',
   more: 'M5 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM12 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM19 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
   hut: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5',
