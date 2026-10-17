@@ -2390,3 +2390,70 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-tc-ring{ fill:none; stroke:var(--paper); stroke-width:1.2; opacity:.9; }
 .fs-tc-route{ fill:none; stroke:var(--ice-deep); stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round; }
 .fs-tc-top{ fill:var(--paper); stroke:var(--ice-deep); stroke-width:2; }
+
+/* =====================================================================
+   Startansicht: Karte als ganzer Hintergrund, Glas-Leiste, Blatt mit drei Stufen (fsHomeLayout)
+   ===================================================================== */
+:root{ --fs-glass-top:calc(env(safe-area-inset-top, 0px) + 8px); --fs-glass-bottom:calc(env(safe-area-inset-top, 0px) + 64px); }
+html.fs-mapmode, html.fs-mapmode body{ height:100%; overflow:hidden; overscroll-behavior:none; }
+html.fs-mapmode main{ padding:0; }
+html.fs-mapmode #app .hero{ display:none; }
+/* Karte füllt den Bildschirm */
+html.fs-mapmode .fs-stage{ position:fixed; inset:0; top:0; margin:0; z-index:0; }
+html.fs-mapmode .fs-home-slot, html.fs-mapmode .fs-home-slot.has-map{ height:100dvh; }
+html.fs-mapmode .fs-stage .map-strip-head{ display:none; }
+html.fs-mapmode .fs-home-slot .fsm-ctlbox{ top:auto !important; bottom:calc(var(--fs-home-vis, 50vh) + 12px); right:12px; transition:bottom .38s cubic-bezier(.2,.9,.25,1); }
+html.fs-mapmode .fs-home-slot .fsm-ctlbox .fsm-btn{ width:48px; height:48px; }
+html.fs-mapmode[data-fs-home="liste"] .fs-home-slot .fsm-ctlbox{ opacity:0; pointer-events:none; }
+/* Glas-Leiste oben: Disziplin und Menü */
+#fs-glass{ display:none; }
+html.fs-mapmode #fs-glass{ display:block; position:fixed; z-index:60; left:0; right:0; top:0; height:0; }
+html.fs-mapmode #fs-glass::before{ content:''; position:fixed; left:0; right:0; top:0; height:calc(env(safe-area-inset-top, 0px) + 112px); background:linear-gradient(180deg, color-mix(in srgb, var(--paper) 88%, transparent) 30%, transparent); pointer-events:none; }
+body:has(.overlay) #fs-glass, body:has(.overlay) .fs-home-mapbtn{ display:none !important; }
+html.fs-mapmode .app-switch-bar{
+  position:fixed; top:var(--fs-glass-top); left:max(12px, env(safe-area-inset-left, 0px)); right:calc(12px + 48px + 8px);
+  display:flex; gap:2px; padding:4px; min-height:48px; box-sizing:border-box; border:none; border-radius:999px;
+  background:color-mix(in srgb, var(--paper) 74%, transparent); -webkit-backdrop-filter:blur(18px) saturate(1.3); backdrop-filter:blur(18px) saturate(1.3);
+  box-shadow:0 4px 18px rgba(15,30,39,.18);
+}
+html.fs-mapmode .app-switch-bar a{ min-height:40px; padding:0 6px; font-size:13px; }
+/* Platz reicht nicht für vier Namen: die übrigen Disziplinen nur als Symbol */
+html.fs-mapmode .app-switch-bar a:not(.active){ flex:0 0 44px; justify-content:center; padding:0; font-size:0; gap:0; }
+html.fs-mapmode .app-switch-bar a:not(.active) .fs-i{ width:20px; height:20px; }
+html.fs-mapmode .app-switch-bar a.active{ flex:1 1 auto; justify-content:center; padding:0 12px; }
+html.fs-mapmode .app-switch-bar{ right:auto; max-width:calc(100% - 24px - 56px); }
+html.fs-mapmode .fs-glass-menu{ position:fixed; top:var(--fs-glass-top); right:max(12px, env(safe-area-inset-right, 0px)); }
+html.fs-mapmode .fs-glass-menu .who-menu > summary{ width:48px; height:48px; background:color-mix(in srgb, var(--paper) 74%, transparent); color:var(--ink);
+  -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px); box-shadow:0 4px 18px rgba(15,30,39,.18); border:none; }
+html.fs-mapmode .fs-glass-menu .who-menu .who-row{ top:56px; }
+/* Stufe «karte»: nur die aktive Disziplin als Pille, antippen klappt auf */
+html.fs-mapmode[data-fs-home="karte"] .app-switch-bar:not(.open){ right:auto; }
+html.fs-mapmode[data-fs-home="karte"] .app-switch-bar:not(.open) a:not(.active){ display:none; }
+html.fs-mapmode[data-fs-home="karte"] .app-switch-bar:not(.open) a.active{ padding:0 14px; gap:8px; }
+html.fs-mapmode[data-fs-home="karte"] .app-switch-bar:not(.open) a.active::after{ content:''; width:7px; height:7px; border-right:2px solid currentColor; border-bottom:2px solid currentColor; transform:translateY(-2px) rotate(45deg); margin-left:2px; }
+/* Blatt */
+html.fs-mapmode .fs-sheet{
+  position:fixed; left:0; right:0; bottom:0; margin:0 auto; max-width:760px; z-index:20;
+  height:var(--fs-home-full, 90vh); min-height:0; box-sizing:border-box;
+  padding:0 max(16px, env(safe-area-inset-right, 0px)) calc(110px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  overflow:hidden; overscroll-behavior:contain; touch-action:none; will-change:transform;
+  border-radius:24px 24px 0 0; box-shadow:0 -8px 30px rgba(15,30,39,.18);
+}
+html.fs-mapmode .fs-sheet::before{ display:none; }
+html.fs-mapmode[data-fs-home="liste"] .fs-sheet{ overflow-y:auto; touch-action:pan-y; }
+html.fs-mapmode[data-fs-home="liste"] .fs-sheet .fs-grip, html.fs-mapmode[data-fs-home="liste"] .fs-sheet > .tabs{ touch-action:none; }
+.fs-grip{ display:none; }
+html.fs-mapmode .fs-grip{ display:block; position:sticky; top:0; z-index:3; height:22px; margin:0 -16px; background:var(--cream); cursor:grab; }
+html.fs-mapmode .fs-grip::after{ content:''; position:absolute; left:50%; top:9px; width:44px; height:5px; margin-left:-22px; border-radius:3px; background:var(--line); }
+html.fs-mapmode .fs-grip:focus-visible{ outline:3px solid var(--ice-deep); outline-offset:-3px; }
+html.fs-mapmode .fs-sheet > .tabs{ margin:0 0 12px; }
+html.fs-mapmode .fs-sheet > .tabs .tab{ min-height:44px; color:var(--ink-soft); }
+html.fs-mapmode .fs-sheet > .tabs .tab.active{ color:var(--ink); }
+/* Knopf «Karte» in der Stufe «liste» */
+.fs-home-mapbtn{ display:none; }
+html.fs-mapmode[data-fs-home="liste"] .fs-home-mapbtn{
+  display:inline-flex; align-items:center; gap:8px; position:fixed; z-index:46; left:50%; transform:translateX(-50%);
+  bottom:calc(84px + env(safe-area-inset-bottom, 0px)); min-height:44px; padding:0 18px; border:none; border-radius:999px;
+  background:var(--ink); color:var(--paper); font:inherit; font-weight:800; font-size:14px; box-shadow:0 6px 18px rgba(15,30,39,.28); cursor:pointer;
+}
+.fs-home-mapbtn .fs-i{ width:18px; height:18px; }

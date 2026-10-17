@@ -1517,6 +1517,8 @@ function fsHomeCreateMap(){
   }});
   fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
   fsmWireOrtHold(fsHomeMap);
+  // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
+  fsHomeMap.setMaxBounds([[-6, 38], [22, 56]]);
   fsHomeMap.on('moveend', ()=>{ if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
   fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
   fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl && sl.classList.contains('fs-home-slot')) sl.classList.add('has-map'); });
@@ -1671,7 +1673,8 @@ function fsHomeSelect(id){
   pts.forEach(c=> b.extend(c));
   const card = fsHomeEl && fsHomeEl.querySelector('.fs-home-card');
   fsHomeFitting = true;
-  fsHomeMap.fitBounds(b, {padding:{top: 70, left: 40, right: 70, bottom: (card && !card.hidden ? card.offsetHeight : 0) + 40}, maxZoom: 14, duration: 600});
+  const ins = fsHomeInset();
+  fsHomeMap.fitBounds(b, {padding:{top: 70 + ins.top, left: 40, right: 70, bottom: (card && !card.hidden ? card.offsetHeight : 0) + 40 + ins.bottom}, maxZoom: 14, duration: 600});
 }
 // Kurzinfo unten auf der Karte; «öffnen» löst dieselbe Aktion aus wie ein Eintrag in der Liste
 function fsHomeCard(p){
@@ -1712,15 +1715,16 @@ function fsHomeCard(p){
   if(idx >= 0 && fsHomeMarkers[idx]) fsHomeMarkers[idx].getElement().classList.add('on');
   fsHomeSelect(p.id);
 }
-function fsHomeFitAll(){
+function fsHomeFitAll(dur){
   if(!fsHomeMap || !fsHomePts) return;
   const pts = fsHomePts.points;
   fsHomeAll = true; fsHomeFitting = true;
   if(!pts.length){ fsHomeMap.jumpTo({center:[8.2275, 46.8182], zoom:6.6}); return; }
   const b = new maplibregl.LngLatBounds();
   pts.forEach(p=> b.extend([p.lon, p.lat]));
-  fsHomeMap.fitBounds(b, {padding:{top:60, bottom:40, left:40, right:70}, maxZoom: pts.length > 1 ? 11 : 8, duration: 0});
-  setTimeout(()=>{ fsHomeFitting = false; }, 300);
+  const ins = fsHomeInset();
+  fsHomeMap.fitBounds(b, {padding:{top: 60 + ins.top, bottom: 40 + ins.bottom, left: 40, right: 70}, maxZoom: pts.length > 1 ? 11 : 8, duration: dur || 0});
+  setTimeout(()=>{ fsHomeFitting = false; }, (dur || 0) + 300);
 }
 // Vorschaubild in den Listeneinträgen: erstes Topo/Foto des Eintrags (falls vorhanden)
 function fsCardThumbs(sheet){
@@ -1802,10 +1806,140 @@ function fsSearchCollapse(){
   // Änderungen in der Karte selbst (Marker, Kacheln) und in der Zählzeile zählen nicht – sonst schaukelt sich
   // das auf: Filter schreibt die Zeile, die Zeile löst den Filter aus, … (Karte zeichnete dauernd neu)
   const own = n=>{ const el = n && (n.nodeType === 1 ? n : n.parentElement); return !!(el && el.closest && el.closest('.fs-home-map, .fs-home-count, .maplibregl-map, #fs-3d')); };
-  const mo = new MutationObserver((recs)=>{ if(recs.every(r=> own(r.target))) return; clearTimeout(t); t = setTimeout(()=>{ fsSearchCollapse(); if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } }, 30); });
+  const mo = new MutationObserver((recs)=>{ if(recs.every(r=> own(r.target))) return; clearTimeout(t); t = setTimeout(()=>{ fsSearchCollapse(); if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } fsHomeLayout(); }, 30); });
   const start = ()=> mo.observe(document.body, {childList:true, subtree:true});
   if(document.body) start(); else document.addEventListener('DOMContentLoaded', start);
 })();
+/* ===== Startansicht: Karte als ganzer Hintergrund, Blatt mit drei Stufen =====
+   Wie bei grossen Karten-Apps: die Karte füllt den Bildschirm, oben schwebt eine Glas-Leiste
+   (Disziplin + Menü), die Liste ist ein Blatt mit drei Stufen – «karte» (nur Suche/Filter/Zählzeile),
+   «mitte» (Standard) und «liste» (fast ganzer Bildschirm). Ziehen am Griff oder Kopf des Blatts
+   wechselt die Stufe, in «karte»/«mitte» zieht man das ganze Blatt. Der Rest der Seite bleibt, wie die
+   Apps ihn zeichnen; hier werden nach jedem Zeichnen nur Teile umgehängt (Segment ins Blatt, Menü in
+   die Glas-Leiste). Gilt nur, solange eine Liste mit Startkarte zu sehen ist. */
+let fsHomeDetent = 'mitte';
+function fsHomeDetentPx(d){
+  const vh = window.innerHeight;
+  const top = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs-glass-bottom')) || 72) + 8;
+  if(d === 'karte') return Math.min(240, Math.round(vh * 0.32));
+  if(d === 'liste') return vh - top;
+  return Math.round(vh * 0.55);
+}
+function fsHomeApply(animate){
+  const root = document.documentElement;
+  const sheet = document.querySelector('main .fs-sheet');
+  if(!sheet) return;
+  const full = fsHomeDetentPx('liste'), h = fsHomeDetentPx(fsHomeDetent);
+  root.dataset.fsHome = fsHomeDetent;
+  root.style.setProperty('--fs-home-full', full + 'px');
+  root.style.setProperty('--fs-home-vis', h + 'px');
+  sheet.style.transition = animate ? 'transform .38s cubic-bezier(.2,.9,.25,1)' : 'none';
+  sheet.style.transform = 'translateY(' + (full - h) + 'px)';
+  if(fsHomeDetent !== 'liste') sheet.scrollTop = 0;
+  // Zeigt die Karte alle Einträge, bleiben sie über dem Blatt sichtbar
+  if(animate && fsHomeAll && fsHomeDetent !== 'liste') try{ fsHomeFitAll(380); }catch(e){}
+}
+// Von Glas-Leiste und Blatt verdeckter Rand der Karte (nur in der Startansicht)
+function fsHomeInset(){
+  if(!document.documentElement.classList.contains('fs-mapmode')) return {top: 0, bottom: 0};
+  return {top: (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs-glass-bottom')) || 64) - 40,
+    bottom: Math.min(fsHomeDetentPx(fsHomeDetent), Math.round(window.innerHeight * 0.6))};
+}
+function fsHomeSetDetent(d, animate){
+  if(d === fsHomeDetent && document.documentElement.dataset.fsHome === d) return;
+  fsHomeDetent = d;
+  fsHomeApply(animate !== false);
+}
+function fsHomeLayout(){
+  const root = document.documentElement;
+  const slot = document.querySelector('main .fs-home-slot');
+  const sheet = slot && document.querySelector('main .fs-sheet');
+  if(!sheet){ root.classList.remove('fs-mapmode'); delete root.dataset.fsHome; document.querySelectorAll('body > .fs-fab').forEach(x=> x.remove()); return; }
+  if(!root.classList.contains('fs-mapmode')){ root.classList.add('fs-mapmode'); setTimeout(()=>{ try{ if(fsHomeMap){ const all = fsHomeAll; fsHomeFitting = true; fsHomeMap.resize(); fsHomeFitting = false; fsHomeAll = all; if(all) fsHomeFitAll(); } }catch(e){} }, 0); }
+  // Glas-Leiste: Disziplin-Umschalter und Menü
+  const bar = document.querySelector('.app-switch-bar');
+  let glass = document.getElementById('fs-glass');
+  if(!glass){
+    glass = document.createElement('div'); glass.id = 'fs-glass';
+    glass.innerHTML = '<div class="fs-glass-menu"></div>';
+    document.body.appendChild(glass);
+    if(bar){
+      glass.prepend(bar);
+      // Kompakte Leiste (Stufe «karte»): Tipp auf die aktive Disziplin klappt alle auf
+      bar.addEventListener('click', e=>{
+        const a = e.target.closest('a');
+        if(a && a.classList.contains('active') && root.dataset.fsHome === 'karte' && !bar.classList.contains('open')){ e.preventDefault(); bar.classList.add('open'); }
+      }, true);
+      document.addEventListener('pointerdown', e=>{ if(!e.target.closest('.app-switch-bar')) bar.classList.remove('open'); }, true);
+    }
+  }
+  const menu = document.querySelector('#app .hero .who-menu');
+  const mslot = glass.querySelector('.fs-glass-menu');
+  if(menu && menu.parentNode !== mslot){ mslot.innerHTML = ''; mslot.appendChild(menu); }
+  // Segment Gebiete/Touren/Hütten ins Blatt, Griff davor
+  const tabs = document.querySelector('#app .hero .tabs');
+  if(tabs && tabs.parentNode !== sheet) sheet.prepend(tabs);
+  if(!sheet.querySelector(':scope > .fs-grip')){
+    const g = document.createElement('div'); g.className = 'fs-grip'; g.setAttribute('role', 'button'); g.tabIndex = 0;
+    g.setAttribute('aria-label', 'Blatt verschieben: Karte oder Liste');
+    g.addEventListener('click', ()=>{ if(g._dragged) return; fsHomeSetDetent(fsHomeDetent === 'liste' ? 'karte' : fsHomeDetent === 'karte' ? 'mitte' : 'liste'); });
+    g.addEventListener('keydown', e=>{ if(e.key === 'ArrowUp'){ e.preventDefault(); fsHomeSetDetent(fsHomeDetent === 'karte' ? 'mitte' : 'liste'); } if(e.key === 'ArrowDown'){ e.preventDefault(); fsHomeSetDetent(fsHomeDetent === 'liste' ? 'mitte' : 'karte'); } });
+    sheet.prepend(g);
+  }
+  if(!sheet._fsDrag){ sheet._fsDrag = true; fsHomeWireDrag(sheet); }
+  if(bar) bar.querySelectorAll('a').forEach(a=>{ if(!a.getAttribute('aria-label')) a.setAttribute('aria-label', a.textContent.trim()); });
+  // «Neue Tour» läge im verschobenen Blatt (transform) sonst ausserhalb des Bildschirms
+  const fab = sheet.querySelector('.fs-fab');
+  if(fab){ document.querySelectorAll('body > .fs-fab').forEach(x=> x.remove()); document.body.appendChild(fab); }
+  // Knopf «Karte» in der Stufe «liste»
+  if(!document.getElementById('fs-home-mapbtn')){
+    const b = document.createElement('button'); b.type = 'button'; b.id = 'fs-home-mapbtn'; b.className = 'fs-home-mapbtn';
+    b.innerHTML = fsIconHtml('map') + '<span>Karte</span>';
+    b.addEventListener('click', ()=> fsHomeSetDetent('mitte'));
+    document.body.appendChild(b);
+  }
+  fsHomeApply(false);
+}
+// Ziehen: in «karte»/«mitte» das ganze Blatt, in «liste» nur Griff und Kopf (Segment, Suche, Filter)
+function fsHomeWireDrag(sheet){
+  let st = null;
+  const isHead = el=> !!(el.closest('.fs-grip') || el.closest('.tabs') || el.closest('.toolbar') || el.closest('.fs-home-count'));
+  sheet.addEventListener('pointerdown', e=>{
+    if(e.button > 0 || e.target.closest('input, select, textarea, .fs-filter-sheet')) return;
+    if(fsHomeDetent === 'liste' && !isHead(e.target)) return;
+    const full = fsHomeDetentPx('liste');
+    st = {y: e.clientY, t: performance.now(), base: full - fsHomeDetentPx(fsHomeDetent), full, moved: false, id: e.pointerId};
+  });
+  sheet.addEventListener('pointermove', e=>{
+    if(!st || e.pointerId !== st.id) return;
+    const dy = e.clientY - st.y;
+    if(!st.moved && Math.abs(dy) < 8) return;
+    if(!st.moved){ st.moved = true; try{ sheet.setPointerCapture(e.pointerId); }catch(err){} sheet.style.transition = 'none'; }
+    const min = 0, max = st.full - fsHomeDetentPx('karte') + 40;
+    const y = Math.max(min - 20, Math.min(max, st.base + dy));
+    sheet.style.transform = 'translateY(' + y + 'px)';
+    document.documentElement.style.setProperty('--fs-home-vis', (st.full - y) + 'px');
+    st.last = y; st.v = dy / Math.max(1, performance.now() - st.t);
+  });
+  const end = e=>{
+    if(!st || (e && e.pointerId !== st.id)) return;
+    const s = st; st = null;
+    if(!s.moved) return;
+    const g = sheet.querySelector('.fs-grip'); if(g){ g._dragged = true; setTimeout(()=>{ g._dragged = false; }, 0); }
+    // Kein Klick nach dem Ziehen (sonst öffnet sich die Tour unter dem Finger)
+    sheet.addEventListener('click', ev=>{ ev.stopPropagation(); ev.preventDefault(); }, {capture: true, once: true});
+    const vis = s.full - s.last, opts = ['karte', 'mitte', 'liste'].map(d=> ({d, h: fsHomeDetentPx(d)}));
+    let target = opts.reduce((m, o)=> Math.abs(o.h - vis) < Math.abs(m.h - vis) ? o : m).d;
+    if(Math.abs(s.v) > 0.6){ const i = ['karte', 'mitte', 'liste'].indexOf(fsHomeDetent); target = ['karte', 'mitte', 'liste'][Math.max(0, Math.min(2, i + (s.v < 0 ? 1 : -1)))]; }
+    fsHomeDetent = target; fsHomeApply(true);
+  };
+  sheet.addEventListener('pointerup', end);
+  sheet.addEventListener('pointercancel', end);
+  // Suchen braucht Platz für die Tastatur
+  sheet.addEventListener('focusin', e=>{ if(e.target.matches('.search-input')) fsHomeSetDetent('liste'); });
+}
+window.addEventListener('resize', ()=>{ if(document.documentElement.classList.contains('fs-mapmode')) fsHomeApply(false); });
+
 function stageLayoutHtml(mapHtml, sheetHtml){
   return `<div class="fs-stage">${mapHtml}</div><div class="fs-sheet">${sheetHtml}</div>`;
 }
