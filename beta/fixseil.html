@@ -3884,6 +3884,7 @@ function tourFormHtml(existing){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${(existing&&existing.id)?'Tour bearbeiten':'Neue Tour'}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="tour-form" novalidate>
+      ${fsTourScanButtonHtml(t)}
       ${fsOwnerFieldHtml(t)}
       <div class="field"><label>Tourtyp</label>
         <div class="chips">

@@ -45,6 +45,8 @@ var SCAN_KLETTERGEBIET_URL = 'https://europe-west1-firnspur.cloudfunctions.net/s
 // Foto-Scan für einen einzelnen Zustieg/Abstieg (Hütte, Tour oder Sektor — gleiche
 // Feldstruktur überall) — siehe functions/README.md.
 var SCAN_ZUSTIEG_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanZustieg';
+// Tour aus Foto (Führerseite, Screenshot, Notiz): ganze Tour vorschlagen, Felder mit Originalzitat.
+var SCAN_TOUR_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanTour';
 async function fbGet(path){
   try{
     await ensureValidAuthToken();
@@ -11618,6 +11620,148 @@ function wireLoginScreen(){
   btn.addEventListener('click', attemptLogin);
   input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptLogin(); });
 }
+
+/* ================= Tour aus Foto =================
+   Im Formular «Neue Tour»: Fotos einer Führerseite (bis 4) und optional welche Tour gemeint ist.
+   Die Cloud Function scanTour (functions/index.js) liefert pro Feld Wert und Originalzitat. Hier wird
+   alles zum Prüfen gezeigt; nur angehakte Felder kommen ins Formular, gespeichert wird erst dort. */
+const FS_SCAN_MAX = 4;
+function fsTourScanArt(){
+  const k = fsAppKey();
+  if(k === 'wandern') return 'wandern';
+  if(k === 'fixseil') return (state.modal && state.modal.payload && state.modal.payload.tourCategory === 'msl') ? 'klettern' : 'hochtour';
+  return 'skitour';
+}
+function fsTourScanButtonHtml(t){
+  if(t && t.id) return '';
+  return `<button type="button" class="btn secondary fs-scan-btn" data-act="fs-tour-scan">${fsIconHtml('camera')}<span><b>Aus Foto erfassen</b><small>Führerseite oder Screenshot – Felder werden vorgeschlagen</small></span></button>`;
+}
+const FS_SCAN_LABELS = {name:'Gipfel / Ziel', routeName:'Route', difficulty:'Schwierigkeit', climbGrade:'Felsschwierigkeit (max.)', mandatoryDifficulty:'Obligatorisch',
+  pitchCount:'Seillängen', targetAltitude:'Gipfelhöhe (m)', elevationGain:'Aufstieg (Hm)', elevationLoss:'Abfahrt/Abstieg (Hm)', duration:'Zeitbedarf',
+  approach:'Anfahrt / Ausgangspunkt', ascent:'Aufstieg', descent:'Abfahrt / Abstieg', crux:'Schlüsselstelle', special:'Spezielles', quelle:'Quelle'};
+// Welche Felder die jeweilige App kennt, und welche Werte eine Auswahlliste annimmt
+function fsTourScanFields(art){
+  const base = ['name', 'routeName', 'difficulty', 'targetAltitude', 'elevationGain', 'elevationLoss', 'duration', 'approach', 'ascent', 'descent', 'crux', 'special', 'quelle'];
+  if(art === 'hochtour') return [...base.slice(0, 3), 'climbGrade', ...base.slice(3)];
+  if(art === 'klettern') return ['name', 'routeName', 'mandatoryDifficulty', 'climbGrade', 'pitchCount', 'targetAltitude', 'elevationGain', 'duration', 'approach', 'ascent', 'descent', 'crux', 'special', 'quelle'];
+  return base;
+}
+function fsTourScanAllowed(art, k){
+  if(k === 'difficulty') return art === 'wandern' ? (typeof HIKE_SCALE_ORDER !== 'undefined' ? HIKE_SCALE_ORDER : null) : (typeof DIFF_ORDER !== 'undefined' ? DIFF_ORDER : null);
+  if((k === 'climbGrade' || k === 'mandatoryDifficulty') && typeof CLIMB_ORDER !== 'undefined') return CLIMB_ORDER;
+  return null;
+}
+function fsTourScanClean(k, v){
+  v = String(v || '').trim();
+  if(['targetAltitude', 'elevationGain', 'elevationLoss', 'pitchCount'].indexOf(k) >= 0){ const m = v.replace(/[’'\s]/g, '').match(/\d+/); return m ? m[0] : ''; }
+  if(k === 'duration') return v.replace(/\s*(h|std\.?|stunden)\s*$/i, '');
+  if(k === 'difficulty') return v.toUpperCase().replace(/\s+/g, '').replace('–', '-');
+  return v;
+}
+function fsOpenTourScan(){
+  const art = fsTourScanArt();
+  const files = [];
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-td-h">Tour aus Foto</h3>
+    <div data-step="pick">
+      <p class="fs-ort-stand">Seite aus dem Führer, Screenshot oder Notiz. Bei einer Doppelseite beide Seiten wählen (bis ${FS_SCAN_MAX} Fotos).</p>
+      <div class="fs-scan-thumbs" data-thumbs></div>
+      <div class="fs-scan-pick">
+        <label class="btn secondary">${fsIconHtml('camera')}Fotografieren<input type="file" accept="image/*" capture="environment" hidden data-cam></label>
+        <label class="btn secondary">${fsIconHtml('image')}Fotos wählen<input type="file" accept="image/*" multiple hidden data-files></label>
+      </div>
+      <label class="fs-ort-lbl" for="fs-scan-hint">Welche Tour? (optional, falls mehrere auf der Seite)</label>
+      <input id="fs-scan-hint" type="text" placeholder="z. B. Nr. 112 oder Nordflanke">
+      <p class="fs-ort-msg" data-msg></p>
+      <div class="fs-ort-btns"><button type="button" class="btn secondary" data-close>Abbrechen</button><button type="button" class="btn" data-go>Erkennen</button></div>
+    </div>
+    <div data-step="result" hidden></div>`);
+  const q = x=> ov.querySelector(x);
+  const drawThumbs = ()=>{ q('[data-thumbs]').innerHTML = files.map((f, i)=> `<span><img src="${esc(f.url)}" alt="Foto ${i + 1}"><button type="button" data-rm="${i}" aria-label="Foto ${i + 1} entfernen">×</button></span>`).join(''); };
+  q('[data-thumbs]').addEventListener('click', e=>{ const b = e.target.closest('[data-rm]'); if(!b) return; const i = +b.getAttribute('data-rm'); URL.revokeObjectURL(files[i].url); files.splice(i, 1); drawThumbs(); });
+  const add = list=>{
+    Array.from(list || []).forEach(f=>{ if(files.length < FS_SCAN_MAX && /^image\//.test(f.type)) files.push({file: f, url: URL.createObjectURL(f)}); });
+    if(list && list.length && files.length >= FS_SCAN_MAX) q('[data-msg]').textContent = 'Höchstens ' + FS_SCAN_MAX + ' Fotos.';
+    ov._dirty = true; drawThumbs();
+  };
+  ['[data-cam]', '[data-files]'].forEach(sel=> q(sel).addEventListener('change', e=>{ add(e.target.files); e.target.value = ''; }));
+  const run = async ()=>{
+    if(!files.length){ q('[data-msg]').textContent = 'Bitte zuerst ein Foto wählen.'; return; }
+    if(!SCAN_TOUR_URL){ q('[data-msg]').textContent = 'Der Foto-Scan ist noch nicht eingerichtet.'; return; }
+    if(navigator.onLine === false){ q('[data-msg]').textContent = 'Offline – der Foto-Scan braucht Internet.'; return; }
+    const go = q('[data-go]'); go.disabled = true;
+    q('[data-msg]').textContent = 'Erkenne die Tour … das dauert etwa eine halbe Minute.';
+    try{
+      const images = [];
+      for(const f of files){ const blob = await compressImageFile(f.file, 1800, 0.82); images.push({imageBase64: await blobToBase64(blob), mediaType: 'image/jpeg'}); }
+      await ensureValidAuthToken();
+      const res = await fetch(SCAN_TOUR_URL, {method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authState.idToken},
+        body: JSON.stringify({images, hinweis: q('#fs-scan-hint').value.trim(), art})});
+      const data = await res.json().catch(()=> null);
+      if(!res.ok || !data || !data.felder){
+        q('[data-msg]').textContent = res.status === 404 ? 'Der Foto-Scan für Touren ist noch nicht freigeschaltet (Function nicht deployt).' : ((data && data.error) || 'Erkennung fehlgeschlagen – bitte nochmals versuchen.');
+        go.disabled = false; return;
+      }
+      showResult(data);
+    }catch(err){
+      q('[data-msg]').textContent = 'Erkennung fehlgeschlagen (Internet?). Bitte nochmals versuchen.';
+      go.disabled = false;
+    }
+  };
+  q('[data-go]').addEventListener('click', run);
+  function showResult(data){
+    const rows = [];
+    fsTourScanFields(art).forEach(k=>{
+      const f = data.felder[k] || {};
+      const v = fsTourScanClean(k, f.wert);
+      if(!v) return;
+      const allowed = fsTourScanAllowed(art, k);
+      const fits = !allowed || allowed.indexOf(v) >= 0;
+      rows.push({k, v, zitat: String(f.zitat || '').trim(), on: fits, note: fits ? '' : 'passt nicht zur Auswahlliste, bitte im Formular wählen'});
+    });
+    const ex = (data.exposition && data.exposition.werte || []).filter(x=> typeof EXPOSITIONS === 'undefined' || EXPOSITIONS.indexOf(x) >= 0);
+    if(ex.length && fsAppKey() !== 'wandern') rows.push({k: 'exposition', v: ex.join(', '), val: ex, zitat: String(data.exposition.zitat || '').trim(), on: true});
+    if(data.gletscher && art !== 'wandern' && art !== 'klettern') rows.push({k: 'glacier', v: data.gletscher === 'ja' ? 'ja' : 'nein', val: data.gletscher, zitat: '', on: true});
+    const others = (data.andereTouren || []).filter(Boolean).slice(0, 8);
+    const box = q('[data-step="result"]');
+    q('[data-step="pick"]').hidden = true; box.hidden = false;
+    box.innerHTML = `${rows.length ? `<p class="fs-ort-stand">Angehakte Felder kommen ins Formular. Unter jedem Wert steht, woher er stammt.</p>` : `<p class="fs-ort-stand">Auf den Fotos war keine Tour erkennbar.</p>`}
+      ${data.unklar ? `<p class="fs-scan-unklar">${fsIconHtml('alert')}${esc(data.unklar)}</p>` : ''}
+      <div class="fs-scan-rows">${rows.map((r, i)=> `<label class="fs-scan-row"><input type="checkbox" data-i="${i}" ${r.on ? 'checked' : ''}>
+        <span><small>${esc(r.k === 'exposition' ? 'Exposition' : r.k === 'glacier' ? 'Gletscher' : FS_SCAN_LABELS[r.k])}</small><b>${esc(r.v)}</b>${r.zitat ? `<q>${esc(r.zitat)}</q>` : ''}${r.note ? `<em>${esc(r.note)}</em>` : ''}</span></label>`).join('')}</div>
+      ${others.length ? `<p class="fs-ort-lbl">Weitere Touren auf den Fotos</p><div class="fs-scan-others">${others.map(o=> `<button type="button" class="chip" data-other="${esc(o)}">${esc(o)}</button>`).join('')}</div>` : ''}
+      <div class="fs-ort-btns"><button type="button" class="btn secondary" data-back>Zurück</button>${rows.length ? `<button type="button" class="btn" data-take>Ins Formular</button>` : ''}</div>`;
+    box.querySelector('[data-back]').addEventListener('click', ()=>{ box.hidden = true; q('[data-step="pick"]').hidden = false; q('[data-go]').disabled = false; q('[data-msg]').textContent = ''; });
+    box.querySelectorAll('[data-other]').forEach(b=> b.addEventListener('click', ()=>{ q('#fs-scan-hint').value = b.getAttribute('data-other'); box.hidden = true; q('[data-step="pick"]').hidden = false; run(); }));
+    const take = box.querySelector('[data-take]');
+    if(take) take.addEventListener('click', ()=>{
+      const cur = (state.modal && state.modal.type === 'edit-tour' && state.modal.payload) || {};
+      if(cur.id) return;
+      const p = Object.assign({}, cur);
+      box.querySelectorAll('input[data-i]').forEach(cb=>{
+        if(!cb.checked) return;
+        const r = rows[+cb.getAttribute('data-i')];
+        if(r.k === 'exposition' || r.k === 'glacier') p[r.k] = r.val;
+        else if(r.k === 'quelle') p.special = [p.special, 'Quelle: ' + r.v].filter(Boolean).join('\n');
+        else if(r.k === 'special') p.special = [r.v, p.special].filter(Boolean).join('\n');
+        else p[r.k] = r.v;
+      });
+      ov._saved = true;
+      files.forEach(f=> URL.revokeObjectURL(f.url));
+      closeTopOverlayLayer();
+      state.modal = {type: 'edit-tour', payload: p};
+      render();
+      if(typeof markModalDirty === 'function') setTimeout(()=>{ try{ markModalDirty(); }catch(e){} }, 0);
+      showToast('Vorschlag übernommen – bitte prüfen und speichern.');
+    });
+  }
+}
+document.addEventListener('click', (ev)=>{
+  const el = ev.target.closest && ev.target.closest('[data-act="fs-tour-scan"]');
+  if(!el) return;
+  ev.preventDefault(); ev.stopPropagation();
+  fsOpenTourScan();
+}, true);
 
 /* ================= Bibliothek: Suche, Gemacht-Filter, Kartenfuss =================
    Gemeinsam für alle Tourenlisten (Skitour, Hochtour, Klettern, Wandern). */
