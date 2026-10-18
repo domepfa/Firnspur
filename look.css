@@ -2615,3 +2615,5 @@ svg.fs-i.fs-wx-cloud, svg.fs-i.fs-wx-fog{ color:var(--wx-cloud) !important; }
 /* Menü (z. B. «Hoher Kontrast (Sonne)») und Knöpfe bleiben in der Akzentfarbe */
 .who-menu svg.fs-i[class*="fs-wx-"], .btn svg.fs-i[class*="fs-wx-"]{ color:inherit !important; }
 .who-menu .who-row button svg.fs-i[class*="fs-wx-"]{ color:var(--ice-deep) !important; }
+/* Startansicht: die Glas-Leiste ist in der Tour ausgeblendet – Tourkarte bis ganz oben (vorher Lücke mit der alten Skizze) */
+html.fs-mapmode .fs-tour-map{ top:0; }

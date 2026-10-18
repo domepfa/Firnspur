@@ -1630,7 +1630,7 @@ function fsHomeSync(){
    Punkte, die auf dem Bildschirm näher als ~40 px beieinander liegen, werden zu einem Kreis mit der
    Anzahl; Antippen zoomt auf diese Gruppe. Neu berechnet, wenn die Karte stillsteht. Der gewählte
    Punkt bleibt immer einzeln sichtbar. */
-let fsHomeClusters = [];
+let fsHomeClusters = [], fsHomeGroup = null;
 function fsHomeCluster(){
   const map = fsHomeMap;
   if(!map || !fsHomePts || !fsHomeMarkers.length) return;
@@ -1638,7 +1638,7 @@ function fsHomeCluster(){
   const R = 40, pts = fsHomePts.points;
   const pos = pts.map(p=> map.project([p.lon, p.lat]));
   const used = new Array(pts.length).fill(false), groups = [];
-  const keep = i=> pts[i].id === fsHomePick || pts[i].id === fsHomeSel;
+  const keep = i=> pts[i].id === fsHomePick || pts[i].id === fsHomeSel || !!(fsHomeGroup && fsHomeGroup.has(pts[i].id));
   for(let i = 0; i < pts.length; i++){
     if(used[i] || keep(i)) continue;
     const g = [i]; used[i] = true;
@@ -1650,6 +1650,18 @@ function fsHomeCluster(){
     groups.push(g);
   }
   fsHomeMarkers.forEach(m=> m.getElement().style.display = '');
+  // Aufgefächerte Gruppe (gleicher Ort, z. B. zwei Routen auf denselben Gipfel): im Kreis um den Ort
+  const fan = pts.map((p, i)=> i).filter(i=> fsHomeGroup && fsHomeGroup.has(pts[i].id));
+  // Gleicher Name (gleicher Gipfel): in der Fächerung die Route als Etikett, sonst der Name
+  const sameName = fan.length > 1 && fan.every(i=> pts[i].label === pts[fan[0]].label);
+  fsHomeMarkers.forEach((m, i)=>{
+    const k = fan.indexOf(i), sp = m.getElement().querySelector('span');
+    const t = sameName && k >= 0 ? (state.tours || []).find(x=> x.id === pts[i].id) : null;
+    if(sp){ const want = (t && t.routeName) || pts[i].label || ''; if(sp.textContent !== want) sp.textContent = want; }
+    if(k < 0 || fan.length < 2){ m.setOffset([-7, 0]); return; }
+    const a = -Math.PI / 2 + k * 2 * Math.PI / fan.length, r = 30;
+    m.setOffset([-7 + Math.round(r * Math.cos(a)), Math.round(r * Math.sin(a))]);
+  });
   groups.filter(g=> g.length > 1).forEach(g=>{
     g.forEach(i=> fsHomeMarkers[i] && (fsHomeMarkers[i].getElement().style.display = 'none'));
     const lon = g.reduce((a, i)=> a + pts[i].lon, 0) / g.length, lat = g.reduce((a, i)=> a + pts[i].lat, 0) / g.length;
@@ -1662,7 +1674,20 @@ function fsHomeCluster(){
       const b = new maplibregl.LngLatBounds();
       g.forEach(i=> b.extend([pts[i].lon, pts[i].lat]));
       const ins = fsHomeInset();
-      map.fitBounds(b, {padding:{top: 70 + ins.top, bottom: 50 + ins.bottom, left: 50, right: 80}, maxZoom: Math.max(map.getZoom() + 2, 13), duration: 500});
+      let spread = 0;
+      g.forEach(i=> g.forEach(j=>{ spread = Math.max(spread, fsGeoDist(pts[i].lat, pts[i].lon, pts[j].lat, pts[j].lon)); }));
+      if(spread > 400 && map.getZoom() < 12.5){
+        map.fitBounds(b, {padding:{top: 70 + ins.top, bottom: 50 + ins.bottom, left: 50, right: 80}, maxZoom: Math.max(map.getZoom() + 2, 13), duration: 500});
+        return;
+      }
+      // Am selben Ort (Hineinzoomen trennt sie nicht): auffächern, Einträge zuoberst in der Liste,
+      // Karte auf ihre Routen
+      fsHomeGroup = new Set(g.map(i=> pts[i].id));
+      const tb = new maplibregl.LngLatBounds(b.getSouthWest(), b.getNorthEast());
+      g.forEach(i=>{ const t = (state.tours || []).find(x=> x.id === pts[i].id); if(t) fsHomeTourLines(t).forEach(l=> l.forEach(c=> tb.extend(c))); });
+      map.fitBounds(tb, {padding:{top: 80 + ins.top, bottom: 60 + ins.bottom, left: 60, right: 90}, maxZoom: 14, duration: 500});
+      fsHomeFilter(); fsHomeCluster();
+      const sh = document.querySelector('main .fs-sheet'); if(sh) sh.scrollTop = 0;
     });
     fsHomeClusters.push(new maplibregl.Marker({element: el, anchor: 'center'}).setLngLat([lon, lat]).addTo(map));
   });
@@ -1757,7 +1782,7 @@ function fsHomeCard(p){
     ['click','pointerdown','touchstart','mousedown'].forEach(ev=> card.addEventListener(ev, e=> e.stopPropagation()));
     fsHomeEl.appendChild(card);
     // Ein Tipp auf einen Punkt kommt bei MapLibre auch als Klick in die Karte an: der zählt nicht als «daneben»
-    if(fsHomeMap) fsHomeMap.on('click', (e)=>{ const tg = e && e.originalEvent && e.originalEvent.target; if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return; card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick){ fsHomePick = null; fsHomeFilter(); } });
+    if(fsHomeMap) fsHomeMap.on('click', (e)=>{ const tg = e && e.originalEvent && e.originalEvent.target; if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return; card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick || fsHomeGroup){ fsHomePick = null; fsHomeGroup = null; fsHomeFilter(); fsHomeCluster(); } });
   }
   const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
   const x = all.find(o=> o && o.id === p.id) || {name: p.label};
@@ -1856,7 +1881,7 @@ function fsHomeFilter(){
     if(!grid) grid = card.parentElement; else if(card.parentElement !== grid) oneGrid = false;
     const on = !vis || ids.some(id=> vis.has(id));
     if(on && vis) shown++;
-    cards.push({card, on, pick: !!fsHomePick && ids.indexOf(fsHomePick) >= 0});
+    cards.push({card, on, pick: (!!fsHomePick && ids.indexOf(fsHomePick) >= 0) || !!(fsHomeGroup && ids.some(id=> fsHomeGroup.has(id)))});
   });
   const groups = !!(vis && oneGrid && grid && shown < total);
   cards.forEach(c=>{ c.card.style.order = !oneGrid ? '' : c.pick ? '-1' : (!groups || c.on) ? '0' : '2'; c.card.classList.toggle('fs-home-pick', c.pick); });
