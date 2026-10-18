@@ -11303,6 +11303,7 @@ async function fsmWxStart(map){
     });
   }
   st.head.hidden = false;
+  cont.classList.add('fsm-wx-on'); // Touren treten zurück, solange das Wetter gezeigt wird
   const p = fsWxParam();
   fsmWxClear(st);
   st.param = p; st.pts = []; st.loaded = false; st.measItems = null; st.measSel = {}; st.fcSel = st.fcSel || {};
@@ -11314,11 +11315,14 @@ async function fsmWxStart(map){
   }else{
     body = `<div class="g">${p.scale.map(([t, col])=> `<i style="background:${col}"><b>${p.id === 'temp' ? t + '°' : t}</b></i>`).join('')}</div><p class="note">${p.label}, gemessen</p>`;
   }
-  st.head.innerHTML = `${tabs}${body}`;
+  // Startansicht: kompakt – gewählte Wetterart als Knopf neben Skala/Zeitschieber, Antippen zeigt alle sechs
+  const pick = `<button type="button" class="pick" aria-expanded="false" aria-label="Wetterart wählen: ${esc(p.label)}">${esc(p.short || p.label)}${fsIconHtml('chevdown')}</button>`;
+  st.head.innerHTML = `${tabs}<div class="row">${pick}<div class="body">${body}</div></div>`;
+  st.head.querySelector('.pick').addEventListener('click', ()=>{ const o = !st.head.classList.contains('open'); st.head.classList.toggle('open', o); st.head.querySelector('.pick').setAttribute('aria-expanded', o); });
   const tabEl = st.head.querySelector('.tabs'), onTab = tabEl.querySelector('.on');
   if(st.tabScroll != null) tabEl.scrollLeft = st.tabScroll; else if(onTab) tabEl.scrollLeft = onTab.offsetLeft - 8;
   tabEl.addEventListener('scroll', ()=>{ st.tabScroll = tabEl.scrollLeft; }, {passive:true});
-  st.head.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} st.card.hidden = true; fsmWxTapClear(st); fsmWxStart(map); }));
+  st.head.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} st.card.hidden = true; st.head.classList.remove('open'); fsmWxTapClear(st); fsmWxStart(map); }));
   const rng = st.head.querySelector('input[type=range]');
   if(rng){
     const upd = ()=>{ st.fcStep = +rng.value; st.head.querySelector('.when').textContent = fsWxHourLabel(fsWxStepTime(st.fcStep)); fsmWxPlace(map, true); };
@@ -11406,6 +11410,7 @@ function fsmWxStop(map){
   [st.head, st.card].forEach(el=>{ if(el) el.hidden = true; });
   fsmWxTapClear(st);
   st.param = null;
+  try{ map.getContainer().classList.remove('fsm-wx-on'); }catch(e){}
 }
 // Etikett mit Wert, Name und Höhe; Zeiger und Punkt darunter zeigen die genaue Stelle.
 function fsmWxPinEl(val, color, name, sub, icon){
