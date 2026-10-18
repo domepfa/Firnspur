@@ -1684,7 +1684,8 @@ function fsHomeCard(p){
     card = document.createElement('div'); card.className = 'fs-home-card';
     ['click','pointerdown','touchstart','mousedown'].forEach(ev=> card.addEventListener(ev, e=> e.stopPropagation()));
     fsHomeEl.appendChild(card);
-    if(fsHomeMap) fsHomeMap.on('click', ()=>{ card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick){ fsHomePick = null; fsHomeFilter(); } });
+    // Ein Tipp auf einen Punkt kommt bei MapLibre auch als Klick in die Karte an: der zählt nicht als «daneben»
+    if(fsHomeMap) fsHomeMap.on('click', (e)=>{ const tg = e && e.originalEvent && e.originalEvent.target; if(tg && tg.closest && tg.closest('.fs-home-pin')) return; card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick){ fsHomePick = null; fsHomeFilter(); } });
   }
   const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
   const x = all.find(o=> o && o.id === p.id) || {name: p.label};
