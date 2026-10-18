@@ -1518,7 +1518,7 @@ function fsHomeCreateMap(){
   fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
   fsmWireOrtHold(fsHomeMap);
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
-  fsHomeMap.setMaxBounds([[1.5, 39], [15.5, 50.5]]); // Süden grosszügig: die untere Hälfte liegt unter dem Blatt
+  fsHomeMap.setMaxBounds(FSM_HOME_BOUNDS);
   fsHomeMap.on('moveend', ()=>{ fsHomeCluster(); if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
   fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
   fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl && sl.classList.contains('fs-home-slot')) sl.classList.add('has-map'); });
@@ -1541,6 +1541,7 @@ function fsCtxAcquire(innerId, on3d, owner){
   }
   inner.appendChild(fsHomeEl);
   fsHomeEl.classList.add('in-ctx');
+  try{ if(fsHomeMap) fsHomeMap.setMaxBounds(FSM_BOUNDS); }catch(e){} // ausgeliehen: ohne Blatt, also ohne Spielraum
   fsCtxUsesHome = true;
   fsCtxOn3d = on3d || null;
   const map = fsHomeMap || fsHomeCreateMap();
@@ -1579,6 +1580,7 @@ function fsCtxRelease(owner){
   fsCtxSnap = null;
   if(fsHomeEl){ fsHomeEl.classList.remove('in-ctx', 'in-big'); fsHomeEl.remove(); }
   const view = fsCtxView; fsCtxView = null;
+  try{ if(map) map.setMaxBounds(FSM_HOME_BOUNDS); }catch(e){}
   if(document.querySelector('.fs-home-slot')){
     fsHomeMount();
     if(view && map){
@@ -7276,6 +7278,9 @@ function fsmBaseStyle(){
     ]
   };
 }
+// Grenzen: so weit die Kartendaten reichen (Basiskarte swisstopo ~3.6–13.6° O, 44.2–48.9° N), sonst weisse
+// Flächen. Die Startkarte darf weiter nach Süden: dort liegt die untere Hälfte ohnehin unter dem Blatt.
+const FSM_BOUNDS = [[3.6, 44.2], [13.6, 48.9]], FSM_HOME_BOUNDS = [[3.6, 39], [13.6, 48.9]];
 // Karte erstellen. opts: {center:[lat,lon], zoom, controls:true, on3d:(map)=>{}}
 function fsmCreateMap(container, opts){
   opts = opts || {};
@@ -7283,7 +7288,7 @@ function fsmCreateMap(container, opts){
   const map = new maplibregl.Map({
     container, style: fsmBaseStyle(), center:[c[1], c[0]], zoom: opts.zoom != null ? opts.zoom : 8,
     maxPitch: 60, attributionControl: {compact: true}, dragRotate: true, touchPitch: true,
-    maxBounds: [[3, 43.5], [13.5, 49.5]]
+    maxBounds: FSM_BOUNDS
   });
   map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0, gpsOnce: !!opts.gpsOnce};
   // Tipp in die Karte schliesst das Ebenen-Fenster

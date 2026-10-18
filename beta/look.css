@@ -2571,30 +2571,29 @@ html.fs-mapmode #agenda-tab-btn{ display:none !important; }
 .fs-home-map.in-ctx .fs-home-clu{ opacity:.5; }
 
 /* =====================================================================
-   Wetter auf der Startkarte: kompakte Leiste unter der Glas-Leiste; Wetterart als Knopf, alle sechs
-   ohne Wischen nach Antippen
+   Wetter auf allen Karten: kompakte Leiste – gewählte Wetterart als Knopf neben Skala/Zeitschieber,
+   alle sechs ohne Wischen nach Antippen. Auf der Startkarte über die ganze Breite unter der Glas-Leiste.
    ===================================================================== */
-.fsm-wx-head .row{ display:block; }
-.fsm-wx-head .pick{ display:none; }
-html.fs-mapmode .fs-home-slot .fsm-wx-head{
-  top:calc(var(--fs-glass-bottom) + 6px); left:12px; right:12px; padding:6px; border-radius:20px;
-  background:color-mix(in srgb, var(--paper) 92%, transparent); -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px);
-}
-html.fs-mapmode .fs-home-slot .fsm-wx-head .row{ display:flex; align-items:center; gap:10px; }
-html.fs-mapmode .fs-home-slot .fsm-wx-head .pick{
+.fsm-wx-head{ padding:6px; border-radius:20px; }
+.fsm-wx-head .row{ display:flex; align-items:center; gap:10px; }
+.fsm-wx-head .pick{
   display:inline-flex; align-items:center; gap:6px; flex:none; min-height:44px; padding:0 12px 0 14px; border:none; border-radius:14px;
   background:var(--ice-deep); color:#fff; font:inherit; font-size:14px; font-weight:800; cursor:pointer;
 }
-html.fs-mapmode .fs-home-slot .fsm-wx-head .pick .fs-i{ width:16px; height:16px; transition:transform .2s; }
-html.fs-mapmode .fs-home-slot .fsm-wx-head.open .pick .fs-i{ transform:rotate(180deg); }
-html.fs-mapmode .fs-home-slot .fsm-wx-head .body{ flex:1; min-width:0; padding-right:6px; }
-html.fs-mapmode .fs-home-slot .fsm-wx-head .g i{ margin-bottom:13px; }
-html.fs-mapmode .fs-home-slot .fsm-wx-head .note{ font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-html.fs-mapmode .fs-home-slot .fsm-wx-head .tabs{ display:none; }
-html.fs-mapmode .fs-home-slot .fsm-wx-head.open .tabs{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:6px; overflow:visible; margin:0 0 8px; padding:0; }
-html.fs-mapmode .fs-home-slot .fsm-wx-head .tabs button{ min-width:0; min-height:44px; padding:0 6px; font-size:14px; }
-html.fs-mapmode .fs-home-slot .fsm-wx-head .time input{ height:36px; }
-html.fs-mapmode .fs-home-slot .fsm-wx-head .time .when{ font-size:14px; }
+.fsm-wx-head .pick .fs-i{ width:16px; height:16px; transition:transform .2s; }
+.fsm-wx-head.open .pick .fs-i{ transform:rotate(180deg); }
+.fsm-wx-head .body{ flex:1; min-width:0; padding-right:6px; }
+.fsm-wx-head .g i{ margin-bottom:13px; }
+.fsm-wx-head .note{ font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fsm-wx-head .tabs{ display:none; }
+.fsm-wx-head.open .tabs{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:6px; overflow:visible; margin:0 0 8px; padding:0; }
+.fsm-wx-head .tabs button{ min-width:0; min-height:44px; padding:0 4px; font-size:13px; }
+.fsm-wx-head .time input{ height:36px; }
+.fsm-wx-head .time .when{ font-size:14px; }
+html.fs-mapmode .fs-home-slot .fsm-wx-head{
+  top:calc(var(--fs-glass-bottom) + 6px); left:12px; right:12px;
+  background:color-mix(in srgb, var(--paper) 92%, transparent); -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px);
+}
 /* Touren treten zurück, damit die Wetterwerte lesbar sind */
 .fsm-wx-on .fs-home-pin i{ width:10px; height:10px; border-width:2px; opacity:.55; }
 .fsm-wx-on .fs-home-pin span{ display:none !important; }
