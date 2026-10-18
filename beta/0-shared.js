@@ -1577,6 +1577,14 @@ function fsCtxRelease(owner){
   if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); }
 }
 // Marker zu den aktuellen Punkten der Liste
+// Gewählten Eintrag öffnen (zweiter Tipp auf den Punkt oder Tipp auf einen Punkt seiner Route)
+function fsHomeOpenPicked(){
+  if(!fsHomePick || !fsHomePts || !document.documentElement.classList.contains('fs-mapmode')) return false;
+  const li = document.querySelector('.fs-sheet .card[data-act="' + fsHomePts.openAct + '"][data-id="' + CSS.escape(fsHomePick) + '"]');
+  if(!li) return false;
+  li.click();
+  return true;
+}
 function fsHomeSync(){
   if(!fsHomeMap || !fsHomeMap._fsmLoaded || !fsHomePts) return;
   const key = fsHomePts.kind + '|' + fsHomePts.points.map(p=> p.id + ':' + p.lat.toFixed(4) + ',' + p.lon.toFixed(4)).join(';');
@@ -1588,7 +1596,12 @@ function fsHomeSync(){
       const el = document.createElement('button');
       el.type = 'button'; el.className = 'fs-home-pin';
       el.innerHTML = `<i></i><span>${esc(p.label || '')}</span>`;
-      el.addEventListener('click', (e)=>{ e.stopPropagation(); fsHomeCard(p); });
+      el.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        // Zweiter Tipp auf den gewählten (blauen) Punkt öffnet den Eintrag – wie ein Tipp in der Liste
+        if(fsHomePick === p.id && fsHomeOpenPicked()) return;
+        fsHomeCard(p);
+      });
       fsHomeMarkers.push(new maplibregl.Marker({element: el, anchor: 'left', offset: [-7, 0]}).setLngLat([p.lon, p.lat]).addTo(fsHomeMap));
     });
     if(kindChanged || fsHomeAll) fsHomeFitAll();
@@ -1648,6 +1661,7 @@ function fsHomeRoutesSync(){
     el.className = 'fs-home-tpt';
     el.innerHTML = fsmCategoryMarkerHtml(pt.category || '');
     el.title = pt.label || '';
+    el.addEventListener('click', e=>{ e.stopPropagation(); fsHomeOpenPicked(); });
     fsHomeSelMarkers.push(new maplibregl.Marker({element: el, anchor: 'bottom'}).setLngLat([+pt.lon, +pt.lat]).addTo(map));
   });
 }
@@ -1685,7 +1699,7 @@ function fsHomeCard(p){
     ['click','pointerdown','touchstart','mousedown'].forEach(ev=> card.addEventListener(ev, e=> e.stopPropagation()));
     fsHomeEl.appendChild(card);
     // Ein Tipp auf einen Punkt kommt bei MapLibre auch als Klick in die Karte an: der zählt nicht als «daneben»
-    if(fsHomeMap) fsHomeMap.on('click', (e)=>{ const tg = e && e.originalEvent && e.originalEvent.target; if(tg && tg.closest && tg.closest('.fs-home-pin')) return; card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick){ fsHomePick = null; fsHomeFilter(); } });
+    if(fsHomeMap) fsHomeMap.on('click', (e)=>{ const tg = e && e.originalEvent && e.originalEvent.target; if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt')) return; card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick){ fsHomePick = null; fsHomeFilter(); } });
   }
   const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
   const x = all.find(o=> o && o.id === p.id) || {name: p.label};

@@ -2547,3 +2547,4 @@ html.fs-mapmode[data-fs-home="liste"] .fs-sheet.fs-hero-gone .fs-grip-title{ opa
 .card.fs-home-pick{ box-shadow:0 0 0 3px var(--ice-deep), 0 6px 18px rgba(15,30,39,.12); }
 /* Die Kurzinfo unten auf der Karte läge unter dem Blatt; der Eintrag steht stattdessen zuoberst in der Liste */
 html.fs-mapmode .fs-home-card{ display:none !important; }
+.fs-home-tpt{ cursor:pointer; }
