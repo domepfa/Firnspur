@@ -1630,7 +1630,7 @@ function fsHomeSync(){
    Punkte, die auf dem Bildschirm näher als ~40 px beieinander liegen, werden zu einem Kreis mit der
    Anzahl; Antippen zoomt auf diese Gruppe. Neu berechnet, wenn die Karte stillsteht. Der gewählte
    Punkt bleibt immer einzeln sichtbar. */
-let fsHomeClusters = [], fsHomeGroup = null;
+let fsHomeClusters = [], fsHomeGroup = null, fsHomeGroupFan = false;
 function fsHomeCluster(){
   const map = fsHomeMap;
   if(!map || !fsHomePts || !fsHomeMarkers.length) return;
@@ -1651,7 +1651,7 @@ function fsHomeCluster(){
   }
   fsHomeMarkers.forEach(m=> m.getElement().style.display = '');
   // Aufgefächerte Gruppe (gleicher Ort, z. B. zwei Routen auf denselben Gipfel): im Kreis um den Ort
-  const fan = pts.map((p, i)=> i).filter(i=> fsHomeGroup && fsHomeGroup.has(pts[i].id));
+  const fan = fsHomeGroupFan ? pts.map((p, i)=> i).filter(i=> fsHomeGroup && fsHomeGroup.has(pts[i].id)) : [];
   // Gleicher Name (gleicher Gipfel): in der Fächerung die Route als Etikett, sonst der Name
   const sameName = fan.length > 1 && fan.every(i=> pts[i].label === pts[fan[0]].label);
   fsHomeMarkers.forEach((m, i)=>{
@@ -1676,13 +1676,15 @@ function fsHomeCluster(){
       const ins = fsHomeInset();
       let spread = 0;
       g.forEach(i=> g.forEach(j=>{ spread = Math.max(spread, fsGeoDist(pts[i].lat, pts[i].lon, pts[j].lat, pts[j].lon)); }));
-      if(spread > 400 && map.getZoom() < 12.5){
+      // Viele Einträge weit auseinander: erst hineinzoomen
+      if(g.length > 4 && spread > 400 && map.getZoom() < 12.5){
         map.fitBounds(b, {padding:{top: 70 + ins.top, bottom: 50 + ins.bottom, left: 50, right: 80}, maxZoom: Math.max(map.getZoom() + 2, 13), duration: 500});
         return;
       }
-      // Am selben Ort (Hineinzoomen trennt sie nicht): auffächern, Einträge zuoberst in der Liste,
+      // Wenige Einträge: alle einzeln zeigen (am selben Ort aufgefächert), zuoberst in der Liste,
       // Karte auf ihre Routen
       fsHomeGroup = new Set(g.map(i=> pts[i].id));
+      fsHomeGroupFan = spread < 400;
       const tb = new maplibregl.LngLatBounds(b.getSouthWest(), b.getNorthEast());
       g.forEach(i=>{ const t = (state.tours || []).find(x=> x.id === pts[i].id); if(t) fsHomeTourLines(t).forEach(l=> l.forEach(c=> tb.extend(c))); });
       map.fitBounds(tb, {padding:{top: 80 + ins.top, bottom: 60 + ins.bottom, left: 60, right: 90}, maxZoom: 14, duration: 500});
