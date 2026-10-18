@@ -1518,7 +1518,7 @@ function fsHomeCreateMap(){
   fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
   fsmWireOrtHold(fsHomeMap);
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
-  fsHomeMap.setMaxBounds([[2, 42.5], [15, 50.5]]);
+  fsHomeMap.setMaxBounds([[1.5, 39], [15.5, 50.5]]); // Süden grosszügig: die untere Hälfte liegt unter dem Blatt
   fsHomeMap.on('moveend', ()=>{ if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
   fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
   fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl && sl.classList.contains('fs-home-slot')) sl.classList.add('has-map'); });
