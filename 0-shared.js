@@ -4862,6 +4862,7 @@ function fsFlyStart(map, wrap, fl){
     map.addLayer({id:'fsfly-crit', type:'line', source:'fsfly', filter:['==', ['get','c'], 1], paint:{'line-color':'#0F1E27', 'line-width':3, 'line-dasharray':[1, 1.2], 'line-offset':7}});
   }catch(e){}
   const dot = fsmAddMarker(map, pts[0].lat, pts[0].lon, '<div class="fsfly-dot"></div>', {anchor:'center'});
+  try{ dot.setOpacity('1', '1'); }catch(e){} // hinter Gelände nicht ausblassen (3D)
   // Panel unten
   const panel = document.createElement('div');
   panel.className = 'fsfly';
@@ -17986,6 +17987,7 @@ function fsRcOpenFull(key){
       }catch(e){}
       fsmFit(map, pts.map(p=> [p.lat, p.lon]), 36, 15);
       dot = fsmAddMarker(map, mid.lat, mid.lon, '<div class="fsfly-dot"></div>', {anchor:'center'});
+      try{ dot.setOpacity('1', '1'); }catch(e){} // hinter Gelände nicht ausblassen (3D)
       dot.getElement().style.visibility = 'hidden';
       if(sel >= 0) show(sel);
       // Route auf der Karte antippen: nächste Stelle
@@ -19070,6 +19072,9 @@ function fsStripEmoji(txt){
   });
 })();
 // Wettersymbole bekommen eine eigene Klasse (fs-wx-…): Sonne gelb, Regen blau usw., siehe look.css
+// Ganze Seite nicht mit zwei Fingern vergrössern (Karten, Profile und Fotos zoomen selbst); Safari
+// beachtet user-scalable=no im viewport nicht, darum zusätzlich hier
+document.addEventListener('gesturestart', e=> e.preventDefault(), {passive: false});
 function fsIconHtml(name){ return `<svg class="fs-i${/^(sun|partly|cloud|fog|rain|storm|snow|snowcloud)$/.test(name) ? ' fs-wx-' + name : ''}" viewBox="0 0 24 24" aria-hidden="true"><path d="${FS_ICON_PATHS[name]}"/></svg>`; }
 const FS_SKIP_TAGS = new Set(['SCRIPT','STYLE','TEXTAREA','INPUT','SELECT','svg','title']);
 function fsReplaceEmojiInTextNode(node){
