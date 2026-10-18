@@ -246,31 +246,7 @@ function emptyHuts(){
   </div>`;
 }
 
-function hutCardHtml(h){
-  migrateHutAccessRoutes(h);
-  const linkedCount = state.tours.filter(t=>t.hutId===h.id).length;
-  const routes = h.accessRoutes || [];
-  const rangeText = accessRouteDifficultyRangeHtml(routes);
-  const gebiet = h.gebietId ? state.gebiete.find(g=>g.id===h.gebietId) : null;
-  return `
-  <div class="card" data-act="open-hut" data-id="${h.id}" tabindex="0" role="button">
-    <div class="card-top">
-      <h3>🛖 ${h.completed ? '✓ ' : ''}${esc(h.name)}</h3>
-      ${h.altitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(h.altitude)} m</span>` : ''}
-    </div>
-    ${h.region ? `<p class="excerpt">${esc(h.region)}${h.subregion ? ' – ' + esc(h.subregion) : ''}</p>` : ''}
-    ${routes.length ? `<div class="stat-row"><span>🚶 ${routes.length} Zustieg${routes.length===1?'':'e'}${rangeText ? ' · ' + rangeText : ''}</span></div>` : ''}
-    ${((h.staffedMonths && h.staffedMonths.length) || (h.staffedMonthsPartial && h.staffedMonthsPartial.length)) ? `<div class="stat-row"><span>👤 bewartet: ${(h.staffedMonths||[]).length + (h.staffedMonthsPartial||[]).length} Mte.</span></div>` : `<div class="stat-row"><span>👤 unbewartet</span></div>`}
-    <span class="hut-link-chip">${linkedCount} Tour${linkedCount===1?'':'en'} ab hier</span>
-    ${gebiet ? `<span class="hut-link-chip">⛰️ ${esc(gebiet.name)}</span>` : ''}
-    ${(h.completions && h.completions.length) ? `<div class="stat-row"><span>✓ ${h.completions.length===1 ? esc(h.completions[0].by||'?') + (h.completions[0].date ? ' · ' + fmtDateOnly(h.completions[0].date) : '') : h.completions.length + ' Einträge'}</span></div>` : ''}
-    ${h._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">⚠ nicht synchronisiert</span>` : ''}
-    <div class="meta-line" style="display:flex; justify-content:space-between; align-items:center;">
-      <span>von ${esc(h.createdBy||'?')} · ${fmtDate(h.createdAt)}</span>
-      <span style="color:var(--ink-faint);">${hutStatusLabel(h)}</span>
-    </div>
-  </div>`;
-}
+function hutCardHtml(h){ return fsHutCardHtml(h); }
 
 function filteredGebiete(){
   let list = state.gebiete;

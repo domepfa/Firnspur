@@ -26,6 +26,10 @@
   --ok:#2E6B3C;
   --signal:#D99A1E;
   --signal-deep:#A15C00;
+  /* Hangneigung wie auf der swisstopo-Karte (30–35/35–40/40–45/45–50/über 50°) */
+  --disc-ski:#1E6AA0; --disc-hoch:#4E5A9C; --disc-klet:#9A5418; --disc-wand:#3D7A4E;
+  --wx-sun:#E0A100; --wx-partly:#C08A1E; --wx-rain:#2B7BD6; --wx-storm:#5A4CC4; --wx-snow:#3FA3DE; --wx-cloud:#6B7A84;
+  --slope-1:#F2E50A; --slope-2:#F46F24; --slope-3:#DE055B; --slope-4:#C889BB; --slope-5:#4B4B4B;
   --shadow:0 1px 2px rgba(15,30,39,.05), 0 8px 24px rgba(15,30,39,.06);
   --shadow-lg:0 12px 36px rgba(15,30,39,.16);
   --radius:14px;
@@ -438,6 +442,20 @@ body:has(.overlay) .agenda-tab{ display:none; }
   -webkit-backdrop-filter:none; backdrop-filter:none;
 }
 .who-menu[open] > summary{ background:var(--ice-deep); color:#fff; }
+/* Menü-Knopf: Strich-Icon statt «?», Initial als kleines Abzeichen */
+.who-menu > summary{ position:relative; }
+.who-menu > summary .fs-i{ width:22px; height:22px; }
+.who-initial{
+  position:absolute; right:-3px; bottom:-3px; min-width:19px; height:19px; padding:0 4px; box-sizing:border-box;
+  border-radius:999px; background:var(--paper); color:var(--ink); border:1.5px solid var(--ink);
+  font-size:11px; font-weight:800; line-height:16px; text-align:center;
+}
+/* Offline ist ein normaler Zustand: ruhiges Banner statt Warnfarbe */
+.backup-banner.fs-offline-banner{
+  background:var(--ice-light); color:var(--accent-ink); border-bottom:1px solid var(--line);
+  font-size:13.5px; font-weight:600; padding:10px 16px; gap:8px; flex-wrap:nowrap; text-align:left;
+}
+.backup-banner.fs-offline-banner .fs-i{ width:18px; height:18px; flex:none; }
 .tabs{ margin-top:12px; }
 .tabs-inner{
   background:#E6EBEE; border:none;
@@ -1121,12 +1139,9 @@ html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-access-routes-map"]{ disp
 .fs-sac-pick strong{ font-size:14px; color:var(--ink); }
 .fs-sac-pick span{ font-size:12px; color:var(--ink-soft); }
 .fs-sac-back{ align-self:flex-start; border:none; background:none; color:var(--ice-deep); font:inherit; font-size:13px; font-weight:700; padding:0; cursor:pointer; }
-.leaflet-popup-content .fs-sac-pop p{ margin:0; }
-
-/* =====================================================================
-   Phase 2d: Kontextmenü (lange auf eine Tour-Kachel drücken)
+.leaflet-popup-content .fs-sac-pop p{ margin:0; }/* =====================================================================
    ===================================================================== */
-.card[data-act="open-tour"]{ -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; transition:transform .15s ease; }
+
 .card.fs-pressing{ transform:scale(.97); }
 .fs-ctxm-overlay{
   position:fixed; inset:0; z-index:250; padding:24px 18px calc(24px + env(safe-area-inset-bottom, 0px));
@@ -1787,6 +1802,9 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxp .l, html.fs-dark .fsm-wxp .t, h
 .fs-home-map-inner{ position:absolute !important; inset:0; width:100%; height:100%; }
 .fs-home-slot .map-strip-head{ z-index:6; }
 .fs-home-pin{ display:flex; align-items:center; gap:5px; padding:0; border:none; background:none; font:inherit; cursor:pointer; }
+/* Trefferfläche 44 px um den Punkt (mit Handschuhen antippbar) */
+.fs-home-pin{ position:relative; }
+.fs-home-pin::before{ content:''; position:absolute; left:-15px; top:50%; width:44px; height:44px; margin-top:-22px; border-radius:50%; }
 .fs-home-pin i{ display:block; width:14px; height:14px; border-radius:50%; background:var(--ice-deep); border:2.5px solid #fff; box-shadow:0 1px 4px rgba(15,30,39,.45); flex:none; }
 .fs-home-pin span{ display:none; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.94); color:var(--ink); font-size:12px; font-weight:800; box-shadow:0 1px 4px rgba(15,30,39,.25); }
 .fs-home-map.labels .fs-home-pin span{ display:block; }
@@ -1805,13 +1823,6 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxp .l, html.fs-dark .fsm-wxp .t, h
 .fs-home-card .f{ display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
 .fs-home-card .f span{ padding:3px 10px; border-radius:999px; background:var(--ice-light); color:var(--accent-ink); font-size:12.5px; font-weight:800; }
 .fs-home-card .open{ margin-top:8px; min-height:46px; border:none; border-radius:999px; background:var(--ice-deep); color:#fff; font:inherit; font-size:15px; font-weight:800; cursor:pointer; }
-/* Suchfeld eingeklappt (fsSearchCollapse) */
-.fs-sheet .toolbar .search-input{ display:none; }
-html.fs-search-open .fs-sheet .toolbar .search-input{ display:block; }
-html:not(.fs-search-open) .fs-sheet .toolbar.fs-search-tb{ margin:0; padding:0; min-height:0; gap:0; }
-html.fs-search-open .fs-search-btn{ display:none !important; }
-.fs-search-btn{ display:inline-flex; align-items:center; justify-content:center; gap:6px; }
-.fs-search-btn .fs-i{ width:18px; height:18px; }
 .fs-sheet .toolbar-row{ display:flex; gap:8px; }
 .fs-sheet .toolbar-row > .btn{ flex:1; }
 /* Karte so hoch, dass Suche/Filter und der Anfang der ersten Tour sichtbar bleiben */
@@ -2086,3 +2097,521 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-home-map.in-big{ opacity:1; }
 .fs-home-map.in-big .maplibregl-ctrl-bottom-right{ top:auto; left:auto; right:0; bottom:0; }
 .fs-home-map.in-big .fs-home-card{ bottom:calc(140px + env(safe-area-inset-bottom, 0px)); }
+
+/* ===== Bibliothek: Suche neben Filter, kompakte Einträge, Status im Fuss ===== */
+.fs-sheet .toolbar.fs-search-has-row{ margin-right:132px; margin-bottom:0; }
+.fs-sheet .toolbar .search-input{ display:block; flex:1; min-width:0; min-height:46px; border-radius:999px; padding:0 16px; font-size:15px; }
+.fs-sheet .toolbar-row.fs-search-beside{ width:124px; margin:-46px 0 10px auto; }
+.fs-sheet .toolbar-row.fs-search-beside > .btn{ min-height:46px; padding:0 12px; }
+.fs-sheet .card .fs-card-done-old{ display:none !important; }/* Hütte/Gebiet stehen in der Tour; in der Liste nur «nicht synchronisiert» */
+
+.fs-sheet .card .agenda-date-row{ display:none; }
+.fs-sheet .card .card-top{ margin-bottom:0; }
+.fs-sheet .card .stat-row{ font-size:14px; }
+.card .fs-card-foot{ display:none; }
+.fs-sheet .card .fs-card-foot{
+  display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; margin-top:6px;
+  font-size:13px; font-weight:700; color:var(--ink-soft);
+}
+.fs-card-foot .fs-status-lbl.is-bereit{ color:var(--ok); }
+.fs-card-foot .fs-status-lbl.is-recherche{ color:var(--accent-ink); }
+.fs-card-done{ display:inline-flex; align-items:center; gap:4px; color:var(--ok); }
+.fs-card-done .fs-i{ width:15px; height:15px; }
+.fs-ready-missing{ margin:8px 0 0; font-size:13.5px; color:var(--ink-soft); line-height:1.45; }
+/* Kompakte Zeile: Name · Abzeichen, Route und Region · Kennzahlen und Status */
+.fs-sheet .grid{ gap:8px; }/* Zeilenumbruch vor den Kennzahlen, auch wenn Abzeichen und Route kurz sind */
+
+/* Wetter der nächsten 3 Tage im Listeneintrag */
+.fs-card-wx{ display:inline-flex; gap:5px; margin-right:auto; }
+.fs-card-wx > span{ display:inline-flex; align-items:center; gap:3px; padding:2px 7px; border-radius:8px; background:var(--ice-light); color:var(--ink); font-size:12px; font-weight:700; white-space:nowrap; }
+.fs-card-wx .fs-i{ width:15px; height:15px; color:var(--signal-deep); }
+/* Nachtragen: mit einem Tipp, neben dem Status */
+.fs-status-row{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.fs-status-row .fs-status-seg{ flex-basis:100%; }
+.fs-nt-btn{ margin-left:auto; min-height:44px; display:inline-flex; align-items:center; gap:6px; padding:0 16px; font-size:14px; font-weight:800; }
+.fs-nt-btn .fs-i{ width:18px; height:18px; }
+.modal.fs-editing .fs-nt-btn{ display:none; }
+.fs-nt-done{ display:flex; align-items:center; gap:12px; min-height:52px; margin:12px 0 2px; padding:8px 14px; border:1px solid var(--line); border-radius:14px; background:var(--paper); font-weight:700; font-size:14.5px; cursor:pointer; }
+.fs-nt-done input{ width:24px; height:24px; flex:none; accent-color:var(--ice-deep); }
+.fs-nt-gpx{ font-size:13px; color:var(--ink-soft); }
+/* Tour aus Foto */
+.btn.secondary.fs-scan-btn{ display:flex; align-items:center; justify-content:flex-start; gap:12px; width:100%; min-height:64px; height:auto; margin:0 0 14px; padding:10px 16px; border-radius:16px; text-align:left; white-space:normal; background:var(--ice-light); color:var(--accent-ink); border:1px dashed var(--ice-deep); }
+.fs-scan-btn .fs-i{ width:26px; height:26px; flex:none; }
+.fs-scan-btn span{ display:grid; gap:2px; }
+.fs-scan-btn b{ font-size:15.5px; font-weight:800; }
+.fs-scan-btn small{ font-size:12.5px; font-weight:600; color:var(--ink-soft); }
+.fs-scan-pick{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0 4px; }
+.fs-scan-pick .btn{ min-height:48px; display:flex; align-items:center; justify-content:center; gap:6px; }
+.fs-scan-thumbs{ display:flex; flex-wrap:wrap; gap:8px; }
+.fs-scan-thumbs span{ position:relative; width:72px; height:96px; border-radius:10px; overflow:hidden; background:var(--line-soft); }
+.fs-scan-thumbs img{ width:100%; height:100%; object-fit:cover; }
+.fs-scan-thumbs button{ position:absolute; top:2px; right:2px; width:32px; height:32px; border:none; border-radius:50%; background:rgba(15,30,39,.7); color:#fff; font-size:18px; line-height:1; cursor:pointer; }
+.fs-scan-rows{ display:grid; gap:8px; margin:10px 0; }
+.fs-scan-row{ display:flex; gap:12px; align-items:flex-start; padding:10px 12px; border-radius:14px; border:1px solid var(--line); background:var(--paper); cursor:pointer; }
+.fs-scan-row input{ width:24px; height:24px; margin-top:2px; flex:none; accent-color:var(--ice-deep); }
+.fs-scan-row span{ display:grid; gap:2px; min-width:0; }
+.fs-scan-row small{ font-size:11.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-faint); }
+.fs-scan-row b{ font-size:15px; font-weight:700; white-space:pre-wrap; overflow-wrap:anywhere; }
+.fs-scan-row q{ font-size:12.5px; color:var(--ink-soft); font-style:italic; overflow-wrap:anywhere; }
+.fs-scan-row em{ font-size:12.5px; font-style:normal; color:var(--signal-deep); font-weight:700; }
+.fs-scan-unklar{ display:flex; gap:8px; align-items:flex-start; padding:10px 12px; border-radius:12px; background:var(--line-soft); font-size:13.5px; }
+.fs-scan-unklar .fs-i{ width:18px; height:18px; flex:none; color:var(--signal-deep); }
+.fs-scan-others{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.field label.fs-scan-row{ display:flex; text-transform:none; letter-spacing:0; font-size:14px; font-weight:500; color:var(--ink); margin-bottom:0; }
+.field label.fs-scan-row b{ text-transform:none; letter-spacing:0; }
+
+/* Routen-Check */
+.fs-rc{ margin-top:16px; padding:16px; border-radius:var(--radius-lg); border:1px solid var(--line); background:var(--paper); display:grid; gap:12px; }
+.fs-rc-title{ display:flex; align-items:center; gap:8px; margin:0; font-family:var(--font-display); font-weight:400; font-size:22px; color:var(--ink); text-transform:none; letter-spacing:0; }
+.fs-rc-title .fs-i{ width:22px; height:22px; color:var(--ice-deep); }
+.fs-rc-body{ display:grid; gap:12px; }
+.fs-rc-note{ margin:0; font-size:13.5px; color:var(--ink-soft); }
+.fs-rc-facts{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; }
+.fs-rc-facts div{ padding:10px; border-radius:14px; background:var(--line-soft); display:grid; gap:2px; }
+.fs-rc-facts b{ font-family:var(--font-display); font-weight:400; font-size:24px; line-height:1.05; }
+.fs-rc-facts span{ font-size:12px; font-weight:700; color:var(--ink-soft); }
+.fs-rc-svg{ width:100%; height:auto; display:block; }
+.fs-rc-area{ fill:var(--ice-light); }
+.fs-rc-line{ stroke:var(--ink-soft); }
+.fs-rc-k1{ stroke:var(--slope-1); } .fs-rc-k2{ stroke:var(--slope-2); } .fs-rc-k3{ stroke:var(--slope-3); } .fs-rc-k4{ stroke:var(--slope-4); } .fs-rc-k5{ stroke:var(--slope-5); }
+.fs-rc-f1{ fill:var(--slope-1); background:var(--slope-1); } .fs-rc-f2{ fill:var(--slope-2); background:var(--slope-2); } .fs-rc-f3{ fill:var(--slope-3); background:var(--slope-3); }
+.fs-rc-f4{ fill:var(--slope-4); background:var(--slope-4); } .fs-rc-f5{ fill:var(--slope-5); background:var(--slope-5); }
+.fs-rc-bandbg{ fill:var(--line-soft); }
+.fs-rc-crit{ fill:url(#fs-rc-hatch); }
+.fs-rc-critbg{ fill:var(--ink); }
+.fs-rc-hatchline{ stroke:var(--paper); }
+.fs-rc-steep{ fill:none; stroke:var(--ink); stroke-width:3; }
+.fs-rc-t{ font:700 17px var(--font-ui); fill:var(--ink-soft); }
+.fs-rc-legend{ display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12.5px; font-weight:700; color:var(--ink-soft); }
+.fs-rc-legend span{ display:inline-flex; align-items:center; gap:6px; }
+.fs-rc-legend i{ width:14px; height:14px; border-radius:4px; display:inline-block; }
+.fs-rc-critkey{ background:repeating-linear-gradient(45deg, var(--ink) 0 3px, var(--paper) 3px 6px); }
+.fs-rc-bottom{ display:grid; grid-template-columns:minmax(0, 200px) minmax(0, 1fr); gap:14px; align-items:center; }
+@media (max-width:520px){ .fs-rc-bottom{ grid-template-columns:minmax(0,1fr); justify-items:center; } .fs-rc-bul{ width:100%; } }
+.fs-rc-rose{ width:100%; max-width:220px; height:auto; }
+.fs-rc-ring{ fill:none; stroke:var(--line); stroke-dasharray:3 5; }
+.fs-rc-sec{ fill:var(--line-soft); stroke:var(--paper); stroke-width:3; }
+.fs-rc-sec.has{ fill:var(--slope-2); fill-opacity:.75; }
+.fs-rc-sec[data-rc-asp]{ cursor:pointer; }
+.fs-rc-sec.crit{ stroke:var(--ink); stroke-width:4; fill-opacity:1; }
+.fs-rc-sec.crit:not(.has){ fill:var(--ink-faint); }
+.fs-rc-al{ font:800 14px var(--font-ui); fill:var(--ink-soft); }
+.fs-rc-al.crit{ fill:var(--ink); text-decoration:underline; }
+.fs-rc-bul{ display:grid; gap:8px; }
+.fs-rc-h{ margin:0; font-weight:800; font-size:14.5px; }
+.fs-rc-lbl{ font-size:12px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-faint); }
+.fs-rc-bul select{ min-height:44px; }
+.fs-rc-verdict{ margin:0; display:flex; gap:8px; align-items:flex-start; padding:10px 12px; border-radius:12px; background:var(--line-soft); font-weight:700; font-size:14px; }
+.fs-rc-verdict .fs-i{ width:18px; height:18px; flex:none; margin-top:2px; }
+.fs-rc-verdict.warn .fs-i{ color:var(--signal-deep); }
+.fs-rc-verdict.ok .fs-i{ color:var(--ok); }
+.fs-rc-src{ margin:0; font-size:12px; color:var(--ink-faint); }
+
+/* Lawinen im Listeneintrag und Bulletin im Routen-Check */
+.fs-card-slf{ display:inline-flex; align-items:center; gap:5px; padding:2px 8px 2px 3px; border-radius:999px; background:var(--line-soft); color:var(--ink); font-size:12px; font-weight:800; }
+.fs-card-slf i{ display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--lvl); color:#0F1E27; font-style:normal; font-size:11px; font-weight:800; box-shadow:inset 0 0 0 1px rgba(15,30,39,.25); }
+.fs-card-slf .fs-i{ width:14px; height:14px; color:var(--signal-deep); }
+.fs-rc-seg{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.fs-rc-seg button{ min-height:44px; border-radius:12px; border:1px solid var(--line); background:var(--paper); font:inherit; font-size:13.5px; font-weight:800; color:var(--ink-soft); cursor:pointer; }
+.fs-rc-seg button[aria-pressed="true"]{ background:var(--ink); border-color:var(--ink); color:var(--paper); }
+.fs-rc-lvl{ margin:0; display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; font-weight:800; font-size:14.5px; }
+.fs-rc-lvl small{ flex-basis:100%; font-weight:600; font-size:12px; color:var(--ink-faint); }
+.fs-rc-probs{ list-style:none; margin:0; padding:0; display:grid; gap:6px; }
+.fs-rc-probs li{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 10px; border-radius:12px; background:var(--line-soft); }
+.fs-rc-probs li span{ display:grid; gap:1px; min-width:0; }
+.fs-rc-probs li b{ font-size:14px; }
+.fs-rc-probs li em{ font-style:normal; font-size:12.5px; color:var(--ink-soft); }
+.fs-rc-probs li strong{ font-size:13px; white-space:nowrap; }
+.fs-rc-probs li strong.warn{ color:var(--signal-deep); }
+.fs-rc-probs li strong.ok{ color:var(--ok); }
+
+/* Vorbeiflug */
+.fs-rc-fly{ display:flex; align-items:center; justify-content:center; gap:8px; min-height:48px; width:100%; font-weight:800; }
+.fs-rc-fly .fs-i{ width:18px; height:18px; }
+.fsfly{ position:absolute; left:0; right:0; bottom:0; z-index:6; display:grid; gap:8px; padding:12px max(14px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px));
+  background:color-mix(in srgb, var(--paper) 92%, transparent); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); border-radius:22px 22px 0 0; box-shadow:0 -8px 30px rgba(15,30,39,.25); color:var(--ink); }
+.fsfly-row{ display:grid; grid-template-columns:56px minmax(0,1fr) 56px; gap:10px; align-items:center; }
+.fsfly-play, .fsfly-speed{ width:56px; height:56px; border-radius:50%; border:none; background:var(--ice-deep); color:#fff; display:grid; place-items:center; font:inherit; font-weight:800; font-size:16px; cursor:pointer; }
+.fsfly-speed{ background:var(--line-soft); color:var(--ink); }
+.fsfly-play .fs-i{ width:24px; height:24px; fill:currentColor; }
+.fsfly-read{ display:grid; gap:1px; min-width:0; }
+.fsfly-read b{ font-family:var(--font-display); font-weight:400; font-size:30px; line-height:1; font-variant-numeric:tabular-nums; }
+.fsfly-read span{ font-size:13.5px; font-weight:700; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fsfly-alert{ display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:12px; background:var(--ink); color:var(--paper); font-weight:800; font-size:13.5px; animation:fsfly-pulse 1.4s ease-in-out infinite; }
+.fsfly-alert[hidden]{ display:none; }
+.fsfly-alert .fs-i{ width:18px; height:18px; color:var(--slope-1); }
+@keyframes fsfly-pulse{ 50%{ box-shadow:0 0 0 4px color-mix(in srgb, var(--slope-2) 55%, transparent); } }
+.fsfly-prof{ width:100%; height:84px; display:block; cursor:pointer; touch-action:none; border-radius:10px; }
+.fsfly-area{ fill:var(--ice-light); }
+.fsfly-pline{ stroke:var(--ink-soft); }
+.fsfly-cursor{ stroke:var(--ink); }
+.fsfly-dot{ width:20px; height:20px; border-radius:50%; background:var(--ice-deep); border:4px solid #fff; box-shadow:0 0 0 6px color-mix(in srgb, var(--ice-deep) 35%, transparent), 0 2px 8px rgba(0,0,0,.4); }
+@media (prefers-reduced-motion: reduce){ .fsfly-alert{ animation:none; } }
+
+/* Jahresrückblick */
+.fsyb{ position:fixed; inset:0; z-index:320; background:var(--cream); color:var(--ink); display:flex; flex-direction:column; overflow:hidden; outline:none;
+  padding:calc(10px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.fsyb::before{ content:''; position:absolute; inset:-20%; pointer-events:none; opacity:.5;
+  background:repeating-radial-gradient(ellipse at 80% 15%, transparent 0 22px, var(--line) 22px 23px); animation:fsyb-drift 40s linear infinite alternate; }
+@keyframes fsyb-drift{ to{ transform:translate(-4%, 3%) rotate(2deg); } }
+.fsyb-load{ margin:auto; max-width:30em; text-align:center; font-weight:700; color:var(--ink-soft); }
+.fsyb-prog{ position:relative; display:flex; gap:4px; }
+.fsyb-prog i{ flex:1; height:4px; border-radius:2px; background:var(--line); overflow:hidden; }
+.fsyb-prog i b{ display:block; height:100%; width:0; background:var(--ink); }
+.fsyb-prog i.done b{ width:100%; }
+.fsyb-prog i.now b{ animation:fsyb-prog 6.5s linear forwards; }
+.fsyb.paused .fsyb-prog i.now b, .fsyb.last .fsyb-prog i.now b{ animation-play-state:paused; }
+.fsyb.last .fsyb-prog i.now b{ width:100%; animation:none; }
+@keyframes fsyb-prog{ to{ width:100%; } }
+.fsyb-top{ position:relative; z-index:2; display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; }
+.fsyb-sel{ display:flex; gap:6px; }
+.fsyb-sel select{ min-height:40px; border-radius:999px; border:1px solid var(--line); background:var(--paper); padding:0 12px; font:inherit; font-weight:800; font-size:13.5px; color:var(--ink); }
+.fsyb-x{ width:44px; height:44px; border-radius:50%; border:none; background:var(--paper); color:var(--ink); font-size:24px; box-shadow:var(--shadow); cursor:pointer; }
+.fsyb-stage{ position:relative; flex:1; min-height:0; }
+.fsyb-page{ position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; gap:14px; opacity:0; pointer-events:none; transform:translateY(14px); transition:opacity .45s, transform .6s cubic-bezier(.2,.8,.2,1); }
+.fsyb-page.on{ opacity:1; transform:none; pointer-events:auto; }
+.fsyb-big{ font-family:var(--font-display); font-size:clamp(96px, 34vw, 190px); line-height:.85; letter-spacing:-.02em; color:var(--ice-deep); }
+.fsyb-kicker{ margin:0; font-size:13px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); }
+.fsyb-h{ margin:0; font-family:var(--font-display); font-weight:400; font-size:clamp(30px, 8vw, 44px); line-height:1.05; text-wrap:balance; }
+.fsyb-note{ margin:0; font-size:12.5px; color:var(--ink-faint); }
+.fsyb-stats{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.fsyb-stats div{ padding:14px; border-radius:18px; background:var(--paper); box-shadow:var(--shadow); display:grid; gap:2px; }
+.fsyb-stats b{ font-family:var(--font-display); font-weight:400; font-size:40px; line-height:1; font-variant-numeric:tabular-nums; }
+.fsyb-stats span{ font-size:13px; font-weight:700; color:var(--ink-soft); }
+.fsyb-d-ski{ --dc:var(--disc-ski); } .fsyb-d-hoch{ --dc:var(--disc-hoch); } .fsyb-d-klet{ --dc:var(--disc-klet); } .fsyb-d-wand{ --dc:var(--disc-wand); }
+.fsyb-discs{ display:grid; gap:12px; }
+.fsyb-disc{ position:relative; display:flex; align-items:center; gap:12px; padding:14px 16px; border-radius:18px; background:var(--paper); overflow:hidden; box-shadow:var(--shadow); }
+.fsyb-disc .fs-i{ width:28px; height:28px; color:var(--dc); position:relative; z-index:1; }
+.fsyb-disc span{ display:grid; position:relative; z-index:1; }
+.fsyb-disc b{ font-size:17px; } .fsyb-disc em{ font-style:normal; font-size:13px; color:var(--ink-soft); font-weight:600; }
+.fsyb-disc i{ position:absolute; left:0; top:0; bottom:0; width:0; background:color-mix(in srgb, var(--dc) 16%, transparent); }
+.fsyb-page.on .fsyb-disc i{ width:var(--w); transition:width 1s cubic-bezier(.2,.8,.2,1) calc(.15s + var(--i) * .12s); }
+.fsyb-bars{ display:grid; grid-template-columns:repeat(12, minmax(0,1fr)); gap:5px; height:42vh; max-height:320px; align-items:end; }
+.fsyb-bars div{ height:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:4px; }
+.fsyb-bars i{ width:100%; height:0; border-radius:8px 8px 3px 3px; background:color-mix(in srgb, var(--ice-deep) 40%, var(--paper)); }
+.fsyb-bars div.best i{ background:var(--ice-deep); }
+.fsyb-page.on .fsyb-bars i{ height:max(3px, var(--h)); transition:height .9s cubic-bezier(.2,.8,.2,1) calc(var(--i) * .05s); }
+.fsyb-bars small{ font-size:12px; font-weight:800; color:var(--ink-faint); }
+.fsyb-map{ width:100%; height:auto; max-height:55vh; }
+.fsyb-ch{ fill:var(--paper); stroke:var(--ink-faint); stroke-width:.35; stroke-opacity:.6; filter:drop-shadow(0 1px 2px rgba(15,30,39,.12)); }
+.fsyb-lake{ fill:var(--ice-light); }
+.fsyb-trail{ fill:none; stroke:var(--ink-soft); stroke-width:.6; stroke-dasharray:100; stroke-dashoffset:100; opacity:.6; }
+.fsyb-page.on .fsyb-trail{ stroke-dashoffset:0; transition:stroke-dashoffset 4.5s ease-in-out .3s; }
+.fsyb-pin{ fill:var(--dc); stroke:var(--paper); stroke-width:.9; opacity:0; transform-box:fill-box; transform-origin:center; transform:scale(0); }
+.fsyb-page.on .fsyb-pin{ opacity:1; transform:none; transition:opacity .3s, transform .5s cubic-bezier(.3,1.6,.5,1); transition-delay:calc(.3s + var(--i) * 4.2s / max(1, 30)); }
+.fsyb-cards{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.fsyb-card{ padding:14px; border-radius:18px; background:var(--paper); box-shadow:var(--shadow); display:grid; gap:4px; align-content:start; }
+.fsyb-card small{ font-size:11.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-faint); }
+.fsyb-card b{ font-family:var(--font-display); font-weight:400; font-size:24px; line-height:1.05; }
+.fsyb-card span{ font-size:13px; font-weight:700; color:var(--ink-soft); }
+.fsyb-crew{ display:grid; gap:10px; }
+.fsyb-crew div{ display:flex; align-items:center; gap:12px; padding:10px 14px; border-radius:18px; background:var(--paper); box-shadow:var(--shadow); opacity:0; transform:translateX(-12px); }
+.fsyb-page.on .fsyb-crew div{ opacity:1; transform:none; transition:all .5s calc(.2s + var(--i) * .12s); }
+.fsyb-av{ width:44px; height:44px; border-radius:50%; display:grid; place-items:center; background:var(--ice-deep); color:#fff; font-weight:800; font-size:18px; }
+.fsyb-crew b{ flex:1; font-size:16px; } .fsyb-crew em{ font-style:normal; font-weight:800; color:var(--ink-soft); }
+.fsyb-photos{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:6px; }
+.fsyb-photos figure{ margin:0; aspect-ratio:1; border-radius:14px; overflow:hidden; background:var(--line-soft); opacity:0; transform:scale(.92); }
+.fsyb-page.on .fsyb-photos figure{ opacity:1; transform:none; transition:all .6s calc(var(--i) * .1s); }
+.fsyb-photos img{ width:100%; height:100%; object-fit:cover; }
+.fsyb-page.on .fsyb-photos img{ animation:fsyb-ken 9s ease-in-out infinite alternate; }
+@keyframes fsyb-ken{ to{ transform:scale(1.12); } }
+.fsyb-p-book{ justify-content:flex-start; padding-top:12px; }
+.fsyb-book{ list-style:none; margin:0; padding:0 0 70px; overflow:auto; display:grid; gap:6px; }
+.fsyb-book li{ display:grid; grid-template-columns:auto auto minmax(0,1fr) auto; gap:10px; align-items:center; padding:10px 12px; border-radius:14px; background:var(--paper); }
+.fsyb-book time{ font-size:12.5px; font-weight:800; color:var(--ink-faint); font-variant-numeric:tabular-nums; }
+.fsyb-book span .fs-i{ width:18px; height:18px; color:var(--dc); }
+.fsyb-book b{ font-size:14.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fsyb-book b em{ font-style:normal; font-weight:600; color:var(--ink-soft); }
+.fsyb-book small{ font-size:12.5px; font-weight:700; color:var(--ink-soft); white-space:nowrap; }
+.fsyb-nav{ position:absolute; left:0; right:0; bottom:calc(16px + env(safe-area-inset-bottom, 0px)); display:flex; justify-content:space-between; padding:0 16px; pointer-events:none; z-index:3; }
+.fsyb-nav button{ pointer-events:auto; width:52px; height:52px; border-radius:50%; border:none; background:var(--paper); color:var(--ink); font-size:26px; box-shadow:var(--shadow); cursor:pointer; }
+@media (prefers-reduced-motion: reduce){ .fsyb::before, .fsyb-page.on .fsyb-photos img{ animation:none; } }/* Listeneintrag geordnet: Ziel und Schwierigkeit · Route und Region · Kennzahlen mit Gipfelhöhe · Wetter und Status.
+   Stern, «wer hat es gemacht», Topo-Knopf und Gipfel-Chips nur in der Tour. */
+
+.fs-stat-alt{ display:inline-flex; align-items:center; gap:4px; }
+.fs-stat-alt .fs-i{ width:16px; height:16px; color:var(--ink-soft); }
+
+/* ===== Listeneintrag Tour: festes Raster =====
+   Zeile 1: Name (max. 2 Zeilen) | Schwierigkeit (feste Spalte oben rechts)
+   Zeile 2: Route · Region      Zeile 3: Kennzahlen      Zeile 4: Lawinen, Wetter … Status (rechts)
+   Jede Zeile hat eine feste Höhe, auch wenn sie leer ist. Links immer ein Bild gleicher Grösse. */
+.card.fs-tc{
+  --fs-tc-gw:44px;
+  display:grid; grid-template-columns:76px minmax(0,1fr) auto;
+  grid-template-areas:"thumb title grades" "thumb sub sub" "thumb stats stats" "foot foot foot";
+  grid-template-rows:minmax(24px, auto) 18px 22px 26px;
+  column-gap:12px; row-gap:6px; align-items:center;
+  margin:0; padding:12px 14px 12px 16px;
+}
+:root[data-disc="hoch"] .card.fs-tc{ --fs-tc-gw:92px; }
+.card.fs-tc::before, .card.fs-tc::after{ display:none !important; content:none !important; }
+.card.fs-tc > *{ order:0 !important; margin:0 !important; min-width:0; }
+/* Name */
+.card.fs-tc .fs-tc-title{
+  grid-area:title; align-self:start;
+  font-family:var(--font-display) !important; font-size:22px !important; font-weight:400; line-height:24px; color:var(--ink) !important;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; padding:0 !important;
+}
+/* Schwierigkeit: immer oben rechts, gleiche Höhe, rechtsbündig */
+.card.fs-tc .fs-tc-grades{ grid-area:grades; align-self:start; min-width:44px; display:flex; justify-content:flex-end; gap:4px; padding-top:1px; }
+.card.fs-tc .fs-grade{
+  display:inline-block; box-sizing:border-box; min-width:44px; height:22px; padding:0 6px; border-radius:7px;
+  font-family:var(--font-ui); font-size:12.5px; font-weight:800; line-height:22px; text-align:center; white-space:nowrap;
+  color:#fff; order:0 !important;
+}
+.card.fs-tc .fs-grade.is-empty{ background:transparent !important; color:var(--ink-faint); box-shadow:inset 0 0 0 1.5px var(--line); }
+/* Route · Region */
+.card.fs-tc .fs-tc-sub{
+  grid-area:sub; font-size:13.5px; font-weight:500; line-height:18px; color:var(--ink-soft);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.card.fs-tc .fs-tc-sub b{ font-weight:700; }
+/* Kennzahlen: eine Zeile */
+.card.fs-tc .fs-tc-stats{ grid-area:stats; display:flex; gap:14px; align-items:baseline; overflow:hidden; white-space:nowrap; font-size:12.5px; color:var(--ink-faint); }
+.card.fs-tc .fs-tc-stats > span{ display:inline-flex; align-items:baseline; gap:3px; flex:none; }
+.card.fs-tc .fs-tc-stats .mono{ font-size:15.5px; font-weight:800; color:var(--ink); letter-spacing:-.01em; }
+.card.fs-tc .fs-tc-stats .fs-i{ width:15px; height:15px; align-self:center; color:var(--ink-soft); margin-right:1px; }
+.card.fs-tc .fs-tc-arr{ font-size:14px; font-weight:700; color:var(--ink-soft); }
+/* Fuss: Lawinen, Wetter, dann rechts Zeichen und Status */
+.card.fs-tc .fs-tc-foot{ grid-area:foot; display:flex; align-items:center; gap:5px; min-width:0; overflow:hidden; }
+.card.fs-tc .fs-card-wx{ margin:0; gap:5px; }
+.card.fs-tc .fs-card-wx > span{ height:24px; box-sizing:border-box; }
+.card.fs-tc .fs-card-slf{ flex:none; height:24px; box-sizing:border-box; padding:0 6px 0 3px; gap:3px; }
+.card.fs-tc .fs-card-slf:not(.is-hit){ padding-right:3px; }
+.card.fs-tc .fs-tc-marks{ margin-left:auto; display:inline-flex; align-items:center; gap:6px; flex:none; }
+.card.fs-tc .fs-tc-ic{ display:inline-grid; place-items:center; width:26px; height:26px; }
+.card.fs-tc .fs-tc-ic .fs-i{ width:20px; height:20px; }
+.card.fs-tc .fs-tc-ic.is-idee{ color:var(--ink-faint); }
+.card.fs-tc .fs-tc-ic.is-recherche{ color:var(--accent-ink); }
+.card.fs-tc .fs-tc-ic.is-bereit{ color:var(--ok); }
+.card.fs-tc .fs-tc-ic.is-done{ color:var(--ink-soft); }
+.card.fs-tc .fs-tc-ic.is-unsynced{ color:var(--danger); }
+/* Bild links: Foto/Topo, sonst Skizze der Route, sonst Zeichen der Disziplin */
+.card.fs-tc .fs-tc-thumb{ grid-area:thumb; align-self:start; width:76px; height:76px; border-radius:12px; overflow:hidden; background:var(--ice-light); display:grid; place-items:center; }
+.card.fs-tc .fs-tc-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+.card.fs-tc .fs-tc-thumb svg{ width:100%; height:100%; display:block; }
+.card.fs-tc .fs-tc-thumb.is-icon .fs-i{ width:30px; height:30px; color:var(--ice-deep); opacity:.55; }
+.fs-tc-ring{ fill:none; stroke:var(--paper); stroke-width:1.2; opacity:.9; }
+.fs-tc-route{ fill:none; stroke:var(--ice-deep); stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round; }
+.fs-tc-top{ fill:var(--paper); stroke:var(--ice-deep); stroke-width:2; }
+
+/* =====================================================================
+   Startansicht: Karte als ganzer Hintergrund, Glas-Leiste, Blatt mit drei Stufen (fsHomeLayout)
+   ===================================================================== */
+:root{ --fs-glass-top:calc(env(safe-area-inset-top, 0px) + 8px); --fs-glass-bottom:calc(env(safe-area-inset-top, 0px) + 64px); }
+html.fs-mapmode, html.fs-mapmode body{ height:100%; overflow:hidden; overscroll-behavior:none; }
+html.fs-mapmode main{ padding:0; }
+html.fs-mapmode #app .hero{ display:none; }
+/* Karte füllt den Bildschirm */
+html.fs-mapmode .fs-stage{ position:fixed; inset:0; top:0; margin:0; z-index:0; }
+html.fs-mapmode .fs-home-slot, html.fs-mapmode .fs-home-slot.has-map{ height:100dvh; }
+html.fs-mapmode .fs-stage .map-strip-head{ display:none; }
+html.fs-mapmode .fs-home-slot .fsm-ctlbox{ top:auto !important; bottom:calc(var(--fs-home-vis, 50vh) + 12px); right:12px; transition:bottom .38s cubic-bezier(.2,.9,.25,1); }
+html.fs-mapmode .fs-home-slot .fsm-ctlbox .fsm-btn{ width:48px; height:48px; }
+html.fs-mapmode[data-fs-home="liste"] .fs-home-slot .fsm-ctlbox{ opacity:0; pointer-events:none; }
+/* Glas-Leiste oben: Disziplin und Menü */
+#fs-glass{ display:none; }
+html.fs-mapmode #fs-glass{ display:block; position:fixed; z-index:60; left:0; right:0; top:0; height:0; }
+html.fs-mapmode #fs-glass::before{ content:''; position:fixed; left:0; right:0; top:0; height:calc(env(safe-area-inset-top, 0px) + 112px); background:linear-gradient(180deg, color-mix(in srgb, var(--paper) 88%, transparent) 30%, transparent); pointer-events:none; }
+body:has(.overlay) #fs-glass, body:has(.overlay) .fs-home-mapbtn{ display:none !important; }
+html.fs-mapmode .app-switch-bar{
+  position:fixed; top:var(--fs-glass-top); left:max(12px, env(safe-area-inset-left, 0px)); right:calc(12px + 48px + 8px);
+  display:flex; gap:2px; padding:4px; min-height:48px; box-sizing:border-box; border:none; border-radius:999px;
+  background:color-mix(in srgb, var(--paper) 74%, transparent); -webkit-backdrop-filter:blur(18px) saturate(1.3); backdrop-filter:blur(18px) saturate(1.3);
+  box-shadow:0 4px 18px rgba(15,30,39,.18);
+}
+html.fs-mapmode .app-switch-bar a{ min-height:40px; padding:0 6px; font-size:13px; }
+/* Platz reicht nicht für vier Namen: die übrigen Disziplinen nur als Symbol */
+html.fs-mapmode .app-switch-bar a:not(.active){ flex:0 0 44px; justify-content:center; padding:0; font-size:0; gap:0; }
+html.fs-mapmode .app-switch-bar a:not(.active) .fs-i{ width:20px; height:20px; }
+html.fs-mapmode .app-switch-bar a.active{ flex:1 1 auto; justify-content:center; padding:0 12px; }
+html.fs-mapmode .app-switch-bar{ right:auto; max-width:calc(100% - 24px - 56px); }
+html.fs-mapmode .fs-glass-menu{ position:fixed; top:var(--fs-glass-top); right:max(12px, env(safe-area-inset-right, 0px)); }
+html.fs-mapmode .fs-glass-menu .who-menu > summary{ width:48px; height:48px; background:color-mix(in srgb, var(--paper) 74%, transparent); color:var(--ink);
+  -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px); box-shadow:0 4px 18px rgba(15,30,39,.18); border:none; }
+html.fs-mapmode .fs-glass-menu .who-menu .who-row{ top:56px; }
+/* Stufe «karte»: nur die aktive Disziplin als Pille, antippen klappt auf */
+html.fs-mapmode[data-fs-home="karte"] .app-switch-bar:not(.open){ right:auto; }
+html.fs-mapmode[data-fs-home="karte"] .app-switch-bar:not(.open) a:not(.active){ display:none; }
+html.fs-mapmode[data-fs-home="karte"] .app-switch-bar:not(.open) a.active{ padding:0 14px; gap:8px; }
+html.fs-mapmode[data-fs-home="karte"] .app-switch-bar:not(.open) a.active::after{ content:''; width:7px; height:7px; border-right:2px solid currentColor; border-bottom:2px solid currentColor; transform:translateY(-2px) rotate(45deg); margin-left:2px; }
+/* Blatt */
+html.fs-mapmode .fs-sheet{
+  position:fixed; left:0; right:0; bottom:0; margin:0 auto; max-width:760px; z-index:20;
+  height:var(--fs-home-full, 90vh); min-height:0; box-sizing:border-box;
+  padding:0 max(16px, env(safe-area-inset-right, 0px)) calc(110px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  overflow:hidden; overscroll-behavior:contain; touch-action:none; will-change:transform;
+  border-radius:24px 24px 0 0; box-shadow:0 -8px 30px rgba(15,30,39,.18);
+}
+html.fs-mapmode .fs-sheet::before{ display:none; }
+html.fs-mapmode[data-fs-home="liste"] .fs-sheet{ overflow-y:auto; touch-action:pan-y; }
+html.fs-mapmode[data-fs-home="liste"] .fs-sheet .fs-grip, html.fs-mapmode[data-fs-home="liste"] .fs-sheet > .tabs{ touch-action:none; }
+.fs-grip{ display:none; }
+html.fs-mapmode .fs-grip{ display:block; position:sticky; top:0; z-index:3; height:30px; margin:0 -16px; background:var(--cream); cursor:grab; }
+html.fs-mapmode .fs-grip::after{ content:''; position:absolute; left:50%; top:11px; width:44px; height:5px; margin-left:-22px; border-radius:3px; background:var(--line); }
+html.fs-mapmode .fs-grip:focus-visible{ outline:3px solid var(--ice-deep); outline-offset:-3px; }
+html.fs-mapmode .fs-sheet > .tabs{ margin:0 0 12px; }
+html.fs-mapmode .fs-sheet > .tabs .tab{ min-height:44px; color:var(--ink-soft); text-shadow:none; }
+html.fs-mapmode .fs-sheet > .tabs .tab.active{ color:var(--ink); }
+html.fs-mapmode .fs-sheet > .tabs .tab .fs-i{ color:inherit; opacity:1; filter:none; }
+/* Knopf «Karte» in der Stufe «liste» */
+.fs-home-mapbtn{ display:none; }
+html.fs-mapmode[data-fs-home="liste"] .fs-home-mapbtn{
+  display:inline-flex; align-items:center; gap:8px; position:fixed; z-index:46; left:50%; transform:translateX(-50%);
+  bottom:calc(84px + env(safe-area-inset-bottom, 0px)); min-height:44px; padding:0 18px; border:none; border-radius:999px;
+  background:var(--ink); color:var(--paper); font:inherit; font-weight:800; font-size:14px; box-shadow:0 6px 18px rgba(15,30,39,.28); cursor:pointer;
+}
+.fs-home-mapbtn .fs-i{ width:18px; height:18px; }
+
+/* =====================================================================
+   Kein Neuladen durch Herunterziehen (Android/Chrome): Daten bleiben, wo sie sind
+   ===================================================================== */
+html, body{ overscroll-behavior-y:none; }
+
+/* =====================================================================
+   Routen-Check: Aussage in Worten, Vollansicht mit Karte und grossem Profil (fsRcOpenFull)
+   ===================================================================== */
+.fs-rc-sum{ display:grid; gap:8px; padding:12px 14px; border-radius:14px; background:var(--line-soft); }
+.fs-rc-sum p{ margin:0; font-size:15px; line-height:1.45; color:var(--ink); }
+.fs-rc-sum p .fs-i{ width:18px; height:18px; margin:0 6px -3px 0; color:var(--signal-deep); }
+.fs-rc-sum.warn{ box-shadow:inset 4px 0 0 var(--signal-deep); }
+.fs-rc-mini{ cursor:pointer; border-radius:10px; }
+.fs-rc-mini:focus-visible{ outline:3px solid var(--ice-deep); outline-offset:2px; }
+.fs-rc-actions{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.fs-rc-actions .btn{ display:flex; align-items:center; justify-content:center; gap:8px; min-height:48px; margin:0; font-weight:800; }
+.fs-rc-actions .fs-i{ width:18px; height:18px; }
+.fs-rc-grid{ stroke:var(--line); stroke-width:1; stroke-dasharray:3 4; }
+.fs-rc-bl{ font:800 15px var(--font-ui); fill:var(--ink-faint); }
+.fs-rcf{ position:fixed; inset:0; z-index:250; display:flex; flex-direction:column; background:var(--cream); }
+.fs-rcf-top{ display:flex; align-items:center; gap:12px; padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px; background:var(--paper); border-bottom:1px solid var(--line); }
+.fs-rcf-back{ min-height:48px; padding:0 16px; border-radius:999px; border:1px solid var(--line); background:var(--paper); color:var(--ink); font:inherit; font-weight:800; cursor:pointer; flex:none; }
+.fs-rcf-title{ flex:1; min-width:0; font-family:var(--font-display); font-size:22px; line-height:1.1; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fs-rcf-title small{ display:block; font-family:var(--font-ui); font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ice-deep); }
+.fs-rcf-scroll{ flex:1; overflow-y:auto; overscroll-behavior:contain; padding-bottom:calc(24px + env(safe-area-inset-bottom, 0px)); }
+.fs-rcf-map{ position:relative; height:36vh; min-height:220px; background:var(--line-soft); }
+.fs-rc-full{ margin:12px; }
+.fs-rcf-read{ margin:0; display:flex; align-items:center; gap:10px; min-height:52px; padding:8px 12px; border-radius:12px; border:1px solid var(--line); background:var(--paper); font-size:14px; color:var(--ink-soft); }
+.fs-rcf-read .fs-i{ width:20px; height:20px; flex:none; color:var(--ice-deep); }
+.fs-rcf-read b{ color:var(--ink); }
+.fs-rcf-read em{ display:block; font-style:normal; font-weight:800; color:var(--signal-deep); }
+.fs-rcf-read.warn .fs-i{ color:var(--signal-deep); }
+.fs-rcf-prof{ touch-action:none; cursor:crosshair; }
+.fs-rcf-prof .fs-rc-t{ font-size:22px; }
+.fs-rcf-prof .fs-rc-bl{ font-size:22px; }
+.fs-rcf-prof:focus-visible{ outline:3px solid var(--ice-deep); outline-offset:2px; border-radius:10px; }
+.fs-rcf-cursor{ stroke:var(--ink); }
+.fs-rcf-h{ margin:10px 0 0; font-family:var(--font-display); font-weight:400; font-size:22px; color:var(--ink); text-transform:none; letter-spacing:0; }
+.fs-rcf-keys{ list-style:none; margin:0; padding:0; display:grid; gap:10px; }
+.fs-rcf-keys li{ display:grid; grid-template-columns:24px 78px minmax(0,1fr); gap:10px; align-items:center; font-size:14px; }
+.fs-rcf-keys i{ width:24px; height:16px; border-radius:4px; display:block; }
+.fs-rcf-keys b{ font-weight:800; color:var(--ink); }
+.fs-rcf-keys span{ color:var(--ink-soft); }
+
+/* =====================================================================
+   Startansicht, Stufe «liste»: Bergfoto als Kopf des Blatts (fsHomeHero)
+   ===================================================================== */
+.fs-sheet-hero{ display:none; }
+html.fs-mapmode[data-fs-home="liste"] .fs-sheet-hero{
+  display:block; position:relative; height:176px; margin:0 -16px 14px; overflow:hidden;
+}
+.fs-sheet-hero-img{
+  position:absolute; inset:0; background-size:cover; background-position:center 58%;
+  transform:translateY(calc(var(--fs-hero-p, 0) * 60px)) scale(calc(1 + var(--fs-hero-p, 0) * .08));
+  opacity:calc(1 - var(--fs-hero-p, 0) * .9);
+  -webkit-mask-image:linear-gradient(180deg, #000 45%, rgba(0,0,0,.5) 75%, transparent 100%);
+  mask-image:linear-gradient(180deg, #000 45%, rgba(0,0,0,.5) 75%, transparent 100%);
+}
+.fs-sheet-hero.no-img .fs-sheet-hero-img{ display:none; }
+.fs-sheet-hero-txt{
+  position:absolute; left:20px; right:20px; bottom:6px;
+  transform:translateY(calc(var(--fs-hero-p, 0) * -18px)); opacity:calc(1 - var(--fs-hero-p, 0) * 1.4);
+}
+.fs-sheet-hero-txt h2{ margin:0; font-family:var(--font-display); font-weight:400; font-size:40px; line-height:1; color:var(--ink); text-shadow:0 1px 0 rgba(243,246,248,.7); }
+.fs-sheet-hero-txt p{ margin:4px 0 0; font-size:13.5px; font-weight:700; color:var(--ink-soft); }
+/* Griff zeigt den Titel klein, sobald das Foto weggescrollt ist */
+.fs-grip-title{ display:none; }
+html.fs-mapmode[data-fs-home="liste"] .fs-grip-title{
+  display:flex; align-items:center; justify-content:center; position:absolute; left:0; right:0; top:18px; height:38px;
+  background:var(--cream); border-bottom:1px solid var(--line-soft);
+  font-family:var(--font-display); font-size:21px; line-height:1; color:var(--ink);
+  opacity:0; visibility:hidden; transition:opacity .2s, visibility .2s; pointer-events:none;
+}
+html.fs-mapmode[data-fs-home="liste"] .fs-sheet.fs-hero-gone .fs-grip-title{ opacity:1; visibility:visible; }
+
+/* =====================================================================
+   Startansicht: Liste in zwei Gruppen – im Kartenausschnitt, weitere (fsHomeFilter)
+   ===================================================================== */
+.fs-home-sep{ grid-column:1 / -1; display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:36px; margin:6px 2px 0;
+  font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); }
+.fs-home-sep.rest{ margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
+.fs-home-sep .fs-home-all{ min-height:36px; padding:0 4px; border:none; background:none; font:inherit; font-size:12.5px; font-weight:800; letter-spacing:0; text-transform:none; color:var(--ice-deep); text-decoration:underline; cursor:pointer; }
+.card.fs-home-pick{ box-shadow:0 0 0 3px var(--ice-deep), 0 6px 18px rgba(15,30,39,.12); }
+/* Die Kurzinfo unten auf der Karte läge unter dem Blatt; der Eintrag steht stattdessen zuoberst in der Liste */
+html.fs-mapmode .fs-home-card{ display:none !important; }
+.fs-home-tpt{ cursor:pointer; }
+
+/* =====================================================================
+   Startansicht: ruhiges Neuzeichnen, Filterblatt über allem
+   ===================================================================== */
+/* Ein frisch gezeichnetes Blatt sitzt sofort richtig (vor dem Skript), dann übernimmt fsHomeApply */
+html.fs-mapmode .fs-sheet{ transform:translateY(calc(var(--fs-home-full, 90vh) - var(--fs-home-vis, 50vh))); }
+/* Offenes Filterblatt: Blatt ohne Verschiebung, damit das Filterblatt am Bildschirm hängt; schwebende Knöpfe weg */
+html.fs-mapmode.fs-filter-open .fs-sheet{ transform:none !important; overflow:hidden !important; }
+html.fs-mapmode.fs-filter-open :is(.fs-fab, .fs-home-mapbtn, #agenda-tab-btn){ display:none !important; }
+html.fs-filter-open body::after{ display:none; }
+/* Stufe «karte»: «Neue Tour» und Agenda über dem Blatt statt auf der Suche, Kartenknöpfe darüber */
+html.fs-mapmode[data-fs-home="karte"] :is(.fs-fab, #agenda-tab-btn){ bottom:calc(var(--fs-home-vis, 160px) + 12px); transition:bottom .38s cubic-bezier(.2,.9,.25,1); }
+html.fs-mapmode[data-fs-home="karte"] .fs-home-slot .fsm-ctlbox{ bottom:calc(var(--fs-home-vis, 160px) + 78px); }
+html.fs-mapmode[data-fs-home="karte"] body::after{ display:none; }
+/* Startansicht: Agenda steht im Menü */
+html.fs-mapmode #agenda-tab-btn{ display:none !important; }
+/* Startkarte: Gruppe naher Punkte (fsHomeCluster) */
+.fs-home-clu{ position:relative; display:flex; align-items:center; justify-content:center; min-width:34px; height:34px; padding:0 8px; border-radius:999px;
+  border:3px solid #fff; background:var(--ice-deep); color:#fff; font:800 13.5px var(--font-ui); box-shadow:0 2px 8px rgba(15,30,39,.35); cursor:pointer; }
+.fs-home-clu::before{ content:''; position:absolute; inset:-8px; border-radius:999px; }
+.fs-home-map.in-ctx .fs-home-clu{ opacity:.5; }
+
+/* =====================================================================
+   Wetter auf allen Karten: kompakte Leiste – gewählte Wetterart als Knopf neben Skala/Zeitschieber,
+   alle sechs ohne Wischen nach Antippen. Auf der Startkarte über die ganze Breite unter der Glas-Leiste.
+   ===================================================================== */
+.fsm-wx-head{ padding:6px; border-radius:20px; }
+.fsm-wx-head .row{ display:flex; align-items:center; gap:10px; }
+.fsm-wx-head .pick{
+  display:inline-flex; align-items:center; gap:6px; flex:none; min-height:44px; padding:0 12px 0 14px; border:none; border-radius:14px;
+  background:var(--ice-deep); color:#fff; font:inherit; font-size:14px; font-weight:800; cursor:pointer;
+}
+.fsm-wx-head .pick .fs-i{ width:16px; height:16px; transition:transform .2s; }
+.fsm-wx-head.open .pick .fs-i{ transform:rotate(180deg); }
+.fsm-wx-head .body{ flex:1; min-width:0; padding-right:6px; }
+.fsm-wx-head .g i{ margin-bottom:13px; }
+.fsm-wx-head .note{ font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fsm-wx-head .tabs{ display:none; }
+.fsm-wx-head.open .tabs{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:6px; overflow:visible; margin:0 0 8px; padding:0; }
+.fsm-wx-head .tabs button{ min-width:0; min-height:44px; padding:0 4px; font-size:13px; }
+.fsm-wx-head .time input{ height:36px; }
+.fsm-wx-head .time .when{ font-size:14px; }
+html.fs-mapmode .fs-home-slot .fsm-wx-head{
+  top:calc(var(--fs-glass-bottom) + 6px); left:12px; right:12px;
+  background:color-mix(in srgb, var(--paper) 92%, transparent); -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px);
+}
+/* Touren treten zurück, damit die Wetterwerte lesbar sind */
+.fsm-wx-on .fs-home-pin i{ width:10px; height:10px; border-width:2px; opacity:.55; }
+.fsm-wx-on .fs-home-pin span{ display:none !important; }
+.fsm-wx-on .fs-home-clu{ min-width:26px; height:26px; font-size:11.5px; opacity:.55 !important; } /* MapLibre setzt opacity am Element */
+/* Startansicht: Wetter-Karte eines angetippten Orts über dem Blatt statt darunter */
+html.fs-mapmode .fs-home-slot .fsm-wx-card{ bottom:calc(var(--fs-home-vis, 50vh) + 10px); max-height:calc(100dvh - var(--fs-home-vis, 50vh) - var(--fs-glass-bottom) - 90px); }
+
+/* =====================================================================
+   Wettersymbole farbig: Sonne gelb, Regen blau, Schnee eisblau, Gewitter violett, Wolken grau
+   (Form bleibt das Hauptmerkmal; die Farbe hilft nur beim schnellen Erfassen)
+   ===================================================================== */
+svg.fs-i.fs-wx-sun{ color:var(--wx-sun) !important; }
+svg.fs-i.fs-wx-partly{ color:var(--wx-partly) !important; }
+svg.fs-i.fs-wx-rain{ color:var(--wx-rain) !important; }
+svg.fs-i.fs-wx-storm{ color:var(--wx-storm) !important; }
+svg.fs-i.fs-wx-snow, svg.fs-i.fs-wx-snowcloud{ color:var(--wx-snow) !important; }
+svg.fs-i.fs-wx-cloud, svg.fs-i.fs-wx-fog{ color:var(--wx-cloud) !important; }
+/* Menü (z. B. «Hoher Kontrast (Sonne)») und Knöpfe bleiben in der Akzentfarbe */
+.who-menu svg.fs-i[class*="fs-wx-"], .btn svg.fs-i[class*="fs-wx-"]{ color:inherit !important; }
+.who-menu .who-row button svg.fs-i[class*="fs-wx-"]{ color:var(--ice-deep) !important; }
