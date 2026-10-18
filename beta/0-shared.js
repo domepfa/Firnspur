@@ -1519,6 +1519,7 @@ function fsHomeCreateMap(){
   fsmWireOrtHold(fsHomeMap);
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
   fsHomeMap.setMaxBounds(FSM_HOME_BOUNDS);
+  fsHomeMap.setMinZoom(fsHomeMinZoom());
   fsHomeMap.on('moveend', ()=>{ fsHomeCluster(); if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
   fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
   fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl && sl.classList.contains('fs-home-slot')) sl.classList.add('has-map'); });
@@ -1541,7 +1542,7 @@ function fsCtxAcquire(innerId, on3d, owner){
   }
   inner.appendChild(fsHomeEl);
   fsHomeEl.classList.add('in-ctx');
-  try{ if(fsHomeMap) fsHomeMap.setMaxBounds(FSM_BOUNDS); }catch(e){} // ausgeliehen: ohne Blatt, also ohne Spielraum
+  try{ if(fsHomeMap){ fsHomeMap.setMaxBounds(FSM_BOUNDS); fsHomeMap.setMinZoom(null); } }catch(e){} // ausgeliehen: ohne Blatt, also ohne Spielraum
   fsCtxUsesHome = true;
   fsCtxOn3d = on3d || null;
   const map = fsHomeMap || fsHomeCreateMap();
@@ -1580,7 +1581,7 @@ function fsCtxRelease(owner){
   fsCtxSnap = null;
   if(fsHomeEl){ fsHomeEl.classList.remove('in-ctx', 'in-big'); fsHomeEl.remove(); }
   const view = fsCtxView; fsCtxView = null;
-  try{ if(map) map.setMaxBounds(FSM_HOME_BOUNDS); }catch(e){}
+  try{ if(map){ map.setMaxBounds(FSM_HOME_BOUNDS); map.setMinZoom(fsHomeMinZoom()); } }catch(e){}
   if(document.querySelector('.fs-home-slot')){
     fsHomeMount();
     if(view && map){
@@ -2148,7 +2149,7 @@ function fsHomeWireDrag(sheet){
   // Suchen braucht Platz für die Tastatur
   sheet.addEventListener('focusin', e=>{ if(e.target.matches('.search-input')) fsHomeSetDetent('liste'); });
 }
-window.addEventListener('resize', ()=>{ if(document.documentElement.classList.contains('fs-mapmode')) fsHomeApply(false); });
+window.addEventListener('resize', ()=>{ if(document.documentElement.classList.contains('fs-mapmode')) fsHomeApply(false); try{ if(fsHomeMap && !fsCtxUsesHome) fsHomeMap.setMinZoom(fsHomeMinZoom()); }catch(e){} });
 
 function stageLayoutHtml(mapHtml, sheetHtml){
   return `<div class="fs-stage">${mapHtml}</div><div class="fs-sheet">${sheetHtml}</div>`;
@@ -7308,7 +7309,9 @@ function fsmBaseStyle(){
 }
 // Grenzen: so weit die Kartendaten reichen (Basiskarte swisstopo ~3.6–13.6° O, 44.2–48.9° N), sonst weisse
 // Flächen. Die Startkarte darf weiter nach Süden: dort liegt die untere Hälfte ohnehin unter dem Blatt.
-const FSM_BOUNDS = [[3.6, 44.2], [13.6, 48.9]], FSM_HOME_BOUNDS = [[3.6, 39], [13.6, 48.9]];
+const FSM_BOUNDS = [[3.6, 44.2], [13.6, 48.9]], FSM_HOME_BOUNDS = [[4.4, 41.5], [12, 48.9]]; // Süden mit Spielraum: in «mitte» liegt die untere Hälfte unter dem Blatt
+// Startkarte: höchstens so weit hinaus, dass die Schweiz (~5° breit) die Bildschirmbreite füllt
+function fsHomeMinZoom(){ return Math.max(4, Math.log2(360 * Math.max(320, window.innerWidth) / (512 * 5.2))); }
 // Karte erstellen. opts: {center:[lat,lon], zoom, controls:true, on3d:(map)=>{}}
 function fsmCreateMap(container, opts){
   opts = opts || {};
@@ -19075,6 +19078,15 @@ function fsStripEmoji(txt){
 // Ganze Seite nicht mit zwei Fingern vergrössern (Karten, Profile und Fotos zoomen selbst); Safari
 // beachtet user-scalable=no im viewport nicht, darum zusätzlich hier
 document.addEventListener('gesturestart', e=> e.preventDefault(), {passive: false});
+// Offenes Menü: Tipp daneben schliesst es (und löst dort nichts aus)
+document.addEventListener('pointerdown', e=>{
+  const open = document.querySelector('details.who-menu[open]');
+  if(!open || (e.target.closest && e.target.closest('details.who-menu'))) return;
+  open.open = false;
+  const stop = ev=>{ ev.stopPropagation(); ev.preventDefault(); };
+  document.addEventListener('click', stop, {capture: true, once: true});
+  setTimeout(()=> document.removeEventListener('click', stop, {capture: true}), 400);
+}, true);
 function fsIconHtml(name){ return `<svg class="fs-i${/^(sun|partly|cloud|fog|rain|storm|snow|snowcloud)$/.test(name) ? ' fs-wx-' + name : ''}" viewBox="0 0 24 24" aria-hidden="true"><path d="${FS_ICON_PATHS[name]}"/></svg>`; }
 const FS_SKIP_TAGS = new Set(['SCRIPT','STYLE','TEXTAREA','INPUT','SELECT','svg','title']);
 function fsReplaceEmojiInTextNode(node){
