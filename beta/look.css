@@ -2548,3 +2548,17 @@ html.fs-mapmode[data-fs-home="liste"] .fs-sheet.fs-hero-gone .fs-grip-title{ opa
 /* Die Kurzinfo unten auf der Karte läge unter dem Blatt; der Eintrag steht stattdessen zuoberst in der Liste */
 html.fs-mapmode .fs-home-card{ display:none !important; }
 .fs-home-tpt{ cursor:pointer; }
+
+/* =====================================================================
+   Startansicht: ruhiges Neuzeichnen, Filterblatt über allem
+   ===================================================================== */
+/* Ein frisch gezeichnetes Blatt sitzt sofort richtig (vor dem Skript), dann übernimmt fsHomeApply */
+html.fs-mapmode .fs-sheet{ transform:translateY(calc(var(--fs-home-full, 90vh) - var(--fs-home-vis, 50vh))); }
+/* Offenes Filterblatt: Blatt ohne Verschiebung, damit das Filterblatt am Bildschirm hängt; schwebende Knöpfe weg */
+html.fs-mapmode.fs-filter-open .fs-sheet{ transform:none !important; overflow:hidden !important; }
+html.fs-mapmode.fs-filter-open :is(.fs-fab, .fs-home-mapbtn, #agenda-tab-btn){ display:none !important; }
+html.fs-filter-open body::after{ display:none; }
+/* Stufe «karte»: «Neue Tour» und Agenda über dem Blatt statt auf der Suche, Kartenknöpfe darüber */
+html.fs-mapmode[data-fs-home="karte"] :is(.fs-fab, #agenda-tab-btn){ bottom:calc(var(--fs-home-vis, 160px) + 12px); transition:bottom .38s cubic-bezier(.2,.9,.25,1); }
+html.fs-mapmode[data-fs-home="karte"] .fs-home-slot .fsm-ctlbox{ bottom:calc(var(--fs-home-vis, 160px) + 78px); }
+html.fs-mapmode[data-fs-home="karte"] body::after{ display:none; }

@@ -1509,7 +1509,7 @@ function fsHomeMount(){
   }else fsHomeSync();
 }
 // Die eine Karte der App: Startkarte, und in Tour/Gebiet ausgeliehen (fsCtxAcquire)
-let fsCtxUsesHome = false, fsCtxOn3d = null, fsCtxSnap = null, fsCtxOwner = '';
+let fsCtxUsesHome = false, fsCtxOn3d = null, fsCtxSnap = null, fsCtxOwner = '', fsCtxView = null;
 function fsHomeCreateMap(){
   fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52, on3d: (m)=>{
     if(fsCtxOn3d){ fsCtxOn3d(m); return; }
@@ -1534,6 +1534,10 @@ function fsCtxAcquire(innerId, on3d, owner){
     fsHomeEl = document.createElement('div');
     fsHomeEl.className = 'fs-home-map';
     fsHomeEl.innerHTML = '<div class="fs-home-map-inner" id="fs-home-map-inner"></div>';
+  }
+  // Ausschnitt der Startkarte merken: nach dem Schliessen der Tour wieder dorthin (wie bei Karten-Apps)
+  if((owner || 'ctx') === 'ctx' && fsHomeMap && fsHomeEl.parentNode && fsHomeEl.parentNode.classList && fsHomeEl.parentNode.classList.contains('fs-home-slot')){
+    try{ const c = fsHomeMap.getCenter(); fsCtxView = {center: [c.lng, c.lat], zoom: fsHomeMap.getZoom(), bearing: fsHomeMap.getBearing(), pitch: fsHomeMap.getPitch(), all: fsHomeAll}; }catch(e){ fsCtxView = null; }
   }
   inner.appendChild(fsHomeEl);
   fsHomeEl.classList.add('in-ctx');
@@ -1574,7 +1578,17 @@ function fsCtxRelease(owner){
   }
   fsCtxSnap = null;
   if(fsHomeEl){ fsHomeEl.classList.remove('in-ctx', 'in-big'); fsHomeEl.remove(); }
-  if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); }
+  const view = fsCtxView; fsCtxView = null;
+  if(document.querySelector('.fs-home-slot')){
+    fsHomeMount();
+    if(view && map){
+      try{
+        fsHomeFitting = true; map.resize();
+        if(view.all){ fsHomeFitAll(); } else { map.jumpTo({center: view.center, zoom: view.zoom, bearing: view.bearing, pitch: view.pitch}); fsHomeAll = false; }
+      }catch(e){}
+    }
+    fsHomeFilter();
+  }
 }
 // Marker zu den aktuellen Punkten der Liste
 // Gewählten Eintrag öffnen (zweiter Tipp auf den Punkt oder Tipp auf einen Punkt seiner Route)
@@ -1774,7 +1788,12 @@ function fsHomeFilter(){
   // Beim Suchen keine Gruppen (die Treffer zählen, nicht der Ausschnitt)
   const searching = typeof state !== 'undefined' && typeof state.search === 'string' && !!state.search.trim();
   if(!fsHomeAll && fsHomeMap && !searching){
-    const b = fsHomeMap.getBounds();
+    // Nur der sichtbare Teil zählt: ohne Glas-Leiste oben und Blatt unten
+    let b = fsHomeMap.getBounds();
+    try{
+      const ins = fsHomeInset(), c = fsHomeMap.getContainer();
+      if(ins.bottom) b = new maplibregl.LngLatBounds(fsHomeMap.unproject([0, c.clientHeight - ins.bottom]), fsHomeMap.unproject([c.clientWidth, ins.top + 40]));
+    }catch(e){}
     vis = new Set(fsHomePts.points.filter(p=> b.contains([p.lon, p.lat])).map(p=> p.id));
   }
   fsHomeVisible = vis;
@@ -1830,7 +1849,10 @@ function fsSearchCollapse(){
   // das auf: Filter schreibt die Zeile, die Zeile löst den Filter aus, … (Karte zeichnete dauernd neu)
   const own = n=>{ const el = n && (n.nodeType === 1 ? n : n.parentElement); return !!(el && el.closest && el.closest('.fs-home-map, .fs-home-count, .maplibregl-map, #fs-3d')); };
   const sepOnly = r=> [...r.addedNodes, ...r.removedNodes].every(n=> n.nodeType === 1 && n.classList.contains('fs-home-sep'));
-  const mo = new MutationObserver((recs)=>{ if(recs.every(r=> own(r.target) || sepOnly(r) || (r.target.closest && r.target.closest('.fs-home-sep')))) return; clearTimeout(t); t = setTimeout(()=>{ fsSearchCollapse(); if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } fsHomeLayout(); }, 30); });
+  const mo = new MutationObserver((recs)=>{ if(recs.every(r=> own(r.target) || sepOnly(r) || (r.target.closest && r.target.closest('.fs-home-sep')))) return; fsHomeAfterRender(); });
+  // Sofort (noch vor dem nächsten Bild): sonst blitzt nach jedem Neuzeichnen kurz das nackte Blatt auf
+  // (ohne Verschiebung, Segment und Karte) – das war das Flackern beim Wechsel Touren/Gebiete.
+  window.fsHomeAfterRender = ()=>{ window.__fsAR = (window.__fsAR || 0) + 1; fsSearchCollapse(); if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } fsHomeLayout(); };
   const start = ()=> mo.observe(document.body, {childList:true, subtree:true});
   if(document.body) start(); else document.addEventListener('DOMContentLoaded', start);
 })();
@@ -1841,11 +1863,18 @@ function fsSearchCollapse(){
    wechselt die Stufe, in «karte»/«mitte» zieht man das ganze Blatt. Der Rest der Seite bleibt, wie die
    Apps ihn zeichnen; hier werden nach jedem Zeichnen nur Teile umgehängt (Segment ins Blatt, Menü in
    die Glas-Leiste). Gilt nur, solange eine Liste mit Startkarte zu sehen ist. */
-let fsHomeDetent = 'mitte';
+let fsHomeDetent = (()=>{ try{ const d = sessionStorage.getItem('fs-home-detent'); return ['karte', 'mitte', 'liste'].indexOf(d) >= 0 ? d : 'mitte'; }catch(e){ return 'mitte'; } })();
 function fsHomeDetentPx(d){
   const vh = window.innerHeight;
   const top = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs-glass-bottom')) || 72) + 8;
-  if(d === 'karte') return Math.min(240, Math.round(vh * 0.32));
+  if(d === 'karte'){
+    // Bis unter die Suche: Griff, Segment und Suchzeile, ohne angeschnittenen Eintrag
+    const sh = document.querySelector('main .fs-sheet'), q = sel=> sh && sh.querySelector(sel);
+    const hgt = el=> el ? el.getBoundingClientRect().height : 0;
+    const tb = q(':scope > .toolbar.fs-search-tb') || q(':scope > .toolbar');
+    const m = hgt(q(':scope > .fs-grip')) + hgt(q(':scope > .tabs')) + 12 + hgt(tb) + 16;
+    return Math.round(Math.max(150, Math.min(Math.round(vh * 0.32), (tb ? m : 170) + 8)));
+  }
   if(d === 'liste') return vh - top;
   return Math.round(vh * 0.55);
 }
@@ -1855,6 +1884,7 @@ function fsHomeApply(animate){
   if(!sheet) return;
   const full = fsHomeDetentPx('liste'), h = fsHomeDetentPx(fsHomeDetent);
   root.dataset.fsHome = fsHomeDetent;
+  try{ sessionStorage.setItem('fs-home-detent', fsHomeDetent); }catch(e){} // Stufe bleibt beim Wechsel der Disziplin
   root.style.setProperty('--fs-home-full', full + 'px');
   root.style.setProperty('--fs-home-vis', h + 'px');
   sheet.style.transition = animate ? 'transform .38s cubic-bezier(.2,.9,.25,1)' : 'none';
@@ -1874,6 +1904,7 @@ function fsHomeSetDetent(d, animate){
   fsHomeDetent = d;
   fsHomeApply(animate !== false);
 }
+let fsHomeTabsEl = null;
 function fsHomeLayout(){
   const root = document.documentElement;
   const slot = document.querySelector('main .fs-home-slot');
@@ -1901,12 +1932,13 @@ function fsHomeLayout(){
   const mslot = glass.querySelector('.fs-glass-menu');
   if(menu && menu.parentNode !== mslot){ mslot.innerHTML = ''; mslot.appendChild(menu); }
   // Segment Gebiete/Touren/Hütten ins Blatt, Griff davor
-  const tabs = document.querySelector('#app .hero .tabs');
-  if(tabs && tabs.parentNode !== sheet) sheet.prepend(tabs);
+  // Nach «nur Liste neu» (Suche) fehlt das Segment im neuen Blatt: das bisherige wieder einsetzen
+  const tabs = document.querySelector('#app .hero .tabs') || (fsHomeTabsEl && fsHomeTabsEl.isConnected === false ? fsHomeTabsEl : null) || document.querySelector('main .fs-sheet > .tabs');
+  if(tabs){ fsHomeTabsEl = tabs; if(tabs.parentNode !== sheet) sheet.prepend(tabs); }
   if(!sheet.querySelector(':scope > .fs-grip')){
     const g = document.createElement('div'); g.className = 'fs-grip'; g.setAttribute('role', 'button'); g.tabIndex = 0;
     g.setAttribute('aria-label', 'Blatt verschieben: Karte oder Liste');
-    g.addEventListener('click', ()=>{ if(g._dragged) return; fsHomeSetDetent(fsHomeDetent === 'liste' ? 'karte' : fsHomeDetent === 'karte' ? 'mitte' : 'liste'); });
+    g.addEventListener('click', ()=>{ if(g._dragged) return; fsHomeSetDetent(fsHomeDetent === 'mitte' ? 'liste' : 'mitte'); });
     g.addEventListener('keydown', e=>{ if(e.key === 'ArrowUp'){ e.preventDefault(); fsHomeSetDetent(fsHomeDetent === 'karte' ? 'mitte' : 'liste'); } if(e.key === 'ArrowDown'){ e.preventDefault(); fsHomeSetDetent(fsHomeDetent === 'liste' ? 'mitte' : 'karte'); } });
     sheet.prepend(g);
   }
@@ -1948,13 +1980,14 @@ function fsHomeHero(sheet){
   }
   h.querySelector('.fs-sheet-hero-img').style.backgroundImage = img;
   h.classList.toggle('no-img', img === 'none');
-  h.querySelector('h2').textContent = title;
-  h.querySelector('p').textContent = fsHomeCountsText();
+  const setT = (el, v)=>{ if(el.textContent !== v) el.textContent = v; }; // nur bei Änderung (Beobachter)
+  setT(h.querySelector('h2'), title);
+  setT(h.querySelector('p'), fsHomeCountsText());
   const g = sheet.querySelector(':scope > .fs-grip');
   if(g){
     let gt = g.querySelector('.fs-grip-title');
     if(!gt){ gt = document.createElement('span'); gt.className = 'fs-grip-title'; gt.setAttribute('aria-hidden', 'true'); g.appendChild(gt); }
-    gt.textContent = title;
+    setT(gt, title);
   }
   if(!sheet._fsHeroScroll){
     sheet._fsHeroScroll = true;
@@ -13320,7 +13353,12 @@ document.addEventListener('pointerdown', (e)=>{
 }, true);
 document.addEventListener('click', (e)=>{ if(fsFilterSwallowClick){ fsFilterSwallowClick = false; e.preventDefault(); e.stopPropagation(); } }, true);
 // Das Ein-/Ausblenden der Filter (Tour/Hütte) ändert nur style.display: Hintergrund nachziehen
-document.addEventListener('click', ()=> setTimeout(()=> document.documentElement.classList.toggle('fs-filter-open', !!fsOpenFilterSheet()), 0));
+document.addEventListener('click', ()=> setTimeout(()=>{
+  const open = !!fsOpenFilterSheet();
+  document.documentElement.classList.toggle('fs-filter-open', open);
+  // Startansicht: das Filterblatt braucht die ganze Höhe
+  if(open && document.documentElement.classList.contains('fs-mapmode') && fsHomeDetent !== 'liste') fsHomeSetDetent('liste', false);
+}, 0));
 
 /* ================= Wischgeste zwischen den Apps =================
    Links/rechts wischen wechselt in der Reihenfolge der oberen Leiste (Skitour · Hochtour ·
