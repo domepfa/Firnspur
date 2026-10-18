@@ -2598,3 +2598,5 @@ html.fs-mapmode .fs-home-slot .fsm-wx-head{
 .fsm-wx-on .fs-home-pin i{ width:10px; height:10px; border-width:2px; opacity:.55; }
 .fsm-wx-on .fs-home-pin span{ display:none !important; }
 .fsm-wx-on .fs-home-clu{ min-width:26px; height:26px; font-size:11.5px; opacity:.55 !important; } /* MapLibre setzt opacity am Element */
+/* Startansicht: Wetter-Karte eines angetippten Orts über dem Blatt statt darunter */
+html.fs-mapmode .fs-home-slot .fsm-wx-card{ bottom:calc(var(--fs-home-vis, 50vh) + 10px); max-height:calc(100dvh - var(--fs-home-vis, 50vh) - var(--fs-glass-bottom) - 90px); }

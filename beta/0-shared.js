@@ -7576,7 +7576,8 @@ const FSM_OVERLAY_GROUPS = [['wege', 'Wege und Routen'], ['gefahr', 'Gefahren un
 // Bildschirm, sonst wäre ein Teil der Liste hinter dem Blatt oder abgeschnitten.
 function fsmOpenPanel(map){
   const panel = map._fsm.panel;
-  const small = map.getContainer().clientHeight < 600;
+  // Startansicht: die Karte ist zwar bildschirmgross, liegt aber unter Glas-Leiste und Blatt
+  const small = map.getContainer().clientHeight < 600 || (fsmIsHomeMap(map) && document.documentElement.classList.contains('fs-mapmode') && !(fsHomeEl && fsHomeEl.classList.contains('in-big')));
   panel.classList.toggle('fsm-panel-sheet', small);
   if(small){
     if(!map._fsm.panelBack){
