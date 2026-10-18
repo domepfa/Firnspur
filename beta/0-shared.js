@@ -1519,7 +1519,7 @@ function fsHomeCreateMap(){
   fsmWireOrtHold(fsHomeMap);
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
   fsHomeMap.setMaxBounds([[1.5, 39], [15.5, 50.5]]); // Süden grosszügig: die untere Hälfte liegt unter dem Blatt
-  fsHomeMap.on('moveend', ()=>{ if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
+  fsHomeMap.on('moveend', ()=>{ fsHomeCluster(); if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
   fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
   fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl && sl.classList.contains('fs-home-slot')) sl.classList.add('has-map'); });
   return fsHomeMap;
@@ -1619,9 +1619,51 @@ function fsHomeSync(){
       fsHomeMarkers.push(new maplibregl.Marker({element: el, anchor: 'left', offset: [-7, 0]}).setLngLat([p.lon, p.lat]).addTo(fsHomeMap));
     });
     if(kindChanged || fsHomeAll) fsHomeFitAll();
+    fsHomeCluster();
   }
   fsHomeFilter();
   fsHomeRoutesSync();
+}
+/* ===== Startkarte: nahe Punkte zusammenfassen =====
+   Punkte, die auf dem Bildschirm näher als ~40 px beieinander liegen, werden zu einem Kreis mit der
+   Anzahl; Antippen zoomt auf diese Gruppe. Neu berechnet, wenn die Karte stillsteht. Der gewählte
+   Punkt bleibt immer einzeln sichtbar. */
+let fsHomeClusters = [];
+function fsHomeCluster(){
+  const map = fsHomeMap;
+  if(!map || !fsHomePts || !fsHomeMarkers.length) return;
+  fsHomeClusters.forEach(m=> m.remove()); fsHomeClusters = [];
+  const R = 40, pts = fsHomePts.points;
+  const pos = pts.map(p=> map.project([p.lon, p.lat]));
+  const used = new Array(pts.length).fill(false), groups = [];
+  const keep = i=> pts[i].id === fsHomePick || pts[i].id === fsHomeSel;
+  for(let i = 0; i < pts.length; i++){
+    if(used[i] || keep(i)) continue;
+    const g = [i]; used[i] = true;
+    for(let j = i + 1; j < pts.length; j++){
+      if(used[j] || keep(j)) continue;
+      const dx = pos[j].x - pos[i].x, dy = pos[j].y - pos[i].y;
+      if(dx * dx + dy * dy < R * R){ g.push(j); used[j] = true; }
+    }
+    groups.push(g);
+  }
+  fsHomeMarkers.forEach(m=> m.getElement().style.display = '');
+  groups.filter(g=> g.length > 1).forEach(g=>{
+    g.forEach(i=> fsHomeMarkers[i] && (fsHomeMarkers[i].getElement().style.display = 'none'));
+    const lon = g.reduce((a, i)=> a + pts[i].lon, 0) / g.length, lat = g.reduce((a, i)=> a + pts[i].lat, 0) / g.length;
+    const el = document.createElement('button');
+    el.type = 'button'; el.className = 'fs-home-clu';
+    el.textContent = g.length;
+    el.setAttribute('aria-label', g.length + ' Einträge hier – hineinzoomen');
+    el.addEventListener('click', e=>{
+      e.stopPropagation();
+      const b = new maplibregl.LngLatBounds();
+      g.forEach(i=> b.extend([pts[i].lon, pts[i].lat]));
+      const ins = fsHomeInset();
+      map.fitBounds(b, {padding:{top: 70 + ins.top, bottom: 50 + ins.bottom, left: 50, right: 80}, maxZoom: Math.max(map.getZoom() + 2, 13), duration: 500});
+    });
+    fsHomeClusters.push(new maplibregl.Marker({element: el, anchor: 'center'}).setLngLat([lon, lat]).addTo(map));
+  });
 }
 /* ===== Startkarte: Routen der Touren =====
    Übersicht: nur Pins. Ab mittlerem Zoom die Linien der Touren im Ausschnitt, dünn und halb
@@ -1713,7 +1755,7 @@ function fsHomeCard(p){
     ['click','pointerdown','touchstart','mousedown'].forEach(ev=> card.addEventListener(ev, e=> e.stopPropagation()));
     fsHomeEl.appendChild(card);
     // Ein Tipp auf einen Punkt kommt bei MapLibre auch als Klick in die Karte an: der zählt nicht als «daneben»
-    if(fsHomeMap) fsHomeMap.on('click', (e)=>{ const tg = e && e.originalEvent && e.originalEvent.target; if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt')) return; card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick){ fsHomePick = null; fsHomeFilter(); } });
+    if(fsHomeMap) fsHomeMap.on('click', (e)=>{ const tg = e && e.originalEvent && e.originalEvent.target; if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return; card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick){ fsHomePick = null; fsHomeFilter(); } });
   }
   const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
   const x = all.find(o=> o && o.id === p.id) || {name: p.label};
@@ -1744,7 +1786,7 @@ function fsHomeCard(p){
   if(idx >= 0 && fsHomeMarkers[idx]) fsHomeMarkers[idx].getElement().classList.add('on');
   fsHomeSelect(p.id);
   // Der Eintrag dazu steht in der Liste zuoberst und ist kurz hervorgehoben
-  fsHomePick = p.id; fsHomeFilter();
+  fsHomePick = p.id; fsHomeFilter(); fsHomeCluster();
   const sh = document.querySelector('main .fs-sheet'); if(sh) sh.scrollTop = 0;
 }
 function fsHomeFitAll(dur){
@@ -1931,6 +1973,14 @@ function fsHomeLayout(){
   const menu = document.querySelector('#app .hero .who-menu');
   const mslot = glass.querySelector('.fs-glass-menu');
   if(menu && menu.parentNode !== mslot){ mslot.innerHTML = ''; mslot.appendChild(menu); }
+  // Agenda im Menü statt als schwebender Knopf (ein Knopf weniger über der Liste)
+  const row = menu && menu.querySelector('.who-row');
+  if(row && !row.querySelector('[data-fs-agenda]')){
+    const ab = document.createElement('button'); ab.type = 'button'; ab.setAttribute('data-fs-agenda', '');
+    ab.innerHTML = fsIconHtml('calendar') + 'Agenda';
+    ab.addEventListener('click', ()=>{ menu.open = false; const t = document.getElementById('agenda-tab-btn'); if(t) t.click(); });
+    row.prepend(ab);
+  }
   // Segment Gebiete/Touren/Hütten ins Blatt, Griff davor
   // Nach «nur Liste neu» (Suche) fehlt das Segment im neuen Blatt: das bisherige wieder einsetzen
   const tabs = document.querySelector('#app .hero .tabs') || (fsHomeTabsEl && fsHomeTabsEl.isConnected === false ? fsHomeTabsEl : null) || document.querySelector('main .fs-sheet > .tabs');

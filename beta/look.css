@@ -2562,3 +2562,10 @@ html.fs-filter-open body::after{ display:none; }
 html.fs-mapmode[data-fs-home="karte"] :is(.fs-fab, #agenda-tab-btn){ bottom:calc(var(--fs-home-vis, 160px) + 12px); transition:bottom .38s cubic-bezier(.2,.9,.25,1); }
 html.fs-mapmode[data-fs-home="karte"] .fs-home-slot .fsm-ctlbox{ bottom:calc(var(--fs-home-vis, 160px) + 78px); }
 html.fs-mapmode[data-fs-home="karte"] body::after{ display:none; }
+/* Startansicht: Agenda steht im Menü */
+html.fs-mapmode #agenda-tab-btn{ display:none !important; }
+/* Startkarte: Gruppe naher Punkte (fsHomeCluster) */
+.fs-home-clu{ position:relative; display:flex; align-items:center; justify-content:center; min-width:34px; height:34px; padding:0 8px; border-radius:999px;
+  border:3px solid #fff; background:var(--ice-deep); color:#fff; font:800 13.5px var(--font-ui); box-shadow:0 2px 8px rgba(15,30,39,.35); cursor:pointer; }
+.fs-home-clu::before{ content:''; position:absolute; inset:-8px; border-radius:999px; }
+.fs-home-map.in-ctx .fs-home-clu{ opacity:.5; }
