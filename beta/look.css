@@ -2245,7 +2245,8 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fsfly-area{ fill:var(--ice-light); }
 .fsfly-pline{ stroke:var(--ink-soft); }
 .fsfly-cursor{ stroke:var(--ink); }
-.fsfly-dot{ width:20px; height:20px; border-radius:50%; background:var(--ice-deep); border:4px solid #fff; box-shadow:0 0 0 6px color-mix(in srgb, var(--ice-deep) 35%, transparent), 0 2px 8px rgba(0,0,0,.4); }
+/* Dunkel mit weissem Rand: auf Schnee und Fels gut sichtbar */
+.fsfly-dot{ width:22px; height:22px; border-radius:50%; background:var(--ink); border:4px solid #fff; box-shadow:0 0 0 3px var(--ink), 0 0 0 9px color-mix(in srgb, #fff 55%, transparent), 0 3px 10px rgba(0,0,0,.5); }
 @media (prefers-reduced-motion: reduce){ .fsfly-alert{ animation:none; } }
 
 /* Jahresrückblick */
