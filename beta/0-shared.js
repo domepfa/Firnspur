@@ -1684,7 +1684,7 @@ function fsHomeCard(p){
     card = document.createElement('div'); card.className = 'fs-home-card';
     ['click','pointerdown','touchstart','mousedown'].forEach(ev=> card.addEventListener(ev, e=> e.stopPropagation()));
     fsHomeEl.appendChild(card);
-    if(fsHomeMap) fsHomeMap.on('click', ()=>{ card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); });
+    if(fsHomeMap) fsHomeMap.on('click', ()=>{ card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick){ fsHomePick = null; fsHomeFilter(); } });
   }
   const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
   const x = all.find(o=> o && o.id === p.id) || {name: p.label};
@@ -1699,7 +1699,7 @@ function fsHomeCard(p){
     ${facts.length ? `<div class="f">${facts.map(f=> `<span>${esc(String(f))}</span>`).join('')}</div>` : ''}
     <button type="button" class="open" data-act="${act}" data-id="${esc(p.id)}">${btnLabel}</button>`;
   card.hidden = false;
-  card.querySelector('.x').addEventListener('click', ()=>{ card.hidden = true; fsHomeSelect(null); });
+  card.querySelector('.x').addEventListener('click', ()=>{ card.hidden = true; fsHomeSelect(null); fsHomePick = null; fsHomeFilter(); });
   // Öffnen über den Eintrag der Liste (dieselbe Aktion wie dort), sonst über den Knopf selbst
   card.querySelector('.open').addEventListener('click', (e)=>{
     const li = document.querySelector('.fs-sheet .card[data-act="' + act + '"][data-id="' + CSS.escape(p.id) + '"]');
@@ -1714,6 +1714,9 @@ function fsHomeCard(p){
   const idx = fsHomePts.points.indexOf(p);
   if(idx >= 0 && fsHomeMarkers[idx]) fsHomeMarkers[idx].getElement().classList.add('on');
   fsHomeSelect(p.id);
+  // Der Eintrag dazu steht in der Liste zuoberst und ist kurz hervorgehoben
+  fsHomePick = p.id; fsHomeFilter();
+  const sh = document.querySelector('main .fs-sheet'); if(sh) sh.scrollTop = 0;
 }
 function fsHomeFitAll(dur){
   if(!fsHomeMap || !fsHomePts) return;
@@ -1744,20 +1747,26 @@ function fsCardThumbs(sheet){
   });
 }
 // Liste auf den Kartenausschnitt beschränken (DOM-weit, gilt für alle Listen mit .card[data-id])
+// Liste zur Karte: oben die Einträge im Kartenausschnitt, darunter «Weitere …» – nichts wird ausgeblendet
+// (das tun nur Suche und Filter). Geordnet wird über CSS «order» im Raster, also ohne die Karten zu
+// verschieben; neu geordnet erst, wenn die Karte stillsteht (moveend). Ein angetippter Punkt steht zuoberst.
+let fsHomePick = null;
 function fsHomeFilter(){
   const sheet = document.querySelector('.fs-sheet');
   if(!sheet || !fsHomePts) return;
   const act = fsHomePts.openAct;
   let vis = null;
-  // Beim Suchen über alle Einträge, nicht nur den Kartenausschnitt
+  // Beim Suchen keine Gruppen (die Treffer zählen, nicht der Ausschnitt)
   const searching = typeof state !== 'undefined' && typeof state.search === 'string' && !!state.search.trim();
   if(!fsHomeAll && fsHomeMap && !searching){
     const b = fsHomeMap.getBounds();
     vis = new Set(fsHomePts.points.filter(p=> b.contains([p.lon, p.lat])).map(p=> p.id));
   }
   fsHomeVisible = vis;
-  let shown = 0, total = 0;
   fsCardThumbs(sheet);
+  const old = sheet.querySelector('.fs-home-count'); if(old) old.remove();
+  let shown = 0, total = 0, grid = null, oneGrid = true;
+  const cards = [];
   sheet.querySelectorAll('.card').forEach(card=>{
     if(card.parentElement && card.parentElement.closest('.card')) return; // verschachtelte Karten: über die äussere
     const ids = [];
@@ -1765,26 +1774,25 @@ function fsHomeFilter(){
     card.querySelectorAll('[data-act="' + act + '"][data-id]').forEach(x=> ids.push(x.getAttribute('data-id')));
     if(!ids.length) return;
     total++;
+    card.classList.remove('fs-home-hidden');
+    if(!grid) grid = card.parentElement; else if(card.parentElement !== grid) oneGrid = false;
     const on = !vis || ids.some(id=> vis.has(id));
-    card.classList.toggle('fs-home-hidden', !on);
-    if(on) shown++;
+    if(on && vis) shown++;
+    cards.push({card, on, pick: !!fsHomePick && ids.indexOf(fsHomePick) >= 0});
   });
-  let bar = sheet.querySelector('.fs-home-count');
-  if(!vis || shown === total){ if(bar) bar.remove(); return; }
-  if(!bar){
-    bar = document.createElement('div'); bar.className = 'fs-home-count';
-    // nach der letzten Werkzeugzeile (Suchen/Filter) einfügen
-    let tb = sheet.querySelector('.toolbar');
-    while(tb && tb.nextElementSibling && tb.nextElementSibling.classList.contains('toolbar')) tb = tb.nextElementSibling;
-    if(tb && tb.parentNode) tb.parentNode.insertBefore(bar, tb.nextSibling); else sheet.insertBefore(bar, sheet.firstChild);
-  }
+  const groups = !!(vis && oneGrid && grid && shown < total);
+  cards.forEach(c=>{ c.card.style.order = !oneGrid ? '' : c.pick ? '-1' : (!groups || c.on) ? '0' : '2'; c.card.classList.toggle('fs-home-pick', c.pick); });
+  // Überschriften der Gruppen (nur anlegen/ändern, wenn nötig: der Beobachter des Blatts zählt das nicht)
   const word = fsHomePts.kind === 'hut' ? 'Hütten' : (fsHomePts.kind === 'gebiet' || fsHomePts.kind === 'klettergebiet') ? 'Gebiete' : 'Touren';
-  const k = shown + '/' + total + '/' + word;
-  if(bar.dataset.k !== k){
-    bar.dataset.k = k;
-    bar.innerHTML = `<span><b>${shown}</b> von ${total} ${word} im Kartenausschnitt</span><button type="button" class="fs-home-all">Alle anzeigen</button>`;
-    bar.querySelector('.fs-home-all').onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); };
-  }
+  sheet.querySelectorAll('.fs-home-sep').forEach(x=>{ if(!groups || x.parentElement !== grid) x.remove(); });
+  if(!groups) return;
+  const sep = (cls, order, html)=>{
+    let el = grid.querySelector(':scope > .fs-home-sep.' + cls);
+    if(!el){ el = document.createElement('div'); el.className = 'fs-home-sep ' + cls; el.style.order = order; grid.appendChild(el); }
+    if(el.dataset.h !== html){ el.dataset.h = html; el.innerHTML = html; const b = el.querySelector('.fs-home-all'); if(b) b.onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); }; }
+  };
+  sep('top', '-2', `<span>Im Kartenausschnitt · ${shown}</span><button type="button" class="fs-home-all">Alle auf der Karte</button>`);
+  sep('rest', '1', `<span>Weitere ${word} · ${total - shown}</span>`);
 }
 // Suchfeld in den Listen immer sichtbar, in derselben Zeile wie «Filter» (nur Klassen setzen: das Feld
 // selbst nicht verschieben, sonst verliert es beim Neuzeichnen den Cursor).
@@ -1806,7 +1814,8 @@ function fsSearchCollapse(){
   // Änderungen in der Karte selbst (Marker, Kacheln) und in der Zählzeile zählen nicht – sonst schaukelt sich
   // das auf: Filter schreibt die Zeile, die Zeile löst den Filter aus, … (Karte zeichnete dauernd neu)
   const own = n=>{ const el = n && (n.nodeType === 1 ? n : n.parentElement); return !!(el && el.closest && el.closest('.fs-home-map, .fs-home-count, .maplibregl-map, #fs-3d')); };
-  const mo = new MutationObserver((recs)=>{ if(recs.every(r=> own(r.target))) return; clearTimeout(t); t = setTimeout(()=>{ fsSearchCollapse(); if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } fsHomeLayout(); }, 30); });
+  const sepOnly = r=> [...r.addedNodes, ...r.removedNodes].every(n=> n.nodeType === 1 && n.classList.contains('fs-home-sep'));
+  const mo = new MutationObserver((recs)=>{ if(recs.every(r=> own(r.target) || sepOnly(r) || (r.target.closest && r.target.closest('.fs-home-sep')))) return; clearTimeout(t); t = setTimeout(()=>{ fsSearchCollapse(); if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } fsHomeLayout(); }, 30); });
   const start = ()=> mo.observe(document.body, {childList:true, subtree:true});
   if(document.body) start(); else document.addEventListener('DOMContentLoaded', start);
 })();
@@ -1946,7 +1955,7 @@ function fsHomeHero(sheet){
 function fsHomeWireDrag(sheet){
   let st = null;
   const D = ['karte', 'mitte', 'liste'];
-  const isHead = el=> !!(el.closest('.fs-grip') || el.closest('.tabs') || el.closest('.toolbar') || el.closest('.fs-home-count'));
+  const isHead = el=> !!(el.closest('.fs-grip') || el.closest('.tabs') || el.closest('.toolbar'));
   const begin = y=>{ const full = fsHomeDetentPx('liste'); st = {y0: y, base: full - fsHomeDetentPx(fsHomeDetent), full, moved: false, last: null, hist: []}; };
   const move = y=>{
     const dy = y - st.y0;
