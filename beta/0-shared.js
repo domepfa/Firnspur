@@ -19042,7 +19042,8 @@ function fsStripEmoji(txt){
     window[k] = w;
   });
 })();
-function fsIconHtml(name){ return `<svg class="fs-i" viewBox="0 0 24 24" aria-hidden="true"><path d="${FS_ICON_PATHS[name]}"/></svg>`; }
+// Wettersymbole bekommen eine eigene Klasse (fs-wx-…): Sonne gelb, Regen blau usw., siehe look.css
+function fsIconHtml(name){ return `<svg class="fs-i${/^(sun|partly|cloud|fog|rain|storm|snow|snowcloud)$/.test(name) ? ' fs-wx-' + name : ''}" viewBox="0 0 24 24" aria-hidden="true"><path d="${FS_ICON_PATHS[name]}"/></svg>`; }
 const FS_SKIP_TAGS = new Set(['SCRIPT','STYLE','TEXTAREA','INPUT','SELECT','svg','title']);
 function fsReplaceEmojiInTextNode(node){
   const txt = node.nodeValue;
