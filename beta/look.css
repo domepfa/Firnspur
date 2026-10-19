@@ -2644,3 +2644,18 @@ html.fs-dark.fs-mapmode .fs-sheet > .tabs .tab.active, html.fs-dark.fs-mapmode .
 .fs-scan-row .btn .fs-i{ width:18px; height:18px; }
 /* Disziplin-Leiste: Ziele 44 px hoch */
 html.fs-mapmode .app-switch-bar a{ min-height:44px; }
+
+/* =====================================================================
+   Suche auf der Karte (Startkarte, Knopf in den Kartenknöpfen)
+   ===================================================================== */
+.fsm-search-box{ position:absolute; top:10px; left:10px; right:66px; z-index:6; background:var(--paper); color:var(--ink); border-radius:18px; box-shadow:0 8px 28px rgba(15,30,39,.22); overflow:hidden; }
+.fsm-search-row{ display:flex; align-items:center; gap:6px; padding:0 4px 0 14px; }
+.fsm-search-row > .fs-i{ width:20px; height:20px; color:var(--ink-soft); flex:none; }
+.fsm-search-row input{ flex:1; min-width:0; min-height:48px; border:none; background:none; color:var(--ink); font:inherit; font-size:16px; outline:none; }
+.fsm-search-x{ width:44px; height:44px; border:none; background:none; color:var(--ink-soft); font-size:24px; cursor:pointer; flex:none; }
+.fsm-search-res{ border-top:1px solid var(--line); max-height:min(52vh, 360px); overflow-y:auto; }
+.fsm-search-res[hidden]{ display:none; }
+.fsm-search-res button{ display:flex; align-items:center; gap:10px; width:100%; min-height:48px; padding:8px 14px; border:none; border-bottom:1px solid var(--line-soft); background:none; color:var(--ink); font:inherit; font-size:15px; text-align:left; cursor:pointer; }
+.fsm-search-res button .fs-i{ width:18px; height:18px; color:var(--ice-deep); flex:none; }
+.fsm-search-status{ padding:10px 14px; font-size:13px; color:var(--ink-soft); }
+.fsm-search-pin{ width:18px; height:18px; border-radius:50%; background:var(--ice-deep); border:3px solid #fff; box-shadow:0 2px 8px rgba(15,30,39,.4); }
