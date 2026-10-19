@@ -13566,7 +13566,33 @@ function fsUpgradeFilterRows(){
     if(fsFilterScroll[key]) panel.scrollTop = fsFilterScroll[key];
     panel.addEventListener('scroll', ()=>{ fsFilterScroll[key] = panel.scrollTop; }, {passive:true});
   });
-  document.documentElement.classList.toggle('fs-filter-open', !!fsOpenFilterSheet());
+  fsFilterSync(!!fsOpenFilterSheet());
+}
+// Offenes Filterblatt: Zurück-Geste schliesst es; die Stufe des Startblatts kommt beim Schliessen zurück
+let fsFilterLayer = null, fsFilterPrevDetent = null;
+function fsFilterSync(open){
+  const root = document.documentElement;
+  root.classList.toggle('fs-filter-open', open);
+  if(open && !fsFilterLayer){
+    fsFilterLayer = ()=>{
+      fsFilterLayer = null;
+      const p = fsOpenFilterSheet(); if(!p) return;
+      let row = p.previousElementSibling;
+      while(row && !row.classList.contains('fs-filter-row')) row = row.previousElementSibling;
+      const tg = (row || document).querySelector(FS_FILTER_TOGGLE_SEL);
+      if(tg) tg.click();
+    };
+    pushOverlayLayer(fsFilterLayer);
+  }else if(!open && fsFilterLayer){
+    const i = overlayLayers.indexOf(fsFilterLayer);
+    fsFilterLayer = null;
+    if(i >= 0 && i === overlayLayers.length - 1){ overlayLayers.pop(); consumeHistoryEntry(); }
+    else if(i >= 0) overlayLayers.splice(i, 1);
+  }
+  if(!root.classList.contains('fs-mapmode')) return;
+  // Startansicht: das Filterblatt braucht die ganze Höhe
+  if(open && fsHomeDetent !== 'liste'){ fsFilterPrevDetent = fsHomeDetent; fsHomeSetDetent('liste', false); }
+  else if(!open && fsFilterPrevDetent){ const d = fsFilterPrevDetent; fsFilterPrevDetent = null; requestAnimationFrame(()=> fsHomeSetDetent(d)); }
 }
 // Antippen neben das Blatt (auch auf die Karte) schliesst es. pointerdown statt click: die
 // Kartenvorschau fängt Berührungen ab, ein click käme dort nie an.
@@ -13585,10 +13611,7 @@ document.addEventListener('pointerdown', (e)=>{
 document.addEventListener('click', (e)=>{ if(fsFilterSwallowClick){ fsFilterSwallowClick = false; e.preventDefault(); e.stopPropagation(); } }, true);
 // Das Ein-/Ausblenden der Filter (Tour/Hütte) ändert nur style.display: Hintergrund nachziehen
 document.addEventListener('click', ()=> setTimeout(()=>{
-  const open = !!fsOpenFilterSheet();
-  document.documentElement.classList.toggle('fs-filter-open', open);
-  // Startansicht: das Filterblatt braucht die ganze Höhe
-  if(open && document.documentElement.classList.contains('fs-mapmode') && fsHomeDetent !== 'liste') fsHomeSetDetent('liste', false);
+  fsFilterSync(!!fsOpenFilterSheet());
 }, 0));
 
 /* ================= Wischgeste zwischen den Apps =================
