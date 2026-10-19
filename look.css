@@ -2618,3 +2618,13 @@ svg.fs-i.fs-wx-cloud, svg.fs-i.fs-wx-fog{ color:var(--wx-cloud) !important; }
 .who-menu .who-row button svg.fs-i[class*="fs-wx-"]{ color:var(--ice-deep) !important; }
 /* Startansicht: die Glas-Leiste ist in der Tour ausgeblendet – Tourkarte bis ganz oben (vorher Lücke mit der alten Skizze) */
 html.fs-mapmode .fs-tour-map{ top:0; }
+
+/* =====================================================================
+   GPX-Track bearbeiten: grosse Trefferfläche, Werkzeuge am Punkt (schneiden, einfügen, löschen)
+   ===================================================================== */
+.fs-gpx-v{ width:44px; height:44px; display:flex; align-items:center; justify-content:center; cursor:grab; touch-action:none; }
+.fs-gpx-v i{ display:block; width:14px; height:14px; border-radius:50%; background:#E8384F; border:2.5px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.45); transition:transform .12s; }
+.fs-gpx-drag .fs-gpx-v i, .fs-gpx-v:active i{ transform:scale(1.6); }
+.fs-gpx-menu{ display:grid; gap:6px; min-width:210px; }
+.fs-gpx-menu p{ margin:0 0 2px; font-size:13px; font-weight:700; color:var(--ink-soft); }
+.fs-gpx-menu .btn{ width:100%; min-height:44px; margin:0; font-size:14px; }
