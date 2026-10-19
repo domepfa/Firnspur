@@ -806,7 +806,7 @@ const PAPIERKORB_ENTITY_MAP = {
 /* ================= Name handling ================= */
 
 /* ================= Actions ================= */
-// Von der Übersichtskarte aus per "Punkt setzen" — siehe pointPlacementPopupContent in 0-shared.js.
+// Von der Startkarte aus per Gedrückthalten («Punkt hier») – siehe fsHomePointOffer in 0-shared.js.
 // Öffnet eine der "frei verlinkbaren" Detailansichten (Tour/Hütte) — diese sind von überall aus
 // erreichbar, auch per Cross-Link aus einer ANDEREN bereits offenen Detailansicht heraus (z. B.
 // eine Tour direkt aus der Hütten-Detailansicht öffnen). War bereits eine Ansicht offen, merkt
@@ -1034,7 +1034,6 @@ function tourenViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Suchen: Name, Region, Text, Orte …" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-tour">+ Neue Tour</button>
-      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar toolbar-row">
       <button type="button" class="btn secondary" id="tour-filter-toggle-btn">${fsIconHtml('sliders')} Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
