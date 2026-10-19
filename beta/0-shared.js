@@ -8840,9 +8840,10 @@ const FS_ROUTE_TYPES = {
   abfahrt:  {label:'Abfahrt', color:'#D9730D'},
   aufab:    {label:'Auf- & Abfahrt', color:'#E8384F'},
   variante: {label:'Variante', color:'#8E44AD', dash:true},
-  zustieg:  {label:'Zustieg', color:'#2F7D4A'}
+  zustieg:  {label:'Zustieg', color:'#2F7D4A'},
+  abstieg:  {label:'Abstieg', color:'#D9730D'}
 };
-const FS_ROUTE_TYPE_ORDER = ['aufstieg','aufab','abfahrt','variante','zustieg'];
+const FS_ROUTE_TYPE_ORDER = ['aufstieg','aufab','abfahrt','abstieg','variante','zustieg'];
 function fsRouteTypesOn(){ return true; } // alle Apps (Skitour, Hochtour/Klettern, Wandern)
 // Bezeichnung einer Routenart — abgefahren wird nur in der Skitour-App, sonst geht man ab
 function fsRouteLabel(k){
@@ -9271,6 +9272,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const gpxEditBtn = document.createElement('button');
     gpxEditBtn.type = 'button'; gpxEditBtn.className = 'btn secondary'; gpxEditBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; display:none;';
     lineActionsRow.appendChild(gpxEditBtn);
+    const gpxSummitBtn = document.createElement('button');
+    gpxSummitBtn.type = 'button'; gpxSummitBtn.className = 'btn secondary'; gpxSummitBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; display:none;';
+    gpxSummitBtn.textContent = 'Nur Aufstieg';
+    gpxSummitBtn.title = 'Am höchsten Punkt schneiden';
+    lineActionsRow.appendChild(gpxSummitBtn);
     wrapDiv.appendChild(lineActionsRow);
 
     // Route-Modus als eigene, grün getönte Karte (passend zur grünen Routen-Farbe auf der Karte) —
@@ -9577,6 +9583,83 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         if(point._justAdded){ delete point._justAdded; marker.openPopup(); }
       });
     }
+    // GPX bearbeiten: nach jeder Änderung der Linie
+    function gpxTrackChanged(){
+      setLastRouteStats(null);
+      routeStatsEl.style.display = 'none';
+      routeStatsEl.innerHTML = '';
+      redrawLine();
+      persistTrack();
+    }
+    function gpxBtn(label, cls, fn){
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn ' + (cls || 'secondary'); b.textContent = label;
+      b.addEventListener('click', (e)=>{ e.stopPropagation(); fn(); });
+      return b;
+    }
+    // Werkzeuge an einem Punkt: bis/ab hier behalten (schneiden), Punkt einfügen, Punkt löschen
+    function gpxVertexMenu(i){
+      const wrap = document.createElement('div');
+      wrap.className = 'fs-gpx-menu';
+      const n = manualTrack.length;
+      if(i > 0 && i < n - 1){
+        wrap.appendChild(gpxBtn('Bis hier behalten', 'secondary', ()=> gpxCutAsk(i, 'bis')));
+        wrap.appendChild(gpxBtn('Ab hier behalten', 'secondary', ()=> gpxCutAsk(i, 'ab')));
+      }
+      if(i < n - 1) wrap.appendChild(gpxBtn('Punkt einfügen', 'secondary', ()=>{
+        pushUndo();
+        const a = manualTrack[i], b = manualTrack[i + 1];
+        manualTrack.splice(i + 1, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+        map.closePopup(); gpxTrackChanged();
+      }));
+      if(n > 2) wrap.appendChild(gpxBtn('Punkt löschen', 'danger', ()=>{
+        pushUndo(); manualTrack.splice(i, 1); map.closePopup(); gpxTrackChanged();
+      }));
+      return wrap;
+    }
+    // Schneiden: der Rest wird auf Wunsch eine eigene Route (bis hier → Abstieg/Abfahrt, ab hier → Zustieg)
+    function gpxCutAsk(i, how){
+      const keep = how === 'bis' ? manualTrack.slice(0, i + 1) : manualTrack.slice(i);
+      const rest = how === 'bis' ? manualTrack.slice(i) : manualTrack.slice(0, i + 1);
+      const altEl = document.getElementById('route-alt-tracks');
+      const restType = how === 'ab' ? 'zustieg' : (fsAppKey() === 'firnspur' ? 'abfahrt' : 'abstieg');
+      const doCut = (keepRest)=>{
+        pushUndo();
+        if(keepRest && altEl && rest.length > 1){
+          let alts = []; try{ alts = JSON.parse(altEl.value || '[]'); }catch(e){}
+          alts.push({id: 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7), name: '', type: restType,
+            trackSimplified: rest.map(c=> [Math.round(c[0]*1e6)/1e6, Math.round(c[1]*1e6)/1e6])});
+          altEl.value = JSON.stringify(alts);
+          if(typeof fsRoutesEditorRender === 'function') fsRoutesEditorRender();
+        }
+        manualTrack = keep;
+        map.closePopup();
+        gpxTrackChanged();
+        renderRouteMeta();
+        showToast(keepRest && altEl ? 'Geschnitten – der Rest ist jetzt die Route «' + fsRouteLabel(restType) + '».' : 'Geschnitten.');
+      };
+      const wrap = document.createElement('div');
+      wrap.className = 'fs-gpx-menu';
+      const q = document.createElement('p');
+      q.textContent = 'Abgeschnittener Teil (' + rest.length + ' Punkte):';
+      wrap.appendChild(q);
+      if(altEl) wrap.appendChild(gpxBtn('Als Route «' + fsRouteLabel(restType) + '» behalten', 'secondary', ()=> doCut(true)));
+      wrap.appendChild(gpxBtn('Weg damit', 'secondary', ()=> doCut(false)));
+      FL.popup().setLatLng(manualTrack[i]).setContent(wrap).openOn(map);
+    }
+    // «Nur Aufstieg»: am höchsten Punkt schneiden (Höhe aus der GPX-Datei, sonst der vom Start entfernteste)
+    function gpxSummitIndex(){
+      const ele = new Map();
+      (gpxTrackFromHidden || []).forEach(p=>{ if(p && p.length > 2 && isFinite(p[2])) ele.set((+p[0]).toFixed(5) + ',' + (+p[1]).toFixed(5), +p[2]); });
+      const e = manualTrack.map(c=> ele.get((+c[0]).toFixed(5) + ',' + (+c[1]).toFixed(5)));
+      if(e.filter(v=> v != null).length > manualTrack.length / 2){
+        let best = 0; e.forEach((v, k)=>{ if(v != null && (e[best] == null || v > e[best])) best = k; });
+        return best;
+      }
+      const s0 = manualTrack[0], d = c=> (c[0] - s0[0]) ** 2 + ((c[1] - s0[1]) * Math.cos(s0[0] * Math.PI / 180)) ** 2;
+      let best = 0; manualTrack.forEach((c, k)=>{ if(d(c) > d(manualTrack[best])) best = k; });
+      return best;
+    }
     function redrawLine(){
       lineLayer.clearLayers();
       if(!usingGpxTrack && gpxTrack && gpxTrack.length > 1){
@@ -9585,6 +9668,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       }
       gpxEditBtn.style.display = (gpxTrack && gpxTrack.length > 1 && gpxConfig) ? '' : 'none';
       gpxEditBtn.textContent = usingGpxTrack ? '✓ GPX-Track fertig bearbeitet' : 'GPX-Track bearbeiten';
+      gpxSummitBtn.style.display = (usingGpxTrack && manualTrack.length > 3) ? '' : 'none';
       undoBtn.style.display = clearLineBtn.style.display = usingGpxTrack ? 'none' : '';
       if(manualTrack.length){
         // Deutlich breitere, unsichtbare Klickfläche unter der sichtbaren Linie — auf einer
@@ -9608,43 +9692,19 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           // Modus (Punkt/Route) bewusst nur als reine, nicht ziehbare Linie gezeigt — sonst könnte
           // ein simples Verschieben/Zoomen der Karte versehentlich einen Punkt mitziehen. Bei einer
           // berechneten Route mit u. U. hunderten Geometrie-Punkten wäre das ausserdem unbrauchbar.
+          // Punkte mit 44-px-Trefferfläche (sichtbar 14 px); antippen öffnet die Werkzeuge für diese Stelle
           manualTrack.forEach((pt, i)=>{
-            const vertexIcon = FL.divIcon({
-              className: 'gpx-edit-vertex-icon',
-              html: '<div style="width:12px; height:12px; border-radius:50%; background:#E8384F; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>',
-              iconSize: [12,12], iconAnchor: [6,6]
-            });
+            const vertexIcon = FL.divIcon({className: 'gpx-edit-vertex-icon', html: '<div class="fs-gpx-v"><i></i></div>', iconSize: [44,44], iconAnchor: [22,22]});
             const marker = FL.marker(pt, {icon: vertexIcon, draggable: true}).addTo(lineLayer);
-            marker.on('dragstart', ()=> pushUndo());
+            marker.on('dragstart', ()=>{ pushUndo(); const el = marker.getElement(); if(el) el.classList.add('fs-gpx-drag'); });
             marker.on('dragend', ()=>{
               const ll = marker.getLatLng();
               manualTrack[i] = [ll.lat, ll.lng];
-              setLastRouteStats(null);
-              routeStatsEl.style.display = 'none';
-              routeStatsEl.innerHTML = '';
-              redrawLine();
-              persistTrack();
+              gpxTrackChanged();
             });
-            marker.on('click', (e)=> FL.DomEvent.stopPropagation(e));
-            marker.on('contextmenu', (e)=>{
-              FL.DomEvent.stopPropagation(e);
-              FL.DomEvent.preventDefault(e.originalEvent);
-              const btn = document.createElement('button');
-              btn.type = 'button';
-              btn.textContent = '🗑️ Diesen Punkt entfernen';
-              btn.style.cssText = 'background:#B0392C; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
-              btn.addEventListener('click', ()=>{
-                pushUndo();
-                manualTrack.splice(i, 1);
-                setLastRouteStats(null);
-                routeStatsEl.style.display = 'none';
-                routeStatsEl.innerHTML = '';
-                redrawLine();
-                persistTrack();
-                map.closePopup();
-              });
-              FL.popup().setLatLng(pt).setContent(btn).openOn(map);
-            });
+            const menu = (e)=>{ FL.DomEvent.stopPropagation(e); if(e.originalEvent) FL.DomEvent.preventDefault(e.originalEvent); FL.popup().setLatLng(pt).setContent(gpxVertexMenu(i)).openOn(map); };
+            marker.on('click', menu);
+            marker.on('contextmenu', menu);
           });
         }
       }
@@ -9818,9 +9878,15 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       persistTrack();
     });
     finishBtn.addEventListener('click', ()=>{ if(usingGpxTrack){ exitGpxEdit(); updateGpxReplaceBtn(); renderRouteMeta(); } setMode('point'); });
+    gpxSummitBtn.addEventListener('click', ()=>{
+      const k = gpxSummitIndex();
+      if(k <= 0 || k >= manualTrack.length - 1){ showToast('Kein Gipfel in der Mitte der Linie gefunden – Punkt antippen und «Bis hier behalten».'); return; }
+      try{ map.setView(manualTrack[k], Math.max(map.getZoom(), 14)); }catch(e){}
+      gpxCutAsk(k, 'bis');
+    });
     gpxEditBtn.addEventListener('click', ()=>{
       pushUndo();
-      if(usingGpxTrack) exitGpxEdit(); else{ enterGpxEdit(); showToast('GPX-Punkte verschieben oder antippen zum Entfernen. Neue Linien erst nach «fertig».'); }
+      if(usingGpxTrack) exitGpxEdit(); else{ enterGpxEdit(); showToast('GPX-Punkte verschieben, antippen für Schneiden, Einfügen und Löschen. Neue Linien erst nach «fertig».'); }
       setLastRouteStats(null); routeStatsEl.style.display = 'none'; routeStatsEl.innerHTML = '';
       updateGpxReplaceBtn(); redrawLine(); renderRouteMeta();
     });
