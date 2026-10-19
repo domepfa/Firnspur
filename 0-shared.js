@@ -1511,7 +1511,7 @@ function fsHomeMount(){
 // Die eine Karte der App: Startkarte, und in Tour/Gebiet ausgeliehen (fsCtxAcquire)
 let fsCtxUsesHome = false, fsCtxOn3d = null, fsCtxSnap = null, fsCtxOwner = '', fsCtxView = null;
 function fsHomeCreateMap(){
-  fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52, on3d: (m)=>{
+  fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52, search: true, on3d: (m)=>{
     if(fsCtxOn3d){ fsCtxOn3d(m); return; }
     const c = m.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom: Math.max(12, m.getZoom()), heading: m.getBearing()});
   }});
@@ -7381,7 +7381,7 @@ function fsmCreateMap(container, opts){
     maxPitch: 60, attributionControl: {compact: true}, dragRotate: true, touchPitch: true,
     maxBounds: FSM_BOUNDS
   });
-  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0, gpsOnce: !!opts.gpsOnce};
+  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0, gpsOnce: !!opts.gpsOnce, search: !!opts.search};
   // Tipp in die Karte schliesst das Ebenen-Fenster
   map.on('click', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) fsmClosePanel(map); });
   map.on('dragstart', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden && !map._fsm.panel.classList.contains('fsm-panel-sheet')) fsmClosePanel(map); });
@@ -7690,11 +7690,72 @@ function fsmClosePanel(map){
   if(map._fsm.panelBack) map._fsm.panelBack.remove();
   if(panel.parentNode !== map.getContainer()){ panel.classList.remove('fsm-panel-sheet'); map.getContainer().appendChild(panel); }
 }
+// Suche auf der Karte: eigene Einträge der Startkarte sofort, Berge, Hütten und Orte über die
+// swisstopo-Suche (braucht Internet). Ein eigener Treffer zeigt seine Kurzinfo, ein Ort eine Markierung.
+let fsmSearchSeq = 0, fsmSearchMarker = null;
+function fsmOpenSearch(map){
+  const c = map.getContainer();
+  let box = c.querySelector('.fsm-search-box');
+  if(box){ box.querySelector('input').focus(); return; }
+  if(fsmSearchMarker){ fsmSearchMarker.remove(); fsmSearchMarker = null; }
+  // Startansicht: Blatt ganz nach unten, damit die Treffer und die Karte Platz haben
+  if(map === fsHomeMap && document.documentElement.classList.contains('fs-mapmode') && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
+  box = document.createElement('div'); box.className = 'fsm-search-box';
+  const cb = c.querySelector('.fsm-ctlbox'); // auf Höhe der Kartenknöpfe
+  box.style.top = (cb ? cb.offsetTop : (map._fsm.ctlTop || 10)) + 'px';
+  box.innerHTML = '<div class="fsm-search-row">' + fsIconHtml('search') + '<input type="text" placeholder="Berg, Hütte, Ort …" aria-label="Auf der Karte suchen" enterkeyhint="search" autocomplete="off"><button type="button" class="fsm-search-x" aria-label="Suche schliessen">×</button></div><div class="fsm-search-res" hidden></div>';
+  ['click', 'pointerdown', 'touchstart', 'wheel', 'keydown'].forEach(ev=> box.addEventListener(ev, e=> e.stopPropagation()));
+  c.appendChild(box);
+  const inp = box.querySelector('input'), res = box.querySelector('.fsm-search-res');
+  const close = ()=>{ fsmSearchSeq++; box.remove(); };
+  box.querySelector('.fsm-search-x').addEventListener('click', close);
+  inp.addEventListener('keydown', e=>{ if(e.key === 'Escape') close(); if(e.key === 'Enter'){ const b = res.querySelector('[data-i]'); if(b) b.click(); } });
+  const go = it=>{
+    inp.blur(); close();
+    const home = map === fsHomeMap;
+    if(home) fsHomeAll = false; // sonst zöge das Blatt die Karte wieder auf alle Einträge
+    // Eigener Eintrag: wie ein Tipp auf den Punkt, der Eintrag steht dann zuoberst in der Liste
+    if(it.p && home && document.documentElement.classList.contains('fs-mapmode')) fsHomeSetDetent('mitte');
+    const ins = home ? fsHomeInset() : {top: 0, bottom: 0}; // Treffer im sichtbaren Teil über dem Blatt
+    map.flyTo({center: [it.lon, it.lat], zoom: Math.max(map.getZoom(), it.p ? 12 : 13), offset: [0, Math.round((ins.top + 60 - ins.bottom) / 2)], duration: 700});
+    if(it.p && home){ fsHomeCard(it.p); return; }
+    const el = document.createElement('div'); el.className = 'fsm-search-pin';
+    fsmSearchMarker = new maplibregl.Marker({element: el}).setLngLat([it.lon, it.lat]).addTo(map);
+    fsmPopup(map, {lng: it.lon, lat: it.lat}, '<b>' + esc(it.label) + '</b>', 14);
+  };
+  const show = (items, status)=>{
+    res.hidden = !items.length && !status;
+    res.innerHTML = items.map((it, i)=> `<button type="button" data-i="${i}">${fsIconHtml(it.p ? 'pin' : 'mountain')}<span>${esc(it.label)}</span></button>`).join('')
+      + (status ? `<div class="fsm-search-status">${esc(status)}</div>` : '');
+    res.querySelectorAll('[data-i]').forEach(b=> b.addEventListener('click', ()=> go(items[+b.dataset.i])));
+  };
+  let tmr = 0;
+  inp.addEventListener('input', ()=>{
+    const q = inp.value.trim(), ql = q.toLowerCase(), seq = ++fsmSearchSeq;
+    clearTimeout(tmr);
+    if(!q){ show([]); return; }
+    const own = (map === fsHomeMap && fsHomePts ? fsHomePts.points : []).filter(p=> String(p.label || '').toLowerCase().includes(ql))
+      .slice(0, 5).map(p=> ({label: p.label, lat: p.lat, lon: p.lon, p}));
+    show(own, 'Suche online …');
+    tmr = setTimeout(async ()=>{
+      try{
+        const r = await fetch('https://api3.geo.admin.ch/rest/services/api/SearchServer?type=locations&limit=8&sr=4326&searchText=' + encodeURIComponent(q));
+        const d = await r.json();
+        if(seq !== fsmSearchSeq) return; // Eingabe hat sich inzwischen geändert
+        const on = (d.results || []).map(x=> x.attrs || {}).filter(a=> a.lat != null && a.lon != null)
+          .map(a=> ({label: String(a.label || q).replace(/<[^>]+>/g, ''), lat: +a.lat, lon: +a.lon}));
+        show([...own, ...on], own.length || on.length ? '' : 'Keine Treffer.');
+      }catch(e){ if(seq === fsmSearchSeq) show(own, 'Offline – nur eigene Einträge durchsucht.'); }
+    }, 300);
+  });
+  inp.focus();
+}
 function fsmAddControls(map){
   const box = document.createElement('div');
   box.className = 'fsm-ctlbox';
   if(map._fsm.ctlTop) box.style.top = map._fsm.ctlTop + 'px';
-  box.innerHTML = `<button type="button" class="fsm-btn" data-fsm="layers" aria-label="Kartenebenen">${fsIconHtml('layers')}</button>
+  box.innerHTML = `${map._fsm.search ? `<button type="button" class="fsm-btn" data-fsm="search" aria-label="Auf der Karte suchen">${fsIconHtml('search')}</button>` : ''}
+    <button type="button" class="fsm-btn" data-fsm="layers" aria-label="Kartenebenen">${fsIconHtml('layers')}</button>
     <button type="button" class="fsm-btn" data-fsm="gps" aria-label="Mein Standort">${fsIconHtml('gps')}</button>
     <button type="button" class="fsm-btn fsm-compass" data-fsm="north" aria-label="Nach Norden ausrichten" hidden><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><g class="fsm-needle"><path d="M12 2.5 15.2 12H8.8Z" fill="#E03131"/><path d="M12 21.5 8.8 12h6.4Z" fill="#9AA5AD"/><text x="12" y="11" text-anchor="middle" font-size="5.5" font-weight="800" fill="#fff" font-family="sans-serif">N</text></g></svg></button>
     ${map._fsm.on3d ? `<button type="button" class="fsm-btn fsm-3d" data-fsm="3d" aria-label="In 3D ansehen">3D</button>` : ''}`;
@@ -7710,6 +7771,8 @@ function fsmAddControls(map){
     if(!panel.hidden){ fsmClosePanel(map); return; }
     fsmOpenPanel(map);
   });
+  const sb = box.querySelector('[data-fsm="search"]');
+  if(sb) sb.addEventListener('click', ()=> fsmOpenSearch(map));
   box.querySelector('[data-fsm="north"]').addEventListener('click', ()=> map.easeTo({bearing:0, pitch:0, duration:500}));
   const gpsBtn = box.querySelector('[data-fsm="gps"]');
   gpsBtn.classList.toggle('on', !!(gpsMarker && gpsMarker._fsmMap === map));
