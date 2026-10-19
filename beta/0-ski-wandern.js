@@ -127,17 +127,7 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   // Öffnen des neuen Modals) — genau diese Kombination verhält sich browserübergreifend
   // inkonsistent und kann die Historie verwirren, sodass eine spätere Zurück-Aktion zu weit
   // zurückspringt (bis auf die andere App).
-  // Wurde diese Detailansicht von der Vollbild-Übersichtskarte aus geöffnet (siehe
-  // openTourFromMap() etc. in 0-shared.js), landet man beim endgültigen Schliessen wieder auf der
-  // Karte statt auf der normalen Übersicht darunter. Wichtig: hier NICHT zusätzlich
-  // consumeHistoryEntry() (history.back()) aufrufen, bevor openStandaloneMap() gleich seinerseits
-  // einen neuen History-Eintrag pusht — genau dieses synchrone back()+pushState() ist der Fehler,
-  // der oben bei keepHistoryLayer bereits vermieden wird.
-  if(!state.modal && !keepHistoryLayer && modalOpenedFromStandaloneMap){
-    modalOpenedFromStandaloneMap = false;
-    modalHistoryPushed = false;
-    openStandaloneMap();
-  }else if(!state.modal && modalHistoryPushed && !keepHistoryLayer){
+  if(!state.modal && modalHistoryPushed && !keepHistoryLayer){
     modalHistoryPushed = false;
     if(!fromPopstate) consumeHistoryEntry();
   }
@@ -264,7 +254,6 @@ function gebieteViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Gebiet oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-gebiet">+ Neues Gebiet</button>
-      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     ${gebietListControlsHtml(listAll, {scan:false})}
     ${list.length ? `<div class="grid">${list.map(gebietCardHtml).join('')}</div>` : emptyGebiete()}
