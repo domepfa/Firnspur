@@ -6492,14 +6492,14 @@ function fsPointTargets(){
   add(state.sektoren, 'sektor', 'climb', 'Sektor'); add(state.klettergebiete, 'klettergebiet', 'climb', 'Klettergebiet');
   return out;
 }
-async function fsAppendPointTo(kind, id, lat, lon){
+async function fsAppendPointTo(kind, id, lat, lon, label, category){
   const lists = {tour: state.tours, hut: state.huts, sektor: state.sektoren, klettergebiet: state.klettergebiete};
   const savers = {tour: 'saveTourCloud', hut: 'saveHutCloud', sektor: 'saveSektorCloud', klettergebiet: 'saveKlettergebietCloud'};
   const x = (lists[kind] || []).find(y=> y.id === id);
   const save = window[savers[kind]];
   if(!x || typeof save !== 'function') return;
   x.points = Array.isArray(x.points) ? x.points.slice() : [];
-  x.points.push({label: '', lat: +lat.toFixed(6), lon: +lon.toFixed(6)});
+  x.points.push({label: label || '', lat: +lat.toFixed(6), lon: +lon.toFixed(6), category: category || ''});
   x.updatedAt = new Date().toISOString();
   x.updatedBy = state.myName;
   const ok = await save(x).catch(()=> false);
@@ -6519,15 +6519,19 @@ function fsHomePointOffer(ll){
   const wrap = document.createElement('div');
   wrap.className = 'fs-pt-offer';
   wrap.innerHTML = '<b>Punkt hier</b><div class="fs-pt-offer-new">' + news.map((n, i)=> `<button type="button" class="btn" data-new="${i}">${fsIconHtml('plus')}${esc(n[1])}</button>`).join('') + '</div>'
-    + '<label>Oder zu bestehendem Eintrag hinzufügen</label><input type="text" placeholder="Name suchen …" autocomplete="off"><div class="fs-pt-offer-res"></div>';
+    + '<label>Oder zu bestehendem Eintrag hinzufügen</label>'
+    + '<div class="fs-pt-offer-meta"><input type="text" data-f="label" placeholder="Bezeichnung, z. B. Skidepot" autocomplete="off" aria-label="Bezeichnung des Punkts">'
+    + '<select data-f="cat" aria-label="Art des Punkts">' + Object.keys(MAP_POINT_CATEGORIES).map(k=> `<option value="${k}">${esc(k ? MAP_POINT_CATEGORIES[k].label : 'Art: Punkt')}</option>`).join('') + '</select></div>'
+    + '<input type="text" data-f="q" placeholder="Tour oder Hütte suchen …" autocomplete="off" aria-label="Eintrag suchen"><div class="fs-pt-offer-res"></div>';
   const close = ()=>{ if(ml._fsm && ml._fsm.popup) ml._fsm.popup.remove(); };
   wrap.querySelectorAll('[data-new]').forEach(b=> b.addEventListener('click', ()=>{ close(); window[news[+b.dataset.new][2]](+lat.toFixed(6), +lon.toFixed(6)); }));
-  const inp = wrap.querySelector('input'), res = wrap.querySelector('.fs-pt-offer-res');
+  const inp = wrap.querySelector('[data-f="q"]'), res = wrap.querySelector('.fs-pt-offer-res');
+  const lbl = wrap.querySelector('[data-f="label"]'), cat = wrap.querySelector('[data-f="cat"]');
   inp.addEventListener('input', ()=>{
     const q = inp.value.trim().toLowerCase();
     const hits = q ? fsPointTargets().filter(t=> t.name.toLowerCase().includes(q)).slice(0, 6) : [];
     res.innerHTML = hits.map((t, i)=> `<button type="button" data-i="${i}">${fsIconHtml(t.icon)}<span>${esc(t.name)}</span><small>${esc(t.label)}</small></button>`).join('');
-    res.querySelectorAll('[data-i]').forEach(b=> b.addEventListener('click', ()=>{ const t = hits[+b.dataset.i]; close(); fsAppendPointTo(t.kind, t.id, lat, lon); }));
+    res.querySelectorAll('[data-i]').forEach(b=> b.addEventListener('click', ()=>{ const t = hits[+b.dataset.i]; close(); fsAppendPointTo(t.kind, t.id, lat, lon, lbl.value.trim(), cat.value); }));
   });
   // Blatt nach unten, damit die Auswahl Platz hat
   if(fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
@@ -7017,13 +7021,13 @@ function fsPlannerOpen(){
     const accent = (getComputedStyle(document.documentElement).getPropertyValue('--ice-deep') || '#1E6AA0').trim();
     if(plannerRouteLine) plannerRouteLine.setStyle({color: accent});
     if(!plannerExpanded){
-      plannerPanel.className = 'fsp fsp-collapsed';
+      plannerPanel.className = 'fsp fsp-collapsed fsp-home';
       plannerPanel.style.cssText = '';
-      plannerPanel.innerHTML = `<button type="button" class="fsp-fab" data-act="planner-toggle">${fsIconHtml('compass')}Route planen</button>`;
+      plannerPanel.innerHTML = `<button type="button" class="fsp-fab" data-act="planner-toggle" aria-label="Planung aufklappen">${fsIconHtml('compass')}Route planen${plannerResult && typeof plannerResult.distanceM === 'number' ? ' · ' + (plannerResult.distanceM / 1000).toFixed(1).replace('.', ',') + ' km' : ''}</button><button type="button" class="fsp-fab fsp-fab-x" data-act="planner-close" aria-label="Planung beenden">${fsIconHtml('x')}</button>`;
       wirePlannerPanel();
       return;
     }
-    plannerPanel.className = 'fsp fsp-open';
+    plannerPanel.className = 'fsp fsp-open fsp-home';
     plannerPanel.style.cssText = '';
     const showEndInput = !plannerEnd || plannerEndEditing;
     const hint = plannerHintText();
@@ -7033,7 +7037,7 @@ function fsPlannerOpen(){
       <div class="fsp-head">
         <span class="fsp-grip" aria-hidden="true"></span>
         <h3>Route planen</h3>
-        <button type="button" class="fsp-x" data-act="planner-close" aria-label="Planung beenden">${fsIconHtml('x')}</button>
+        <span class="fsp-head-btns"><button type="button" class="fsp-x" data-act="planner-toggle" aria-label="Planung einklappen">${fsIconHtml('chevdown')}</button><button type="button" class="fsp-x" data-act="planner-close" aria-label="Planung beenden">${fsIconHtml('x')}</button></span>
       </div>
       <div class="fsp-mode" role="group" aria-label="Art der Planung">
         <button type="button" data-act="planner-mode" data-mode="ziel" aria-pressed="${plannerMode==='ziel'}" class="${plannerMode==='ziel'?'on':''}">Start → Ziel</button>
@@ -7151,6 +7155,7 @@ function fsPlannerOpen(){
   }
 
   map.on('click', (e)=>{
+    if(!plannerExpanded) return; // eingeklappt: Karte frei bedienen
     if(plannerPicking){
       if(plannerPicking === 'waypoint'){ addPlannerWaypoint(e.latlng.lat, e.latlng.lng); return; }
       const which = plannerPicking;
@@ -7160,7 +7165,7 @@ function fsPlannerOpen(){
     }
     plannerTapOnMap(e.latlng.lat, e.latlng.lng);
   });
-  ml._fsInfoBlock = ()=> true; // Tipps gehören der Planung, keine Infos der Karte
+  ml._fsInfoBlock = ()=> plannerExpanded; // Tipps gehören der Planung, keine Infos der Karte
   plannerExpanded = true;
   if(!fsmOverlayOn(ml, 'wanderwege')) fsmSetOverlay(ml, 'wanderwege', true);
   renderPlannerPanel();
