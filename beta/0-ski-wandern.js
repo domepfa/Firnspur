@@ -215,8 +215,11 @@ function setView(v){ state.view = v; state.modal = null; modalOpenedFromStandalo
 function render(){
   const app = document.getElementById('app');
   const kept = fsTakeKeptModal(); // «Karte bearbeiten» offen: Ansicht behalten
-  app.innerHTML = shellHtml();
-  wireGlobalHandlers();
+  // Seite nur neu aufbauen, wenn sich etwas geändert hat: Tour öffnen/schliessen ändert nur das Fenster,
+  // die Liste und die Startkarte darunter bleiben dann stehen (ruckelte sonst bei jedem Öffnen)
+  const html = shellHtml();
+  if(html !== app._fsShell || !app.firstElementChild || app.firstElementChild !== app._fsShellEl){ app.innerHTML = html; app._fsShell = html; app._fsShellEl = app.firstElementChild; wireGlobalHandlers(); }
+  else{ const mr = document.getElementById('modal-root'); if(mr && !state.modal) mr.innerHTML = ''; }
   if(!fsRestoreKeptModal(kept) && state.modal) renderModal();
   if(!state.loading) cacheLocalSnapshot();
   syncAgendaTabButton();
@@ -815,8 +818,11 @@ async function removeCompletion(kind, id, idx){
 function renderListOnly(){
   const main = document.querySelector('main');
   if(!main) return;
+  const hadFocus = !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('main .search-input'));
   main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='gebiete' ? gebieteViewHtml() : state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml());
+  const app = document.getElementById('app'); if(app) app._fsShell = null; // render() baut danach wieder ganz neu
   wireGlobalHandlers();
+  // Fokus nur zurück ins Suchfeld der Liste, wenn dort getippt wurde (nicht bei der Suchleiste oben)
   const input = main.querySelector('.search-input');
-  if(input){ input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
+  if(input && hadFocus){ input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
 }
