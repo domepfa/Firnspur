@@ -780,7 +780,7 @@ async function loadAll(){
   });
 }
 
-async function saveTourCloud(tour){ return await fbSet('tours/'+tour.id, tour); }
+async function saveTourCloud(tour){ fsShareTourPoints(tour).catch(()=>{}); return await fbSet('tours/'+tour.id, tour); }
 async function saveGebietCloud(geb){ return await fbSet('gebiete/'+geb.id, geb); }
 async function loadOtherAppTours(){
   // Für die Agenda: Touren der anderen App plus die Wanderungen (wandern.html).

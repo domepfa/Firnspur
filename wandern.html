@@ -778,7 +778,7 @@ async function loadAll(){
   });
 }
 
-async function saveTourCloud(tour){ return await fbSet(OWN_TOURS_PATH+'/'+tour.id, tour); }
+async function saveTourCloud(tour){ fsShareTourPoints(tour).catch(()=>{}); return await fbSet(OWN_TOURS_PATH+'/'+tour.id, tour); }
 async function saveGebietCloud(geb){ return await fbSet(GEBIETE_PATH+'/'+geb.id, geb); }
 async function loadOtherAppTours(){
   const objs = await Promise.all(OTHER_TOURS_PATHS.map(p=> fbGet(p)));
