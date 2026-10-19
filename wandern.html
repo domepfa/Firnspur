@@ -11,6 +11,8 @@
 <link rel="apple-touch-icon" href="./icon-512.png">
 <meta name="theme-color" content="#F3F6F8">
 <link rel="stylesheet" href="./fonts/fonts.css">
+<link rel="preload" as="script" crossorigin="anonymous" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js">
+<link rel="preload" as="style" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <style>
   :root{
     --cream:#E9F1F4;
@@ -956,7 +958,7 @@ function shellHtml(){
   </div>` : ''}
   ${state.hasUnsavedChanges ? `
   <div class="backup-banner">
-    ⚠ Änderungen konnten nicht mit der Cloud synchronisiert werden (Internetverbindung prüfen) — exportiere zur Sicherheit eine Datei.
+    ${fsIconHtml('alert')}Änderungen konnten nicht mit der Cloud synchronisiert werden (Internetverbindung prüfen) — exportiere zur Sicherheit eine Datei.
     <button data-act="export-data">Jetzt exportieren</button>
   </div>` : ''}
   <div class="hero">
@@ -968,19 +970,19 @@ function shellHtml(){
         <summary aria-label="Menü: Konto, Daten und Anzeige">${fsIconHtml('menu')}${state.myName ? `<span class="who-initial" aria-hidden="true">${esc(state.myName.trim().charAt(0).toUpperCase())}</span>` : ''}</summary>
         <div class="who-row">
           ${state.myName ? `<span>Angemeldet als <strong>${esc(state.myName)}</strong></span><button data-act="change-name">Namen ändern</button>` : `<button data-act="change-name">Namen setzen</button>`}
-          <button data-act="export-data">📤 Exportieren</button>
-          <button data-act="import-data">📥 Importieren</button>
+          <button data-act="export-data">${fsIconHtml('upload')}Exportieren</button>
+          <button data-act="import-data">${fsIconHtml('download')}Importieren</button>
           <button data-act="view-abgeschlossen">✓ Erledigte Touren</button>
           <button data-act="fs-yearbook">${fsIconHtml('calendar')}Jahresrückblick</button>
           <button data-act="fs-datacheck">Datenprüfung</button>
-          <button data-act="view-papierkorb">🗑️ Papierkorb${papierkorbTrashCount() ? ` (${papierkorbTrashCount()})` : ''}</button>
+          <button data-act="view-papierkorb">${fsIconHtml('trash')}Papierkorb${papierkorbTrashCount() ? ` (${papierkorbTrashCount()})` : ''}</button>
         </div>
       </details>
     </div>
     <div class="tabs"><div class="tabs-inner">
-      <button class="tab ${state.view==='gebiete'?'active':''}" data-act="view-gebiete">⛰️ Gebiete</button>
-      <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">🥾 Touren</button>
-      <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">🛖 Hütten</button>
+      <button class="tab ${state.view==='gebiete'?'active':''}" data-act="view-gebiete">${fsIconHtml('mountain')}Gebiete</button>
+      <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">${fsIconHtml('walk')}Touren</button>
+      <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">${fsIconHtml('hut')}Hütten</button>
       ${state.view==='abgeschlossen' ? `<button class="tab active" data-act="view-abgeschlossen">✓ Erledigt</button>` : ''}
     </div></div>
   </div>
@@ -1574,7 +1576,7 @@ function wireGlobalHandlers(){
     else if(act==='sort-by') el.onchange = (e)=>{ const kind=el.getAttribute('data-kind'); if(kind==='tour') state.tourSortBy=e.target.value; else state.hutSortBy=e.target.value; renderListOnly(); };
     else if(act==='sort-dir') el.onclick = ()=>{ const kind=el.getAttribute('data-kind'); if(kind==='tour') state.tourSortDir = state.tourSortDir==='asc'?'desc':'asc'; else state.hutSortDir = state.hutSortDir==='asc'?'desc':'asc'; renderListOnly(); };
     else if(act==='search'){
-      el.oninput = (e)=>{ state.search = e.target.value; renderListOnly(); };
+      el.oninput = (e)=>{ state.search = e.target.value; clearTimeout(window.__fsSearchT); window.__fsSearchT = setTimeout(renderListOnly, 160); }; // erst nach kurzer Tipp-Pause neu zeichnen
       // Enter bestätigt die Suche (steckt eh schon live über oninput) und schliesst vor allem
       // die Bildschirmtastatur — ohne blur() bleibt sie sonst offen, obwohl nichts mehr zu tun ist.
       el.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); el.blur(); } };

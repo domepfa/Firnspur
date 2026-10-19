@@ -1607,18 +1607,33 @@ function fsHomeSync(){
   if(key !== fsHomeKey){
     const kindChanged = fsHomeKey.split('|')[0] !== fsHomePts.kind;
     fsHomeKey = key;
-    fsHomeMarkers.forEach(m=> m.remove()); fsHomeMarkers = [];
-    fsHomePts.points.forEach(p=>{
-      const el = document.createElement('button');
-      el.type = 'button'; el.className = 'fs-home-pin';
-      el.innerHTML = `<i></i><span>${esc(p.label || '')}</span>`;
-      el.addEventListener('click', (e)=>{
-        e.stopPropagation();
-        // Zweiter Tipp auf den gewählten (blauen) Punkt öffnet den Eintrag – wie ein Tipp in der Liste
-        if(fsHomePick === p.id && fsHomeOpenPicked()) return;
-        fsHomeCard(p);
-      });
-      fsHomeMarkers.push(new maplibregl.Marker({element: el, anchor: 'left', offset: [-7, 0]}).setLngLat([p.lon, p.lat]).addTo(fsHomeMap));
+    // Punkte wiederverwenden statt alle neu zu bauen (Wechsel Touren/Hütten/Gebiete, Suche)
+    const keep = new Set(fsHomePts.points.map(p=> p.id));
+    fsHomeMarkers.forEach(m=>{ if(!keep.has(m._fsId)) m.remove(); });
+    fsHomeMarkers = fsHomePts.points.map(p=>{
+      let m = fsHomeMarkerPool.get(p.id);
+      if(!m){
+        const el = document.createElement('button');
+        el.type = 'button'; el.className = 'fs-home-pin';
+        el.innerHTML = '<i></i><span></span>';
+        el.addEventListener('click', (e)=>{
+          e.stopPropagation();
+          const q = el._fsP;
+          // Zweiter Tipp auf den gewählten (blauen) Punkt öffnet den Eintrag – wie ein Tipp in der Liste
+          if(fsHomePick === q.id && fsHomeOpenPicked()) return;
+          fsHomeCard(q);
+        });
+        m = new maplibregl.Marker({element: el, anchor: 'left', offset: [-7, 0]}).setLngLat([p.lon, p.lat]);
+        m._fsId = p.id;
+        fsHomeMarkerPool.set(p.id, m);
+      }
+      const el = m.getElement();
+      el._fsP = p;
+      const sp = el.querySelector('span'); if(sp.textContent !== (p.label || '')) sp.textContent = p.label || '';
+      m.setLngLat([p.lon, p.lat]);
+      if(!m._map) m.addTo(fsHomeMap);
+      el.setAttribute('aria-label', p.label || 'Eintrag'); // MapLibre setzt sonst «Map marker»
+      return m;
     });
     if(kindChanged || fsHomeAll) fsHomeFitAll();
     fsHomeCluster();
@@ -1631,6 +1646,7 @@ function fsHomeSync(){
    Anzahl; Antippen zoomt auf diese Gruppe. Neu berechnet, wenn die Karte stillsteht. Der gewählte
    Punkt bleibt immer einzeln sichtbar. */
 let fsHomeClusters = [], fsHomeGroup = null, fsHomeGroupFan = false;
+const fsHomeMarkerPool = new Map();
 function fsHomeCluster(){
   const map = fsHomeMap;
   if(!map || !fsHomePts || !fsHomeMarkers.length) return;
@@ -1692,6 +1708,7 @@ function fsHomeCluster(){
       const sh = document.querySelector('main .fs-sheet'); if(sh) sh.scrollTop = 0;
     });
     fsHomeClusters.push(new maplibregl.Marker({element: el, anchor: 'center'}).setLngLat([lon, lat]).addTo(map));
+    el.setAttribute('aria-label', g.length + ' Einträge hier – hineinzoomen');
   });
 }
 /* ===== Startkarte: Routen der Touren =====
@@ -1911,16 +1928,24 @@ function fsSearchCollapse(){
   tb.classList.add('fs-search-tb');
   if(row){ tb.classList.add('fs-search-has-row'); row.classList.add('fs-search-beside'); }
   inp.setAttribute('type', 'search');
-  inp.setAttribute('aria-label', 'Touren durchsuchen');
+  // Kurzer Platzhalter: die langen («Suchen: Name, Region, Text, Orte …») waren abgeschnitten
+  if(inp.placeholder) inp.setAttribute('aria-label', inp.placeholder.replace(/[:…]/g, '').trim());
+  inp.placeholder = 'Suchen';
 }
 (function(){
   if(typeof MutationObserver === 'undefined') return;
   let t = null;
   // Änderungen in der Karte selbst (Marker, Kacheln) und in der Zählzeile zählen nicht – sonst schaukelt sich
   // das auf: Filter schreibt die Zeile, die Zeile löst den Filter aus, … (Karte zeichnete dauernd neu)
-  const own = n=>{ const el = n && (n.nodeType === 1 ? n : n.parentElement); return !!(el && el.closest && el.closest('.fs-home-map, .fs-home-count, .maplibregl-map, #fs-3d')); };
+  // Nicht auslösen für Änderungen in der Karte, in offenen Fenstern (Tour, Formulare, Blätter) und Meldungen –
+  // die betreffen das Startblatt nicht und liessen es sonst bei jedem Nachladen neu einrichten
+  const own = n=>{ const el = n && (n.nodeType === 1 ? n : n.parentElement); return !!(el && el.closest && el.closest('.fs-home-map, .fs-home-count, .maplibregl-map, #fs-3d, #modal-root, .overlay, .fs-cond-sheet, .toast, #toast, .fs-tour-map')); };
   const sepOnly = r=> [...r.addedNodes, ...r.removedNodes].every(n=> n.nodeType === 1 && n.classList.contains('fs-home-sep'));
-  const mo = new MutationObserver((recs)=>{ if(recs.every(r=> own(r.target) || sepOnly(r) || (r.target.closest && r.target.closest('.fs-home-sep')))) return; fsHomeAfterRender(); });
+  const mo = new MutationObserver((recs)=>{
+    if(recs.every(r=> own(r.target) || sepOnly(r) || (r.target.closest && r.target.closest('.fs-home-sep')))) return;
+    fsHomeAfterRender();
+    mo.takeRecords(); // eigene Änderungen (Segment, Griff, Foto, Knopf umhängen) lösen nicht nochmals aus
+  });
   // Sofort (noch vor dem nächsten Bild): sonst blitzt nach jedem Neuzeichnen kurz das nackte Blatt auf
   // (ohne Verschiebung, Segment und Karte) – das war das Flackern beim Wechsel Touren/Gebiete.
   window.fsHomeAfterRender = ()=>{ window.__fsAR = (window.__fsAR || 0) + 1; fsSearchCollapse(); if(document.querySelector('.fs-home-slot')){ fsHomeMount(); fsHomeFilter(); } fsHomeLayout(); };
@@ -1935,16 +1960,25 @@ function fsSearchCollapse(){
    Apps ihn zeichnen; hier werden nach jedem Zeichnen nur Teile umgehängt (Segment ins Blatt, Menü in
    die Glas-Leiste). Gilt nur, solange eine Liste mit Startkarte zu sehen ist. */
 let fsHomeDetent = (()=>{ try{ const d = sessionStorage.getItem('fs-home-detent'); return ['karte', 'mitte', 'liste'].indexOf(d) >= 0 ? d : 'mitte'; }catch(e){ return 'mitte'; } })();
+// Nachgeladene Daten (Wetter, Bulletin, Bedingungen): mehrere Antworten in einem Neuzeichnen bündeln
+let fsRenderRaf = 0;
+function fsRenderSoon(){
+  if(fsRenderRaf) return;
+  fsRenderRaf = requestAnimationFrame(()=>{ fsRenderRaf = 0; if(typeof render === 'function') render(); if(window.__fsCondRedraw) window.__fsCondRedraw(); });
+}
 function fsHomeDetentPx(d){
   const vh = window.innerHeight;
-  const top = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs-glass-bottom')) || 72) + 8;
+  const top = 72 + 8; // Unterkante der Glas-Leiste (--fs-glass-bottom) + Abstand
   if(d === 'karte'){
-    // Bis unter die Suche: Griff, Segment und Suchzeile, ohne angeschnittenen Eintrag
+    // Bis unter die Suche: Griff, Segment und Suchzeile, ohne angeschnittenen Eintrag (pro Blatt und Höhe gemerkt)
     const sh = document.querySelector('main .fs-sheet'), q = sel=> sh && sh.querySelector(sel);
+    if(sh && sh._fsKarte && sh._fsKarte.vh === vh) return sh._fsKarte.px;
     const hgt = el=> el ? el.getBoundingClientRect().height : 0;
     const tb = q(':scope > .toolbar.fs-search-tb') || q(':scope > .toolbar');
     const m = hgt(q(':scope > .fs-grip')) + hgt(q(':scope > .tabs')) + 12 + hgt(tb) + 16;
-    return Math.round(Math.max(150, Math.min(Math.round(vh * 0.32), (tb ? m : 170) + 8)));
+    const px = Math.round(Math.max(150, Math.min(Math.round(vh * 0.32), (tb ? m : 170) + 8)));
+    if(sh && tb && m > 60) sh._fsKarte = {vh, px};
+    return px;
   }
   if(d === 'liste') return vh - top;
   return Math.round(vh * 0.55);
@@ -1954,12 +1988,17 @@ function fsHomeApply(animate){
   const sheet = document.querySelector('main .fs-sheet');
   if(!sheet) return;
   const full = fsHomeDetentPx('liste'), h = fsHomeDetentPx(fsHomeDetent);
-  root.dataset.fsHome = fsHomeDetent;
-  try{ sessionStorage.setItem('fs-home-detent', fsHomeDetent); }catch(e){} // Stufe bleibt beim Wechsel der Disziplin
-  root.style.setProperty('--fs-home-full', full + 'px');
-  root.style.setProperty('--fs-home-vis', h + 'px');
-  sheet.style.transition = animate ? 'transform .38s cubic-bezier(.2,.9,.25,1)' : 'none';
-  sheet.style.transform = 'translateY(' + (full - h) + 'px)';
+  // Nur bei Änderung schreiben: jede Variable am Dokument rechnet die ganze Seite neu (lief nach jedem Zeichnen)
+  if(root.dataset.fsHome !== fsHomeDetent){
+    root.dataset.fsHome = fsHomeDetent;
+    try{ sessionStorage.setItem('fs-home-detent', fsHomeDetent); }catch(e){} // Stufe bleibt beim Wechsel der Disziplin
+  }
+  const setV = (k, v)=>{ if(root.style.getPropertyValue(k) !== v) root.style.setProperty(k, v); };
+  setV('--fs-home-full', full + 'px');
+  setV('--fs-home-vis', h + 'px');
+  const tr = animate ? 'transform .38s cubic-bezier(.2,.9,.25,1)' : 'none', tf = 'translateY(' + (full - h) + 'px)';
+  if(sheet.style.transition !== tr) sheet.style.transition = tr;
+  if(sheet.style.transform !== tf) sheet.style.transform = tf;
   if(fsHomeDetent !== 'liste') sheet.scrollTop = 0;
   // Zeigt die Karte alle Einträge, bleiben sie über dem Blatt sichtbar
   if(animate && fsHomeAll && fsHomeDetent !== 'liste') try{ fsHomeFitAll(380); }catch(e){}
@@ -1967,7 +2006,7 @@ function fsHomeApply(animate){
 // Von Glas-Leiste und Blatt verdeckter Rand der Karte (nur in der Startansicht)
 function fsHomeInset(){
   if(!document.documentElement.classList.contains('fs-mapmode')) return {top: 0, bottom: 0};
-  return {top: (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs-glass-bottom')) || 64) - 40,
+  return {top: 24, // Glas-Leiste (--fs-glass-bottom 64 px) abzüglich Grundabstand
     bottom: Math.min(fsHomeDetentPx(fsHomeDetent), Math.round(window.innerHeight * 0.6))};
 }
 function fsHomeSetDetent(d, animate){
@@ -2045,11 +2084,14 @@ function fsHomeCountsText(){
   const n = (c, one, more)=> c ? c + ' ' + (c === 1 ? one : more) : '';
   return [n(tours.length, 'Tour', 'Touren'), n(gebiete.length, 'Gebiet', 'Gebiete'), n((state.huts || []).length, 'Hütte', 'Hütten')].filter(Boolean).join(' · ');
 }
+const fsHomeHeroImg = {};
 function fsHomeHero(sheet){
   const heroEl = document.querySelector('#app .hero');
   const title = ((heroEl && heroEl.querySelector('h1')) || {}).textContent || '';
-  let img = 'none';
-  try{ if(heroEl) img = getComputedStyle(heroEl, '::before').backgroundImage || 'none'; }catch(e){}
+  // Bild aus dem Stil der App nur einmal pro Kopf lesen (getComputedStyle erzwingt sonst jedes Mal Neuberechnung)
+  const ik = heroEl ? heroEl.className + '|' + document.documentElement.classList.contains('fs-dark') : '';
+  let img = fsHomeHeroImg[ik];
+  if(!img){ img = 'none'; try{ if(heroEl){ img = getComputedStyle(heroEl, '::before').backgroundImage || 'none'; fsHomeHeroImg[ik] = img; } }catch(e){} }
   let h = sheet.querySelector(':scope > .fs-sheet-hero');
   if(!h){
     h = document.createElement('div'); h.className = 'fs-sheet-hero';
@@ -2057,8 +2099,8 @@ function fsHomeHero(sheet){
     const g = sheet.querySelector(':scope > .fs-grip');
     if(g) g.after(h); else sheet.prepend(h);
   }
-  h.querySelector('.fs-sheet-hero-img').style.backgroundImage = img;
-  h.classList.toggle('no-img', img === 'none');
+  const hi = h.querySelector('.fs-sheet-hero-img');
+  if(hi._fsImg !== img){ hi._fsImg = img; hi.style.backgroundImage = img; h.classList.toggle('no-img', img === 'none'); }
   const setT = (el, v)=>{ if(el.textContent !== v) el.textContent = v; }; // nur bei Änderung (Beobachter)
   setT(h.querySelector('h2'), title);
   setT(h.querySelector('p'), fsHomeCountsText());
@@ -2070,8 +2112,21 @@ function fsHomeHero(sheet){
   }
   if(!sheet._fsHeroScroll){
     sheet._fsHeroScroll = true;
-    const upd = ()=>{ const hh = h.offsetHeight || 180; const pr = Math.max(0, Math.min(1, sheet.scrollTop / Math.max(1, hh - 20))); sheet.style.setProperty('--fs-hero-p', pr.toFixed(3)); sheet.classList.toggle('fs-hero-gone', pr >= 1); };
-    sheet.addEventListener('scroll', upd, {passive: true});
+    // Pro Bild höchstens einmal, nur Foto und Titel ändern (eine Variable am Blatt hätte bei jedem
+    // Scrollschritt die ganze Liste neu berechnen lassen)
+    let raf = 0, last = -1, hh = 0;
+    const upd = ()=>{
+      raf = 0;
+      if(!hh) hh = h.offsetHeight || 180;
+      const pr = Math.round(Math.max(0, Math.min(1, sheet.scrollTop / Math.max(1, hh - 20))) * 100) / 100;
+      if(pr === last) return;
+      last = pr;
+      const img = h.querySelector('.fs-sheet-hero-img'), tx = h.querySelector('.fs-sheet-hero-txt');
+      if(img){ img.style.transform = 'translate3d(0,' + (pr * 60).toFixed(1) + 'px,0) scale(' + (1 + pr * .08).toFixed(3) + ')'; img.style.opacity = (1 - pr * .9).toFixed(2); }
+      if(tx){ tx.style.transform = 'translate3d(0,' + (pr * -18).toFixed(1) + 'px,0)'; tx.style.opacity = Math.max(0, 1 - pr * 1.4).toFixed(2); }
+      sheet.classList.toggle('fs-hero-gone', pr >= 1);
+    };
+    sheet.addEventListener('scroll', ()=>{ if(!raf) raf = requestAnimationFrame(upd); }, {passive: true});
     upd();
   }
 }
@@ -2079,24 +2134,30 @@ function fsHomeHero(sheet){
 // Ziehen: in «karte»/«mitte» das ganze Blatt, in «liste» Griff und Kopf (Segment, Suche, Filter) und,
 // wenn die Liste ganz oben ist, jede Geste nach unten. Losgelassen zählt, wohin der Schwung trägt:
 // ein kräftiger Wisch darf eine Stufe überspringen, langsames Ziehen landet bei der nächsten Stufe.
+// Nur die paar schwebenden Knöpfe direkt anfassen (eine Klasse am Dokument rechnet alles neu)
+function fsHomeFloatHide(on){
+  document.querySelectorAll('.fs-home-slot .fsm-ctlbox, body > .fs-fab, #fs-home-mapbtn').forEach(el=>{ el.style.opacity = on ? '0' : ''; el.style.pointerEvents = on ? 'none' : ''; });
+}
 function fsHomeWireDrag(sheet){
   let st = null;
   const D = ['karte', 'mitte', 'liste'];
   const isHead = el=> !!(el.closest('.fs-grip') || el.closest('.tabs') || el.closest('.toolbar'));
-  const begin = y=>{ const full = fsHomeDetentPx('liste'); st = {y0: y, base: full - fsHomeDetentPx(fsHomeDetent), full, moved: false, last: null, hist: []}; };
+  // Während des Ziehens nur die Verschiebung des Blatts setzen: eine CSS-Variable am Dokument würde bei
+  // jeder Fingerbewegung alles neu berechnen lassen (ruckelte stark). Kartenknöpfe und «Neue Tour»
+  // blenden dafür aus und kommen beim Loslassen an der neuen Stelle wieder.
+  const begin = y=>{ const full = fsHomeDetentPx('liste'); st = {y0: y, base: full - fsHomeDetentPx(fsHomeDetent), full, max: full - fsHomeDetentPx('karte') + 40, moved: false, last: null, hist: []}; };
   const move = y=>{
     const dy = y - st.y0;
-    if(!st.moved){ st.moved = true; sheet.style.transition = 'none'; }
-    const max = st.full - fsHomeDetentPx('karte') + 40;
-    const ty = Math.max(-20, Math.min(max, st.base + dy));
+    if(!st.moved){ st.moved = true; sheet.style.transition = 'none'; fsHomeFloatHide(true); }
+    const ty = Math.max(-20, Math.min(st.max, st.base + dy));
     sheet.style.transform = 'translateY(' + ty + 'px)';
-    document.documentElement.style.setProperty('--fs-home-vis', (st.full - ty) + 'px');
     st.last = ty;
     const now = performance.now();
     st.hist.push({t: now, y}); while(st.hist.length > 2 && now - st.hist[0].t > 120) st.hist.shift();
   };
   const end = ()=>{
     const s = st; st = null;
+    fsHomeFloatHide(false);
     if(!s || !s.moved || s.last == null) return;
     const g = sheet.querySelector('.fs-grip'); if(g){ g._dragged = true; setTimeout(()=>{ g._dragged = false; }, 0); }
     // Kein Klick nach dem Ziehen (sonst öffnet sich die Tour unter dem Finger)
@@ -3544,8 +3605,8 @@ function fsSlfBoxHtml(lat, lon){
   const c = state._slf[key];
   if(!c){
     state._slf[key] = {status:'loading'};
-    fsSlfForPoint(lat, lon).then(r=>{ state._slf[key] = {status: r ? 'ok' : 'none', r}; render(); if(window.__fsCondRedraw) window.__fsCondRedraw(); })
-      .catch(()=>{ state._slf[key] = {status:'err'}; render(); if(window.__fsCondRedraw) window.__fsCondRedraw(); });
+    fsSlfForPoint(lat, lon).then(r=>{ state._slf[key] = {status: r ? 'ok' : 'none', r}; fsRenderSoon(); })
+      .catch(()=>{ state._slf[key] = {status:'err'}; fsRenderSoon(); });
     return '';
   }
   if(c.status !== 'ok') return '';
@@ -11213,10 +11274,10 @@ function ensureMeteoForecast(lat, lon){
   state._meteoForecastCache[key] = { status: 'loading' };
   meteoForecastForPoint(lat, lon).then(result=>{
     state._meteoForecastCache[key] = Object.assign({ status: 'ok' }, result);
-    render();
+    fsRenderSoon();
   }).catch(err=>{
     state._meteoForecastCache[key] = { status: 'error', message: (err && err.message) || String(err) };
-    render();
+    fsRenderSoon();
   });
 }
 
@@ -11306,8 +11367,7 @@ function fsConditionsHtml(lat, lon, alt){
     const pCams = fsWebcamsNear(lat, lon);
     Promise.all([pOm, pNs, pHs, pRain, fsSlfDangerPromise, pCams]).then(([omj, ns, hs, rain, dang, cams])=>{
       state._cond[key] = {status:'ok', om: omj, ns, hs, rain, danger: dang ? fsDangerAt(lat, lon, dang) : null, cams};
-      render();
-      if(window.__fsCondRedraw) window.__fsCondRedraw();
+      fsRenderSoon();
     });
   }
   if(c.status !== 'ok') return `<div class="detail-section fs-cond"><h4>Bedingungen</h4><p class="hint">Lädt…</p></div>`;
@@ -11780,8 +11840,8 @@ function fsBergwetterHtml(t){
     c = state._bw[key] = prev ? Object.assign({}, prev, {refreshing: true}) : {status:'loading'};
     fsBwFetch(sites).then(rows=>{
       state._bw[key] = rows.length ? {status:'ok', at: Date.now(), rows} : {status:'error', at: Date.now()};
-      render();
-    }).catch(()=>{ state._bw[key] = prev || {status:'error', at: Date.now()}; render(); });
+      fsRenderSoon();
+    }).catch(()=>{ state._bw[key] = prev || {status:'error', at: Date.now()}; fsRenderSoon(); });
   }
   const head = '<h4>Bergwetter</h4>';
   if(c.status === 'loading') return `<div class="detail-section fs-bw">${head}<p class="hint">Lädt…</p></div>`;
@@ -11825,8 +11885,8 @@ function fsPastWeatherHtml(lat, lon){
     state._pastWx[key] = {status:'loading'};
     const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&daily=precipitation_sum,snowfall_sum,temperature_2m_max,temperature_2m_min&past_days=3&forecast_days=1&timezone=Europe%2FZurich';
     fetch(u).then(r=>{ if(!r.ok) throw new Error('nicht verfügbar'); return r.json(); }).then(j=>{
-      state._pastWx[key] = {status:'ok', data:j}; render();
-    }).catch(err=>{ state._pastWx[key] = {status:'error'}; render(); });
+      state._pastWx[key] = {status:'ok', data:j}; fsRenderSoon();
+    }).catch(err=>{ state._pastWx[key] = {status:'error'}; fsRenderSoon(); });
     return '';
   }
   if(e.status !== 'ok' || !e.data || !e.data.daily) return '';
@@ -13460,6 +13520,9 @@ function fsUpgradeFilterRows(){
       if(el.matches(FS_FILTER_PANEL_SEL)) panel = el;
       else if(el.matches('.grid, .toolbar')) break;
     }
+    // «Topo scannen» passt nicht neben Suche und Filter: als eigene Zeile darunter
+    const scanBtn = row.querySelector(':scope > [data-act="gebiet-scan-menu"]');
+    if(scanBtn){ const sr = document.createElement('div'); sr.className = 'toolbar fs-scan-row'; sr.appendChild(scanBtn); row.after(sr); }
     const extras = Array.from(row.children).filter(el=> el !== toggle && !el.matches('[data-act="gebiet-scan-menu"]'));
     // Aktive Auswahl als Chips unter dem Knopf (× = abwählen, löst den Originalknopf aus)
     const actives = [...extras.filter(el=> el.matches('.btn.on')), ...(panel ? Array.from(panel.querySelectorAll('.chip.on')) : [])];
@@ -13503,7 +13566,33 @@ function fsUpgradeFilterRows(){
     if(fsFilterScroll[key]) panel.scrollTop = fsFilterScroll[key];
     panel.addEventListener('scroll', ()=>{ fsFilterScroll[key] = panel.scrollTop; }, {passive:true});
   });
-  document.documentElement.classList.toggle('fs-filter-open', !!fsOpenFilterSheet());
+  fsFilterSync(!!fsOpenFilterSheet());
+}
+// Offenes Filterblatt: Zurück-Geste schliesst es; die Stufe des Startblatts kommt beim Schliessen zurück
+let fsFilterLayer = null, fsFilterPrevDetent = null;
+function fsFilterSync(open){
+  const root = document.documentElement;
+  root.classList.toggle('fs-filter-open', open);
+  if(open && !fsFilterLayer){
+    fsFilterLayer = ()=>{
+      fsFilterLayer = null;
+      const p = fsOpenFilterSheet(); if(!p) return;
+      let row = p.previousElementSibling;
+      while(row && !row.classList.contains('fs-filter-row')) row = row.previousElementSibling;
+      const tg = (row || document).querySelector(FS_FILTER_TOGGLE_SEL);
+      if(tg) tg.click();
+    };
+    pushOverlayLayer(fsFilterLayer);
+  }else if(!open && fsFilterLayer){
+    const i = overlayLayers.indexOf(fsFilterLayer);
+    fsFilterLayer = null;
+    if(i >= 0 && i === overlayLayers.length - 1){ overlayLayers.pop(); consumeHistoryEntry(); }
+    else if(i >= 0) overlayLayers.splice(i, 1);
+  }
+  if(!root.classList.contains('fs-mapmode')) return;
+  // Startansicht: das Filterblatt braucht die ganze Höhe
+  if(open && fsHomeDetent !== 'liste'){ fsFilterPrevDetent = fsHomeDetent; fsHomeSetDetent('liste', false); }
+  else if(!open && fsFilterPrevDetent){ const d = fsFilterPrevDetent; fsFilterPrevDetent = null; requestAnimationFrame(()=> fsHomeSetDetent(d)); }
 }
 // Antippen neben das Blatt (auch auf die Karte) schliesst es. pointerdown statt click: die
 // Kartenvorschau fängt Berührungen ab, ein click käme dort nie an.
@@ -13522,10 +13611,7 @@ document.addEventListener('pointerdown', (e)=>{
 document.addEventListener('click', (e)=>{ if(fsFilterSwallowClick){ fsFilterSwallowClick = false; e.preventDefault(); e.stopPropagation(); } }, true);
 // Das Ein-/Ausblenden der Filter (Tour/Hütte) ändert nur style.display: Hintergrund nachziehen
 document.addEventListener('click', ()=> setTimeout(()=>{
-  const open = !!fsOpenFilterSheet();
-  document.documentElement.classList.toggle('fs-filter-open', open);
-  // Startansicht: das Filterblatt braucht die ganze Höhe
-  if(open && document.documentElement.classList.contains('fs-mapmode') && fsHomeDetent !== 'liste') fsHomeSetDetent('liste', false);
+  fsFilterSync(!!fsOpenFilterSheet());
 }, 0));
 
 /* ================= Wischgeste zwischen den Apps =================
@@ -19629,7 +19715,7 @@ function gebietListControlsHtml(allList, opts){
   const scan = opts && opts.scan;
   return `<div class="toolbar toolbar-row">
       <button type="button" class="btn secondary ${g.open?'on':''}" data-act="gebiet-filter-toggle">${fsIconHtml('sliders')} Filter${active ? ` (${active})` : ''}</button>
-      <button type="button" class="btn secondary ${g.onlyFav?'on':''}" data-act="gebiet-fav">⭐ Nur Merkliste</button>
+      <button type="button" class="btn secondary ${g.onlyFav?'on':''}" data-act="gebiet-fav">${fsIconHtml('star')}Nur Merkliste</button>
       <div class="sort-control">
         <select data-act="gebiet-sort-by" aria-label="Gebiete sortieren nach">
           <option value="name" ${g.sortBy==='name'?'selected':''}>A–Z</option>
@@ -19638,11 +19724,11 @@ function gebietListControlsHtml(allList, opts){
         </select>
         <button type="button" class="sort-dir-btn" data-act="gebiet-sort-dir" aria-label="Sortierrichtung umkehren">${g.sortDir==='asc'?'↑':'↓'}</button>
       </div>
-      ${scan ? `<button type="button" class="btn secondary ${g.scanOpen?'on':''}" data-act="gebiet-scan-menu">📷 Scannen</button>` : ''}
+      ${scan ? `<button type="button" class="btn secondary ${g.scanOpen?'on':''}" data-act="gebiet-scan-menu">${fsIconHtml('camera')}Topo scannen</button>` : ''}
     </div>
     ${scan && g.scanOpen ? `<div class="fs-popmenu">
-      <button type="button" data-act="gebiet-scan-pick" data-target="klettergebiet-new-scan-btn">🖼 Foto(s) wählen</button>
-      <button type="button" data-act="gebiet-scan-pick" data-target="klettergebiet-new-scan-camera-btn">📷 Direkt fotografieren</button>
+      <button type="button" data-act="gebiet-scan-pick" data-target="klettergebiet-new-scan-btn">${fsIconHtml('image')}Foto(s) wählen</button>
+      <button type="button" data-act="gebiet-scan-pick" data-target="klettergebiet-new-scan-camera-btn">${fsIconHtml('camera')}Direkt fotografieren</button>
     </div>` : ''}
     ${g.open ? `<div class="fs-filter-panel">
       ${regions.length ? `<div class="field"><label>Region</label><div class="chips">
