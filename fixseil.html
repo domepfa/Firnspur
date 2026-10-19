@@ -1087,7 +1087,7 @@ async function loadAll(){
   });
 }
 
-async function saveTourCloud(tour){ return await fbSet(TOURS_PATH+'/'+tour.id, tour); }
+async function saveTourCloud(tour){ fsShareTourPoints(tour).catch(()=>{}); return await fbSet(TOURS_PATH+'/'+tour.id, tour); }
 async function saveHutCloud(hut){ return await fbSet(HUTS_PATH+'/'+hut.id, hut); }
 async function saveSektorCloud(sek){ return await fbSet(SEKTOREN_PATH+'/'+sek.id, sek); }
 function removeSektor(id){
