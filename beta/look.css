@@ -2517,15 +2517,14 @@ html.fs-mapmode[data-fs-home="liste"] .fs-sheet-hero{
 }
 .fs-sheet-hero-img{
   position:absolute; inset:0; background-size:cover; background-position:center 58%;
-  transform:translateY(calc(var(--fs-hero-p, 0) * 60px)) scale(calc(1 + var(--fs-hero-p, 0) * .08));
-  opacity:calc(1 - var(--fs-hero-p, 0) * .9);
+  will-change:transform, opacity;
   -webkit-mask-image:linear-gradient(180deg, #000 45%, rgba(0,0,0,.5) 75%, transparent 100%);
   mask-image:linear-gradient(180deg, #000 45%, rgba(0,0,0,.5) 75%, transparent 100%);
 }
 .fs-sheet-hero.no-img .fs-sheet-hero-img{ display:none; }
 .fs-sheet-hero-txt{
   position:absolute; left:20px; right:20px; bottom:6px;
-  transform:translateY(calc(var(--fs-hero-p, 0) * -18px)); opacity:calc(1 - var(--fs-hero-p, 0) * 1.4);
+  will-change:transform, opacity;
 }
 .fs-sheet-hero-txt h2{ margin:0; font-family:var(--font-display); font-weight:400; font-size:40px; line-height:1; color:var(--ink); text-shadow:0 1px 0 rgba(243,246,248,.7); }
 .fs-sheet-hero-txt p{ margin:4px 0 0; font-size:13.5px; font-weight:700; color:var(--ink-soft); }
@@ -2631,3 +2630,17 @@ html.fs-mapmode .fs-tour-map{ top:0; }
 /* Punkt-Editor: Infrastruktur-Punkt für Touren in der Nähe teilen */
 .fs-pt-share{ display:flex; align-items:center; gap:8px; min-height:40px; margin:0 0 6px; font-size:13px; color:var(--ink-soft); cursor:pointer; }
 .fs-pt-share input{ width:20px; height:20px; accent-color:var(--ice-deep); }
+
+/* =====================================================================
+   Feinschliff: flüssiges Ziehen, Dunkelmodus, Texte
+   ===================================================================== */
+/* Beim Ziehen des Blatts: schwebende Knöpfe kurz ausblenden (sie sitzen über dem Blattrand) */
+.fs-home-slot .fsm-ctlbox, .fs-fab, .fs-home-mapbtn{ transition:opacity .2s; }
+/* Dunkelmodus: aktiver Reiter im Blatt bleibt lesbar (heller Grund, dunkle Schrift) */
+html.fs-dark.fs-mapmode .fs-sheet > .tabs .tab.active, html.fs-dark.fs-mapmode .fs-sheet > .tabs .tab.active .fs-i{ color:#0F1E27; }
+/* Klettern, Gebiete: «Topo scannen» als eigene Zeile */
+.fs-scan-row{ margin:0 0 10px; }
+.fs-scan-row .btn{ width:100%; min-height:48px; display:flex; align-items:center; justify-content:center; gap:8px; }
+.fs-scan-row .btn .fs-i{ width:18px; height:18px; }
+/* Disziplin-Leiste: Ziele 44 px hoch */
+html.fs-mapmode .app-switch-bar a{ min-height:44px; }

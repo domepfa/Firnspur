@@ -1619,6 +1619,7 @@ function fsHomeSync(){
         fsHomeCard(p);
       });
       fsHomeMarkers.push(new maplibregl.Marker({element: el, anchor: 'left', offset: [-7, 0]}).setLngLat([p.lon, p.lat]).addTo(fsHomeMap));
+      el.setAttribute('aria-label', p.label || 'Eintrag'); // MapLibre setzt sonst «Map marker»
     });
     if(kindChanged || fsHomeAll) fsHomeFitAll();
     fsHomeCluster();
@@ -1692,6 +1693,7 @@ function fsHomeCluster(){
       const sh = document.querySelector('main .fs-sheet'); if(sh) sh.scrollTop = 0;
     });
     fsHomeClusters.push(new maplibregl.Marker({element: el, anchor: 'center'}).setLngLat([lon, lat]).addTo(map));
+    el.setAttribute('aria-label', g.length + ' Einträge hier – hineinzoomen');
   });
 }
 /* ===== Startkarte: Routen der Touren =====
@@ -1911,7 +1913,9 @@ function fsSearchCollapse(){
   tb.classList.add('fs-search-tb');
   if(row){ tb.classList.add('fs-search-has-row'); row.classList.add('fs-search-beside'); }
   inp.setAttribute('type', 'search');
-  inp.setAttribute('aria-label', 'Touren durchsuchen');
+  // Kurzer Platzhalter: die langen («Suchen: Name, Region, Text, Orte …») waren abgeschnitten
+  if(inp.placeholder) inp.setAttribute('aria-label', inp.placeholder.replace(/[:…]/g, '').trim());
+  inp.placeholder = 'Suchen';
 }
 (function(){
   if(typeof MutationObserver === 'undefined') return;
@@ -2070,8 +2074,21 @@ function fsHomeHero(sheet){
   }
   if(!sheet._fsHeroScroll){
     sheet._fsHeroScroll = true;
-    const upd = ()=>{ const hh = h.offsetHeight || 180; const pr = Math.max(0, Math.min(1, sheet.scrollTop / Math.max(1, hh - 20))); sheet.style.setProperty('--fs-hero-p', pr.toFixed(3)); sheet.classList.toggle('fs-hero-gone', pr >= 1); };
-    sheet.addEventListener('scroll', upd, {passive: true});
+    // Pro Bild höchstens einmal, nur Foto und Titel ändern (eine Variable am Blatt hätte bei jedem
+    // Scrollschritt die ganze Liste neu berechnen lassen)
+    let raf = 0, last = -1, hh = 0;
+    const upd = ()=>{
+      raf = 0;
+      if(!hh) hh = h.offsetHeight || 180;
+      const pr = Math.round(Math.max(0, Math.min(1, sheet.scrollTop / Math.max(1, hh - 20))) * 100) / 100;
+      if(pr === last) return;
+      last = pr;
+      const img = h.querySelector('.fs-sheet-hero-img'), tx = h.querySelector('.fs-sheet-hero-txt');
+      if(img){ img.style.transform = 'translate3d(0,' + (pr * 60).toFixed(1) + 'px,0) scale(' + (1 + pr * .08).toFixed(3) + ')'; img.style.opacity = (1 - pr * .9).toFixed(2); }
+      if(tx){ tx.style.transform = 'translate3d(0,' + (pr * -18).toFixed(1) + 'px,0)'; tx.style.opacity = Math.max(0, 1 - pr * 1.4).toFixed(2); }
+      sheet.classList.toggle('fs-hero-gone', pr >= 1);
+    };
+    sheet.addEventListener('scroll', ()=>{ if(!raf) raf = requestAnimationFrame(upd); }, {passive: true});
     upd();
   }
 }
@@ -2079,24 +2096,30 @@ function fsHomeHero(sheet){
 // Ziehen: in «karte»/«mitte» das ganze Blatt, in «liste» Griff und Kopf (Segment, Suche, Filter) und,
 // wenn die Liste ganz oben ist, jede Geste nach unten. Losgelassen zählt, wohin der Schwung trägt:
 // ein kräftiger Wisch darf eine Stufe überspringen, langsames Ziehen landet bei der nächsten Stufe.
+// Nur die paar schwebenden Knöpfe direkt anfassen (eine Klasse am Dokument rechnet alles neu)
+function fsHomeFloatHide(on){
+  document.querySelectorAll('.fs-home-slot .fsm-ctlbox, body > .fs-fab, #fs-home-mapbtn').forEach(el=>{ el.style.opacity = on ? '0' : ''; el.style.pointerEvents = on ? 'none' : ''; });
+}
 function fsHomeWireDrag(sheet){
   let st = null;
   const D = ['karte', 'mitte', 'liste'];
   const isHead = el=> !!(el.closest('.fs-grip') || el.closest('.tabs') || el.closest('.toolbar'));
-  const begin = y=>{ const full = fsHomeDetentPx('liste'); st = {y0: y, base: full - fsHomeDetentPx(fsHomeDetent), full, moved: false, last: null, hist: []}; };
+  // Während des Ziehens nur die Verschiebung des Blatts setzen: eine CSS-Variable am Dokument würde bei
+  // jeder Fingerbewegung alles neu berechnen lassen (ruckelte stark). Kartenknöpfe und «Neue Tour»
+  // blenden dafür aus und kommen beim Loslassen an der neuen Stelle wieder.
+  const begin = y=>{ const full = fsHomeDetentPx('liste'); st = {y0: y, base: full - fsHomeDetentPx(fsHomeDetent), full, max: full - fsHomeDetentPx('karte') + 40, moved: false, last: null, hist: []}; };
   const move = y=>{
     const dy = y - st.y0;
-    if(!st.moved){ st.moved = true; sheet.style.transition = 'none'; }
-    const max = st.full - fsHomeDetentPx('karte') + 40;
-    const ty = Math.max(-20, Math.min(max, st.base + dy));
+    if(!st.moved){ st.moved = true; sheet.style.transition = 'none'; fsHomeFloatHide(true); }
+    const ty = Math.max(-20, Math.min(st.max, st.base + dy));
     sheet.style.transform = 'translateY(' + ty + 'px)';
-    document.documentElement.style.setProperty('--fs-home-vis', (st.full - ty) + 'px');
     st.last = ty;
     const now = performance.now();
     st.hist.push({t: now, y}); while(st.hist.length > 2 && now - st.hist[0].t > 120) st.hist.shift();
   };
   const end = ()=>{
     const s = st; st = null;
+    fsHomeFloatHide(false);
     if(!s || !s.moved || s.last == null) return;
     const g = sheet.querySelector('.fs-grip'); if(g){ g._dragged = true; setTimeout(()=>{ g._dragged = false; }, 0); }
     // Kein Klick nach dem Ziehen (sonst öffnet sich die Tour unter dem Finger)
@@ -13460,6 +13483,9 @@ function fsUpgradeFilterRows(){
       if(el.matches(FS_FILTER_PANEL_SEL)) panel = el;
       else if(el.matches('.grid, .toolbar')) break;
     }
+    // «Topo scannen» passt nicht neben Suche und Filter: als eigene Zeile darunter
+    const scanBtn = row.querySelector(':scope > [data-act="gebiet-scan-menu"]');
+    if(scanBtn){ const sr = document.createElement('div'); sr.className = 'toolbar fs-scan-row'; sr.appendChild(scanBtn); row.after(sr); }
     const extras = Array.from(row.children).filter(el=> el !== toggle && !el.matches('[data-act="gebiet-scan-menu"]'));
     // Aktive Auswahl als Chips unter dem Knopf (× = abwählen, löst den Originalknopf aus)
     const actives = [...extras.filter(el=> el.matches('.btn.on')), ...(panel ? Array.from(panel.querySelectorAll('.chip.on')) : [])];
@@ -19629,7 +19655,7 @@ function gebietListControlsHtml(allList, opts){
   const scan = opts && opts.scan;
   return `<div class="toolbar toolbar-row">
       <button type="button" class="btn secondary ${g.open?'on':''}" data-act="gebiet-filter-toggle">${fsIconHtml('sliders')} Filter${active ? ` (${active})` : ''}</button>
-      <button type="button" class="btn secondary ${g.onlyFav?'on':''}" data-act="gebiet-fav">⭐ Nur Merkliste</button>
+      <button type="button" class="btn secondary ${g.onlyFav?'on':''}" data-act="gebiet-fav">${fsIconHtml('star')}Nur Merkliste</button>
       <div class="sort-control">
         <select data-act="gebiet-sort-by" aria-label="Gebiete sortieren nach">
           <option value="name" ${g.sortBy==='name'?'selected':''}>A–Z</option>
@@ -19638,11 +19664,11 @@ function gebietListControlsHtml(allList, opts){
         </select>
         <button type="button" class="sort-dir-btn" data-act="gebiet-sort-dir" aria-label="Sortierrichtung umkehren">${g.sortDir==='asc'?'↑':'↓'}</button>
       </div>
-      ${scan ? `<button type="button" class="btn secondary ${g.scanOpen?'on':''}" data-act="gebiet-scan-menu">📷 Scannen</button>` : ''}
+      ${scan ? `<button type="button" class="btn secondary ${g.scanOpen?'on':''}" data-act="gebiet-scan-menu">${fsIconHtml('camera')}Topo scannen</button>` : ''}
     </div>
     ${scan && g.scanOpen ? `<div class="fs-popmenu">
-      <button type="button" data-act="gebiet-scan-pick" data-target="klettergebiet-new-scan-btn">🖼 Foto(s) wählen</button>
-      <button type="button" data-act="gebiet-scan-pick" data-target="klettergebiet-new-scan-camera-btn">📷 Direkt fotografieren</button>
+      <button type="button" data-act="gebiet-scan-pick" data-target="klettergebiet-new-scan-btn">${fsIconHtml('image')}Foto(s) wählen</button>
+      <button type="button" data-act="gebiet-scan-pick" data-target="klettergebiet-new-scan-camera-btn">${fsIconHtml('camera')}Direkt fotografieren</button>
     </div>` : ''}
     ${g.open ? `<div class="fs-filter-panel">
       ${regions.length ? `<div class="field"><label>Region</label><div class="chips">
