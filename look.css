@@ -506,7 +506,6 @@ main{ padding-top:6px; }
 .fs-stage{ z-index:auto; isolation:isolate; top:54px; }
 .fs-sheet{ z-index:auto; }
 /* Die grosse Karte öffnet man jetzt direkt auf der Bühne ("Grosse Karte") — kein zweiter Knopf im Blatt */
-.fs-sheet .toolbar > .btn.secondary[data-act="open-standalone-map"]{ display:none; }
 .map-strip-pin.open, .map-strip-cluster.open{ z-index:10; }
 
 /* =====================================================================
@@ -2094,9 +2093,6 @@ html.fs-dark .fs-slf-hit{ background:#3A2C12; color:#F2CF8A; }
 .fs-bw-grid .c.past{ opacity:.45; }
 html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 /* Grosse Karte = Startkarte im Vollbild */
-.fs-home-map.in-big{ opacity:1; }
-.fs-home-map.in-big .maplibregl-ctrl-bottom-right{ top:auto; left:auto; right:0; bottom:0; }
-.fs-home-map.in-big .fs-home-card{ bottom:calc(140px + env(safe-area-inset-bottom, 0px)); }
 
 /* ===== Bibliothek: Suche neben Filter, kompakte Einträge, Status im Fuss ===== */
 .fs-sheet .toolbar.fs-search-has-row{ margin-right:132px; margin-bottom:0; }
@@ -2659,3 +2655,100 @@ html.fs-mapmode .app-switch-bar a{ min-height:44px; }
 .fsm-search-res button .fs-i{ width:18px; height:18px; color:var(--ice-deep); flex:none; }
 .fsm-search-status{ padding:10px 14px; font-size:13px; color:var(--ink-soft); }
 .fsm-search-pin{ width:18px; height:18px; border-radius:50%; background:var(--ice-deep); border:3px solid #fff; box-shadow:0 2px 8px rgba(15,30,39,.4); }
+
+/* =====================================================================
+   Routenplaner auf der Startkarte: Blatt und schwebende Knöpfe weg, Planung unten
+   ===================================================================== */
+.fsp.fsp-home{ position:fixed; z-index:70; max-width:620px; margin:0 auto; }
+html.fs-planning .fs-sheet{ visibility:hidden; pointer-events:none; }
+html.fs-planning :is(body > .fs-fab, #fs-home-mapbtn, .fs-home-card, .fsm-search-box, .fsm-ctlbox [data-fsm="search"], .fsm-ctlbox [data-fsm="plan"]){ display:none !important; }
+html.fs-planning .fs-home-pin, html.fs-planning .fs-home-clu{ pointer-events:none; }
+/* Punkt setzen (gedrückt halten auf der Startkarte) */
+.fs-pt-offer{ display:flex; flex-direction:column; gap:8px; min-width:230px; }
+.fs-pt-offer > b{ font-family:var(--font-display); font-weight:400; font-size:21px; }
+.fs-pt-offer-new{ display:grid; gap:8px; }
+.fs-pt-offer-new .btn{ min-height:46px; justify-content:center; }
+.fs-pt-offer label{ margin-top:4px; font-size:12px; font-weight:800; color:var(--ink-soft); }
+.fs-pt-offer input{ min-height:44px; border:1px solid var(--line); border-radius:12px; padding:0 12px; font:inherit; font-size:16px; background:var(--paper); color:var(--ink); }
+.fs-pt-offer-res button{ display:flex; align-items:center; gap:8px; width:100%; min-height:44px; padding:6px 4px; border:none; border-bottom:1px solid var(--line-soft); background:none; color:var(--ink); font:inherit; font-size:14.5px; text-align:left; cursor:pointer; }
+.fs-pt-offer-res button .fs-i{ width:18px; height:18px; color:var(--ice-deep); flex:none; }
+.fs-pt-offer-res button span{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fs-pt-offer-res small{ color:var(--ink-soft); font-size:12px; }
+/* Ebene «Hütten und Zustiege» auf der Startkarte */
+.fs-xpt{ width:30px; height:30px; padding:0; border-radius:50%; border:2px solid #fff; background:var(--paper); color:var(--ink-soft); display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(15,30,39,.3); cursor:pointer; }
+.fs-xpt .fs-i{ width:16px; height:16px; }
+.fs-xpt::before{ content:''; position:absolute; inset:-8px; } /* grössere Trefferfläche */
+.fs-home-map.in-ctx .fs-xpt{ opacity:.5; }
+html.fs-planning .fs-xpt{ pointer-events:none; }
+.fs-xpt-pop{ display:flex; flex-direction:column; gap:4px; min-width:180px; }
+.fs-xpt-pop b{ font-family:var(--font-display); font-weight:400; font-size:19px; }
+.fs-xpt-pop small{ color:var(--ink-soft); font-size:12.5px; }
+.fs-xpt-pop .btn{ margin-top:6px; min-height:44px; justify-content:center; }
+.fs-goto-lbl{ display:block; padding-right:30px; font-size:15px; }
+.fsp-head-btns{ display:flex; gap:8px; }
+.fsp-collapsed.fsp-home{ display:flex; gap:8px; align-items:center; }
+.fsp-fab.fsp-fab-x{ width:52px; padding:0; justify-content:center; background:var(--paper); color:var(--ink); }
+.fs-pt-offer-meta{ display:grid; gap:8px; }
+.fs-pt-offer select{ min-height:44px; border:1px solid var(--line); border-radius:12px; padding:0 10px; font:inherit; font-size:16px; background:var(--paper); color:var(--ink); }
+/* Blatt überall im Kopf ziehbar: Reiter und Suchfeld sind sonst eigene Scroll-Bereiche, der Browser
+   nahm die Geste und brach das Ziehen ab (nur langsames Ziehen am Griff ging) */
+html.fs-mapmode .fs-sheet :is(.tabs, .tabs-inner, .tabs *, .toolbar, .toolbar *){ touch-action:none; }
+html.fs-mapmode .fs-sheet .tabs-inner{ overflow:visible; }
+
+/* =====================================================================
+   Startansicht: Suchleiste oben (Disziplin · Suche · Profil/Menü)
+   ===================================================================== */
+html.fs-mapmode #fs-glass::before{ height:calc(env(safe-area-inset-top, 0px) + 84px); }
+.fs-topbar{ display:none; }
+html.fs-mapmode .fs-topbar{
+  display:flex; align-items:center; gap:6px; position:fixed; z-index:61;
+  top:var(--fs-glass-top); left:max(12px, env(safe-area-inset-left, 0px)); right:max(12px, env(safe-area-inset-right, 0px));
+  max-width:620px; margin:0 auto; height:56px; padding:0 6px; box-sizing:border-box; border-radius:28px;
+  background:var(--paper); box-shadow:0 6px 22px rgba(15,30,39,.16);
+}
+.fs-tb-disc{ flex:none; width:44px; height:44px; border-radius:50%; border:none; background:var(--ice-deep); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.fs-tb-disc .fs-i{ width:22px; height:22px; }
+.fs-tb-q{ flex:1; min-width:0; height:44px; border:none; outline:none; background:none; color:var(--ink); font:inherit; font-size:16px; font-weight:600; padding:0 4px; }
+.fs-tb-q::placeholder{ color:var(--ink-soft); font-weight:500; }
+.fs-tb-q::-webkit-search-cancel-button{ display:none; }
+.fs-tb-x{ flex:none; width:40px; height:40px; border:none; background:none; color:var(--ink-soft); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.fs-tb-x[hidden]{ display:none; }
+.fs-tb-x .fs-i{ width:20px; height:20px; }
+.fs-tb-menu{ flex:none; }
+.fs-tb-menu .who-menu > summary{ width:44px; height:44px; background:var(--line-soft); color:var(--ink); border:1.5px solid var(--line); -webkit-backdrop-filter:none; backdrop-filter:none; }
+.fs-tb-menu .who-menu[open] > summary{ background:var(--ice-deep); color:#fff; border-color:transparent; }
+/* Mit Namen: nur das Initial als Profil-Knopf */
+.fs-tb-menu .who-menu > summary:has(.who-initial) .fs-i{ display:none; }
+.fs-tb-menu .who-initial{ position:static; min-width:0; height:auto; padding:0; border:none; background:none; color:inherit; font-size:17px; line-height:1; }
+.fs-tb-menu .who-menu .who-row{ top:56px; right:-6px; }
+/* Disziplin-Auswahl: aufgeklappt unter dem Knopf, sonst weg */
+html.fs-mapmode .app-switch-bar:not(.open){ display:none !important; }
+html.fs-mapmode .app-switch-bar.open{
+  top:calc(var(--fs-glass-top) + 64px); left:max(12px, env(safe-area-inset-left, 0px)); right:auto; width:240px; max-width:none;
+  flex-direction:column; gap:2px; padding:6px; border-radius:20px; background:var(--paper);
+  -webkit-backdrop-filter:none; backdrop-filter:none; box-shadow:var(--shadow-lg, 0 12px 34px rgba(15,30,39,.22)); z-index:62;
+}
+html.fs-mapmode .app-switch-bar.open a, html.fs-mapmode .app-switch-bar.open a:not(.active), html.fs-mapmode .app-switch-bar.open a.active{
+  flex:none; justify-content:flex-start; gap:12px; padding:0 14px; min-height:48px; font-size:15px; border-radius:14px;
+}
+html.fs-mapmode .app-switch-bar.open a .fs-i{ width:20px; height:20px; }
+html.fs-mapmode .app-switch-bar.open a.active::after{ display:none; }
+/* Orte unter der Suchleiste */
+.fs-tb-res{ display:none; }
+html.fs-mapmode .fs-tb-res:not([hidden]){
+  display:block; position:fixed; z-index:61; top:calc(var(--fs-glass-top) + 64px);
+  left:max(12px, env(safe-area-inset-left, 0px)); right:max(12px, env(safe-area-inset-right, 0px)); max-width:620px; margin:0 auto;
+  max-height:46vh; overflow-y:auto; background:var(--paper); border-radius:18px; box-shadow:0 10px 30px rgba(15,30,39,.2); padding:6px;
+}
+.fs-tb-res-h{ padding:8px 10px 4px; font-size:11.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); }
+.fs-tb-res button{ display:flex; align-items:center; gap:10px; width:100%; min-height:48px; padding:6px 10px; border:none; border-radius:12px; background:none; color:var(--ink); font:inherit; font-size:15px; text-align:left; cursor:pointer; }
+.fs-tb-res button .fs-i{ width:18px; height:18px; color:var(--ice-deep); flex:none; }
+/* Die Suche im Blatt ist jetzt die Suchleiste oben */
+html.fs-mapmode .fs-sheet .toolbar .search-input{ display:none; }
+html.fs-mapmode .fs-sheet .toolbar.fs-search-has-row{ margin:0; min-height:0; }
+html.fs-mapmode .fs-sheet .toolbar-row.fs-search-beside{ width:auto; margin:0 0 10px; }
+/* Planer kompakt: Karte bleibt sichtbar */
+.fsp.fsp-open.fsp-home{ max-height:46vh; left:8px; right:8px; bottom:8px; border-radius:24px; }
+.fs-pt-offer-new .btn.secondary{ background:var(--paper); color:var(--ink); border:1px solid var(--line); }
+/* Planer offen: Kartenknöpfe oben rechts unter der Suchleiste (unten liegt die Planung) */
+html.fs-mapmode.fs-planning .fs-home-slot .fsm-ctlbox{ top:calc(var(--fs-glass-top) + 70px) !important; bottom:auto; opacity:1; pointer-events:auto; }
