@@ -2628,3 +2628,6 @@ html.fs-mapmode .fs-tour-map{ top:0; }
 .fs-gpx-menu{ display:grid; gap:6px; min-width:210px; }
 .fs-gpx-menu p{ margin:0 0 2px; font-size:13px; font-weight:700; color:var(--ink-soft); }
 .fs-gpx-menu .btn{ width:100%; min-height:44px; margin:0; font-size:14px; }
+/* Punkt-Editor: Infrastruktur-Punkt für Touren in der Nähe teilen */
+.fs-pt-share{ display:flex; align-items:center; gap:8px; min-height:40px; margin:0 0 6px; font-size:13px; color:var(--ink-soft); cursor:pointer; }
+.fs-pt-share input{ width:20px; height:20px; accent-color:var(--ice-deep); }

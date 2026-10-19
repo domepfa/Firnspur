@@ -1516,7 +1516,6 @@ function fsHomeCreateMap(){
     const c = m.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom: Math.max(12, m.getZoom()), heading: m.getBearing()});
   }});
   fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
-  fsmWireOrtHold(fsHomeMap);
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
   fsHomeMap.setMaxBounds(FSM_HOME_BOUNDS);
   fsHomeMap.setMinZoom(fsHomeMinZoom());
@@ -2408,6 +2407,7 @@ const MAP_POINT_CATEGORIES = {
   'toilette': {icon:'🚻', label:'Toilette', color:'#5B5B5B'},
   'haltestelle': {icon:'🚏', label:'Haltestelle ÖV', color:'#5B5B5B'},
   'abzweigung': {icon:'🔀', label:'Abzweigung / Orientierung', color:'#D9A441'},
+  'abseilstelle': {icon:'🪢', label:'Abseilstelle', color:'#8E5A2B'},
 };
 function makeCategoryIcon(category){
   const meta = MAP_POINT_CATEGORIES[category] || MAP_POINT_CATEGORIES[''];
@@ -4782,7 +4782,7 @@ function fs3dMlOpen(opts){
           const el = m.getElement(); el.style.cursor = 'pointer';
           el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmPopup(map, {lng: pn.lon, lat: pn.lat}, fs3dPinNode(pn), 14); });
         });
-        map._fsm.orteIds = (t && Array.isArray(t.orte)) ? t.orte : [];
+        map._fsm.orteIds = t ? fsTourShowOrteIds(t) : [];
         try{ fsmOrteDraw(map); }catch(e){}
       }
       // Blick: schräg auf alles Eigene, Richtung von der 2D-Karte übernommen, sonst Route Richtung Ziel
@@ -5929,7 +5929,6 @@ function renderStandaloneMap(containerId){
     });
     // Während Planer oder «Punkt setzen» auf einen Tipp warten, keine Infos der Startkarte
     map._ml._fsInfoBlock = ()=> (typeof plannerExpanded !== 'undefined' && plannerExpanded) || (typeof plannerPicking !== 'undefined' && !!plannerPicking) || (typeof addPointPicking !== 'undefined' && addPointPicking);
-    fsmWireOrtHold(map._ml);
 
     // Alle eigenen Touren (Punkte & Tracks) auf der Karte anzeigen — analog zur Skitouren-Ebene,
     // aber immer sichtbar (das ist ja der Zweck dieser Übersichtskarte), nach Tourenart farblich
@@ -7215,7 +7214,7 @@ const FSM_OVERLAYS = [
   // Nur Startkarte: Linien der Touren im Ausschnitt (ab mittlerem Zoom), siehe fsHomeRoutesSync
   {id:'tourrouten', group:'wege', label:'Routen der Touren', icon:'map', homeOnly:true},
   // Gemeinsame Orte (Parkplatz, Maut, Biwak …), siehe Baustein «Orte»
-  {id:'orte', group:'unterwegs', label:'Orte', icon:'pin', orte:true},
+  {id:'orte', group:'unterwegs', label:'Geteilte Punkte', icon:'pin', orte:true},
   {id:'webcams', group:'unterwegs', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
 ];
 const FSM_BASES = [
@@ -9545,6 +9544,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       input.placeholder = 'z. B. Parkplatz, Haltestelle …';
       input.style.cssText = 'width:100%; margin-bottom:6px; padding:6px 8px; border:1px solid #ccc; border-radius:3px; font-size:13px; box-sizing:border-box;';
       wrap.appendChild(input);
+      // Tour: Infrastruktur-Punkte (Parkplatz, Haltestelle …) für Touren in der Nähe teilen
+      const isTour = !!(state.modal && /tour/.test(state.modal.type || ''));
+      const shareRow = document.createElement('label');
+      shareRow.className = 'fs-pt-share';
+      shareRow.innerHTML = '<input type="checkbox"> <span>Für Touren in der Nähe teilen</span>';
+      const shareCb = shareRow.querySelector('input');
+      shareCb.checked = point.share !== false;
+      const syncShare = ()=>{ shareRow.style.display = (isTour && FS_SHARE_CATS.includes(select.value)) ? '' : 'none'; };
+      select.addEventListener('change', syncShare); syncShare();
+      wrap.appendChild(shareRow);
       const btnRow = document.createElement('div');
       btnRow.style.cssText = 'display:flex; gap:6px;';
       const saveBtn = document.createElement('button');
@@ -9554,6 +9563,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       saveBtn.addEventListener('click', ()=>{
         point.label = input.value.trim() || 'Punkt';
         point.category = select.value;
+        if(isTour && FS_SHARE_CATS.includes(point.category) && !shareCb.checked) point.share = false; else delete point.share;
         persist();
         redraw();
         map.closePopup();
@@ -16539,7 +16549,7 @@ async function fsOrtPush(o){
   fsOrteCacheWrite();
   return ok;
 }
-async function fsOrtSave(o){
+async function fsOrtSave(o, quiet){
   if(!o || !String(o.name || '').trim()) return false;
   o.updatedAt = new Date().toISOString();
   o.updatedBy = state.myName || '';
@@ -16550,9 +16560,10 @@ async function fsOrtSave(o){
   o._unsynced = true;
   fsOrteCacheWrite();
   const ok = await fsOrtPush(o);
+  if(quiet) return ok; // aus dem Speichern einer Tour: zeichnet und meldet die Tour selbst
   if(typeof render === 'function') render();
   fsmOrteRefresh();
-  showToast(ok ? 'Ort gespeichert.' : 'Ort lokal gespeichert, wird später hochgeladen.', !ok);
+  showToast(ok ? 'Gespeichert.' : 'Lokal gespeichert, wird später hochgeladen.', !ok);
   return ok;
 }
 async function fsOrtDelete(o){
@@ -16608,12 +16619,43 @@ function fsOrtRowHtml(o, tourId, act){
   </button>`;
 }
 // Abschnitt «Orte» in der Tourenansicht: gemeinsame Orte oben, Knopf zum Verknüpfen im Bearbeiten-Modus
+// Geteilte Punkte bei der Tour: verknüpfte und alle in der Nähe, ohne die aus den eigenen Punkten (fromTour)
+function fsTourShowOrteIds(t){
+  const ids = [...(Array.isArray(t.orte) ? t.orte : []), ...fsOrteNear(t).filter(o=> o.fromTour !== t.id).map(o=> o.id)];
+  return ids.filter((id, i)=> ids.indexOf(id) === i);
+}
 function fsTourOrteHtml(t){
-  const list = fsTourOrte(t);
+  const list = fsTourShowOrteIds(t).map(fsOrtById).filter(Boolean);
+  if(!list.length) return '';
   return `<div class="fs-orte">
+    <h4 class="fs-ort-h4">In der Nähe</h4>
     ${list.map(o=> fsOrtRowHtml(o, t.id)).join('')}
-    <button type="button" class="btn secondary fs-ort-addbtn" data-act="fs-ort-link" data-id="${esc(t.id)}">${fsIconHtml('plus')}Ort verknüpfen oder neu erfassen</button>
   </div>`;
+}
+/* ===== Geteilte Punkte: Infrastruktur-Punkte einer Tour für Touren in der Nähe =====
+   Parkplatz, Haltestelle, Wasser, Toilette und Biwak werden beim Speichern der Tour als gemeinsamer
+   Ort (orte/<id>) geteilt, ausser «Für Touren in der Nähe teilen» ist ausgeschaltet (p.share === false).
+   Die Tour selbst bleibt unverändert (sonst würde jedes Speichern durch andere zum Vorschlag): der Ort
+   merkt sich seine Tour (fromTour) und wird über Art und Lage (bis 500 m) wiedergefunden, auch nach
+   dem Verschieben des Punkts. */
+const FS_SHARE_CATS = ['parkplatz', 'haltestelle', 'wasser', 'toilette', 'biwak'];
+async function fsShareTourPoints(t){
+  if(!t || !t.id || !Array.isArray(t.points)) return;
+  const mine = fsOrteAll().filter(o=> o.fromTour === t.id), used = new Set();
+  for(const p of t.points){
+    if(!p || !isFinite(p.lat) || !isFinite(p.lon) || !FS_SHARE_CATS.includes(p.category || '') || p.share === false) continue;
+    const name = (p.label && p.label !== 'Punkt') ? p.label : (MAP_POINT_CATEGORIES[p.category] || {}).label || 'Punkt';
+    const kind = MAP_POINT_TO_ORT[p.category] || '';
+    const near = mine.filter(o=> !used.has(o.id) && o.kind === kind)
+      .map(o=> ({o, d: fsKm({lat: +p.lat, lon: +p.lon}, o)})).filter(x=> x.d <= 0.5).sort((a, b)=> a.d - b.d)[0];
+    let o = near && near.o;
+    if(o){
+      used.add(o.id);
+      if(o.name === name && +o.lat === +p.lat && +o.lon === +p.lon) continue;
+      o = Object.assign({}, o, {name, lat: +p.lat, lon: +p.lon, stand: fsToday()});
+    }else o = {id: uid('o'), name, kind, lat: +p.lat, lon: +p.lon, note: p.note || '', stand: fsToday(), createdAt: new Date().toISOString(), createdBy: state.myName || '', fromTour: t.id};
+    try{ await fsOrtSave(o, true); }catch(e){}
+  }
 }
 async function fsTourSetOrte(t, ids){
   t.orte = ids;
@@ -16716,9 +16758,9 @@ function fsOpenOrtForm(o, onSaved){
   const before = JSON.stringify([o.name, o.kind, o.note, o.lat, o.lon, o.photo && o.photo.url]);
   let standTouched = false;
   const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
-    <h3 class="fs-td-h">${isNew ? 'Neuer Ort' : 'Ort bearbeiten'}</h3>
+    <h3 class="fs-td-h">${isNew ? 'Neuer geteilter Punkt' : 'Geteilten Punkt bearbeiten'}</h3>
     <label class="fs-ort-lbl">Art</label>
-    <div class="fs-ort-kinds">${FS_ORT_KINDS.map(k=> `<button type="button" data-kind="${k.key}" class="${(o.kind || '') === k.key ? 'on' : ''}" aria-pressed="${(o.kind || '') === k.key}">${fsIconHtml(k.icon)}<span>${esc(k.short || k.label)}</span></button>`).join('')}</div>
+    <div class="fs-ort-kinds">${FS_ORT_KINDS.filter(k=> ['parkplatz', 'maut', 'haltestelle', 'biwak', 'wasser', 'toilette'].includes(k.key) || k.key === (o.kind || '')).map(k=> `<button type="button" data-kind="${k.key}" class="${(o.kind || '') === k.key ? 'on' : ''}" aria-pressed="${(o.kind || '') === k.key}">${fsIconHtml(k.icon)}<span>${esc(k.short || k.label)}</span></button>`).join('')}</div>
     <label class="fs-ort-lbl" for="fs-ort-name">Name</label>
     <input id="fs-ort-name" type="text" value="${esc(o.name || '')}" placeholder="z. B. Parkplatz Engstlenalp" autocomplete="off">
     <label class="fs-ort-lbl" for="fs-ort-note">Notiz</label>
@@ -18686,8 +18728,8 @@ function fsShowContextMap(t){
           legend.appendChild(b);
         });
       }
-      // Orte der Tour immer zeigen, auch ohne eingeschaltete Ebene «Orte»
-      map._fsm.orteIds = Array.isArray(t.orte) ? t.orte.slice() : [];
+      // Geteilte Punkte der Tour und in der Nähe immer zeigen, auch ohne eingeschaltete Ebene
+      map._fsm.orteIds = fsTourShowOrteIds(t);
       fsmOrteDraw(map);
       fsTourOrte(t).forEach(o=>{ if(isFinite(o.lat) && isFinite(o.lon)) all.push([+o.lat, +o.lon]); });
       if(all.length){
@@ -19018,6 +19060,7 @@ const FS_ICON_PATHS = {
   play: 'M7 4.5v15l12-7.5z',
   pause: 'M8 5v14M16 5v14',
   ring: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z',
+  abseil: 'M7 4h10M12 4v5M12 9c-3 0-3 3 0 3s3 3 0 3s-3 3 0 3v3M9 21h6',
   more: 'M5 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM12 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM19 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
   hut: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5',
@@ -19095,7 +19138,7 @@ const FS_EMOJI_ICONS = {
   '🔍':['search'], '📥':['download'], '📤':['upload'], '🚗':['car'], '🌦':['partly'], '🌤':['partly'], '⛅':['partly'],
   '📝':['note'], '📋':['note'], '📖':['note'], '⛺':['tent'], '🏕':['tent'], '🌧':['rain'], '✅':['checkc','#2E6B3C'],
   '🔽':['chevdown'], '❄':['snow'], '➕':['plus'], '📅':['calendar'], '💾':['save'], '📷':['camera'], '📸':['camera'],
-  '🚉':['train'], '🚌':['bus'], '🚏':['bus'], '🚡':['cable'], '☀':['sun','#C27C0E'], '🌞':['sun','#C27C0E'], '☁':['cloud'],
+  '🪢':['abseil'], '🚉':['train'], '🚌':['bus'], '🚏':['bus'], '🚡':['cable'], '☀':['sun','#C27C0E'], '🌞':['sun','#C27C0E'], '☁':['cloud'],
   '⛈':['storm'], '🌫':['fog'], '🌨':['snowcloud'], '🌡':['therm'], '💨':['wind'], '💧':['drop'], '↩':['undo'],
   '👤':['user'], '👥':['users'], '🚻':['users'], '✂':['scissors'], '📡':['offline'], '🔄':['refresh'], '🔁':['refresh'], '🔀':['refresh'],
   '🏠':['home'], '📞':['phone'], '🔗':['link'], '🆘':['sos','#B42318'], '📏':['ruler'], '⏱':['clock'], '⏰':['clock'], '⏳':['clock'],

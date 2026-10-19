@@ -83,8 +83,11 @@ aus anderen Apps übernehmen.
   entscheiden Vorschläge bei allen Touren.
 - Nie eine ganze Sammlung schreiben oder löschen; jeder Pfad endet mit einer gültigen ID
   (`fbPathOk`). Vor jedem Überschreiben sichert `fbSet` die alte Fassung unter `versions/`.
-- Gemeinsame Orte (alle Apps): `orte/<id>` mit Art, Notiz, Foto, Stand-Datum; Touren verweisen mit
-  `orte: [id]` darauf (Baustein «Orte» in `0-shared.js`, `fsOrte*`). Ohne Eigentümer, frei änderbar.
+- Geteilte Punkte (alle Apps, intern «Orte»): `orte/<id>` mit Art, Notiz, Foto, Stand-Datum. Entstehen beim
+  Speichern einer Tour aus ihren Infrastruktur-Punkten (Parkplatz, Haltestelle, Wasser, Toilette, Biwak;
+  `fsShareTourPoints`, abschaltbar pro Punkt mit `share: false`), die Tour selbst bleibt dabei unverändert
+  (`fromTour` am Ort). Touren zeigen geteilte Punkte im Umkreis von 5 km («In der Nähe»). Alte Verweise
+  `orte: [id]` gelten weiter. Ohne Eigentümer, frei änderbar.
 - Erfahrungen (Logbuch): Liste `erfahrungen` in der Tour (`id, by, date, at, text, photos`), Baustein
   «Erfahrungen» in `0-shared.js` (`fsErf*`). Neue und eigene Einträge direkt, Übernehmen in die
   Beschreibung beim Eigentümer direkt, sonst als Vorschlag.
