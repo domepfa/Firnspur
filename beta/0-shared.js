@@ -1511,7 +1511,7 @@ function fsHomeMount(){
 // Die eine Karte der App: Startkarte, und in Tour/Gebiet ausgeliehen (fsCtxAcquire)
 let fsCtxUsesHome = false, fsCtxOn3d = null, fsCtxSnap = null, fsCtxOwner = '', fsCtxView = null;
 function fsHomeCreateMap(){
-  fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52, search: true, on3d: (m)=>{
+  fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52, on3d: (m)=>{
     if(fsCtxOn3d){ fsCtxOn3d(m); return; }
     const c = m.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom: Math.max(12, m.getZoom()), heading: m.getBearing()});
   }});
@@ -2105,17 +2105,16 @@ function fsHomeLayout(){
     document.body.appendChild(glass);
     if(bar){
       glass.prepend(bar);
-      // Kompakte Leiste (Stufe «karte»): Tipp auf die aktive Disziplin klappt alle auf
-      bar.addEventListener('click', e=>{
-        const a = e.target.closest('a');
-        if(a && a.classList.contains('active') && root.dataset.fsHome === 'karte' && !bar.classList.contains('open')){ e.preventDefault(); bar.classList.add('open'); }
-      }, true);
-      document.addEventListener('pointerdown', e=>{ if(!e.target.closest('.app-switch-bar')) bar.classList.remove('open'); }, true);
+      // Disziplin-Auswahl klappt unter dem Disziplin-Knopf auf; Tipp daneben schliesst
+      document.addEventListener('pointerdown', e=>{ if(!e.target.closest('.app-switch-bar, .fs-tb-disc')) bar.classList.remove('open'); }, true);
     }
   }
+  // Suchleiste oben (wie bei Karten-Apps): Disziplin links, Suche, Profil/Menü rechts
+  const tb = fsTopbarEnsure(glass, bar);
   const menu = document.querySelector('#app .hero .who-menu');
-  const mslot = glass.querySelector('.fs-glass-menu');
+  const mslot = tb.querySelector('.fs-tb-menu');
   if(menu && menu.parentNode !== mslot){ mslot.innerHTML = ''; mslot.appendChild(menu); }
+  fsTopbarSync(tb, bar);
   // Agenda im Menü statt als schwebender Knopf (ein Knopf weniger über der Liste)
   const row = menu && menu.querySelector('.who-row');
   if(row && !row.querySelector('[data-fs-agenda]')){
@@ -2123,6 +2122,14 @@ function fsHomeLayout(){
     ab.innerHTML = fsIconHtml('calendar') + 'Agenda';
     ab.addEventListener('click', ()=>{ menu.open = false; const t = document.getElementById('agenda-tab-btn'); if(t) t.click(); });
     row.prepend(ab);
+  }
+  // Routenplaner: im Menü (und auf der Karte per Gedrückthalten «Route von hier planen»)
+  if(row && !row.querySelector('[data-fs-plan]')){
+    const pb = document.createElement('button'); pb.type = 'button'; pb.setAttribute('data-fs-plan', '');
+    pb.innerHTML = fsIconHtml('compass') + 'Route planen';
+    pb.addEventListener('click', ()=>{ menu.open = false; fsPlannerOpen(); });
+    const ag = row.querySelector('[data-fs-agenda]');
+    if(ag) ag.after(pb); else row.prepend(pb);
   }
   // Segment Gebiete/Touren/Hütten ins Blatt, Griff davor
   // Nach «nur Liste neu» (Suche) fehlt das Segment im neuen Blatt: das bisherige wieder einsetzen
@@ -2149,6 +2156,81 @@ function fsHomeLayout(){
     document.body.appendChild(b);
   }
   fsHomeApply(false);
+}
+// ===== Suchleiste oben =====
+// Tippen filtert die Liste im Blatt (wie bisher die Suche im Blatt) und zeigt darunter passende Orte
+// (Berge, Hütten, Orte aus der swisstopo-Suche, braucht Internet); ein Ort fliegt auf der Karte hin.
+let fsTopbarSeq = 0, fsTopbarMarker = null;
+function fsTopbarEnsure(glass, bar){
+  let tb = glass.querySelector('.fs-topbar');
+  if(tb) return tb;
+  tb = document.createElement('div');
+  tb.className = 'fs-topbar';
+  tb.innerHTML = '<button type="button" class="fs-tb-disc" aria-label="Disziplin wechseln" aria-expanded="false"></button>'
+    + '<input type="search" class="fs-tb-q" placeholder="Tour, Hütte, Gipfel, Ort" aria-label="Suchen: eigene Einträge und Orte" autocomplete="off" enterkeyhint="search">'
+    + '<button type="button" class="fs-tb-x" aria-label="Suche leeren" hidden>' + fsIconHtml('x') + '</button>'
+    + '<div class="fs-tb-menu"></div>';
+  const res = document.createElement('div');
+  res.className = 'fs-tb-res'; res.hidden = true;
+  glass.appendChild(tb); glass.appendChild(res);
+  const disc = tb.querySelector('.fs-tb-disc'), q = tb.querySelector('.fs-tb-q'), x = tb.querySelector('.fs-tb-x');
+  disc.addEventListener('click', ()=>{ if(!bar) return; const o = bar.classList.toggle('open'); disc.setAttribute('aria-expanded', o ? 'true' : 'false'); });
+  const setList = v=>{
+    if(typeof state === 'undefined' || state.search === v) return;
+    state.search = v;
+    clearTimeout(window.__fsSearchT);
+    window.__fsSearchT = setTimeout(()=>{ if(typeof renderListOnly === 'function') renderListOnly(); else render(); }, 160);
+  };
+  const closeRes = ()=>{ fsTopbarSeq++; res.hidden = true; res.innerHTML = ''; };
+  const go = it=>{
+    closeRes(); q.blur();
+    if(!fsHomeMap) return;
+    if(fsTopbarMarker){ fsTopbarMarker.remove(); fsTopbarMarker = null; }
+    fsHomeAll = false;
+    if(fsHomeDetent === 'liste') fsHomeSetDetent('mitte');
+    const ins = fsHomeInset();
+    fsHomeMap.flyTo({center: [it.lon, it.lat], zoom: Math.max(fsHomeMap.getZoom(), 13), offset: [0, Math.round((ins.top + 60 - ins.bottom) / 2)], duration: 800});
+    const el = document.createElement('div'); el.className = 'fsm-search-pin';
+    fsTopbarMarker = new maplibregl.Marker({element: el}).setLngLat([it.lon, it.lat]).addTo(fsHomeMap);
+    fsHomeMap.once('moveend', ()=> fsmPopup(fsHomeMap, {lng: it.lon, lat: it.lat}, '<b class="fs-goto-lbl">' + esc(it.label) + '</b>', 14));
+  };
+  let tmr = 0;
+  q.addEventListener('input', ()=>{
+    const v = q.value, t = v.trim(), seq = ++fsTopbarSeq;
+    x.hidden = !v;
+    setList(v);
+    clearTimeout(tmr);
+    if(t.length < 2){ closeRes(); return; }
+    tmr = setTimeout(async ()=>{
+      try{
+        const r = await fetch('https://api3.geo.admin.ch/rest/services/api/SearchServer?type=locations&limit=5&sr=4326&searchText=' + encodeURIComponent(t));
+        const d = await r.json();
+        if(seq !== fsTopbarSeq) return;
+        const on = (d.results || []).map(z=> z.attrs || {}).filter(a=> a.lat != null && a.lon != null)
+          .map(a=> ({label: String(a.label || t).replace(/<[^>]+>/g, ''), lat: +a.lat, lon: +a.lon}));
+        if(!on.length){ closeRes(); return; }
+        res.innerHTML = '<div class="fs-tb-res-h">Orte auf der Karte</div>' + on.map((it, i)=> `<button type="button" data-i="${i}">${fsIconHtml('pin')}<span>${esc(it.label)}</span></button>`).join('');
+        res.querySelectorAll('[data-i]').forEach(b=> b.addEventListener('click', ()=> go(on[+b.dataset.i])));
+        res.hidden = false;
+      }catch(e){ if(seq === fsTopbarSeq) closeRes(); } // offline: nur die Liste filtert
+    }, 300);
+  });
+  q.addEventListener('focus', ()=>{ if(fsHomeDetent === 'karte') fsHomeSetDetent('mitte'); });
+  q.addEventListener('keydown', e=>{ if(e.key === 'Escape'){ q.value = ''; q.dispatchEvent(new Event('input')); q.blur(); } if(e.key === 'Enter') q.blur(); });
+  x.addEventListener('click', ()=>{ q.value = ''; q.dispatchEvent(new Event('input')); q.focus(); });
+  document.addEventListener('pointerdown', e=>{ if(!e.target.closest('.fs-tb-res, .fs-topbar')) closeRes(); }, true);
+  return tb;
+}
+function fsTopbarSync(tb, bar){
+  const a = bar && bar.querySelector('a.active');
+  const disc = tb.querySelector('.fs-tb-disc');
+  const ic = a && a.querySelector('.fs-i');
+  const html = ic ? ic.outerHTML : fsIconHtml('mountain');
+  if(disc._fsHtml !== html){ disc._fsHtml = html; disc.innerHTML = html; }
+  if(a) disc.setAttribute('aria-label', 'Disziplin: ' + a.textContent.trim() + ' – wechseln');
+  const q = tb.querySelector('.fs-tb-q');
+  const v = (typeof state !== 'undefined' && state.search) || '';
+  if(document.activeElement !== q && q.value !== v){ q.value = v; tb.querySelector('.fs-tb-x').hidden = !v; }
 }
 // Kopf des Blatts in der Stufe «liste»: Bergfoto der App mit Titel und Bestand. Beim Scrollen zieht das
 // Foto langsamer mit und blasst aus; ist es weg, steht der Titel klein im Griff.
@@ -2242,13 +2324,14 @@ function fsHomeWireDrag(sheet){
     setTimeout(()=> sheet.removeEventListener('click', stop, {capture: true}), 350);
     const a = s.hist[0], b = s.hist[s.hist.length - 1];
     const v = (a && b && b.t > a.t) ? (b.y - a.y) / (b.t - a.t) : 0; // px/ms, positiv = nach unten
-    const aim = (s.full - s.last) - v * 220; // sichtbare Höhe, wohin der Schwung trägt
+    const aim = (s.full - s.last) - v * 300; // sichtbare Höhe, wohin der Schwung trägt (kurzer Wisch reicht)
     fsHomeDetent = D.map(d=> ({d, h: fsHomeDetentPx(d)})).reduce((m, o)=> Math.abs(o.h - aim) < Math.abs(m.h - aim) ? o : m).d;
     fsHomeApply(true);
   };
   // Maus, Stift und Finger auf Griff/Kopf (bzw. überall in «karte»/«mitte»)
+  // Auch auf dem Suchfeld: ein Tipp setzt den Cursor, ein Wisch zieht das Blatt (wie bei Karten-Apps)
   sheet.addEventListener('pointerdown', e=>{
-    if(e.button > 0 || e.target.closest('input, select, textarea, .fs-filter-sheet')) return;
+    if(e.button > 0 || e.target.closest('select, textarea, .fs-filter-sheet') || (e.target.closest('input') && !e.target.closest('.search-input'))) return;
     if(fsHomeDetent === 'liste' && !isHead(e.target)) return;
     begin(e.clientY); st.id = e.pointerId; st.ptr = true;
   });
@@ -6518,12 +6601,13 @@ function fsHomePointOffer(ll){
     .filter(n=> typeof window[n[2]] === 'function');
   const wrap = document.createElement('div');
   wrap.className = 'fs-pt-offer';
-  wrap.innerHTML = '<b>Punkt hier</b><div class="fs-pt-offer-new">' + news.map((n, i)=> `<button type="button" class="btn" data-new="${i}">${fsIconHtml('plus')}${esc(n[1])}</button>`).join('') + '</div>'
+  wrap.innerHTML = '<b>Punkt hier</b><div class="fs-pt-offer-new"><button type="button" class="btn secondary" data-plan>' + fsIconHtml('compass') + 'Route von hier planen</button>' + news.map((n, i)=> `<button type="button" class="btn" data-new="${i}">${fsIconHtml('plus')}${esc(n[1])}</button>`).join('') + '</div>'
     + '<label>Oder zu bestehendem Eintrag hinzufügen</label>'
     + '<div class="fs-pt-offer-meta"><input type="text" data-f="label" placeholder="Bezeichnung, z. B. Skidepot" autocomplete="off" aria-label="Bezeichnung des Punkts">'
     + '<select data-f="cat" aria-label="Art des Punkts">' + Object.keys(MAP_POINT_CATEGORIES).map(k=> `<option value="${k}">${esc(k ? MAP_POINT_CATEGORIES[k].label : 'Art: Punkt')}</option>`).join('') + '</select></div>'
     + '<input type="text" data-f="q" placeholder="Tour oder Hütte suchen …" autocomplete="off" aria-label="Eintrag suchen"><div class="fs-pt-offer-res"></div>';
   const close = ()=>{ if(ml._fsm && ml._fsm.popup) ml._fsm.popup.remove(); };
+  wrap.querySelector('[data-plan]').addEventListener('click', ()=>{ close(); fsPlannerOpen(ll); });
   wrap.querySelectorAll('[data-new]').forEach(b=> b.addEventListener('click', ()=>{ close(); window[news[+b.dataset.new][2]](+lat.toFixed(6), +lon.toFixed(6)); }));
   const inp = wrap.querySelector('[data-f="q"]'), res = wrap.querySelector('.fs-pt-offer-res');
   const lbl = wrap.querySelector('[data-f="label"]'), cat = wrap.querySelector('[data-f="cat"]');
@@ -6583,7 +6667,7 @@ function fsPlannerClose(fromBack, force, handoff){
     if(i >= 0 && i === overlayLayers.length){ if(handoff && !modalHistoryPushed) modalHistoryPushed = true; else consumeHistoryEntry(); }
   }
 }
-function fsPlannerOpen(){
+function fsPlannerOpen(from){
   if(fsPlanner || !fsHomeMap || !fsHomeEl || fsCtxUsesHome) return;
   const ml = fsHomeMap;
   const map = FL.map(ml);
@@ -7094,8 +7178,6 @@ function fsPlannerOpen(){
     const toggleBtn = plannerPanel.querySelector('[data-act="planner-toggle"]');
     if(toggleBtn) toggleBtn.onclick = ()=>{
       plannerExpanded = !plannerExpanded;
-      // Beim Planen die Wanderwege automatisch einblenden (bleiben danach an, bis man sie abwählt).
-      if(plannerExpanded && !fsmOverlayOn(map._ml, 'wanderwege')) fsmSetOverlay(map._ml, 'wanderwege', true);
       renderPlannerPanel();
     };
     const startGpsBtn = plannerPanel.querySelector('[data-act="planner-start-gps"]');
@@ -7167,8 +7249,9 @@ function fsPlannerOpen(){
   });
   ml._fsInfoBlock = ()=> plannerExpanded; // Tipps gehören der Planung, keine Infos der Karte
   plannerExpanded = true;
-  if(!fsmOverlayOn(ml, 'wanderwege')) fsmSetOverlay(ml, 'wanderwege', true);
+  // Ebenen bleiben, wie man sie gewählt hat (Wanderwege lassen sich im Ebenen-Fenster zuschalten)
   renderPlannerPanel();
+  if(from) setPlannerPoint('start', from.lat, from.lng, 'Punkt auf der Karte');
   const layer = ()=> fsPlannerClose(true);
   fsPlanner = {
     layer,
