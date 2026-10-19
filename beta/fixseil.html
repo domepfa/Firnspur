@@ -4561,7 +4561,7 @@ function wireGlobalHandlers(){
     else if(act==='sort-by') el.onchange = (e)=>{ const kind=el.getAttribute('data-kind'); if(kind==='hut') state.hutSortBy=e.target.value; else state.tourSortBy=e.target.value; renderListOnly(); };
     else if(act==='sort-dir') el.onclick = ()=>{ const kind=el.getAttribute('data-kind'); if(kind==='hut') state.hutSortDir = state.hutSortDir==='asc'?'desc':'asc'; else state.tourSortDir = state.tourSortDir==='asc'?'desc':'asc'; renderListOnly(); };
     else if(act==='search'){
-      el.oninput = (e)=>{ state.search = e.target.value; renderListOnly(); };
+      el.oninput = (e)=>{ state.search = e.target.value; clearTimeout(window.__fsSearchT); window.__fsSearchT = setTimeout(renderListOnly, 160); }; // erst nach kurzer Tipp-Pause neu zeichnen
       // Enter bestätigt die Suche (steckt eh schon live über oninput) und schliesst vor allem
       // die Bildschirmtastatur — ohne blur() bleibt sie sonst offen, obwohl nichts mehr zu tun ist.
       el.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); el.blur(); } };
