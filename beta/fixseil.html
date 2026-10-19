@@ -1341,7 +1341,7 @@ async function submitName(nameVal, pinVal){
 
 /* ================= Actions ================= */
 function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:{tourCategory:'hochtour'}}; render(); }); }
-// Von der Übersichtskarte aus per "Punkt setzen" — siehe pointPlacementPopupContent in 0-shared.js.
+// Von der Startkarte aus per Gedrückthalten («Punkt hier») – siehe fsHomePointOffer in 0-shared.js.
 function openAddTourWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-tour', payload:{tourCategory:'hochtour', points:[{label:'', lat, lon}]}}; render(); }); }
 function openAddMsl(){ dlog('Klick auf "+ Neue MSL-Tour"'); ensureName(()=>{ state.presetSektorId = ''; state.modal = {type:'edit-tour', payload:{tourCategory:'msl'}}; render(); }); }
 function openAddMslInSektor(sektorId){ ensureName(()=>{ state.presetSektorId = sektorId; navigateToModal({type:'edit-tour', payload:{tourCategory:'msl'}}); }); }
@@ -1400,7 +1400,7 @@ function openEditSektor(id){ ensureName(()=>{ const s = state.sektoren.find(x=>x
 function openSektorDetail(id){ navigateToModal({type:'sektor-detail', payload:id}); }
 function openAddSektorInKlettergebiet(gebId){ ensureName(()=>{ state.presetKlettergebietId = gebId; navigateToModal({type:'edit-sektor', payload:null}); }); }
 function openAddKlettergebiet(){ ensureName(()=>{ state.modal = {type:'edit-klettergebiet', payload:null}; render(); }); }
-// Von der Übersichtskarte aus per "Punkt setzen" — siehe pointPlacementPopupContent in 0-shared.js.
+// Von der Startkarte aus per Gedrückthalten («Punkt hier») – siehe fsHomePointOffer in 0-shared.js.
 function openAddKlettergebietWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-klettergebiet', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 function openEditKlettergebiet(id){ ensureName(()=>{ const g = state.klettergebiete.find(x=>x.id===id); navigateToModal({type:'edit-klettergebiet', payload:g}); }); }
 function openKlettergebietDetail(id){ navigateToModal({type:'klettergebiet-detail', payload:id}); }
@@ -1474,17 +1474,7 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   // Öffnen des neuen Modals) — genau diese Kombination verhält sich browserübergreifend
   // inkonsistent und kann die Historie verwirren, sodass eine spätere Zurück-Aktion zu weit
   // zurückspringt (bis auf die andere App).
-  // Wurde diese Detailansicht von der Vollbild-Übersichtskarte aus geöffnet (siehe
-  // openTourFromMap() etc. in 0-shared.js), landet man beim endgültigen Schliessen wieder auf der
-  // Karte statt auf der normalen Übersicht darunter. Wichtig: hier NICHT zusätzlich
-  // consumeHistoryEntry() (history.back()) aufrufen, bevor openStandaloneMap() gleich seinerseits
-  // einen neuen History-Eintrag pusht — genau dieses synchrone back()+pushState() ist der Fehler,
-  // der oben bei keepHistoryLayer bereits vermieden wird.
-  if(!state.modal && !keepHistoryLayer && modalOpenedFromStandaloneMap){
-    modalOpenedFromStandaloneMap = false;
-    modalHistoryPushed = false;
-    openStandaloneMap();
-  }else if(!state.modal && modalHistoryPushed && !keepHistoryLayer){
+  if(!state.modal && modalHistoryPushed && !keepHistoryLayer){
     modalHistoryPushed = false;
     if(!fromPopstate) consumeHistoryEntry();
   }
@@ -3082,7 +3072,6 @@ function tourenViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Suchen: Name, Region, Text, Orte …" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-tour">+ Neue Tour</button>
-      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar toolbar-row">
       <button type="button" class="btn secondary" id="tour-filter-toggle-btn">${fsIconHtml('sliders')} Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
@@ -3271,7 +3260,6 @@ function mslViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Suchen: Name, Region, Text, Orte …" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-msl">+ Neue MSL-Tour</button>
-      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     <div class="toolbar toolbar-row">
       <button type="button" class="btn secondary" id="tour-filter-toggle-btn">${fsIconHtml('sliders')} Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
@@ -3458,7 +3446,6 @@ function sektorenViewHtml(){
       <input type="file" id="klettergebiet-new-scan-input" accept="image/*" multiple style="display:none;"/>
       <button class="btn secondary" id="klettergebiet-new-scan-camera-btn" style="display:none;">📸 Direkt fotografieren</button>
       <input type="file" id="klettergebiet-new-scan-camera-input" accept="image/*" capture="environment" style="display:none;"/>
-      <button class="btn secondary" data-act="open-standalone-map">🗺️ Karte</button>
     </div>
     ${gebietListControlsHtml(gebieteAll, {scan:true})}
     <p id="klettergebiet-new-scan-status" style="font-size:12.5px; color:var(--ink-soft); margin:-6px 0 10px 0;"></p>
