@@ -13417,12 +13417,18 @@ function wireAppSwitchSwipe(){
     tag.classList.toggle('ready', Math.abs(dx) > 80);
     tag.style.opacity = String(Math.min(1, Math.abs(dx) / 80));
   };
+  // Startansicht (Karte im Hintergrund): die Seite nicht seitlich schieben – das verschob Liste und Karte
+  // gegeneinander. Dort blendet nur das Blatt leicht aus, das Schild zeigt die nächste Disziplin.
+  const mapmode = ()=> document.documentElement.classList.contains('fs-mapmode');
+  // Nur den Inhalt des Blatts ausblenden (das Blatt selbst bleibt deckend, sonst schimmert die Karte durch)
+  const sheetFade = (op, tr)=> document.querySelectorAll('main .fs-sheet > *').forEach(el=>{ el.style.transition = tr || ''; el.style.opacity = op; });
   const reset = (animate)=>{
     if(appEl){
       appEl.style.transition = animate ? 'transform .2s ease, opacity .2s ease' : '';
       appEl.style.transform = '';
       appEl.style.opacity = '';
     }
+    sheetFade('', animate ? 'opacity .2s ease' : '');
     if(tag) tag.hidden = true;
   };
   document.addEventListener('touchstart', (e)=>{
@@ -13443,7 +13449,9 @@ function wireAppSwitchSwipe(){
     g.link = neighbour(dx < 0 ? 1 : -1);
     // Ohne Nachbar (Rand erreicht): nur ein wenig nachgeben
     const shift = g.link ? dx * 0.85 : dx * 0.2;
-    if(appEl){
+    if(mapmode()){
+      sheetFade(String(1 - Math.min(0.6, Math.abs(shift) / 400)), 'none');
+    }else if(appEl){
       appEl.style.transition = 'none';
       appEl.style.transform = 'translateX(' + shift + 'px)';
       appEl.style.opacity = String(1 - Math.min(0.35, Math.abs(shift) / 900));
@@ -13457,7 +13465,9 @@ function wireAppSwitchSwipe(){
     const dt = Math.max(1, Date.now() - cur.t), fast = Math.abs(cur.dx) / dt > 0.5 && Math.abs(cur.dx) > 40;
     if(!cur.link || !(Math.abs(cur.dx) > 80 || fast)){ reset(true); return; }
     const out = cur.dx < 0 ? -1 : 1;
-    if(appEl){
+    if(mapmode()){
+      sheetFade('0.15', 'opacity .14s ease-out');
+    }else if(appEl){
       appEl.style.transition = 'transform .14s ease-out, opacity .14s ease-out';
       appEl.style.transform = 'translateX(' + (out * window.innerWidth) + 'px)';
       appEl.style.opacity = '0.3';
@@ -13467,6 +13477,7 @@ function wireAppSwitchSwipe(){
       link.click();
       // Wechsel innerhalb derselben Seite (Hochtour ↔ Klettern): von der anderen Seite hereingleiten
       setTimeout(()=>{
+        if(mapmode()){ reset(true); return; }
         if(!appEl || !document.body.contains(appEl)) return;
         appEl.style.transition = 'none';
         appEl.style.transform = 'translateX(' + (-out * window.innerWidth * 0.3) + 'px)';
