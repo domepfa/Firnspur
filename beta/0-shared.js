@@ -1556,8 +1556,20 @@ function fsHomeFullToggle(on){
 }
 // Browser-Vollbild von aussen beendet (Wischgeste, Esc): Ansicht mitnehmen
 document.addEventListener('fullscreenchange', ()=>{ if(!document.fullscreenElement && document.documentElement.classList.contains('fs-mapfull')) fsHomeFullToggle(false); });
+// Ausschnitt der Startkarte für die Sitzung merken: die andere Disziplin (eigene Seite) öffnet dort
+let fsHomeCamRestored = false;
+function fsHomeSaveCam(){
+  if(!fsHomeMap || fsCtxUsesHome || fsPlanner) return;
+  try{ const c = fsHomeMap.getCenter(); sessionStorage.setItem('fs-home-cam', JSON.stringify({lng: +c.lng.toFixed(5), lat: +c.lat.toFixed(5), zoom: +fsHomeMap.getZoom().toFixed(2), all: !!fsHomeAll, t: Date.now()})); }catch(e){}
+}
+function fsHomeSavedCam(){
+  try{ const c = JSON.parse(sessionStorage.getItem('fs-home-cam') || 'null'); return c && Date.now() - c.t < 6 * 3600e3 && isFinite(c.lat) && isFinite(c.lng) ? c : null; }catch(e){ return null; }
+}
 // Erster Ausschnitt gleich dort, wo alle Einträge Platz haben (kein Sprung nach dem Laden)
 function fsHomeStartView(){
+  // Beim Wechsel der Disziplin: dort weiter, wo man war (ausser man sah einfach alle Einträge)
+  const cam = fsHomeSavedCam();
+  if(cam && !cam.all){ fsHomeCamRestored = true; fsHomeAll = false; return {center: [cam.lat, cam.lng], zoom: cam.zoom}; }
   const pts = (fsHomePts && fsHomePts.points) || [];
   if(!pts.length) return {zoom: 6.6};
   let w = 180, e = -180, so = 90, n = -90;
@@ -1575,7 +1587,7 @@ function fsHomeCreateMap(){
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
   fsHomeMap.setMaxBounds(FSM_HOME_BOUNDS);
   fsHomeMap.setMinZoom(fsHomeMinZoom());
-  fsHomeMap.on('moveend', ()=>{ fsHomeCluster(); if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
+  fsHomeMap.on('moveend', ()=>{ fsHomeCluster(); if(fsHomeFitting){ fsHomeFitting = false; fsHomeSaveCam(); return; } fsHomeAll = false; fsHomeFilter(); fsHomeSaveCam(); });
   fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
   fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl && sl.classList.contains('fs-home-slot')) sl.classList.add('has-map'); });
   return fsHomeMap;
@@ -1691,7 +1703,8 @@ function fsHomeSync(){
       el.setAttribute('aria-label', p.label || 'Eintrag'); // MapLibre setzt sonst «Map marker»
       return m;
     });
-    if(kindChanged || fsHomeAll) fsHomeFitAll();
+    if((kindChanged && !fsHomeCamRestored) || fsHomeAll) fsHomeFitAll();
+    fsHomeCamRestored = false;
     fsHomeCluster();
   }
   fsHomeFilter();
