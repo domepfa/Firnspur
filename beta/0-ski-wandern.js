@@ -13,14 +13,14 @@ function migrateCompletions(item){
   return item;
 }
 
-async function saveHutCloud(hut){ return await fbSet('huts/'+hut.id, hut); }
+async function saveHutCloud__sw(hut){ return await fbSet('huts/'+hut.id, hut); }
 
 
 function removeGebiet(id){
   moveToTrash(id, state.gebiete, state.trashedGebiete, saveGebietCloud);
 }
 
-async function submitName(nameVal, pinVal){
+async function submitName__sw(nameVal, pinVal){
   const n = (nameVal||'').trim();
   if(!n) return;
   const after = state.modal && state.modal.after;
@@ -40,13 +40,13 @@ async function submitName(nameVal, pinVal){
   if(after) after();
 }
 
-function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:null}; render(); }); }
+function openAddTour__sw(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:null}; render(); }); }
 
-function openAddTourWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-tour', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
+function openAddTourWithPoint__sw(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-tour', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 
-function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); navigateToModal({type:'edit-tour', payload:t}); }); }
+function openEditTour__sw(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); navigateToModal({type:'edit-tour', payload:t}); }); }
 
-function navigateToModal(newModal){
+function navigateToModal__sw(newModal){
   // Ungespeicherte Änderungen (Formular, «Karte bearbeiten») nicht still verlassen
   if(modalIsDirty && modalDirtyTrackingKey() && !confirmDiscardIfDirty()) return;
   if(state.modal){
@@ -65,7 +65,7 @@ function navigateToModal(newModal){
   render();
 }
 
-function openTourDetail(id){ navigateToModal({type:'tour-detail', payload:id}); }
+function openTourDetail__sw(id){ navigateToModal({type:'tour-detail', payload:id}); }
 
 function openAddGebiet(){ ensureName(()=>{ state.modal = {type:'edit-gebiet', payload:null}; render(); }); }
 
@@ -73,7 +73,7 @@ function openEditGebiet(id){ ensureName(()=>{ const g = state.gebiete.find(x=>x.
 
 function openGebietDetail(id){ navigateToModal({type:'gebiet-detail', payload:id}); }
 
-function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
+function closeModal__sw(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(!skipDirtyCheck && !confirmDiscardIfDirty()){
     // Nutzer will weiter bearbeiten — nichts schliessen, und explizit NICHT render() aufrufen:
     // das würde die Maske komplett neu aus dem gespeicherten Ausgangszustand aufbauen und damit
@@ -133,7 +133,7 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   }
 }
 
-async function submitHutForm(form, existing){
+async function submitHutForm__sw(form, existing){
   // Stand vor dem Speichern — für "Rückgängig" im Hinweis danach.
   const undoPrev = snapshotForUndo(existing && existing.id ? state.huts.find(x=>x.id===existing.id) : null);
   const h = (existing && existing.id) ? {...existing} : {id: (form.hutIdForTrack || uid('h')), createdBy: state.myName, createdAt: new Date().toISOString(), status:'entwurf'};
@@ -209,10 +209,10 @@ async function submitGebietForm(form, existing){
   render();
 }
 
-function setView(v){ state.view = v; state.modal = null; modalOpenedFromStandaloneMap = false; render(); }
+function setView__sw(v){ state.view = v; state.modal = null; modalOpenedFromStandaloneMap = false; render(); }
 
 
-function render(){
+function render__sw(){
   const app = document.getElementById('app');
   const kept = fsTakeKeptModal(); // «Karte bearbeiten» offen: Ansicht behalten
   // Seite nur neu aufbauen, wenn sich etwas geändert hat: Tour öffnen/schliessen ändert nur das Fenster,
@@ -230,7 +230,7 @@ function syncAgendaTabButton(){
   if(btn) btn.classList.toggle('active', state.view==='agenda');
 }
 
-function emptyHuts(){
+function emptyHuts__sw(){
   const hasAny = state.huts.length>0;
   return `<div class="empty">
     <h3>${hasAny ? 'Keine Hütte passt zu diesem Filter' : 'Noch keine Hütte erfasst'}</h3>
@@ -239,7 +239,7 @@ function emptyHuts(){
   </div>`;
 }
 
-function hutCardHtml(h){ return fsHutCardHtml(h); }
+function hutCardHtml__sw(h){ return fsHutCardHtml(h); }
 
 function filteredGebiete(){
   let list = state.gebiete;
@@ -275,7 +275,7 @@ function emptyGebiete(){
 function gebietTouren(geb){ return state.tours.filter(t=>t.gebietId===geb.id); }
 
 // Gebiet als Blatt über der Karte: Inhalte für die Karte dahinter (siehe fsShowAreaContextMap)
-function fsAreaForMap(modal){
+function fsAreaForMap__sw(modal){
   if(!modal || modal.type !== 'gebiet-detail') return null;
   const geb = state.gebiete.find(x=>x.id===modal.payload);
   if(!geb) return null;
@@ -364,7 +364,7 @@ function renderGebietOverviewMap(containerId, gebId){
   });
 }
 
-function renderModal(){
+function renderModal__sw(){
   pushModalHistoryIfNeeded();
   const root = document.getElementById('modal-root');
   const m = state.modal;
@@ -393,7 +393,7 @@ function renderModal(){
   wireModalHandlers();
 }
 
-function buildExportData(){
+function buildExportData__sw(){
   const singleTourId = state.modal && state.modal.type==='export' && state.modal.payload && state.modal.payload.tourId;
   if(singleTourId){
     const tour = state.tours.find(t=>t.id===singleTourId);
@@ -409,7 +409,7 @@ function buildExportData(){
   return data;
 }
 
-function exportModalHtml(payload){
+function exportModalHtml__sw(payload){
   const singleTour = payload && payload.tourId ? state.tours.find(t=>t.id===payload.tourId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Exportieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
@@ -436,7 +436,7 @@ function exportModalHtml(payload){
   </div>`;
 }
 
-function importModalHtml(){
+function importModalHtml__sw(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Importieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Wähle eine Datei, die dir jemand geschickt hat, oder füge den Text ein. Bestehende Einträge mit gleicher ID werden aktualisiert, neue werden hinzugefügt.</p>
@@ -539,7 +539,7 @@ function renderGipfelzielOverviewMap(containerId, gipfelName){
   });
 }
 
-function hutFormHtml(existing){
+function hutFormHtml__sw(existing){
   const h = existing || {};
   const isEditing = !!(existing && existing.id);
   const isKnownRegion = REGIONS.includes(h.region);
@@ -627,7 +627,7 @@ function hutFormHtml(existing){
   </div>`;
 }
 
-function hutDetailHtml(id){
+function hutDetailHtml__sw(id){
   const h = state.huts.find(x=>x.id===id);
   if(!h) return `<div class="modal" data-stop="1"><p>Hütte nicht gefunden.</p></div>`;
   const linked = state.tours.filter(t=>t.hutId===h.id);
@@ -727,7 +727,7 @@ function hutDetailHtml(id){
   </div>`;
 }
 
-function abgeschlossenViewHtml(){
+function abgeschlossenViewHtml__sw(){
   const groups = buildPersonGroups();
   const names = Object.keys(groups);
   if(!names.length){
@@ -815,7 +815,7 @@ async function removeCompletion(kind, id, idx){
   render();
 }
 
-function renderListOnly(){
+function renderListOnly__sw(){
   const main = document.querySelector('main');
   if(!main) return;
   const hadFocus = !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('main .search-input'));
