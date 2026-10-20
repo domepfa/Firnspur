@@ -678,7 +678,8 @@ function loadLocalSnapshot(){
 
 async function loadAll(){
   fsOrteLoad(); // gemeinsame Orte (alle Apps), parallel
-  state.loading = true; render();
+  // Gerätekopie sofort zeigen, die Datenbank aktualisiert danach still (nur ohne Kopie «Lade …»)
+  state.loading = !fsShowCachedFirst(loadLocalSnapshot(), ['tours','huts','gebiete','trashedTours','trashedHuts','trashedGebiete','agenda'], migrateCompletions); render();
   let [toursObj, hutsObj, gebieteObj, agendaObj] = await Promise.all([ fbGet('tours'), fbGet('huts'), fbGet('gebiete'), fbGet(AGENDA_PATH) ]);
   const cached = loadLocalSnapshot();
   if(!['tours','huts','gebiete',AGENDA_PATH].every(p=> fsGetFailed.has(p))){
@@ -977,7 +978,7 @@ function shellHtml(){
     </div></div>
   </div>
   <main>
-    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='gebiete' ? gebieteViewHtml() : state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml())}
+    ${state.loading ? fsLoadingStageHtml() : (state.view==='gebiete' ? gebieteViewHtml() : state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml())}
   </main>
   <div id="modal-root"></div>
   `;

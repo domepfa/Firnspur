@@ -819,7 +819,7 @@ function renderListOnly(){
   const main = document.querySelector('main');
   if(!main) return;
   const hadFocus = !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('main .search-input'));
-  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='gebiete' ? gebieteViewHtml() : state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml());
+  main.innerHTML = state.loading ? fsLoadingStageHtml() : (state.view==='gebiete' ? gebieteViewHtml() : state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml());
   const app = document.getElementById('app'); if(app) app._fsShell = null; // render() baut danach wieder ganz neu
   wireGlobalHandlers();
   // Fokus nur zurück ins Suchfeld der Liste, wenn dort getippt wurde (nicht bei der Suchleiste oben)
