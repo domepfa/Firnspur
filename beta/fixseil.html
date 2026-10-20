@@ -6287,6 +6287,8 @@ window.addEventListener('error', function(e){
 });
 window.addEventListener('unhandledrejection', function(e){
   console.error('Unhandled rejection', e.reason);
+  // Abgebrochene Vorgänge (Seitenübergang, Kartenkachel, Anfrage) sind kein Speicherproblem
+  if(e.reason && (e.reason.name === 'AbortError' || e.reason.name === 'InvalidStateError')) return;
   showToast('Es gab ein unerwartetes Problem beim Speichern. Bitte nochmal versuchen.', true);
 });
 window.addEventListener('beforeunload', function(e){

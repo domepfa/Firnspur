@@ -6244,6 +6244,12 @@ function fsmEnsureLoaded(){
   });
   return fsmLoadPromise;
 }
+// Übergang zwischen den Seiten (@view-transition in look.css): bricht der Browser ihn ab (z. B. weil die
+// Seite sich beim Laden noch verändert), lehnt er seine Zusagen ab – das ist kein Fehler der App
+['pagereveal', 'pageswap'].forEach(t=> window.addEventListener(t, e=>{
+  const vt = e.viewTransition;
+  if(vt) ['ready', 'finished', 'updateCallbackDone'].forEach(k=>{ try{ vt[k] && vt[k].catch(()=>{}); }catch(err){} });
+}));
 // Kartenbibliothek gleich beim Start laden (parallel zum ersten Zeichnen der Liste), nicht erst wenn
 // die Startkarte sie braucht – die Karte steht so deutlich früher
 setTimeout(()=>{ try{ fsmEnsureLoaded().catch(()=>{}); }catch(e){} }, 0);
@@ -6342,6 +6348,10 @@ function fsmCreateMap(container, opts){
   map.on('click', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) fsmClosePanel(map); });
   map.on('dragstart', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden && !map._fsm.panel.classList.contains('fsm-panel-sheet')) fsmClosePanel(map); });
   map.once('load', ()=>{ map._fsmLoaded = true; fsmApplyPrefs(map); });
+  // Sicherheitsnetz: in Hochtour/Klettern blieb die Karte nach dem Laden des Stils manchmal ohne ersten
+  // Zeichenvorgang (kein «load», leere Fläche). Bis sie steht, regelmässig neu zeichnen lassen.
+  const kick = ()=>{ if(map._fsmLoaded || map._removed) return; try{ map.triggerRepaint(); }catch(e){} setTimeout(kick, 600); };
+  setTimeout(kick, 400);
   if(opts.controls !== false) fsmAddControls(map);
   return map;
 }
