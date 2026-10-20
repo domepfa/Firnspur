@@ -2242,7 +2242,7 @@ function fsTopbarEnsure(glass, bar){
   res.className = 'fs-tb-res'; res.hidden = true;
   glass.appendChild(tb); glass.appendChild(res);
   const disc = tb.querySelector('.fs-tb-disc'), q = tb.querySelector('.fs-tb-q'), x = tb.querySelector('.fs-tb-x');
-  disc.addEventListener('click', ()=>{ if(!bar) return; const o = bar.classList.toggle('open'); disc.setAttribute('aria-expanded', o ? 'true' : 'false'); });
+  disc.addEventListener('click', ()=>{ if(!bar) return; const o = bar.classList.toggle('open'); disc.setAttribute('aria-expanded', o ? 'true' : 'false'); if(o) fsPrerenderDisciplines(bar); });
   const setList = v=>{
     if(typeof state === 'undefined' || state.search === v) return;
     state.search = v;
@@ -2288,6 +2288,20 @@ function fsTopbarEnsure(glass, bar){
   x.addEventListener('click', ()=>{ q.value = ''; q.dispatchEvent(new Event('input')); q.focus(); });
   document.addEventListener('pointerdown', e=>{ if(!e.target.closest('.fs-tb-res, .fs-topbar')) closeRes(); }, true);
   return tb;
+}
+// Disziplin-Auswahl offen: die anderen Disziplinen (eigene Seiten) im Hintergrund schon fertig aufbauen
+// lassen (Chrome «Speculation Rules»), dann ist der Wechsel fast sofort da. Andere Browser: wie bisher.
+let fsPrerendered = false;
+function fsPrerenderDisciplines(bar){
+  if(fsPrerendered || !bar || navigator.onLine === false) return;
+  try{ if(!(window.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules'))) return; }catch(e){ return; }
+  const urls = Array.from(bar.querySelectorAll('a[href]:not(.active)')).map(a=> a.getAttribute('href')).filter(h=> h && !/^https?:/.test(h));
+  if(!urls.length) return;
+  fsPrerendered = true;
+  const sc = document.createElement('script');
+  sc.type = 'speculationrules';
+  sc.textContent = JSON.stringify({prerender: [{source: 'list', urls, eagerness: 'immediate'}]});
+  document.head.appendChild(sc);
 }
 function fsTopbarSync(tb, bar){
   const a = bar && bar.querySelector('a.active');

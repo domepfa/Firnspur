@@ -1,5 +1,5 @@
 // Beta (siehe tools/promote-beta.sh): eigener Cache, räumt nur die eigenen alten Versionen weg.
-const CACHE_NAME = 'bergtouren-beta-shell-v5';
+const CACHE_NAME = 'bergtouren-beta-shell-v6';
 const SHELL_ASSETS = [
   './', './index.html', './fixseil.html', './wandern.html', './0-shared.js', './0-ski-wandern.js', './look.css', '../0-geo-ch.js',
   './manifest.json', './manifest-fixseil.json', './manifest-wandern.json', '../wandern-hero.jpg',
@@ -122,6 +122,17 @@ self.addEventListener('fetch', (e) => {
   };
   if (!isNav && Date.now() < fromCacheUntil) {
     e.respondWith(caches.match(e.request).then((hit) => hit || net()));
+    return;
+  }
+  // Wechsel zwischen den Disziplinen (Link aus der App selbst): sofort aus dem Speicher, auch alle
+  // Dateien dieser Seite – kein Warten aufs Netz. Neue Versionen kommen beim nächsten Start der App.
+  const inApp = isNav && (e.request.referrer || '').startsWith(self.registration.scope);
+  if (inApp) {
+    e.respondWith(caches.match(e.request).then((cached) => {
+      if (!cached) return net().then(store).catch(() => caches.match(e.request));
+      fromCacheUntil = Date.now() + 20000;
+      return cached;
+    }));
     return;
   }
   if (isNav) {
