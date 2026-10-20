@@ -1502,19 +1502,44 @@ function fsHomeMount(){
   }
   // Gerade von einer Tour ausgeliehen (eine Karte für alles): nicht zurückholen
   if(fsCtxUsesHome) return;
-  if(fsHomeEl.parentNode !== slot){ slot.appendChild(fsHomeEl); if(fsHomeMap) setTimeout(()=> fsHomeMap.resize(), 0); }
+  if(fsHomeEl.parentNode !== slot){ slot.appendChild(fsHomeEl); if(fsHomeMap) setTimeout(()=> fsHomeResizeIfNeeded(), 0); }
   if(fsHomeEl.classList.contains('ready')) slot.classList.add('has-map');
+  if(fsHomeSketch) slot.classList.add('fs-sketch');
   if(!fsHomeMap){
-    fsmEnsureLoaded().then(()=>{ if(!fsHomeMap) fsHomeCreateMap(); }).catch(()=>{ /* offline: Skizze bleibt */ });
+    fsmEnsureLoaded().then(()=>{ if(!fsHomeMap) fsHomeCreateMap(); }).catch(()=> fsHomeShowSketch());
   }else fsHomeSync();
 }
 // Die eine Karte der App: Startkarte, und in Tour/Gebiet ausgeliehen (fsCtxAcquire)
 let fsCtxUsesHome = false, fsCtxOn3d = null, fsCtxSnap = null, fsCtxOwner = '', fsCtxView = null;
+// Ruhiger Start: bis die Karte steht, nur eine ruhige Fläche (keine Skizze, die dann umspringt). Die
+// Skizze mit den Namen nur, wenn die Karte nicht lädt (offline ohne Kartenbibliothek) oder sehr lange braucht.
+let fsHomeSketch = false;
+function fsHomeShowSketch(){
+  if(fsHomeEl && fsHomeEl.classList.contains('ready')) return;
+  fsHomeSketch = true;
+  document.querySelectorAll('.fs-home-slot').forEach(sl=> sl.classList.add('fs-sketch'));
+}
+setTimeout(fsHomeShowSketch, 12000);
+// Grösse der Karte nur anpassen, wenn sie sich geändert hat (resize leert sonst kurz das Bild: Flackern)
+function fsHomeResizeIfNeeded(){
+  if(!fsHomeMap) return;
+  const c = fsHomeMap.getContainer(), cv = fsHomeMap.getCanvas();
+  if(Math.abs(cv.clientWidth - c.clientWidth) > 1 || Math.abs(cv.clientHeight - c.clientHeight) > 1) fsHomeMap.resize();
+}
+// Erster Ausschnitt gleich dort, wo alle Einträge Platz haben (kein Sprung nach dem Laden)
+function fsHomeStartView(){
+  const pts = (fsHomePts && fsHomePts.points) || [];
+  if(!pts.length) return {zoom: 6.6};
+  let w = 180, e = -180, so = 90, n = -90;
+  pts.forEach(p=>{ w = Math.min(w, p.lon); e = Math.max(e, p.lon); so = Math.min(so, p.lat); n = Math.max(n, p.lat); });
+  const ins = fsHomeInset();
+  return {bounds: [[w, so], [e, n]], fitBoundsOptions: {padding: {top: 60 + ins.top, bottom: 40 + ins.bottom, left: 40, right: 70}, maxZoom: pts.length > 1 ? 11 : 8}};
+}
 function fsHomeCreateMap(){
-  fsHomeMap = fsmCreateMap('fs-home-map-inner', {zoom: 7, ctlTop: 52, on3d: (m)=>{
+  fsHomeMap = fsmCreateMap('fs-home-map-inner', Object.assign({zoom: 7, ctlTop: 52}, fsHomeStartView(), {on3d: (m)=>{
     if(fsCtxOn3d){ fsCtxOn3d(m); return; }
     const c = m.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom: Math.max(12, m.getZoom()), heading: m.getBearing()});
-  }});
+  }}));
   fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
   fsHomeWireHold(fsHomeMap);
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
@@ -2095,7 +2120,7 @@ function fsHomeLayout(){
   const slot = document.querySelector('main .fs-home-slot');
   const sheet = slot && document.querySelector('main .fs-sheet');
   if(!sheet){ root.classList.remove('fs-mapmode'); delete root.dataset.fsHome; document.querySelectorAll('body > .fs-fab').forEach(x=> x.remove()); return; }
-  if(!root.classList.contains('fs-mapmode')){ root.classList.add('fs-mapmode'); setTimeout(()=>{ try{ if(fsHomeMap){ const all = fsHomeAll; fsHomeFitting = true; fsHomeMap.resize(); fsHomeFitting = false; fsHomeAll = all; if(all) fsHomeFitAll(); } }catch(e){} }, 0); }
+  if(!root.classList.contains('fs-mapmode')){ root.classList.add('fs-mapmode'); setTimeout(()=>{ try{ if(fsHomeMap){ const all = fsHomeAll; fsHomeFitting = true; fsHomeResizeIfNeeded(); fsHomeFitting = false; fsHomeAll = all; if(all) fsHomeFitAll(); } }catch(e){} }, 0); }
   // Glas-Leiste: Disziplin-Umschalter und Menü
   const bar = document.querySelector('.app-switch-bar');
   let glass = document.getElementById('fs-glass');
@@ -6176,6 +6201,9 @@ function fsmEnsureLoaded(){
   });
   return fsmLoadPromise;
 }
+// Kartenbibliothek gleich beim Start laden (parallel zum ersten Zeichnen der Liste), nicht erst wenn
+// die Startkarte sie braucht – die Karte steht so deutlich früher
+setTimeout(()=>{ try{ fsmEnsureLoaded().catch(()=>{}); }catch(e){} }, 0);
 // Landeskarte über "fsoff://": zuerst die für unterwegs geladenen Kacheln (IndexedDB), sonst Netz.
 // So zeigt JEDE Karte offline die Landeskarte, sobald eine Tour in dieser Gegend geladen ist.
 let fsmOfflineIds = null, fsmOfflineIdsAt = 0;
@@ -6254,6 +6282,7 @@ function fsmCreateMap(container, opts){
   const c = opts.center || [46.8182, 8.2275];
   const map = new maplibregl.Map({
     container, style: fsmBaseStyle(), center:[c[1], c[0]], zoom: opts.zoom != null ? opts.zoom : 8,
+    bounds: opts.bounds || undefined, fitBoundsOptions: opts.fitBoundsOptions || undefined,
     maxPitch: 60, attributionControl: {compact: true}, dragRotate: true, touchPitch: true,
     maxBounds: FSM_BOUNDS
   });
@@ -15804,6 +15833,35 @@ async function getTourOfflineStatus(offlineId){
   }catch(e){ return null; }
 }
 
+// Übersichtskarte der Schweiz für offline: die grobe Landeskarte (Kachel-Zoom 7–10, gut 200 Kacheln,
+// wenige MB) einmal im Hintergrund speichern. Die Startkarte zeigt offline dann überall das Gelände statt
+// einer grauen Fläche; genaue Karten gibt es weiterhin mit dem Offline-Download einer Tour.
+const FS_OVERVIEW_ID = 'ch-overview';
+async function fsOverviewCacheEnsure(){
+  try{
+    if(navigator.onLine === false || !window.indexedDB) return;
+    const rec = await idbGet('downloads', FS_OVERVIEW_ID);
+    if(rec && rec.complete && rec.expiresAt - Date.now() > 30 * 864e5) return;
+    const tx = (lon, z)=> Math.floor((lon + 180) / 360 * 2 ** z);
+    const ty = (lat, z)=>{ const r = lat * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z); };
+    const tiles = [];
+    for(let z = 7; z <= 10; z++) for(let x = tx(5.8, z); x <= tx(10.6, z); x++) for(let y = ty(47.9, z); y <= ty(45.75, z); y++) tiles.push([z, x, y]);
+    let ok = 0;
+    for(const [z, x, y] of tiles){
+      const key = FS_OVERVIEW_ID + '_' + z + '_' + x + '_' + y;
+      try{
+        if(await idbGet('tiles', key)){ ok++; continue; }
+        const res = await fetch(`https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/${z}/${x}/${y}.jpeg`);
+        if(res.ok){ await idbPut('tiles', key, await res.blob()); ok++; }
+      }catch(e){ if(navigator.onLine === false) return; }
+      await new Promise(r=> setTimeout(r, 30)); // im Hintergrund, ohne die App zu bremsen
+    }
+    const now = Date.now();
+    await idbPut('downloads', FS_OVERVIEW_ID, {offlineId: FS_OVERVIEW_ID, tourName: 'Übersicht Schweiz', downloadedAt: now, expiresAt: now + 365 * 864e5, tileCount: ok, imageCount: 0, complete: ok >= tiles.length * 0.9});
+    fsmOfflineIds = null; // Kartenkacheln gleich aus dem neuen Speicher suchen
+  }catch(e){}
+}
+setTimeout(()=> (window.requestIdleCallback || setTimeout)(()=> fsOverviewCacheEnsure()), 15000);
 async function cleanupExpiredOfflineDownloads(){
   try{
     const all = await idbGetAllEntries('downloads');
