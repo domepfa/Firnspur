@@ -2295,7 +2295,8 @@ let fsPrerendered = false;
 function fsPrerenderDisciplines(bar){
   if(fsPrerendered || !bar || navigator.onLine === false) return;
   try{ if(!(window.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules'))) return; }catch(e){ return; }
-  const urls = Array.from(bar.querySelectorAll('a[href]:not(.active)')).map(a=> a.getAttribute('href')).filter(h=> h && !/^https?:/.test(h));
+  const here = location.pathname.split('/').pop() || 'index.html';
+  const urls = Array.from(bar.querySelectorAll('a[href]:not(.active)')).map(a=> a.getAttribute('href')).filter(h=> h && !/^https?:/.test(h) && h.replace('./', '').split('?')[0] !== here);
   if(!urls.length) return;
   fsPrerendered = true;
   const sc = document.createElement('script');
@@ -2328,7 +2329,7 @@ function fsHomeHero(sheet){
   const heroEl = document.querySelector('#app .hero');
   const title = ((heroEl && heroEl.querySelector('h1')) || {}).textContent || '';
   // Bild aus dem Stil der App nur einmal pro Kopf lesen (getComputedStyle erzwingt sonst jedes Mal Neuberechnung)
-  const ik = heroEl ? heroEl.className + '|' + document.documentElement.classList.contains('fs-dark') : '';
+  const ik = heroEl ? heroEl.className + '|' + document.documentElement.dataset.disc + '|' + document.documentElement.classList.contains('fs-dark') : '';
   let img = fsHomeHeroImg[ik];
   if(!img){ img = 'none'; try{ if(heroEl){ img = getComputedStyle(heroEl, '::before').backgroundImage || 'none'; fsHomeHeroImg[ik] = img; } }catch(e){} }
   let h = sheet.querySelector(':scope > .fs-sheet-hero');
