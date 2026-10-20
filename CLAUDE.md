@@ -15,9 +15,12 @@ aus anderen Apps übernehmen.
 ## Dateien
 - `index.html` (Skitour), `fixseil.html` (Hochtour/Klettern), `wandern.html` (Wandern):
   je eine App mit eigenem Code für Listen, Formulare und Laden.
-  In `beta/` laufen Skitour und Wandern schon zusammen auf `index.html` (`?d=wand`, Wechsel ohne
-  Neuladen über `fsSwitchDisc`; `DISC` und `fsDiscVars` stellen Pfade und Gerätekopie um; Funktionen,
-  die sich unterscheiden, gibt es als `…Ski`/`…Wand`). `beta/wandern.html` leitet nur weiter.
+  In `beta/` laufen alle vier Disziplinen auf `index.html` (`?d=wand|hoch|klet`, Wechsel ohne Neuladen
+  über `fsSwitchDisc`; `DISC`, `fsDiscVars` stellen Pfade und Gerätekopie um). Zwei Teile: Skitour/Wandern
+  (Skript in index.html + `0-ski-wandern.js`; was sich unterscheidet als `…Ski`/`…Wand`) und Hochtour/
+  Klettern (Block «Hochtour / Klettern» am Ende von index.html, früher fixseil.html). Namen, die beide
+  Teile haben (state, render, loadAll …), heissen `Name__sw` / `Name__fix`; `fsModeSet` schaltet um
+  (Liste im Vorspann oben in index.html). `beta/wandern.html` und `beta/fixseil.html` leiten nur weiter.
 - `0-shared.js`: gemeinsamer Code aller drei Apps (Karten, Firebase, Rettung/Versionen,
   Tourenzettel, Icons …). Gross, gezielt suchen statt ganz lesen.
 - `0-ski-wandern.js`: Code, den nur Skitour und Wandern teilen (Ansichten, Formulare für Hütten
