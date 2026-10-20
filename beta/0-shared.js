@@ -3764,11 +3764,28 @@ function fsPointInGeom(lon, lat, geom){
   if(geom.type === 'MultiPolygon') return geom.coordinates.some(inPoly);
   return false;
 }
+// SLF-Lawinenbulletin und Warnregionen. Zuerst aus dem Branch «daten» (von der GitHub-Action alle
+// 30 Min. abgelegt, tools/slf-bulletin.py) – das klappt im Browser immer; erst wenn dort nichts
+// Frisches liegt, direkt bei aws.slf.ch (das scheitert im Browser je nach Lage mit «Failed to fetch»).
+const FS_SLF_DATEN_URL = 'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-bulletin.json';
+async function fsSlfFetchBulletin(){
+  let viaDaten = null;
+  try{
+    const r = await fetch(FS_SLF_DATEN_URL, {cache: 'no-cache'});
+    if(r.ok){ const d = await r.json(); if(d && d.regions && d.bulletin) viaDaten = d; }
+  }catch(e){}
+  const fresh = viaDaten && viaDaten.fetchedAt && Date.now() - new Date(viaDaten.fetchedAt).getTime() < 3 * 3600e3;
+  if(fresh) return {regions: viaDaten.regions, bd: viaDaten.bulletin};
+  try{
+    const [a, b] = await Promise.all([fetch('https://aws.slf.ch/api/warningregion/'), fetch('https://aws.slf.ch/api/bulletin/caaml')]);
+    if(a.ok && b.ok) return {regions: await a.json(), bd: await b.json()};
+  }catch(e){}
+  if(viaDaten) return {regions: viaDaten.regions, bd: viaDaten.bulletin}; // älter als 3 h, aber besser als nichts
+  throw new Error('Lawinenbulletin gerade nicht abrufbar (SLF nicht erreichbar).');
+}
 // SLF-Bulletin für einen Punkt, nur wenn es am Tourtag (Morgen) gilt — sonst null
 async function fsSlfBulletinAt(lat, lon, dateStr){
-  const [regionsRes, bulletinRes] = await Promise.all([fetch('https://aws.slf.ch/api/warningregion/'), fetch('https://aws.slf.ch/api/bulletin/caaml')]);
-  if(!regionsRes.ok || !bulletinRes.ok) throw new Error('SLF nicht erreichbar');
-  const regions = await regionsRes.json(), bd = await bulletinRes.json();
+  const {regions, bd} = await fsSlfFetchBulletin();
   const feat = (regions.features || []).find(f=> fsPointInGeom(lon, lat, f.geometry));
   if(!feat) return null;
   const rid = slfRegionId(feat);
@@ -3801,9 +3818,7 @@ function fsSlfAll(){
   // Regionen und Bulletins einmal laden, nach 30 Min. neu
   if(!fsSlfAllPromise || Date.now() - fsSlfAllAt > 30 * 60000){
     fsSlfAllAt = Date.now();
-    fsSlfAllPromise = Promise.all([fetch('https://aws.slf.ch/api/warningregion/'), fetch('https://aws.slf.ch/api/bulletin/caaml')])
-      .then(async ([a, b])=>{ if(!a.ok || !b.ok) throw new Error('SLF nicht erreichbar'); return {regions: await a.json(), bd: await b.json()}; })
-      .catch(e=>{ fsSlfAllPromise = null; throw e; });
+    fsSlfAllPromise = fsSlfFetchBulletin().catch(e=>{ fsSlfAllPromise = null; throw e; });
   }
   return fsSlfAllPromise;
 }
@@ -6186,13 +6201,7 @@ const SLF_DANGER_LEVELS = {
 // für die Regions-ID, "worst case" bei mehreren Höhenbändern/Expositionen) — bei unerwarteter
 // Antwortform gibt es "keine Daten" statt eines Fehlers oder einer falschen Einfärbung.
 async function fetchSlfDangerRegions(){
-  const [regionsRes, bulletinRes] = await Promise.all([
-    fetch('https://aws.slf.ch/api/warningregion/'),
-    fetch('https://aws.slf.ch/api/bulletin/caaml')
-  ]);
-  if(!regionsRes.ok || !bulletinRes.ok) throw new Error('Lawinendaten aktuell nicht abrufbar.');
-  const regionsData = await regionsRes.json();
-  const bulletinData = await bulletinRes.json();
+  const {regions: regionsData, bd: bulletinData} = await fsSlfFetchBulletin();
   const features = Array.isArray(regionsData.features) ? regionsData.features : [];
   if(!features.length) throw new Error('Keine Warnregionen erhalten.');
   const bulletins = Array.isArray(bulletinData) ? bulletinData : (Array.isArray(bulletinData.bulletins) ? bulletinData.bulletins : []);
