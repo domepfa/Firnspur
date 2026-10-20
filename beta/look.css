@@ -2752,3 +2752,10 @@ html.fs-mapmode .fs-sheet .toolbar-row.fs-search-beside{ width:auto; margin:0 0 
 .fs-pt-offer-new .btn.secondary{ background:var(--paper); color:var(--ink); border:1px solid var(--line); }
 /* Planer offen: Kartenknöpfe oben rechts unter der Suchleiste (unten liegt die Planung) */
 html.fs-mapmode.fs-planning .fs-home-slot .fsm-ctlbox{ top:calc(var(--fs-glass-top) + 70px) !important; bottom:auto; opacity:1; pointer-events:auto; }
+
+/* Ruhiger Start: bis die Karte steht eine ruhige Fläche in den Farben der Karte, dann blendet sie einmal
+   weich ein. Die Skizze (Punkte mit Namen) nur als Ersatz, wenn die Karte nicht lädt (fs-sketch). */
+html.fs-mapmode .fs-home-slot{ background:linear-gradient(170deg, #EEF2EC 0%, #E7EEE6 45%, #EEF2F4 100%); }
+html.fs-dark.fs-mapmode .fs-home-slot{ background:linear-gradient(170deg, #1B232A 0%, #1E262C 100%); }
+html.fs-mapmode .fs-home-slot:not(.fs-sketch) .map-strip-canvas{ visibility:hidden; }
+html.fs-mapmode .fs-home-map{ transition:opacity .45s ease; }
