@@ -1,5 +1,5 @@
 // Beta (siehe tools/promote-beta.sh): eigener Cache, räumt nur die eigenen alten Versionen weg.
-const CACHE_NAME = 'bergtouren-beta-shell-v10';
+const CACHE_NAME = 'bergtouren-beta-shell-v11';
 const SHELL_ASSETS = [
   './', './index.html', './fixseil.html', './wandern.html', './0-shared.js', './0-ski-wandern.js', './look.css', '../0-geo-ch.js',
   './manifest.json', './manifest-fixseil.json', './manifest-wandern.json', '../wandern-hero.jpg',

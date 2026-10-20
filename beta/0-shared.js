@@ -3777,7 +3777,8 @@ async function fsSlfFetchBulletin(){
   const fresh = viaDaten && viaDaten.fetchedAt && Date.now() - new Date(viaDaten.fetchedAt).getTime() < 3 * 3600e3;
   if(fresh) return {regions: viaDaten.regions, bd: viaDaten.bulletin};
   try{
-    const [a, b] = await Promise.all([fetch('https://aws.slf.ch/api/warningregion/'), fetch('https://aws.slf.ch/api/bulletin/caaml')]);
+    // Seit Oktober 2026: Bulletin nur noch unter /caaml/<sprache>/json; Regionen-Umrisse von den EAWS (gleiche IDs, CH-…)
+    const [a, b] = await Promise.all([fetch('https://regions.avalanches.org/micro-regions/CH_micro-regions.geojson.json'), fetch('https://aws.slf.ch/api/bulletin/caaml/de/json')]);
     if(a.ok && b.ok) return {regions: await a.json(), bd: await b.json()};
   }catch(e){}
   if(viaDaten) return {regions: viaDaten.regions, bd: viaDaten.bulletin}; // älter als 3 h, aber besser als nichts
