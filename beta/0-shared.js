@@ -15833,6 +15833,35 @@ async function getTourOfflineStatus(offlineId){
   }catch(e){ return null; }
 }
 
+// Übersichtskarte der Schweiz für offline: die grobe Landeskarte (Kachel-Zoom 7–10, gut 200 Kacheln,
+// wenige MB) einmal im Hintergrund speichern. Die Startkarte zeigt offline dann überall das Gelände statt
+// einer grauen Fläche; genaue Karten gibt es weiterhin mit dem Offline-Download einer Tour.
+const FS_OVERVIEW_ID = 'ch-overview';
+async function fsOverviewCacheEnsure(){
+  try{
+    if(navigator.onLine === false || !window.indexedDB) return;
+    const rec = await idbGet('downloads', FS_OVERVIEW_ID);
+    if(rec && rec.complete && rec.expiresAt - Date.now() > 30 * 864e5) return;
+    const tx = (lon, z)=> Math.floor((lon + 180) / 360 * 2 ** z);
+    const ty = (lat, z)=>{ const r = lat * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z); };
+    const tiles = [];
+    for(let z = 7; z <= 10; z++) for(let x = tx(5.8, z); x <= tx(10.6, z); x++) for(let y = ty(47.9, z); y <= ty(45.75, z); y++) tiles.push([z, x, y]);
+    let ok = 0;
+    for(const [z, x, y] of tiles){
+      const key = FS_OVERVIEW_ID + '_' + z + '_' + x + '_' + y;
+      try{
+        if(await idbGet('tiles', key)){ ok++; continue; }
+        const res = await fetch(`https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/${z}/${x}/${y}.jpeg`);
+        if(res.ok){ await idbPut('tiles', key, await res.blob()); ok++; }
+      }catch(e){ if(navigator.onLine === false) return; }
+      await new Promise(r=> setTimeout(r, 30)); // im Hintergrund, ohne die App zu bremsen
+    }
+    const now = Date.now();
+    await idbPut('downloads', FS_OVERVIEW_ID, {offlineId: FS_OVERVIEW_ID, tourName: 'Übersicht Schweiz', downloadedAt: now, expiresAt: now + 365 * 864e5, tileCount: ok, imageCount: 0, complete: ok >= tiles.length * 0.9});
+    fsmOfflineIds = null; // Kartenkacheln gleich aus dem neuen Speicher suchen
+  }catch(e){}
+}
+setTimeout(()=> (window.requestIdleCallback || setTimeout)(()=> fsOverviewCacheEnsure()), 15000);
 async function cleanupExpiredOfflineDownloads(){
   try{
     const all = await idbGetAllEntries('downloads');
