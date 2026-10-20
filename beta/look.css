@@ -2759,3 +2759,8 @@ html.fs-mapmode .fs-home-slot{ background:linear-gradient(170deg, #EEF2EC 0%, #E
 html.fs-dark.fs-mapmode .fs-home-slot{ background:linear-gradient(170deg, #1B232A 0%, #1E262C 100%); }
 html.fs-mapmode .fs-home-slot:not(.fs-sketch) .map-strip-canvas{ visibility:hidden; }
 html.fs-mapmode .fs-home-map{ transition:opacity .45s ease; }
+
+/* Karte im Vollbild (Knopf bei den Kartenknöpfen) */
+html.fs-mapfull :is(.fs-sheet, #fs-glass, .fs-topbar, .fs-tb-res, body > .fs-fab, #fs-home-mapbtn, .app-switch-bar){ display:none !important; }
+html.fs-mapfull.fs-mapmode .fs-home-slot .fsm-ctlbox{ top:calc(env(safe-area-inset-top, 0px) + 12px) !important; bottom:auto; opacity:1; pointer-events:auto; }
+html.fs-planning .fsm-ctlbox [data-fsm="full"]{ display:none; }

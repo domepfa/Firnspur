@@ -1526,6 +1526,36 @@ function fsHomeResizeIfNeeded(){
   const c = fsHomeMap.getContainer(), cv = fsHomeMap.getCanvas();
   if(Math.abs(cv.clientWidth - c.clientWidth) > 1 || Math.abs(cv.clientHeight - c.clientHeight) > 1) fsHomeMap.resize();
 }
+// Karte im Vollbild: Blatt, Suchleiste und «Neue Tour» weg, nur Karte und Kartenknöpfe; wo möglich auch
+// ohne Leisten des Browsers. Derselbe Knopf, Zurück oder Esc beendet es.
+let fsHomeFullLayer = null;
+function fsHomeFullToggle(on){
+  const root = document.documentElement;
+  const now = root.classList.contains('fs-mapfull');
+  if(on === undefined) on = !now;
+  if(on === now) return;
+  root.classList.toggle('fs-mapfull', on);
+  document.querySelectorAll('.fsm-ctlbox [data-fsm="full"]').forEach(b=>{
+    b.innerHTML = fsIconHtml(on ? 'x' : 'expand');
+    b.setAttribute('aria-label', on ? 'Vollbild beenden' : 'Karte im Vollbild');
+  });
+  try{
+    if(on && document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen({navigationUI: 'hide'}).catch(()=>{});
+    if(!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+  }catch(e){}
+  if(on){
+    fsHomeFullLayer = ()=>{ fsHomeFullLayer = null; fsHomeFullToggle(false); };
+    pushOverlayLayer(fsHomeFullLayer);
+  }else if(fsHomeFullLayer){
+    const i = overlayLayers.indexOf(fsHomeFullLayer);
+    fsHomeFullLayer = null;
+    if(i >= 0 && i === overlayLayers.length - 1){ overlayLayers.pop(); consumeHistoryEntry(); }
+    else if(i >= 0) overlayLayers.splice(i, 1);
+  }
+  setTimeout(()=>{ try{ if(fsHomeMap) fsHomeMap.resize(); }catch(e){} }, 60);
+}
+// Browser-Vollbild von aussen beendet (Wischgeste, Esc): Ansicht mitnehmen
+document.addEventListener('fullscreenchange', ()=>{ if(!document.fullscreenElement && document.documentElement.classList.contains('fs-mapfull')) fsHomeFullToggle(false); });
 // Erster Ausschnitt gleich dort, wo alle Einträge Platz haben (kein Sprung nach dem Laden)
 function fsHomeStartView(){
   const pts = (fsHomePts && fsHomePts.points) || [];
@@ -1536,7 +1566,7 @@ function fsHomeStartView(){
   return {bounds: [[w, so], [e, n]], fitBoundsOptions: {padding: {top: 60 + ins.top, bottom: 40 + ins.bottom, left: 40, right: 70}, maxZoom: pts.length > 1 ? 11 : 8}};
 }
 function fsHomeCreateMap(){
-  fsHomeMap = fsmCreateMap('fs-home-map-inner', Object.assign({zoom: 7, ctlTop: 52}, fsHomeStartView(), {on3d: (m)=>{
+  fsHomeMap = fsmCreateMap('fs-home-map-inner', Object.assign({zoom: 7, ctlTop: 52, full: true}, fsHomeStartView(), {on3d: (m)=>{
     if(fsCtxOn3d){ fsCtxOn3d(m); return; }
     const c = m.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom: Math.max(12, m.getZoom()), heading: m.getBearing()});
   }}));
@@ -6273,9 +6303,17 @@ function fsmBaseStyle(){
 }
 // Grenzen: so weit die Kartendaten reichen (Basiskarte swisstopo ~3.6–13.6° O, 44.2–48.9° N), sonst weisse
 // Flächen. Die Startkarte darf weiter nach Süden: dort liegt die untere Hälfte ohnehin unter dem Blatt.
-const FSM_BOUNDS = [[3.6, 44.2], [13.6, 48.9]], FSM_HOME_BOUNDS = [[4.4, 41.5], [12, 48.9]]; // Süden mit Spielraum: in «mitte» liegt die untere Hälfte unter dem Blatt
+const FSM_BOUNDS = [[3.6, 44.2], [13.6, 48.9]], FSM_HOME_BOUNDS = [[4.4, 43.8], [12, 48.9]]; // Süden mit wenig Spielraum (liegt unter dem Blatt); zusammen mit fsHomeMinZoom nie weisse Ränder
 // Startkarte: höchstens so weit hinaus, dass die Schweiz (~5° breit) die Bildschirmbreite füllt
-function fsHomeMinZoom(){ return Math.max(4, Math.log2(360 * Math.max(320, window.innerWidth) / (512 * 5.2))); }
+// Nie weiter hinaus, als die Karte reicht: Breite und Höhe des Bildschirms müssen in die Grenzen passen
+// (sonst schob die Karte weisse Flächen ins Bild); dazu immer etwas hineingezoomt (mindestens 6.4)
+function fsHomeMinZoom(){
+  const merc = lat=> Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) * 180 / Math.PI;
+  const b = FSM_HOME_BOUNDS;
+  const zw = Math.log2(360 * Math.max(320, window.innerWidth) / (512 * (b[1][0] - b[0][0])));
+  const zh = Math.log2(360 * Math.max(480, window.innerHeight) / (512 * (merc(b[1][1]) - merc(b[0][1]))));
+  return Math.max(6.4, zw, zh);
+}
 // Karte erstellen. opts: {center:[lat,lon], zoom, controls:true, on3d:(map)=>{}}
 function fsmCreateMap(container, opts){
   opts = opts || {};
@@ -6286,7 +6324,7 @@ function fsmCreateMap(container, opts){
     maxPitch: 60, attributionControl: {compact: true}, dragRotate: true, touchPitch: true,
     maxBounds: FSM_BOUNDS
   });
-  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0, gpsOnce: !!opts.gpsOnce, search: !!opts.search};
+  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0, gpsOnce: !!opts.gpsOnce, search: !!opts.search, full: !!opts.full};
   // Tipp in die Karte schliesst das Ebenen-Fenster
   map.on('click', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) fsmClosePanel(map); });
   map.on('dragstart', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden && !map._fsm.panel.classList.contains('fsm-panel-sheet')) fsmClosePanel(map); });
@@ -7361,6 +7399,7 @@ function fsmAddControls(map){
   if(map._fsm.ctlTop) box.style.top = map._fsm.ctlTop + 'px';
   box.innerHTML = `${map._fsm.search ? `<button type="button" class="fsm-btn" data-fsm="search" aria-label="Auf der Karte suchen">${fsIconHtml('search')}</button>
     <button type="button" class="fsm-btn" data-fsm="plan" aria-label="Route planen">${fsIconHtml('compass')}</button>` : ''}
+    ${map._fsm.full ? `<button type="button" class="fsm-btn fsm-full" data-fsm="full" aria-label="Karte im Vollbild">${fsIconHtml('expand')}</button>` : ''}
     <button type="button" class="fsm-btn" data-fsm="layers" aria-label="Kartenebenen">${fsIconHtml('layers')}</button>
     <button type="button" class="fsm-btn" data-fsm="gps" aria-label="Mein Standort">${fsIconHtml('gps')}</button>
     <button type="button" class="fsm-btn fsm-compass" data-fsm="north" aria-label="Nach Norden ausrichten" hidden><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><g class="fsm-needle"><path d="M12 2.5 15.2 12H8.8Z" fill="#E03131"/><path d="M12 21.5 8.8 12h6.4Z" fill="#9AA5AD"/><text x="12" y="11" text-anchor="middle" font-size="5.5" font-weight="800" fill="#fff" font-family="sans-serif">N</text></g></svg></button>
@@ -7379,6 +7418,8 @@ function fsmAddControls(map){
   });
   const sb = box.querySelector('[data-fsm="search"]');
   if(sb) sb.addEventListener('click', ()=> fsmOpenSearch(map));
+  const fb = box.querySelector('[data-fsm="full"]');
+  if(fb) fb.addEventListener('click', ()=> fsHomeFullToggle());
   const pb = box.querySelector('[data-fsm="plan"]');
   if(pb) pb.addEventListener('click', ()=> fsPlannerOpen());
   box.querySelector('[data-fsm="north"]').addEventListener('click', ()=> map.easeTo({bearing:0, pitch:0, duration:500}));
