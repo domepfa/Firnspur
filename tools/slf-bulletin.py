@@ -10,8 +10,21 @@ from datetime import datetime, timezone
 OUT = sys.argv[1] if len(sys.argv) > 1 else 'slf-bulletin.json'
 REPO = os.environ.get('GITHUB_REPOSITORY', 'domepfa/Firnspur')
 OLD_URL = f'https://raw.githubusercontent.com/{REPO}/daten/slf-bulletin.json'
-BULLETIN_URLS = ['https://aws.slf.ch/api/bulletin/caaml', 'https://aws.slf.ch/api/bulletin/caaml/de/json']
-REGIONS_URL = 'https://aws.slf.ch/api/warningregion/'
+# Seit Oktober 2026 liefert /api/bulletin/caaml ohne Sprache/Format keine Daten mehr, nur noch /caaml/<sprache>/json.
+BULLETIN_URLS = ['https://aws.slf.ch/api/bulletin/caaml/de/json', 'https://aws.slf.ch/api/bulletin/caaml']
+# Warnregionen (Umrisse, GeoJSON): SLF, sonst die EAWS-Regionen (gleiche IDs wie im Bulletin, z. B. CH-1111)
+REGIONS_URLS = ['https://aws.slf.ch/api/warningregion/', 'https://aws.slf.ch/api/warningregion',
+                'https://regions.avalanches.org/micro-regions/CH_micro-regions.geojson.json']
+
+def peek(url):
+    # Nur für das Protokoll: was liefert die Adresse statt JSON?
+    try:
+        req = urllib.request.Request(url, headers={'Accept': 'application/json', 'User-Agent': 'Firnspur (github.com/domepfa/Firnspur)'})
+        with urllib.request.urlopen(req, timeout=40) as r:
+            body = r.read()[:300].decode('utf-8', 'replace').replace('\n', ' ')
+            print('  ', url, '→', r.status, r.headers.get('Content-Type'), '|', body)
+    except Exception as e:
+        print('  ', url, '→', e)
 
 def get(url):
     err = None
@@ -32,19 +45,25 @@ def main():
     try: old = get(OLD_URL)
     except Exception: pass
     out = {}
-    try:
-        out['regions'] = get(REGIONS_URL)
-        print('Warnregionen:', len(out['regions'].get('features') or []))
-    except Exception as e:
-        print('::warning::Warnregionen nicht abrufbar:', e)
-        if old and old.get('regions'): out['regions'] = old['regions']
+    for u in REGIONS_URLS:
+        try:
+            d = get(u)
+            if isinstance(d, dict) and d.get('features'):
+                out['regions'] = d; out['regionsUrl'] = u
+                print('Warnregionen von', u, '–', len(d['features']), 'Regionen, Beispiel:', json.dumps(d['features'][0].get('properties'))[:200])
+                break
+            print('::warning::Keine Regionen in', u)
+        except Exception as e:
+            print('::warning::Warnregionen nicht abrufbar von', u, ':', e); peek(u)
+    if 'regions' not in out and old and old.get('regions'): out['regions'] = old['regions']
     for u in BULLETIN_URLS:
         try:
             out['bulletin'] = get(u); out['bulletinUrl'] = u
-            print('Bulletin von', u, '–', len(bulletins(out['bulletin'])), 'Teilbulletins')
+            bl = bulletins(out['bulletin'])
+            print('Bulletin von', u, '–', len(bl), 'Teilbulletins, Regionen im ersten:', json.dumps((bl[0].get('regions') or [])[:3]) if bl else '')
             break
         except Exception as e:
-            print('::warning::Bulletin nicht abrufbar von', u, ':', e)
+            print('::warning::Bulletin nicht abrufbar von', u, ':', e); peek(u)
     if 'bulletin' not in out and old and old.get('bulletin'):
         out['bulletin'] = old['bulletin']; out['bulletinUrl'] = old.get('bulletinUrl', ''); out['stale'] = True
     if 'bulletin' not in out or 'regions' not in out:
