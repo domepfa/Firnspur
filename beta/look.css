@@ -2764,3 +2764,9 @@ html.fs-mapmode .fs-home-map{ transition:opacity .45s ease; }
 html.fs-mapfull :is(.fs-sheet, #fs-glass, .fs-topbar, .fs-tb-res, body > .fs-fab, #fs-home-mapbtn, .app-switch-bar){ display:none !important; }
 html.fs-mapfull.fs-mapmode .fs-home-slot .fsm-ctlbox{ top:calc(env(safe-area-inset-top, 0px) + 12px) !important; bottom:auto; opacity:1; pointer-events:auto; }
 html.fs-planning .fsm-ctlbox [data-fsm="full"]{ display:none; }
+
+/* Wechsel der Disziplin (eigene Seite): weich überblenden statt kurz weiss; Suchleiste bleibt stehen */
+@view-transition{ navigation:auto; }
+html.fs-mapmode .fs-topbar{ view-transition-name:fs-topbar; }
+::view-transition-old(root), ::view-transition-new(root){ animation-duration:.28s; }
+@media (prefers-reduced-motion: reduce){ ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*){ animation:none !important; } }
