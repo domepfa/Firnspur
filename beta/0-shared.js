@@ -2451,6 +2451,18 @@ function fsHomeWireDrag(sheet){
 }
 window.addEventListener('resize', ()=>{ if(document.documentElement.classList.contains('fs-mapmode')) fsHomeApply(false); try{ if(fsHomeMap && !fsCtxUsesHome) fsHomeMap.setMinZoom(fsHomeMinZoom()); }catch(e){} });
 
+// Start: die Gerätekopie gleich zeigen, statt auf die Datenbank zu warten (oft 1–3 s im Mobilnetz).
+// Nur zur Anzeige: der Ausgangsstand fürs sichere Speichern kommt erst mit den Daten der Datenbank
+// (speichert man vorher, gilt wie offline die Prüfung per Zeitstempel).
+function fsShowCachedFirst(cached, keys, migrate){
+  if(!cached || typeof state === 'undefined' || !Array.isArray(cached.tours)) return false;
+  keys.forEach(k=>{ if(Array.isArray(cached[k])) state[k] = (migrate && (k === 'tours' || k === 'huts')) ? cached[k].map(migrate) : cached[k]; });
+  return true;
+}
+// Ohne Gerätekopie (erster Start): schon der Aufbau der Startansicht (Karte, Suchleiste, Blatt), nicht die alte Seite
+function fsLoadingStageHtml(){
+  return stageLayoutHtml(mapStripHtml({label: '', kind: 'tour', points: [], emptyText: ''}), '<div class="loading">Lade Touren &amp; Hütten …</div>');
+}
 function stageLayoutHtml(mapHtml, sheetHtml){
   return `<div class="fs-stage">${mapHtml}</div><div class="fs-sheet">${sheetHtml}</div>`;
 }

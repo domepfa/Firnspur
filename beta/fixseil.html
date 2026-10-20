@@ -932,7 +932,8 @@ function loadLocalSnapshot(){
 
 async function loadAll(){
   fsOrteLoad(); // gemeinsame Orte (alle Apps), parallel
-  state.loading = true; render();
+  // Gerätekopie sofort zeigen, die Datenbank aktualisiert danach still (nur ohne Kopie «Lade …»)
+  state.loading = !fsShowCachedFirst(loadLocalSnapshot(), ['tours','huts','sektoren','klettergebiete','gipfel','trashedTours','trashedHuts','trashedSektoren','trashedKlettergebiete','trashedGipfel','agenda'], null); render();
   let [toursObj, hutsObjResult, agendaObj, sektorenObj, klettergebieteObj, gipfelObj] = await Promise.all([ fbGet(TOURS_PATH), fbGet(HUTS_PATH), fbGet(AGENDA_PATH), fbGet(SEKTOREN_PATH), fbGet(KLETTERGEBIETE_PATH), fbGet(GIPFEL_PATH) ]);
   const hutsFailed = fsGetFailed.has(HUTS_PATH);
   let hutsObj = hutsObjResult;
@@ -3031,7 +3032,7 @@ function shellHtml(){
     </div></div>
   </div>
   <main>
-    ${state.loading ? `<div class="loading">Lade Touren &amp; Hütten…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='sektoren' ? sektorenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml())}
+    ${state.loading ? fsLoadingStageHtml() : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='sektoren' ? sektorenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml())}
   </main>
   <div id="modal-root"></div>
   `;
@@ -4611,7 +4612,7 @@ function renderListOnly(){
   const main = document.querySelector('main');
   if(!main) return;
   const hadFocus = !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('main .search-input'));
-  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='sektoren' ? sektorenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml());
+  main.innerHTML = state.loading ? fsLoadingStageHtml() : (state.view==='touren' ? tourenViewHtml() : state.view==='msl' ? mslViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='sektoren' ? sektorenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml());
   const app = document.getElementById('app'); if(app) app._fsShell = null; // render() baut danach wieder ganz neu
   wireGlobalHandlers();
   // Fokus nur zurück ins Suchfeld der Liste, wenn dort getippt wurde (nicht bei der Suchleiste oben)
