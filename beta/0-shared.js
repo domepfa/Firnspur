@@ -18233,7 +18233,7 @@ function fsScanRect(s, z){
   z = z || FS_SCAN_Z;
   const m = fsScanMpp(s.lat, z), [ox, oy] = fsRcPx(s.lat, s.lon, z);
   const b = s.bearing * Math.PI / 180, f = [Math.sin(b), -Math.cos(b)], r = [Math.cos(b), Math.sin(b)];
-  const L = s.length / m, hw = s.length * 0.8 / m / 2;
+  const L = s.length / m, hw = (s.width || s.length * 0.8) / m / 2;
   const t0 = s.centered ? -L / 2 : -Math.min(L * 0.08, 60 / m), t1 = s.centered ? L / 2 : L;
   const corners = [[t0, -hw], [t1, -hw], [t1, hw], [t0, hw]].map(([t, u])=> [ox + f[0] * t + r[0] * u, oy + f[1] * t + r[1] * u]);
   return {ox, oy, f, r, t0, t1, hw, m, corners};
@@ -18398,11 +18398,12 @@ function fsScanFromGps(){
     ()=> showToast('Standort nicht verfügbar – auf der Karte gedrückt halten und «Hang scannen» wählen.', true),
     {enableHighAccuracy: true, timeout: 12000, maximumAge: 30000});
 }
-// Rahmen auf dem Bildschirm (Sucher): oben = Blickrichtung, Höhe = Länge, Breite = 0,8 × Länge
-function fsScanFrameBox(panelH){
+// Rahmen auf dem Bildschirm (Sucher): oben = Blickrichtung, Höhe = Länge, Breite = ratio × Länge
+function fsScanFrameBox(panelH, ratio){
+  ratio = ratio || 0.8;
   const vw = window.innerWidth, vh = window.innerHeight;
-  const top = 76, bottom = vh - panelH - 24, availH = Math.max(160, bottom - top), availW = vw - 56;
-  const h = Math.min(availH, availW / 0.8), w = h * 0.8;
+  const top = 76, bottom = vh - panelH - 24, availH = Math.max(160, bottom - top), availW = vw - 72;
+  const h = Math.min(availH, availW / ratio), w = h * ratio;
   return {left: (vw - w) / 2, top: top + (availH - h) / 2, w, h, cx: vw / 2, cy: top + availH / 2};
 }
 function fsScanZoomFor(lat, len, hPx){ return Math.log2(40075016.686 * Math.cos(lat * Math.PI / 180) / (512 * (len / hPx))); }
@@ -18412,23 +18413,24 @@ function fsScanAim(o){
   if(fsScanAimSt) fsScanAimEnd();
   if(typeof fsHomeDetent !== 'undefined' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
   // Vom Standort: der Standort liegt am unteren Rand des Rahmens; sonst liegt der Punkt in der Mitte
-  const st = fsScanAimSt = {origin: o.centered ? null : {lat: o.lat, lon: o.lon}, length: 1000, userDir: false, compass: null};
+  const st = fsScanAimSt = {origin: o.centered ? null : {lat: o.lat, lon: o.lon}, length: 1000, ratio: 0.8, userDir: false, compass: null};
   document.documentElement.classList.add('fs-scanning');
   const panel = document.createElement('div');
   panel.className = 'fs-scan-aim';
   const canCompass = typeof DeviceOrientationEvent !== 'undefined' && matchMedia('(pointer: coarse)').matches;
   panel.innerHTML = `<div class="fs-scan-aim-head"><b>${fsIconHtml('scan')}Hang-Scan</b><button type="button" class="x-btn" data-x aria-label="Schliessen">×</button></div>
     <div class="fs-scan-aim-row"><span>Richtung</span><b data-dir>–</b>${canCompass ? `<button type="button" class="btn secondary" data-compass>${fsIconHtml('compass')}Kompass</button>` : ''}</div>
-    <p class="fs-scan-aim-hint">Karte verschieben und drehen, bis der Hang im Rahmen liegt. Oben im Rahmen ist die Blickrichtung.</p>
-    <label class="fs-scan-aim-len"><span>Länge</span><b data-len></b><input type="range" min="300" max="3000" step="100" value="1000" aria-label="Länge des Scans"></label>
+    <p class="fs-scan-aim-hint">Karte verschieben und drehen, bis der Hang im Rahmen liegt. Oben ist die Blickrichtung, die Griffe links und rechts ändern die Breite.</p>
+    <label class="fs-scan-aim-len"><span>Länge · Breite</span><b data-len></b><input type="range" min="300" max="3000" step="100" value="1000" aria-label="Länge des Scans"></label>
     <div class="fs-scan-aim-btns"><button type="button" class="btn secondary" data-x>Abbrechen</button><button type="button" class="btn" data-go>${fsIconHtml('scan')}Scannen</button></div>`;
   document.body.appendChild(panel);
   const frame = document.createElement('div');
   frame.className = 'fs-scan-frame';
-  frame.innerHTML = '<i class="fs-scan-frame-up" aria-hidden="true">↑</i>';
+  frame.innerHTML = '<i class="fs-scan-frame-up" aria-hidden="true">↑</i>'
+    + '<button type="button" class="fs-scan-grip" data-side="-1" aria-label="Breite ändern (ziehen)"></button><button type="button" class="fs-scan-grip" data-side="1" aria-label="Breite ändern (ziehen)"></button>';
   document.body.appendChild(frame);
   st.panel = panel; st.frame = frame;
-  const box = ()=> fsScanFrameBox(panel.offsetHeight);
+  const box = ()=> fsScanFrameBox(panel.offsetHeight, st.ratio);
   const place = ()=>{ const b = box(); Object.assign(frame.style, {left: b.left + 'px', top: b.top + 'px', width: b.w + 'px', height: b.h + 'px'}); return b; };
   const centerLL = ()=>{ const b = box(); return ml.unproject([b.cx, b.cy]); };
   const bearing = ()=> ((ml.getBearing() % 360) + 360) % 360;
@@ -18443,7 +18445,7 @@ function fsScanAim(o){
     if(fsScanAimSt !== st) return;
     st.length = lenNow();
     panel.querySelector('[data-dir]').textContent = Math.round(bearing()) + '° ' + fsScanDir(bearing());
-    panel.querySelector('[data-len]').textContent = fsRcFmtM(st.length);
+    panel.querySelector('[data-len]').textContent = fsRcFmtM(st.length) + ' · ' + fsRcFmtM(Math.round(st.length * st.ratio / 50) * 50);
     const r = panel.querySelector('input[type="range"]');
     if(document.activeElement !== r) r.value = String(Math.min(3000, Math.max(300, st.length)));
   };
@@ -18458,6 +18460,24 @@ function fsScanAim(o){
   st.go = go;
   st.setBearing = (b)=>{ try{ ml.easeTo({bearing: b, around: centerLL(), duration: 0}); }catch(e){} };
   ml.on('move', st.upd);
+  // Griffe links und rechts: Breite ziehen (Höhe und damit Länge bleiben)
+  frame.querySelectorAll('.fs-scan-grip').forEach(g=>{
+    g.addEventListener('pointerdown', (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      try{ g.setPointerCapture(e.pointerId); }catch(err){}
+      const b0 = box(), avail = window.innerWidth - 72, len0 = st.length;
+      const move = (ev)=>{
+        const w = Math.min(avail, Math.max(b0.h * 0.3, Math.abs(ev.clientX - b0.cx) * 2));
+        st.ratio = Math.min(2, Math.max(0.3, w / b0.h));
+        // Rahmenhöhe kann sich dabei ändern: Zoom so nachführen, dass die Länge gleich bleibt
+        const b = place(), c = centerLL();
+        try{ ml.easeTo({zoom: fsScanZoomFor(c.lat, len0, b.h), around: c, duration: 0}); }catch(err){}
+        st.upd();
+      };
+      const up = ()=>{ g.removeEventListener('pointermove', move); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up); };
+      g.addEventListener('pointermove', move); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
+    });
+  });
   st.resize = ()=>{ place(); st.upd(); };
   window.addEventListener('resize', st.resize);
   // Standort als Punkt auf der Karte
@@ -18479,7 +18499,7 @@ function fsScanAim(o){
   ml.on('rotatestart', st.userRotate);
   panel.querySelector('[data-go]').addEventListener('click', ()=>{
     const c = centerLL();
-    const s = {lat: c.lat, lon: c.lng, bearing: bearing(), length: st.length, centered: true, origin: st.origin};
+    const s = {lat: c.lat, lon: c.lng, bearing: bearing(), length: st.length, width: Math.round(st.length * st.ratio / 50) * 50, centered: true, origin: st.origin};
     closeTopOverlayLayer();
     setTimeout(()=> fsScanOpen(s), 50);
   });
@@ -18611,7 +18631,7 @@ function fsScanCardHtml(res, k){
   const legend = L.legend.map(([c, t])=> `<li><i class="${c === 'hatch' ? 'fs-scan-hatch' : ''}" style="${c === 'hatch' ? '' : 'background:' + fsScanRgb(c)}"></i>${esc(t)}</li>`).join('');
   const stats = [
     [Math.round(s.bearing) + '° ' + fsScanDir(s.bearing), 'Richtung'],
-    [fsRcFmtM(s.length), 'Scan-Länge'],
+    [fsRcFmtM(s.length) + ' × ' + fsRcFmtM(s.width || s.length * 0.8), 'Länge × Breite'],
     res.here ? [res.here.label, 'Neigung hier'] : (res.steep ? [res.steep.label, 'steilste Stelle'] : null)
   ].filter(Boolean);
   const bul = res.bul, top = bul && bul.ratings[0];
