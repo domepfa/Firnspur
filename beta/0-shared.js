@@ -2422,10 +2422,12 @@ function fsHomeWireDrag(sheet){
   sheet.addEventListener('pointerdown', e=>{
     if(e.button > 0 || e.target.closest('select, textarea, .fs-filter-sheet') || (e.target.closest('input') && !e.target.closest('.search-input'))) return;
     if(fsHomeDetent === 'liste' && !isHead(e.target)) return;
-    begin(e.clientY); st.id = e.pointerId; st.ptr = true;
+    begin(e.clientY); st.id = e.pointerId; st.ptr = true; st.x0 = e.clientX;
   });
   sheet.addEventListener('pointermove', e=>{
     if(!st || !st.ptr || e.pointerId !== st.id) return;
+    // Seitlich gewischt (Disziplin wechseln): nicht das Blatt ziehen, Kartenknöpfe bleiben stehen
+    if(!st.moved && Math.abs(e.clientX - st.x0) > Math.abs(e.clientY - st.y0)){ if(Math.abs(e.clientX - st.x0) > 8) st = null; return; }
     if(!st.moved && Math.abs(e.clientY - st.y0) < 8) return;
     if(!st.moved){ try{ sheet.setPointerCapture(e.pointerId); }catch(err){} }
     move(e.clientY);
