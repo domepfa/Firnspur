@@ -18378,9 +18378,10 @@ function fsSunPos(date, lat, lon){
   const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi)) + Math.PI;
   return {az, el};
 }
-function fsScanSunAt(sun, x, y){
+// Wert an einer Bildstelle: Anteil am Tag, oder (k gesetzt) besonnt 0…1 zum Zeitpunkt k
+function fsScanSunAt(sun, x, y, k){
   const fx = x / sun.g, fy = y / sun.g, ix = Math.min(sun.GW - 2, Math.floor(fx)), iy = Math.min(sun.GH - 2, Math.floor(fy)), tx = fx - ix, ty = fy - iy;
-  const v = (a, b)=> sun.frac[b * sun.GW + a];
+  const v = k == null ? (a, b)=> sun.frac[b * sun.GW + a] : (a, b)=> isNaN(sun.frac[b * sun.GW + a]) ? NaN : sun.bits[(b * sun.GW + a) * sun.P + k];
   return (v(ix, iy) * (1 - tx) + v(ix + 1, iy) * tx) * (1 - ty) + (v(ix, iy + 1) * (1 - tx) + v(ix + 1, iy + 1) * tx) * ty;
 }
 async function fsScanSun(res){
@@ -18420,8 +18421,9 @@ async function fsScanSun(res){
   for(let d = 40; d <= reach; d *= 1.12) steps.push(d);
   const now = fsSunPos(new Date(), s.lat, s.lon);
   const nowI = now.el > 0.01 ? pos.reduce((b, p, i)=> Math.abs(p.t - Date.now()) < Math.abs(pos[b].t - Date.now()) ? i : b, 0) : -1;
-  const frac = new Float32Array(GW * GH).fill(NaN);
-  let inN = 0, inLit = 0, sumF = 0, sumN = 0;
+  const frac = new Float32Array(GW * GH).fill(NaN), P = pos.length;
+  const bits = new Uint8Array(GW * GH * P), litPos = new Uint32Array(P); // Zeitraffer: besonnt je Zeitpunkt
+  let inN = 0, inLit = 0, sumF = 0, sumN = 0, nodesIn = 0;
   const rad = Math.PI / 180;
   for(let gy = 0; gy < GH; gy++){
     for(let gx = 0; gx < GW; gx++){
@@ -18432,6 +18434,8 @@ async function fsScanSun(res){
       const sl = res.slope[ii], as = res.asp[ii];
       const n = isNaN(sl) || isNaN(as) ? null : [Math.sin(sl * rad) * Math.sin(as * rad), Math.sin(sl * rad) * Math.cos(as * rad), Math.cos(sl * rad)];
       let lit = 0, litNow = false;
+      const node = gy * GW + gx, inside = !isNaN(res.slope[ii]);
+      if(inside) nodesIn++;
       for(let k = 0; k < pos.length; k++){
         const p = pos[k];
         if(n && n[0] * p.v[0] + n[1] * p.v[1] + n[2] * p.v[2] <= 0) continue; // vom Hang selbst abgewandt
@@ -18440,7 +18444,7 @@ async function fsScanSun(res){
           const h = hAt(fx + p.sx * d / mppH, fy + p.sy * d / mppH);
           if(!isNaN(h) && (h - h0 - 3) / d > p.tan){ shade = true; break; }
         }
-        if(!shade){ lit++; if(k === nowI) litNow = true; }
+        if(!shade){ lit++; bits[node * P + k] = 1; if(inside) litPos[k]++; if(k === nowI) litNow = true; }
       }
       const f = lit / pos.length;
       frac[gy * GW + gx] = f;
@@ -18454,13 +18458,15 @@ async function fsScanSun(res){
     if(fsSunPos(new Date(t), s.lat, s.lon).el > 0){ if(!rise) rise = new Date(t); set = new Date(t); }
   }
   const dayH = (set - rise) / 3600000;
-  return {g, GW, GH, frac, rise: fmt(rise), set: fmt(set), dayH,
+  return {g, GW, GH, frac, P, bits, times: pos.map(p=> fmt(p.t)), pctAt: Array.from(litPos, v=> nodesIn ? Math.round(v / nodesIn * 100) : 0), nowI,
+    rise: fmt(rise), set: fmt(set), dayH,
     avgH: sumN ? sumF / sumN * dayH : 0, nowPct: nowI >= 0 && inN ? Math.round(inLit / inN * 100) : null};
 }
 // Ebene als Bild (ein Pixel je Geländezelle; die Karte glättet beim Vergrössern), mit der Deckkraft
 // aus dem Regler gemalt (raster-opacity wirkt auf Gelände nicht zuverlässig).
 function fsScanImage(res, k){
-  const op = fsScanOpacity(), key = k + ':' + op;
+  const tk = k === 'sonne' && res.sunT != null ? res.sunT : null;
+  const op = fsScanOpacity(), key = k + ':' + op + (tk != null ? ':t' + tk : '');
   res.img = res.img || {};
   if(res.img[key]) return res.img[key];
   const {W, H, slope} = res;
@@ -18483,8 +18489,12 @@ function fsScanImage(res, k){
     }else if(k === 'klippen'){
       if(sl >= 60){ c = C.red; al = 250; } else if(sl >= 50){ c = C.orange; al = 245; }
     }else if(k === 'sonne' && res.sun){
-      const x = i % W, y = (i - x) / W, f = fsScanSunAt(res.sun, x, y);
-      if(!isNaN(f)){ c = fsScanSunRgb(f); al = 235; }
+      const x = i % W, y = (i - x) / W, f = fsScanSunAt(res.sun, x, y, tk);
+      if(!isNaN(f)){
+        if(tk == null) c = fsScanSunRgb(f);
+        else c = [0, 1, 2].map(j=> Math.round(FS_SCAN_SUN[0][1][j] + (FS_SCAN_SUN[3][1][j] - FS_SCAN_SUN[0][1][j]) * f)); // Schatten blau, Sonne gelb
+        al = 235;
+      }
     }
     if(!c) continue;
     d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = Math.round(al * Math.pow(op, 1.5)); // unten feiner abgestuft (wirkt sonst schon bei wenig Deckkraft kräftig)
@@ -18669,6 +18679,7 @@ async function fsScanCompass(on){
 function fsScanOpacity(){ try{ const v = parseFloat(localStorage.getItem('fs-scan-opacity')); return isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.55; }catch(e){ return 0.55; } }
 let fsScanMap = null;
 function fsScanClose(){
+  if(fsScanPlayTimer){ clearInterval(fsScanPlayTimer); fsScanPlayTimer = 0; }
   if(fsScanMap){ try{ fsScanMap.remove(); }catch(e){} fsScanMap = null; }
   const el = document.getElementById('fs-scan');
   if(el) el.remove();
@@ -18699,6 +18710,7 @@ async function fsScanOpen(s){
   const drawCard = ()=>{
     card.innerHTML = `<label class="fs-scan-op"><span>Deckkraft</span><input type="range" min="0" max="100" step="5" value="${Math.round(fsScanOpacity() * 100)}" aria-label="Deckkraft der Farben"><b>${Math.round(fsScanOpacity() * 100)} %</b></label>` + fsScanCardHtml(res, layer);
     card.hidden = false;
+    fsScanWireTimeline(card, res, ()=> layer, drawCard);
     const r = card.querySelector('.fs-scan-op input'), out = card.querySelector('.fs-scan-op b');
     let raf = 0;
     r.addEventListener('input', ()=>{
@@ -18740,6 +18752,7 @@ async function fsScanOpen(s){
   });
   wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(b=> b.addEventListener('click', async ()=>{
     layer = b.dataset.k;
+    if(layer !== 'sonne' && fsScanPlayTimer){ clearInterval(fsScanPlayTimer); fsScanPlayTimer = 0; res.sunPlaying = false; }
     wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(x=>{ const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
     // Sonne erst beim ersten Antippen rechnen (Schattenwurf braucht Gelände im Umkreis)
     if(layer === 'sonne' && !res.sun && !res.sunBusy){
@@ -18756,6 +18769,48 @@ async function fsScanOpen(s){
     drawCard();
   }));
 }
+// Zeitraffer der Sonne: Regler (ganz links = ganzer Tag) und Abspielen in 20-Minuten-Schritten
+let fsScanPlayTimer = 0;
+function fsScanWireTimeline(card, res, layerNow, redraw){
+  const row = card.querySelector('.fs-scan-tl');
+  if(!row) return;
+  const r = row.querySelector('input'), lbl = row.querySelector('[data-tl]'), play = row.querySelector('[data-play]');
+  const show = (t, full)=>{
+    res.sunT = t < 0 ? null : t;
+    const src = fsScanMap && fsScanMap.getSource('fs-scan');
+    if(src && layerNow() === 'sonne') src.updateImage({url: fsScanImage(res, 'sonne'), coordinates: res.coords});
+    if(full) redraw();
+    else{
+      lbl.textContent = res.sunT == null ? 'Ganzer Tag' : res.sun.times[res.sunT];
+      const f = card.querySelector('.fs-scan-facts');
+      if(f && res.sunT != null) f.innerHTML = `${res.sun.times[res.sunT]} Uhr: <b>${res.sun.pctAt[res.sunT]} %</b> der Fläche in der Sonne.`;
+    }
+  };
+  const stop = ()=>{ if(fsScanPlayTimer){ clearInterval(fsScanPlayTimer); fsScanPlayTimer = 0; } res.sunPlaying = false; };
+  r.addEventListener('input', ()=>{
+    const was = res.sunT == null, t = +r.value;
+    stop();
+    // Zwischen «ganzer Tag» und Uhrzeit wechselt die Legende: dann ganz neu zeichnen
+    show(t, was !== (t < 0));
+  });
+  play.addEventListener('click', ()=>{
+    if(res.sunPlaying){ stop(); redraw(); return; }
+    res.sunPlaying = true;
+    let t = res.sunT == null || res.sunT >= res.sun.P - 1 ? 0 : res.sunT;
+    show(t, true);
+    fsScanPlayTimer = setInterval(()=>{
+      t++;
+      if(t >= res.sun.P){ stop(); redraw(); return; }
+      const rr = card.querySelector('.fs-scan-tl input');
+      if(rr) rr.value = String(t);
+      res.sunT = t;
+      const src = fsScanMap && fsScanMap.getSource('fs-scan');
+      if(src) src.updateImage({url: fsScanImage(res, 'sonne'), coordinates: res.coords});
+      const l = card.querySelector('[data-tl]'); if(l) l.textContent = res.sun.times[t];
+      const f = card.querySelector('.fs-scan-facts'); if(f) f.innerHTML = `${res.sun.times[t]} Uhr: <b>${res.sun.pctAt[t]} %</b> der Fläche in der Sonne.`;
+    }, 450);
+  });
+}
 function fsScanCardHtml(res, k){
   const L = FS_SCAN_LAYERS.find(x=> x.k === k), s = res.s, pct = v=> Math.round(v / res.n * 100) + ' %';
   const legend = L.legend.map(([c, t])=> `<li><i class="${c === 'hatch' ? 'fs-scan-hatch' : ''}" style="${c === 'hatch' ? '' : 'background:' + fsScanRgb(c)}"></i>${esc(t)}</li>`).join('');
@@ -18767,7 +18822,9 @@ function fsScanCardHtml(res, k){
   const bul = res.bul, top = bul && bul.ratings[0];
   let facts = `Steiler als 30°: <b>${pct(res.n30)}</b> der Fläche, steiler als 35°: <b>${pct(res.n35)}</b>.`;
   if(res.steep) facts += ` Steilste Stelle ${esc(res.steep.label)}${isFinite(res.steep.ele) ? ' auf ' + fsRcFmtE(res.steep.ele) + ' m' : ''}, Exposition ${FS_RC_ASP_LONG[fsScanDir(res.steep.asp)]}.`;
-  if(k === 'sonne'){
+  if(k === 'sonne' && res.sun && res.sunT != null){
+    facts = `${res.sun.times[res.sunT]} Uhr: <b>${res.sun.pctAt[res.sunT]} %</b> der Fläche in der Sonne.`;
+  }else if(k === 'sonne'){
     const sun = res.sun;
     facts = res.sunBusy ? 'Sonne wird gerechnet …' : res.sunError ? esc(res.sunError)
       : `Sonne heute über dem Horizont ${sun.rise}–${sun.set}. Im Scan im Mittel <b>${sun.avgH.toFixed(1).replace('.0', '')} h</b> Sonne`
@@ -18780,8 +18837,12 @@ function fsScanCardHtml(res, k){
       : `<p class="fs-scan-bul">${top ? `<span class="fs-scan-lvl" style="background:${top.color}">${top.level}</span><b>${esc(top.label)}</b>${top.elev ? ' · ' + esc(top.elev) : ''}` : ''}${bul.region ? `<small>${esc(bul.region)}</small>` : ''}</p>`
         + (res.probs.length ? `<p class="fs-scan-note">${res.probs.map(pr=> esc(pr.type) + (pr.aspects.length ? ' (' + pr.aspects.join(' ') + (pr.lower ? ', über ' + pr.lower + ' m' : '') + (pr.upper ? ', unter ' + pr.upper + ' m' : '') + ')' : '')).join(' · ')}.<br>${res.hits ? 'Schraffiert: Hänge im Scan, auf die ein Lawinenproblem von heute passt.' : 'Kein Hang im Scan passt nach Höhe und Exposition zu einem Lawinenproblem von heute.'}</p>` : '<p class="fs-scan-note">Das Bulletin nennt heute kein besonderes Lawinenproblem.</p>');
   }
-  const legendHtml = k === 'sonne'
-    ? `<div class="fs-scan-legend"><small>${esc(L.title)}</small><div class="fs-scan-sunbar" style="background:linear-gradient(90deg, ${FS_SCAN_SUN.map(([f, c])=> 'rgb(' + c.join(',') + ') ' + Math.round(f * 100) + '%').join(', ')})"></div><div class="fs-scan-sunlbl"><span>Schatten</span><span>ganzer Tag</span></div></div>`
+  const tl = k === 'sonne' && res.sun ? `<div class="fs-scan-tl"><button type="button" class="fs-scan-play" data-play aria-label="Zeitraffer abspielen">${fsIconHtml(res.sunPlaying ? 'pause' : 'play')}</button>
+      <input type="range" min="-1" max="${res.sun.P - 1}" step="1" value="${res.sunT == null ? -1 : res.sunT}" aria-label="Uhrzeit"><b data-tl>${res.sunT == null ? 'Ganzer Tag' : res.sun.times[res.sunT]}</b></div>` : '';
+  const legendHtml = k === 'sonne' && res.sunT != null
+    ? `${tl}<div class="fs-scan-legend"><ul><li><i style="background:rgb(${FS_SCAN_SUN[3][1].join(',')})"></i>Sonne</li><li><i style="background:rgb(${FS_SCAN_SUN[0][1].join(',')})"></i>Schatten</li></ul></div>`
+    : k === 'sonne'
+    ? `${tl}<div class="fs-scan-legend"><small>${esc(L.title)}</small><div class="fs-scan-sunbar" style="background:linear-gradient(90deg, ${FS_SCAN_SUN.map(([f, c])=> 'rgb(' + c.join(',') + ') ' + Math.round(f * 100) + '%').join(', ')})"></div><div class="fs-scan-sunlbl"><span>Schatten</span><span>ganzer Tag</span></div></div>`
     : `<div class="fs-scan-legend"><small>${esc(L.title)}</small><ul>${legend}</ul></div>`;
   return `<div class="fs-scan-stats">${stats.map(([v, l])=> `<div><b>${esc(v)}</b><small>${esc(l)}</small></div>`).join('')}</div>
     ${legendHtml}
@@ -19755,7 +19816,8 @@ const FS_ICON_PATHS = {
   shield: 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z',
   sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 5v4M8 15v4',
   gps: 'M3 11l18-8-8 18-2-8z',
-  scan: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 16l3.5-5 2.5 3 1.5-2 2.5 4z', // Hang-Scan: Gelände im Sucher // Ortungspfeil (eigener Standort), wie in Karten-Apps üblich
+  scan: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 16l3.5-5 2.5 3 1.5-2 2.5 4z',
+  pause: 'M8 5v14M16 5v14', // Hang-Scan: Gelände im Sucher // Ortungspfeil (eigener Standort), wie in Karten-Apps üblich
   lock: 'M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11',
   star: 'M12 3.2l2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8z',
   dot: 'M12 6a6 6 0 1 0 0 12a6 6 0 1 0 0-12z',
