@@ -2205,6 +2205,14 @@ function fsHomeLayout(){
     const ag = row.querySelector('[data-fs-agenda]');
     if(ag) ag.after(pb); else row.prepend(pb);
   }
+  // Hang-Scan vom eigenen Standort (auf der Karte per Gedrückthalten «Hang scannen»)
+  if(row && !row.querySelector('[data-fs-scan]')){
+    const sb = document.createElement('button'); sb.type = 'button'; sb.setAttribute('data-fs-scan', '');
+    sb.innerHTML = fsIconHtml('scan') + 'Hang-Scan';
+    sb.addEventListener('click', ()=>{ menu.open = false; fsScanFromGps(); });
+    const pl = row.querySelector('[data-fs-plan]');
+    if(pl) pl.after(sb); else row.prepend(sb);
+  }
   // Segment Gebiete/Touren/Hütten ins Blatt, Griff davor
   // Nach «nur Liste neu» (Suche) fehlt das Segment im neuen Blatt: das bisherige wieder einsetzen
   const tabs = document.querySelector('#app .hero .tabs') || (fsHomeTabsEl && fsHomeTabsEl.isConnected === false ? fsHomeTabsEl : null) || document.querySelector('main .fs-sheet > .tabs');
@@ -6792,13 +6800,14 @@ function fsHomePointOffer(ll){
     .filter(n=> typeof window[n[2]] === 'function');
   const wrap = document.createElement('div');
   wrap.className = 'fs-pt-offer';
-  wrap.innerHTML = '<b>Punkt hier</b><div class="fs-pt-offer-new"><button type="button" class="btn secondary" data-plan>' + fsIconHtml('compass') + 'Route von hier planen</button>' + news.map((n, i)=> `<button type="button" class="btn" data-new="${i}">${fsIconHtml('plus')}${esc(n[1])}</button>`).join('') + '</div>'
+  wrap.innerHTML = '<b>Punkt hier</b><div class="fs-pt-offer-new"><button type="button" class="btn secondary" data-plan>' + fsIconHtml('compass') + 'Route von hier planen</button>' + '<button type="button" class="btn secondary" data-scan>' + fsIconHtml('scan') + 'Hang scannen</button>' + news.map((n, i)=> `<button type="button" class="btn" data-new="${i}">${fsIconHtml('plus')}${esc(n[1])}</button>`).join('') + '</div>'
     + '<label>Oder zu bestehendem Eintrag hinzufügen</label>'
     + '<div class="fs-pt-offer-meta"><input type="text" data-f="label" placeholder="Bezeichnung, z. B. Skidepot" autocomplete="off" aria-label="Bezeichnung des Punkts">'
     + '<select data-f="cat" aria-label="Art des Punkts">' + Object.keys(MAP_POINT_CATEGORIES).map(k=> `<option value="${k}">${esc(k ? MAP_POINT_CATEGORIES[k].label : 'Art: Punkt')}</option>`).join('') + '</select></div>'
     + '<input type="text" data-f="q" placeholder="Tour oder Hütte suchen …" autocomplete="off" aria-label="Eintrag suchen"><div class="fs-pt-offer-res"></div>';
   const close = ()=>{ if(ml._fsm && ml._fsm.popup) ml._fsm.popup.remove(); };
   wrap.querySelector('[data-plan]').addEventListener('click', ()=>{ close(); fsPlannerOpen(ll); });
+  wrap.querySelector('[data-scan]').addEventListener('click', ()=>{ close(); fsScanAim({lat, lon, centered: true}); });
   wrap.querySelectorAll('[data-new]').forEach(b=> b.addEventListener('click', ()=>{ close(); window[news[+b.dataset.new][2]](+lat.toFixed(6), +lon.toFixed(6)); }));
   const inp = wrap.querySelector('[data-f="q"]'), res = wrap.querySelector('.fs-pt-offer-res');
   const lbl = wrap.querySelector('[data-f="label"]'), cat = wrap.querySelector('[data-f="cat"]');
@@ -6816,7 +6825,7 @@ function fsHomeWireHold(ml){
   if(!ml || ml._fsHomeHold) return;
   ml._fsHomeHold = true;
   // Nur in der Startansicht auf freier Karte (nicht im Planer, nicht in Tour/Gebiet, nicht auf Punkten)
-  const ok = ev=> !fsCtxUsesHome && !fsPlanner && document.documentElement.classList.contains('fs-mapmode') && !(typeof state !== 'undefined' && state.modal)
+  const ok = ev=> !fsCtxUsesHome && !fsPlanner && !fsScanAimSt && document.documentElement.classList.contains('fs-mapmode') && !(typeof state !== 'undefined' && state.modal)
     && !(ev && ev.target && ev.target.closest && ev.target.closest('.maplibregl-marker, .maplibregl-popup, .fsm-ctlbox, .fsm-search-box'));
   ml.on('contextmenu', (e)=>{ if(e.originalEvent && e.originalEvent._fsmHandled) return; if(ok(e.originalEvent)) fsHomePointOffer(e.lngLat); });
   let timer = null, start = null;
@@ -18200,6 +18209,391 @@ document.addEventListener('change', (ev)=>{
   Array.from(fsRcCache.keys()).forEach(fsRcPaint);
 }, true);
 
+/* ===== Hang-Scan: Gelände in einer Richtung in 3D, eingefärbt nach Steilheit, Lawine, Klippen =====
+   Zielen (Richtung), Länge wählen, scannen. Gerechnet auf dem Handy aus dem Höhenmodell der 3D-Karte
+   (FS3D_DEM, Zoom 14, Raster ca. 7 m), Neigung und Exposition mit der Horn-Formel wie im Routen-Check.
+   Lawine: Hänge 30–60°, schraffiert, wo ein Lawinenproblem des SLF-Bulletins nach Exposition und Höhe
+   passt. Start vom eigenen Standort (Menü) oder per Gedrückthalten auf der Karte (Hang an diesem Punkt). */
+const FS_SCAN_Z = 14;
+const FS_SCAN_COL = {green:[63,174,90], yellow:[242,210,27], orange:[242,140,27], red:[215,38,61], hatch:[120,10,30]};
+const FS_SCAN_LAYERS = [
+  {k:'steil', label:'Steilheit', title:'Hangneigung', legend:[['green','unter 25°'], ['yellow','25–30°'], ['orange','30–35°'], ['red','über 35°']]},
+  {k:'lawine', label:'Lawine', title:'Anrissgelände', legend:[['yellow','30°'], ['red','45° und steiler'], ['hatch','schraffiert: Lawinenproblem von heute – Höhe und Exposition passen']]},
+  {k:'klippen', label:'Klippen', title:'Absturzgelände', legend:[['orange','50–60° – steil, kein Sturz erlaubt'], ['red','über 60° – Klippe']]}
+];
+const fsScanRgb = k=> 'rgb(' + FS_SCAN_COL[k].join(',') + ')';
+const fsScanDir = b=> FS_RC_ASP[Math.round((((b % 360) + 360) % 360) / 45) % 8];
+function fsScanMpp(lat, z){ return 40075016.686 * Math.cos(lat * Math.PI / 180) / (256 * Math.pow(2, z || FS_SCAN_Z)); }
+function fsScanLL(px, py, z){
+  const n = 256 * Math.pow(2, z || FS_SCAN_Z);
+  return [Math.atan(Math.sinh(Math.PI * (1 - 2 * py / n))) * 180 / Math.PI, px / n * 360 - 180];
+}
+// Rechteck des Scans in Pixeln (Zoom 14): vom Ursprung in Blickrichtung, oder um einen Punkt zentriert
+function fsScanRect(s, z){
+  z = z || FS_SCAN_Z;
+  const m = fsScanMpp(s.lat, z), [ox, oy] = fsRcPx(s.lat, s.lon, z);
+  const b = s.bearing * Math.PI / 180, f = [Math.sin(b), -Math.cos(b)], r = [Math.cos(b), Math.sin(b)];
+  const L = s.length / m, hw = Math.max(400, s.length * 0.8) / m / 2;
+  const t0 = s.centered ? -L / 2 : -Math.min(L * 0.08, 60 / m), t1 = s.centered ? L / 2 : L;
+  const corners = [[t0, -hw], [t1, -hw], [t1, hw], [t0, hw]].map(([t, u])=> [ox + f[0] * t + r[0] * u, oy + f[1] * t + r[1] * u]);
+  return {ox, oy, f, r, t0, t1, hw, m, corners};
+}
+function fsScanPolygon(s){
+  const c = fsScanRect(s).corners.map(p=>{ const [la, lo] = fsScanLL(p[0], p[1]); return [lo, la]; });
+  return c.concat([c[0]]);
+}
+async function fsScanTiles(x0, y0, x1, y1, tpl, z){
+  tpl = tpl || FS3D_DEM; z = z || FS_SCAN_Z;
+  const keys = [];
+  for(let tx = Math.floor(x0 / 256); tx <= Math.floor(x1 / 256); tx++) for(let ty = Math.floor(y0 / 256); ty <= Math.floor(y1 / 256); ty++) keys.push([tx, ty]);
+  const tiles = new Map();
+  let failed = 0;
+  await Promise.all(keys.map(async ([tx, ty])=>{ const d = await fsRcTile(tpl, z, tx, ty); if(!d) failed++; tiles.set(z + '/' + tx + '/' + ty, d); }));
+  return {tiles, failed, total: keys.length};
+}
+// Neigung (Grad) und Exposition (Grad, Richtung bergab) an einer Pixelstelle
+function fsScanHorn(e, cell){
+  const [a, b, c, d, , f, g, h, i] = e;
+  const gx = ((c + 2 * f + i) - (a + 2 * d + g)) / (8 * cell), gn = ((a + 2 * b + c) - (g + 2 * h + i)) / (8 * cell);
+  return [Math.atan(Math.hypot(gx, gn)) * 180 / Math.PI, ((Math.atan2(-gx, -gn) * 180 / Math.PI) + 360) % 360];
+}
+// Exposition am Punkt (für die Vorgabe der Richtung): bergab
+async function fsScanAspectAt(lat, lon){
+  const [x, y] = fsRcPx(lat, lon, FS_SCAN_Z);
+  const {tiles} = await fsScanTiles(x - 3, y - 3, x + 3, y + 3);
+  const e = [];
+  for(let dy = -2; dy <= 2; dy += 2) for(let dx = -2; dx <= 2; dx += 2) e.push(fsRcEle(fsRcPix(tiles, FS_SCAN_Z, x + dx, y + dy)));
+  if(e.some(v=> v == null)) return null;
+  const [sl, asp] = fsScanHorn(e, fsScanMpp(lat) * 2);
+  return sl > 3 ? asp : null;
+}
+async function fsScanCompute(s){
+  // Bild im feineren Raster (Zoom 15, ca. 3 m; lange Scans Zoom 14). In der Schweiz kommen die Stufen ab 30°
+  // aus der swisstopo-Karte «Hangneigung über 30°» (swissALTI3D, 2 m); darunter, Exposition und Höhe aus dem
+  // Höhenmodell (geglättet, sonst treppig). Ausserhalb der Schweiz nur das Höhenmodell.
+  const ZI = s.length <= 2000 ? 15 : 14, k2 = Math.pow(2, ZI - FS_SCAN_Z);
+  const R = fsScanRect(s, ZI);
+  const xs = R.corners.map(c=> c[0]), ys = R.corners.map(c=> c[1]);
+  const x0 = Math.floor(Math.min(...xs)), y0 = Math.floor(Math.min(...ys));
+  const W = Math.ceil(Math.max(...xs)) + 1 - x0, H = Math.ceil(Math.max(...ys)) + 1 - y0;
+  // Höhenmodell (Zoom 14) für denselben Ausschnitt, mit Rand
+  const dx0 = Math.floor(x0 / k2) - 3, dy0 = Math.floor(y0 / k2) - 3, DW = Math.ceil(W / k2) + 7, DH = Math.ceil(H / k2) + 7;
+  const inCH = s.lat > 45.8 && s.lat < 47.9 && s.lon > 5.9 && s.lon < 10.6;
+  const [dem, sl] = await Promise.all([fsScanTiles(dx0, dy0, dx0 + DW, dy0 + DH, FS3D_DEM, FS_SCAN_Z),
+    inCH ? fsScanTiles(x0, y0, x0 + W, y0 + H, FS_RC_SLOPE_URL, ZI) : Promise.resolve(null)]);
+  if(dem.failed >= dem.total) return {error: navigator.onLine === false ? 'Offline – der Hang-Scan braucht Internet für das Gelände.' : 'Geländedaten nicht erreichbar.'};
+  const raw = new Float32Array(DW * DH);
+  for(let y = 0; y < DH; y++) for(let x = 0; x < DW; x++){ const v = fsRcEle(fsRcPix(dem.tiles, FS_SCAN_Z, dx0 + x, dy0 + y)); raw[y * DW + x] = v == null ? NaN : v; }
+  // 3×3 geglättet
+  const de = new Float32Array(DW * DH).fill(NaN);
+  for(let y = 1; y < DH - 1; y++) for(let x = 1; x < DW - 1; x++){
+    let sum = 0, n = 0;
+    for(let j = -1; j <= 1; j++) for(let k = -1; k <= 1; k++){ const v = raw[(y + j) * DW + x + k]; if(!isNaN(v)){ const w = (j || k) ? ((j && k) ? 1 : 2) : 4; sum += v * w; n += w; } }
+    if(n) de[y * DW + x] = sum / n;
+  }
+  const cell14 = fsScanMpp(s.lat);
+  const dSl = new Float32Array(DW * DH).fill(NaN), dAs = new Float32Array(DW * DH).fill(NaN);
+  for(let y = 2; y < DH - 2; y++) for(let x = 2; x < DW - 2; x++){
+    const e = [];
+    for(let j = -1; j <= 1; j++) for(let k = -1; k <= 1; k++) e.push(de[(y + j) * DW + x + k]);
+    if(e.some(v=> isNaN(v))) continue;
+    const [a, b] = fsScanHorn(e, cell14);
+    dSl[y * DW + x] = a; dAs[y * DW + x] = b;
+  }
+  // Wert im Höhenmodell an einer Bildstelle (bilinear)
+  const at = (arr, px, py)=>{
+    const fx = (x0 + px + 0.5) / k2 - dx0 - 0.5, fy = (y0 + py + 0.5) / k2 - dy0 - 0.5;
+    const ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
+    const g = (xx, yy)=> arr[yy * DW + xx];
+    const v00 = g(ix, iy), v10 = g(ix + 1, iy), v01 = g(ix, iy + 1), v11 = g(ix + 1, iy + 1);
+    if([v00, v10, v01, v11].some(v=> isNaN(v))) return isNaN(v00) ? NaN : v00;
+    return (v00 * (1 - tx) + v10 * tx) * (1 - ty) + (v01 * (1 - tx) + v11 * tx) * ty;
+  };
+  const MID = [0, 32.5, 37.5, 42.5, 47.5, 55];
+  const slope = new Float32Array(W * H).fill(NaN), asp = new Float32Array(W * H).fill(NaN), ele = new Float32Array(W * H).fill(NaN), cls = new Uint8Array(W * H);
+  const useCls = !!(sl && sl.failed < sl.total);
+  let n = 0, n30 = 0, n35 = 0, n50 = 0, max = -1, maxI = -1;
+  for(let y = 0; y < H; y++) for(let x = 0; x < W; x++){
+    const ddx = x0 + x + 0.5 - R.ox, ddy = y0 + y + 0.5 - R.oy;
+    const t = ddx * R.f[0] + ddy * R.f[1], u = ddx * R.r[0] + ddy * R.r[1];
+    if(t < R.t0 || t > R.t1 || Math.abs(u) > R.hw) continue;
+    let v = at(dSl, x, y);
+    if(isNaN(v)) continue;
+    const i = y * W + x;
+    // Aspekt nicht bilinear (Winkel): nächste Zelle
+    const fx = Math.round((x0 + x + 0.5) / k2 - dx0 - 0.5), fy = Math.round((y0 + y + 0.5) / k2 - dy0 - 0.5);
+    asp[i] = dAs[fy * DW + fx]; ele[i] = at(de, x, y);
+    if(useCls){
+      const k = fsRcClass(fsRcPix(sl.tiles, ZI, x0 + x, y0 + y));
+      cls[i] = k;
+      if(k === 5) v = Math.max(50, v);
+      else if(k) v = MID[k];
+      else v = Math.min(v, 29.5);
+    }
+    slope[i] = v; n++;
+    if(v >= 30) n30++;
+    if(v >= 35) n35++;
+    if(v >= 50) n50++;
+    if(v > max){ max = v; maxI = i; }
+  }
+  if(!n) return {error: 'Für diesen Ausschnitt gibt es keine Geländedaten.'};
+  const lbl = i=> cls[i] ? FS_RC_CLASSES[cls[i] - 1].label : Math.round(slope[i]) + '°';
+  let here = null;
+  if(!s.centered){
+    const i = (Math.floor(R.oy) - y0) * W + (Math.floor(R.ox) - x0);
+    if(i >= 0 && i < slope.length && !isNaN(slope[i])) here = {label: lbl(i), ele: ele[i]};
+  }
+  const tl = fsScanLL(x0, y0, ZI), br = fsScanLL(x0 + W, y0 + H, ZI);
+  return {s, W, H, x0, y0, ele, slope, asp, n, n30, n35, n50, here, official: useCls,
+    steep: maxI >= 0 ? {label: lbl(maxI), ele: ele[maxI], asp: asp[maxI]} : null,
+    coords: [[tl[1], tl[0]], [br[1], tl[0]], [br[1], br[0]], [tl[1], br[0]]]};
+}
+function fsScanInProblem(res, i){
+  const probs = res.probs || [];
+  if(!probs.length) return false;
+  const a = FS_RC_ASP[Math.round(res.asp[i] / 45) % 8], e = res.ele[i];
+  return probs.some(pr=> (!pr.aspects.length || pr.aspects.indexOf(a) >= 0) && !(pr.lower && e < pr.lower) && !(pr.upper && e > pr.upper));
+}
+// Ebene als Bild (ein Pixel je Geländezelle; die Karte glättet beim Vergrössern)
+function fsScanImage(res, k){
+  res.img = res.img || {};
+  if(res.img[k]) return res.img[k];
+  const {W, H, slope} = res;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const cx = cv.getContext('2d'), im = cx.createImageData(W, H), d = im.data;
+  const C = FS_SCAN_COL;
+  let hits = 0;
+  for(let i = 0; i < W * H; i++){
+    const sl = slope[i];
+    if(isNaN(sl)) continue;
+    let c = null, al = 0;
+    if(k === 'steil'){ c = sl < 25 ? C.green : sl < 30 ? C.yellow : sl < 35 ? C.orange : C.red; al = 150; }
+    else if(k === 'lawine'){
+      if(sl >= 30 && sl < 60){
+        const f = Math.min(1, (sl - 30) / 15);
+        c = [0, 1, 2].map(j=> Math.round(C.yellow[j] + (C.red[j] - C.yellow[j]) * f)); al = 165;
+        const x = i % W, y = (i - x) / W;
+        if(fsScanInProblem(res, i)){ hits++; if((x + y) % 6 < 2){ c = C.hatch; al = 235; } }
+      }
+    }else if(k === 'klippen'){
+      if(sl >= 60){ c = C.red; al = 215; } else if(sl >= 50){ c = C.orange; al = 200; }
+    }
+    if(!c) continue;
+    d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = al;
+  }
+  if(k === 'lawine') res.hits = hits;
+  cx.putImageData(im, 0, 0);
+  res.img[k] = cv.toDataURL('image/png');
+  return res.img[k];
+}
+
+/* Zielen auf der Startkarte: Richtung (Tipp auf die Karte oder Kompass) und Länge, Vorschau als Rechteck */
+let fsScanAimSt = null;
+function fsScanFromGps(){
+  if(!navigator.geolocation){ showToast('Standort nicht verfügbar – auf der Karte gedrückt halten und «Hang scannen» wählen.', true); return; }
+  showToast('Standort wird bestimmt …');
+  navigator.geolocation.getCurrentPosition(
+    p=> fsScanAim({lat: p.coords.latitude, lon: p.coords.longitude, centered: false}),
+    ()=> showToast('Standort nicht verfügbar – auf der Karte gedrückt halten und «Hang scannen» wählen.', true),
+    {enableHighAccuracy: true, timeout: 12000, maximumAge: 30000});
+}
+function fsScanAim(o){
+  const ml = fsHomeMap;
+  if(!ml || !ml._fsmLoaded){ showToast('Die Karte lädt noch.', true); return; }
+  if(fsScanAimSt) fsScanAimEnd();
+  if(typeof fsHomeDetent !== 'undefined' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
+  const st = fsScanAimSt = {lat: o.lat, lon: o.lon, centered: !!o.centered, bearing: 0, length: 1000, userDir: false, compass: null};
+  document.documentElement.classList.add('fs-scanning');
+  const panel = document.createElement('div');
+  panel.className = 'fs-scan-aim';
+  const canCompass = !st.centered && typeof DeviceOrientationEvent !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+  panel.innerHTML = `<div class="fs-scan-aim-head"><b>${fsIconHtml('scan')}Hang-Scan</b><button type="button" class="x-btn" data-x aria-label="Schliessen">×</button></div>
+    <div class="fs-scan-aim-row"><span>Richtung</span><b data-dir>–</b>${canCompass ? `<button type="button" class="btn secondary" data-compass>${fsIconHtml('compass')}Kompass</button>` : ''}</div>
+    <p class="fs-scan-aim-hint">${st.centered ? 'Der Scan liegt um den Punkt, entlang der Falllinie. Auf die Karte tippen, um die Richtung zu ändern.' : 'Auf die Karte tippen: dorthin zeigt der Scan.'}</p>
+    <label class="fs-scan-aim-len"><span>Länge</span><b data-len></b><input type="range" min="300" max="3000" step="100" value="1000" aria-label="Länge des Scans"></label>
+    <div class="fs-scan-aim-btns"><button type="button" class="btn secondary" data-x>Abbrechen</button><button type="button" class="btn" data-go>${fsIconHtml('scan')}Scannen</button></div>`;
+  document.body.appendChild(panel);
+  st.panel = panel;
+  const ac = getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1E6AA0';
+  const upd = ()=>{
+    panel.querySelector('[data-dir]').textContent = Math.round(st.bearing) + '° ' + fsScanDir(st.bearing);
+    panel.querySelector('[data-len]').textContent = fsRcFmtM(st.length);
+    const data = {type:'FeatureCollection', features:[
+      {type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:[fsScanPolygon(st)]}},
+      {type:'Feature', properties:{o:1}, geometry:{type:'Point', coordinates:[st.lon, st.lat]}}]};
+    const src = ml.getSource('fs-scan-prev');
+    if(src) src.setData(data);
+    else{
+      ml.addSource('fs-scan-prev', {type:'geojson', data});
+      ml.addLayer({id:'fs-scan-prev-fill', type:'fill', source:'fs-scan-prev', filter:['==', ['geometry-type'], 'Polygon'], paint:{'fill-color': ac, 'fill-opacity':0.14}});
+      ml.addLayer({id:'fs-scan-prev-line', type:'line', source:'fs-scan-prev', filter:['==', ['geometry-type'], 'Polygon'], paint:{'line-color': ac, 'line-width':2.5}});
+      ml.addLayer({id:'fs-scan-prev-o', type:'circle', source:'fs-scan-prev', filter:['==', ['geometry-type'], 'Point'], paint:{'circle-radius':7, 'circle-color': ac, 'circle-stroke-color':'#fff', 'circle-stroke-width':3}});
+    }
+  };
+  st.upd = upd;
+  const fit = ()=>{
+    const b = new maplibregl.LngLatBounds();
+    fsScanPolygon(st).forEach(c=> b.extend(c));
+    try{ ml.fitBounds(b, {padding:{top:90, bottom: panel.offsetHeight + 30, left:40, right:70}, maxZoom:15, duration:400}); }catch(e){}
+  };
+  st.click = (e)=>{
+    if(e.originalEvent && e.originalEvent._fsmHandled) return;
+    const p = e.lngLat;
+    st.bearing = (Math.atan2((p.lng - st.lon) * Math.cos(st.lat * Math.PI / 180), p.lat - st.lat) * 180 / Math.PI + 360) % 360;
+    st.userDir = true; fsScanCompass(false); upd();
+  };
+  ml.on('click', st.click);
+  const range = panel.querySelector('input[type="range"]');
+  range.addEventListener('input', ()=>{ st.length = +range.value; upd(); });
+  range.addEventListener('change', fit);
+  panel.querySelectorAll('[data-x]').forEach(b=> b.addEventListener('click', ()=> closeTopOverlayLayer()));
+  const cb = panel.querySelector('[data-compass]');
+  if(cb) cb.addEventListener('click', ()=> fsScanCompass(!st.compass));
+  panel.querySelector('[data-go]').addEventListener('click', ()=>{
+    const s = {lat: st.lat, lon: st.lon, bearing: st.bearing, length: st.length, centered: st.centered};
+    closeTopOverlayLayer();
+    setTimeout(()=> fsScanOpen(s), 50);
+  });
+  pushOverlayLayer(fsScanAimEnd);
+  upd(); setTimeout(fit, 30);
+  // Vorgabe: bergab (Falllinie) am Punkt
+  fsScanAspectAt(st.lat, st.lon).then(a=>{ if(a != null && fsScanAimSt === st && !st.userDir && !st.compass){ st.bearing = a; upd(); fit(); } }).catch(()=>{});
+}
+function fsScanAimEnd(){
+  const st = fsScanAimSt;
+  if(!st) return;
+  fsScanCompass(false);
+  fsScanAimSt = null;
+  document.documentElement.classList.remove('fs-scanning');
+  if(st.panel) st.panel.remove();
+  const ml = fsHomeMap;
+  if(ml){
+    ml.off('click', st.click);
+    ['fs-scan-prev-o', 'fs-scan-prev-line', 'fs-scan-prev-fill'].forEach(id=>{ try{ if(ml.getLayer(id)) ml.removeLayer(id); }catch(e){} });
+    try{ if(ml.getSource('fs-scan-prev')) ml.removeSource('fs-scan-prev'); }catch(e){}
+  }
+}
+// Kompass: Richtung folgt dem Handy (iOS fragt beim ersten Mal nach der Erlaubnis)
+async function fsScanCompass(on){
+  const st = fsScanAimSt;
+  if(!st) return;
+  const btn = st.panel && st.panel.querySelector('[data-compass]');
+  if(!on){
+    if(st.compass){ window.removeEventListener(st.compass.ev, st.compass.fn); st.compass = null; }
+    if(btn) btn.classList.remove('on');
+    return;
+  }
+  try{ if(typeof DeviceOrientationEvent.requestPermission === 'function' && await DeviceOrientationEvent.requestPermission() !== 'granted'){ showToast('Kompass nicht erlaubt.', true); return; } }catch(e){}
+  const ev = 'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation';
+  let raf = 0, got = false;
+  const fn = (e)=>{
+    let h = e.webkitCompassHeading;
+    if(h == null && e.alpha != null && (e.absolute || ev === 'deviceorientationabsolute')) h = 360 - e.alpha;
+    if(h == null) return;
+    got = true;
+    h = (h + ((screen.orientation && screen.orientation.angle) || 0) + 360) % 360;
+    if(raf) return;
+    raf = requestAnimationFrame(()=>{ raf = 0; if(fsScanAimSt === st && st.compass){ st.bearing = h; st.userDir = true; st.upd(); } });
+  };
+  window.addEventListener(ev, fn);
+  st.compass = {ev, fn};
+  if(btn) btn.classList.add('on');
+  setTimeout(()=>{ if(!got && fsScanAimSt === st && st.compass){ fsScanCompass(false); showToast('Kein Kompass gefunden – auf die Karte tippen.', true); } }, 2500);
+}
+
+/* Ergebnis: eigene 3D-Ansicht mit dem eingefärbten Gelände und einem Blatt mit Kennzahlen */
+let fsScanMap = null;
+function fsScanClose(){
+  if(fsScanMap){ try{ fsScanMap.remove(); }catch(e){} fsScanMap = null; }
+  const el = document.getElementById('fs-scan');
+  if(el) el.remove();
+}
+async function fsScanOpen(s){
+  if(navigator.onLine === false){ showToast('Offline – der Hang-Scan braucht Internet für das Gelände.', true); return; }
+  fsScanClose();
+  const wrap = document.createElement('div');
+  wrap.id = 'fs-scan';
+  wrap.className = 'fs-3d fs-3d-ml fs-scan';
+  wrap.innerHTML = `<div class="fs-3d-map" id="fs-scan-map"></div>
+    <div class="fs-3d-top"><button type="button" class="fs-3d-btn" data-sc="close" aria-label="Zurück">‹ Zurück</button><div class="fs-3d-title">Hang-Scan</div></div>
+    <div class="fs-scan-seg fs-3d-seg" role="group" aria-label="Ebene">${FS_SCAN_LAYERS.map((l, i)=> `<button type="button" data-k="${l.k}" class="${i ? '' : 'on'}" aria-pressed="${i ? 'false' : 'true'}">${l.label}</button>`).join('')}</div>
+    <div class="fs-scan-card" hidden></div>
+    <div class="fs-3d-loading" id="fs-scan-loading">Gelände wird gerechnet …</div>`;
+  document.body.appendChild(wrap);
+  pushOverlayLayer(fsScanClose);
+  wrap.querySelector('[data-sc="close"]').addEventListener('click', ()=> closeTopOverlayLayer());
+  const [res, slf] = await Promise.all([fsScanCompute(s).catch(e=> ({error: 'Gelände konnte nicht gerechnet werden.'})), fsSlfForPoint(s.lat, s.lon).catch(()=> null)]);
+  if(!document.body.contains(wrap)) return;
+  const loading = wrap.querySelector('#fs-scan-loading');
+  if(res.error){ loading.textContent = res.error; return; }
+  res.bul = slf ? fsRcSlfBul(slf) : null;
+  res.probs = fsRcSlfProblems(res.bul);
+  let layer = 'steil';
+  fsScanImage(res, 'lawine'); // zählt die Treffer fürs Blatt
+  const card = wrap.querySelector('.fs-scan-card');
+  const drawCard = ()=>{ card.innerHTML = fsScanCardHtml(res, layer); card.hidden = false; };
+  drawCard();
+  await fsmEnsureLoaded();
+  if(!document.body.contains(wrap)) return;
+  const R = fsScanRect(s);
+  const cx = (R.corners[0][0] + R.corners[2][0]) / 2, cy = (R.corners[0][1] + R.corners[2][1]) / 2;
+  const [clat, clon] = fsScanLL(cx, cy);
+  const map = fsmCreateMap('fs-scan-map', {center:[clat, clon], zoom: 14, ctlTop: 64});
+  fsScanMap = map;
+  map.setMaxPitch(80);
+  try{ map.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); }catch(e){}
+  fsmWhenLoaded(map, ()=>{
+    if(fsScanMap !== map) return;
+    fsmSetBase(map, 'luftbild', true);
+    map.addSource('dem', {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 14, attribution:'Höhen: Mapzen/AWS Terrain Tiles'});
+    map.setTerrain({source:'dem', exaggeration:1});
+    try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
+    map.addSource('fs-scan', {type:'image', url: fsScanImage(res, layer), coordinates: res.coords});
+    map.addLayer({id:'fs-scan', type:'raster', source:'fs-scan', paint:{'raster-opacity':0.85, 'raster-resampling':'linear', 'raster-fade-duration':0}});
+    map.addSource('fs-scan-box', {type:'geojson', data:{type:'Feature', properties:{}, geometry:{type:'LineString', coordinates: fsScanPolygon(s)}}});
+    map.addLayer({id:'fs-scan-box', type:'line', source:'fs-scan-box', paint:{'line-color':'#ffffff', 'line-width':2, 'line-opacity':0.85}});
+    if(!s.centered) fsmAddMarker(map, s.lat, s.lon, '<div class="fs-scan-me" aria-label="Standort"></div>', {anchor:'center'});
+    // Blick: vom Standort in Scan-Richtung; bei einem Hang auf der Karte von gegenüber auf die Flanke
+    const bearing = s.centered ? (s.bearing + 180) % 360 : s.bearing;
+    const bb = new maplibregl.LngLatBounds();
+    fsScanPolygon(s).forEach(c=> bb.extend(c));
+    const cam = map.cameraForBounds(bb, {padding:{top:110, bottom: Math.round(window.innerHeight * 0.3), left:20, right:20}, bearing});
+    // Gekippt wirkt der Ausschnitt kleiner als flach gerechnet: etwas näher heran
+    if(cam) map.jumpTo({center: cam.center, zoom: cam.zoom + 0.45, bearing, pitch: 58});
+    loading.remove();
+  });
+  wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(b=> b.addEventListener('click', ()=>{
+    layer = b.dataset.k;
+    wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(x=>{ const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
+    const src = map.getSource && map.getSource('fs-scan');
+    if(src) src.updateImage({url: fsScanImage(res, layer), coordinates: res.coords});
+    drawCard();
+  }));
+}
+function fsScanCardHtml(res, k){
+  const L = FS_SCAN_LAYERS.find(x=> x.k === k), s = res.s, pct = v=> Math.round(v / res.n * 100) + ' %';
+  const legend = L.legend.map(([c, t])=> `<li><i class="${c === 'hatch' ? 'fs-scan-hatch' : ''}" style="${c === 'hatch' ? '' : 'background:' + fsScanRgb(c)}"></i>${esc(t)}</li>`).join('');
+  const stats = [
+    [Math.round(s.bearing) + '° ' + fsScanDir(s.bearing), 'Richtung'],
+    [fsRcFmtM(s.length), 'Scan-Länge'],
+    res.here ? [res.here.label, 'Neigung hier'] : (res.steep ? [res.steep.label, 'steilste Stelle'] : null)
+  ].filter(Boolean);
+  const bul = res.bul, top = bul && bul.ratings[0];
+  let facts = `Steiler als 30°: <b>${pct(res.n30)}</b> der Fläche, steiler als 35°: <b>${pct(res.n35)}</b>.`;
+  if(res.steep) facts += ` Steilste Stelle ${esc(res.steep.label)}${isFinite(res.steep.ele) ? ' auf ' + fsRcFmtE(res.steep.ele) + ' m' : ''}, Exposition ${FS_RC_ASP_LONG[fsScanDir(res.steep.asp)]}.`;
+  if(k === 'klippen') facts = res.n50 ? `Steiler als 50°: <b>${pct(res.n50)}</b> der Fläche.` : 'Kein Gelände steiler als 50° im Ausschnitt.';
+  let lawine = '';
+  if(k === 'lawine'){
+    lawine = !bul ? '<p class="fs-scan-note">Für diesen Ort gibt es gerade kein Lawinenbulletin – ohne Schraffur.</p>'
+      : `<p class="fs-scan-bul">${top ? `<span class="fs-scan-lvl" style="background:${top.color}">${top.level}</span><b>${esc(top.label)}</b>${top.elev ? ' · ' + esc(top.elev) : ''}` : ''}${bul.region ? `<small>${esc(bul.region)}</small>` : ''}</p>`
+        + (res.probs.length ? `<p class="fs-scan-note">${res.probs.map(pr=> esc(pr.type) + (pr.aspects.length ? ' (' + pr.aspects.join(' ') + (pr.lower ? ', über ' + pr.lower + ' m' : '') + (pr.upper ? ', unter ' + pr.upper + ' m' : '') + ')' : '')).join(' · ')}.<br>${res.hits ? 'Schraffiert: Hänge im Scan, auf die ein Lawinenproblem von heute passt.' : 'Kein Hang im Scan passt nach Höhe und Exposition zu einem Lawinenproblem von heute.'}</p>` : '<p class="fs-scan-note">Das Bulletin nennt heute kein besonderes Lawinenproblem.</p>');
+  }
+  return `<div class="fs-scan-stats">${stats.map(([v, l])=> `<div><b>${esc(v)}</b><small>${esc(l)}</small></div>`).join('')}</div>
+    <div class="fs-scan-legend"><small>${esc(L.title)}</small><ul>${legend}</ul></div>
+    ${lawine}<p class="fs-scan-facts">${facts}</p>
+    <p class="fs-scan-note">${res.official ? 'Neigung ab 30° aus swisstopo (swissALTI3D, 2 m), flacher und Exposition aus dem Höhenmodell (ca. 30 m)' : 'Aus dem Höhenmodell gerechnet (ca. 30 m)'} – kleine Rinnen und Wechten fehlen. Ersetzt Bulletin und eigene Beurteilung nicht.</p>`;
+}
+
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
    Reihenfolge: Bilder · Kennzahlen/Status · Beschreibung · Orte · Bedingungen · Anreise · Mehr.
    Leere Abschnitte fallen weg; die Sprungleiste zeigt nur, was es gibt. */
@@ -19165,7 +19559,8 @@ const FS_ICON_PATHS = {
   heli: 'M3 5h14M10 5v3M6 8h8a4 4 0 0 1 4 4v1a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3zM18 12h3M9 16l-1 3M15 16l1 3M6 19h12',
   shield: 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z',
   sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 5v4M8 15v4',
-  gps: 'M3 11l18-8-8 18-2-8z', // Ortungspfeil (eigener Standort), wie in Karten-Apps üblich
+  gps: 'M3 11l18-8-8 18-2-8z',
+  scan: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 16l3.5-5 2.5 3 1.5-2 2.5 4z', // Hang-Scan: Gelände im Sucher // Ortungspfeil (eigener Standort), wie in Karten-Apps üblich
   lock: 'M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11',
   star: 'M12 3.2l2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8z',
   dot: 'M12 6a6 6 0 1 0 0 12a6 6 0 1 0 0-12z',
