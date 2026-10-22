@@ -2557,7 +2557,6 @@ html.fs-mapmode.fs-filter-open :is(.fs-fab, .fs-home-mapbtn, #agenda-tab-btn){ d
 html.fs-filter-open body::after{ display:none; }
 /* Stufe «karte»: «Neue Tour» und Agenda über dem Blatt statt auf der Suche, Kartenknöpfe darüber */
 html.fs-mapmode[data-fs-home="karte"] :is(.fs-fab, #agenda-tab-btn){ bottom:calc(var(--fs-home-vis, 160px) + 12px); transition:bottom .38s cubic-bezier(.2,.9,.25,1); }
-html.fs-mapmode[data-fs-home="karte"] .fs-home-slot .fsm-ctlbox{ bottom:calc(var(--fs-home-vis, 160px) + 78px); }
 html.fs-mapmode[data-fs-home="karte"] body::after{ display:none; }
 /* Startansicht: Agenda steht im Menü */
 html.fs-mapmode #agenda-tab-btn{ display:none !important; }
@@ -2846,3 +2845,6 @@ html.fs-dark.fs-mapmode .fs-sheet > .tabs .tab.active .fs-i{ color:#fff; }
 /* Menü in Gruppen: Ansichten · Daten · Konto · Anzeige */
 .who-menu .who-row .fs-menu-sep{ position:relative; margin-top:9px; }
 .who-menu .who-row .fs-menu-sep::before{ content:''; position:absolute; left:10px; right:10px; top:-5px; border-top:1px solid var(--line); pointer-events:none; }
+
+/* «+ Neue Tour» nur in der Liste (ganz hochgezogen), nicht über der Karte */
+html.fs-mapmode:not([data-fs-home="liste"]) .fs-fab{ display:none !important; }
