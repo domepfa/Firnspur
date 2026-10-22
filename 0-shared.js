@@ -18224,6 +18224,46 @@ function fsTdBodyHtml(id, sections){
     `<button type="button" data-act="fs-goto" data-target="td-${k}-${esc(id)}" aria-label="${l}">${fsIconHtml(icon)}<span>${short}</span></button>`).join('')}</nav>` : '';
   return jump + present.map(([k])=> fsTdSection(k, id, sections[k])).join('');
 }
+// Sprungleiste: markiert den Abschnitt, in dem man gerade liest (beim Scrollen mitgeführt)
+function fsTdSpy(scroller){
+  if(fsTdPinned) return;
+  const modal = scroller || document.querySelector('#modal-root .modal.td');
+  if(!modal) return;
+  const bar = modal.querySelector('.fs-td-jump');
+  if(!bar) return;
+  const btns = [...bar.querySelectorAll('button[data-target]')];
+  if(!btns.length) return;
+  const line = bar.getBoundingClientRect().bottom + 12;
+  let cur = btns[0];
+  const atEnd = modal.scrollHeight - modal.scrollTop - modal.clientHeight < 4;
+  if(atEnd) cur = btns[btns.length - 1];
+  else btns.forEach(b=>{ const sec = document.getElementById(b.dataset.target); if(sec && sec.getBoundingClientRect().top <= line) cur = b; });
+  fsTdMark(bar, cur);
+}
+function fsTdMark(bar, cur){
+  bar.querySelectorAll('button[data-target]').forEach(b=>{
+    const on = b === cur;
+    if(b.classList.contains('on') !== on){ b.classList.toggle('on', on); if(on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); }
+  });
+}
+// Nach einem Tipp in der Leiste bleibt dieser Knopf markiert, bis man selbst wieder scrollt
+// (sonst sprang die Markierung am Ende der Seite auf «Mehr», wenn der Abschnitt nicht ganz nach oben kommt)
+let fsTdSpyRaf = 0, fsTdPinned = false;
+['touchstart', 'wheel', 'keydown'].forEach(ev=> document.addEventListener(ev, (e)=>{ if(!(e.target.closest && e.target.closest('.fs-td-jump'))) fsTdPinned = false; }, {capture: true, passive: true}));
+document.addEventListener('scroll', (e)=>{
+  const t = e.target;
+  if(!t || !t.classList || !t.classList.contains('td') || fsTdPinned) return;
+  if(fsTdSpyRaf) return;
+  fsTdSpyRaf = requestAnimationFrame(()=>{ fsTdSpyRaf = 0; fsTdSpy(t); });
+}, {capture: true, passive: true});
+// Tipp auf einen Knopf: sofort markieren und während des Hinscrollens nicht zurückspringen
+document.addEventListener('click', (e)=>{
+  const b = e.target.closest && e.target.closest('.fs-td-jump button[data-target]');
+  if(!b) return;
+  fsTdMark(b.closest('.fs-td-jump'), b);
+  fsTdPinned = true;
+}, true);
+
 function fsTdImagesHtml(t){
   return (t.topoImages && t.topoImages.length) ? `<div class="fs-td-images">${topoImagesGalleryHtml(t.topoImages)}</div>` : '';
 }
@@ -18842,7 +18882,7 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
       if(ov && ov.querySelector(':scope > .modal.td')) fsApplyTourSheetMode();
       if(queued) return;
       queued = true;
-      requestAnimationFrame(()=>{ queued = false; fsUpgradeFilterRows(); fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); fsEnhanceForms(); });
+      requestAnimationFrame(()=>{ queued = false; fsUpgradeFilterRows(); fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); fsEnhanceForms(); fsTdSpy(); });
     }).observe(document.body, {childList:true, subtree:true});
     fsUpgradeFilterRows();
     fsApplyTourSheetMode();
