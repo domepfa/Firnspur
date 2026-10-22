@@ -2177,7 +2177,10 @@ function fsHomeLayout(){
     if(bar){
       glass.prepend(bar);
       // Disziplin-Auswahl klappt unter dem Disziplin-Knopf auf; Tipp daneben schliesst
-      document.addEventListener('pointerdown', e=>{ if(!e.target.closest('.app-switch-bar, .fs-tb-disc')) bar.classList.remove('open'); }, true);
+      // Blatt von unten mit abgedunkeltem Hintergrund: der Tipp daneben schliesst nur (löst darunter nichts aus)
+      let swallowUntil = 0;
+      document.addEventListener('pointerdown', e=>{ if(bar.classList.contains('open') && !e.target.closest('.app-switch-bar, .fs-tb-disc')){ bar.classList.remove('open'); swallowUntil = Date.now() + 600; } }, true);
+      document.addEventListener('click', e=>{ if(Date.now() < swallowUntil){ swallowUntil = 0; e.preventDefault(); e.stopPropagation(); } }, true);
     }
   }
   // Suchleiste oben (wie bei Karten-Apps): Disziplin links, Suche, Profil/Menü rechts
@@ -12749,7 +12752,7 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
   'convert-msl-to-klettergarten'
 ]);
-const HOLD_TO_EDIT_MS = 1000;
+const HOLD_TO_EDIT_MS = 650;
 // Stifte, die einen Eintrag öffnen (bleiben im Lesemodus sichtbar; siehe Lesen/Bearbeiten weiter unten)
 const FS_ENTRY_EDIT_ACTS = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-klettergebiet','edit-gipfel','edit-agenda','edit-access-route','edit-tour-route','edit-sektor-route','edit-sektor-topo-routen','edit-from-map'];
 // Optik aus derselben Liste erzeugt (kein zweiter Ort, der auseinanderlaufen kann):
@@ -13236,17 +13239,33 @@ document.addEventListener('click', e=>{
   window.location.replace(a.href);
 });
 // true = popstate ist erledigt (Wächter verlassen und Rückfrage gestellt)
+// Adresse mit der aktuell gezeigten Disziplin (nach einem Wechsel ohne Neuladen trägt der untere
+// Verlaufseintrag noch die alte; sonst erschiene nach Zurück und Neuladen wieder die alte Disziplin)
+function fsCurrentUrl(){
+  try{
+    if(typeof DISC === 'undefined') return location.href;
+    const u = new URL(location.href);
+    if(DISC === 'ski') u.searchParams.delete('d'); else u.searchParams.set('d', DISC);
+    return u.toString();
+  }catch(e){ return location.href; }
+}
+// Beenden wie unter Android üblich: einmal Zurück zeigt einen Hinweis, ein zweites Mal innert 2,5 s beendet
+let fsExitAskedAt = 0;
 function fsHandleExitGuard(ev){
   if(!fsExitGuardArmed || fsExitLeaving) return false;
   const st = ev && ev.state;
   if(st && st.fsLayer) return false; // noch innerhalb unserer Einträge
-  if(confirm('Firnspur beenden?')){
+  const url = fsCurrentUrl();
+  if(Date.now() - fsExitAskedAt < 2500){
     // Ist dies der erste Eintrag (installierte App), schliesst erst das nächste Zurück die App.
     fsExitLeaving = true;
+    try{ history.replaceState(history.state, '', url); }catch(e){}
     try{ history.back(); }catch(e){}
     setTimeout(()=>{ try{ window.close(); }catch(e){} }, 150);
   }else{
-    try{ history.pushState({fsLayer:'guard'}, '', location.href); }catch(e){}
+    fsExitAskedAt = Date.now();
+    try{ history.replaceState(history.state, '', url); history.pushState({fsLayer:'guard'}, '', url); }catch(e){}
+    showToast('Nochmals Zurück zum Beenden');
   }
   return true;
 }
