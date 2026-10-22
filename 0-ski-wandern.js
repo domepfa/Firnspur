@@ -1,5 +1,5 @@
 /* ================================================================
-   0-ski-wandern.js — gemeinsamer Code von Skitour (index.html) und Wandern (wandern.html).
+   0-ski-wandern.js – gemeinsamer Code von Skitour (index.html) und Wandern (wandern.html).
    Fixseil lädt diese Datei nicht. Was alle drei Apps brauchen, gehört in 0-shared.js.
    Die Funktionen greifen auf state, render() usw. der jeweiligen App zu.
    ================================================================= */
@@ -13,14 +13,14 @@ function migrateCompletions(item){
   return item;
 }
 
-async function saveHutCloud(hut){ return await fbSet('huts/'+hut.id, hut); }
+async function saveHutCloud__sw(hut){ return await fbSet('huts/'+hut.id, hut); }
 
 
 function removeGebiet(id){
   moveToTrash(id, state.gebiete, state.trashedGebiete, saveGebietCloud);
 }
 
-async function submitName(nameVal, pinVal){
+async function submitName__sw(nameVal, pinVal){
   const n = (nameVal||'').trim();
   if(!n) return;
   const after = state.modal && state.modal.after;
@@ -40,23 +40,23 @@ async function submitName(nameVal, pinVal){
   if(after) after();
 }
 
-function openAddTour(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:null}; render(); }); }
+function openAddTour__sw(){ dlog('Klick auf "+ Neue Tour"'); ensureName(()=>{ state.modal = {type:'edit-tour', payload:null}; render(); }); }
 
-function openAddTourWithPoint(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-tour', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
+function openAddTourWithPoint__sw(lat, lon){ ensureName(()=>{ state.modal = {type:'edit-tour', payload:{points:[{label:'', lat, lon}]}}; render(); }); }
 
-function openEditTour(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); navigateToModal({type:'edit-tour', payload:t}); }); }
+function openEditTour__sw(id){ ensureName(()=>{ const t = state.tours.find(x=>x.id===id); navigateToModal({type:'edit-tour', payload:t}); }); }
 
-function navigateToModal(newModal){
+function navigateToModal__sw(newModal){
   // Ungespeicherte Änderungen (Formular, «Karte bearbeiten») nicht still verlassen
   if(modalIsDirty && modalDirtyTrackingKey() && !confirmDiscardIfDirty()) return;
   if(state.modal){
     state.modalBackStack.push({ forType: newModal.type, modal: state.modal });
     // Jede zusätzliche Cross-Link-Ebene bekommt ihren EIGENEN Browser-History-Eintrag, statt sich
-    // (wie früher) auf den einen, für die ganze Sitzung geteilten Eintrag zu verlassen — sonst
+    // (wie früher) auf den einen, für die ganze Sitzung geteilten Eintrag zu verlassen – sonst
     // fehlte beim Zurückschliessen mehrerer Ebenen irgendwann ein Eintrag, und ein weiteres
     // Zurückwischen "leckte" in die davorliegende Seite durch (z. B. in die andere App). Sicher,
     // weil dies eine direkte Nutzeraktion ist (kein synchrones back()+pushState() wie bei der
-    // Historie-Warnung weiter unten in closeModal() — dort geht es um einen anderen Fall).
+    // Historie-Warnung weiter unten in closeModal() – dort geht es um einen anderen Fall).
     try{ history.pushState({fsLayer:'modal'}, '', location.href); }catch(e){}
   }else{
     state.modalBackStack = [];
@@ -65,7 +65,7 @@ function navigateToModal(newModal){
   render();
 }
 
-function openTourDetail(id){ navigateToModal({type:'tour-detail', payload:id}); }
+function openTourDetail__sw(id){ navigateToModal({type:'tour-detail', payload:id}); }
 
 function openAddGebiet(){ ensureName(()=>{ state.modal = {type:'edit-gebiet', payload:null}; render(); }); }
 
@@ -73,13 +73,13 @@ function openEditGebiet(id){ ensureName(()=>{ const g = state.gebiete.find(x=>x.
 
 function openGebietDetail(id){ navigateToModal({type:'gebiet-detail', payload:id}); }
 
-function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
+function closeModal__sw(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(!skipDirtyCheck && !confirmDiscardIfDirty()){
-    // Nutzer will weiter bearbeiten — nichts schliessen, und explizit NICHT render() aufrufen:
+    // Nutzer will weiter bearbeiten – nichts schliessen, und explizit NICHT render() aufrufen:
     // das würde die Maske komplett neu aus dem gespeicherten Ausgangszustand aufbauen und damit
     // genau die unges­icherten Eingaben verwerfen, die der Nutzer gerade bewusst behalten wollte.
     // Bei der Hardware-/Browser-Zurück-Taste wurde der History-Eintrag bereits konsumiert (siehe
-    // popstate-Handler) — den stellen wir hier gezielt wieder her, ohne die Maske neu zu rendern.
+    // popstate-Handler) – den stellen wir hier gezielt wieder her, ohne die Maske neu zu rendern.
     if(fromPopstate) pushModalHistoryIfNeeded();
     return;
   }
@@ -88,11 +88,11 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   // Verlassen = wieder gesperrt (Karte in der Detailansicht nicht mehr im Bearbeiten-Modus).
   state.quickEditOpenId = null;
   stopLiveGpsOnMap();
-  // Zustiege sind "verschachtelt" unter einer Hütte — beim Schliessen zurück zur
+  // Zustiege sind "verschachtelt" unter einer Hütte – beim Schliessen zurück zur
   // Hütten-Detailansicht statt ganz zur Übersicht, damit man nicht jedes Mal neu
   // hinein navigieren muss. Ein Klick auf X/Zurück (oder die Hardware-Zurück-Taste)
   // schliesst dadurch immer nur die zuoberst offene Ebene.
-  // Zurück führt IMMER dorthin, wo man vorher war (Verlauf aus navigateToModal) — erst wenn es
+  // Zurück führt IMMER dorthin, wo man vorher war (Verlauf aus navigateToModal) – erst wenn es
   // keinen Verlauf gibt (z. B. direkt von der grossen Karte geöffnet), greifen die festen
   // Rückfall-Ziele darunter.
   const backTop = (state.modalBackStack && state.modalBackStack.length) ? state.modalBackStack[state.modalBackStack.length-1] : null;
@@ -113,7 +113,7 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     }
   }
   // Per Zurückwischen/Zurück-Taste (popstate) wurde bereits genau EIN Browser-History-Eintrag
-  // konsumiert — landen wir dadurch bei einer übergeordneten Ansicht (state.modal noch gesetzt,
+  // konsumiert – landen wir dadurch bei einer übergeordneten Ansicht (state.modal noch gesetzt,
   // z. B. eine Cross-Link-Ebene aus navigateToModal()), hat deren EIGENER History-Eintrag genau
   // diesen Schritt repräsentiert; modalHistoryPushed bleibt also true, kein erneutes Pushen nötig.
   // Erst wenn wirklich alles geschlossen ist (state.modal===null), ist auch der zugehörige
@@ -121,10 +121,10 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   if(fromPopstate && !state.modal) modalHistoryPushed = false;
   render();
   // keepHistoryLayer: der Aufrufer öffnet direkt im Anschluss ein neues Modal (z. B. nach dem
-  // Speichern zur Detailansicht) — dann ist die Modal-"Ebene" aus Sicht der Browser-Historie nie
+  // Speichern zur Detailansicht) – dann ist die Modal-"Ebene" aus Sicht der Browser-Historie nie
   // wirklich geschlossen worden, also darf hier kein history.back() ausgelöst werden. Das wäre
   // sonst ein synchrones history.back() gefolgt von einem sofortigen history.pushState() (beim
-  // Öffnen des neuen Modals) — genau diese Kombination verhält sich browserübergreifend
+  // Öffnen des neuen Modals) – genau diese Kombination verhält sich browserübergreifend
   // inkonsistent und kann die Historie verwirren, sodass eine spätere Zurück-Aktion zu weit
   // zurückspringt (bis auf die andere App).
   if(!state.modal && modalHistoryPushed && !keepHistoryLayer){
@@ -133,8 +133,8 @@ function closeModal(fromPopstate, skipDirtyCheck, keepHistoryLayer){
   }
 }
 
-async function submitHutForm(form, existing){
-  // Stand vor dem Speichern — für "Rückgängig" im Hinweis danach.
+async function submitHutForm__sw(form, existing){
+  // Stand vor dem Speichern – für "Rückgängig" im Hinweis danach.
   const undoPrev = snapshotForUndo(existing && existing.id ? state.huts.find(x=>x.id===existing.id) : null);
   const h = (existing && existing.id) ? {...existing} : {id: (form.hutIdForTrack || uid('h')), createdBy: state.myName, createdAt: new Date().toISOString(), status:'entwurf'};
   h.name = form.name.trim();
@@ -172,7 +172,7 @@ async function submitHutForm(form, existing){
   h._unsynced = !ok;
   if(!ok){
     markUnsaved();
-    showToast('Hütte ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Hütte ist');
   }else{
     offerUndoAfterSave('Hütte gespeichert.', state.huts, undoPrev, saveHutCloud);
   }
@@ -180,7 +180,7 @@ async function submitHutForm(form, existing){
 }
 
 async function submitGebietForm(form, existing){
-  // Stand vor dem Speichern — für "Rückgängig" im Hinweis danach.
+  // Stand vor dem Speichern – für "Rückgängig" im Hinweis danach.
   const undoPrev = snapshotForUndo(existing && existing.id ? state.gebiete.find(x=>x.id===existing.id) : null);
   const g = (existing && existing.id) ? {...existing} : {id: (form.gebietIdForTrack || uid('geb')), createdBy: state.myName, createdAt: new Date().toISOString()};
   g.name = form.name.trim();
@@ -202,17 +202,17 @@ async function submitGebietForm(form, existing){
   g._unsynced = !ok;
   if(!ok){
     markUnsaved();
-    showToast('Gebiet ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Gebiet ist');
   }else{
     offerUndoAfterSave('Gebiet gespeichert.', state.gebiete, undoPrev, saveGebietCloud);
   }
   render();
 }
 
-function setView(v){ state.view = v; state.modal = null; modalOpenedFromStandaloneMap = false; render(); }
+function setView__sw(v){ state.view = v; state.modal = null; modalOpenedFromStandaloneMap = false; render(); }
 
 
-function render(){
+function render__sw(){
   const app = document.getElementById('app');
   const kept = fsTakeKeptModal(); // «Karte bearbeiten» offen: Ansicht behalten
   // Seite nur neu aufbauen, wenn sich etwas geändert hat: Tour öffnen/schliessen ändert nur das Fenster,
@@ -230,16 +230,16 @@ function syncAgendaTabButton(){
   if(btn) btn.classList.toggle('active', state.view==='agenda');
 }
 
-function emptyHuts(){
+function emptyHuts__sw(){
   const hasAny = state.huts.length>0;
   return `<div class="empty">
     <h3>${hasAny ? 'Keine Hütte passt zu diesem Filter' : 'Noch keine Hütte erfasst'}</h3>
-    <p>${hasAny ? 'Suche anpassen oder eine neue Hütte hinzufügen.' : 'Trag eine Hütte ein — Anfahrt, Zustieg, und ob und wann sie bewartet ist.'}</p>
+    <p>${hasAny ? 'Suche anpassen oder eine neue Hütte hinzufügen.' : 'Trag eine Hütte ein – Anfahrt, Zustieg, und ob und wann sie bewartet ist.'}</p>
     <button class="btn" data-act="add-hut">+ Neue Hütte</button>
   </div>`;
 }
 
-function hutCardHtml(h){ return fsHutCardHtml(h); }
+function hutCardHtml__sw(h){ return fsHutCardHtml(h); }
 
 function filteredGebiete(){
   let list = state.gebiete;
@@ -267,15 +267,14 @@ function emptyGebiete(){
   const hasAny = state.gebiete.length>0;
   return `<div class="empty">
     <h3>${hasAny ? 'Kein Gebiet passt zu diesem Filter' : 'Noch kein Gebiet erfasst'}</h3>
-    <p>${hasAny ? 'Suche anpassen oder ein neues Gebiet hinzufügen.' : 'Ein Gebiet fasst Touren und Hütten derselben Region zusammen (z. B. ein Tal oder Massiv) — leg es an und verlinke dann Touren/Hütten damit.'}</p>
-    <button class="btn" data-act="add-gebiet">+ Neues Gebiet</button>
+    <p>${hasAny ? 'Suche anpassen oder ein neues Gebiet hinzufügen.' : 'Ein Gebiet fasst Touren und Hütten derselben Region zusammen (z. B. ein Tal oder Massiv) – leg es an und verlinke dann Touren/Hütten damit.'}</p>
   </div>`;
 }
 
 function gebietTouren(geb){ return state.tours.filter(t=>t.gebietId===geb.id); }
 
 // Gebiet als Blatt über der Karte: Inhalte für die Karte dahinter (siehe fsShowAreaContextMap)
-function fsAreaForMap(modal){
+function fsAreaForMap__sw(modal){
   if(!modal || modal.type !== 'gebiet-detail') return null;
   const geb = state.gebiete.find(x=>x.id===modal.payload);
   if(!geb) return null;
@@ -299,7 +298,7 @@ function renderGebietOverviewMap(containerId, gebId){
     const hasOwnPoints = geb.points && geb.points.length;
     const hasAny = hasOwnPoints || huetten.some(h=> h.points && h.points.length) || touren.some(t=> (t.points && t.points.length) || (t.trackSimplified && t.trackSimplified.length) || (t.manualTrack && t.manualTrack.length));
     if(!hasAny){
-      el2.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Noch keine Kartendaten — weder beim Gebiet noch bei den Touren/Hütten.</p>';
+      el2.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Noch keine Kartendaten – weder beim Gebiet noch bei den Touren/Hütten.</p>';
       return;
     }
     const mapDivId = containerId + '-inner';
@@ -364,7 +363,7 @@ function renderGebietOverviewMap(containerId, gebId){
   });
 }
 
-function renderModal(){
+function renderModal__sw(){
   pushModalHistoryIfNeeded();
   const root = document.getElementById('modal-root');
   const m = state.modal;
@@ -393,7 +392,7 @@ function renderModal(){
   wireModalHandlers();
 }
 
-function buildExportData(){
+function buildExportData__sw(){
   const singleTourId = state.modal && state.modal.type==='export' && state.modal.payload && state.modal.payload.tourId;
   if(singleTourId){
     const tour = state.tours.find(t=>t.id===singleTourId);
@@ -409,13 +408,13 @@ function buildExportData(){
   return data;
 }
 
-function exportModalHtml(payload){
+function exportModalHtml__sw(payload){
   const singleTour = payload && payload.tourId ? state.tours.find(t=>t.id===payload.tourId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Exportieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
     ${singleTour
       ? `<p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Nur diese Tour: <strong>${esc(singleTour.name)}</strong>. Lade sie herunter oder kopiere den Text, um sie mit jemandem zu teilen.</p>`
-      : `<p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Lade eine Datei herunter und teile sie mit deinen Freunden (z. B. per WhatsApp/E-Mail) — oder kopiere den Text. Sie importieren die Datei/den Text, um eure Sammlungen zusammenzuführen.</p>
+      : `<p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Lade eine Datei herunter und teile sie mit deinen Freunden (z. B. per WhatsApp/E-Mail) – oder kopiere den Text. Sie importieren die Datei/den Text, um eure Sammlungen zusammenzuführen.</p>
     <div class="field">
       <label>Was exportieren?</label>
       <div class="chips" id="export-filter-chips">
@@ -436,16 +435,16 @@ function exportModalHtml(payload){
   </div>`;
 }
 
-function importModalHtml(){
+function importModalHtml__sw(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Importieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Wähle eine Datei, die dir jemand geschickt hat, oder füge den Text ein. Bestehende Einträge mit gleicher ID werden aktualisiert, neue werden hinzugefügt.</p>
-    <p style="font-size:13px; margin:0 0 12px 0;"><button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="open-vorlagen">📋 Ressourcen &amp; Vorlagen</button> — Bedienungsanleitung, JSON-Vorlage &amp; KI-Anleitung, zum Weitergeben an Kolleg:innen.</p>
+    <p style="font-size:13px; margin:0 0 12px 0;"><button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="open-vorlagen">📋 Ressourcen &amp; Vorlagen</button> – Bedienungsanleitung, JSON-Vorlage &amp; KI-Anleitung, zum Weitergeben an Kolleg:innen.</p>
     <div class="field">
       <label>Datei wählen</label>
       <input type="file" id="import-file" accept="application/json,.json,.txt"/>
     </div>
-    <p style="font-size:12.5px; color:var(--ink-soft); margin:10px 0 6px 0;">— oder Text einfügen —</p>
+    <p style="font-size:12.5px; color:var(--ink-soft); margin:10px 0 6px 0;">– oder Text einfügen –</p>
     <textarea placeholder="{ &quot;tours&quot;: [...], &quot;huts&quot;: [...] }" style="width:100%; min-height:160px; font-family:'Manrope'; font-size:11.5px;" id="import-text"></textarea>
     <div class="form-error" id="import-error" style="display:none;"></div>
     <div class="form-actions">
@@ -539,7 +538,7 @@ function renderGipfelzielOverviewMap(containerId, gipfelName){
   });
 }
 
-function hutFormHtml(existing){
+function hutFormHtml__sw(existing){
   const h = existing || {};
   const isEditing = !!(existing && existing.id);
   const isKnownRegion = REGIONS.includes(h.region);
@@ -561,7 +560,7 @@ function hutFormHtml(existing){
         <input type="hidden" name="subregion" id="subregion-hidden" value="${esc(h.subregion||'')}"/>
       </div>
       <div class="field"><label>Gebiet (optional)</label>
-        <select name="gebietId"><option value="">— keins —</option>${state.gebiete.map(g=>`<option value="${g.id}" ${h.gebietId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}${h.gebietId && !state.gebiete.some(g=> g.id === h.gebietId) ? `<option value="${esc(h.gebietId)}" selected>Gebiet aus der anderen App (bleibt)</option>` : ''}</select>
+        <select name="gebietId"><option value="">– keins –</option>${state.gebiete.map(g=>`<option value="${g.id}" ${h.gebietId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}${h.gebietId && !state.gebiete.some(g=> g.id === h.gebietId) ? `<option value="${esc(h.gebietId)}" selected>Gebiet aus der anderen App (bleibt)</option>` : ''}</select>
         <div class="hint">Fasst Touren &amp; Hütten derselben Region zusammen. Fehlt das Gebiet? Erst unter „Gebiete" anlegen.</div>
       </div>
       <div class="field"><label>Höhe (m ü. M.)</label><input name="altitude" value="${esc(h.altitude||'')}" placeholder="z. B. 1834"/></div>
@@ -569,12 +568,12 @@ function hutFormHtml(existing){
         <div class="chips" id="staffed-months-chips">${monthChipsRowHtml('staffed-month-chip', h.staffedMonths, h.staffedMonthsPartial)}</div>
         <div class="hint">Antippen: 🟢 ganzen Monat offen. Nochmal antippen: 🟡 nur teilweise offen. Nochmal: wieder aus.</div>
       </div>
-      <div class="field"><label>Bewartung — Zusatzinfo</label><textarea name="staffedNote">${esc(h.staffedNote||'')}</textarea></div>
+      <div class="field"><label>Bewartung – Zusatzinfo</label><textarea name="staffedNote">${esc(h.staffedNote||'')}</textarea></div>
       <div class="field"><label>Winterraum / Schutzraum</label><textarea name="winterraum" placeholder="Vorhanden? Anzahl Plätze, Zugang, Ausstattung …">${esc(h.winterraum||'')}</textarea></div>
       <div class="field"><label>Schutzraum offen</label>
         <div class="chips" id="winterraum-months-chips">${monthChipsRowHtml('winterraum-month-chip', h.winterraumMonths, h.winterraumMonthsPartial)}</div>
       </div>
-      <div class="field"><label>Schutzraum — Zusatzinfo</label><textarea name="winterraumNote">${esc(h.winterraumNote||'')}</textarea></div>
+      <div class="field"><label>Schutzraum – Zusatzinfo</label><textarea name="winterraumNote">${esc(h.winterraumNote||'')}</textarea></div>
       <div class="field"><label>Betten / Kapazität</label><input name="capacity" value="${esc(h.capacity||'')}" placeholder="z. B. 40 Betten"/></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
@@ -584,10 +583,10 @@ function hutFormHtml(existing){
           <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('zufuss')?'on':''}" style="${(h.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
         </div>
       </div>
-      <div class="field"><label>Anfahrt — Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(h.approach||'')}</textarea></div>
+      <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(h.approach||'')}</textarea></div>
       <div class="field"><label>Punkte auf der Karte (Hütte, Parkplatz, Haltestelle …)</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte zum Setzen von Punkten öffnen</button>
-        <div class="hint">📍 Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: eigenen Zustieg einzeichnen, falls kein GPX-Track vorhanden — antippen fügt Wegpunkte hinzu.</div>
+        <div class="hint">📍 Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: eigenen Zustieg einzeichnen, falls kein GPX-Track vorhanden – antippen fügt Wegpunkte hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(h.points || (h.lat && h.lon ? [{label:"Hütte", lat:h.lat, lon:h.lon}] : [])))}'/>
@@ -627,7 +626,7 @@ function hutFormHtml(existing){
   </div>`;
 }
 
-function hutDetailHtml(id){
+function hutDetailHtml__sw(id){
   const h = state.huts.find(x=>x.id===id);
   if(!h) return `<div class="modal" data-stop="1"><p>Hütte nicht gefunden.</p></div>`;
   const linked = state.tours.filter(t=>t.hutId===h.id);
@@ -727,7 +726,7 @@ function hutDetailHtml(id){
   </div>`;
 }
 
-function abgeschlossenViewHtml(){
+function abgeschlossenViewHtml__sw(){
   const groups = buildPersonGroups();
   const names = Object.keys(groups);
   if(!names.length){
@@ -815,11 +814,11 @@ async function removeCompletion(kind, id, idx){
   render();
 }
 
-function renderListOnly(){
+function renderListOnly__sw(){
   const main = document.querySelector('main');
   if(!main) return;
   const hadFocus = !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('main .search-input'));
-  main.innerHTML = state.loading ? `<div class="loading">Lade…</div>` : (state.view==='gebiete' ? gebieteViewHtml() : state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml());
+  main.innerHTML = state.loading ? fsLoadingStageHtml() : (state.view==='gebiete' ? gebieteViewHtml() : state.view==='touren' ? tourenViewHtml() : state.view==='huetten' ? huettenViewHtml() : state.view==='agenda' ? agendaViewHtml() : state.view==='papierkorb' ? papierkorbPageHtml() : abgeschlossenViewHtml());
   const app = document.getElementById('app'); if(app) app._fsShell = null; // render() baut danach wieder ganz neu
   wireGlobalHandlers();
   // Fokus nur zurück ins Suchfeld der Liste, wenn dort getippt wurde (nicht bei der Suchleiste oben)
