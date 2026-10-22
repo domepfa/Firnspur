@@ -2770,3 +2770,16 @@ html.fs-planning .fsm-ctlbox [data-fsm="full"]{ display:none; }
 html.fs-mapmode .fs-topbar{ view-transition-name:fs-topbar; }
 ::view-transition-old(root), ::view-transition-new(root){ animation-duration:.28s; }
 @media (prefers-reduced-motion: reduce){ ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*){ animation:none !important; } }
+
+/* Offline-Hinweis auf der Startkarte: kleine Pille unter der Suchleiste statt Balken darüber
+   (der Balken lag über Disziplin, Suche und Menü und schluckte die Tipps) */
+html.fs-mapmode .backup-banner.fs-offline-banner{
+  position:fixed; z-index:59; top:calc(var(--fs-glass-top) + 64px); left:50%; transform:translateX(-50%);
+  width:max-content; max-width:calc(100% - 140px); box-sizing:border-box;
+  padding:6px 12px; border:none; border-radius:999px; font-size:12.5px; line-height:1.3; flex-wrap:nowrap;
+  background:var(--paper); color:var(--ink-soft); box-shadow:0 4px 14px rgba(15,30,39,.16); pointer-events:none;
+}
+html.fs-mapmode .backup-banner.fs-offline-banner .fs-i{ width:15px; height:15px; }
+[aria-invalid="true"]{ border-color:var(--danger, #B0392C) !important; box-shadow:0 0 0 2px color-mix(in srgb, var(--danger, #B0392C) 25%, transparent); }
+html.fs-mapmode .fs-offline-banner .fs-ob-more{ display:none; }
+html.fs-sheet-open .backup-banner.fs-offline-banner, body:has(.overlay) .backup-banner.fs-offline-banner{ display:none; }

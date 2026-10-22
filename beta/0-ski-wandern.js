@@ -172,7 +172,7 @@ async function submitHutForm__sw(form, existing){
   h._unsynced = !ok;
   if(!ok){
     markUnsaved();
-    showToast('Hütte ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Hütte ist');
   }else{
     offerUndoAfterSave('Hütte gespeichert.', state.huts, undoPrev, saveHutCloud);
   }
@@ -202,7 +202,7 @@ async function submitGebietForm(form, existing){
   g._unsynced = !ok;
   if(!ok){
     markUnsaved();
-    showToast('Gebiet ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Gebiet ist');
   }else{
     offerUndoAfterSave('Gebiet gespeichert.', state.gebiete, undoPrev, saveGebietCloud);
   }
