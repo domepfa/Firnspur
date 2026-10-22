@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bergtouren-shell-v239';
+const CACHE_NAME = 'bergtouren-shell-v240';
 const SHELL_ASSETS = [
   './', './index.html', './fixseil.html', './wandern.html', './0-shared.js', './0-ski-wandern.js', './look.css', './0-geo-ch.js',
   './manifest.json', './manifest-fixseil.json', './manifest-wandern.json', './wandern-hero.jpg',
@@ -79,7 +79,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
   if (e.request.method === 'POST' && url.pathname.endsWith('/share-target-fixseil.html')){
-    e.respondWith(handleShareTarget(e.request, new URL('./fixseil.html', './wandern.html', url).toString()));
+    e.respondWith(handleShareTarget(e.request, new URL('./fixseil.html', url).toString()));
     return;
   }
   if (e.request.method === 'POST' && url.pathname.endsWith('/share-target-index.html')){
@@ -124,10 +124,13 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   if (isNav) {
-    e.respondWith(caches.match(e.request).then((cached) => {
+    // Offline gilt jede Adresse der Seite (z. B. index.html?d=hoch nach der Weiterleitung von fixseil.html),
+    // auch wenn genau diese Adresse noch nie online geladen wurde
+    const anyMatch = () => caches.match(e.request).then((hit) => hit || caches.match(e.request, {ignoreSearch: true}));
+    e.respondWith(anyMatch().then((cached) => {
       const n = net().then(store);
       n.catch(() => {}); // verspätet fehlgeschlagen: egal, Speicher wurde schon geliefert
-      if (!cached) return n.catch(() => caches.match(e.request));
+      if (!cached) return n.catch(() => anyMatch());
       let timer;
       const slow = new Promise((resolve) => { timer = setTimeout(() => { fromCacheUntil = Date.now() + 20000; resolve(cached); }, 4000); });
       return Promise.race([n.then((r) => { clearTimeout(timer); return r; }, () => { clearTimeout(timer); return cached; }), slow]);

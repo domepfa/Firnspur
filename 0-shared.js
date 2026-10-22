@@ -1,5 +1,5 @@
 /* ================================================================
-   shared.js — gemeinsamer Code für Firnspur (Skitour) & Fixseil
+   shared.js – gemeinsamer Code für Firnspur (Skitour) & Fixseil
    (Hochtour/MSL). Wird von beiden Apps eingebunden, damit Agenda,
    Sortierung, Regionen und Basis-Hilfsfunktionen nur an einer
    Stelle gepflegt werden müssen.
@@ -35,15 +35,15 @@ function renderDebugPanel(){
 const FIREBASE_URL = 'https://firnspur-default-rtdb.europe-west1.firebasedatabase.app';
 const STORAGE_BUCKET = 'firnspur.firebasestorage.app'; // Cloud Storage, appübergreifend geteilt
 // Foto-Scan für Kletterrouten: URL der Cloud Function, siehe functions/README.md.
-// Leer = noch nicht deployt — der "Foto scannen"-Knopf zeigt dann nur eine Fehlermeldung,
+// Leer = noch nicht deployt – der "Foto scannen"-Knopf zeigt dann nur eine Fehlermeldung,
 // der Rest der App bleibt davon komplett unberührt. Bewusst "var" (statt "const"), damit
 // Tests sie über window.SCAN_KLETTERROUTEN_URL überschreiben können.
 var SCAN_KLETTERROUTEN_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanKletterrouten';
 // Wie SCAN_KLETTERROUTEN_URL, aber für ein Foto mit MEHREREN Sektoren gleichzeitig (z. B.
-// eine ganze Führerbuch-Seite mit Sektor A–G) — siehe functions/README.md.
+// eine ganze Führerbuch-Seite mit Sektor A–G) – siehe functions/README.md.
 var SCAN_KLETTERGEBIET_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanKlettergebiet';
-// Foto-Scan für einen einzelnen Zustieg/Abstieg (Hütte, Tour oder Sektor — gleiche
-// Feldstruktur überall) — siehe functions/README.md.
+// Foto-Scan für einen einzelnen Zustieg/Abstieg (Hütte, Tour oder Sektor – gleiche
+// Feldstruktur überall) – siehe functions/README.md.
 var SCAN_ZUSTIEG_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanZustieg';
 // Tour aus Foto (Führerseite, Screenshot, Notiz): ganze Tour vorschlagen, Felder mit Originalzitat.
 var SCAN_TOUR_URL = 'https://europe-west1-firnspur.cloudfunctions.net/scanTour';
@@ -297,7 +297,7 @@ const FS_ADMINS = ['Dome'];
 function fsIsAdmin(me){ const k = fsNameKey(me !== undefined ? me : (typeof state !== 'undefined' && state.myName)); return !!k && FS_ADMINS.some(a=> fsNameKey(a) === k); }
 const FS_OWNED_COLLS = ['tours', 'fixseil/tours', 'wandern/tours'];
 const FS_OWNER_FIELDS = ['owner', 'editors', 'open'];
-const FS_SUG_EMPTY = '(leer)'; // Firebase speichert leere Listen nicht — «leeren» als Marker
+const FS_SUG_EMPTY = '(leer)'; // Firebase speichert leere Listen nicht – «leeren» als Marker
 function fsNameKey(n){ return String(n || '').trim().toLowerCase(); }
 function fsOwnerOf(t){
   const o = (t && (t.owner || t.createdBy)) || '';
@@ -396,7 +396,7 @@ function fsSuggestionsHtml(t){
     const when = new Date(s.at).toLocaleString('de-CH', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
     return `<div class="fs-sug-card">
       <p class="fs-sug-h">Offener Vorschlag von ${esc(s.by)} · ${when}</p>
-      <p class="hint" style="margin:0 0 6px;">Noch nicht übernommen — wartet auf ${esc(fsOwnerOf(t))}.</p>
+      <p class="hint" style="margin:0 0 6px;">Noch nicht übernommen – wartet auf ${esc(fsOwnerOf(t))}.</p>
       ${fields.map(f=> `<div class="fs-sug-row">
         <b>${esc(FS_FIELD_LABELS[f] || f)}</b>
         ${f === 'deletedAt' ? '' : `<span class="old">bisher: ${fsSugValHtml(s.before ? s.before[f] : null)}</span>`}
@@ -533,11 +533,11 @@ async function fsSafeSet(path, value, v){
         if(v.coll !== 'agenda' && stampBase !== undefined && curStamp && curStamp !== stampBase){
           const who = cur.updatedBy || 'jemand anderes';
           const when = new Date(curStamp).toLocaleString('de-CH', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
-          if(!window.confirm(`«${cur.name || cur.tourName || 'Dieser Eintrag'}» wurde inzwischen von ${who} geändert (${when}).\n\nOK: deine Fassung speichern — die andere bleibt unter «Frühere Versionen» erhalten.\nAbbrechen: die neuere Fassung laden — deine bleibt unter «Frühere Versionen» erhalten.`)){
+          if(!window.confirm(`«${cur.name || cur.tourName || 'Dieser Eintrag'}» wurde inzwischen von ${who} geändert (${when}).\n\nOK: deine Fassung speichern – die andere bleibt unter «Frühere Versionen» erhalten.\nAbbrechen: die neuere Fassung laden – deine bleibt unter «Frühere Versionen» erhalten.`)){
             await fsSaveVersion(v, value, 'eigene Fassung, nicht übernommen');
             Object.keys(value).forEach(k=> delete value[k]); Object.assign(value, cur);
             fsBaseRemember(path, cur); fsBaseStamp.set(path, curStamp); fsBaseUnpin(path);
-            if(typeof showToast === 'function') showToast('Nicht gespeichert — die neuere Fassung ist geladen.');
+            if(typeof showToast === 'function') showToast('Nicht gespeichert – die neuere Fassung ist geladen.');
             if(typeof render === 'function') setTimeout(render, 0);
             return true;
           }
@@ -665,7 +665,7 @@ async function fbDelete(path){
 }
 
 /* ================= Namen-Schutz & persönliche Merkliste =================
-   Kein echtes Login — das gemeinsame App-Passwort (signInWithPassword) regelt bereits den
+   Kein echtes Login – das gemeinsame App-Passwort (signInWithPassword) regelt bereits den
    Zugriff auf die Daten insgesamt. Das hier verhindert nur Verwechslungen: wer einen Namen
    zum ersten Mal einträgt, vergibt ein frei wählbares Passwort dafür; will jemand denselben
    Namen später wieder benutzen (anderes Gerät, versehentlich derselbe Name), muss das
@@ -690,7 +690,7 @@ async function claimOrVerifyName(name, pin){
     else{ existing = await res.json(); }
   }catch(e){ fetchFailed = true; }
   if(fetchFailed){
-    // Offline/Fehler: nicht aussperren, aber auch keinen neuen Eintrag anlegen — sonst könnte
+    // Offline/Fehler: nicht aussperren, aber auch keinen neuen Eintrag anlegen – sonst könnte
     // später beim Synchronisieren versehentlich ein bestehendes Passwort überschrieben werden.
     return {ok:true, unverified:true};
   }
@@ -700,12 +700,12 @@ async function claimOrVerifyName(name, pin){
     fbSet(USERS_PATH + '/' + key, {name: name.trim(), pinHash, createdAt: new Date().toISOString()}).catch(()=>{});
     return {ok:true};
   }
-  if(!existing.pinHash) return {ok:true}; // Alter Eintrag von vor diesem Feature — nicht aussperren
+  if(!existing.pinHash) return {ok:true}; // Alter Eintrag von vor diesem Feature – nicht aussperren
   const pinHash = await sha256Hex(pin||'');
   if(pinHash === existing.pinHash) return {ok:true};
   return {ok:false, reason:'wrong-pin'};
 }
-// Persönliche Merkliste (★) — pro Namen in der Cloud gespeichert, damit sie geräteübergreifend
+// Persönliche Merkliste (★) – pro Namen in der Cloud gespeichert, damit sie geräteübergreifend
 // erhalten bleibt, aber beim Anzeigen nur die eigenen markierten Einträge gezeigt werden.
 async function loadFavorites(){
   if(!state.myName){ state.favorites = new Set(); return; }
@@ -782,7 +782,7 @@ function dedupeById(arr){
 // Gelöschte Touren/Hütten/Sektoren/Klettergebiete/Gipfel werden nicht sofort und endgültig aus
 // Firebase entfernt, sondern nur markiert (deletedAt/deletedBy) und aus der aktiven state.xyz-
 // Liste in eine separate state.trashedXyz-Liste verschoben. Die App lebt von den über die Zeit
-// gesammelten Touren aller Nutzer:innen — ein Fehlklick soll niemanden endgültig etwas kosten.
+// gesammelten Touren aller Nutzer:innen – ein Fehlklick soll niemanden endgültig etwas kosten.
 // Nach TRASH_RETENTION_DAYS werden Einträge beim nächsten App-Start automatisch endgültig entfernt
 // (siehe purgeExpiredTrash, aufgerufen aus loadAll() in index.html/fixseil.html).
 const TRASH_RETENTION_DAYS = 30;
@@ -845,7 +845,7 @@ function fsImportPrep(list, prefix, nameField){
     return x;
   });
 }
-// Import ergänzt statt ersetzt: Werte aus der Datei überschreiben nur, wenn sie etwas enthalten —
+// Import ergänzt statt ersetzt: Werte aus der Datei überschreiben nur, wenn sie etwas enthalten –
 // leere Felder in der Datei löschen nie vorhandene Daten (GPX, Punkte, Fotos, Routen, Begehungen).
 function fsImportIsEmpty(v){
   return v === '' || v === null || v === undefined || (Array.isArray(v) && !v.length) || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length);
@@ -864,7 +864,7 @@ function fsImportMerge(existing, incoming){
     if(k === 'id' || fsImportIsEmpty(incoming[k])) return;
     const cur = out[k], inc = incoming[k];
     if(fsImportIsEmpty(cur)){ out[k] = inc; return; }
-    // Linien (Listen von Koordinaten) nie mischen — die vorhandene bleibt
+    // Linien (Listen von Koordinaten) nie mischen – die vorhandene bleibt
     if(Array.isArray(cur) && Array.isArray(inc) && !Array.isArray(cur[0]) && !Array.isArray(inc[0])){
       const seen = new Set(cur.map(fsImportKey));
       out[k] = cur.concat(inc.filter(x=> !seen.has(fsImportKey(x))));
@@ -885,7 +885,7 @@ function fsImportConfirm(rows){
   });
   if(!lines.length) return;
   const ok = window.confirm('Import prüfen:\n\n' + lines.join('\n') + '\n\nBestehende Einträge werden nur ergänzt: leere Felder gefüllt, Listen (Begehungen, Fotos, Routen, Punkte) um Neues erweitert. Vorhandene Texte, Linien und Einträge bleiben. Die bisherige Fassung wird zusätzlich unter «Frühere Versionen» gesichert.\n\nImportieren?');
-  if(!ok) throw new Error('Import abgebrochen — nichts wurde verändert.');
+  if(!ok) throw new Error('Import abgebrochen – nichts wurde verändert.');
 }
 function fsRescueCollect(appKey, cacheKeys){
   const storeKey = 'fs-rescue-' + appKey;
@@ -1079,7 +1079,7 @@ function fsGpxRepairOffer(appKey, lineTours, altFix, orphanData){
     <h3>${fsIconHtml('compass')} GPX-Dateien gefunden</h3>
     ${lineTours.length ? `<p><b>${lineTours.length} Touren</b> fehlt die Linie, ihre GPX-Datei ist aber noch da:<br/>${lineTours.map(t=> esc(t.name || t.id)).join(' · ')}</p>` : ''}
     ${altTours.length ? `<p><b>${altFix.length} weitere Routen</b> fehlen bei: ${altTours.map(t=> esc(t.name || t.id)).join(' · ')}</p>` : ''}
-    ${orphanData.length ? `<p><b>${orphanData.length} GPX-Dateien ohne Tour</b> — als Entwurf-Tour anlegen?</p>
+    ${orphanData.length ? `<p><b>${orphanData.length} GPX-Dateien ohne Tour</b> – als Entwurf-Tour anlegen?</p>
       <div class="fs-rescue-list">${orphanData.map((o, i)=> `<label class="fs-gpx-orphan"><input type="checkbox" data-o="${i}" checked/> ${esc(o.name)} <span class="fs-rescue-muted">${o.d.uploadedAt ? '· ' + esc(new Date(o.d.uploadedAt).toLocaleDateString('de-CH')) : ''}</span></label>`).join('')}</div>` : ''}
     <div class="fs-rescue-actions">
       <button type="button" class="btn" data-g="go">Wiederherstellen</button>
@@ -1130,7 +1130,7 @@ function fsGpxRepairOffer(appKey, lineTours, altFix, orphanData){
 }
 /* Bessere Fassung vom Gerät: Gibt es einen Eintrag in der Datenbank, hat dieses Gerät aber in
    Feldern Daten, die dort leer sind (z. B. Linie, Punkte, Fotos, Routen), wird das beiseitegelegt
-   (fs-better-<app>) und angeboten. Übernommen werden nur die leeren Felder — nichts wird ersetzt. */
+   (fs-better-<app>) und angeboten. Übernommen werden nur die leeren Felder – nichts wird ersetzt. */
 const FS_BETTER_LABELS = {trackSimplified:'GPX-Linie', manualTrack:'gezeichnete Linie', points:'Punkte', altTracks:'weitere Routen',
   topoImages:'Fotos/Topos', accessRoutes:'Zustiege', descentRoutes:'Abstiege', kletterrouten:'Kletterrouten', completions:'Begehungen'};
 function fsBetterCollect(appKey, cacheKeys){
@@ -1270,7 +1270,7 @@ function papierkorbViewHtml(groups){
   const total = trashCountTotal(groups);
   return `
     <div class="hero-top" style="margin-bottom:14px;"><h1 style="font-size:20px;">🗑️ Papierkorb</h1></div>
-    <p style="font-size:13px; color:var(--ink-soft); margin:0 0 16px 0;">Gelöschte Einträge bleiben ${TRASH_RETENTION_DAYS} Tage lang hier und lassen sich wiederherstellen — danach werden sie automatisch endgültig entfernt.</p>
+    <p style="font-size:13px; color:var(--ink-soft); margin:0 0 16px 0;">Gelöschte Einträge bleiben ${TRASH_RETENTION_DAYS} Tage lang hier und lassen sich wiederherstellen – danach werden sie automatisch endgültig entfernt.</p>
     ${!total ? `<div class="empty"><h3>Papierkorb ist leer</h3><p>Gelöschte Einträge erscheinen hier.</p></div>` : groups.filter(g=>g.trashedList.length).map(g=>`
       <h4 style="margin:18px 0 8px;">${g.icon} ${esc(g.label)} (${g.trashedList.length})</h4>
       <div class="grid">${g.trashedList.map(item=>trashItemCardHtml(item, g.kind)).join('')}</div>
@@ -1359,18 +1359,18 @@ function tourMapPoint(t){
 }
 // Kartenstreifen über Touren-/Gebiets-Listen: bewusst KEIN Leaflet, keine Kacheln, sondern eine
 // einmal offline vereinfachte/projizierte CH-Silhouette (Kantonsgrenzen, 20 Seen, Relief-Hillshade
-// aus DHM200 — siehe 0-geo-ch.js) fest in die App eingebettet. Punkte werden über dieselbe
+// aus DHM200 – siehe 0-geo-ch.js) fest in die App eingebettet. Punkte werden über dieselbe
 // Projektion wie die Silhouette platziert (echte, konstante Lage zueinander statt Min/Max-
 // Streckung auf die jeweils aktuelle Liste), dadurch bleiben nahe Gebiete/Touren bei kleinem
 // Massstab zu einem Sammel-Pin zusammengefasst und lassen sich per Pinch/Doppeltipp wieder
 // auftrennen. Dadurch entsteht beim Öffnen einer Liste weiterhin kein zusätzlicher Netzwerk-
-// Traffic — Kartendaten sind Teil des App-Shells (Service-Worker-Precache), es werden nur die
+// Traffic – Kartendaten sind Teil des App-Shells (Service-Worker-Precache), es werden nur die
 // ohnehin schon geladenen .points der jeweiligen Tour/Klettergebiete verwendet.
 const MAP_STRIP_ZOOM_MIN = 1;
 const MAP_STRIP_ZOOM_MAX = 12;
 const MAP_STRIP_ZOOM_STEP = 2.4;
 // Abstand (in % der Kartenstreifen-Fläche) unter dem zwei Punkte bei Zoom 1x zu einem Sammel-Pin
-// zusammengefasst werden — schrumpft mit dem Zoom, damit Reinzoomen nahe Punkte wieder trennt.
+// zusammengefasst werden – schrumpft mit dem Zoom, damit Reinzoomen nahe Punkte wieder trennt.
 // 5.0% entspricht bei Zoom 1x (ganze Schweiz) ca. 19 km (in dieser Grössenordnung überlappen sich
 // die Pins sowieso schon rein optisch), bei ZOOM_MAX 1x/12 davon ca. 1.6 km -- reicht, um auch nah
 // beieinander liegende, aber klar unterschiedliche Gebiete/Touren (Beispiel aus dem Vorschlag:
@@ -1390,7 +1390,7 @@ function mapStripPositions(points){
   });
 }
 // Fasst Punkte zusammen, die beim aktuellen Zoom näher als der Schwellwert liegen. Greedy statt
-// optimal (erster nicht zugeordneter Punkt "zieht" alle in Reichweite mit) — für die paar Dutzend
+// optimal (erster nicht zugeordneter Punkt "zieht" alle in Reichweite mit) – für die paar Dutzend
 // Punkte einer Liste reicht das, ein Sammel-Pin trägt seine Mitglieder für Popup/Rein-Zoomen mit.
 function mapStripClusterPoints(positioned, zoom){
   const threshold = MAP_STRIP_CLUSTER_BASE_PCT / Math.max(MAP_STRIP_ZOOM_MIN, zoom);
@@ -1418,7 +1418,7 @@ function mapStripClusterPoints(positioned, zoom){
   return out;
 }
 // Hintergrund-SVG (Relief + Seen + Kantonsgrenzen) ist unabhängig von der jeweiligen Liste immer
-// gleich — einmal pro Farb-Thema (Firnspur/Fixseil, siehe GEO_CH_HILLSHADE) bauen und cachen statt
+// gleich – einmal pro Farb-Thema (Firnspur/Fixseil, siehe GEO_CH_HILLSHADE) bauen und cachen statt
 // bei jedem render() die ~30 KB Pfad-Strings neu zusammenzusetzen.
 let _mapStripBgSvgCache = {};
 function mapStripBackgroundSvg(){
@@ -1483,7 +1483,7 @@ function mapStripCloseOpenPopups(){
 }
 // opts: {label, kind:'tour'|'klettergebiet', points:[{id,lat,lon,label}], emptyText, openPinId}
 // Neuer Look (Schritt 2): Karte als "Bühne" oben, die Liste liegt als Blatt darüber und schiebt
-// sich beim Scrollen über die Karte (siehe .fs-stage/.fs-sheet in look.css) — die Übersichtskarte
+// sich beim Scrollen über die Karte (siehe .fs-stage/.fs-sheet in look.css) – die Übersichtskarte
 // ist damit immer sichtbar statt erst nach einem Klick.
 /* ===== Startansicht: echte Karte, Liste = Kartenausschnitt =====
    Die Bühne der Listen (Touren, Hütten, Gebiete) zeigt die swisstopo-Karte statt der Skizze. Die
@@ -1526,8 +1526,50 @@ function fsHomeResizeIfNeeded(){
   const c = fsHomeMap.getContainer(), cv = fsHomeMap.getCanvas();
   if(Math.abs(cv.clientWidth - c.clientWidth) > 1 || Math.abs(cv.clientHeight - c.clientHeight) > 1) fsHomeMap.resize();
 }
+// Karte im Vollbild: Blatt, Suchleiste und «Neue Tour» weg, nur Karte und Kartenknöpfe; wo möglich auch
+// ohne Leisten des Browsers. Derselbe Knopf, Zurück oder Esc beendet es.
+let fsHomeFullLayer = null;
+function fsHomeFullToggle(on){
+  const root = document.documentElement;
+  const now = root.classList.contains('fs-mapfull');
+  if(on === undefined) on = !now;
+  if(on === now) return;
+  root.classList.toggle('fs-mapfull', on);
+  document.querySelectorAll('.fsm-ctlbox [data-fsm="full"]').forEach(b=>{
+    b.innerHTML = fsIconHtml(on ? 'x' : 'expand');
+    b.setAttribute('aria-label', on ? 'Vollbild beenden' : 'Karte im Vollbild');
+  });
+  try{
+    if(on && document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen({navigationUI: 'hide'}).catch(()=>{});
+    if(!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+  }catch(e){}
+  if(on){
+    fsHomeFullLayer = ()=>{ fsHomeFullLayer = null; fsHomeFullToggle(false); };
+    pushOverlayLayer(fsHomeFullLayer);
+  }else if(fsHomeFullLayer){
+    const i = overlayLayers.indexOf(fsHomeFullLayer);
+    fsHomeFullLayer = null;
+    if(i >= 0 && i === overlayLayers.length - 1){ overlayLayers.pop(); consumeHistoryEntry(); }
+    else if(i >= 0) overlayLayers.splice(i, 1);
+  }
+  setTimeout(()=>{ try{ if(fsHomeMap) fsHomeMap.resize(); }catch(e){} }, 60);
+}
+// Browser-Vollbild von aussen beendet (Wischgeste, Esc): Ansicht mitnehmen
+document.addEventListener('fullscreenchange', ()=>{ if(!document.fullscreenElement && document.documentElement.classList.contains('fs-mapfull')) fsHomeFullToggle(false); });
+// Ausschnitt der Startkarte für die Sitzung merken: die andere Disziplin (eigene Seite) öffnet dort
+let fsHomeCamRestored = false, fsHomeFitDone = false;
+function fsHomeSaveCam(){
+  if(!fsHomeMap || fsCtxUsesHome || fsPlanner) return;
+  try{ const c = fsHomeMap.getCenter(); sessionStorage.setItem('fs-home-cam', JSON.stringify({lng: +c.lng.toFixed(5), lat: +c.lat.toFixed(5), zoom: +fsHomeMap.getZoom().toFixed(2), all: !!fsHomeAll, t: Date.now()})); }catch(e){}
+}
+function fsHomeSavedCam(){
+  try{ const c = JSON.parse(sessionStorage.getItem('fs-home-cam') || 'null'); return c && Date.now() - c.t < 6 * 3600e3 && isFinite(c.lat) && isFinite(c.lng) ? c : null; }catch(e){ return null; }
+}
 // Erster Ausschnitt gleich dort, wo alle Einträge Platz haben (kein Sprung nach dem Laden)
 function fsHomeStartView(){
+  // Beim Wechsel der Disziplin: dort weiter, wo man war (ausser man sah einfach alle Einträge)
+  const cam = fsHomeSavedCam();
+  if(cam && !cam.all){ fsHomeCamRestored = true; fsHomeAll = false; return {center: [cam.lat, cam.lng], zoom: cam.zoom}; }
   const pts = (fsHomePts && fsHomePts.points) || [];
   if(!pts.length) return {zoom: 6.6};
   let w = 180, e = -180, so = 90, n = -90;
@@ -1536,7 +1578,7 @@ function fsHomeStartView(){
   return {bounds: [[w, so], [e, n]], fitBoundsOptions: {padding: {top: 60 + ins.top, bottom: 40 + ins.bottom, left: 40, right: 70}, maxZoom: pts.length > 1 ? 11 : 8}};
 }
 function fsHomeCreateMap(){
-  fsHomeMap = fsmCreateMap('fs-home-map-inner', Object.assign({zoom: 7, ctlTop: 52}, fsHomeStartView(), {on3d: (m)=>{
+  fsHomeMap = fsmCreateMap('fs-home-map-inner', Object.assign({zoom: 7, ctlTop: 52, full: true}, fsHomeStartView(), {on3d: (m)=>{
     if(fsCtxOn3d){ fsCtxOn3d(m); return; }
     const c = m.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom: Math.max(12, m.getZoom()), heading: m.getBearing()});
   }}));
@@ -1545,7 +1587,7 @@ function fsHomeCreateMap(){
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
   fsHomeMap.setMaxBounds(FSM_HOME_BOUNDS);
   fsHomeMap.setMinZoom(fsHomeMinZoom());
-  fsHomeMap.on('moveend', ()=>{ fsHomeCluster(); if(fsHomeFitting){ fsHomeFitting = false; return; } fsHomeAll = false; fsHomeFilter(); });
+  fsHomeMap.on('moveend', ()=>{ fsHomeCluster(); if(fsHomeFitting){ fsHomeFitting = false; fsHomeSaveCam(); return; } fsHomeAll = false; fsHomeFilter(); fsHomeSaveCam(); });
   fsHomeMap.on('zoom', ()=> fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)));
   fsmWhenLoaded(fsHomeMap, ()=>{ fsHomeEl.classList.toggle('labels', fsHomeMap.getZoom() >= 8.5 || (fsHomePts && fsHomePts.points.length <= 12)); fsHomeEl.classList.add('ready'); fsHomeKey = ''; fsHomeSync(); const sl = fsHomeEl.parentNode; if(sl && sl.classList.contains('fs-home-slot')) sl.classList.add('has-map'); });
   return fsHomeMap;
@@ -1631,7 +1673,6 @@ function fsHomeSync(){
   if(!fsHomeMap || !fsHomeMap._fsmLoaded || !fsHomePts) return;
   const key = fsHomePts.kind + '|' + fsHomePts.points.map(p=> p.id + ':' + p.lat.toFixed(4) + ',' + p.lon.toFixed(4)).join(';');
   if(key !== fsHomeKey){
-    const kindChanged = fsHomeKey.split('|')[0] !== fsHomePts.kind;
     fsHomeKey = key;
     // Punkte wiederverwenden statt alle neu zu bauen (Wechsel Touren/Hütten/Gebiete, Suche)
     const keep = new Set(fsHomePts.points.map(p=> p.id));
@@ -1661,7 +1702,12 @@ function fsHomeSync(){
       el.setAttribute('aria-label', p.label || 'Eintrag'); // MapLibre setzt sonst «Map marker»
       return m;
     });
-    if(kindChanged || fsHomeAll) fsHomeFitAll();
+    // Karte bleibt ruhig: nur beim ersten Füllen (ohne gemerkten Ausschnitt) und beim Suchen auf alle Punkte zoomen,
+    // nicht beim Wechsel der Disziplin oder Ansicht
+    const searching = typeof state !== 'undefined' && typeof state.search === 'string' && !!state.search.trim();
+    if(fsHomePts.points.length && ((!fsHomeFitDone && !fsHomeCamRestored) || (searching && fsHomeAll))) fsHomeFitAll();
+    if(fsHomePts.points.length) fsHomeFitDone = true;
+    fsHomeCamRestored = false;
     fsHomeCluster();
   }
   fsHomeFilter();
@@ -2131,7 +2177,10 @@ function fsHomeLayout(){
     if(bar){
       glass.prepend(bar);
       // Disziplin-Auswahl klappt unter dem Disziplin-Knopf auf; Tipp daneben schliesst
-      document.addEventListener('pointerdown', e=>{ if(!e.target.closest('.app-switch-bar, .fs-tb-disc')) bar.classList.remove('open'); }, true);
+      // Blatt von unten mit abgedunkeltem Hintergrund: der Tipp daneben schliesst nur (löst darunter nichts aus)
+      let swallowUntil = 0;
+      document.addEventListener('pointerdown', e=>{ if(bar.classList.contains('open') && !e.target.closest('.app-switch-bar, .fs-tb-disc')){ bar.classList.remove('open'); swallowUntil = Date.now() + 600; } }, true);
+      document.addEventListener('click', e=>{ if(Date.now() < swallowUntil){ swallowUntil = 0; e.preventDefault(); e.stopPropagation(); } }, true);
     }
   }
   // Suchleiste oben (wie bei Karten-Apps): Disziplin links, Suche, Profil/Menü rechts
@@ -2199,7 +2248,7 @@ function fsTopbarEnsure(glass, bar){
   res.className = 'fs-tb-res'; res.hidden = true;
   glass.appendChild(tb); glass.appendChild(res);
   const disc = tb.querySelector('.fs-tb-disc'), q = tb.querySelector('.fs-tb-q'), x = tb.querySelector('.fs-tb-x');
-  disc.addEventListener('click', ()=>{ if(!bar) return; const o = bar.classList.toggle('open'); disc.setAttribute('aria-expanded', o ? 'true' : 'false'); });
+  disc.addEventListener('click', ()=>{ if(!bar) return; const o = bar.classList.toggle('open'); disc.setAttribute('aria-expanded', o ? 'true' : 'false'); if(o) fsPrerenderDisciplines(bar); });
   const setList = v=>{
     if(typeof state === 'undefined' || state.search === v) return;
     state.search = v;
@@ -2246,6 +2295,21 @@ function fsTopbarEnsure(glass, bar){
   document.addEventListener('pointerdown', e=>{ if(!e.target.closest('.fs-tb-res, .fs-topbar')) closeRes(); }, true);
   return tb;
 }
+// Disziplin-Auswahl offen: die anderen Disziplinen (eigene Seiten) im Hintergrund schon fertig aufbauen
+// lassen (Chrome «Speculation Rules»), dann ist der Wechsel fast sofort da. Andere Browser: wie bisher.
+let fsPrerendered = false;
+function fsPrerenderDisciplines(bar){
+  if(fsPrerendered || !bar || navigator.onLine === false) return;
+  try{ if(!(window.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules'))) return; }catch(e){ return; }
+  const here = location.pathname.split('/').pop() || 'index.html';
+  const urls = Array.from(bar.querySelectorAll('a[href]:not(.active)')).map(a=> a.getAttribute('href')).filter(h=> h && !/^https?:/.test(h) && h.replace('./', '').split('?')[0] !== here);
+  if(!urls.length) return;
+  fsPrerendered = true;
+  const sc = document.createElement('script');
+  sc.type = 'speculationrules';
+  sc.textContent = JSON.stringify({prerender: [{source: 'list', urls, eagerness: 'immediate'}]});
+  document.head.appendChild(sc);
+}
 function fsTopbarSync(tb, bar){
   const a = bar && bar.querySelector('a.active');
   const disc = tb.querySelector('.fs-tb-disc');
@@ -2271,7 +2335,7 @@ function fsHomeHero(sheet){
   const heroEl = document.querySelector('#app .hero');
   const title = ((heroEl && heroEl.querySelector('h1')) || {}).textContent || '';
   // Bild aus dem Stil der App nur einmal pro Kopf lesen (getComputedStyle erzwingt sonst jedes Mal Neuberechnung)
-  const ik = heroEl ? heroEl.className + '|' + document.documentElement.classList.contains('fs-dark') : '';
+  const ik = heroEl ? heroEl.className + '|' + document.documentElement.dataset.disc + '|' + document.documentElement.classList.contains('fs-dark') : '';
   let img = fsHomeHeroImg[ik];
   if(!img){ img = 'none'; try{ if(heroEl){ img = getComputedStyle(heroEl, '::before').backgroundImage || 'none'; fsHomeHeroImg[ik] = img; } }catch(e){} }
   let h = sheet.querySelector(':scope > .fs-sheet-hero');
@@ -2394,6 +2458,18 @@ function fsHomeWireDrag(sheet){
 }
 window.addEventListener('resize', ()=>{ if(document.documentElement.classList.contains('fs-mapmode')) fsHomeApply(false); try{ if(fsHomeMap && !fsCtxUsesHome) fsHomeMap.setMinZoom(fsHomeMinZoom()); }catch(e){} });
 
+// Start: die Gerätekopie gleich zeigen, statt auf die Datenbank zu warten (oft 1–3 s im Mobilnetz).
+// Nur zur Anzeige: der Ausgangsstand fürs sichere Speichern kommt erst mit den Daten der Datenbank
+// (speichert man vorher, gilt wie offline die Prüfung per Zeitstempel).
+function fsShowCachedFirst(cached, keys, migrate){
+  if(!cached || typeof state === 'undefined' || !Array.isArray(cached.tours)) return false;
+  keys.forEach(k=>{ if(Array.isArray(cached[k])) state[k] = (migrate && (k === 'tours' || k === 'huts')) ? cached[k].map(migrate) : cached[k]; });
+  return true;
+}
+// Ohne Gerätekopie (erster Start): schon der Aufbau der Startansicht (Karte, Suchleiste, Blatt), nicht die alte Seite
+function fsLoadingStageHtml(){
+  return stageLayoutHtml(mapStripHtml({label: '', kind: 'tour', points: [], emptyText: ''}), '<div class="loading">Lade Touren &amp; Hütten …</div>');
+}
 function stageLayoutHtml(mapHtml, sheetHtml){
   return `<div class="fs-stage">${mapHtml}</div><div class="fs-sheet">${sheetHtml}</div>`;
 }
@@ -2457,7 +2533,7 @@ function mapStripHtml(opts){
 // Nach jedem render()/renderListOnly() aufrufen (siehe wireGlobalHandlers in index.html/fixseil.html):
 // verdrahtet Pinch-Zoom, Verschieben (Finger + Maus zum Testen) und Doppeltipp/-klick live direkt
 // auf dem DOM-Knoten, OHNE während der Geste render() aufzurufen (das würde die Geste durch das
-// Neuaufbauen des ganzen Kartenstreifens abreissen) — erst am Gesten-Ende wird der Zustand in
+// Neuaufbauen des ganzen Kartenstreifens abreissen) – erst am Gesten-Ende wird der Zustand in
 // state._mapStripView committet und einmalig neu gerendert, damit die Cluster-Bildung zum neuen
 // Zoom passt.
 function wireMapStripCanvases(){
@@ -2620,6 +2696,13 @@ function isPastAgendaItem(item){
   if(!ref) return false;
   return ref < todayStr();
 }
+// Lokal gespeichert, Hochladen ging nicht: offline ist das normal (ruhiger Hinweis), online ein Fehler
+function fsToastLocalSaved(subj){
+  const off = navigator.onLine === false || (typeof state !== 'undefined' && state.offlineMode);
+  const pl = / sind$/.test(subj);
+  showToast(off ? subj + ' auf dem Gerät gespeichert – ' + (pl ? 'werden' : 'wird') + ' hochgeladen, sobald Internet da ist.'
+    : subj + ' auf dem Gerät gespeichert, ' + (pl ? 'konnten' : 'konnte') + ' aber nicht hochgeladen werden. Prüfe deine Internetverbindung.', !off);
+}
 function showToast(message, isError){
   const old = document.querySelector('.toast');
   if(old) old.remove();
@@ -2777,7 +2860,7 @@ function agendaTypeLabel(type){
   return '🎿 Skitour';
 }
 // Feste Hex-Farben statt CSS-Variablen: --ice/--ice-deep/--signal-deep sind pro App das eigene
-// Markenthema (blau in Firnspur, braun in Fixseil) — ein Termin muss aber unabhängig davon,
+// Markenthema (blau in Firnspur, braun in Fixseil) – ein Termin muss aber unabhängig davon,
 // in welcher App man ihn gerade öffnet, immer dieselbe Farbe für seine Art zeigen.
 function agendaTypeColor(type){
   if(type==='wandern') return '#3D7A4E';
@@ -2787,7 +2870,7 @@ function agendaTypeColor(type){
 }
 // Findet die per Agenda-Termin verlinkte Tour unabhängig davon, in welcher der beiden Apps man
 // den Termin gerade betrachtet. tourRef.source ('own'/'other') wird beim Erstellen relativ zur
-// damals aktiven App vergeben — beim späteren Ansehen in der JEWEILS ANDEREN App würde "own" das
+// damals aktiven App vergeben – beim späteren Ansehen in der JEWEILS ANDEREN App würde "own" das
 // Gegenteil bedeuten. Deshalb hier bewusst NICHT nach source unterscheiden, sondern einfach beide
 // geladenen Touren-Listen (eigene + der anderen App) nach der ID durchsuchen.
 function findAgendaLinkedTour(tourRef){
@@ -2796,7 +2879,7 @@ function findAgendaLinkedTour(tourRef){
     || (state.otherAppTours||[]).find(t=>t.id===tourRef.id)
     || null;
 }
-// Löst die strukturierten Zustiege/Abstiege einer per Agenda verlinkten Tour auf — inklusive
+// Löst die strukturierten Zustiege/Abstiege einer per Agenda verlinkten Tour auf – inklusive
 // dem Fall, dass eine MSL-Tour ihre Routen nicht selbst trägt, sondern über einen Sektor teilt.
 // state.sektoren existiert nur in Fixseil; in Firnspur bleibt das schlicht ein leeres Ergebnis.
 function resolveAgendaTourRoutes(tourRef){
@@ -2811,8 +2894,8 @@ function resolveAgendaTourRoutes(tourRef){
   }
   return {accessRoutes, descentRoutes, tour};
 }
-// Best-effort Deep-Link auf die öffentliche SBB-Fahrplansuche — keine offizielle API, kein
-// Schlüssel nötig. Ausgangsort: der Treffpunkt des Termins, falls vorhanden — sonst fragt SBB
+// Best-effort Deep-Link auf die öffentliche SBB-Fahrplansuche – keine offizielle API, kein
+// Schlüssel nötig. Ausgangsort: der Treffpunkt des Termins, falls vorhanden – sonst fragt SBB
 // beim Öffnen selbst danach (z. B. "Mein Standort").
 function buildSbbLink(destination, dateStr, origin){
   const params = new URLSearchParams();
@@ -2843,7 +2926,7 @@ function weatherCodeInfo(code){
   return entry ? {icon: entry[0], label: entry[1]} : {icon:'🌡️', label:'Unbekannt'};
 }
 // Lädt Tageswerte von einem Open-Meteo-kompatiblen Endpunkt (gleiche Parameter/Antwortform bei
-// allen deren spezialisierten Modell-Endpunkten). Gibt bei jedem Problem einfach null zurück —
+// allen deren spezialisierten Modell-Endpunkten). Gibt bei jedem Problem einfach null zurück –
 // die Aufrufer entscheiden dann selbst über Fallback vs. Fehlermeldung.
 async function fetchOpenMeteoDaily(baseUrl, lat, lon, startDate, endDate, extraParams){
   try{
@@ -2865,7 +2948,7 @@ async function fetchOpenMeteoDaily(baseUrl, lat, lon, startDate, endDate, extraP
   }
 }
 // Wettervorhersage: primär über Open-Meteos dedizierten MeteoSwiss-ICON-Endpunkt (regionales,
-// hochaufgelöstes Modell des Bundesamts, ca. 5 Tage Reichweite) — bei Termine weiter in der
+// hochaufgelöstes Modell des Bundesamts, ca. 5 Tage Reichweite) – bei Termine weiter in der
 // Zukunft oder falls dieser Endpunkt ausfällt, Rückfall auf Open-Meteos allgemeinen Multi-
 // Modell-Endpunkt (ca. 16 Tage Reichweite). Beides kostenlos, kein API-Key, keine Lizenzfrage.
 async function fetchWeatherForecast(lat, lon, dateStr){
@@ -2874,7 +2957,7 @@ async function fetchWeatherForecast(lat, lon, dateStr){
   const diffDays = Math.round((target - today) / 86400000);
   if(diffDays < 0) return {status:'past'};
   if(diffDays > 16) return {status:'too-far'};
-  // Zusätzlich zum Starttag noch 2 Folgetage mitladen ("Prognosen" statt nur ein Einzelwert) —
+  // Zusätzlich zum Starttag noch 2 Folgetage mitladen ("Prognosen" statt nur ein Einzelwert) –
   // beide Endpunkte liefern einfach weniger Tage zurück, falls das Ende ihrer Reichweite
   // dazwischenkommt, das ist kein Fehlerfall.
   const endDate = new Date(target.getTime() + 2*86400000).toISOString().slice(0,10);
@@ -2899,7 +2982,7 @@ async function fetchWeatherForecast(lat, lon, dateStr){
   };
 }
 // Ort für die Wettervorhersage eines Agenda-Termins: der erste erfasste Punkt der verlinkten Tour.
-// Freitext-Termine (kein tourRef) oder Touren ohne Punkte liefern bewusst null — raten wäre falsch.
+// Freitext-Termine (kein tourRef) oder Touren ohne Punkte liefern bewusst null – raten wäre falsch.
 function resolveAgendaWeatherLocation(a){
   if(!a || !a.tourRef) return null;
   const tour = findAgendaLinkedTour(a.tourRef);
@@ -2909,7 +2992,7 @@ function resolveAgendaWeatherLocation(a){
   if(isNaN(lat) || isNaN(lon)) return null;
   return {lat, lon, label: (pt.label && pt.label.trim()) || tour.name || tour.region || ''};
 }
-// "Di 06.10. · in 2 Tagen" — damit klar ist, dass die Prognose für den Tourtag gilt
+// "Di 06.10. · in 2 Tagen" – damit klar ist, dass die Prognose für den Tourtag gilt
 function agendaWeatherDayLabel(dateStr){
   const d = new Date(dateStr + 'T00:00:00'), today = new Date(); today.setHours(0,0,0,0);
   const diff = Math.round((d - today) / 86400000);
@@ -2923,7 +3006,7 @@ async function loadAgendaWeather(agendaId){
   if(!a || !el || !a.startDate) return;
   const loc = resolveAgendaWeatherLocation(a);
   if(!loc){
-    // Nicht einfach nichts anzeigen — sonst wirkt es, als gäbe es die Funktion gar nicht.
+    // Nicht einfach nichts anzeigen – sonst wirkt es, als gäbe es die Funktion gar nicht.
     const reason = !a.tourRef
       ? 'Nur bei Terminen mit verlinkter Tour verfügbar (nicht bei freien Text-Vorschlägen).'
       : 'Die verlinkte Tour hat noch keinen Kartenpunkt hinterlegt.';
@@ -2945,7 +3028,7 @@ async function loadAgendaWeather(agendaId){
     window.__agendaWeatherCache[agendaId] = { icon: info.icon, label: info.label, tempMin: w.tempMin, tempMax: w.tempMax, precipitation: w.precipitation, windMax: w.windMax, locationLabel: loc.label, source: w.source, meteoSwissLink };
     const tl = agendaWeatherDayLabel(a.startDate);
     el.innerHTML = `<div class="detail-section">
-      <h4>Wetter am Tourtag${loc.label ? ' — ' + esc(loc.label) : ''}</h4>
+      <h4>Wetter am Tourtag${loc.label ? ' – ' + esc(loc.label) : ''}</h4>
       <p class="aw-when"><b>${esc(tl.wd)} ${esc(tl.dm)}</b>${tl.rel ? ' · ' + esc(tl.rel) : ''}</p>
       <p style="font-size:15px; margin:0 0 4px 0;">${info.icon} ${esc(info.label)}</p>
       <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(w.tempMin)}° / ${Math.round(w.tempMax)}° · 💧 ${w.precipitation} mm · 💨 ${Math.round(w.windMax)} km/h</p>
@@ -2960,7 +3043,7 @@ async function loadAgendaWeather(agendaId){
           </div>`;
         }).join('')}
       </div>` : ''}
-      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose: ${esc(w.source||'Open-Meteo')} — kann sich noch ändern.</p>
+      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose: ${esc(w.source||'Open-Meteo')} – kann sich noch ändern.</p>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <a href="${esc(meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary">🌦️ MeteoSchweiz öffnen</a>
         <button type="button" class="btn secondary" id="save-weather-snapshot-btn-${agendaId}">📥 Für unterwegs speichern</button>
@@ -2977,7 +3060,7 @@ async function loadAgendaWeather(agendaId){
     el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">${esc(w.message||'Wetterdaten nicht verfügbar.')}</p></div>`;
   }
 }
-// Friert die zuletzt geladene Wetterprognose auf dem Agenda-Eintrag ein (Offline-Snapshot) — nützlich,
+// Friert die zuletzt geladene Wetterprognose auf dem Agenda-Eintrag ein (Offline-Snapshot) – nützlich,
 // weil die Live-Vorhersage in loadAgendaWeather() ohne Netz gar nicht erst geladen werden kann.
 // Bewusst ein expliziter Knopf statt automatisch beim Laden: der Zeitpunkt "kurz vor dem Losgehen,
 // solange noch Empfang da ist" ist der einzig sinnvolle für einen Offline-Stand.
@@ -3010,12 +3093,12 @@ function agendaViewHtml(){
     </div>
     ${state.agenda.length===0 ? `<div class="empty">
       <h3>Noch keine Termine geplant</h3>
-      <p>Schlag einen Zeitraum und eine Tour vor — andere können sich direkt eintragen.</p>
+      <p>Schlag einen Zeitraum und eine Tour vor – andere können sich direkt eintragen.</p>
       <button class="btn" data-act="add-agenda">+ Neuer Termin</button>
     </div>` : AGENDA_STATUS_ORDER.map(s=>`
     <div class="detail-section" style="margin-bottom:24px;">
       <h4>${AGENDA_STATUS_LABELS[s]} (${groups[s].length})</h4>
-      ${groups[s].length ? `<div class="grid" style="margin-top:6px;">${groups[s].map(agendaCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-faint); margin:4px 0 0 0;">—</p>`}
+      ${groups[s].length ? `<div class="grid" style="margin-top:6px;">${groups[s].map(agendaCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-faint); margin:4px 0 0 0;">–</p>`}
     </div>`).join('')}
   `;
 }
@@ -3044,7 +3127,7 @@ function agendaCardHtml(a){
     ${agendaStatusSelectHtml(a)}
   </div>`;
 }
-// Lesbare Tag-für-Tag-Darstellung eines strukturierten Mehrtages-Plans (a.days) — für Detailansicht
+// Lesbare Tag-für-Tag-Darstellung eines strukturierten Mehrtages-Plans (a.days) – für Detailansicht
 // und Tourenzettel-Druck gemeinsam genutzt. Jedes Segment löst seine Zustiegs-/Abstiegsrouten über
 // die JEWEILS EIGENE verlinkte Tour auf, nicht über a.tourRef (das gibt es bei days-Terminen nicht).
 function agendaDaySegmentDetailLines(seg){
@@ -3071,11 +3154,11 @@ function agendaDayDetailBlockHtml(day, dayIdx, isFirst, isLast){
   const overnightLabel = !isLast ? agendaDayOvernightLabel(day) : '';
   const segLines = (day.segments||[]).flatMap(agendaDaySegmentDetailLines);
   return `<div class="detail-section" style="border-left:3px solid var(--ice-light); padding-left:12px;">
-    <h4>Tag ${dayIdx+1} — ${esc(dateLabel)}</h4>
-    ${isFirst && day.anreiseType ? `<p style="margin:0 0 4px 0; font-size:14px;">${day.anreiseType==='auto'?'🚗 Anreise: Auto':'🚉 Anreise: Öffentlich'}${day.anreiseOrt?' — '+esc(day.anreiseOrt):''}</p>` : ''}
+    <h4>Tag ${dayIdx+1} – ${esc(dateLabel)}</h4>
+    ${isFirst && day.anreiseType ? `<p style="margin:0 0 4px 0; font-size:14px;">${day.anreiseType==='auto'?'🚗 Anreise: Auto':'🚉 Anreise: Öffentlich'}${day.anreiseOrt?' – '+esc(day.anreiseOrt):''}</p>` : ''}
     ${segLines.map(l=>`<p style="margin:0 0 4px 0; font-size:14px;">${l}</p>`).join('')}
     ${overnightLabel ? `<p style="margin:4px 0 0 0; font-size:14px;">🌙 Übernachtung: ${overnightLabel}</p>` : ''}
-    ${isLast && day.abreiseType ? `<p style="margin:4px 0 0 0; font-size:14px;">${day.abreiseType==='auto'?'🚗 Rückreise: Auto':'🚉 Rückreise: Öffentlich'}${day.abreiseOrt?' — '+esc(day.abreiseOrt):''}</p>` : ''}
+    ${isLast && day.abreiseType ? `<p style="margin:4px 0 0 0; font-size:14px;">${day.abreiseType==='auto'?'🚗 Rückreise: Auto':'🚉 Rückreise: Öffentlich'}${day.abreiseOrt?' – '+esc(day.abreiseOrt):''}</p>` : ''}
   </div>`;
 }
 function agendaDayPlanDetailHtml(a){
@@ -3083,7 +3166,7 @@ function agendaDayPlanDetailHtml(a){
   return a.days.map((day,i)=> agendaDayDetailBlockHtml(day, i, i===0, i===a.days.length-1)).join('');
 }
 // Unformatierte Variante von agendaDayOvernightLabel für den Tourenzettel-Druck (dort wird der
-// gesamte Zellentext separat escaped — ein bereits mit esc() versehener HTML-String würde dort
+// gesamte Zellentext separat escaped – ein bereits mit esc() versehener HTML-String würde dort
 // doppelt escaped).
 function agendaDayOvernightPlainLabel(day){
   if(!day.overnight || !day.overnight.type) return '';
@@ -3099,7 +3182,7 @@ function agendaDayPlanTourenzettelRows(a){
   return a.days.map((day, i)=>{
     const isFirst = i===0, isLast = i===a.days.length-1;
     const parts = [];
-    if(isFirst && day.anreiseType) parts.push('Anreise: ' + (day.anreiseType==='auto'?'Auto':'Öffentlich') + (day.anreiseOrt ? ' — '+day.anreiseOrt : ''));
+    if(isFirst && day.anreiseType) parts.push('Anreise: ' + (day.anreiseType==='auto'?'Auto':'Öffentlich') + (day.anreiseOrt ? ' – '+day.anreiseOrt : ''));
     (day.segments||[]).forEach(seg=>{
       const { accessRoutes, descentRoutes } = resolveAgendaTourRoutes(seg.tourRef);
       const chosenAccess = seg.accessRouteId ? accessRoutes.find(r=>r.id===seg.accessRouteId) : null;
@@ -3112,7 +3195,7 @@ function agendaDayPlanTourenzettelRows(a){
       const overnightLabel = agendaDayOvernightPlainLabel(day);
       if(overnightLabel) parts.push('Übernachtung: ' + overnightLabel);
     }
-    if(isLast && day.abreiseType) parts.push('Rückreise: ' + (day.abreiseType==='auto'?'Auto':'Öffentlich') + (day.abreiseOrt ? ' — '+day.abreiseOrt : ''));
+    if(isLast && day.abreiseType) parts.push('Rückreise: ' + (day.abreiseType==='auto'?'Auto':'Öffentlich') + (day.abreiseOrt ? ' – '+day.abreiseOrt : ''));
     const dateLabel = day.date ? fmtDateShort(day.date) : '?';
     return [`Tag ${i+1} (${dateLabel})`, parts.join('; ')];
   });
@@ -3146,10 +3229,10 @@ function agendaDetailHtml(id){
     ${(state._briefTab||'ablauf')==='pack' ? briefingPackHtml(a) : (state._briefTab||'ablauf')==='notfall' ? briefingNotfallHtml(a) : `
     ${briefingAblaufExtrasHtml(a)}
     ${a.weatherSnapshot ? `<div class="detail-section" style="background:var(--ice-light);">
-      <h4>📥 Für unterwegs gespeichert${a.weatherSnapshot.locationLabel ? ' — ' + esc(a.weatherSnapshot.locationLabel) : ''}</h4>
+      <h4>📥 Für unterwegs gespeichert${a.weatherSnapshot.locationLabel ? ' – ' + esc(a.weatherSnapshot.locationLabel) : ''}</h4>
       <p style="font-size:15px; margin:0 0 4px 0;">${a.weatherSnapshot.icon||'🌡️'} ${esc(a.weatherSnapshot.label||'')}</p>
       <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(a.weatherSnapshot.tempMin)}° / ${Math.round(a.weatherSnapshot.tempMax)}° · 💧 ${a.weatherSnapshot.precipitation} mm · 💨 ${Math.round(a.weatherSnapshot.windMax)} km/h</p>
-      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Stand vom ${esc(fmtDate(a.weatherSnapshot.savedAt))}${a.weatherSnapshot.source ? ' · ' + esc(a.weatherSnapshot.source) : ''} — bleibt auch ohne Netz sichtbar.</p>
+      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Stand vom ${esc(fmtDate(a.weatherSnapshot.savedAt))}${a.weatherSnapshot.source ? ' · ' + esc(a.weatherSnapshot.source) : ''} – bleibt auch ohne Netz sichtbar.</p>
       ${a.weatherSnapshot.meteoSwissLink ? `<a href="${esc(a.weatherSnapshot.meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block; margin-top:8px;">🌦️ MeteoSchweiz öffnen</a>` : ''}
     </div>` : ''}
     <div id="agenda-weather-${a.id}"></div>
@@ -3162,16 +3245,16 @@ function agendaDetailHtml(id){
     </div>` : ''}
     ${(a.etappen && a.etappen.length) ? `<div class="detail-section">
       <h4>Etappen</h4>
-      ${a.etappen.slice().sort((x,y)=>(x.date||'').localeCompare(y.date||'')).map(e=>`<p style="margin:0 0 4px 0; font-size:14px;">📅 ${e.date ? esc(fmtDateShort(e.date)) : '?'} — ${esc(e.label||'')}</p>`).join('')}
+      ${a.etappen.slice().sort((x,y)=>(x.date||'').localeCompare(y.date||'')).map(e=>`<p style="margin:0 0 4px 0; font-size:14px;">📅 ${e.date ? esc(fmtDateShort(e.date)) : '?'} – ${esc(e.label||'')}</p>`).join('')}
     </div>` : ''}
     ${a.anreiseType ? `<div class="detail-section">
       <h4>Anreise</h4>
-      <p style="margin:0 0 8px 0;">${a.anreiseType==='auto' ? '🚗 Auto' : '🚉 Öffentlicher Verkehr'}${a.anreiseOrt ? ' — ' + esc(a.anreiseOrt) : ''}</p>
+      <p style="margin:0 0 8px 0;">${a.anreiseType==='auto' ? '🚗 Auto' : '🚉 Öffentlicher Verkehr'}${a.anreiseOrt ? ' – ' + esc(a.anreiseOrt) : ''}</p>
       ${a.anreiseType==='oev' ? `<a href="${esc(buildSbbLink(a.anreiseOrt, a.startDate, a.meetingPoint))}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block;">🚉 SBB Fahrplan öffnen</a>` : ''}
     </div>` : ''}
     ${a.endOption ? `<div class="detail-section">
       <h4>Nach der Tour</h4>
-      <p style="margin:0;">${a.endOption==='huette' ? '🛖 Hütte' : '🏠 Heimweg'}${a.endNote ? ' — ' + esc(a.endNote) : ''}</p>
+      <p style="margin:0;">${a.endOption==='huette' ? '🛖 Hütte' : '🏠 Heimweg'}${a.endNote ? ' – ' + esc(a.endNote) : ''}</p>
     </div>` : ''}
     `}
     ${a.note ? `<div class="detail-section"><h4>Notiz</h4><p>${esc(a.note)}</p></div>` : ''}
@@ -3197,18 +3280,18 @@ function agendaDetailHtml(id){
     </div>
   </div>`;
 }
-// Baut ein eigenständiges Tourenzettel-Dokument für einen Agenda-Termin — zum Teilen (digital,
+// Baut ein eigenständiges Tourenzettel-Dokument für einen Agenda-Termin – zum Teilen (digital,
 // z. B. per WhatsApp/Mail) oder Ausdrucken. Bewusst ein separates Fenster statt @media print über
-// die ganze App: die App-Ansicht enthält Overlays/fixe Elemente, die dabei nur stören würden — ein
+// die ganze App: die App-Ansicht enthält Overlays/fixe Elemente, die dabei nur stören würden – ein
 // schlankes eigenes Dokument bleibt robust und übersichtlich. Layout/Ton bewusst warm und einladend
-// (schöner Tourentag) statt bürokratisch — Notfallnummern stehen sachlich da, ohne Alarm-Rhetorik.
+// (schöner Tourentag) statt bürokratisch – Notfallnummern stehen sachlich da, ohne Alarm-Rhetorik.
 // Schriften liegen in der App (offline verfügbar); für eigene Fenster die volle Adresse
 function fsFontsCssUrl(){ const l = document.querySelector('link[href*="fonts.css"]'); return l ? l.href : new URL('fonts/fonts.css', location.href).href; }
 function printTourenzettel(agendaId){
   const a = state.agenda.find(x=>x.id===agendaId);
   if(!a) return;
   const win = window.open('', '_blank');
-  if(!win){ showToast('Pop-up wurde blockiert — bitte Pop-ups für diese Seite erlauben.', true); return; }
+  if(!win){ showToast('Pop-up wurde blockiert – bitte Pop-ups für diese Seite erlauben.', true); return; }
 
   const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const dateLabel = a.endDate && a.endDate!==a.startDate
@@ -3219,28 +3302,28 @@ function printTourenzettel(agendaId){
   const chosenAccess = a.accessRouteId ? accessRoutes.find(r=>r.id===a.accessRouteId) : null;
   const chosenDescent = a.descentRouteId ? descentRoutes.find(r=>r.id===a.descentRouteId) : null;
 
-  // Kopfzeile: Datum/Höhe/Schwierigkeit/Teilnehmerzahl als Badges — nur was tatsächlich da ist.
+  // Kopfzeile: Datum/Höhe/Schwierigkeit/Teilnehmerzahl als Badges – nur was tatsächlich da ist.
   const badges = [dateLabel];
   if(tour && tour.targetAltitude) badges.push(tour.targetAltitude + ' m ü. M.');
   const difficultyLabel = tour ? (tour.difficulty || tour.climbGrade || tour.mandatoryDifficulty || '') : '';
   if(difficultyLabel) badges.push(difficultyLabel + (tour && tour.glacier==='ja' ? ' · Gletscher' : ''));
   badges.push((a.participants||[]).length + ((a.participants||[]).length===1 ? ' Person' : ' Personen'));
 
-  // Ablauf: bei Mehrtages-Terminen tageweise, sonst die klassischen Einzeltag-Felder — jeweils nur
+  // Ablauf: bei Mehrtages-Terminen tageweise, sonst die klassischen Einzeltag-Felder – jeweils nur
   // die Punkte, die auch tatsächlich erfasst sind.
   const ablaufItems = [];
   if(a.days && a.days.length){
     agendaDayPlanTourenzettelRows(a).forEach(([label, text])=>{ if(text) ablaufItems.push({label, text}); });
   }else{
     if(a.meetingPoint) ablaufItems.push({label:'Treffpunkt', text:a.meetingPoint});
-    if(a.anreiseType) ablaufItems.push({label:'Anreise', text:(a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' — '+a.anreiseOrt : '')});
+    if(a.anreiseType) ablaufItems.push({label:'Anreise', text:(a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' – '+a.anreiseOrt : '')});
     if(chosenAccess) ablaufItems.push({label:'Zustieg', text:chosenAccess.name||''});
     ablaufItems.push({label:typeLabel, text:a.tourName || 'Tour'});
     if(chosenDescent) ablaufItems.push({label:'Abstieg', text:chosenDescent.name||''});
-    if(a.endOption) ablaufItems.push({label:'Nach der Tour', text:(a.endOption==='huette'?'Hütte':'Heimweg') + (a.endNote ? ' — '+a.endNote : '')});
+    if(a.endOption) ablaufItems.push({label:'Nach der Tour', text:(a.endOption==='huette'?'Hütte':'Heimweg') + (a.endNote ? ' – '+a.endNote : '')});
     if(a.etappen && a.etappen.length){
       ablaufItems.push({label:'Etappen', text: a.etappen.slice().sort((x,y)=>(x.date||'').localeCompare(y.date||''))
-        .map(e=>(e.date ? fmtDateShort(e.date) : '?') + ' — ' + (e.label||'')).join('; ')});
+        .map(e=>(e.date ? fmtDateShort(e.date) : '?') + ' – ' + (e.label||'')).join('; ')});
     }
     if(a.plannedReturnTime) ablaufItems.push({label:'Geplante Rückkehr', text:a.plannedReturnTime});
   }
@@ -3258,7 +3341,7 @@ function printTourenzettel(agendaId){
     }));
   }
 
-  // Material: aus der verlinkten Tour, so vorhanden — Anzeige als Checkliste zum Abhaken.
+  // Material: aus der verlinkten Tour, so vorhanden – Anzeige als Checkliste zum Abhaken.
   const materialList = [];
   if(tour && Array.isArray(tour.material)) materialList.push(...tour.material);
   if(tour && tour.quickdrawCount) materialList.push(tour.quickdrawCount + '× Expressschlingen');
@@ -3266,7 +3349,7 @@ function printTourenzettel(agendaId){
   if(brief.pack && brief.pack.length){ materialList.length = 0; brief.pack.forEach(p=>{ const lv = briefingPackLevel(p); materialList.push(p.label + (lv === 'must' ? ' (Pflicht)' : lv === 'opt' ? ' (wenn vorhanden)' : '')); }); }
 
   // Notfallnummern: die beiden Schweizer Rettungsnummern immer, dazu Notfallkontakt und
-  // Hütten-Kontakt(e) — nur sachliche Nummern, keine Alarm-Formulierung.
+  // Hütten-Kontakt(e) – nur sachliche Nummern, keine Alarm-Formulierung.
   const hutIds = new Set();
   if(tour && tour.hutId) hutIds.add(tour.hutId);
   if(a.days) a.days.forEach(d=>{ if(d.overnight && d.overnight.hutId) hutIds.add(d.overnight.hutId); });
@@ -3275,12 +3358,12 @@ function printTourenzettel(agendaId){
   if(a.emergencyContact) contactRows.push(['Notfallkontakt', a.emergencyContact]);
   huts.forEach(h=> contactRows.push([h.name, h.contact]));
 
-  // Kartenausschnitt: echte Punkte/Track der verlinkten Tour, falls vorhanden — sonst kein Abschnitt.
+  // Kartenausschnitt: echte Punkte/Track der verlinkten Tour, falls vorhanden – sonst kein Abschnitt.
   const points = (tour && Array.isArray(tour.points)) ? tour.points.filter(p=>p && !isNaN(parseFloat(p.lat)) && !isNaN(parseFloat(p.lon))) : [];
   const track = tour ? ((tour.trackSimplified && tour.trackSimplified.length) ? tour.trackSimplified : (tour.manualTrack && tour.manualTrack.length ? tour.manualTrack : null)) : null;
   const hasMap = points.length > 0 || (track && track.length > 0);
 
-  // Auf einen Blick: Treffpunkt/Zeit, Leitung, Rückkehr — und die Eckdaten der Tour
+  // Auf einen Blick: Treffpunkt/Zeit, Leitung, Rückkehr – und die Eckdaten der Tour
   const meetTime = (a.meetingPoint || '').match(/\b(\d{1,2})[:.](\d{2})\b/);
   const leader = a.leader || a.createdBy || '';
   const keyRows = [];
@@ -3344,7 +3427,7 @@ function printTourenzettel(agendaId){
   const participants = a.participants || [];
   const phoneOf = name=> fsAgendaPhone(a, name);
 
-  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tourenzettel — ${escHtml(a.tourName||'Termin')}</title>
+  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tourenzettel – ${escHtml(a.tourName||'Termin')}</title>
 <link rel="stylesheet" href="${escHtml(fsFontsCssUrl())}">
 <style>
   body{margin:0;background:#F3F6F8;color:#0F1E27;font-family:'Manrope',system-ui,sans-serif;}
@@ -3409,7 +3492,7 @@ function printTourenzettel(agendaId){
     ${factRows.length ? `<div class="box">${kv(factRows)}</div>` : ''}
   </div></div>` : ''}
 
-  ${critical.length ? `<div class="section"><h4>${fsIconHtml('clock')} Umkehrzeit & Entscheidungspunkte</h4><div class="alert">${critical.map(r=>`<div><strong>${escHtml(r.t || '')}${r.t ? ' — ' : ''}${r.kind === 'umkehr' ? 'Umkehrzeit' : 'Entscheidungspunkt'}:</strong> ${escHtml(r.label || '')}</div>`).join('')}</div></div>` : ''}
+  ${critical.length ? `<div class="section"><h4>${fsIconHtml('clock')} Umkehrzeit & Entscheidungspunkte</h4><div class="alert">${critical.map(r=>`<div><strong>${escHtml(r.t || '')}${r.t ? ' – ' : ''}${r.kind === 'umkehr' ? 'Umkehrzeit' : 'Entscheidungspunkt'}:</strong> ${escHtml(r.label || '')}</div>`).join('')}</div></div>` : ''}
 
   ${ablaufItems.length ? `<div class="section"><h4>${fsIconHtml('pin')} Ablauf</h4><div class="timeline">${ablaufItems.map(it=>`<div class="tl-item"><strong>${escHtml(it.label)}:</strong> ${escHtml(it.text)}</div>`).join('')}</div></div>` : ''}
 
@@ -3421,7 +3504,7 @@ function printTourenzettel(agendaId){
 
   ${hasTravel ? `<div class="section"><h4>${fsIconHtml('car')} Anfahrt${meet ? ' ab Treffpunkt' : ''}</h4><div class="box" id="tz-travel">${meet ? '<p class="muted" style="margin:0;">Wird berechnet …</p>' : '<p class="muted" style="margin:0;">Für Route und Fahrzeit im Termin beim Treffpunkt einen Ort setzen (suchen oder auf der Karte).</p>'}</div></div>` : ''}
 
-  <div class="section"><h4>${fsIconHtml('partly')} Wetter am Tourtag${wxLoc && wxLoc.label ? ' — ' + escHtml(wxLoc.label) : ''}</h4><div class="box" id="tz-weather"><p class="muted" style="margin:0;">${wxLoc ? 'Prognose wird geladen …' : 'Nur mit verlinkter Tour und Kartenpunkt verfügbar.'}</p></div></div>
+  <div class="section"><h4>${fsIconHtml('partly')} Wetter am Tourtag${wxLoc && wxLoc.label ? ' – ' + escHtml(wxLoc.label) : ''}</h4><div class="box" id="tz-weather"><p class="muted" style="margin:0;">${wxLoc ? 'Prognose wird geladen …' : 'Nur mit verlinkter Tour und Kartenpunkt verfügbar.'}</p></div></div>
 
   ${winter ? `<div class="section"><h4>${fsIconHtml('snow')} Lawinensituation</h4><div class="box" id="tz-avalanche"><p class="muted" style="margin:0;">Bulletin wird geladen …</p></div></div>` : ''}
 
@@ -3469,7 +3552,7 @@ function printTourenzettel(agendaId){
   // im obigen document.write()-String geladen: Chrome bricht einen per document.write() injizierten,
   // synchron ladenden Cross-Origin-<script src>-Tag unter Umständen komplett ab und verwirft dabei
   // auch noch nicht ausgeführte Inhalte danach im selben Dokument ("document.write() intervention").
-  // Stattdessen hier, aus dem Opener-Kontext heraus, per DOM-API nachträglich ins Popup einfügen —
+  // Stattdessen hier, aus dem Opener-Kontext heraus, per DOM-API nachträglich ins Popup einfügen –
   // das ist von dieser Chrome-Bremse nicht betroffen.
   const shareBtn = win.document.getElementById('tz-share-btn');
   if(shareBtn){
@@ -3542,7 +3625,7 @@ function printTourenzettel(agendaId){
         rows.push(['Wind (Bodennähe)', Math.round(w.windMax) + ' km/h' + (w.gustMax ? ', Böen ' + Math.round(w.gustMax) : '')]);
         if(w.windHigh != null) rows.push(['Wind auf ~3000 m', Math.round(w.windHigh) + ' km/h']);
         if(w.sunrise) rows.push(['Sonne', '↑ ' + w.sunrise + '  ↓ ' + w.sunset]);
-        el.innerHTML = when + `<p class="wx-big">${info.icon} ${escHtml(info.label)}</p>` + kv(rows) + `<p class="muted" style="margin:6px 0 0 0;font-size:11.5px;">Prognose ${escHtml(w.source)}, Stand ${escHtml(new Date().toLocaleString('de-CH', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}))} — am Vorabend nochmals prüfen.</p>`;
+        el.innerHTML = when + `<p class="wx-big">${info.icon} ${escHtml(info.label)}</p>` + kv(rows) + `<p class="muted" style="margin:6px 0 0 0;font-size:11.5px;">Prognose ${escHtml(w.source)}, Stand ${escHtml(new Date().toLocaleString('de-CH', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}))} – am Vorabend nochmals prüfen.</p>`;
       }else if(w.status === 'too-far'){
         const from = new Date(new Date(a.startDate + 'T00:00:00').getTime() - 16 * 86400000);
         el.innerHTML = when + `<p class="muted" style="margin:0;">Prognose ab ${escHtml(from.toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit'}))} verfügbar.</p>`;
@@ -3556,7 +3639,7 @@ function printTourenzettel(agendaId){
     });
   }
 
-  // Lawinenbulletin: aktuelles SLF-Bulletin für die Region des Ziels, wenn es für den Tourtag gilt —
+  // Lawinenbulletin: aktuelles SLF-Bulletin für die Region des Ziels, wenn es für den Tourtag gilt –
   // sonst Felder zum Ausfüllen am Vorabend
   if(winter){
     const fillIn = note=> `${note ? `<p class="muted" style="margin:0 0 8px 0;">${note}</p>` : ''}
@@ -3568,11 +3651,11 @@ function printTourenzettel(agendaId){
     (t ? fsSlfBulletinAt(parseFloat(t.lat), parseFloat(t.lon), a.startDate) : Promise.resolve(null)).then(b=>{
       const el = $('tz-avalanche');
       if(!el) return;
-      if(!b){ el.innerHTML = fillIn('Das Bulletin erscheint um 17 Uhr für den Folgetag — am Vorabend eintragen.'); return; }
+      if(!b){ el.innerHTML = fillIn('Das Bulletin erscheint um 17 Uhr für den Folgetag – am Vorabend eintragen.'); return; }
       el.innerHTML = `<p class="wx-big">Gefahrenstufe ${escHtml(b.level)}${b.region ? ` <span class="muted" style="font-weight:400;">· ${escHtml(b.region)}</span>` : ''}</p>
         ${b.ratings.length ? `<div>${b.ratings.map(r=>`<div>${escHtml(r)}</div>`).join('')}</div>` : ''}
         ${b.problems.length ? `<div style="margin-top:6px;"><b>Lawinenprobleme:</b> ${b.problems.map(escHtml).join(' · ')}</div>` : ''}
-        <p class="muted" style="margin:6px 0 0 0;font-size:11.5px;">SLF-Bulletin gültig bis ${escHtml(b.validUntil)} — <a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener">slf.ch</a></p>`;
+        <p class="muted" style="margin:6px 0 0 0;font-size:11.5px;">SLF-Bulletin gültig bis ${escHtml(b.validUntil)} – <a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener">slf.ch</a></p>`;
     }).catch(()=>{ const el = $('tz-avalanche'); if(el) el.innerHTML = fillIn('Bulletin gerade nicht abrufbar.'); });
   }
 
@@ -3608,7 +3691,7 @@ function printTourenzettel(agendaId){
             <div class="wx-big">${fsIconHtml('train')} ${escHtml(r.dep)} → ${escHtml(r.arr)}${r.durS ? ' · ' + escHtml(fsFmtDur(r.durS)) : ''}</div>
             <div class="muted" style="margin-bottom:4px;">${escHtml(r.from)} → ${escHtml(r.to)} · ${typeof r.transfers === 'number' ? (r.transfers === 0 ? 'direkt' : r.transfers + '× umsteigen') : ''}</div>
             ${(r.legs || []).length ? `<div class="legs">${r.legs.map(l=>`<div><b>${escHtml(l.dep)}</b> ${escHtml(l.from)}${l.platform ? ' (Gl. ' + escHtml(l.platform) + ')' : ''} · ${escHtml(l.line)} → ${escHtml(l.to)} <b>${escHtml(l.arr)}</b></div>`).join('')}</div>` : ''}
-            <div class="muted" style="font-size:11.5px;margin-top:4px;">Fahrplan-Abfrage ${time ? 'ab ' + escHtml(time) + ' ' : ''}— kurz vorher in der SBB-App prüfen.</div>
+            <div class="muted" style="font-size:11.5px;margin-top:4px;">Fahrplan-Abfrage ${time ? 'ab ' + escHtml(time) + ' ' : ''}– kurz vorher in der SBB-App prüfen.</div>
           </div><div class="qr" data-qr="${escHtml(gm(dest, 'transit'))}"></div></div>`);
         return null;
       }).catch(()=>{ parts.push(`<div>${fsIconHtml('train')} ÖV-Verbindung gerade nicht abrufbar. <a href="${gm(dest, 'transit')}" target="_blank" rel="noopener">ÖV-Route ↗</a></div>`); return null; }));
@@ -3714,7 +3797,7 @@ async function fsSlfFetchBulletin(){
   if(viaDaten) return {regions: viaDaten.regions, bd: viaDaten.bulletin}; // älter als 3 h, aber besser als nichts
   throw new Error('Lawinenbulletin gerade nicht abrufbar (SLF nicht erreichbar).');
 }
-// SLF-Bulletin für einen Punkt, nur wenn es am Tourtag (Morgen) gilt — sonst null
+// SLF-Bulletin für einen Punkt, nur wenn es am Tourtag (Morgen) gilt – sonst null
 async function fsSlfBulletinAt(lat, lon, dateStr){
   const {regions, bd} = await fsSlfFetchBulletin();
   const feat = (regions.features || []).find(f=> fsPointInGeom(lon, lat, f.geometry));
@@ -3841,7 +3924,7 @@ function openAddAgenda(){
     render();
   });
 }
-// state.otherAppTours wird sonst nur beim Anlegen eines neuen Termins geladen — ein Termin kann
+// state.otherAppTours wird sonst nur beim Anlegen eines neuen Termins geladen – ein Termin kann
 // aber auch von der jeweils anderen App aus verlinkt sein. Ohne diesen Vorab-Load bliebe die
 // Zustiegs-/Abstiegs-/Wetter-Auflösung leer, weil findAgendaLinkedTour() nichts zu durchsuchen hätte.
 async function openAgendaDetail(id){
@@ -3850,7 +3933,7 @@ async function openAgendaDetail(id){
   state.modal = {type:'agenda-detail', payload:id};
   render();
 }
-// Öffnet einen bestehenden Termin zur Bearbeitung — bei Mehrtages-Terminen wird agendaDayPlanDraft
+// Öffnet einen bestehenden Termin zur Bearbeitung – bei Mehrtages-Terminen wird agendaDayPlanDraft
 // bereits HIER mit einer Kopie der bestehenden Tage vorbelegt (vor dem ersten Rendern), damit
 // syncAgendaDayPlanMode() sie beim Formularaufbau unverändert übernimmt (siehe deren Kommentar zu
 // syncAgendaDaysToRange). Die klassischen Einzeltag-Felder werden separat über
@@ -3867,10 +3950,10 @@ function openEditAgenda(id){
   });
 }
 // Befüllt die klassischen Einzeltag-Felder beim ersten Aufbau des Bearbeiten-Formulars mit den
-// Werten des bestehenden Termins — simuliert dieselben Interaktionen (Tour wählen, Chip klicken)
+// Werten des bestehenden Termins – simuliert dieselben Interaktionen (Tour wählen, Chip klicken)
 // wie ein Benutzer, damit dieselbe Wiring-Logik (Routen-Dropdowns befüllen, Sichtbarkeit
 // umschalten) automatisch mitläuft statt dupliziert zu werden. Mehrtägige Termine sind hier ein
-// No-op — die werden bereits über das Vorbelegen von agendaDayPlanDraft in openEditAgenda() vor dem
+// No-op – die werden bereits über das Vorbelegen von agendaDayPlanDraft in openEditAgenda() vor dem
 // ersten Rendern abgedeckt.
 function applyAgendaEditPrefill(agendaForm, a){
   if(a.days && a.days.length) return;
@@ -3907,7 +3990,7 @@ function applyAgendaEditPrefill(agendaForm, a){
 }
 // Ohne editId: leeres Formular für einen neuen Termin (bisheriges Verhalten). Mit editId: dasselbe
 // Formular, aber mit den Werten des bestehenden Termins vorbelegt (Titel/Button-Beschriftung
-// passen sich an) — die eigentliche Feld-für-Feld-Vorbelegung der Tour-/Tagesplan-Felder läuft
+// passen sich an) – die eigentliche Feld-für-Feld-Vorbelegung der Tour-/Tagesplan-Felder läuft
 // separat über applyAgendaEditPrefill() bzw. das Vorbelegen von agendaDayPlanDraft, weil diese
 // Felder erst nach dem Einfügen ins DOM (in syncAgendaDayPlanMode) aufgebaut werden.
 function agendaFormHtml(editId){
@@ -3955,7 +4038,7 @@ function agendaFormHtml(editId){
   </div>`;
 }
 // Klassifiziert eine Tour app-unabhängig in dieselben drei Kategorien wie das Agenda-"Art"-Feld
-// (ski/hochtour/msl) — Skitouren tragen nie ein tourCategory-Feld, Hochtour/MSL-Touren (aus
+// (ski/hochtour/msl) – Skitouren tragen nie ein tourCategory-Feld, Hochtour/MSL-Touren (aus
 // Fixseil) immer. Grundlage für die Filterung der Tour-Dropdowns nach gewählter Art.
 function tourAgendaType(t){
   if(!t || !t.tourCategory) return 'ski';
@@ -3966,13 +4049,13 @@ function tourAgendaType(t){
 function fsDefaultAgendaType(){
   return fsAppKey() === 'wandern' ? 'wandern' : 'ski';
 }
-// Baut die <option>-Liste für ein Tour-Dropdown, gefiltert auf eine Art (ski/hochtour/msl) — eigene
+// Baut die <option>-Liste für ein Tour-Dropdown, gefiltert auf eine Art (ski/hochtour/msl) – eigene
 // und andere-App-Touren zusammen, geteilt zwischen Einzeltag- und Mehrtages-Feldern.
 function agendaTourOptionsHtml(type, selectedValue){
   const own = state.tours.filter(t=>tourAgendaType(t)===type)
-    .map(t=>`<option value="own:${t.id}" ${selectedValue==='own:'+t.id?'selected':''}>${OWN_APP_LABEL} — ${esc(t.name)}</option>`).join('');
+    .map(t=>`<option value="own:${t.id}" ${selectedValue==='own:'+t.id?'selected':''}>${OWN_APP_LABEL} – ${esc(t.name)}</option>`).join('');
   const other = state.otherAppTours.filter(t=>tourAgendaType(t)===type)
-    .map(t=>`<option value="other:${t.id}" ${selectedValue==='other:'+t.id?'selected':''}>${agendaTypeLabel(tourAgendaType(t))} — ${esc(t.name)}</option>`).join('');
+    .map(t=>`<option value="other:${t.id}" ${selectedValue==='other:'+t.id?'selected':''}>${agendaTypeLabel(tourAgendaType(t))} – ${esc(t.name)}</option>`).join('');
   return own + other;
 }
 function agendaTourChoiceMatchesType(choiceVal, type){
@@ -3983,7 +4066,7 @@ function agendaTourChoiceMatchesType(choiceVal, type){
   return !!ref && tourAgendaType(ref)===type;
 }
 // Baut nach einer Änderung des "Art"-Felds alle Tour-Dropdowns (Einzeltag ODER jedes Tagesabschnitt-
-// Dropdown bei Mehrtages-Terminen) neu auf, gefiltert auf die neu gewählte Art — eine schon
+// Dropdown bei Mehrtages-Terminen) neu auf, gefiltert auf die neu gewählte Art – eine schon
 // getroffene Auswahl, die zur neuen Art nicht mehr passt, wird auf "Freitext" zurückgesetzt statt
 // einfach zu verschwinden.
 function filterAgendaTourSelectsByType(agendaForm){
@@ -3991,7 +4074,7 @@ function filterAgendaTourSelectsByType(agendaForm){
   const type = typeSelect ? typeSelect.value : 'ski';
   const container = agendaForm.querySelector('#agenda-day-plan-container');
   if(!container) return;
-  const customOpt = current => `<option value="custom" ${current==='custom'?'selected':''}>— Neuer Vorschlag (Freitext) —</option>`;
+  const customOpt = current => `<option value="custom" ${current==='custom'?'selected':''}>– Neuer Vorschlag (Freitext) –</option>`;
   if(container.dataset.mode==='multi'){
     container.querySelectorAll('.agenda-day-tour-select').forEach(sel=>{
       const current = sel.value;
@@ -4015,7 +4098,7 @@ function filterAgendaTourSelectsByType(agendaForm){
     }
   }
 }
-// Die klassischen Felder für einen eintägigen Termin — unverändert gegenüber vorher, nur aus der
+// Die klassischen Felder für einen eintägigen Termin – unverändert gegenüber vorher, nur aus der
 // Formular-Vorlage herausgelöst, damit sie bei einem Mehrtages-Datum (siehe unten) durch den
 // strukturierten Tagesplan ersetzt werden können, ohne das Formular selbst neu zu bauen.
 function agendaSingleDayFieldsHtml(currentType){
@@ -4023,16 +4106,16 @@ function agendaSingleDayFieldsHtml(currentType){
   return `
     <div class="field"><label>Tour</label>
       <select name="tourChoice" id="agenda-tour-select">
-        <option value="custom">— Neuer Vorschlag (Freitext) —</option>
+        <option value="custom">– Neuer Vorschlag (Freitext) –</option>
         ${agendaTourOptionsHtml(type, '')}
       </select>
     </div>
     <div class="field" id="agenda-custom-field"><label>Geplante Tour</label><input name="customName" placeholder="z. B. Wildspitze über Vent"/></div>
     <div class="field" id="agenda-route-fields" style="display:none;">
       <label>Zustieg</label>
-      <select name="accessRouteId" id="agenda-access-route-select"><option value="">— nicht festgelegt —</option></select>
+      <select name="accessRouteId" id="agenda-access-route-select"><option value="">– nicht festgelegt –</option></select>
       <label style="margin-top:10px; display:block;">Abstieg</label>
-      <select name="descentRouteId" id="agenda-descent-route-select"><option value="">— nicht festgelegt —</option></select>
+      <select name="descentRouteId" id="agenda-descent-route-select"><option value="">– nicht festgelegt –</option></select>
     </div>
     <div class="field">
       <label>Anreise</label>
@@ -4064,7 +4147,7 @@ function agendaSingleDayFieldsHtml(currentType){
    (Biwak/Hütte-Auswahl/Andere-Freitext) an allen Tagen ausser dem letzten, Anreise nur am ersten
    und Rückreise nur am letzten Tag. Der Entwurf lebt in agendaDayPlanDraft (nicht im DOM allein),
    damit er beim Ändern des Datumsbereichs erhalten bleibt statt bei jedem Neu-Rendern verloren zu
-   gehen — collectAgendaDayPlanFromDom() liest den jeweils aktuellen DOM-Stand vorher zurück ein. */
+   gehen – collectAgendaDayPlanFromDom() liest den jeweils aktuellen DOM-Stand vorher zurück ein. */
 let agendaDayPlanDraft = null;
 function blankAgendaDaySegment(){
   return { tourChoice:'custom', tourName:'', tourRef:null, accessRouteId:'', descentRouteId:'' };
@@ -4102,15 +4185,15 @@ function agendaDaySegmentHtml(seg, dayIdx, segIdx, type){
       ${segIdx>0 ? `<button type="button" class="agenda-seg-remove" data-day="${dayIdx}" data-seg="${segIdx}" style="background:none; border:none; color:var(--danger); font-weight:700; cursor:pointer; font-size:16px; padding:0 4px;">×</button>` : ''}
     </div>
     <select class="agenda-day-tour-select" data-day="${dayIdx}" data-seg="${segIdx}">
-      <option value="custom" ${seg.tourChoice==='custom'?'selected':''}>— Neuer Vorschlag (Freitext) —</option>
+      <option value="custom" ${seg.tourChoice==='custom'?'selected':''}>– Neuer Vorschlag (Freitext) –</option>
       ${agendaTourOptionsHtml(type||'ski', seg.tourChoice)}
     </select>
     <input type="text" class="agenda-day-custom-name" data-day="${dayIdx}" data-seg="${segIdx}" placeholder="z. B. Wildspitze über Vent" value="${esc(seg.tourChoice==='custom' ? (seg.tourName||'') : '')}" style="margin-top:6px; width:100%; box-sizing:border-box; ${seg.tourChoice==='custom'?'':'display:none;'}"/>
     <div class="agenda-day-route-fields" data-day="${dayIdx}" data-seg="${segIdx}" style="margin-top:6px; ${hasRoutes?'':'display:none;'}">
       <label style="font-size:12.5px;">Zustieg</label>
-      <select class="agenda-day-access-select" data-day="${dayIdx}" data-seg="${segIdx}"><option value="">— nicht festgelegt —</option></select>
+      <select class="agenda-day-access-select" data-day="${dayIdx}" data-seg="${segIdx}"><option value="">– nicht festgelegt –</option></select>
       <label style="font-size:12.5px; margin-top:6px; display:block;">Abstieg</label>
-      <select class="agenda-day-descent-select" data-day="${dayIdx}" data-seg="${segIdx}"><option value="">— nicht festgelegt —</option></select>
+      <select class="agenda-day-descent-select" data-day="${dayIdx}" data-seg="${segIdx}"><option value="">– nicht festgelegt –</option></select>
     </div>
   </div>`;
 }
@@ -4125,7 +4208,7 @@ function agendaDayOvernightHtml(day, dayIdx){
       ${chip('andere', '📍 Andere')}
     </div>
     <select class="agenda-overnight-hut-select" data-day="${dayIdx}" style="margin-top:8px; ${day.overnight.type==='huette'?'':'display:none;'}">
-      <option value="">— Hütte wählen —</option>
+      <option value="">– Hütte wählen –</option>
       ${hutOptions}
     </select>
     <input type="text" class="agenda-overnight-custom" data-day="${dayIdx}" placeholder="z. B. Zeltplatz, Privatunterkunft" value="${esc(day.overnight.type==='andere' ? (day.overnight.customLabel||'') : '')}" style="margin-top:8px; ${day.overnight.type==='andere'?'':'display:none;'}"/>
@@ -4150,7 +4233,7 @@ function agendaDayTravelHtml(day, dayIdx, kind){ // kind: 'anreise' (nur erster 
 function agendaDayBlockHtml(day, dayIdx, isFirst, isLast, type){
   const dateLabel = day.date ? fmtWeekday(day.date) + ', ' + fmtDateShort(day.date) : '?';
   return `<div class="agenda-day-block" data-day="${dayIdx}" data-date="${esc(day.date||'')}" style="border:1px solid var(--line); border-radius:var(--radius); padding:12px; margin-bottom:12px;">
-    <h4 style="margin:0 0 10px 0;">📅 Tag ${dayIdx+1} — ${esc(dateLabel)}</h4>
+    <h4 style="margin:0 0 10px 0;">📅 Tag ${dayIdx+1} – ${esc(dateLabel)}</h4>
     ${isFirst ? agendaDayTravelHtml(day, dayIdx, 'anreise') : ''}
     <div class="agenda-day-segments" data-day="${dayIdx}">
       ${day.segments.map((seg,segIdx)=> agendaDaySegmentHtml(seg, dayIdx, segIdx, type)).join('')}
@@ -4163,11 +4246,11 @@ function agendaDayBlockHtml(day, dayIdx, isFirst, isLast, type){
 function agendaDayPlanHtml(days, type){
   return `<div class="field"><label>Tagesplan</label></div>` + days.map((day,i)=> agendaDayBlockHtml(day, i, i===0, i===days.length-1, type)).join('');
 }
-// Liest Zustieg/Abstieg-Auswahl für ein Segment neu ein (abhängig von der dort gewählten Tour) —
+// Liest Zustieg/Abstieg-Auswahl für ein Segment neu ein (abhängig von der dort gewählten Tour) –
 // gleiche Logik wie beim eintägigen Formular, nur pro Segment statt einmal fürs ganze Formular.
 // Optionales seg-Objekt (aus dem Draft): stellt eine dort bereits gespeicherte Zustiegs-/Abstiegs-
 // Auswahl nach dem Neuaufbau der Options-Liste wieder her (z. B. nach Tour hinzufügen/entfernen an
-// einem ANDEREN Tag, oder beim Vorbelegen eines zu bearbeitenden Termins) — ohne seg (direkte
+// einem ANDEREN Tag, oder beim Vorbelegen eines zu bearbeitenden Termins) – ohne seg (direkte
 // Nutzer-Änderung der Tour in diesem Segment) bleibt die Auswahl bewusst leer, weil sie zur neuen
 // Tour nicht mehr passt.
 function syncAgendaDaySegmentRouteFields(segEl, seg){
@@ -4184,14 +4267,14 @@ function syncAgendaDaySegmentRouteFields(segEl, seg){
   if(!accessRoutes.length && !descentRoutes.length){ routeWrap.style.display = 'none'; return; }
   routeWrap.style.display = '';
   const opt = r => `<option value="${esc(r.id)}">${esc(r.name||'?')}</option>`;
-  accessSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + accessRoutes.map(opt).join('');
-  descentSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + descentRoutes.map(opt).join('');
+  accessSelect.innerHTML = '<option value="">– nicht festgelegt –</option>' + accessRoutes.map(opt).join('');
+  descentSelect.innerHTML = '<option value="">– nicht festgelegt –</option>' + descentRoutes.map(opt).join('');
   if(seg){
     if(seg.accessRouteId) accessSelect.value = seg.accessRouteId;
     if(seg.descentRouteId) descentSelect.value = seg.descentRouteId;
   }
 }
-// Liest den kompletten aktuellen DOM-Stand des Tagesplans in ein days-Array zurück — läuft vor
+// Liest den kompletten aktuellen DOM-Stand des Tagesplans in ein days-Array zurück – läuft vor
 // jedem Neu-Rendern (Datumsänderung, Tour hinzufügen/entfernen), damit nichts verloren geht.
 function collectAgendaDayPlanFromDom(container){
   const dayBlocks = Array.from(container.querySelectorAll('.agenda-day-block'));
@@ -4251,7 +4334,7 @@ function syncAgendaDayPlanMode(agendaForm){
   const isMultiDay = !!(startDate && endDate && endDate > startDate);
   if(container.dataset.mode==='multi'){
     // Vor jedem Neu-Rendern zuerst den aktuellen DOM-Stand sichern (Tour-Auswahl, Übernachtung
-    // usw.) — sonst gingen Eingaben verloren, die keinen Rebuild ausgelöst haben.
+    // usw.) – sonst gingen Eingaben verloren, die keinen Rebuild ausgelöst haben.
     agendaDayPlanDraft = collectAgendaDayPlanFromDom(container);
   }
   if(!isMultiDay){
@@ -4269,7 +4352,7 @@ function syncAgendaDayPlanMode(agendaForm){
     syncAgendaDaySegmentRouteFields(segEl, agendaDayPlanDraft[d] && agendaDayPlanDraft[d].segments[s]);
   });
 }
-// Verdrahtet die klassischen Einzeltag-Felder — identisch zum bisherigen Verhalten, nur hierher
+// Verdrahtet die klassischen Einzeltag-Felder – identisch zum bisherigen Verhalten, nur hierher
 // verschoben, weil sie jetzt bei jedem Moduswechsel neu ins DOM eingefügt werden.
 function wireAgendaSingleDayFieldHandlers(agendaForm){
   const tourSelect = agendaForm.querySelector('#agenda-tour-select');
@@ -4289,7 +4372,7 @@ function wireAgendaSingleDayFieldHandlers(agendaForm){
     const typeSelect = agendaForm.querySelector('select[name="type"]');
     if(!typeSelect) return;
     // Nur Hochtour/MSL-Touren tragen ein tourCategory-Feld (Skitouren nie, unabhängig davon, ob
-    // das in dieser App die "eigenen" oder die "anderen" Touren sind) — app-unabhängig also anhand
+    // das in dieser App die "eigenen" oder die "anderen" Touren sind) – app-unabhängig also anhand
     // dieses Felds entscheiden statt anhand von src (das würde je nach App das Gegenteil bedeuten).
     typeSelect.value = tourAgendaType(ref);
   }
@@ -4301,8 +4384,8 @@ function wireAgendaSingleDayFieldHandlers(agendaForm){
     if(!accessRoutes.length && !descentRoutes.length){ routeFieldsWrap.style.display = 'none'; return; }
     routeFieldsWrap.style.display = '';
     const opt = r => `<option value="${esc(r.id)}">${esc(r.name||'?')}</option>`;
-    accessRouteSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + accessRoutes.map(opt).join('');
-    descentRouteSelect.innerHTML = '<option value="">— nicht festgelegt —</option>' + descentRoutes.map(opt).join('');
+    accessRouteSelect.innerHTML = '<option value="">– nicht festgelegt –</option>' + accessRoutes.map(opt).join('');
+    descentRouteSelect.innerHTML = '<option value="">– nicht festgelegt –</option>' + descentRoutes.map(opt).join('');
   }
   if(tourSelect){
     tourSelect.addEventListener('change', ()=>{ syncCustomFieldVisibility(); syncTypeFromTourChoice(); syncRouteFieldsFromTourChoice(); });
@@ -4456,7 +4539,7 @@ async function submitAgendaForm(form){
   if(!tourName){ showFormError('agenda-form', isMultiDay ? 'Bitte für mindestens einen Tag eine Tour auswählen oder einen Vorschlag eintragen.' : 'Bitte eine Tour auswählen oder einen Vorschlag eintragen.'); return; }
 
   // Beim Bearbeiten eines bestehenden Termins bleiben Teilnehmer/Status/Ersteller/Wetter-Snapshot
-  // unangetastet (per Spread übernommen) — nur die im Formular editierbaren Felder werden ersetzt.
+  // unangetastet (per Spread übernommen) – nur die im Formular editierbaren Felder werden ersetzt.
   const editId = form.agendaEditId || '';
   const existing = editId ? state.agenda.find(x=>x.id===editId) : null;
   // Verknüpfte Tour hier nicht auffindbar (andere App, Papierkorb, noch nicht geladen) und Name unverändert:
@@ -4482,7 +4565,7 @@ async function submitAgendaForm(form){
   // Natel der Teilnehmenden als Liste (Namen taugen nicht als Firebase-Schlüssel)
   const phoneKeys = Object.keys(form).filter(k=> k.startsWith('phone::'));
   if(phoneKeys.length) editableFields.phones = phoneKeys.map(k=>({name: k.slice(7), phone: String(form[k]||'').trim()})).filter(x=> x.phone);
-  // Tourenbriefing (Schritt 4) — nur übernehmen, wenn das Formular es mitgeschickt hat.
+  // Tourenbriefing (Schritt 4) – nur übernehmen, wenn das Formular es mitgeschickt hat.
   if(typeof form.briefing === 'string' && form.briefing){
     try{
       const b = JSON.parse(form.briefing);
@@ -4578,13 +4661,13 @@ function emergencyCardHtml(){
     </div>
 
     <div class="detail-section">
-      <h4>Notruf — die 5 W</h4>
+      <h4>Notruf – die 5 W</h4>
       <p style="line-height:1.9; margin:0;">
         <strong>Wer</strong> meldet den Unfall?<br>
         <strong>Was</strong> ist passiert?<br>
-        <strong>Wo</strong> — Ort/Koordinaten (siehe unten)?<br>
+        <strong>Wo</strong> – Ort/Koordinaten (siehe unten)?<br>
         <strong>Wie viele</strong> Verletzte, welcher Zustand?<br>
-        <strong>Wetter</strong> — Sicht, Wind, Wolken vor Ort?
+        <strong>Wetter</strong> – Sicht, Wind, Wolken vor Ort?
       </p>
       <p style="font-size:12.5px; color:var(--ink-faint); margin:8px 0 0 0;">Nicht auflegen, bis die Zentrale das Gespräch beendet.</p>
     </div>
@@ -4601,14 +4684,14 @@ function emergencyCardHtml(){
       <ol style="padding-left:18px; line-height:2; margin:0;">
         <li>Ruhe bewahren, eigene Sicherheit prüfen (Nachlawine?)</li>
         <li>Verschwindepunkt der/des Verschütteten merken</li>
-        <li>Notruf absetzen (1414 / 112) — wenn möglich jemand anderen damit beauftragen</li>
+        <li>Notruf absetzen (1414 / 112) – wenn möglich jemand anderen damit beauftragen</li>
         <li>LVS auf Suchen schalten, Suchstreifen abgehen (Grobsuche)</li>
         <li>Feinsuche: LVS nah am Schnee, kreuzweise absuchen</li>
         <li>Sondieren am Signalpunkt, spiralförmig</li>
-        <li>Zügig ausschaufeln — Kopf/Atemwege zuerst freilegen</li>
+        <li>Zügig ausschaufeln – Kopf/Atemwege zuerst freilegen</li>
         <li>Erste Hilfe, vor Auskühlung schützen, auf Rettung warten</li>
       </ol>
-      <p style="font-size:12.5px; color:var(--ink-faint); margin-top:8px;">Die Überlebenschance sinkt mit der Verschüttungsdauer rasch — schnelles, strukturiertes Handeln zählt.</p>
+      <p style="font-size:12.5px; color:var(--ink-faint); margin-top:8px;">Die Überlebenschance sinkt mit der Verschüttungsdauer rasch – schnelles, strukturiertes Handeln zählt.</p>
     </div>
     ${(typeof fsAppKey === 'function' && fsAppKey() === 'wandern') ? '' : `
     <div class="detail-section">
@@ -4682,7 +4765,7 @@ function startGpsLookup(){
             if(input){
               input.select();
               try{ navigator.clipboard.writeText(input.value); showToast('Kopiert.'); }
-              catch(e){ showToast('Kopieren nicht möglich — bitte manuell markieren.', true); }
+              catch(e){ showToast('Kopieren nicht möglich – bitte manuell markieren.', true); }
             }
           });
         });
@@ -4724,7 +4807,7 @@ function closeFullscreenMap(){
   const overlay = document.getElementById('fullscreen-map-overlay');
   if(!overlay) return;
   // Sicherheitsnetz für die Übersichtskarte: den zuletzt gezeigten Ausschnitt direkt vom lebenden
-  // Leaflet-Objekt abfragen, statt sich allein auf das 'moveend'-Event zu verlassen — ein Wisch mit
+  // Leaflet-Objekt abfragen, statt sich allein auf das 'moveend'-Event zu verlassen – ein Wisch mit
   // Schwung (Trägheits-Animation) feuert moveend erst nach dessen Ende; wird die Karte (z. B. durch
   // Antippen eines Tour-Markers direkt danach) schon vorher geschlossen, blieb lastStandaloneMapView
   // sonst auf dem alten Stand, und beim nächsten Öffnen zoomte die Karte scheinbar grundlos zurück.
@@ -4742,10 +4825,10 @@ function closeFullscreenMap(){
 }
 
 /* ================= Eigenständige Karte (unabhängig von einer Tour), mit Standort/Navi =================
-   Öffnet die Vollbild-Karte direkt, ohne dass vorher eine Tour/Hütte geöffnet sein muss —
+   Öffnet die Vollbild-Karte direkt, ohne dass vorher eine Tour/Hütte geöffnet sein muss –
    erreichbar über den Button "🗺️ Karte" oben in der App-Umschalt-Leiste. */
 // swisstopo-3D-Ansicht an einer Stelle öffnen. Die Kamera steht etwas südlich des Punkts und
-// schaut schräg nach Norden auf ihn — so sieht man das Gelände statt nur von oben.
+// schaut schräg nach Norden auf ihn – so sieht man das Gelände statt nur von oben.
 // 3D jetzt direkt in der App (siehe fs3d* weiter unten) statt map.geo.admin.ch im neuen Tab.
 // tour (optional): Route, Zustieg/Abstieg, Hütte werden aufs Gelände gelegt und der Blick passt sich an.
 function open3dViewAt(lat, lon, zoom, tour){
@@ -4775,7 +4858,7 @@ function fs3dLoadNames(){
   };
   // Dauerhaft und nur für die Namen: Die Namen-Kacheln verweisen auf weitere tileset.json-Dateien
   // (nachgeladen beim Hineinzoomen). Wurde die Korrektur nach dem ersten Laden wieder entfernt,
-  // galten diese tieferen Ebenen als unsichtbar — in der Nähe erschienen darum kaum Namen.
+  // galten diese tieferen Ebenen als unsichtbar – in der Nähe erschienen darum kaum Namen.
   if(!Cesium.Cesium3DTileset._fsNamesFix){
     Cesium.Cesium3DTileset._fsNamesFix = true;
     Cesium.Cesium3DTileset.loadJson = (res)=> orig(res).then(j=>{
@@ -5418,7 +5501,7 @@ function fs3dCesiumOpen(opts){
     // WLAN), «Spar» lädt gröber und weniger Daten (unterwegs). Wahl bleibt pro Gerät gespeichert.
     let names = null;
     // «hi» (3D Hoch, zum Planen): volle Schärfe (höchstens doppelte Auflösung) und feinste Kacheln.
-    // «pano» (Gipfel ringsum): schnell statt scharf — einfache Auflösung, gröbere Kacheln; für die
+    // «pano» (Gipfel ringsum): schnell statt scharf – einfache Auflösung, gröbere Kacheln; für die
     // Silhouette am Horizont und die Sichtprüfung der Gipfel reicht das.
     const applyQuality = (q)=>{
       const hi = q === 'hi';
@@ -5459,7 +5542,7 @@ function fs3dCesiumOpen(opts){
     }));
     wrap.querySelector('[data-3d="slope"]').addEventListener('click', (e)=>{ slope.show = !slope.show; e.currentTarget.classList.toggle('on', slope.show); rerender(); });
     wrap.querySelector('[data-3d="ski"]').addEventListener('click', (e)=>{ ski.show = !ski.show; e.currentTarget.classList.toggle('on', ski.show); rerender(); });
-    // Namen (Gipfel, Pässe, Orte, Hütten, Seen) — offizielle 3D-Namensebene von swisstopo, wie in
+    // Namen (Gipfel, Pässe, Orte, Hütten, Seen) – offizielle 3D-Namensebene von swisstopo, wie in
     // der 3D-Ansicht von map.geo.admin.ch. Standardmässig an; Fehler beim Laden blenden nur den Schalter aus.
     const namesBtn = wrap.querySelector('[data-3d="names"]');
     fs3dLoadNames().then(ts=>{
@@ -5802,7 +5885,7 @@ function fs3dCesiumOpen(opts){
     // ===== Gipfelnamen im Panorama =====
     // Alle Gipfel/Pässe/Hütten im Umkreis als Schilder. Nach jeder Drehung (gedrosselt): nur was
     // wirklich zu sehen ist (Strahl von der Kamera zum Gipfel trifft nicht vorher das Gelände) und was
-    // sich nicht überlappt — wichtigere (höher, näher) zuerst. Antippen zeigt Name, Höhe, Entfernung.
+    // sich nicht überlappt – wichtigere (höher, näher) zuerst. Antippen zeigt Name, Höhe, Entfernung.
     let peakLabels = null, peakList = [], peakTimer = null, peakPos = null;
     const PEAK_RANGE = {g: 80000, p: 20000, h: 25000};
     const peakPrio = (pk)=> (pk.kind === 'g' ? 0 : 1500) - pk.ele + pk.dist / 25;
@@ -6036,7 +6119,7 @@ function fs3dCesiumOpen(opts){
         gpsDs.entities.add({position: pos, point:{pixelSize:16, color: Cesium.Color.fromCssColorString('#1971C2'), outlineColor: Cesium.Color.WHITE, outlineWidth:3, disableDepthTestDistance: Number.POSITIVE_INFINITY}});
         if(pano) panoStop();
         viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(pos, 1), {duration: 1.6, offset: new Cesium.HeadingPitchRange(viewer.camera.heading, Cesium.Math.toRadians(-32), 3500)});
-      }, ()=>{ gpsBtn.classList.remove('on'); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
+      }, ()=>{ gpsBtn.classList.remove('on'); showToast('Standort nicht verfügbar – Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
     });
     // Tipp in die Ansicht schliesst das Ebenen-Fenster
     viewer.scene.canvas.addEventListener('pointerdown', ()=>{ if(!layerPanel.hidden) layerPanel.hidden = true; });
@@ -6126,10 +6209,10 @@ const SLF_DANGER_LEVELS = {
   high: {level:4, color:'#ff0000', label:'4 – Gross'},
   very_high: {level:5, color:'#800000', label:'5 – Sehr gross'}
 };
-// Lawinen-Gefahrenstufen als Kartenebene — offene Daten von aws.slf.ch (CC BY 4.0, kein API-Key
+// Lawinen-Gefahrenstufen als Kartenebene – offene Daten von aws.slf.ch (CC BY 4.0, kein API-Key
 // nötig): Warnregionen-Geometrie (GeoJSON) + aktuelles Bulletin (EAWS-CAAML-JSON, Standardformat
 // vieler europäischer Lawinenwarndienste). Bewusst defensiv geparst (mehrere mögliche Feldnamen
-// für die Regions-ID, "worst case" bei mehreren Höhenbändern/Expositionen) — bei unerwarteter
+// für die Regions-ID, "worst case" bei mehreren Höhenbändern/Expositionen) – bei unerwarteter
 // Antwortform gibt es "keine Daten" statt eines Fehlers oder einer falschen Einfärbung.
 async function fetchSlfDangerRegions(){
   const {regions: regionsData, bd: bulletinData} = await fsSlfFetchBulletin();
@@ -6176,7 +6259,7 @@ const FSM_OVERLAYS = [
   {id:'oev', group:'unterwegs', label:'ÖV-Haltestellen', icon:'bus', tiles:[FSM_WMTS('ch.bav.haltestellen-oev','png')]},
   // Wildruhezonen und eidg. Wildschutzgebiete (BAFU); antippen zeigt Name und Bestimmungen
   {id:'wildschutz', group:'gefahr', label:'Wildschutz (Wildruhezonen)', icon:'alert', opacity:0.75, tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.bafu.wrz-wildruhezonen_portal,ch.bafu.bundesinventare-jagdbanngebiete&STYLES=,&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
-  // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln — siehe fsmLoadPoints
+  // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln – siehe fsmLoadPoints
   // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt; Daten für «Wetter-Messwerte»
   {id:'slfstationen', group:'unterwegs', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
   // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
@@ -6211,6 +6294,12 @@ function fsmEnsureLoaded(){
   });
   return fsmLoadPromise;
 }
+// Übergang zwischen den Seiten (@view-transition in look.css): bricht der Browser ihn ab (z. B. weil die
+// Seite sich beim Laden noch verändert), lehnt er seine Zusagen ab – das ist kein Fehler der App
+['pagereveal', 'pageswap'].forEach(t=> window.addEventListener(t, e=>{
+  const vt = e.viewTransition;
+  if(vt) ['ready', 'finished', 'updateCallbackDone'].forEach(k=>{ try{ vt[k] && vt[k].catch(()=>{}); }catch(err){} });
+}));
 // Kartenbibliothek gleich beim Start laden (parallel zum ersten Zeichnen der Liste), nicht erst wenn
 // die Startkarte sie braucht – die Karte steht so deutlich früher
 setTimeout(()=>{ try{ fsmEnsureLoaded().catch(()=>{}); }catch(e){} }, 0);
@@ -6283,9 +6372,17 @@ function fsmBaseStyle(){
 }
 // Grenzen: so weit die Kartendaten reichen (Basiskarte swisstopo ~3.6–13.6° O, 44.2–48.9° N), sonst weisse
 // Flächen. Die Startkarte darf weiter nach Süden: dort liegt die untere Hälfte ohnehin unter dem Blatt.
-const FSM_BOUNDS = [[3.6, 44.2], [13.6, 48.9]], FSM_HOME_BOUNDS = [[4.4, 41.5], [12, 48.9]]; // Süden mit Spielraum: in «mitte» liegt die untere Hälfte unter dem Blatt
+const FSM_BOUNDS = [[3.6, 44.2], [13.6, 48.9]], FSM_HOME_BOUNDS = [[4.4, 43.8], [12, 48.9]]; // Süden mit wenig Spielraum (liegt unter dem Blatt); zusammen mit fsHomeMinZoom nie weisse Ränder
 // Startkarte: höchstens so weit hinaus, dass die Schweiz (~5° breit) die Bildschirmbreite füllt
-function fsHomeMinZoom(){ return Math.max(4, Math.log2(360 * Math.max(320, window.innerWidth) / (512 * 5.2))); }
+// Nie weiter hinaus, als die Karte reicht: Breite und Höhe des Bildschirms müssen in die Grenzen passen
+// (sonst schob die Karte weisse Flächen ins Bild); dazu immer etwas hineingezoomt (mindestens 6.4)
+function fsHomeMinZoom(){
+  const merc = lat=> Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) * 180 / Math.PI;
+  const b = FSM_HOME_BOUNDS;
+  const zw = Math.log2(360 * Math.max(320, window.innerWidth) / (512 * (b[1][0] - b[0][0])));
+  const zh = Math.log2(360 * Math.max(480, window.innerHeight) / (512 * (merc(b[1][1]) - merc(b[0][1]))));
+  return Math.max(6.4, zw, zh);
+}
 // Karte erstellen. opts: {center:[lat,lon], zoom, controls:true, on3d:(map)=>{}}
 function fsmCreateMap(container, opts){
   opts = opts || {};
@@ -6296,11 +6393,15 @@ function fsmCreateMap(container, opts){
     maxPitch: 60, attributionControl: {compact: true}, dragRotate: true, touchPitch: true,
     maxBounds: FSM_BOUNDS
   });
-  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0, gpsOnce: !!opts.gpsOnce, search: !!opts.search};
+  map._fsm = {lines:0, markers:[], on3d: opts.on3d || null, overlays:{}, ctlTop: opts.ctlTop || 0, gpsOnce: !!opts.gpsOnce, search: !!opts.search, full: !!opts.full};
   // Tipp in die Karte schliesst das Ebenen-Fenster
   map.on('click', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden) fsmClosePanel(map); });
   map.on('dragstart', ()=>{ if(map._fsm.panel && !map._fsm.panel.hidden && !map._fsm.panel.classList.contains('fsm-panel-sheet')) fsmClosePanel(map); });
   map.once('load', ()=>{ map._fsmLoaded = true; fsmApplyPrefs(map); });
+  // Sicherheitsnetz: in Hochtour/Klettern blieb die Karte nach dem Laden des Stils manchmal ohne ersten
+  // Zeichenvorgang (kein «load», leere Fläche). Bis sie steht, regelmässig neu zeichnen lassen.
+  const kick = ()=>{ if(map._fsmLoaded || map._removed) return; try{ map.triggerRepaint(); }catch(e){} setTimeout(kick, 600); };
+  setTimeout(kick, 400);
   if(opts.controls !== false) fsmAddControls(map);
   return map;
 }
@@ -6563,7 +6664,7 @@ async function fsmLoadSlf(map, lid){
   }
 }
 // Knöpfe oben rechts: Ebenen, Kompass (nur wenn gedreht/gekippt), 3D
-// Standort nur auf Tipp: einmal orten, hinfliegen, blauen Punkt setzen — kein laufender Standort (Akku)
+// Standort nur auf Tipp: einmal orten, hinfliegen, blauen Punkt setzen – kein laufender Standort (Akku)
 function fsmLocateOnce(map, btn){
   if(map && map._ml) map = map._ml; // FL-Karte: die MapLibre-Karte darunter
   if(!map || !map._fsm) return;
@@ -6575,7 +6676,7 @@ function fsmLocateOnce(map, btn){
     if(map._fsmOnceMarker) map._fsmOnceMarker.setLngLat(ll);
     else{ const el = document.createElement('div'); el.className = 'fsm-gps'; map._fsmOnceMarker = new maplibregl.Marker({element: el}).setLngLat(ll).addTo(map); }
     map.flyTo({center: ll, zoom: Math.max(map.getZoom(), 13.5), duration: 1400});
-  }, ()=>{ if(btn) btn.classList.remove('busy'); showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
+  }, ()=>{ if(btn) btn.classList.remove('busy'); showToast('Standort nicht verfügbar – Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
 }
 const FSM_OVERLAY_GROUPS = [['wege', 'Wege und Routen'], ['gefahr', 'Gefahren und Schutz'], ['unterwegs', 'Unterwegs']];
 // Kleine Karte (Startkarte, Tour hinter dem Blatt): Ebenen als Blatt von unten über den ganzen
@@ -6595,15 +6696,64 @@ function fsmOpenPanel(map){
     document.body.appendChild(map._fsm.panelBack);
     document.body.appendChild(panel);
   }
+  const wasHidden = panel.hidden;
   panel.hidden = false;
   fsmSyncPanel(map);
+  // Als Blatt: Zurück-Geste schliesst es, und es lässt sich nach unten wegwischen
+  if(small && wasHidden && !map._fsm.panelLayer){
+    map._fsm.panelLayer = ()=>{ map._fsm.panelLayer = null; fsmClosePanelNow(map); };
+    pushOverlayLayer(map._fsm.panelLayer);
+  }
+  if(small) fsmWirePanelSwipe(map);
 }
 function fsmClosePanel(map){
   const panel = map._fsm && map._fsm.panel;
   if(!panel) return;
+  const layer = map._fsm.panelLayer;
+  if(layer && !panel.hidden){
+    // Eigener Verlaufseintrag: über die Ebenen-Liste schliessen (verbraucht den Eintrag mit)
+    if(overlayLayers[overlayLayers.length - 1] === layer){ closeTopOverlayLayer(); return; }
+    const i = overlayLayers.indexOf(layer); if(i >= 0) overlayLayers.splice(i, 1);
+    map._fsm.panelLayer = null;
+  }
+  fsmClosePanelNow(map);
+}
+function fsmClosePanelNow(map){
+  const panel = map._fsm && map._fsm.panel;
+  if(!panel) return;
   panel.hidden = true;
+  panel.style.transform = ''; panel.style.transition = '';
   if(map._fsm.panelBack) map._fsm.panelBack.remove();
   if(panel.parentNode !== map.getContainer()){ panel.classList.remove('fsm-panel-sheet'); map.getContainer().appendChild(panel); }
+}
+// Ebenen-Blatt nach unten wegwischen (oben am Kopf oder wenn die Liste ganz oben steht)
+function fsmWirePanelSwipe(map){
+  const panel = map._fsm.panel;
+  if(panel._fsSwipe) return;
+  panel._fsSwipe = true;
+  let y0 = 0, t0 = 0, dy = 0, on = false;
+  panel.addEventListener('touchstart', e=>{
+    if(!panel.classList.contains('fsm-panel-sheet') || e.touches.length !== 1) return;
+    if(panel.scrollTop > 0 && !e.target.closest('.fsm-sheet-head')) return;
+    if(e.target.closest('input, select, .fsm-seg')) return;
+    on = true; dy = 0; y0 = e.touches[0].clientY; t0 = Date.now(); panel.style.transition = 'none';
+  }, {passive: true});
+  panel.addEventListener('touchmove', e=>{
+    if(!on) return;
+    dy = Math.max(0, e.touches[0].clientY - y0);
+    if(dy > 0 && e.cancelable) e.preventDefault();
+    panel.style.transform = dy ? `translateY(${dy}px)` : '';
+  }, {passive: false});
+  const end = ()=>{
+    if(!on) return;
+    on = false;
+    const fast = dy > 30 && dy / Math.max(1, Date.now() - t0) > 0.5;
+    panel.style.transition = 'transform .2s ease-out';
+    if(dy > 90 || fast){ panel.style.transform = 'translateY(100%)'; setTimeout(()=> fsmClosePanel(map), 180); }
+    else panel.style.transform = '';
+  };
+  panel.addEventListener('touchend', end);
+  panel.addEventListener('touchcancel', end);
 }
 // Punkt setzen auf der Startkarte: gedrückt halten auf eine leere Stelle bietet «Neue Tour hier» usw.
 // oder hängt den Punkt an einen bestehenden Eintrag (gespeichert wie im Formular, über fbSet).
@@ -6717,15 +6867,15 @@ function fsPlannerOpen(from){
   const root = document.documentElement;
   root.classList.add('fs-planning');
   /* ================= Spontane Wanderung planen (Start/Ziel, Route berechnen, optional als
-     Tour-Entwurf speichern) — eine ausklappbare Kachel am unteren Kartenrand, unabhängig von
+     Tour-Entwurf speichern) – eine ausklappbare Kachel am unteren Kartenrand, unabhängig von
      einer bestehenden Tour: für kurzfristige Planung direkt auf der Übersichtskarte. */
   let plannerExpanded = false;
   let plannerStart = null; // {lat, lon, label}
   let plannerEnd = null;
-  let plannerWaypoints = []; // [{lat, lon, marker}] — in Reihenfolge Start -> Ziel
+  let plannerWaypoints = []; // [{lat, lon, marker}] – in Reihenfolge Start -> Ziel
   let plannerStartMode = 'gps'; // 'gps' | 'map'
   let plannerEndMode = 'search'; // 'search' | 'map'
-  let plannerPicking = null; // 'start' | 'end' | 'waypoint' | null — wartet auf einen Kartenklick
+  let plannerPicking = null; // 'start' | 'end' | 'waypoint' | null – wartet auf einen Kartenklick
   let plannerEndQuery = '';
   let plannerSearchBusy = false;
   let plannerEndCandidates = null; // Trefferliste der letzten Suche, zur Auswahl bei Mehrdeutigkeit
@@ -6744,11 +6894,11 @@ function fsPlannerOpen(from){
   plannerPanel.classList.add('fsp-home');
   document.body.appendChild(plannerPanel);
 
-  // Farbige Punkt-Icons als echte FL.marker (statt FL.circleMarker) — nur FL.marker unterstützt
+  // Farbige Punkt-Icons als echte FL.marker (statt FL.circleMarker) – nur FL.marker unterstützt
   // in Leaflet ohne Zusatz-Plugin das Ziehen (draggable:true), was Start/Ziel/Zwischenpunkte
   // direkt auf der Karte korrigierbar macht.
   // Punkte sind fest: Karte verschieben bewegt nie einen Punkt. Verschieben erst nach langem
-  // Drücken (~0,45 s, kurze Vibration) — dann folgt der Punkt dem Finger, bis man loslässt.
+  // Drücken (~0,45 s, kurze Vibration) – dann folgt der Punkt dem Finger, bis man loslässt.
   function makeLongPressDraggable(marker, onMoved){
     let timer = null, start = null, active = false, pid = null;
     const cancel = ()=>{ clearTimeout(timer); timer = null; };
@@ -6810,7 +6960,7 @@ function fsPlannerOpen(from){
     scheduleAutoPlannerCalc();
   }
   // Sobald Start und Ziel stehen, rechnet sich die Route nach jeder Änderung (Punkt gesetzt,
-  // verschoben, entfernt) von selbst neu — kurz verzögert, damit mehrere Änderungen
+  // verschoben, entfernt) von selbst neu – kurz verzögert, damit mehrere Änderungen
   // hintereinander nur eine Anfrage auslösen.
   let plannerRecalcPending = false;
   function scheduleAutoPlannerCalc(){
@@ -6915,7 +7065,7 @@ function fsPlannerOpen(from){
   }
 
   // Zeigt bei Mehrdeutigkeit (z. B. mehrere Orte namens "Bern") eine Trefferliste zur Auswahl,
-  // statt kommentarlos den ersten Treffer zu übernehmen — vorher liess sich nicht nachvollziehen,
+  // statt kommentarlos den ersten Treffer zu übernehmen – vorher liess sich nicht nachvollziehen,
   // welcher Ort tatsächlich gemeint war.
   async function searchAndSetEnd(query){
     if(!query || !query.trim()) return;
@@ -6972,7 +7122,7 @@ function fsPlannerOpen(from){
     renderPlannerPanel();
   }
 
-  // Legt aus Start/Ziel/berechneter Route einen neuen Tour-Entwurf an (Status "entwurf") —
+  // Legt aus Start/Ziel/berechneter Route einen neuen Tour-Entwurf an (Status "entwurf") –
   // Felder analog zu einer über das normale Formular neu angelegten Tour, damit die Anzeige
   // (Kartenübersicht, Detailansicht) ohne Sonderfälle funktioniert. In Fixseil zusätzlich mit
   // den MSL/Hochtour-spezifischen Feldern (leer/neutral), da tourCategory dort Pflicht ist.
@@ -7024,7 +7174,7 @@ function fsPlannerOpen(from){
       render();
       saveTourCloud(t).then(ok=>{
         if(!ok){ t._unsynced = true; markUnsaved(); showToast('Entwurf lokal gespeichert, aber nicht synchronisiert.', true); }
-        else showToast('Als Tour-Entwurf gespeichert — Details kannst du jetzt ergänzen.');
+        else showToast('Als Tour-Entwurf gespeichert – Details kannst du jetzt ergänzen.');
         render();
       }).catch(()=>{ t._unsynced = true; markUnsaved(); render(); });
       if(typeof openTourDetail === 'function') openTourDetail(t.id);
@@ -7054,7 +7204,7 @@ function fsPlannerOpen(from){
   }
   // Start/Ziel als Suchfelder: beim Antippen "Mein Standort", "Auf der Karte wählen" und die
   // zuletzt benutzten Orte, beim Tippen laufend Vorschläge (eigene Einträge sofort und offline,
-  // darunter Orte/Berge/Hütten aus der swisstopo-Suche — dieselbe Quelle wie die Lupe oben).
+  // darunter Orte/Berge/Hütten aus der swisstopo-Suche – dieselbe Quelle wie die Lupe oben).
   let plannerWpOpen = false;
   let plannerSuggSeq = 0, plannerSuggTimer = null;
   function plannerStopFieldHtml(which){
@@ -7130,7 +7280,7 @@ function fsPlannerOpen(from){
         pick([...local, ...online, ...base], (local.length || online.length) ? '' : 'Keine Treffer.');
       }catch(e){
         if(seq !== plannerSuggSeq) return;
-        pick([...local, ...base], 'Offline — nur eigene Einträge durchsucht.');
+        pick([...local, ...base], 'Offline – nur eigene Einträge durchsucht.');
       }
     }, 300);
   }
@@ -7371,6 +7521,7 @@ function fsmAddControls(map){
   if(map._fsm.ctlTop) box.style.top = map._fsm.ctlTop + 'px';
   box.innerHTML = `${map._fsm.search ? `<button type="button" class="fsm-btn" data-fsm="search" aria-label="Auf der Karte suchen">${fsIconHtml('search')}</button>
     <button type="button" class="fsm-btn" data-fsm="plan" aria-label="Route planen">${fsIconHtml('compass')}</button>` : ''}
+    ${map._fsm.full ? `<button type="button" class="fsm-btn fsm-full" data-fsm="full" aria-label="Karte im Vollbild">${fsIconHtml('expand')}</button>` : ''}
     <button type="button" class="fsm-btn" data-fsm="layers" aria-label="Kartenebenen">${fsIconHtml('layers')}</button>
     <button type="button" class="fsm-btn" data-fsm="gps" aria-label="Mein Standort">${fsIconHtml('gps')}</button>
     <button type="button" class="fsm-btn fsm-compass" data-fsm="north" aria-label="Nach Norden ausrichten" hidden><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><g class="fsm-needle"><path d="M12 2.5 15.2 12H8.8Z" fill="#E03131"/><path d="M12 21.5 8.8 12h6.4Z" fill="#9AA5AD"/><text x="12" y="11" text-anchor="middle" font-size="5.5" font-weight="800" fill="#fff" font-family="sans-serif">N</text></g></svg></button>
@@ -7389,6 +7540,8 @@ function fsmAddControls(map){
   });
   const sb = box.querySelector('[data-fsm="search"]');
   if(sb) sb.addEventListener('click', ()=> fsmOpenSearch(map));
+  const fb = box.querySelector('[data-fsm="full"]');
+  if(fb) fb.addEventListener('click', ()=> fsHomeFullToggle());
   const pb = box.querySelector('[data-fsm="plan"]');
   if(pb) pb.addEventListener('click', ()=> fsPlannerOpen());
   box.querySelector('[data-fsm="north"]').addEventListener('click', ()=> map.easeTo({bearing:0, pitch:0, duration:500}));
@@ -7491,7 +7644,7 @@ function fsmPopupAutoPan(ml, popup){
     if(dx || dy) ml.panBy([dx, dy], {duration: 250});
   });
 }
-// Klicks im Fenster nicht an die Karte weitergeben (wie bei Leaflet) — sonst schliesst die Karte
+// Klicks im Fenster nicht an die Karte weitergeben (wie bei Leaflet) – sonst schliesst die Karte
 // ein Fenster, das gerade durch einen Knopf im vorherigen Fenster geöffnet wurde.
 function fsmPopupStopEvents(popup){
   const el = popup.getElement && popup.getElement();
@@ -7564,7 +7717,7 @@ async function fsmHandleInfoClick(map, ll, opts){
 /* ================= FL: Leaflet-Befehle auf MapLibre =================
    Die Karten-Logik der App (Routenplaner, Punkte setzen, Bearbeiten, Übersichten) ist mit
    Leaflet-Befehlen geschrieben und bewährt. FL bietet dieselben Befehle (polyline, marker,
-   circleMarker, layerGroup, popup, Control …), zeichnet aber mit MapLibre — so laufen alle Karten
+   circleMarker, layerGroup, popup, Control …), zeichnet aber mit MapLibre – so laufen alle Karten
    auf derselben Technik (drehen, Luftbild + Namen, offline), ohne die Logik neu zu schreiben.
    Nur der Teil von Leaflet, den die App wirklich nutzt. Koordinaten wie bei Leaflet: [lat, lng]. */
 const FL = (function(){
@@ -7580,7 +7733,7 @@ const FL = (function(){
     obj.listens = function(type){ return !!(this._ev[type] && this._ev[type].length); };
     return obj;
   }
-  // Langes Drücken (Finger) wie ein Rechtsklick behandeln — MapLibre meldet am Handy kein
+  // Langes Drücken (Finger) wie ein Rechtsklick behandeln – MapLibre meldet am Handy kein
   // "contextmenu"; Leaflet hat das intern gemacht (Punkt setzen per langem Drücken).
   function longPress(el, cb){
     let timer = null, start = null;
@@ -7827,7 +7980,7 @@ const FL = (function(){
       const d = document.createElement('div'); d.className = 'fl-corner fl-' + c; ml.getContainer().appendChild(d); corners[c] = d;
     });
     const self = this;
-    // Klicks auf die Karte erst nach den Klicks auf Linien/Marker melden — wer dort
+    // Klicks auf die Karte erst nach den Klicks auf Linien/Marker melden – wer dort
     // DomEvent.stopPropagation() aufruft, verhindert wie bei Leaflet den Karten-Klick.
     on('click', (e)=>{ const ev = self._evt(e); Promise.resolve().then(()=>{ if(e.originalEvent && (e.originalEvent._fsmHandled || e.originalEvent._flStopped)) return; self.fire('click', ev); }); });
     on('contextmenu', (e)=>{ if(e.originalEvent && (e.originalEvent._flDup || e.originalEvent._fsmHandled)) return; self.fire('contextmenu', self._evt(e)); });
@@ -7993,7 +8146,7 @@ async function identifySkitourAt(map, latlng, view){
     if(!results.length) return null;
     // Oft liegen mehrere Routen(-Abschnitte) an derselben Stelle, viele davon ohne Infos
     // ("Keine Routeninfo verfügbar"). Solche mit SAC-Ziel/-Link zuerst, Doppelte (gleicher Link)
-    // nur einmal — die Auswahl trifft dann buildSkitourPopupContent().
+    // nur einmal – die Auswahl trifft dann buildSkitourPopupContent().
     const seen = new Set();
     const informative = [], rest = [];
     results.forEach(f=>{
@@ -8022,7 +8175,7 @@ function skitourAttrs(feature){
   };
 }
 
-// Fragt dieselbe geo.admin.ch-"identify"-Schnittstelle für die Wegsperrungen-Ebene ab —
+// Fragt dieselbe geo.admin.ch-"identify"-Schnittstelle für die Wegsperrungen-Ebene ab –
 // analog zu identifySkitourAt(), nur mit anderem Layer-Namen.
 async function identifyWegsperrungAt(map, latlng, view){
   try{
@@ -8250,7 +8403,7 @@ function openAddTourFromWanderroute(a, coords){
 }
 // Baut den Popup-Inhalt für eine angetippte Wegsperrung. Das genaue Namensschema der
 // Beschreibungs-Felder ist von aussen nicht zuverlässig dokumentiert (mehrsprachige Varianten
-// wie content_provider_de) — daher wie bei buildSkitourPopupContent() ein bekanntes Feld
+// wie content_provider_de) – daher wie bei buildSkitourPopupContent() ein bekanntes Feld
 // bevorzugt anzeigen, sonst alle Rohdaten auflisten, statt "undefined" zu riskieren.
 function buildWegsperrungPopupContent(feature){
   const wrap = document.createElement('div');
@@ -8293,10 +8446,10 @@ function geojsonToLatLngs(geometry){
   return [];
 }
 
-// Popup-Inhalt für eine per identifySkitourAt() gefundene Skitour — Name (falls bekannt)
+// Popup-Inhalt für eine per identifySkitourAt() gefundene Skitour – Name (falls bekannt)
 // plus GPX-Download. Geteilt zwischen der Standalone-Karte und dem Punkte/Linie-Editor.
 // opts.allowAttach (Standard true): "Zu Tour hinzufügen" anbieten. In einer Bearbeiten-Karte
-// (renderPointsEditorMap) bewusst aus — dort wird genau EINE Tour bearbeitet, eine Auswahlliste
+// (renderPointsEditorMap) bewusst aus – dort wird genau EINE Tour bearbeitet, eine Auswahlliste
 // aller Touren führte dazu, dass versehentlich eine andere Tour verändert wurde. Übernehmen
 // geht nur auf der grossen Karte.
 function buildSkitourPopupContent(featureOrList, opts){
@@ -8401,7 +8554,7 @@ function buildSkitourPopupContent(featureOrList, opts){
       wrap.appendChild(nb);
     }
     // Direkt einer bestehenden Tour zuweisen, statt den Umweg über Herunterladen und
-    // anschliessendes manuelles Hochladen im Formular zu gehen — die Koordinaten liegen ja
+    // anschliessendes manuelles Hochladen im Formular zu gehen – die Koordinaten liegen ja
     // schon hier vor. Nur sinnvoll, wenn es überhaupt eigene Touren gibt.
     if(!allowAttach){
       const note = document.createElement('p');
@@ -8423,7 +8576,7 @@ function buildSkitourPopupContent(featureOrList, opts){
       const mainBtn = document.createElement('button');
       mainBtn.type = 'button';
       mainBtn.style.cssText = 'width:100%; background:var(--ice-deep, #1F4D63); color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer; margin-bottom:6px;';
-      // Beschriftung hängt davon ab, ob die gewählte Tour schon einen Haupttrack hat — bei
+      // Beschriftung hängt davon ab, ob die gewählte Tour schon einen Haupttrack hat – bei
       // Auswahländerung entsprechend nachziehen.
       function syncMainBtnLabel(){
         const t = state.tours.find(x=>x.id===select.value);
@@ -8485,7 +8638,7 @@ function openAddTourFromSkitour(info, coords){
   if(typeof ensureName === 'function') ensureName(open); else open();
 }
 // Übernimmt die von identifySkitourAt() gelieferten Koordinaten direkt als GPX-Track einer
-// bestehenden Tour — ohne den Umweg über "Herunterladen" und anschliessendes manuelles
+// bestehenden Tour – ohne den Umweg über "Herunterladen" und anschliessendes manuelles
 // Hochladen im Formular. Ohne opts.asAlternative wird der Haupttrack (er)setzt; mit
 // opts.asAlternative:true kommt der Track als zusätzliche, unabhängige Alternativroute dazu,
 // der bestehende Haupttrack bleibt unangetastet. Aktualisiert sowohl die vereinfachte Linie
@@ -8505,7 +8658,7 @@ async function attachSkitourTrackToTour(tourId, coords, name, opts){
   if(opts.asAlternative){
     // Eigener Pfad (GPX_TRACKS_PATH + 'Alt'), NICHT unter dem Haupttrack-Pfad verschachtelt:
     // fbSet ist ein reines PUT und würde beim (Er)setzen des Haupttracks sonst alles darunter
-    // — inklusive bereits gespeicherter Alternativrouten — mit überschreiben.
+    // – inklusive bereits gespeicherter Alternativrouten – mit überschreiben.
     if(!Array.isArray(tour.altTracks)) tour.altTracks = [];
     const altId = 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
     tour.altTracks.push({ id: altId, name: name || 'Alternativroute', trackSimplified: simplified });
@@ -8519,7 +8672,7 @@ async function attachSkitourTrackToTour(tourId, coords, name, opts){
   return ok1 && ok2;
 }
 
-// Lädt die als Original gespeicherte GPX-Datei einer einzelnen Alternativroute herunter —
+// Lädt die als Original gespeicherte GPX-Datei einer einzelnen Alternativroute herunter –
 // analog zu downloadFullGpx(), nur unter dem separaten Alternativrouten-Pfad.
 async function downloadAltGpx(tourId, altId, name){
   try{
@@ -8551,7 +8704,7 @@ async function removeAltTrack(tourId, altId){
 }
 
 // HTML-Liste der Alternativrouten einer Tour für die Detailansicht (Download + Entfernen je
-// Route) — geteilt zwischen Firnspur/Skitour und Fixseil/MSL, da beide dasselbe altTracks-Feld
+// Route) – geteilt zwischen Firnspur/Skitour und Fixseil/MSL, da beide dasselbe altTracks-Feld
 // und dieselben Shared-Funktionen (downloadAltGpx/removeAltTrack) nutzen.
 function altTracksListHtml(tour){
   if(!tour.altTracks || !tour.altTracks.length) return '';
@@ -8569,7 +8722,7 @@ function altTracksListHtml(tour){
 /* ================= Routen mit Name und Typ (Firnspur) =================
    Jede Linie einer Tour (GPX-Track, gezeichnete Linie, weitere Routen in altTracks) bekommt einen
    Namen und einen Typ. Gespeichert wird beim bestehenden Feld (trackName/trackType,
-   manualTrackName/manualTrackType, altTracks[i].name/.type) — vorhandene Daten bleiben gültig,
+   manualTrackName/manualTrackType, altTracks[i].name/.type) – vorhandene Daten bleiben gültig,
    fehlende Typen ergeben sich aus der bisherigen Bedeutung (Track/Linie = Aufstieg, Alternativ-
    routen = Variante). Gilt in allen Apps; ausser in Skitour heisst "Abfahrt" dort "Abstieg". */
 const FS_ROUTE_TYPES = {
@@ -8582,7 +8735,7 @@ const FS_ROUTE_TYPES = {
 };
 const FS_ROUTE_TYPE_ORDER = ['aufstieg','aufab','abfahrt','abstieg','variante','zustieg'];
 function fsRouteTypesOn(){ return true; } // alle Apps (Skitour, Hochtour/Klettern, Wandern)
-// Bezeichnung einer Routenart — abgefahren wird nur in der Skitour-App, sonst geht man ab
+// Bezeichnung einer Routenart – abgefahren wird nur in der Skitour-App, sonst geht man ab
 function fsRouteLabel(k){
   const ski = fsAppKey() === 'firnspur';
   if(!ski && k === 'abfahrt') return 'Abstieg';
@@ -8623,9 +8776,9 @@ function fsRoutesListHtml(t){
   }).join('')}</div>`;
 }
 // Bearbeiten-Formular: Name und Typ je Route, weitere Route per GPX dazu, Route entfernen.
-// Liest/schreibt nur die versteckten Felder des Formulars — gespeichert wird mit "Speichern".
+// Liest/schreibt nur die versteckten Felder des Formulars – gespeichert wird mit "Speichern".
 function fsRoutesEditorHtml(t){
-  // Ein Knopf für alles: der erste Track wird zur Hauptroute, jeder weitere kommt dazu —
+  // Ein Knopf für alles: der erste Track wird zur Hauptroute, jeder weitere kommt dazu –
   // es wird nie etwas überschrieben. Darunter alle Routen mit Name, Art und Löschen.
   return `<div id="fs-routes-field">
     <button type="button" class="btn secondary fs-route-add" id="alt-gpx-btn">+ Track hinzufügen</button>
@@ -8655,7 +8808,7 @@ function fsRoutesEditorRender(){
       <input type="text" class="fs-route-name" value="${esc(r.name)}" placeholder="${esc(r.src === 'track' ? 'GPX-Track' : r.src === 'manual' ? 'Gezeichnete Linie' : 'Name')}" aria-label="Name der Route"/>
       <select class="fs-route-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k===r.type?'selected':''}>${fsRouteLabel(k)}</option>`).join('')}</select>
       ${r.src === 'alt' || r.src === 'track' ? `<button type="button" class="fs-icon-btn fs-route-del" aria-label="Route entfernen">${fsIconHtml('trash')}</button>` : ''}
-    </div>`).join('') : '<p class="hint" style="margin:0 0 8px;">Noch keine Route — GPX hochladen oder auf der Karte zeichnen.</p>';
+    </div>`).join('') : '<p class="hint" style="margin:0 0 8px;">Noch keine Route – GPX hochladen oder auf der Karte zeichnen.</p>';
   box.querySelectorAll('.fs-route-edit').forEach(row=>{
     const key = row.getAttribute('data-key');
     const write = ()=>{
@@ -8801,7 +8954,7 @@ function fetchLocationIntoForm(latInputId, lonInputId, statusId){
 
 /* ================= Interaktive Punkte-Karte (mehrere Stecknadeln, manuell setzbar) ================= */
 // Referenz-Tracks für die Karte eines Elements mit Zustiegen/Abstiegen (Hütte, MSL-Tour, Sektor):
-// alle bereits erfassten Routen ausser der ggf. gerade selbst bearbeiteten — so ist innerhalb eines
+// alle bereits erfassten Routen ausser der ggf. gerade selbst bearbeiteten – so ist innerhalb eines
 // Elements auf jeder Karte (eigene Punkte, einzelner Zustieg/Abstieg …) dasselbe zu sehen, nichts
 // geht beim Wechseln zwischen den Ansichten "verloren".
 function siblingRouteRefTracks(entity, excludeRouteId){
@@ -8827,16 +8980,16 @@ function ownPointRefPoints(entity, label, color){
   return entity.points.map(p=> ({lat:p.lat, lon:p.lon, label: label + (p.label ? ' – ' + p.label : ''), color: color||'#4A3524'}));
 }
 function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig){
-  // autofillFields (optional): {ascent, descent, duration} — Formularfelder (DOM-Elemente), die nach
+  // autofillFields (optional): {ascent, descent, duration} – Formularfelder (DOM-Elemente), die nach
   // "Route berechnen" automatisch mit den berechneten Werten befüllt werden.
-  // refTracks: Array von {coords, color, label} — beliebig viele statische Referenzlinien (z. B. Zustiege/
+  // refTracks: Array von {coords, color, label} – beliebig viele statische Referenzlinien (z. B. Zustiege/
   // Abstiege desselben Elements oder GPX-Tracks anderer Einträge), nur zur Orientierung, hier nicht bearbeitbar.
-  // refPoints: Array von {lat, lon, label, color} — analog, einzelne Referenz-Standorte (z. B. der Standort
+  // refPoints: Array von {lat, lon, label, color} – analog, einzelne Referenz-Standorte (z. B. der Standort
   // der übergeordneten Hütte/Tour/Sektor beim Bearbeiten eines einzelnen Zustiegs).
-  // gpxConfig (optional): {hiddenId, idHiddenId, trackPathPrefix, statusId} — macht den EIGENEN hochgeladenen
+  // gpxConfig (optional): {hiddenId, idHiddenId, trackPathPrefix, statusId} – macht den EIGENEN hochgeladenen
   // GPX-Track dieses Elements direkt in dieser Karte bearbeitbar (ziehen/entfernen einzelner Punkte, siehe
   // redrawLine unten), statt ihn nur als feste Referenzlinie zu zeigen und für Korrekturen eine zweite,
-  // separate Karte zu benötigen ("zu viele Karten" — vorher gab es dafür renderGpxTrackEditorMap).
+  // separate Karte zu benötigen ("zu viele Karten" – vorher gab es dafür renderGpxTrackEditorMap).
   refTracks = Array.isArray(refTracks) ? refTracks.filter(rt=>rt && rt.coords && rt.coords.length) : [];
   refPoints = Array.isArray(refPoints) ? refPoints.filter(rp=>rp && typeof rp.lat==='number' && typeof rp.lon==='number') : [];
   const el = document.getElementById(containerId);
@@ -8863,7 +9016,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
 
     // Orts-/Bergsuche, um die Karte schnell an eine bestimmte Stelle zu bringen (z. B. ein Dorf
-    // oder ein Gipfel weit weg vom aktuellen Ausschnitt) — setzt nur den Kartenausschnitt, einen
+    // oder ein Gipfel weit weg vom aktuellen Ausschnitt) – setzt nur den Kartenausschnitt, einen
     // Punkt legt man wie gewohnt bewusst per langem Drücken selbst (siehe pointHint unten).
     const searchRow = document.createElement('div');
     searchRow.style.cssText = 'display:flex; gap:4px; margin-bottom:8px;';
@@ -8911,7 +9064,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     searchBtn.addEventListener('click', runPlaceSearch);
     searchInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); runPlaceSearch(); } });
 
-    // Segmentierter Umschalter statt einzelner loser Chips — grössere Tippflächen, und die
+    // Segmentierter Umschalter statt einzelner loser Chips – grössere Tippflächen, und die
     // Farbe jedes Modus entspricht genau der Farbe, die er auf der Karte zeichnet (Blau =
     // Linie, Grün = Route), damit auf einen Blick klar ist, was gerade aktiv ist.
     const MODE_META = {
@@ -8936,7 +9089,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     modeRow.appendChild(routeModeBtn);
     wrapDiv.appendChild(modeRow);
 
-    // Mehrstufiges Rückgängig für alle drei Modi (Punkt/Linie/Route) — immer sichtbar, nicht an
+    // Mehrstufiges Rückgängig für alle drei Modi (Punkt/Linie/Route) – immer sichtbar, nicht an
     // einen Modus gebunden, damit z. B. ein versehentlich gelöschter Punkt oder eine ganze
     // gelöschte Route wiederhergestellt werden kann, auch über mehrere Schritte hinweg.
     const undoAllBtn = document.createElement('button');
@@ -8997,7 +9150,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     lineActionsRow.appendChild(undoBtn);
     lineActionsRow.appendChild(clearLineBtn);
     lineActionsRow.appendChild(finishBtn);
-    // Nur sichtbar, solange die Linie tatsächlich (noch) der eigene hochgeladene GPX-Track ist —
+    // Nur sichtbar, solange die Linie tatsächlich (noch) der eigene hochgeladene GPX-Track ist –
     // schreibt die bearbeitete Linie zusätzlich als neue Originaldatei zurück, damit auch der
     // "GPX herunterladen"-Button in der Detailansicht danach die korrigierte Version liefert.
     const replaceGpxOriginalBtn = document.createElement('button');
@@ -9005,7 +9158,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     replaceGpxOriginalBtn.textContent = '💾 Original-GPX-Datei ersetzen';
     lineActionsRow.appendChild(replaceGpxOriginalBtn);
     // Den eigenen GPX-Track nur nach ausdrücklichem Wechsel bearbeiten (Punkte verschieben/entfernen).
-    // Sonst zeichnet die Linie immer eine eigene, zusätzliche Route — der GPX-Track bleibt unberührt.
+    // Sonst zeichnet die Linie immer eine eigene, zusätzliche Route – der GPX-Track bleibt unberührt.
     const gpxEditBtn = document.createElement('button');
     gpxEditBtn.type = 'button'; gpxEditBtn.className = 'btn secondary'; gpxEditBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; display:none;';
     lineActionsRow.appendChild(gpxEditBtn);
@@ -9016,7 +9169,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     lineActionsRow.appendChild(gpxSummitBtn);
     wrapDiv.appendChild(lineActionsRow);
 
-    // Route-Modus als eigene, grün getönte Karte (passend zur grünen Routen-Farbe auf der Karte) —
+    // Route-Modus als eigene, grün getönte Karte (passend zur grünen Routen-Farbe auf der Karte) –
     // mit Zähler, wie viele Wegpunkte schon gesetzt sind, und einem grossen, deutlich erkennbaren
     // "Route berechnen"-Knopf, der erst ab zwei Wegpunkten farbig/aktiv wird.
     const routeActionsRow = document.createElement('div');
@@ -9024,7 +9177,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const routeHint = document.createElement('p');
     routeHint.className = 'hint';
     routeHint.style.cssText = 'margin:0 0 8px 0;';
-    routeHint.textContent = 'Start, ggf. Zwischenziele und Ziel antippen — die App sucht dann einen echten Wanderweg dazwischen.';
+    routeHint.textContent = 'Start, ggf. Zwischenziele und Ziel antippen – die App sucht dann einen echten Wanderweg dazwischen.';
     const routeWaypointCount = document.createElement('span');
     routeWaypointCount.style.cssText = 'display:inline-block; margin-bottom:8px; font-size:12px; font-weight:700; color:#2F6B44; background:#fff; border:1px solid #2F6B44; border-radius:12px; padding:3px 10px;';
     const routeSmallBtnsRow = document.createElement('div');
@@ -9063,7 +9216,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     wrapDiv.appendChild(routeMetaEl);
 
     // Vollbild: Karte über die ganze Fläche, Bedienung schwebt oben/unten darüber, Hinweise
-    // zugeklappt — sonst blieb wegen der Meldungen nur etwa die halbe Höhe für die Karte.
+    // zugeklappt – sonst blieb wegen der Meldungen nur etwa die halbe Höhe für die Karte.
     let fsPeTop = null;
     if(isFullscreen){
       wrapDiv.style.cssText = 'position:relative; height:100%; overflow:hidden;';
@@ -9101,9 +9254,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     let points = [];
     try{ points = JSON.parse(hiddenInput.value || '[]'); }catch(e){ points = []; }
     // Ist ein eigener GPX-Track hochgeladen, wird DIESER zur bearbeitbaren Linie (statt einer separaten,
-    // nicht bearbeitbaren Referenzlinie plus einer zweiten Karte nur zum Korrigieren) — usingGpxTrack
+    // nicht bearbeitbaren Referenzlinie plus einer zweiten Karte nur zum Korrigieren) – usingGpxTrack
     // steuert, wohin persistTrack() schreibt und ob der "Original ersetzen"-Knopf sichtbar ist.
-    // Früher wurde der GPX-Track automatisch zur Linie — Zeichnen hängte an ihn an und eine berechnete
+    // Früher wurde der GPX-Track automatisch zur Linie – Zeichnen hängte an ihn an und eine berechnete
     // Route ersetzte ihn. Jetzt: GPX nur sichtbar (rot), bearbeitbar erst über «GPX-Track bearbeiten».
     let usingGpxTrack = false;
     let gpxTrack = gpxTrackFromHidden ? gpxTrackFromHidden.map(p=>[p[0], p[1]]) : null;
@@ -9125,7 +9278,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const firstRefTrack = refTracks.length ? refTracks[0].coords : null;
     const firstRefPoint = refPoints.length ? [refPoints[0].lat, refPoints[0].lon] : null;
     // Beim Wechsel Mini-Karte <-> Vollbild (siehe makeFullscreenButton-Aufruf unten) denselben
-    // Ausschnitt behalten statt auf den ersten Punkt zurückzuspringen — lastPointsEditorMapView
+    // Ausschnitt behalten statt auf den ersten Punkt zurückzuspringen – lastPointsEditorMapView
     // wird nur bei einer wirklich NEUEN Bearbeiten-Sitzung zurückgesetzt (siehe
     // syncModalDirtyTracking), nicht bei diesem Mini/Vollbild-Wechsel selbst.
     const center = lastPointsEditorMapView ? lastPointsEditorMapView.center
@@ -9158,16 +9311,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     let lineLayer = FL.layerGroup().addTo(map);
     let routeLayer = FL.layerGroup().addTo(map);
     let routeWaypoints = [];
-    // Gesetzt durch "➕ Zwischenpunkt danach setzen" (Klick auf einen Wegpunkt) — der nächste
+    // Gesetzt durch "➕ Zwischenpunkt danach setzen" (Klick auf einen Wegpunkt) – der nächste
     // Kartenklick fügt den neuen Punkt dort ein, statt ihn ans Ende der Liste anzuhängen. So lässt
     // sich eine bestehende Route gezielt umleiten, ohne sie komplett neu zeichnen zu müssen.
     let insertAfterWaypointIndex = null;
-    // Kennzahlen der zuletzt berechneten Route — auf den Strich tippen zeigt sie erneut an
+    // Kennzahlen der zuletzt berechneten Route – auf den Strich tippen zeigt sie erneut an
     // (klein/vergänglich unter der Karte reicht sonst nicht: kaum lesbar und beim Verlassen weg).
     // Wird zurückgesetzt, sobald die Linie manuell verändert wird (dann stimmen die Zahlen nicht mehr).
     // An das (formularweit stabile) manualTrackHidden-Element gehängt statt nur in dieser
     // Funktionsinstanz gehalten: renderPointsEditorMap wird bei jedem "Karte öffnen" und beim
-    // Wechsel in die Vollbildansicht (und zurück) komplett neu aufgerufen — ohne diese Ablage
+    // Wechsel in die Vollbildansicht (und zurück) komplett neu aufgerufen – ohne diese Ablage
     // wären die Kennzahlen (und damit Tippen-zum-Anzeigen sowie der Löschen-Knopf) danach weg,
     // obwohl die Route selbst (in manualTrack) weiterhin da und sichtbar ist.
     let lastRouteStats = (manualTrackHidden && manualTrackHidden._routeStats) || null;
@@ -9248,7 +9401,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       document.dispatchEvent(new CustomEvent('fs-track-changed'));
     }
     // Blendet den "Original ersetzen"-Knopf ein/aus, je nachdem ob die Linie aktuell (noch) der
-    // eigene GPX-Track ist — nicht mehr der Fall, sobald z. B. eine neu berechnete Route sie ersetzt.
+    // eigene GPX-Track ist – nicht mehr der Fall, sobald z. B. eine neu berechnete Route sie ersetzt.
     function updateGpxReplaceBtn(){
       replaceGpxOriginalBtn.style.display = (usingGpxTrack && gpxConfig && manualTrack.length >= 2) ? 'inline-block' : 'none';
     }
@@ -9419,7 +9572,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       gpxSummitBtn.style.display = (usingGpxTrack && manualTrack.length > 3) ? '' : 'none';
       undoBtn.style.display = clearLineBtn.style.display = usingGpxTrack ? 'none' : '';
       if(manualTrack.length){
-        // Deutlich breitere, unsichtbare Klickfläche unter der sichtbaren Linie — auf einer
+        // Deutlich breitere, unsichtbare Klickfläche unter der sichtbaren Linie – auf einer
         // schmalen 4px-Linie mit dem Finger genau zu treffen ist auf dem Handy sehr schwierig.
         const hitLine = FL.polyline(manualTrack, {color:'#000', weight:26, opacity:0}).addTo(lineLayer);
         FL.polyline(manualTrack, {color:'#ffffff', weight:7, opacity:0.7}).addTo(lineLayer);
@@ -9437,7 +9590,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           // Nur beim (max. 200 Punkte grossen, siehe simplifyTrackForStorage) eigenen GPX-Track UND
           // nur im Linie-Modus: jeder Punkt einzeln verschiebbar/entfernbar, wie zuvor in der
           // separaten GPX-Karte (renderGpxTrackEditorMap, jetzt entfernt). Ausserhalb des Linie-
-          // Modus (Punkt/Route) bewusst nur als reine, nicht ziehbare Linie gezeigt — sonst könnte
+          // Modus (Punkt/Route) bewusst nur als reine, nicht ziehbare Linie gezeigt – sonst könnte
           // ein simples Verschieben/Zoomen der Karte versehentlich einen Punkt mitziehen. Bei einer
           // berechneten Route mit u. U. hunderten Geometrie-Punkten wäre das ausserdem unbrauchbar.
           // Punkte mit 44-px-Trefferfläche (sichtbar 14 px); antippen öffnet die Werkzeuge für diese Stelle
@@ -9460,7 +9613,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       renderRouteMeta();
     }
     // Weitere Routen der Tour (Routenliste im Formular) gestrichelt mitzeigen, und für die aktuelle
-    // Linie Name/Art sowie "Als weitere Route ablegen" anbieten — so lassen sich Zustieg, Aufstieg,
+    // Linie Name/Art sowie "Als weitere Route ablegen" anbieten – so lassen sich Zustieg, Aufstieg,
     // Abstieg nacheinander berechnen oder zeichnen, jede mit eigenem Namen.
     function renderRouteMeta(){
       const altEl = document.getElementById('route-alt-tracks');
@@ -9475,7 +9628,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       });
       if(!manualTrack.length){
         routeMetaEl.style.display = alts.length ? 'block' : 'none';
-        routeMetaEl.innerHTML = alts.length ? `<p class="hint" style="margin:6px 0 0;">${alts.length} weitere Route${alts.length > 1 ? 'n' : ''} abgelegt (gestrichelt) — neue Route berechnen oder zeichnen.</p>` : '';
+        routeMetaEl.innerHTML = alts.length ? `<p class="hint" style="margin:6px 0 0;">${alts.length} weitere Route${alts.length > 1 ? 'n' : ''} abgelegt (gestrichelt) – neue Route berechnen oder zeichnen.</p>` : '';
         return;
       }
       const nameEl = document.getElementById(usingGpxTrack ? 'route-track-name' : 'route-manual-name');
@@ -9505,12 +9658,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         routeStatsEl.style.display = 'none'; routeStatsEl.innerHTML = '';
         redrawLine();
         persistTrack();
-        showToast('Route abgelegt — jetzt die nächste berechnen oder zeichnen.');
+        showToast('Route abgelegt – jetzt die nächste berechnen oder zeichnen.');
       });
     }
     redrawLine();
     // Kennzahlen-Kärtchen (inkl. Löschen-Knopf) gleich wiederherstellen, falls für die aktuelle
-    // Linie schon welche vorliegen (z. B. nach Rückkehr aus der Vollbildansicht) — sonst wäre die
+    // Linie schon welche vorliegen (z. B. nach Rückkehr aus der Vollbildansicht) – sonst wäre die
     // Route zwar noch sichtbar, aber ohne erneut antippbaren Popup und ohne Löschen-Möglichkeit.
     if(lastRouteStats) renderRouteStatCards(routeStatsEl, lastRouteStats, clearCalculatedRoute, editCalculatedRoute);
 
@@ -9519,7 +9672,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       routeWaypoints.forEach((wp, i)=>{
         const marker = FL.circleMarker(wp, {radius:11, color:'#fff', weight:2, fillColor:'#2F6B44', fillOpacity:1}).addTo(routeLayer)
           .bindTooltip(String(i+1), {permanent:true, direction:'center', className:'route-waypoint-label'});
-        // Auf einen Wegpunkt tippen erlaubt gezieltes Einfügen/Entfernen an dieser Stelle — vorher
+        // Auf einen Wegpunkt tippen erlaubt gezieltes Einfügen/Entfernen an dieser Stelle – vorher
         // liess sich nur der jeweils letzte Wegpunkt entfernen bzw. nur am Ende neu anhängen.
         marker.on('click', (e)=>{
           FL.DomEvent.stopPropagation(e);
@@ -9558,24 +9711,24 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
     // Lädt die Wegpunkte einer bereits berechneten Route wieder in den Route-Modus, damit sie
     // gezielt verändert (Zwischenpunkt einfügen/entfernen, siehe redrawRoute oben) und neu
-    // berechnet werden kann — vorher liess sich eine bestehende Route nur komplett löschen und
+    // berechnet werden kann – vorher liess sich eine bestehende Route nur komplett löschen und
     // von Null neu zeichnen ("Diese Route löschen").
     function editCalculatedRoute(){
       if(!lastRouteStats || !Array.isArray(lastRouteStats.waypoints) || lastRouteStats.waypoints.length < 2){
-        showToast('Für diese (ältere) Route sind keine Wegpunkte zum Bearbeiten gespeichert — bitte neu zeichnen.', true);
+        showToast('Für diese (ältere) Route sind keine Wegpunkte zum Bearbeiten gespeichert – bitte neu zeichnen.', true);
         return;
       }
       routeWaypoints = lastRouteStats.waypoints.map(wp=> [wp[0], wp[1]]);
       insertAfterWaypointIndex = null;
       setMode('route');
       redrawRoute();
-      showToast('Wegpunkte geladen — Wegpunkt antippen zum Einfügen/Entfernen, dann neu berechnen.');
+      showToast('Wegpunkte geladen – Wegpunkt antippen zum Einfügen/Entfernen, dann neu berechnen.');
     }
     // Zähler + Zustand des "Route berechnen"-Knopfs: erst ab zwei Wegpunkten farbig/aktiv,
-    // sonst gedämpft und deaktiviert — macht auf einen Blick klar, wann es losgehen kann.
+    // sonst gedämpft und deaktiviert – macht auf einen Blick klar, wann es losgehen kann.
     function updateRoutePanelState(){
       const n = routeWaypoints.length;
-      routeWaypointCount.textContent = n===0 ? 'Noch keine Wegpunkte gesetzt' : n===1 ? '1 Wegpunkt gesetzt — noch ein Ziel antippen' : n + ' Wegpunkte gesetzt';
+      routeWaypointCount.textContent = n===0 ? 'Noch keine Wegpunkte gesetzt' : n===1 ? '1 Wegpunkt gesetzt – noch ein Ziel antippen' : n + ' Wegpunkte gesetzt';
       const ready = n >= 2;
       calcRouteBtn.disabled = !ready;
       calcRouteBtn.style.background = ready ? '#2F6B44' : 'var(--line)';
@@ -9643,7 +9796,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(!confirm('Die Original-GPX-Datei durch den bearbeiteten Track ersetzen? Die bisherige Datei wird als frühere Version gesichert.')) return;
       // gpxConfig.id: fixes Kürzel für Fälle, in denen die ID schon als JS-Variable bekannt ist
       // (z. B. Schnell-Bearbeiten in der Detailansicht) und kein eigenes verstecktes Feld dafür
-      // angelegt werden muss — sonst wie gehabt über idHiddenId aus dem Formular gelesen.
+      // angelegt werden muss – sonst wie gehabt über idHiddenId aus dem Formular gelesen.
       const idInput = gpxConfig.idHiddenId ? document.getElementById(gpxConfig.idHiddenId) : null;
       const trackId = gpxConfig.id || (idInput ? idInput.value : '');
       const statusEl = gpxConfig.statusId ? document.getElementById(gpxConfig.statusId) : null;
@@ -9658,7 +9811,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         statusEl.style.color = ok ? 'var(--ink-soft)' : 'var(--danger)';
         statusEl.textContent = ok ? '✓ GPX-Track bereits hochgeladen.' : '⚠ Konnte nicht gespeichert werden (Internetverbindung prüfen).';
       }
-      showToast(ok ? 'Original-GPX-Datei ersetzt — der Download-Button liefert jetzt diese Version.' : 'Konnte nicht gespeichert werden (Internetverbindung prüfen).', !ok);
+      showToast(ok ? 'Original-GPX-Datei ersetzt – der Download-Button liefert jetzt diese Version.' : 'Konnte nicht gespeichert werden (Internetverbindung prüfen).', !ok);
     });
 
     routeUndoBtn.addEventListener('click', ()=>{
@@ -9673,7 +9826,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       redrawRoute();
       routeStatus.textContent = '';
     });
-    // Löscht die zuletzt berechnete Route wieder — direkt neben den Kennzahlen erreichbar,
+    // Löscht die zuletzt berechnete Route wieder – direkt neben den Kennzahlen erreichbar,
     // statt dass man erst wissen muss, dass eine Route technisch auch nur eine "Linie" ist.
     function clearCalculatedRoute(){
       pushUndo();
@@ -9686,7 +9839,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       routeStatsEl.innerHTML = '';
       showToast('Berechnete Route gelöscht.');
     }
-    // Kurzes Aufblitzen, damit sichtbar ist, WELCHES Feld gerade automatisch befüllt wurde —
+    // Kurzes Aufblitzen, damit sichtbar ist, WELCHES Feld gerade automatisch befüllt wurde –
     // sonst leicht zu übersehen, vor allem wenn das Feld nicht im sichtbaren Bereich liegt.
     function flashFilledField(fieldEl){
       if(!fieldEl) return;
@@ -9704,11 +9857,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       calcRouteBtn.disabled = true;
       try{
         const calculated = await fetchCalculatedRoute(routeWaypoints);
-        // Die Wegpunkte selbst mit ablegen (nicht nur die berechnete Linie) — damit "Route
+        // Die Wegpunkte selbst mit ablegen (nicht nur die berechnete Linie) – damit "Route
         // bearbeiten" sie später wieder laden kann, um gezielt umzuleiten statt neu zu zeichnen.
         calculated.waypoints = routeWaypoints.map(wp=> [wp[0], wp[1]]);
         pushUndo();
-        // Eine neu berechnete Route ersetzt "die Linie" komplett — war das bisher der eigene
+        // Eine neu berechnete Route ersetzt "die Linie" komplett – war das bisher der eigene
         // GPX-Track, wird dessen Feld hier explizit geleert, statt eine veraltete Kopie stehen zu
         // lassen (persistTrack() schreibt ab jetzt wieder in manualTrackHidden statt gpxHiddenInput).
         // Eine berechnete Route ersetzt nur die eigene Linie, nie den GPX-Track
@@ -9769,7 +9922,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function addPointAt(lat, lon){
       pushUndo();
       points.push({ label:'', lat, lon, _justAdded:true });
-      map.closePopup(); // zuerst schliessen — redraw() öffnet gleich das Fenster des neuen Punkts
+      map.closePopup(); // zuerst schliessen – redraw() öffnet gleich das Fenster des neuen Punkts
       redraw();
       persist();
     }
@@ -9807,7 +9960,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         pushUndo();
         if(insertAfterWaypointIndex !== null){
           // Wurde über "➕ Zwischenpunkt danach setzen" (siehe redrawRoute) angefordert: fügt den
-          // neuen Wegpunkt gezielt an dieser Stelle ein, statt ihn ans Ende der Liste anzuhängen —
+          // neuen Wegpunkt gezielt an dieser Stelle ein, statt ihn ans Ende der Liste anzuhängen –
           // so lässt sich eine bestehende Route gezielt umleiten.
           routeWaypoints.splice(insertAfterWaypointIndex + 1, 0, [e.latlng.lat, e.latlng.lng]);
           insertAfterWaypointIndex = null;
@@ -9824,7 +9977,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     });
 
     // Langes Drücken (auf dem Handy) bzw. Rechtsklick (Desktop) öffnet ein kleines Menü zum
-    // gezielten Setzen eines Punkts — ein normaler Klick setzt im Punkt-Modus keinen mehr.
+    // gezielten Setzen eines Punkts – ein normaler Klick setzt im Punkt-Modus keinen mehr.
     map.on('contextmenu', (e)=>{
       if(mode!=='point') return;
       FL.DomEvent.preventDefault(e.originalEvent);
@@ -9948,7 +10101,7 @@ function parseGpxTrackPoints(gpxText){
 
 function handleGpxFileUpload(fileInputEl, trackPathPrefix, tourIdHiddenId, simplifiedHiddenId, statusId, onSimplifiedReady){
   // onSimplifiedReady (optional): wird aufgerufen, sobald die vereinfachte Linie im Formular steht
-  // (nicht erst nach dem — u. U. langsamen — Hochladen der Originaldatei) — damit eine bereits
+  // (nicht erst nach dem – u. U. langsamen – Hochladen der Originaldatei) – damit eine bereits
   // offene Punkte-Karte den frisch hochgeladenen Track sofort als bearbeitbare Linie zeigen kann.
   const file = fileInputEl.files && fileInputEl.files[0];
   if(!file) return;
@@ -10006,14 +10159,14 @@ async function removeGpxTrack(trackPathPrefix, tourIdHiddenId, simplifiedHiddenI
   // Die Originaldatei bleibt liegen (ohne Linie wird sie nirgends angeboten); ein vorgemerkter,
   // noch nicht gespeicherter Upload wird verworfen. So geht beim Abbrechen nichts verloren.
   if(trackId) fsPendingFiles.delete(trackPathPrefix + '/' + trackId);
-  if(statusEl) statusEl.textContent = 'Track entfernt — wird mit «Speichern» übernommen.';
+  if(statusEl) statusEl.textContent = 'Track entfernt – wird mit «Speichern» übernommen.';
   return true;
 }
 
 /* ================= Routenplaner (OpenRouteService) =================
    Kostenlosen API-Key holen: https://openrouteservice.org/dev/#/signup
    (Free-Plan, kein Kreditkarte nötig). Key hier eintragen, um die
-   Routenberechnung zu aktivieren — ohne Key gibt's nur eine klare
+   Routenberechnung zu aktivieren – ohne Key gibt's nur eine klare
    Fehlermeldung im UI, der Rest der App funktioniert unabhängig davon. */
 const OPENROUTESERVICE_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImMzNGNmZWNmY2Q3YzRjODlhNGJkNzVjOThlZjkyMjg4IiwiaCI6Im11cm11cjY0In0=';
 
@@ -10199,7 +10352,7 @@ async function fsrBuildGraph(bbox){
   segs.forEach(([a, b, cf])=> addEdge(a, b, cf));
   // Lücken im Netz schliessen: Im swisstopo-Wegnetz enden Wegstücke oft einige Meter vor dem
   // anschliessenden Weg (z. B. Bergweg vor der Passstrasse, Pfad vor der Hütte). Lose Wegenden
-  // werden darum mit dem nächsten Weg bis 12 m verbunden — sonst entstehen grosse Umwege.
+  // werden darum mit dem nächsten Weg bis 12 m verbunden – sonst entstehen grosse Umwege.
   const grid = new Map(), cell = 40 / mPerUnit; // ~40 m Zellen
   const addToGrid = (si)=>{
     const s = segs[si], a = nodes[s[0]], b = nodes[s[1]];
@@ -10214,7 +10367,7 @@ async function fsrBuildGraph(bbox){
   const ends = [];
   for(let n = 0; n < nodes.length; n++) if(adj[n].length === 1) ends.push(n);
   ends.forEach(n=>{
-    // Was über das Netz schon innert 25 m erreichbar ist, ausschliessen — sonst "verbindet" sich
+    // Was über das Netz schon innert 25 m erreichbar ist, ausschliessen – sonst "verbindet" sich
     // ein Weg mit sich selbst (z. B. in einer Kehre)
     const own = new Map([[n, 0]]); let frontier = [n];
     while(frontier.length){ const nx = []; frontier.forEach(u=> adj[u].forEach(([v, , d])=>{ const nd = own.get(u) + d; if(nd <= 25 && (!own.has(v) || own.get(v) > nd)){ own.set(v, nd); nx.push(v); } })); frontier = nx; }
@@ -10324,18 +10477,18 @@ async function fetchCalculatedRoute(waypoints){
   try{
     return await fsrRoute(waypoints);
   }catch(e){
-    dlog('swisstopo-Routing: ' + (e && e.message ? e.message : e) + ' — weiter mit openrouteservice', 'err');
+    dlog('swisstopo-Routing: ' + (e && e.message ? e.message : e) + ' – weiter mit openrouteservice', 'err');
     const r = await fetchCalculatedRouteOrs(waypoints);
     r.source = 'ors';
-    showToast('Kein durchgehender swisstopo-Weg — Route über OpenStreetMap berechnet (kann neben dem Weg liegen).');
+    showToast('Kein durchgehender swisstopo-Weg – Route über OpenStreetMap berechnet (kann neben dem Weg liegen).');
     return r;
   }
 }
 async function fetchCalculatedRouteOrs(waypoints){
   // waypoints: Array von [lat, lon], mindestens 2 Punkte.
-  // Rückgabe: {coords, distanceM, durationS, ascentM, descentM} — Distanz/Zeit liefert ORS immer,
+  // Rückgabe: {coords, distanceM, durationS, ascentM, descentM} – Distanz/Zeit liefert ORS immer,
   // Höhenmeter (ascent/descent) nur, wenn elevation:true angefragt wird (Geometrie wird dann 3D).
-  // Die Zeit ist eine grobe Wanderzeit-Schätzung von ORS (Tobler-Funktion, ohne Pausen) — kein
+  // Die Zeit ist eine grobe Wanderzeit-Schätzung von ORS (Tobler-Funktion, ohne Pausen) – kein
   // Ersatz für eine SAC-Zeitangabe, aber ein brauchbarer erster Anhaltspunkt.
   if(!OPENROUTESERVICE_API_KEY){
     throw new Error('Noch kein API-Key für die Routenberechnung hinterlegt.');
@@ -10373,7 +10526,7 @@ async function fetchCalculatedRouteOrs(waypoints){
   const ascentM = typeof summary.ascent==='number' ? summary.ascent : (segments.length ? segAscent : null);
   const descentM = typeof summary.descent==='number' ? summary.descent : (segments.length ? segDescent : null);
   // Höhenprofil fürs Diagramm: kumulierte Distanz + Höhe je Wegpunkt, aus der 3D-Geometrie
-  // (rawCoords[i] = [lon, lat, ele]) — bisher wurde die Höhe hier verworfen (siehe coords oben).
+  // (rawCoords[i] = [lon, lat, ele]) – bisher wurde die Höhe hier verworfen (siehe coords oben).
   let elevationProfile = null;
   if(rawCoords.length && rawCoords[0].length>=3){
     let dist = 0;
@@ -10391,7 +10544,7 @@ async function fetchCalculatedRouteOrs(waypoints){
     elevationProfile
   };
 }
-// Ortssuche (Name -> Koordinaten) für den Wanderungsplaner auf der Übersichtskarte — nutzt dieselbe
+// Ortssuche (Name -> Koordinaten) für den Wanderungsplaner auf der Übersichtskarte – nutzt dieselbe
 // OpenRouteService-Anbindung/denselben Key wie fetchCalculatedRoute(), aber deren separate
 // Geocoding-Schnittstelle (Pelias-basiert, Key als Query-Parameter statt Authorization-Header).
 // Auf die Schweiz eingegrenzt, da die App nur Schweizer Regionen kennt (reduziert Fehltreffer).
@@ -10417,13 +10570,13 @@ async function geocodePlaces(query, count){
     return { lat: coords[1], lon: coords[0], label };
   }).filter(Boolean);
 }
-// Verlinkt die MeteoSchweiz-Lokalprognose (z. B. meteoschweiz.admin.ch/local-forecasts/zurich/8001.html) —
+// Verlinkt die MeteoSchweiz-Lokalprognose (z. B. meteoschweiz.admin.ch/local-forecasts/zurich/8001.html) –
 // dafür braucht es Ortsname + PLZ, die per Reverse-Geocoding (gleiche ORS/Pelias-Anbindung wie
 // geocodePlaces) aus den Koordinaten ermittelt werden. Schlägt das fehl (kein Treffer, keine PLZ,
 // kein API-Key, Netzwerkfehler), landet man stattdessen auf der allgemeinen MeteoSchweiz-Startseite
-// statt auf einem geratenen, evtl. falschen Link — lieber weniger präzise als kaputt.
+// statt auf einem geratenen, evtl. falschen Link – lieber weniger präzise als kaputt.
 // Wichtig: Die deutsche Sprache steckt hier nicht in einem Pfad-Präfix, sondern im Domainnamen
-// selbst — meteoswiss.admin.ch ist Englisch, meteoschweiz.admin.ch Deutsch (per Screenshot bestätigt).
+// selbst – meteoswiss.admin.ch ist Englisch, meteoschweiz.admin.ch Deutsch (per Screenshot bestätigt).
 const METEOSWISS_FALLBACK_URL = 'https://www.meteoschweiz.admin.ch/';
 async function buildMeteoSwissLink(lat, lon){
   if(!OPENROUTESERVICE_API_KEY) return METEOSWISS_FALLBACK_URL;
@@ -10499,9 +10652,9 @@ function formatRouteStats(r){
   return parts.length ? parts.join(' · ') + ' (grobe Schätzung, ohne Pausen)' : '';
 }
 // Zeigt die Kennzahlen einer berechneten Route als kleine, farbige Kärtchen statt einer
-// einzelnen schwer lesbaren Textzeile — je eins für Distanz, Höhenmeter und Zeit — plus einen
+// einzelnen schwer lesbaren Textzeile – je eins für Distanz, Höhenmeter und Zeit – plus einen
 // Löschen-Knopf direkt daneben (vorher liess sich die berechnete Route nur finden, indem man
-// erst in den Linie-Modus wechselte — nicht offensichtlich, da sie ja über "Route" entstand).
+// erst in den Linie-Modus wechselte – nicht offensichtlich, da sie ja über "Route" entstand).
 function renderRouteStatCards(el, r, onDelete, onEdit){
   const cards = [];
   if(typeof r.distanceM==='number'){
@@ -10531,7 +10684,7 @@ function renderRouteStatCards(el, r, onDelete, onEdit){
   if(deleteBtn && onDelete) deleteBtn.addEventListener('click', onDelete);
 }
 
-// Baut aus einer Koordinatenliste eine GPX-Datei und löst den Download aus —
+// Baut aus einer Koordinatenliste eine GPX-Datei und löst den Download aus –
 // für manuell gezeichnete oder berechnete Tracks (kein Original-Upload nötig).
 function buildGpxXml(coords, name){
   const points = coords.map(c=> `    <trkpt lat="${c[0]}" lon="${c[1]}"></trkpt>`).join('\n');
@@ -10551,10 +10704,10 @@ function downloadTrackAsGpx(coords, name){
   setTimeout(()=>URL.revokeObjectURL(url), 2000);
 }
 
-/* ================= Camptocamp.org-Suche (offene, kostenlose API — kein Login nötig) =================
+/* ================= Camptocamp.org-Suche (offene, kostenlose API – kein Login nötig) =================
    ⚠ Die genaue Antwortstruktur der API konnte hier nicht live gegengeprüft werden. Der Aufbau
    folgt der dokumentierten/bekannten Konvention (c2corg v6_api), mit defensiver Auswertung
-   mehrerer möglicher Feldnamen — bitte einmal live testen. */
+   mehrerer möglicher Feldnamen – bitte einmal live testen. */
 async function searchCamptocamp(query){
   const res = await fetch('https://api.camptocamp.org/search?q=' + encodeURIComponent(query) + '&limit=10&l=de');
   if(!res.ok) throw new Error('Suche fehlgeschlagen (Status ' + res.status + ').');
@@ -10573,7 +10726,7 @@ function extractCamptocampTitle(doc){
   return null;
 }
 // camptocamp.org-URLs ohne Sprachsegment (nur /routes/<id>) landen auf der Startsprache der Seite
-// (i. d. R. Französisch) statt auf Deutsch — deshalb gezielt das Format .../routes/<id>/de/<slug>
+// (i. d. R. Französisch) statt auf Deutsch – deshalb gezielt das Format .../routes/<id>/de/<slug>
 // bauen, das camptocamp selbst für seine eigenen Links verwendet (bestätigt z. B. an
 // camptocamp.org/routes/53870/en/matterhorn-hornli-ridge). Ohne deutschen Titel in den Locales
 // (manche Routen sind nur französisch dokumentiert) bleibt die URL ohne Sprachsegment.
@@ -10597,7 +10750,7 @@ function buildCamptocampRouteUrl(doc){
 
 // Baut eine kleine Such-Widget (Eingabefeld + Ergebnisliste) in das Element mit der ID
 // containerId. Ein Klick auf "Link übernehmen" trägt die camptocamp.org-URL in das Feld mit
-// der ID tourLinkInputId ein — sonst keine Übernahme weiterer Felder (bewusst zurückhaltend,
+// der ID tourLinkInputId ein – sonst keine Übernahme weiterer Felder (bewusst zurückhaltend,
 // solange die Feldnamen der API nicht bestätigt sind).
 function renderCamptocampSearchBox(containerId, tourLinkInputId){
   const el = document.getElementById(containerId);
@@ -10716,7 +10869,7 @@ function renderTrackDisplayMap(containerId, points, trackCoords, manualTrackCoor
     registerMap(mapDivId, map);
     // Offline-Kacheln kommen bei allen Karten automatisch (siehe fsmRegisterOfflineProtocol)
     if(offlineId && gpsActiveOfflineId === offlineId){
-      startLiveGpsOnMap(map, offlineId); // GPS lief bereits für diese Tour — auf die neue Karte (z. B. Vollbild) mitnehmen
+      startLiveGpsOnMap(map, offlineId); // GPS lief bereits für diese Tour – auf die neue Karte (z. B. Vollbild) mitnehmen
     }
     const boundsItems = [];
     if(hasTrack){
@@ -11081,7 +11234,7 @@ function fsConditionsHtml(lat, lon, alt){
   parts.push(`<p class="fs-cond-sum">${sent || (offline ? 'Offline – Bedingungen erscheinen, sobald wieder Internet da ist.' : 'Für diesen Punkt sind gerade keine Modelldaten verfügbar.')}</p>`);
   if(slfBox) parts.unshift(slfBox);
   if(chips.length) parts.push(`<div class="fs-cond-chips">${chips.join('')}</div>`);
-  if(bars) parts.push(bars + `<p class="wx-src">Open-Meteo (Modell MeteoSchweiz), gerechnet für ${c.om && c.om.elevation != null ? Math.round(c.om.elevation) + ' m' : 'diesen Punkt'}${alt ? ' (Gipfel)' : ''} — Modellwerte, keine Messung.</p>`);
+  if(bars) parts.push(bars + `<p class="wx-src">Open-Meteo (Modell MeteoSchweiz), gerechnet für ${c.om && c.om.elevation != null ? Math.round(c.om.elevation) + ' m' : 'diesen Punkt'}${alt ? ' (Gipfel)' : ''} – Modellwerte, keine Messung.</p>`);
   // Gemessen
   const rows = [];
   if(hsNear){ const p = hsNear.props || {}; rows.push([`${esc(hsNear.name)} <small>SLF · ${hsNear.ele ? Math.round(hsNear.ele) + ' m · ' : ''}${fsFmtKm(hsNear.d)}</small>`, `${Math.round(hsNear.v)} cm${p.dhs24 != null ? ` <em>${p.dhs24 >= 0 ? '+' : ''}${Math.round(p.dhs24)} in 24 h</em>` : ''}`]); }
@@ -11587,7 +11740,7 @@ function fsPastWeatherHtml(lat, lon){
     <h4>Wetter der letzten Tage <span class="wx-where">${ele}</span></h4>
     <p class="wx-sum">Letzte 3 Tage: <b>${rainSum.toFixed(0)} mm</b> Niederschlag${snowSum >= 0.5 ? `, davon etwa <b>${Math.round(snowSum)} cm Neuschnee</b>` : ''}</p>
     <div class="wx-days">${cells}</div>
-    <p class="wx-src">Open-Meteo (Modell MeteoSchweiz), gerechnet für ${ele || 'diesen Punkt'} — keine Messung. Heute: bisher und Prognose.</p>
+    <p class="wx-src">Open-Meteo (Modell MeteoSchweiz), gerechnet für ${ele || 'diesen Punkt'} – keine Messung. Heute: bisher und Prognose.</p>
   </div>`;
 }
 /* ===== Schnee in der Nähe: SLF-Messstationen (gemessen, nicht gerechnet) ===== */
@@ -11805,7 +11958,7 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, 
   item.points = points;
   item.manualTrack = manualTrack;
   // Nur bei Touren: der eigene GPX-Track ist im Schnell-Bearbeiten-Modus (wie im vollen
-  // Bearbeiten-Formular) direkt editierbar — dessen Feld hier mit zurückschreiben.
+  // Bearbeiten-Formular) direkt editierbar – dessen Feld hier mit zurückschreiben.
   if(trackSimplifiedHiddenId){
     const tEl = document.getElementById(trackSimplifiedHiddenId);
     if(tEl){
@@ -11830,7 +11983,7 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, 
 }
 /* ================= Login (Firebase Authentication, einmalig pro Gerät) ================= */
 const FIREBASE_API_KEY = 'AIzaSyDKHMUoOL5aosFU7OhCt22REbyOvXqAXmU';
-const AUTH_EMAIL = 'firn@spur.so'; // gemeinsames Gruppen-Login — das Passwort ist das eigentliche Geheimnis
+const AUTH_EMAIL = 'firn@spur.so'; // gemeinsames Gruppen-Login – das Passwort ist das eigentliche Geheimnis
 let authState = { idToken: null, refreshToken: null, expiresAt: 0 };
 
 function loadAuthFromStorage(){
@@ -11904,7 +12057,7 @@ function loginScreenHtml(){
       <input type="password" id="login-password-input" placeholder="Passwort" autofocus
         style="width:100%; padding:13px 14px; border:1px solid var(--line); border-radius:var(--radius); font-size:16px; margin-bottom:12px; box-sizing:border-box; font-family:inherit;"/>
       <button type="button" id="login-submit-btn" class="btn" style="width:100%;">Anmelden</button>
-      <p id="login-error" style="color:var(--danger); font-size:13px; margin-top:14px; display:none;">Falsches Passwort — bitte nochmal versuchen.</p>
+      <p id="login-error" style="color:var(--danger); font-size:13px; margin-top:14px; display:none;">Falsches Passwort – bitte nochmal versuchen.</p>
     </div>
   </div>`;
 }
@@ -12574,7 +12727,7 @@ function hutStatusLabel(h){
 
 /* ================= Zurück-Taste/X schliesst immer nur die zuoberst offene Ebene =================
    Es gibt zwei Arten von "Ebenen":
-   - das Modal-System (state.modal) — verschachtelte Fenster (z. B. Zustieg-Detail über Hütten-Detail)
+   - das Modal-System (state.modal) – verschachtelte Fenster (z. B. Zustieg-Detail über Hütten-Detail)
      schliessen sich dort Schritt für Schritt zur jeweiligen Elternebene (siehe closeModal()); dafür
      wird EIN History-Eintrag "offen gehalten", solange irgendein Modal sichtbar ist, und erst beim
      endgültigen Schliessen (state.modal wird null) konsumiert.
@@ -12594,8 +12747,8 @@ let lastStandaloneMapView = null;
 // (renderPointsEditorMap): merkt sich den zuletzt gezeigten Ausschnitt, damit der Wechsel
 // Mini-Karte <-> Vollbild denselben Ausschnitt behält statt jedes Mal auf den ersten Punkt
 // zurückzuspringen. Wird bei jedem NEUEN Bearbeiten-Vorgang zurückgesetzt (siehe
-// syncModalDirtyTracking) — nicht bei einem blossen Re-Render derselben Sitzung (z. B. nach
-// Umschalten Hochtour/MSL) —, damit der Ausschnitt einer anderen Tour/Hütte nicht fälschlich
+// syncModalDirtyTracking) – nicht bei einem blossen Re-Render derselben Sitzung (z. B. nach
+// Umschalten Hochtour/MSL) –, damit der Ausschnitt einer anderen Tour/Hütte nicht fälschlich
 // als Startansicht einer neu geöffneten Maske übernommen wird.
 let lastPointsEditorMapView = null;
 
@@ -12614,7 +12767,7 @@ function consumeHistoryEntry(){
 }
 
 // Registriert eine neue Overlay-Ebene (Vollbild-Karte, Bild-Vollbildansicht) über dem Modal-System.
-// closeFn schliesst die Ebene rein visuell (DOM ausblenden/entfernen) und wird genau einmal aufgerufen —
+// closeFn schliesst die Ebene rein visuell (DOM ausblenden/entfernen) und wird genau einmal aufgerufen –
 // egal ob über einen Schliessen-Button (closeTopOverlayLayer) oder die Hardware-Zurück-Taste (popstate).
 function pushOverlayLayer(closeFn){
   overlayLayers.push(closeFn);
@@ -12634,7 +12787,7 @@ function closeTopOverlayLayer(){
    erst nach 1 Sekunde Gedrückthalten aus. Ein kurzer Tipp zeigt nur den Hinweis. Umgesetzt
    zentral über die data-act-Namen: ein Capture-Listener fängt den normalen Klick ab, bevor die
    eigentlichen Handler (egal ob delegiert oder direkt am Knopf) ihn sehen. Nach dem Halten wird
-   der Knopf einmal programmatisch geklickt — dieser eine Klick darf durch. Tastatur-Klicks
+   der Knopf einmal programmatisch geklickt – dieser eine Klick darf durch. Tastatur-Klicks
    (detail===0) gehen direkt durch, die passieren nicht aus Versehen im Schnee. */
 const HOLD_TO_EDIT_ACTS = new Set([
   'edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-klettergebiet','edit-gipfel','edit-agenda',
@@ -12648,7 +12801,7 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
   'convert-msl-to-klettergarten'
 ]);
-const HOLD_TO_EDIT_MS = 1000;
+const HOLD_TO_EDIT_MS = 650;
 // Stifte, die einen Eintrag öffnen (bleiben im Lesemodus sichtbar; siehe Lesen/Bearbeiten weiter unten)
 const FS_ENTRY_EDIT_ACTS = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-klettergebiet','edit-gipfel','edit-agenda','edit-access-route','edit-tour-route','edit-sektor-route','edit-sektor-topo-routen','edit-from-map'];
 // Optik aus derselben Liste erzeugt (kein zweiter Ort, der auseinanderlaufen kann):
@@ -12734,12 +12887,12 @@ document.addEventListener('pointerdown', (e)=>{
 ['pointerup','pointercancel'].forEach(type=> document.addEventListener(type, (e)=>{
   if(!holdArmTimer) return;
   cancelHoldArm();
-  // Zu früh losgelassen (Touch): Hinweis zeigen — der Klick kommt wegen touchstart unten nicht
+  // Zu früh losgelassen (Touch): Hinweis zeigen – der Klick kommt wegen touchstart unten nicht
   if(type === 'pointerup' && e.pointerType === 'touch') showHoldHint();
 }, true));
 // Die eigene Lang-Drück-Geste des Handys (vibriert nach ~0.5 s, Kontextmenü) auf diesen Knöpfen
 // unterdrücken: sonst vibriert es mitten im Halten, obwohl noch nichts passiert. Vibriert wird
-// nur einmal — wenn die Bearbeiten-Maske aufgeht.
+// nur einmal – wenn die Bearbeiten-Maske aufgeht.
 document.addEventListener('touchstart', (e)=>{
   const el = holdTargetFrom(e.target);
   if(el && !el.closest('.modal.fs-editing') && e.cancelable) e.preventDefault();
@@ -12753,7 +12906,7 @@ document.addEventListener('click', (e)=>{
   const el = holdTargetFrom(e.target);
   if(!el) return;
   // detail===0: der eine freigegebene Klick nach dem Halten, Klicks aus dem Code selbst und
-  // Tastatur (Enter/Leertaste) — die passieren nicht versehentlich im Schnee.
+  // Tastatur (Enter/Leertaste) – die passieren nicht versehentlich im Schnee.
   if(el._fsHoldOk || e.detail === 0) return;
   if(el.closest('.modal.fs-editing')) return; // Bearbeiten-Modus: sofort, ohne Halten
   e.preventDefault();
@@ -12776,7 +12929,7 @@ function returnAfterRouteChange(detailType, routeId, freshPayload, fallback){
 }
 
 /* ================= Lesen / Bearbeiten pro Eintrag =================
-   Lesen (Standard): man sieht nur, was erfasst ist — keine Hinzufügen-/Löschen-/Status-Knöpfe,
+   Lesen (Standard): man sieht nur, was erfasst ist – keine Hinzufügen-/Löschen-/Status-Knöpfe,
    keine leeren "Noch kein …"-Abschnitte. Bearbeiten: Stift 1 s halten → derselbe Eintrag
    zeigt oben eine magentafarbene Leiste "Bearbeiten · Fertig", und erst jetzt erscheinen alle
    Möglichkeiten (wirken dann sofort, ohne Halten). "Fertig" oder ganz schliessen = wieder Lesen.
@@ -12809,7 +12962,7 @@ function fsLeaveEditMode(){
   resetModalDirty();
   fsEditingKey = null;
   if(typeof render === 'function') render();
-  showToast('Fertig — wieder gesperrt.');
+  showToast('Fertig – wieder gesperrt.');
 }
 function fsApplyEditMode(){
   if(typeof state === 'undefined') return;
@@ -12889,7 +13042,7 @@ function fsOpenTourCtxMenu(card){
   overlay.appendChild(menu);
   const note = document.createElement('p');
   note.className = 'fs-ctxm-note';
-  note.textContent = 'Ändern geht nur über den Stift — hier kann nichts verloren gehen.';
+  note.textContent = 'Ändern geht nur über den Stift – hier kann nichts verloren gehen.';
   overlay.appendChild(note);
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay || e.target === note) closeTopOverlayLayer(); });
   document.body.appendChild(overlay);
@@ -12983,7 +13136,7 @@ function snapshotForUndo(existing){
 }
 
 /* ================= "Ungespeicherte Änderungen"-Warnung beim Verlassen einer Bearbeiten-Maske =====
-   Frühere Idee war, beim Verlassen (X, Klick daneben, Zurück-Taste) automatisch zu speichern —
+   Frühere Idee war, beim Verlassen (X, Klick daneben, Zurück-Taste) automatisch zu speichern –
    das führte aber dazu, dass auch versehentliche Änderungen unbemerkt übernommen wurden. Jetzt
    wird stattdessen nur noch nachgefragt: hat sich seit dem Öffnen der Maske etwas geändert,
    fragt closeModal() vor dem Verwerfen einmal nach ("Ungespeicherte Änderungen verwerfen?").
@@ -13009,7 +13162,7 @@ function modalDirtyTrackingKey(){
 }
 // Bei jedem Render einer Bearbeiten-Maske aufgerufen: erkennt, ob eine NEUE Sitzung begonnen hat
 // (dann wird der Dirty-Status zurückgesetzt) oder ob es sich nur um ein erneutes Rendern derselben
-// Sitzung handelt (z. B. nach Umschalten Hochtour/MSL) — dann bleibt der Status bestehen.
+// Sitzung handelt (z. B. nach Umschalten Hochtour/MSL) – dann bleibt der Status bestehen.
 // Auswahlfeld, dessen gespeicherter Wert nicht unter den Optionen ist (Hütte im Papierkorb, Liste noch
 // nicht geladen, Schwierigkeit wie «T3+» oder «AS» aus einem Import): den Wert als eigene Option
 // einsetzen und auswählen – sonst würde beim Speichern still «keine» bzw. die erste Option gespeichert.
@@ -13089,7 +13242,7 @@ function paintModalDirty(){
   const on = modalIsDirty && !!modalDirtyTrackingKey();
   document.querySelectorAll('.overlay .modal').forEach(m=> m.classList.toggle('fs-dirty', on));
 }
-// Gegenstück zu markModalDirty() — gebraucht nach dem programmatischen Vorbefüllen einer
+// Gegenstück zu markModalDirty() – gebraucht nach dem programmatischen Vorbefüllen einer
 // Bearbeiten-Maske (applyAgendaEditPrefill simuliert Klicks/Change-Events, die sonst fälschlich
 // "ungespeicherte Änderungen" auslösen würden, obwohl der Nutzer noch gar nichts angefasst hat).
 function resetModalDirty(){ modalIsDirty = false; paintModalDirty(); if(typeof fsDraftClear === 'function') fsDraftClear(); }
@@ -13119,7 +13272,7 @@ function fsArmExitGuard(){
   try{ history.pushState({fsLayer:'guard'}, '', location.href); }catch(e){ fsExitGuardArmed = false; }
 }
 // Nur Ereignisse, die für den Browser als Nutzeraktion zählen (beim Antippen erst touchend/click,
-// nicht pointerdown) — sonst überspringt Chrome den Eintrag beim Zurückwischen und die App geht zu.
+// nicht pointerdown) – sonst überspringt Chrome den Eintrag beim Zurückwischen und die App geht zu.
 ['touchend','click','keydown'].forEach(ev=> window.addEventListener(ev, ()=>{
   if(!fsExitGuardArmed && !modalHistoryPushed && !overlayLayers.length) fsArmExitGuard();
 }, {capture:true, passive:true}));
@@ -13135,17 +13288,33 @@ document.addEventListener('click', e=>{
   window.location.replace(a.href);
 });
 // true = popstate ist erledigt (Wächter verlassen und Rückfrage gestellt)
+// Adresse mit der aktuell gezeigten Disziplin (nach einem Wechsel ohne Neuladen trägt der untere
+// Verlaufseintrag noch die alte; sonst erschiene nach Zurück und Neuladen wieder die alte Disziplin)
+function fsCurrentUrl(){
+  try{
+    if(typeof DISC === 'undefined') return location.href;
+    const u = new URL(location.href);
+    if(DISC === 'ski') u.searchParams.delete('d'); else u.searchParams.set('d', DISC);
+    return u.toString();
+  }catch(e){ return location.href; }
+}
+// Beenden wie unter Android üblich: einmal Zurück zeigt einen Hinweis, ein zweites Mal innert 2,5 s beendet
+let fsExitAskedAt = 0;
 function fsHandleExitGuard(ev){
   if(!fsExitGuardArmed || fsExitLeaving) return false;
   const st = ev && ev.state;
   if(st && st.fsLayer) return false; // noch innerhalb unserer Einträge
-  if(confirm('Firnspur beenden?')){
+  const url = fsCurrentUrl();
+  if(Date.now() - fsExitAskedAt < 2500){
     // Ist dies der erste Eintrag (installierte App), schliesst erst das nächste Zurück die App.
     fsExitLeaving = true;
+    try{ history.replaceState(history.state, '', url); }catch(e){}
     try{ history.back(); }catch(e){}
     setTimeout(()=>{ try{ window.close(); }catch(e){} }, 150);
   }else{
-    try{ history.pushState({fsLayer:'guard'}, '', location.href); }catch(e){}
+    fsExitAskedAt = Date.now();
+    try{ history.replaceState(history.state, '', url); history.pushState({fsLayer:'guard'}, '', url); }catch(e){}
+    showToast('Nochmals Zurück zum Beenden');
   }
   return true;
 }
@@ -13162,7 +13331,7 @@ window.addEventListener('popstate', (ev)=>{
     // modalHistoryPushed wird NICHT hier zurückgesetzt: closeModal() selbst entscheidet danach,
     // ob wirklich alles geschlossen wurde (dann ist der History-Eintrag aufgebraucht) oder nur auf
     // eine übergeordnete Cross-Link-Ebene zurückgefallen wurde (deren eigener, bei navigateToModal()
-    // gepushter Eintrag genau diesen Zurück-Schritt bereits repräsentiert — kein Reset nötig).
+    // gepushter Eintrag genau diesen Zurück-Schritt bereits repräsentiert – kein Reset nötig).
     if(typeof closeModal === 'function'){ closeModal(true); }
     else{ state.modal = null; modalHistoryPushed = false; if(typeof render === 'function') render(); }
   }else{
@@ -13196,7 +13365,7 @@ function fsUpgradeFilterRows(){
     }
     // «Topo scannen» passt nicht neben Suche und Filter: als eigene Zeile darunter
     const scanBtn = row.querySelector(':scope > [data-act="gebiet-scan-menu"]');
-    if(scanBtn){ const sr = document.createElement('div'); sr.className = 'toolbar fs-scan-row'; sr.appendChild(scanBtn); row.after(sr); }
+    if(scanBtn){ const sr = document.createElement('div'); sr.className = 'toolbar fs-scan-bar'; sr.appendChild(scanBtn); row.after(sr); }
     const extras = Array.from(row.children).filter(el=> el !== toggle && !el.matches('[data-act="gebiet-scan-menu"]'));
     // Aktive Auswahl als Chips unter dem Knopf (× = abwählen, löst den Originalknopf aus)
     const actives = [...extras.filter(el=> el.matches('.btn.on')), ...(panel ? Array.from(panel.querySelectorAll('.chip.on')) : [])];
@@ -13290,7 +13459,7 @@ document.addEventListener('click', ()=> setTimeout(()=>{
 
 /* ================= Wischgeste zwischen den Apps =================
    Links/rechts wischen wechselt in der Reihenfolge der oberen Leiste (Skitour · Hochtour ·
-   Klettern · Wandern) zur Nachbar-App — auf der Leiste und in den Listen. Nicht bei offenem
+   Klettern · Wandern) zur Nachbar-App – auf der Leiste und in den Listen. Nicht bei offenem
    Fenster, auf Karten, in seitlich scrollbaren Reihen und in Eingabefeldern. */
 function fsSwipeBlocked(target){
   if(typeof state !== 'undefined' && state.modal) return true;
@@ -13413,7 +13582,7 @@ mehreren Touren-/Hütten-Einträgen. Diese Datei wird danach über die
 **Nur Fakten, niemals erfinden oder schätzen.** Trage ausschliesslich Informationen
 ein, die aus der gegebenen Quelle (Screenshot, Text, Link) tatsächlich
 hervorgehen. Wenn eine Information nicht eindeutig vorliegt, bleibt das
-entsprechende Feld leer — auch wenn ein plausibler Wert naheliegend erscheint.
+entsprechende Feld leer – auch wenn ein plausibler Wert naheliegend erscheint.
 Das gilt für alle Felder gleichermassen, ganz besonders aber für Koordinaten
 (siehe unten): Ein erfundener Standort ist schlimmer als ein fehlender.
 
@@ -13421,14 +13590,14 @@ Das gilt für alle Felder gleichermassen, ganz besonders aber für Koordinaten
 
 - Struktur exakt beibehalten: \`{"tours": [...], "huts": [...]}\`. Nur für Fixseil
   (Hochtour/MSL) gibt es zusätzlich ein drittes, optionales Feld \`"sektoren":
-  [...]\` (siehe ganz unten) — Firnspur (Skitour) kennt keine Sektoren, dort
+  [...]\` (siehe ganz unten) – Firnspur (Skitour) kennt keine Sektoren, dort
   bleibt es bei den zwei Feldern \`"tours"\`/\`"huts"\`.
 - **id**: IMMER eine neue, eindeutige Zeichenfolge pro Tour/Hütte (z. B. \`t_\` +
   zufällige Buchstaben/Zahlen, bzw. \`h_\` für Hütten). Niemals zwei Einträge mit
   gleicher id, ausser man will einen bestehenden Eintrag bewusst überschreiben.
 - Alle Textfelder auf Deutsch.
 - Felder, für die keine Information vorliegt, als leerer String \`""\` bzw. leeres
-  Array \`[]\` lassen — NIEMALS raten oder erfinden.
+  Array \`[]\` lassen – NIEMALS raten oder erfinden.
 - \`"conditions"\`: immer \`null\`, \`"completions"\`: immer \`[]\`
 - \`"status"\`: neue Touren immer \`"entwurf"\` (bedeutet: noch nicht fertig
   ausgearbeitet/verifiziert)
@@ -13448,17 +13617,17 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 
 - \`label\`: kurze Bezeichnung, was der Punkt ist
 - \`lat\`/\`lon\`: WGS84-Koordinaten (Dezimalgrad, mit Punkt statt Komma)
-- \`category\`: optional — bestimmt Symbol/Farbe des Punkts auf der Karte. Gültige
+- \`category\`: optional – bestimmt Symbol/Farbe des Punkts auf der Karte. Gültige
   Werte: \`""\` (Standard-Pin), \`"gipfel"\` (Gipfel), \`"gefahr"\` (Gefahrenstelle),
   \`"rueckzug"\` (Rückzugspunkt), \`"wasser"\` (Wasserstelle), \`"rast"\` (Rastplatz),
   \`"biwak"\` (Biwak/Übernachtung), \`"parkplatz"\`, \`"toilette"\`, \`"haltestelle"\`
   (ÖV), \`"abzweigung"\` (Abzweigung/Orientierung). Bei Unsicherheit einfach
-  weglassen oder \`""\` — nie eine Kategorie raten, die nicht klar aus der Quelle
+  weglassen oder \`""\` – nie eine Kategorie raten, die nicht klar aus der Quelle
   hervorgeht.
 - Mehrere Punkte pro Eintrag möglich
 - **Koordinaten nur bei eindeutigen GPS-Daten eintragen.** Steht in der Quelle keine
-  klare, konkrete Koordinate (z. B. ein GPS-Wert, ein exakter Kartenpunkt) — auch
-  keine ungefähre Ortsangabe wie ein Ortsname oder eine grobe Beschreibung —
+  klare, konkrete Koordinate (z. B. ein GPS-Wert, ein exakter Kartenpunkt) – auch
+  keine ungefähre Ortsangabe wie ein Ortsname oder eine grobe Beschreibung –
   bleibt \`"points": []\`. Kein Schätzen anhand von Ortsnamen, keine Koordinaten
   aus dem eigenen Wissen ergänzen, auch wenn der Ort bekannt vorkommt.
 - \`"manualTrack"\`: immer \`[]\` lassen (wird nur direkt in der App per Hand
@@ -13482,9 +13651,9 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - **Berner Oberland**: Lauterbrunnental, Haslital, Kandertal, Simmental,
     Diemtigtal, Justistal, Saanenland/Gstaad, Grimselpass, Sustenpass,
     Jochpass, Grosse Scheidegg
-  - **Simmental**: keine eigenen Teilgebiete — subregion bleibt hier immer leer
+  - **Simmental**: keine eigenen Teilgebiete – subregion bleibt hier immer leer
     (auch wenn "Simmental" gleichzeitig als Teilgebiet von Berner Oberland
-    existiert — beide Einträge sind unabhängig voneinander, so wie es die App
+    existiert – beide Einträge sind unabhängig voneinander, so wie es die App
     aktuell vorsieht)
   - **Graubünden**: Oberengadin, Unterengadin, Davos, Arosa/Schanfigg,
     Prättigau, Albula, Surselva, Safiental, Rheinwald, Avers, Bergell,
@@ -13516,10 +13685,10 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - \`stayTypes\`: Liste (mehrere möglich) aus: "tagestour", "huette", "biwak", "zelt"
 - \`gebietId\`: immer \`""\` (das Gebiet wird in der App zugeordnet)
 - Routen-Felder \`manualTrackName\`, \`manualTrackType\`, \`trackName\`, \`trackType\`
-  und \`altTracks\` NICHT setzen — Linien, ihre Namen und ihre Art (Aufstieg,
+  und \`altTracks\` NICHT setzen – Linien, ihre Namen und ihre Art (Aufstieg,
   Abfahrt, Variante …) werden ausschliesslich in der App erfasst
 
-## Felder-Erklärung (Wandern) — anstelle der Skitour-Felder
+## Felder-Erklärung (Wandern) – anstelle der Skitour-Felder
 
 - \`tourCategory\`: immer "wanderung"
 - \`difficulty\`: Wanderskala "T1" bis "T6" (nicht SAC-Skitourenskala)
@@ -13528,7 +13697,7 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - \`elevationGain\` / \`elevationLoss\`: Auf- bzw. Abstieg in Hm
 - \`duration\`: Zeitbedarf in Stunden, z. B. "6-7"
 - \`tourShape\`: "rund" (Rundtour), "strecke" (Streckenwanderung) oder "hinzurueck" (Hin und zurück)
-- \`dog\`: mit Hund geeignet — "ja", "bedingt" oder "nein"; Details (Leitern, Weidevieh,
+- \`dog\`: mit Hund geeignet – "ja", "bedingt" oder "nein"; Details (Leitern, Weidevieh,
   Leinenpflicht …) gehören in \`special\`
 - \`bestMonths\`: Liste der besten Monate ("jan", "feb", "maer", "apr", "mai", "jun", "jul",
   "aug", "sep", "okt", "nov", "dez")
@@ -13537,10 +13706,10 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   "schwierige Orientierung", "Steinschlag"
 - Nicht verwenden: \`glacier\`, \`material\`, \`exposition\`, \`ropeType\`, \`ropeLength\`
 
-## Felder-Erklärung (Fixseil = Hochtour/Klettern-MSL) — zusätzlich zu obigem
+## Felder-Erklärung (Fixseil = Hochtour/Klettern-MSL) – zusätzlich zu obigem
 
 - \`region\`/\`subregion\`/\`points\`: identisch zu Firnspur
-- \`tourCategory\`: "hochtour" ODER "msl" — bestimmt, welche Feldgruppe
+- \`tourCategory\`: "hochtour" ODER "msl" – bestimmt, welche Feldgruppe
   ausgefüllt wird (die jeweils andere bleibt leer):
 
   **Falls tourCategory = "hochtour":**
@@ -13550,7 +13719,7 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - \`crevasseRisk\`: "nein", "moeglich", "ausgepraegt"
   - \`descentType\`: "Fussabstieg", "Abseilen", oder "Kombination"
   - \`descent\`: Freitext-Beschreibung der Abfahrt/des Abstiegs
-  - \`sektorId\`: Normalerweise leerer String \`""\`. Optional setzbar — z. B. wenn
+  - \`sektorId\`: Normalerweise leerer String \`""\`. Optional setzbar – z. B. wenn
     derselbe Sektor auch eine MSL-Route auf denselben Gipfel trägt (siehe unten).
     Anders als bei MSL werden Zustieg/Abstieg dadurch NICHT vom Sektor übernommen,
     \`descent\` bleibt Freitext wie gewohnt.
@@ -13561,14 +13730,14 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - \`pitchCount\`: Anzahl Seillängen (Zahl als Text)
   - \`longestPitch\`: längste Seillänge (z. B. "35m")
   - \`protection\`: "sehr-gut", "gut", "alpin", oder "ernst"
-  - \`descentType\`: "Fussabstieg", "Abseilen", oder "Kombination" — grobe
+  - \`descentType\`: "Fussabstieg", "Abseilen", oder "Kombination" – grobe
     Einordnung, zusätzlich zu den strukturierten Abstiegen weiter unten
-  - \`descent\`: bei MSL IMMER leerer String \`""\` lassen — der Abstieg wird bei
+  - \`descent\`: bei MSL IMMER leerer String \`""\` lassen – der Abstieg wird bei
     MSL-Touren ausschliesslich strukturiert über \`descentRoutes\` erfasst
     (siehe unten), nicht als Freitext
   - \`sektorId\`: Normalerweise leerer String \`""\`. Nur setzen, wenn diese Tour
     zu einem Sektor gehört, den du im selben Import über \`"sektoren"\` (siehe
-    unten) mit anlegst oder auf einen bereits bestehenden Sektor verweist —
+    unten) mit anlegst oder auf einen bereits bestehenden Sektor verweist –
     dann \`sektorId\` exakt auf die \`id\` dieses Sektors setzen. Verweist eine
     Tour auf einen Sektor, übernimmt sie dessen Zustiege/Abstiege automatisch
     und die eigenen \`accessRoutes\`/\`descentRoutes\` der Tour werden ignoriert
@@ -13585,9 +13754,9 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   - \`gefahren\` (MSL): Steinschlag, brüchiger Fels, Runout, schwieriger Rückzug,
     nasser Fels, komplexer Abstieg, Abseilstellen, ausgesetzter Zustieg
   - \`ropeType\`: zusätzlich "Gletscherseil" möglich
-  - \`ascent\`: Freitext-Beschreibung des Aufstiegs — bei Hochtour UND MSL gleich
+  - \`ascent\`: Freitext-Beschreibung des Aufstiegs – bei Hochtour UND MSL gleich
     verwendbar (unabhängig von den strukturierten Zustiegen bei MSL)
-  - \`topoImages\`: IMMER leeres Array \`[]\` — Foto-Scans von Topo-Kletterführern
+  - \`topoImages\`: IMMER leeres Array \`[]\` – Foto-Scans von Topo-Kletterführern
     werden ausschliesslich manuell in der App hochgeladen (Copyright-Gründe),
     niemals von ChatGPT/Gemini befüllen oder Bild-URLs erfinden.
 
@@ -13597,27 +13766,27 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   \`descent\`). Beliebig viele Einträge möglich, z. B. mehrere Zustiegsvarianten.
   Struktur identisch für \`accessRoutes\` und \`descentRoutes\`, JEDER Eintrag hat:
   - \`id\`: eindeutige Kennung, Format \`tr_\` + zufällige Buchstaben/Zahlen
-  - \`name\`: Bezeichnung (Pflichtfeld) — z. B. "Ab Parkplatz XY",
+  - \`name\`: Bezeichnung (Pflichtfeld) – z. B. "Ab Parkplatz XY",
     "Fussabstieg über Normalweg"
-  - \`elevation\`: Höhenmeter (nur Zahl, als Text) — bei \`descentRoutes\` die
+  - \`elevation\`: Höhenmeter (nur Zahl, als Text) – bei \`descentRoutes\` die
     Abstiegs-Höhenmeter (abwärts)
-  - \`elevationUp\`: NUR bei \`descentRoutes\` relevant — Gegenanstieg in Hm, falls
+  - \`elevationUp\`: NUR bei \`descentRoutes\` relevant – Gegenanstieg in Hm, falls
     der Abstieg zwischendurch wieder aufwärts führt; bei \`accessRoutes\` immer
     leerer String \`""\`
   - \`duration\`: Zeitbedarf, z. B. "1-2"
-  - \`difficultyT\`: Schweizer Wanderskala ("T1" bis "T6"), oder leer — KEINE
+  - \`difficultyT\`: Schweizer Wanderskala ("T1" bis "T6"), oder leer – KEINE
     separate SAC-Skala hier (anders als bei Zustiegen zu Hütten, siehe unten)
   - \`description\`: Beschreibung dieses Zustiegs/Abstiegs
-  - \`gpxLink\`: IMMER leer \`""\` — kein Link erfinden
-  - \`trackSimplified\`: IMMER \`null\` — nur von der App selbst befüllt (eigener
+  - \`gpxLink\`: IMMER leer \`""\` – kein Link erfinden
+  - \`trackSimplified\`: IMMER \`null\` – nur von der App selbst befüllt (eigener
     GPX-Upload)
-  - \`manualTrack\`: IMMER leeres Array \`[]\` — nur von der App selbst befüllt
+  - \`manualTrack\`: IMMER leeres Array \`[]\` – nur von der App selbst befüllt
     (von Hand gezeichnet oder per Routenberechnung)
 
   Falls keine Zustiegs-/Abstiegsinformationen vorliegen, als leeres Array \`[]\`
   lassen statt Einträge zu erfinden.
 
-## Felder-Erklärung (Hütten — identisch in Firnspur & Fixseil)
+## Felder-Erklärung (Hütten – identisch in Firnspur & Fixseil)
 
 - \`name\`: Name der Hütte (Pflichtfeld)
 - \`region\`/\`subregion\`: wie oben bei Touren
@@ -13627,7 +13796,7 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   Werte: "jan", "feb", "maer", "apr", "mai", "jun", "jul", "aug", "sep", "okt",
   "nov", "dez". Leeres Array \`[]\`, falls unbewartet.
 - \`staffedMonthsPartial\`: Liste der Monate mit TEILWEISER Bewartung (z. B. nur
-  an Wochenenden) — gleiche Werte wie \`staffedMonths\`, eigene separate Liste.
+  an Wochenenden) – gleiche Werte wie \`staffedMonths\`, eigene separate Liste.
 - \`staffedNote\`: Freitext-Präzisierung zur Bewartung (z. B. "nur an
   Wochenenden", "ab 20. Juni"), optional
 - \`winterraum\`: Beschreibung Winterraum/Schutzraum (Kapazität, Zugang,
@@ -13638,19 +13807,19 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
   unbewartet zugänglich"), optional
 - \`hutLink\`: Link zur Hütten-Website, SAC-Seite o. Ä. (falls vorhanden), sonst
   leer
-- \`approach\`: Anfahrt zum Ausgangspunkt (Parkplatz, ÖV, Seilbahn) — NICHT der
+- \`approach\`: Anfahrt zum Ausgangspunkt (Parkplatz, ÖV, Seilbahn) – NICHT der
   Zustieg zur Hütte selbst, das gehört zu \`accessRoutes\` (siehe unten)
-- \`points\`: siehe oben — z. B. Hütte selbst + Parkplatz als zwei Punkte
-- \`manualTrack\`: IMMER leeres Array \`[]\` — nur für eine allgemeine, in der App
+- \`points\`: siehe oben – z. B. Hütte selbst + Parkplatz als zwei Punkte
+- \`manualTrack\`: IMMER leeres Array \`[]\` – nur für eine allgemeine, in der App
   von Hand eingezeichnete Linie zur Hütte, nicht von ChatGPT/Gemini befüllen.
-- \`approachTypes\`: wie oben bei Touren (mehrere möglich) — bezieht sich hier
+- \`approachTypes\`: wie oben bei Touren (mehrere möglich) – bezieht sich hier
   auf die Anfahrt zum Ausgangspunkt/Zustieg zur Hütte
-- \`accessRoutes\`: Liste der Zustiege zur Hütte — beliebig viele möglich (z. B.
+- \`accessRoutes\`: Liste der Zustiege zur Hütte – beliebig viele möglich (z. B.
   "Sommer ab Randa", "Winter ab Randa", weitere Varianten). JEDER Eintrag in
   dieser Liste hat folgende Felder:
   - \`id\`: eindeutige Kennung, Format \`ar_\` + zufällige Buchstaben/Zahlen
     (z. B. \`ar_x7k2m9\`)
-  - \`name\`: Bezeichnung des Zustiegs (Pflichtfeld) — z. B. "Sommer", "Winter",
+  - \`name\`: Bezeichnung des Zustiegs (Pflichtfeld) – z. B. "Sommer", "Winter",
     oder bei mehreren Varianten pro Jahreszeit z. B. "Ab Randa", "Ab
     Bergstation"
   - \`season\`: "sommer", "winter", oder leer \`""\` falls nicht eindeutig
@@ -13662,10 +13831,10 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
     Wanderweg ohne Firn/Schnee-Querung, sonst leer. SAC-Skala und T-Skala
     schliessen sich nicht aus.
   - \`description\`: Beschreibung der Zustiegsroute für diesen Eintrag
-  - \`gpxLink\`: IMMER leer \`""\` — kein Link erfinden
-  - \`trackSimplified\`: IMMER \`null\` — nur von der App selbst befüllt (eigener
+  - \`gpxLink\`: IMMER leer \`""\` – kein Link erfinden
+  - \`trackSimplified\`: IMMER \`null\` – nur von der App selbst befüllt (eigener
     GPX-Upload)
-  - \`manualTrack\`: IMMER leeres Array \`[]\` — nur von der App selbst befüllt
+  - \`manualTrack\`: IMMER leeres Array \`[]\` – nur von der App selbst befüllt
     (von Hand gezeichnete Linie)
 
   Falls keine Zustiegsinformationen vorliegen, \`accessRoutes\` als leeres Array
@@ -13674,14 +13843,14 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
 - \`notes\`: Sonstiges (z. B. Reservationshinweise)
 - \`completions\`: immer \`[]\` (wird von der App selbst befüllt)
 
-## Felder-Erklärung (Sektoren — nur Fixseil, optionales Feld \`"sektoren"\`)
+## Felder-Erklärung (Sektoren – nur Fixseil, optionales Feld \`"sektoren"\`)
 
 Ein Sektor bündelt mehrere MSL-Touren mit gemeinsamem Ausgangspunkt und
 geteilten Zustiegen/Abstiegen (analog zu Hütten-Zustiegen). Ein Sektor kann
-daneben auch Hochtouren verlinkt haben, die z. B. auf denselben Gipfel führen —
+daneben auch Hochtouren verlinkt haben, die z. B. auf denselben Gipfel führen –
 bei denen bleiben \`descent\`/eigene Zustiege aber Freitext, nichts wird vom
 Sektor übernommen (siehe \`sektorId\` bei Hochtour weiter oben). Nur relevant für
-Fixseil (Hochtour/MSL) — Firnspur kennt keine Sektoren. Nur eintragen, wenn
+Fixseil (Hochtour/MSL) – Firnspur kennt keine Sektoren. Nur eintragen, wenn
 aus der Quelle klar hervorgeht, dass mehrere Touren denselben Zustieg/
 Ausgangspunkt teilen; sonst \`"sektoren": []\` lassen und \`sektorId\` bei den
 Touren leer lassen.
@@ -13690,7 +13859,7 @@ Touren leer lassen.
 - \`name\`: Bezeichnung des Sektors (Pflichtfeld), z. B. "Chatzenfluh Nordwand"
 - \`region\`/\`subregion\`: wie oben bei Touren
 - \`description\`: Freitext, Charakter/Übersicht des Sektors, optional
-- \`points\`/\`manualTrack\`: wie oben bei Touren/Hütten — \`manualTrack\` immer \`[]\`
+- \`points\`/\`manualTrack\`: wie oben bei Touren/Hütten – \`manualTrack\` immer \`[]\`
 - \`accessRoutes\`/\`descentRoutes\`: gemeinsame Zustiege/Abstiege für alle Touren
   dieses Sektors. Gleiche Struktur wie bei den MSL-Touren weiter oben (Felder
   \`id\` (Format \`tr_\` + zufällige Buchstaben/Zahlen), \`name\`, \`elevation\`,
@@ -13703,10 +13872,10 @@ Touren leer lassen.
 Um eine MSL-Tour mit einem Sektor zu verknüpfen: Sektor unter \`"sektoren"\`
 anlegen und die \`id\` dieses Sektors bei der Tour in \`sektorId\` eintragen (siehe
 oben). Die Tour braucht dann keine eigenen \`accessRoutes\`/\`descentRoutes\`
-mehr (dort \`[]\` eintragen) — sie übernimmt automatisch die des Sektors.
+mehr (dort \`[]\` eintragen) – sie übernimmt automatisch die des Sektors.
 
-**Wichtig — Klettergebiete lassen sich per Import NICHT anlegen.** Ein
-Klettergebiet (z. B. "Furka") bündelt mehrere Sektoren an einem Berg — es ist
+**Wichtig – Klettergebiete lassen sich per Import NICHT anlegen.** Ein
+Klettergebiet (z. B. "Furka") bündelt mehrere Sektoren an einem Berg – es ist
 eine eigene Entität in der App, aber (noch) kein eigenes JSON-Feld. Importierte
 Sektoren landen darum immer erst unter "Sektoren ohne Gebiet"; das Zuordnen zu
 einem (ggf. neuen) Klettergebiet macht die Person danach direkt in der App
@@ -13717,55 +13886,55 @@ einem (ggf. neuen) Klettergebiet macht die Person danach direkt in der App
 Erstelle nach diesem Muster einen oder mehrere Touren-/Hütten-Einträge (bei
 Fixseil optional auch Sektoren) basierend auf den Informationen, die ich dir
 gebe (z. B. Screenshot, Text, Link). Prüfe zuerst, ob es sich um eine Tour
-(Gipfel, Route), eine Hütte (Übernachtungsmöglichkeit) oder — nur bei Fixseil,
-falls mehrere Touren klar denselben Zustieg teilen — einen Sektor handelt, und
+(Gipfel, Route), eine Hütte (Übernachtungsmöglichkeit) oder – nur bei Fixseil,
+falls mehrere Touren klar denselben Zustieg teilen – einen Sektor handelt, und
 trage den Eintrag entsprechend im richtigen Feld ("tours", "huts" bzw.
 "sektoren") ein. Gib mir am Ende NUR die vollständige, gültige JSON-Datei
 zurück, bereit zum Kopieren.`;
-const BEDIENUNGSANLEITUNG_TEXT = `# Firnspur & Fixseil — Bedienungsanleitung
+const BEDIENUNGSANLEITUNG_TEXT = `# Firnspur & Fixseil – Bedienungsanleitung
 
 Kurze Einführung für neue Nutzer:innen, mit Tipps und Tricks, die man beim ersten Mal leicht übersieht.
 
 ## Die zwei Apps
 
-- **🎿 Firnspur** — für Skitouren (Winter)
-- **🧗 Fixseil** — für Hochtouren, Mehrseillängen-Klettertouren & Klettergärten (Sommer)
+- **🎿 Firnspur** – für Skitouren (Winter)
+- **🧗 Fixseil** – für Hochtouren, Mehrseillängen-Klettertouren & Klettergärten (Sommer)
 
-Beide teilen sich **Hütten** und **Agenda** — was du in der einen App an Hütten oder Terminen anlegst, siehst du auch in der anderen. Touren selbst sind pro App getrennt, weil Winter und Sommer inhaltlich zu unterschiedlich sind. Innerhalb von Fixseil sind "🏔️ Hochtour" und "🧗 Klettern" ebenfalls getrennte Tabs.
+Beide teilen sich **Hütten** und **Agenda** – was du in der einen App an Hütten oder Terminen anlegst, siehst du auch in der anderen. Touren selbst sind pro App getrennt, weil Winter und Sommer inhaltlich zu unterschiedlich sind. Innerhalb von Fixseil sind "🏔️ Hochtour" und "🧗 Klettern" ebenfalls getrennte Tabs.
 
 **Zwischen den Apps wechseln:** Entweder oben auf "🎿 Skitour" / "🏔️ Hochtour" / "🧗 Klettern" tippen, oder auf der oberen Leiste **nach links/rechts wischen**.
 
 ### Der "🧗 Klettern"-Bereich: Klettergebiete als Einstieg
 
-Wechselst du zu "🧗 Klettern", landest du direkt auf den **⛰️ Klettergebieten** (z. B. "Furka") statt auf einer flachen Touren-Liste. Ein Gebiet antippen zeigt genau einen Pfad zu seinen Touren: **Klettergebiet → Sektor → Tour**. Keine zusätzliche, flache Touren-Liste daneben — jede Tour steht genau einmal, im Sektor-Kärtchen. Darunter, unabhängig von den Sektoren, die Liste **🛖 Hütten** (automatisch ermittelt anhand der Touren, die in einem Sektor dieses Gebiets stecken).
+Wechselst du zu "🧗 Klettern", landest du direkt auf den **⛰️ Klettergebieten** (z. B. "Furka") statt auf einer flachen Touren-Liste. Ein Gebiet antippen zeigt genau einen Pfad zu seinen Touren: **Klettergebiet → Sektor → Tour**. Keine zusätzliche, flache Touren-Liste daneben – jede Tour steht genau einmal, im Sektor-Kärtchen. Darunter, unabhängig von den Sektoren, die Liste **🛖 Hütten** (automatisch ermittelt anhand der Touren, die in einem Sektor dieses Gebiets stecken).
 
-Ein Sektor ist jede Wand/jeder Fels dieses Gebiets, mit Topo-Bild, Kletterrouten-Liste und Zustiegen/Abstiegen. "Klettergarten" und "MSL" sind dabei keine getrennten Ebenen, sondern nur Etiketten für den Inhalt eines Sektors: hat ein Sektor eine eigene Kletterrouten-Liste (Nr./Name/Grad), gilt er als Klettergarten; hat er verlinkte MSL-Touren, gilt er als MSL-Wand — ein Sektor kann problemlos beides gleichzeitig sein. Ein Sektor kann ausserdem Hochtouren verlinkt haben, die z. B. auf denselben Gipfel führen wie eine MSL-Route desselben Sektors (Feld "Sektor" im Touren-Formular, für Hochtour wie MSL) — unabhängig vom bestehenden Gipfel-Bezug der Hochtour (Höhe/Normalweg bleiben dort erfasst).
+Ein Sektor ist jede Wand/jeder Fels dieses Gebiets, mit Topo-Bild, Kletterrouten-Liste und Zustiegen/Abstiegen. "Klettergarten" und "MSL" sind dabei keine getrennten Ebenen, sondern nur Etiketten für den Inhalt eines Sektors: hat ein Sektor eine eigene Kletterrouten-Liste (Nr./Name/Grad), gilt er als Klettergarten; hat er verlinkte MSL-Touren, gilt er als MSL-Wand – ein Sektor kann problemlos beides gleichzeitig sein. Ein Sektor kann ausserdem Hochtouren verlinkt haben, die z. B. auf denselben Gipfel führen wie eine MSL-Route desselben Sektors (Feld "Sektor" im Touren-Formular, für Hochtour wie MSL) – unabhängig vom bestehenden Gipfel-Bezug der Hochtour (Höhe/Normalweg bleiben dort erfasst).
 
-Die flache Liste aller Touren bleibt daneben als Reiter **"🧗 Touren"** erreichbar. Ein Sektor, der eigentlich ein ganzes Gebiet ist: in dessen Detailansicht "⛰️ In neues Klettergebiet umwandeln" antippen — verändert die vorhandenen Daten nicht, sondern ordnet nur neu ein.
+Die flache Liste aller Touren bleibt daneben als Reiter **"🧗 Touren"** erreichbar. Ein Sektor, der eigentlich ein ganzes Gebiet ist: in dessen Detailansicht "⛰️ In neues Klettergebiet umwandeln" antippen – verändert die vorhandenen Daten nicht, sondern ordnet nur neu ein.
 
 ## Erstmaliges Einloggen
 
-Beim ersten Öffnen erscheint ein Passwort-Feld. Einmal eingeben — danach bleibst du auf dem Gerät dauerhaft angemeldet, bis du den Browser-Speicher löschst.
+Beim ersten Öffnen erscheint ein Passwort-Feld. Einmal eingeben – danach bleibst du auf dem Gerät dauerhaft angemeldet, bis du den Browser-Speicher löschst.
 
 ## Grundlegende Navigation
 
 Vier Reiter ganz oben in jeder App:
-- **Touren** — alle erfassten Skitouren bzw. Hochtouren/MSL-Touren
-- **Hütten** — appübergreifend geteilt
-- **Agenda** — appübergreifend geteilte Terminplanung
-- **Done** — eigene und fremde abgeschlossene Touren/Hütten, nach Person gruppiert
+- **Touren** – alle erfassten Skitouren bzw. Hochtouren/MSL-Touren
+- **Hütten** – appübergreifend geteilt
+- **Agenda** – appübergreifend geteilte Terminplanung
+- **Done** – eigene und fremde abgeschlossene Touren/Hütten, nach Person gruppiert
 
 ## Touren anlegen & bearbeiten
 
 - **"+ Neue Tour"** oben im Touren-Reiter
-- Felder sind grösstenteils **Kästchen zum Antippen** statt Freitext (Region, Schwierigkeit, Material, Gefahren, Anfahrt-Art, usw.) — schnelleres Erfassen, einheitlichere Daten
-- **Tipp:** Ein bereits ausgewähltes Kästchen lässt sich durch **erneutes Antippen wieder abwählen** — falls man aus Versehen daneben tippt, muss man nicht zwingend eine andere Option wählen
+- Felder sind grösstenteils **Kästchen zum Antippen** statt Freitext (Region, Schwierigkeit, Material, Gefahren, Anfahrt-Art, usw.) – schnelleres Erfassen, einheitlichere Daten
+- **Tipp:** Ein bereits ausgewähltes Kästchen lässt sich durch **erneutes Antippen wieder abwählen** – falls man aus Versehen daneben tippt, muss man nicht zwingend eine andere Option wählen
 - **Region wählen** → passende Teilgebiete/Pässe erscheinen automatisch darunter
-- **Speichern-Button** bleibt beim Bearbeiten immer unten rechts sichtbar — kein Scrollen zum Speichern nötig
+- **Speichern-Button** bleibt beim Bearbeiten immer unten rechts sichtbar – kein Scrollen zum Speichern nötig
 
 ### Status "Entwurf" / "Vollständig"
 
-Jede neue Tour startet als **📝 Entwurf** — das kennzeichnet: "Angaben evtl. noch nicht vollständig geprüft". Erst wenn die Tour wirklich fertig ausgearbeitet ist, in der Detailansicht auf den Status-Knopf tippen und auf **✅ Vollständig** umstellen. So sieht man auf einen Blick, welche Touren noch in Arbeit sind.
+Jede neue Tour startet als **📝 Entwurf** – das kennzeichnet: "Angaben evtl. noch nicht vollständig geprüft". Erst wenn die Tour wirklich fertig ausgearbeitet ist, in der Detailansicht auf den Status-Knopf tippen und auf **✅ Vollständig** umstellen. So sieht man auf einen Blick, welche Touren noch in Arbeit sind.
 
 ## Karte & Standortpunkte
 
@@ -13773,14 +13942,14 @@ Beim Bearbeiten einer Tour: **"🗺️ Karte öffnen"**
 
 - **📍 Punkt setzen**: antippen → auf die Karte tippen → Kategorie wählen (Gipfel, Parkplatz, Wasserstelle, Gefahrenstelle, Rastplatz, Biwak, Toilette, Haltestelle, Abzweigung, Rückzugspunkt) → Bezeichnung eintragen → Speichern. Jede Kategorie hat ein eigenes farbiges Symbol auf der Karte.
 - **✏️ Linie zeichnen**: antippen → jeder weitere Kartenklick fügt einen Wegpunkt zur blauen Linie hinzu. "↺ Letzten Punkt entfernen" bei Fehltipp, "✓ Linie fertig" zum Abschliessen.
-- **⛶ Vollbild**: für genaueres Zoomen/Suchen — auf jeder Karte verfügbar
-- **Tipp:** Direkt aus der Tour-**Detailansicht** lassen sich Punkte/Linie auch bearbeiten, ohne den Umweg über "Tour bearbeiten" zu gehen — Knopf "✏️ Punkte/Linie direkt bearbeiten"
+- **⛶ Vollbild**: für genaueres Zoomen/Suchen – auf jeder Karte verfügbar
+- **Tipp:** Direkt aus der Tour-**Detailansicht** lassen sich Punkte/Linie auch bearbeiten, ohne den Umweg über "Tour bearbeiten" zu gehen – Knopf "✏️ Punkte/Linie direkt bearbeiten"
 
 ### GPX-Tracks
 
 - **Link zu einer GPX-Datei im Internet** eintragen, oder
-- **Eigene GPX-Datei hochladen** — wird automatisch für die Kartenanzeige vereinfacht (spart Datenvolumen), die Originaldatei bleibt separat gespeichert und lässt sich jederzeit als Volldownload wieder herunterladen
-- 🔴 Rot = aufgezeichneter GPX-Track, 🔵 Blau = selbst gezeichnete Linie — beide können gleichzeitig angezeigt werden
+- **Eigene GPX-Datei hochladen** – wird automatisch für die Kartenanzeige vereinfacht (spart Datenvolumen), die Originaldatei bleibt separat gespeichert und lässt sich jederzeit als Volldownload wieder herunterladen
+- 🔴 Rot = aufgezeichneter GPX-Track, 🔵 Blau = selbst gezeichnete Linie – beide können gleichzeitig angezeigt werden
 
 ## Filtern & Sortieren
 
@@ -13796,22 +13965,22 @@ Termine appübergreifend sichtbar. Wählst du beim Erstellen eine bestehende Tou
 
 ## Notfallkarte
 
-Roter **"SOS"**-Streifen am linken Bildschirmrand — immer erreichbar, auch ohne Login. Antippen **oder** nach rechts/unten wegziehen öffnet sie. Enthält:
+Roter **"SOS"**-Streifen am linken Bildschirmrand – immer erreichbar, auch ohne Login. Antippen **oder** nach rechts/unten wegziehen öffnet sie. Enthält:
 - Direktwahl-Nummern (Rega 1414, Europanotruf 112, Polizei 117)
 - Notruf-Checkliste ("5 W")
-- **Standort abrufen** — zeigt aktuelle GPS-Koordinaten (WGS84 + Schweizer Landeskoordinaten) mit Kopieren-Knopf, plus Kartenanzeige
+- **Standort abrufen** – zeigt aktuelle GPS-Koordinaten (WGS84 + Schweizer Landeskoordinaten) mit Kopieren-Knopf, plus Kartenanzeige
 - Lawinen-Notfallblatt (Kameradenrettung-Ablauf)
 
 ## Daten importieren/exportieren
 
-Oben in der App: **"Exportieren"** (eigene Sicherung) und **"Importieren"** (Daten von anderen einfügen). Beim Importieren findest du auch den Link zu den **Vorlagen für ChatGPT/Gemini** — damit können Kolleg:innen ihre KI Touren-Daten im richtigen Format ausgeben lassen, ohne die App-Struktur selbst kennen zu müssen.
+Oben in der App: **"Exportieren"** (eigene Sicherung) und **"Importieren"** (Daten von anderen einfügen). Beim Importieren findest du auch den Link zu den **Vorlagen für ChatGPT/Gemini** – damit können Kolleg:innen ihre KI Touren-Daten im richtigen Format ausgeben lassen, ohne die App-Struktur selbst kennen zu müssen.
 
 ## Tipps & Tricks im Überblick
 
 - **Zurück-Taste** des Handys schliesst offene Fenster/Karten, statt die App zu verlassen
 - **Wischen** auf der oberen App-Wechsel-Leiste wechselt zwischen Firnspur/Fixseil
 - Jedes **Kästchen-Feld** (Region, Material, Gefahren, usw.) lässt sich durch erneutes Antippen wieder abwählen
-- **Automatische Sicherung:** Offline erfasste Touren werden lokal gespeichert und synchronisieren sich automatisch, sobald wieder Internet da ist — auch nach einem Seiten-Neuladen
+- **Automatische Sicherung:** Offline erfasste Touren werden lokal gespeichert und synchronisieren sich automatisch, sobald wieder Internet da ist – auch nach einem Seiten-Neuladen
 - **Wöchentliches Backup:** Jeden Montag wird der gesamte Datenbestand automatisch als Sicherung im GitHub-Repo abgelegt (Ordner \`backups/\`)
 - Bei Fragen zum Dateiformat für den Import: Anleitung im \`vorlagen/\`-Ordner des Repos, direkt aus der App verlinkt
 
@@ -13859,7 +14028,7 @@ function renderMarkdownBasic(text){
 function vorlagenModalHtml(tourVorlageJson){
   return `<div class="modal" data-stop="1" style="max-width:560px;">
     <div class="modal-head"><h2>📋 Ressourcen &amp; Vorlagen</h2><button class="x-btn" data-act="close-modal">×</button></div>
-    <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 16px 0;">Zum Weitergeben an Kolleg:innen — Bedienungsanleitung für neue Nutzer:innen, sowie JSON-Vorlage &amp; Anleitung für ChatGPT/Gemini, um Touren effizient per KI zu erfassen.</p>
+    <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 16px 0;">Zum Weitergeben an Kolleg:innen – Bedienungsanleitung für neue Nutzer:innen, sowie JSON-Vorlage &amp; Anleitung für ChatGPT/Gemini, um Touren effizient per KI zu erfassen.</p>
 
     <div class="detail-section" style="margin-top:0;">
       <h4>📖 Bedienungsanleitung für neue Nutzer:innen</h4>
@@ -13897,7 +14066,7 @@ function copyTextareaContent(textareaId){
     showToast('Kopiert.');
   }catch(e){
     try{ document.execCommand('copy'); showToast('Kopiert.'); }
-    catch(e2){ showToast('Kopieren nicht möglich — bitte manuell markieren und kopieren.', true); }
+    catch(e2){ showToast('Kopieren nicht möglich – bitte manuell markieren und kopieren.', true); }
   }
 }
 
@@ -13958,13 +14127,13 @@ function wireMonthCycleChips(root, selector){
 }
 
 // Farbpalette für Alternativrouten einer Tour (Haupttrack bleibt Rot #E8384F, manuelle Linie Blau
-// #1565C0 — beide hier bewusst ausgespart, damit Alternativrouten optisch unterscheidbar bleiben).
+// #1565C0 – beide hier bewusst ausgespart, damit Alternativrouten optisch unterscheidbar bleiben).
 const ALT_TRACK_COLORS = ['#8E44AD','#E8B93E','#2F6B44','#FF8C00','#00838F','#C2185B'];
 
 /* ================= Hütten-Zustiege: mehrere Varianten pro Hütte ================= */
 const ACCESS_ROUTE_COLORS = ['#E8B93E','#1565C0','#E8384F','#2E7EB0','#8A2E2E','#3C7A52'];
 // Sommer/Winter-Zustiege bekommen eine feste, wiedererkennbare Farbe statt einer zufälligen
-// Reihenfolge-Farbe — nur Hütten-Zustiege haben ein season-Feld, Tour-/Sektor-Routen (MSL)
+// Reihenfolge-Farbe – nur Hütten-Zustiege haben ein season-Feld, Tour-/Sektor-Routen (MSL)
 // fallen deshalb immer auf die Index-Farbe zurück.
 function accessRouteColor(r, index){
   if(r && r.season==='sommer') return '#E8B93E';
@@ -14029,10 +14198,10 @@ function accessRouteLegendHtml(routes){
 }
 
 // Eine einzige Karte für Punkte + allgemeine Linie + alle benannten Routen (Zustiege/Abstiege)
-// zusammen — geteilt zwischen Hütten-, Tour- und Sektor-Zustiegen. onRouteClick(route) ist
+// zusammen – geteilt zwischen Hütten-, Tour- und Sektor-Zustiegen. onRouteClick(route) ist
 // optional: Aufrufer, die beim Antippen einer Linie ein Popup mit "öffnen"-Knopf zur jeweiligen
 // Route wollen (analog zum Antippen der Route-Karte in der Liste), übergeben hier ihre eigene
-// "Route-Detail öffnen"-Logik — Hütte/Tour/Sektor haben je einen eigenen Modal-Typ dafür.
+// "Route-Detail öffnen"-Logik – Hütte/Tour/Sektor haben je einen eigenen Modal-Typ dafür.
 function renderHutAccessRoutesMap(containerId, points, routes, manualTrack, onRouteClick){
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
@@ -14047,7 +14216,7 @@ function renderHutAccessRoutesMap(containerId, points, routes, manualTrack, onRo
     const hasPoints = points && points.length;
     const hasManualTrack = manualTrack && manualTrack.length;
     if(!tracks.length && !hasPoints && !hasManualTrack){
-      if(el2) el2.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Keine Kartendaten vorhanden — noch kein Zustieg hat eine Linie oder einen GPX-Track.</p>';
+      if(el2) el2.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Keine Kartendaten vorhanden – noch kein Zustieg hat eine Linie oder einen GPX-Track.</p>';
       return;
     }
     const mapDivId = containerId + '-inner';
@@ -14063,7 +14232,7 @@ function renderHutAccessRoutesMap(containerId, points, routes, manualTrack, onRo
     const startView = tracks.length ? tracks[0].coords[0] : (hasManualTrack ? manualTrack[0] : [points[0].lat, points[0].lon]);
     const map = fsmCreateFlMap(mapDivId).setView(startView, isFullscreen ? 14 : 13);
     registerMap(mapDivId, map);
-    // Popup mit Name + "öffnen"-Knopf fürs Antippen einer Route-Linie — bewusst als eigener,
+    // Popup mit Name + "öffnen"-Knopf fürs Antippen einer Route-Linie – bewusst als eigener,
     // kleiner Baustein hier (statt die gleichnamige Variante aus renderStandaloneMap zu teilen),
     // um die riesige, eng verzahnte Standalone-Karten-Funktion nicht anfassen zu müssen.
     function openRoutePopup(latlng, route){
@@ -14089,7 +14258,7 @@ function renderHutAccessRoutesMap(containerId, points, routes, manualTrack, onRo
     }
     tracks.forEach(t=>{
       try{
-        // Breite unsichtbare Klickfläche unter der sichtbaren, dünnen Linie — deutlich leichter
+        // Breite unsichtbare Klickfläche unter der sichtbaren, dünnen Linie – deutlich leichter
         // mit dem Finger zu treffen (analog zur Standalone-Übersichtskarte).
         const hitLine = FL.polyline(t.coords, {color:'#000', weight:22, opacity:0}).addTo(map);
         FL.polyline(t.coords, {color:'#ffffff', weight:7, opacity:0.7}).addTo(map);
@@ -14144,14 +14313,14 @@ function accessRouteFormHtml(hutId, route){
       </div>
       <div class="field"><label>Schwierigkeit (SAC)</label>
         <select name="difficulty">
-          <option value="">— keine Angabe —</option>
-          ${DIFF_ORDER.map(c=>`<option value="${c}" ${r.difficulty===c?'selected':''}>${c} — ${DIFF[c].label}</option>`).join('')}
+          <option value="">– keine Angabe –</option>
+          ${DIFF_ORDER.map(c=>`<option value="${c}" ${r.difficulty===c?'selected':''}>${c} – ${DIFF[c].label}</option>`).join('')}
         </select>
       </div>
       <div class="field"><label>Wanderskala (T)</label>
         <select name="difficultyT">
-          <option value="">— keine Angabe —</option>
-          ${HIKE_SCALE_ORDER.map(c=>`<option value="${c}" ${r.difficultyT===c?'selected':''}>${c} — ${HIKE_SCALE[c].label}</option>`).join('')}
+          <option value="">– keine Angabe –</option>
+          ${HIKE_SCALE_ORDER.map(c=>`<option value="${c}" ${r.difficultyT===c?'selected':''}>${c} – ${HIKE_SCALE[c].label}</option>`).join('')}
         </select>
       </div>
       <div class="field"><label>Beschreibung</label><textarea name="description">${esc(r.description||'')}</textarea></div>
@@ -14228,7 +14397,7 @@ function accessRouteDetailHtml(hutId, route){
   </div>`;
 }
 
-/* ================= Topo-Bilder (MSL/Hochtour) — Cloud Storage ================= */
+/* ================= Topo-Bilder (MSL/Hochtour) – Cloud Storage ================= */
 const TOPO_IMAGES_PATH = 'topoImages';
 const TOPO_IMAGE_MAX_COUNT = 10;
 
@@ -14248,7 +14417,7 @@ function compressImageFile(file, maxWidth, quality){
           if(blob) resolve(blob); else reject(new Error('Komprimierung fehlgeschlagen.'));
         }, 'image/jpeg', quality);
       };
-      img.onerror = ()=> reject(new Error('Bild konnte nicht gelesen werden — ist es eine gültige Bilddatei?'));
+      img.onerror = ()=> reject(new Error('Bild konnte nicht gelesen werden – ist es eine gültige Bilddatei?'));
       img.src = reader.result;
     };
     reader.onerror = ()=> reject(new Error('Datei konnte nicht gelesen werden.'));
@@ -14279,7 +14448,7 @@ async function deleteTopoImageFile(storagePath){
   }catch(e){ return false; }
 }
 
-// cropRect: {x,y,w,h,naturalW,naturalH} — x..h als Brüche 0..1 relativ zum UNROTIERTEN
+// cropRect: {x,y,w,h,naturalW,naturalH} – x..h als Brüche 0..1 relativ zum UNROTIERTEN
 // Originalbild; das Original bleibt in Storage unverändert.
 // Ein Baustein für alle Stellen, die ein Topo-Bild mit Ausschnitt zeigen (Miniaturen, Galerie,
 // Karten-Popup, Vollbild): Ausschnitt UND Drehung werden gemeinsam berücksichtigt, und der
@@ -14322,7 +14491,7 @@ function topoImagesJsonForViewer(images){
 }
 
 // images wird explizit übergeben (statt aus dem hiddenListId-Feld gelesen): beim allerersten
-// Rendern eines Formulars existiert das zugehörige Hidden-Input im DOM noch gar nicht — das
+// Rendern eines Formulars existiert das zugehörige Hidden-Input im DOM noch gar nicht – das
 // Formular-HTML wird ja gerade erst als String gebaut. Ein DOM-Read an dieser Stelle liefe daher
 // leer, und die Miniaturansicht (samt Dreh-/Entfernen-Buttons) würde beim Öffnen fehlen.
 function topoImageThumbsHtml(images, hiddenListId){
@@ -14332,8 +14501,8 @@ function topoImageThumbsHtml(images, hiddenListId){
     `<span class="chip" style="background:var(--ice-light); border-color:transparent; padding:3px 8px 3px 3px; display:inline-flex; align-items:center; gap:6px;">
       ${topoImageBoxHtml(img, 32, 32, `data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}"`, 'border-radius:2px; cursor:pointer;')}
       Bild ${i+1}${img.cropRect ? ' · ✂️' : ''}
-      <button type="button" data-act="crop-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="Ausschnitt festlegen — nur dieser Teil wird in Listen/Details gezeigt, das Originalbild bleibt erhalten" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">✂️</button>
-      <button type="button" data-act="rotate-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="90° drehen — z. B. wenn quer statt hoch hochgeladen" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">🔄</button>
+      <button type="button" data-act="crop-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="Ausschnitt festlegen – nur dieser Teil wird in Listen/Details gezeigt, das Originalbild bleibt erhalten" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">✂️</button>
+      <button type="button" data-act="rotate-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" title="90° drehen – z. B. wenn quer statt hoch hochgeladen" style="background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">🔄</button>
       ${i > 0 ? `<button type="button" class="fs-topo-move" onclick="moveTopoImageLocal('${hiddenListId}','${esc(img.id)}',-1)" aria-label="Nach vorne">←</button>` : ''}
       ${i < images.length - 1 ? `<button type="button" class="fs-topo-move" onclick="moveTopoImageLocal('${hiddenListId}','${esc(img.id)}',1)" aria-label="Nach hinten">→</button>` : ''}
       <button type="button" data-act="remove-topo-image-local" data-hidden-id="${hiddenListId}" data-image-id="${esc(img.id)}" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:14px; line-height:1; padding:0 2px;">×</button>
@@ -14368,7 +14537,7 @@ function removeTopoImageLocal(hiddenListId, imageId){
   if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
 }
 
-// Dreht ein Topo-Bild um 90° (nur die Anzeige-Drehung als Metadatum — das Original-Bild bleibt
+// Dreht ein Topo-Bild um 90° (nur die Anzeige-Drehung als Metadatum – das Original-Bild bleibt
 // unverändert). Praktisch für Bilder, die quer statt hoch hochgeladen wurden.
 function rotateTopoImageLocal(hiddenListId, imageId){
   const hiddenInput = document.getElementById(hiddenListId);
@@ -14383,7 +14552,7 @@ function rotateTopoImageLocal(hiddenListId, imageId){
   if(thumbContainer) thumbContainer.innerHTML = topoImageThumbsHtml(images, hiddenListId);
 }
 
-// Setzt/löscht den Ausschnitt (cropRect) eines Topo-Bilds — reine Anzeige-Metadaten wie bei
+// Setzt/löscht den Ausschnitt (cropRect) eines Topo-Bilds – reine Anzeige-Metadaten wie bei
 // rotation, das Original bleibt in Storage unverändert; cropRect:null zeigt sofort wieder das
 // ganze Bild ("Zurücksetzen").
 function setTopoImageCropLocal(hiddenListId, imageId, cropRect){
@@ -14400,8 +14569,8 @@ function setTopoImageCropLocal(hiddenListId, imageId, cropRect){
 }
 
 // Rechnet ein auf dem angezeigten (ggf. rotierten) Bild gezogenes Auswahlrechteck
-// (dx,dy,dw,dh — Brüche 0..1 relativ zur Anzeige) zurück in Brüche relativ zum UNROTIERTEN
-// Originalbild — nötig, weil cropRect immer im Original-Koordinatensystem gespeichert wird
+// (dx,dy,dw,dh – Brüche 0..1 relativ zur Anzeige) zurück in Brüche relativ zum UNROTIERTEN
+// Originalbild – nötig, weil cropRect immer im Original-Koordinatensystem gespeichert wird
 // (unabhängig von der aktuellen rotation), damit ein späteres Drehen den Ausschnitt nicht
 // verschiebt. rotation ist immer ein Vielfaches von 90°, daher bildet sich ein Rechteck exakt
 // auf ein Rechteck ab (keine Interpolation nötig).
@@ -14414,7 +14583,7 @@ function topoCropDisplayRectToOriginal(dx, dy, dw, dh, rotation){
 }
 
 // Vollbild-Editor: Ausschnitt für ein Topo-Bild markieren (ziehen = neues Rechteck). Zeigt das
-// Bild in seiner aktuellen Drehung an (wie überall sonst) — die Auswahl wird beim Übernehmen ins
+// Bild in seiner aktuellen Drehung an (wie überall sonst) – die Auswahl wird beim Übernehmen ins
 // unrotierte Original-Koordinatensystem zurückgerechnet (siehe topoCropDisplayRectToOriginal),
 // damit ein späteres 🔄 Drehen den einmal gewählten Ausschnitt nicht verschiebt.
 function openTopoCropEditor(hiddenListId, imageId){
@@ -14490,7 +14659,7 @@ function openTopoCropEditor(hiddenListId, imageId){
     // Rahmen mit 8 Griffen (Ecken + Kanten). Jeder Griff hat eine grosse, unsichtbare
     // Trefferfläche (44 px, auch mit nassen Handschuh-Fingern treffbar), sichtbar ist nur der Punkt.
     // In den Rahmen tippen und ziehen = Rahmen verschieben; ausserhalb tippen = nichts (früher
-    // startete das eine neue Auswahl — der Rahmen "sprang" ständig).
+    // startete das eine neue Auswahl – der Rahmen "sprang" ständig).
     const selEl = document.createElement('div');
     selEl.style.cssText = 'position:absolute; border:2.5px solid var(--signal); box-sizing:border-box; box-shadow:0 0 0 4000px rgba(0,0,0,0.55); touch-action:none; cursor:move;';
     stage.appendChild(selEl);
@@ -14601,7 +14770,7 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
   if(!tourId){ tourId = uid('t'); if(tourIdInput) tourIdInput.value = tourId; }
   const filesToAdd = Array.from(files).slice(0, Math.max(0, TOPO_IMAGE_MAX_COUNT - images.length));
   if(!filesToAdd.length){
-    if(statusEl) statusEl.textContent = `Maximal ${TOPO_IMAGE_MAX_COUNT} Bilder pro Tour — zuerst eins entfernen.`;
+    if(statusEl) statusEl.textContent = `Maximal ${TOPO_IMAGE_MAX_COUNT} Bilder pro Tour – zuerst eins entfernen.`;
     fileInputEl.value = '';
     return;
   }
@@ -14609,7 +14778,7 @@ function handleTopoImageUpload(fileInputEl, tourIdHiddenId, hiddenListId, status
     for(let i=0; i<filesToAdd.length; i++){
       const rawFile = filesToAdd[i];
       const cropped = await openImageCropDialog(rawFile);
-      if(!cropped) continue; // "Bild überspringen" oder Zurück-Taste — dieses Bild nicht übernehmen
+      if(!cropped) continue; // "Bild überspringen" oder Zurück-Taste – dieses Bild nicht übernehmen
       const file = cropped;
       if(statusEl) statusEl.textContent = `Bild ${images.length+1}/${TOPO_IMAGE_MAX_COUNT} wird komprimiert…`;
       try{
@@ -14640,7 +14809,7 @@ function topoImagesGalleryHtml(images){
   if(!images || !images.length) return '';
   const imagesJson = topoImagesJsonForViewer(images);
   // Ganzes Foto (bzw. ganzer Ausschnitt) im eigenen Seitenverhältnis statt in ein Quadrat
-  // gepresst — dieselbe schon geladene Bilddatei, kein zusätzlicher Datentraffic.
+  // gepresst – dieselbe schon geladene Bilddatei, kein zusätzlicher Datentraffic.
   return `<div class="chips topo-gallery" style="margin-top:6px;">${images.map((img,i)=>
     topoImageBoxHtml(img, 170, null, `data-act="view-topo-image" data-images='${imagesJson}' data-index="${i}"`, 'border-radius:var(--radius); border:1px solid var(--line); cursor:pointer;', 230)
   ).join('')}</div>`;
@@ -14695,7 +14864,7 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); closeTopOverlayLayer(); });
   overlay.appendChild(closeBtn);
 
-  // Ist ein Ausschnitt gesetzt, zeigt das Vollbild zuerst ihn — mit diesem Knopf jederzeit das
+  // Ist ein Ausschnitt gesetzt, zeigt das Vollbild zuerst ihn – mit diesem Knopf jederzeit das
   // ganze Originalbild (z. B. um im Gelände den Rest des Topos anzuschauen).
   const cropToggleBtn = document.createElement('button');
   cropToggleBtn.type = 'button';
@@ -14743,7 +14912,7 @@ function showTopoImageLightbox(images, startIndex, offlineId){
 
   function updateImage(){
     const item = images[idx];
-    // Bei um 90°/270° gedrehten Bildern vertauschen sich Breite/Höhe der sichtbaren Fläche —
+    // Bei um 90°/270° gedrehten Bildern vertauschen sich Breite/Höhe der sichtbaren Fläche –
     // sonst würde das gedrehte Bild über den Bildschirmrand hinausragen bzw. winzig erscheinen.
     currentRotation = item.rotation || 0;
     const useCrop = showCrop && hasUsableCrop(item);
@@ -14772,7 +14941,7 @@ function showTopoImageLightbox(images, startIndex, offlineId){
       }
     }
     applyTransform(false);
-    // Bild sofort anzeigen — nicht auf die Offline-Prüfung warten, damit im
+    // Bild sofort anzeigen – nicht auf die Offline-Prüfung warten, damit im
     // Zweifel (z. B. hängender IndexedDB-Zugriff) trotzdem etwas erscheint.
     imgEl.src = item.url;
     if(counterEl) counterEl.textContent = `${idx+1} / ${images.length}`;
@@ -14782,7 +14951,7 @@ function showTopoImageLightbox(images, startIndex, offlineId){
       const myIdx = idx;
       idbGet('images', offlineId + '_' + item.id).then(blob=>{
         if(blob && idx===myIdx){ imgEl.src = URL.createObjectURL(blob); } // nur ersetzen, falls zwischenzeitlich nicht weitergeblättert wurde
-      }).catch(()=>{ /* kein Offline-Bild vorhanden — angezeigte URL bleibt bestehen */ });
+      }).catch(()=>{ /* kein Offline-Bild vorhanden – angezeigte URL bleibt bestehen */ });
     }
   }
   updateImage();
@@ -14881,9 +15050,9 @@ function showTopoImageLightbox(images, startIndex, offlineId){
 /* ================= Kletterrouten-Liste (mehrere benannte Routen an einer Wand) =================
    Anders als eine einzelne MSL-Tour (= eine Route mit einer Schwierigkeit) kann ein Sektor mehrere
    benannte Kletterrouten haben, die sich ein gemeinsames Topo-Bild teilen (z. B. ein ganzer
-   Klettergarten-Sektor mit 16 Routen an einer Wand — "Klettergarten" ist dabei nur das Etikett für
+   Klettergarten-Sektor mit 16 Routen an einer Wand – "Klettergarten" ist dabei nur das Etikett für
    einen Sektor mit einer solchen Liste, keine eigene Tour). Die Liste lässt sich Zeile für Zeile von
-   Hand pflegen ODER als Text einfügen — z. B. das Ergebnis, wenn man einer Chat-KI (Claude/ChatGPT/
+   Hand pflegen ODER als Text einfügen – z. B. das Ergebnis, wenn man einer Chat-KI (Claude/ChatGPT/
    Gemini), die man ohnehin schon abonniert hat, ein Foto der Führerbuch-Seite gibt und um eine Liste
    "Nr. | Name | Grad" bittet. parseKletterroutenText() zerlegt das automatisch. */
 function kletterrouteGradeTier(grad){
@@ -14896,7 +15065,7 @@ function kletterrouteGradeTier(grad){
 }
 const KLETTERROUTE_GRADE_COLORS = { easy: '#3C7A52', mid: '#A87A1F', hard: '#B0392C' };
 
-// Sortierwert für französische Kletter-Grade (3a < 3a+ < 3b < … < 4a < …) — nur zum Vergleichen/
+// Sortierwert für französische Kletter-Grade (3a < 3a+ < 3b < … < 4a < …) – nur zum Vergleichen/
 // Sortieren gedacht, kein exaktes Schwierigkeitsmass. Liefert null bei unbekanntem Format.
 function kletterrouteGradeSortValue(grad){
   const m = String(grad||'').match(/^(\d+)\s*([a-c])?\s*(\+)?/i);
@@ -14905,7 +15074,7 @@ function kletterrouteGradeSortValue(grad){
   const letterVal = { a:0, b:1, c:2 }[(m[2]||'a').toLowerCase()] || 0;
   return num*10 + letterVal*3 + (m[3] ? 1 : 0);
 }
-// Kurze Grad-Spanne für Sektor-Kärtchen (z. B. "3a–7a") — damit man beim Durchblättern mehrerer
+// Kurze Grad-Spanne für Sektor-Kärtchen (z. B. "3a–7a") – damit man beim Durchblättern mehrerer
 // Sektoren eines Klettergebiets auf einen Blick sieht, was einen erwartet.
 function kletterroutenGradeRangeText(routes){
   const values = (routes||[]).map(r=>({grad:r.grad, v:kletterrouteGradeSortValue(r.grad)})).filter(x=>x.v!==null);
@@ -14916,7 +15085,7 @@ function kletterroutenGradeRangeText(routes){
 }
 
 // Erkennt mit |, ; , Komma oder Tab getrennte Zeilen (auch als Markdown-Tabelle mit
-// führendem/abschliessendem |) sowie reine Leerzeichen-Trennung — dann gilt: erstes Token = Nr.
+// führendem/abschliessendem |) sowie reine Leerzeichen-Trennung – dann gilt: erstes Token = Nr.
 // (falls rein numerisch), letztes gradartig aussehende Token = Grad, alles dazwischen = Name.
 // Kopfzeilen ("Nr. | Name | Grad") werden erkannt und übersprungen. Zeilen ohne erkennbare Nummer
 // bekommen automatisch die nächste freie ab startNr.
@@ -14955,7 +15124,7 @@ function parseKletterroutenText(text, startNr){
   return out;
 }
 
-// Reine Anzeige (Sektor-Detailansicht) — nicht editierbar.
+// Reine Anzeige (Sektor-Detailansicht) – nicht editierbar.
 function kletterroutenTableHtml(routes){
   if(!routes || !routes.length) return '';
   const sorted = routes.slice().sort((a,b)=> (a.nr||0) - (b.nr||0));
@@ -14985,7 +15154,7 @@ function blobToBase64(blob){
 }
 
 // Schickt ein Topo-Foto an die Cloud Function scanKletterrouten (siehe functions/index.js) und
-// trägt die erkannten Routen automatisch in die Kletterrouten-Liste ein — bestehende Zeilen
+// trägt die erkannten Routen automatisch in die Kletterrouten-Liste ein – bestehende Zeilen
 // bleiben erhalten, erkannte kommen dazu. Das Foto kommt entweder frisch aus dem Datei-Feld, oder
 // (falls dort gerade nichts ausgewählt ist) vom zuletzt hochgeladenen Topo-Bild: der Datei-Input
 // wird von handleTopoImageUpload nach jedem Upload geleert (siehe dort), daher ist "oben ein Foto
@@ -14993,7 +15162,7 @@ function blobToBase64(blob){
 async function scanTopoImageForRoutes(fileInputEl, hiddenInputId, containerId, statusElId, topoImagesHiddenId){
   const statusEl = document.getElementById(statusElId);
   if(!SCAN_KLETTERROUTEN_URL){
-    showToast('Foto-Scan ist noch nicht eingerichtet — siehe functions/README.md.', true);
+    showToast('Foto-Scan ist noch nicht eingerichtet – siehe functions/README.md.', true);
     return;
   }
   const file = fileInputEl && fileInputEl.files && fileInputEl.files[0];
@@ -15052,8 +15221,8 @@ async function scanTopoImageForRoutes(fileInputEl, hiddenInputId, containerId, s
     const infoFilled = fsFillSektorFormInfo(data.info);
     markModalDirty(); // erkannte Routen sind eine Änderung: Schliessen fragt nach, Entwurf wird gesichert
     renderKletterroutenEditor(containerId, hiddenInputId);
-    if(statusEl) statusEl.textContent = (added.length ? `✓ ${added.length} Route(n) erkannt` : 'Keine Routen erkannt') + (infoFilled.length ? ' · ausgefüllt: ' + infoFilled.join(', ') : '') + (added.length || infoFilled.length ? ' — bitte kurz prüfen.' : '.');
-    showToast(added.length ? (added.length + ' Route(n) erkannt und übernommen.') : 'Keine Routen erkannt — Foto evtl. unscharf oder falscher Ausschnitt.', !added.length);
+    if(statusEl) statusEl.textContent = (added.length ? `✓ ${added.length} Route(n) erkannt` : 'Keine Routen erkannt') + (infoFilled.length ? ' · ausgefüllt: ' + infoFilled.join(', ') : '') + (added.length || infoFilled.length ? ' – bitte kurz prüfen.' : '.');
+    showToast(added.length ? (added.length + ' Route(n) erkannt und übernommen.') : 'Keine Routen erkannt – Foto evtl. unscharf oder falscher Ausschnitt.', !added.length);
   }catch(e){
     if(statusEl) statusEl.textContent = '';
     showToast('Foto-Scan fehlgeschlagen: ' + (e.message || e), true);
@@ -15117,7 +15286,7 @@ function fsFillSektorFormInfo(info){
 async function scanKlettergebietPhoto(gebId, fileInputEl, statusElId){
   const statusEl = document.getElementById(statusElId);
   if(!SCAN_KLETTERGEBIET_URL){
-    showToast('Mehrfach-Sektor-Scan ist noch nicht eingerichtet — siehe functions/README.md.', true);
+    showToast('Mehrfach-Sektor-Scan ist noch nicht eingerichtet – siehe functions/README.md.', true);
     return;
   }
   const files = fileInputEl && fileInputEl.files ? Array.from(fileInputEl.files) : [];
@@ -15151,22 +15320,22 @@ async function scanKlettergebietPhoto(gebId, fileInputEl, statusElId){
   }
   if(statusEl) statusEl.textContent = '';
   if(!allSectors.length){
-    showToast('Keine Sektoren erkannt — Foto(s) evtl. unscharf oder falscher Ausschnitt.', true);
+    showToast('Keine Sektoren erkannt – Foto(s) evtl. unscharf oder falscher Ausschnitt.', true);
     return;
   }
   if(failedCount){
-    showToast(failedCount + ' von ' + files.length + ' Foto(s) konnten nicht ausgewertet werden — die übrigen wurden trotzdem erkannt.', true);
+    showToast(failedCount + ' von ' + files.length + ' Foto(s) konnten nicht ausgewertet werden – die übrigen wurden trotzdem erkannt.', true);
   }
   openKlettergebietScanReview(gebId, allSectors, gebietName);
 }
 
 // gebId===null bedeutet "neues Klettergebiet": submitKlettergebietScanReview legt dann zuerst
 // ein neues Klettergebiet an (Name aus dem editierbaren Feld, vorbefüllt mit gebietName aus dem
-// Scan) und hängt die erkannten Sektoren dort ein — sonst werden sie an ein bestehendes Gebiet
+// Scan) und hängt die erkannten Sektoren dort ein – sonst werden sie an ein bestehendes Gebiet
 // (gebId) angehängt, wie beim Scan von der Klettergebiet-Detailseite aus.
 function openKlettergebietScanReview(gebId, sectors, gebietName){
   // Vorschaubild pro Sektor cachen (statt bei jedem Render neu zu erzeugen) und jeder Route schon
-  // hier eine stabile id geben — die braucht das "Route verschieben"-Werkzeug unten, um eine Route
+  // hier eine stabile id geben – die braucht das "Route verschieben"-Werkzeug unten, um eine Route
   // eindeutig zwischen zwei Sektoren zu identifizieren, bevor sie überhaupt als Sektor gespeichert ist.
   sectors.forEach(sec=>{
     (sec.routes||[]).forEach(r=>{ if(!r.id) r.id = uid('kr'); });
@@ -15180,7 +15349,7 @@ function klettergebietScanReviewHtml(payload){
   const { sectors, gebId, gebietName } = payload;
   const isNewGebiet = !gebId;
   const photoCount = new Set(sectors.map(s=>s._sourceFile)).size;
-  // Gleicher (normalisierter) Name in mehreren Sektoren deutet auf eine Doppelerkennung hin — z. B.
+  // Gleicher (normalisierter) Name in mehreren Sektoren deutet auf eine Doppelerkennung hin – z. B.
   // wenn zwei Fotos denselben Bereich überlappend zeigen. Sichtbar markieren statt stillschweigend
   // beide anzulegen, damit man es vor dem Übernehmen bemerkt.
   const nameCounts = {};
@@ -15190,9 +15359,9 @@ function klettergebietScanReviewHtml(payload){
     ${isNewGebiet ? `<div class="field" style="margin-bottom:14px;">
       <label>Klettergebiet-Name *</label>
       <input type="text" id="klettergebiet-scan-gebiet-name" value="${esc(gebietName||'')}" placeholder="z. B. Sewen"/>
-      ${!gebietName ? `<p style="font-size:12.5px; color:var(--ink-soft); margin:4px 0 0 0;">Kein Titel auf dem Foto erkannt — bitte Namen eintragen.</p>` : ''}
+      ${!gebietName ? `<p style="font-size:12.5px; color:var(--ink-soft); margin:4px 0 0 0;">Kein Titel auf dem Foto erkannt – bitte Namen eintragen.</p>` : ''}
     </div>` : ''}
-    <p style="font-size:13px; color:var(--ink-soft);">${sectors.length} Sektor${sectors.length===1?'':'en'} erkannt${photoCount>1 ? ' aus ' + photoCount + ' Fotos' : ''} — Foto, Name und Routen vor dem Übernehmen kurz prüfen, jeder wird als eigener, neuer Sektor angelegt.</p>
+    <p style="font-size:13px; color:var(--ink-soft);">${sectors.length} Sektor${sectors.length===1?'':'en'} erkannt${photoCount>1 ? ' aus ' + photoCount + ' Fotos' : ''} – Foto, Name und Routen vor dem Übernehmen kurz prüfen, jeder wird als eigener, neuer Sektor angelegt.</p>
     <div id="klettergebiet-scan-sectors">
       ${sectors.map((sec,i)=>{
         const key = (sec.name||'').trim().toLowerCase();
@@ -15208,8 +15377,8 @@ function klettergebietScanReviewHtml(payload){
             </div>
             <button type="button" class="scan-sector-discard btn secondary" data-index="${i}" style="margin-top:20px; font-size:12px; padding:5px 10px; white-space:nowrap;">🗑️ Verwerfen</button>
           </div>
-          ${isDuplicate ? `<p style="font-size:12px; color:var(--danger); margin:6px 0 0 0;">⚠ Möglicherweise doppelt erkannt — gleicher Name wie ein anderer Sektor unten. Bitte vergleichen, dann einen verwerfen oder Routen zusammenführen.</p>` : ''}
-          ${isUnsortiert ? `<p style="font-size:12px; color:var(--danger); margin:6px 0 0 0;">⚠ Diese Routen konnten nicht eindeutig einem Sektor zugeordnet werden — bitte unten mit "Route verschieben" den richtigen Sektoren zuweisen.</p>` : ''}
+          ${isDuplicate ? `<p style="font-size:12px; color:var(--danger); margin:6px 0 0 0;">⚠ Möglicherweise doppelt erkannt – gleicher Name wie ein anderer Sektor unten. Bitte vergleichen, dann einen verwerfen oder Routen zusammenführen.</p>` : ''}
+          ${isUnsortiert ? `<p style="font-size:12px; color:var(--danger); margin:6px 0 0 0;">⚠ Diese Routen konnten nicht eindeutig einem Sektor zugeordnet werden – bitte unten mit "Route verschieben" den richtigen Sektoren zuweisen.</p>` : ''}
           ${sec._previewUrl ? `<img src="${esc(sec._previewUrl)}" alt="Foto-Vorschau" style="display:block; max-width:100%; max-height:220px; margin-top:10px; border-radius:6px; cursor:zoom-in; object-fit:contain;" onclick="showTopoImageLightbox([{url:'${esc(sec._previewUrl)}'}],0)"/>` : ''}
           ${fsSektorInfoReviewHtml(sec.info, i)}
           <div id="scan-sector-editor-${i}" style="margin-top:10px;"></div>
@@ -15239,7 +15408,7 @@ function wireKlettergebietScanReviewModal(){
   payload.sectors.forEach((sec,i)=> renderKletterroutenEditor('scan-sector-editor-'+i, 'scan-sector-hidden-'+i));
   applyBtn.addEventListener('click', ()=> submitKlettergebietScanReview());
 
-  // Verwerfen: Karte einfach aus der Liste nehmen und die ganze Prüfansicht neu aufbauen — dadurch
+  // Verwerfen: Karte einfach aus der Liste nehmen und die ganze Prüfansicht neu aufbauen – dadurch
   // verschieben sich die Indizes der übrigen Karten automatisch konsistent mit, kein Nachführen nötig.
   document.querySelectorAll('.scan-sector-discard').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -15249,7 +15418,7 @@ function wireKlettergebietScanReviewModal(){
     });
   });
 
-  // Route zwischen zwei erkannten Sektoren verschieben, bevor überhaupt etwas gespeichert wird —
+  // Route zwischen zwei erkannten Sektoren verschieben, bevor überhaupt etwas gespeichert wird –
   // behebt falsch gruppierte Routen (z. B. bei unübersichtlichen Mehrsektor-Fotos), ohne alles neu
   // abtippen zu müssen. Die Dropdown-Optionen werden erst bei Fokus aktuell befüllt (nicht fest im
   // HTML), da sich Routenlisten/Sektor-Namen währenddessen durch Bearbeiten laufend ändern können.
@@ -15260,7 +15429,7 @@ function wireKlettergebietScanReviewModal(){
     let routes = [];
     try{ routes = JSON.parse(hiddenInput.value || '[]'); }catch(e){ routes = []; }
     sel.innerHTML = routes.length
-      ? routes.map(r=>`<option value="${esc(r.id)}">${esc((r.nr!=null?r.nr+'. ':'') + (r.name||'—'))}</option>`).join('')
+      ? routes.map(r=>`<option value="${esc(r.id)}">${esc((r.nr!=null?r.nr+'. ':'') + (r.name||'–'))}</option>`).join('')
       : `<option value="">(keine Routen)</option>`;
   }
   function refreshMoveTargetOptions(i){
@@ -15353,7 +15522,7 @@ async function submitKlettergebietScanReview(){
       const storagePath = `${TOPO_IMAGES_PATH}/${sek.id}/${imgId}.jpg`;
       const url = await uploadTopoImageBlob(blob, storagePath);
       sek.topoImages = [{ id: imgId, url, storagePath }];
-    }catch(e){ /* Topo-Bild kann später manuell ergänzt werden — kein Abbruch */ }
+    }catch(e){ /* Topo-Bild kann später manuell ergänzt werden – kein Abbruch */ }
     delete sek._sourceFile;
   }
 
@@ -15371,18 +15540,18 @@ async function submitKlettergebietScanReview(){
     showToast((newGeb ? 'Klettergebiet mit ' : '') + created.length + ' Sektor' + (created.length===1?'':'en') + ' angelegt und synchronisiert.');
   }else{
     markUnsaved();
-    showToast('Einiges ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Einiges ist');
   }
   render();
 }
 
-// Foto-Scan für einen einzelnen Zustieg/Abstieg — füllt direkt die gleichnamigen Formularfelder
+// Foto-Scan für einen einzelnen Zustieg/Abstieg – füllt direkt die gleichnamigen Formularfelder
 // (name/elevation/elevationUp/duration/difficultyT/description), egal ob Hütten-Zustieg
 // (accessRouteFormHtml), Tour-Route oder Sektor-Route: alle drei nutzen dieselben Feldnamen.
 async function scanZustiegIntoForm(fileInputEl, formEl, statusElId){
   const statusEl = document.getElementById(statusElId);
   if(!SCAN_ZUSTIEG_URL){
-    showToast('Foto-Scan ist noch nicht eingerichtet — siehe functions/README.md.', true);
+    showToast('Foto-Scan ist noch nicht eingerichtet – siehe functions/README.md.', true);
     return;
   }
   const file = fileInputEl && fileInputEl.files && fileInputEl.files[0];
@@ -15418,8 +15587,8 @@ async function scanZustiegIntoForm(fileInputEl, formEl, statusElId){
       const sel = formEl.querySelector('[name="difficultyT"]');
       if(sel) sel.value = data.difficultyT;
     }
-    if(statusEl) statusEl.textContent = '✓ Angaben übernommen — bitte kurz prüfen.';
-    showToast('Angaben erkannt und übernommen — bitte kurz prüfen.');
+    if(statusEl) statusEl.textContent = '✓ Angaben übernommen – bitte kurz prüfen.';
+    showToast('Angaben erkannt und übernommen – bitte kurz prüfen.');
     markModalDirty();
   }catch(e){
     if(statusEl) statusEl.textContent = '';
@@ -15427,14 +15596,14 @@ async function scanZustiegIntoForm(fileInputEl, formEl, statusElId){
   }
 }
 
-// Wiederverwendbarer Foto-Scan-Block fürs Zustieg/Abstieg-Formular (Hütte/Tour/Sektor) —
+// Wiederverwendbarer Foto-Scan-Block fürs Zustieg/Abstieg-Formular (Hütte/Tour/Sektor) –
 // idPrefix macht die Element-IDs pro Formular eindeutig.
 function scanZustiegButtonHtml(idPrefix){
   return `<div class="field">
     <button type="button" class="btn secondary" id="${idPrefix}-scan-btn">📷 Foto scannen</button>
     <input type="file" id="${idPrefix}-scan-input" accept="image/*" style="display:none;"/>
     <p id="${idPrefix}-scan-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;"></p>
-    <div class="hint">Liest Name/Höhenmeter/Zeit/Beschreibung aus einem Foto der Führerbuch-Seite und trägt sie unten ein — bitte danach kurz prüfen.</div>
+    <div class="hint">Liest Name/Höhenmeter/Zeit/Beschreibung aus einem Foto der Führerbuch-Seite und trägt sie unten ein – bitte danach kurz prüfen.</div>
   </div>`;
 }
 function wireScanZustiegButton(idPrefix, formEl){
@@ -15478,7 +15647,7 @@ function renderKletterroutenEditor(containerId, hiddenInputId){
     const pasteHint = document.createElement('p');
     pasteHint.className = 'hint';
     pasteHint.style.marginBottom = '4px';
-    pasteHint.textContent = 'Tipp: Foto der Führerbuch-Seite einer Chat-KI (z. B. Claude, ChatGPT, Gemini) geben und um eine Liste "Nr. | Name | Grad" bitten — das Ergebnis hier einfügen.';
+    pasteHint.textContent = 'Tipp: Foto der Führerbuch-Seite einer Chat-KI (z. B. Claude, ChatGPT, Gemini) geben und um eine Liste "Nr. | Name | Grad" bitten – das Ergebnis hier einfügen.';
     wrap.appendChild(pasteHint);
 
     const pasteArea = document.createElement('textarea');
@@ -15494,7 +15663,7 @@ function renderKletterroutenEditor(containerId, hiddenInputId){
     pasteBtn.addEventListener('click', ()=>{
       const nextNr = routes.reduce((max,r)=> Math.max(max, r.nr||0), 0) + 1;
       const parsed = parseKletterroutenText(pasteArea.value, nextNr);
-      if(!parsed.length){ showToast('Keine Routen erkannt — Format prüfen.', true); return; }
+      if(!parsed.length){ showToast('Keine Routen erkannt – Format prüfen.', true); return; }
       routes = routes.concat(parsed);
       persist();
       pasteArea.value = '';
@@ -15579,13 +15748,13 @@ function renderKletterroutenEditor(containerId, hiddenInputId){
 
 /* ================= Zuschneiden von Topo-Bildern vor dem Hochladen =================
    Bewusst VOR dem Hochladen, auf der lokal ausgewählten Datei: ein Zuschnitt am bereits
-   hochgeladenen Bild müsste es per <canvas> aus der Firebase-Storage-URL neu einlesen — das
+   hochgeladenen Bild müsste es per <canvas> aus der Firebase-Storage-URL neu einlesen – das
    scheitert ohne eigens am Storage-Bucket gesetzte CORS-Regeln. Die Dreh-Funktion oben umgeht
    dasselbe Problem, indem sie nur eine Anzeige-Metadaten-Drehung speichert statt die Pixel zu
    verändern; ein echter Zuschnitt braucht dagegen Pixelzugriff, den es nur vor dem Hochladen
    ohne Weiteres gibt. Gibt eine Promise zurück: das zugeschnittene Blob, die Originaldatei
    („Ohne Zuschneiden verwenden“ oder Zurück-Taste), oder null bei „Bild überspringen“.
-   Bild überspringen liefert dasselbe null wie die Zurück-Taste — beides heisst "dieses Bild
+   Bild überspringen liefert dasselbe null wie die Zurück-Taste – beides heisst "dieses Bild
    nicht übernehmen", ist also bewusst identisch behandelt. */
 function openImageCropDialog(file){
   return new Promise((resolve)=>{
@@ -15655,7 +15824,7 @@ function openImageCropDialog(file){
           boxRect = { left: margin, top: margin, width: iw - margin*2, height: ih - margin*2 };
           renderBox();
         }
-        // Läuft nach dem Layout — direkt nach dem Anhängen ist imgEl.clientWidth/Height noch 0.
+        // Läuft nach dem Layout – direkt nach dem Anhängen ist imgEl.clientWidth/Height noch 0.
         requestAnimationFrame(initBox);
         function clampBox(){
           const iw = imgEl.clientWidth, ih = imgEl.clientHeight;
@@ -15702,7 +15871,7 @@ function openImageCropDialog(file){
         CORNERS.forEach(c=> handles[c].addEventListener('pointerdown', (e)=> onPointerDown(c, e)));
 
         // Genau ein Rückgabepfad: alle Buttons setzen pendingResult und schliessen dann über den
-        // Overlay-Stack — so löst auch die Hardware-Zurück-Taste (popstate ruft denselben
+        // Overlay-Stack – so löst auch die Hardware-Zurück-Taste (popstate ruft denselben
         // registrierten closeFn) korrekt auf (dann bleibt pendingResult bei null = übersprungen).
         let pendingResult = null;
         pushOverlayLayer(()=>{ overlay.remove(); resolve(pendingResult); });
@@ -15892,7 +16061,7 @@ async function cleanupExpiredOfflineDownloads(){
         await deleteTourOfflineData(entry.key);
       }
     }
-  }catch(e){ /* Offline-Speicher evtl. nicht verfügbar — kein Problem, still ignorieren */ }
+  }catch(e){ /* Offline-Speicher evtl. nicht verfügbar – kein Problem, still ignorieren */ }
 }
 
 async function downloadTourOffline(offlineId, tourName, allCoords, images, onProgress){
@@ -15945,7 +16114,7 @@ function formatOfflineRemaining(expiresAt){
 /* ================= Live-GPS-Standort auf der Karte ================= */
 let gpsWatchId = null;
 let gpsMarker = null;
-let gpsActiveOfflineId = null; // für welche Tour GPS aktuell läuft — überlebt einen Kartenwechsel (z. B. beim Öffnen der Vollbildansicht)
+let gpsActiveOfflineId = null; // für welche Tour GPS aktuell läuft – überlebt einen Kartenwechsel (z. B. beim Öffnen der Vollbildansicht)
 // Akku: Standort schaltet sich nach 5 Minuten selbst ab (erneut antippen = wieder 5 Minuten)
 const FS_GPS_AUTO_OFF_MS = 5 * 60 * 1000;
 let fsGpsOffTimer = null;
@@ -15965,7 +16134,7 @@ function startLiveGpsOnMap(map, offlineId){
     }
   }, (err)=>{
     dlog('GPS-Standort nicht verfügbar: ' + (err && err.message ? err.message : err), 'err');
-    if(map && map._fsm && map._fsmFlyOnFix){ map._fsmFlyOnFix = false; showToast('Standort nicht verfügbar — Ortung erlaubt?', true); }
+    if(map && map._fsm && map._fsmFlyOnFix){ map._fsmFlyOnFix = false; showToast('Standort nicht verfügbar – Ortung erlaubt?', true); }
   }, { enableHighAccuracy:true, maximumAge:5000 });
   fsGpsOffTimer = setTimeout(()=>{
     if(gpsWatchId === null) return;
@@ -16003,7 +16172,7 @@ function fsTileHtml(icon, label, attrs){
      mit Route ab dem eigenen Standort; Fahrzeit ab Standort über openrouteservice (ohne Verkehr)
    - Haltestelle: nächste Verbindung aus dem Schweizer Fahrplan (transport.opendata.ch) ab der
      nächstgelegenen Haltestelle beim eigenen Standort; Link zur ÖV-Route
-   Den Standort fragt die App erst auf Knopfdruck ab — ausser er ist schon erlaubt. */
+   Den Standort fragt die App erst auf Knopfdruck ab – ausser er ist schon erlaubt. */
 function fsTravelTargets(t){
   const pts = (t && t.points) || [];
   const park = pts.filter(p=> p.category === 'parkplatz');
@@ -16101,7 +16270,7 @@ async function fsTravelCalc(box){
   if(btn){ btn.disabled = true; btn.querySelector('span').textContent = 'Standort wird bestimmt …'; }
   let pos;
   try{ pos = await fsTravelPosition(); }
-  catch(e){ if(btn){ btn.disabled = false; btn.querySelector('span').textContent = 'Ab meinem Standort berechnen'; } showToast(e.message + ' — Navigation über die Links geht trotzdem.', true); return; }
+  catch(e){ if(btn){ btn.disabled = false; btn.querySelector('span').textContent = 'Ab meinem Standort berechnen'; } showToast(e.message + ' – Navigation über die Links geht trotzdem.', true); return; }
   if(btn) btn.remove();
   const {car, stops} = fsTravelTargets(t);
   box.querySelectorAll('.fs-travel-row').forEach(row=>{
@@ -16181,7 +16350,7 @@ async function fsMeetSearch(box){
     const r = await fetch('https://api3.geo.admin.ch/rest/services/ech/SearchServer?type=locations&sr=4326&limit=6&searchText=' + encodeURIComponent(q));
     const d = await r.json();
     const hits = (d.results || []).map(x=> x.attrs).filter(x=> x && x.lat != null && x.lon != null);
-    if(!hits.length){ res.innerHTML = '<p class="fs-meet-hint">Nichts gefunden — anders schreiben oder auf der Karte setzen.</p>'; return; }
+    if(!hits.length){ res.innerHTML = '<p class="fs-meet-hint">Nichts gefunden – anders schreiben oder auf der Karte setzen.</p>'; return; }
     res.innerHTML = hits.map((h, i)=> `<button type="button" class="fs-meet-hit" data-act="meet-pick" data-lat="${h.lat}" data-lon="${h.lon}">${esc(String(h.label || '').replace(/<[^>]*>/g, ''))}</button>`).join('');
   }catch(e){ res.innerHTML = '<p class="fs-meet-hint">Suche nicht erreichbar (offline?).</p>'; }
 }
@@ -16254,7 +16423,7 @@ function fsMoreLinksFieldHtml(t){
     <input type="hidden" name="moreLinks" class="fs-more-links-hidden" value='${esc(JSON.stringify(list))}'/>
     <div class="fs-more-links-list">${list.map(u=> fsMoreLinkRowHtml(u)).join('')}</div>
     <button type="button" class="btn secondary" data-fs-add-link onclick="fsAddLinkRow(this)">+ Weiteren Link</button>
-    <div class="hint">Ein geänderter Link bleibt hier erhalten — nichts geht verloren.</div></div>`;
+    <div class="hint">Ein geänderter Link bleibt hier erhalten – nichts geht verloren.</div></div>`;
 }
 function fsMoreLinkRowHtml(u){
   return `<div class="fs-more-link-row"><input type="url" class="fs-more-link" value="${esc(u || '')}" placeholder="https://…" oninput="fsMoreLinkInput(this)"/><button type="button" class="fs-icon-btn" data-fs-del-link onclick="fsDelLinkRow(this)" aria-label="Link entfernen">${fsIconHtml('trash')}</button></div>`;
@@ -17289,7 +17458,9 @@ async function fsRetryUnsynced(){
 function fsUnsyncedSync(){
   const n = fsUnsyncedCount();
   let el = document.getElementById('fs-unsynced');
-  if(!n){ if(el) el.remove(); return; }
+  // Offline sagt der Hinweis oben schon «Änderungen werden später übertragen»; Hochladen ginge ohnehin nicht
+  const off = navigator.onLine === false || (typeof state !== 'undefined' && state.offlineMode);
+  if(!n || off){ if(el) el.remove(); return; }
   if(!el){
     el = document.createElement('div');
     el.id = 'fs-unsynced';
@@ -17306,6 +17477,7 @@ function fsUnsyncedSync(){
 }
 setInterval(fsUnsyncedSync, 4000);
 window.addEventListener('online', ()=> setTimeout(fsUnsyncedSync, 500));
+window.addEventListener('offline', ()=> fsUnsyncedSync());
 /* ===== Entwurf: nicht gespeicherte Eingaben überstehen Neuladen und beendete Tabs =====
    Android beendet Tabs im Hintergrund, ein Neuladen leert den Speicher. Solange ein Formular oder
    «Karte bearbeiten» ungespeicherte Änderungen hat, wird der Inhalt laufend auf dem Gerät abgelegt
@@ -18062,10 +18234,12 @@ function fsTourMoreHtml(t, moreItems){
   items.push(fsMenuItemHtml('clock', 'Frühere Versionen', `data-act="fs-versions" data-id="${esc(t.id)}"`));
   const onTour = fsGetOnTour();
   const active = !!(onTour && String(onTour.id) === String(t.id));
+  // Tour starten ist eine Nebensache: ein Eintrag wie die übrigen; nur unterwegs gross (zum Beenden)
+  if(!active) items.unshift(fsMenuItemHtml('play', 'Tour starten', `data-act="fs-start-tour" data-id="${esc(t.id)}"`));
   return `<div class="fs-actions">
+    ${active ? `<button type="button" class="fs-start-btn on" data-act="fs-end-tour" data-id="${t.id}">${fsIconHtml('flag')}<span>Unterwegs · Tour beenden</span></button>` : ''}
     ${hasOffline ? `<div class="fs-primary">${offlineSectionHtml(t.id)}</div>` : ''}
     <div class="fs-more-list">${items.join('')}</div>
-    <button type="button" class="fs-start-btn${active ? ' on' : ''}" data-act="${active ? 'fs-end-tour' : 'fs-start-tour'}" data-id="${t.id}">${fsIconHtml(active ? 'flag' : 'gps')}<span>${active ? 'Unterwegs · Tour beenden' : 'Tour starten'}</span></button>
   </div>`;
 }
 // "Auf einen Blick": Schlüsselstelle zuerst (das Wichtigste für die Entscheidung im Gelände),
@@ -18138,7 +18312,7 @@ document.addEventListener('click', (e)=>{
 }, true);
 
 /* ================= Darstellung: Dunkelmodus & hoher Kontrast (Phase 2e) =================
-   Standard bleibt hell (auch wenn das Handy dunkel eingestellt ist — die Karte ist hell besser
+   Standard bleibt hell (auch wenn das Handy dunkel eingestellt ist – die Karte ist hell besser
    lesbar). Beides nur per Schalter im Profil-Menü, gespeichert auf dem Gerät. */
 function fsThemePrefs(){
   try{ return JSON.parse(localStorage.getItem('fs-theme') || '{}') || {}; }catch(e){ return {}; }
@@ -18175,7 +18349,7 @@ function fsEnsureThemeToggles(){
 
 /* ================= Unterwegs-Modus (Phase 2e) =================
    "Tour starten" merkt sich die Tour (auch nach Neuladen, pro App). Erst dann erscheint SOS
-   (beim Planen zuhause braucht es den nicht), oben steht "Unterwegs · Tourname" — ein Tipp
+   (beim Planen zuhause braucht es den nicht), oben steht "Unterwegs · Tourname" – ein Tipp
    öffnet die Tour, "Beenden" schliesst den Modus. */
 // Welche App gerade läuft: wandern.html setzt APP_KEY selbst, Firnspur/Fixseil erkennt man wie
 // bisher an SEKTOREN_PATH (gibt es nur in Fixseil).
@@ -18195,7 +18369,7 @@ function fsStartTour(id){
   try{ localStorage.setItem('fs-on-tour', JSON.stringify({app: fsAppKey(), id: t.id, name: t.name, startedAt: new Date().toISOString()})); }catch(e){}
   if(typeof render === 'function') render();
   if(document.documentElement.classList.contains('fs-sheet-open')) fsSetSheetDetent('peek');
-  showToast('Tour gestartet — SOS ist jetzt unten links. Gute Tour!');
+  showToast('Tour gestartet – SOS ist jetzt unten links. Gute Tour!');
 }
 function fsEndTour(){
   try{ localStorage.removeItem('fs-on-tour'); }catch(e){}
@@ -18241,7 +18415,7 @@ document.addEventListener('click', (e)=>{
    Griff antippen = nächste Stufe, Griff ziehen = hoch/runter, ganz unten weiterziehen schliesst.
    Im Inhalt nach oben scrollen öffnet das Blatt automatisch ganz.
    Umgesetzt über einen MutationObserver auf #modal-root, damit beide Apps (Firnspur/Fixseil)
-   ohne eigene Anpassung mitmachen — alle anderen Dialoge bleiben normale Vollbild-Masken. */
+   ohne eigene Anpassung mitmachen – alle anderen Dialoge bleiben normale Vollbild-Masken. */
 let fsSheetDetent = 'half', fsSheetTourId = null, fsSheetSavedScroll = null, fsSheetInnerScroll = 0;
 function fsSheetHeightPx(detent){
   const vh = window.innerHeight;
@@ -18375,7 +18549,7 @@ function fsSheetShowContext(){
    geplante Linie, Alternativrouten, eigener Zustieg/Abstieg, die verknüpfte Hütte und deren
    Zustiege. Jede Ebene lässt sich über die Legende oben ein-/ausblenden. Hütten-Zustiege:
    Skitour zeigt zuerst die Winter-, Hochtour die Sommerwege (der andere ist zuschaltbar).
-   Der Ausschnitt passt sich so an, dass alles sichtbar ist — nicht näher als Zoom 14. */
+   Der Ausschnitt passt sich so an, dass alles sichtbar ist – nicht näher als Zoom 14. */
 const FS_CTX_COLORS = { track:'#E8384F', manual:'#1565C0', access:'#2F7D4A', descent:'#D9730D', hutRoute:'#2F7D4A', hutRouteOther:'#7A8B95' };
 let fsCtxMap = null, fsCtxKey = null;
 function fsRouteCoords(r){
@@ -18456,7 +18630,7 @@ function fsShowContextMap(t){
         g.items.push({setVisible:(v)=>{ m.getElement().style.display = v ? '' : 'none'; }});
         all.push([lat, lon]);
       }
-      // Tour selbst — in Firnspur nach Art der Route (Aufstieg, Abfahrt, Variante …) gruppiert
+      // Tour selbst – in Firnspur nach Art der Route (Aufstieg, Abfahrt, Variante …) gruppiert
       const typed = fsRouteTypesOn();
       const pointsGroup = {items:[], on:true};
       if(typed){
@@ -18594,7 +18768,7 @@ function fsShowAreaContextMap(a){
         all.push([p.lat, p.lon]);
       });
       // Gesetzte Punkte (Gipfel, Abseilstelle, Parkplatz …) der Touren, des Gebiets und seiner
-      // Sektoren/Gipfel — wie auf der früheren Übersichtskarte
+      // Sektoren/Gipfel – wie auf der früheren Übersichtskarte
       const pts = [];
       (a.tours||[]).forEach(t=> (t.points||[]).forEach(p=>{ if(p && isFinite(p.lat) && isFinite(p.lon)) pts.push({lat:+p.lat, lon:+p.lon, category:p.category || '', label:p.label || '', owner:t.name}); }));
       (a.extraPoints||[]).forEach(p=> pts.push(p));
@@ -18662,9 +18836,13 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
       // Änderungen innerhalb der Tourenkarte selbst (Kacheln laden) ignorieren
       const ctx = document.getElementById('fs-tour-map');
       if(ctx && muts.every(m=> ctx.contains(m.target))) return;
+      // Neu gezeichnetes Tourenblatt sofort (vor dem nächsten Bild) in Blatt-Form bringen –
+      // sonst stand es ein Bild lang bildschirmhoch da (Flackern beim Öffnen und Nachladen)
+      const ov = document.querySelector('#modal-root > .overlay:not(.fs-sheet-mode)');
+      if(ov && ov.querySelector(':scope > .modal.td')) fsApplyTourSheetMode();
       if(queued) return;
       queued = true;
-      requestAnimationFrame(()=>{ queued = false; fsUpgradeFilterRows(); fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); });
+      requestAnimationFrame(()=>{ queued = false; fsUpgradeFilterRows(); fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); fsEnhanceForms(); });
     }).observe(document.body, {childList:true, subtree:true});
     fsUpgradeFilterRows();
     fsApplyTourSheetMode();
@@ -18674,6 +18852,28 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
   };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
+
+// Formulare bedienbarer machen (einmal pro Feld, ohne jedes Formular einzeln anzupassen):
+// Beschriftung mit dem Feld verbinden (Tippen auf die Beschriftung setzt den Fokus, Screenreader lesen sie vor),
+// Höhenfelder mit Zahlentastatur, Ein-/Aus-Chips mit aria-pressed.
+const FS_NUMERIC_FIELDS = ['targetAltitude', 'altitude', 'elevation', 'elevationGain', 'elevationLoss', 'elevationUp'];
+let fsFieldSeq = 0;
+function fsEnhanceForms(){
+  document.querySelectorAll('.field > label:not([for])').forEach(lab=>{
+    const f = lab.parentElement.querySelectorAll('input:not([type="hidden"]), select, textarea');
+    if(f.length !== 1) return;
+    const el = f[0];
+    if(el.type === 'checkbox' || el.type === 'radio') return;
+    if(!el.id) el.id = 'fs-f' + (++fsFieldSeq);
+    lab.htmlFor = el.id;
+  });
+  FS_NUMERIC_FIELDS.forEach(n=> document.querySelectorAll(`input[name="${n}"]:not([inputmode])`).forEach(el=> el.setAttribute('inputmode', 'numeric')));
+  fsSyncChipPressed();
+}
+function fsSyncChipPressed(){
+  document.querySelectorAll('button.chip').forEach(b=>{ const on = String(b.classList.contains('on')); if(b.getAttribute('aria-pressed') !== on) b.setAttribute('aria-pressed', on); });
+}
+document.addEventListener('click', (e)=>{ if(e.target.closest && e.target.closest('button.chip')) setTimeout(fsSyncChipPressed, 0); });
 
 async function refreshOfflineSectionUI(offlineId){
   const bodyEl = document.getElementById('offline-body-' + offlineId);
@@ -18689,8 +18889,8 @@ async function refreshOfflineSectionUI(offlineId){
     `;
   }else{
     bodyEl.innerHTML = `
-      <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Lädt Kartenausschnitt und Bilder herunter, ${OFFLINE_DAYS} Tage offline verfügbar — praktisch, bevor's losgeht.</p>
-      <button type="button" class="btn secondary" id="download-offline-btn-${offlineId}" data-act="download-offline" data-offline-id="${offlineId}">🔽 Für unterwegs herunterladen</button>
+      <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Lädt Kartenausschnitt und Bilder herunter, ${OFFLINE_DAYS} Tage offline verfügbar – praktisch, bevor's losgeht.</p>
+      <button type="button" class="btn secondary" id="download-offline-btn-${offlineId}" data-act="download-offline" data-offline-id="${offlineId}">${fsIconHtml('download')}Für unterwegs herunterladen</button>
     `;
   }
 }
@@ -18698,7 +18898,7 @@ async function refreshOfflineSectionUI(offlineId){
 /* ================= Web-Share-Target: Fotos/Links aus anderen Apps direkt hier landen =====
    Android/Chrome schickt geteilte Inhalte per POST an share-target-*.html (siehe manifest*.json).
    sw.js fängt diesen POST ab, legt Text/Datei kurz im Cache ab und leitet auf ?shared=1 um.
-   checkSharedContent() holt die Daten hier wieder ab — einmalig, danach wird der Cache geleert. */
+   checkSharedContent() holt die Daten hier wieder ab – einmalig, danach wird der Cache geleert. */
 const SHARE_TARGET_CACHE = 'share-target-v1';
 
 async function checkSharedContent(){
@@ -18750,7 +18950,7 @@ function shareImportModalHtml(shared){
     }else{
       body = `
         <img src="${objUrl}" style="width:100%; max-height:260px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); margin-bottom:14px;"/>
-        <p style="font-size:13px; color:var(--ink-soft);">Geteilte Fotos werden in dieser App aktuell nicht weiterverarbeitet — dieses Feature gibt es bisher nur bei Kletter-Sektoren (Hochtour/MSL-App).</p>
+        <p style="font-size:13px; color:var(--ink-soft);">Geteilte Fotos werden in dieser App aktuell nicht weiterverarbeitet – dieses Feature gibt es bisher nur bei Kletter-Sektoren (Hochtour/MSL-App).</p>
       `;
     }
   }else if(linkText){
@@ -18798,7 +18998,7 @@ function wireShareImportModal(){
 }
 
 // Öffnet den bestehenden Topo-&-Routen-Bereich eines Sektors und speist das geteilte Foto
-// direkt in den vorhandenen Upload-Ablauf ein (Zuschneiden/Komprimieren/Hochladen) — per
+// direkt in den vorhandenen Upload-Ablauf ein (Zuschneiden/Komprimieren/Hochladen) – per
 // DataTransfer wird die Bild-Datei so ins Datei-Feld gelegt, als hätte man sie ausgewählt.
 function applySharedImageToSektor(sektorId, blob){
   resetModalDirty(); // Teilen-Fenster ist erledigt
@@ -18829,7 +19029,7 @@ async function submitShareImportGpxLink(tourId, link){
   t._unsynced = !ok;
   if(!ok){
     markUnsaved();
-    showToast('GPX-Link ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('GPX-Link ist');
   }else{
     showToast('GPX-Link gespeichert und synchronisiert.');
   }
@@ -19047,7 +19247,7 @@ function fsSkipNode(el){
 /* ================= Tourenbriefing (Schritt 4) =================
    Baut auf dem Agenda-Termin auf (Datum, Teilnehmer, Treffpunkt, Rückkehr, Notfallkontakt gibt es
    dort schon). Neu pro Termin: a.briefing = {ablauf:[{t,label,kind}], planB, anforderungen,
-   pack:[{id,label,must}]} und a.packChecks = {<name-key>: [item-ids]} — damit wissen Leitung und
+   pack:[{id,label,must}]} und a.packChecks = {<name-key>: [item-ids]} – damit wissen Leitung und
    Gäste am Schluss, was passiert, was mit muss und welche Eckpunkte wann erreicht werden sollen.
    Alte Termine ohne diese Felder funktionieren unverändert weiter (alles optional). */
 const BRIEFING_KINDS = {
@@ -19610,16 +19810,27 @@ function setFormBusy(formId, busy){
 function showFormError(formId, message){
   const form = document.getElementById(formId);
   if(!form) return;
+  // Fehlt der Name: Meldung direkt unter dem Feld, Feld markieren und hinspringen (statt nur unten am Formular)
+  const nameField = /^Bitte einen Namen/.test(message) ? form.querySelector('[name="name"]') : null;
+  if(nameField) message = message.replace(/ \(ganz oben im Formular\)/, '');
   let box = form.querySelector('.form-error');
   if(!box){
     box = document.createElement('div');
     box.className = 'form-error';
-    const actions = form.querySelector('.form-actions');
-    if(actions) form.insertBefore(box, actions);
-    else form.appendChild(box);
+    box.setAttribute('role', 'alert');
   }
+  const anchor = nameField && (nameField.closest('.field') || nameField);
+  if(anchor) anchor.after(box);
+  else { const actions = form.querySelector('.form-actions'); if(actions) form.insertBefore(box, actions); else form.appendChild(box); }
   box.textContent = message;
-  box.scrollIntoView({behavior:'smooth', block:'center'});
+  if(nameField){
+    nameField.setAttribute('aria-invalid', 'true');
+    box.id = box.id || 'fs-form-err-' + formId;
+    nameField.setAttribute('aria-describedby', box.id);
+    nameField.addEventListener('input', ()=>{ nameField.removeAttribute('aria-invalid'); box.remove(); }, {once: true});
+    nameField.scrollIntoView({behavior:'smooth', block:'center'});
+    try{ nameField.focus({preventScroll: true}); }catch(e){ nameField.focus(); }
+  } else box.scrollIntoView({behavior:'smooth', block:'center'});
 }
 
 function toggleDiffFilter(code){
@@ -19775,7 +19986,7 @@ function nameModalHtml(){
     <p style="font-size:14px; color:var(--ink-soft); margin:0 0 10px 0;">Dein Name wird bei Touren und Hütten angezeigt, die du hinzufügst oder bearbeitest.</p>
     <div class="field"><label>Name</label><input type="text" id="name-input" value="${esc((state.myName||''))}" placeholder="z. B. Simone" autofocus/></div>
     <div class="field"><label>Passwort</label><input type="password" id="name-pin-input" placeholder="frei wählbar"/></div>
-    <p style="font-size:12px; color:var(--ink-faint); margin:0 0 14px 0;">Schützt deinen Namen vor Verwechslungen: Beim ersten Mal legst du hier ein Passwort für diesen Namen fest — danach brauchst du es, um wieder als "dieser Name" zu gelten (auch auf einem anderen Gerät).</p>
+    <p style="font-size:12px; color:var(--ink-faint); margin:0 0 14px 0;">Schützt deinen Namen vor Verwechslungen: Beim ersten Mal legst du hier ein Passwort für diesen Namen fest – danach brauchst du es, um wieder als «dieser Name» zu gelten (auch auf einem anderen Gerät).</p>
     ${errorMsg ? `<p style="color:var(--danger); font-size:13px; margin:0 0 14px 0;">${esc(errorMsg)}</p>` : ''}
     <div class="form-actions">
       <button class="btn secondary" data-act="close-modal">Abbrechen</button>
