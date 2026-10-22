@@ -90,7 +90,7 @@ aus anderen Apps übernehmen.
   entscheiden Vorschläge bei allen Touren.
 - Nie eine ganze Sammlung schreiben oder löschen; jeder Pfad endet mit einer gültigen ID
   (`fbPathOk`). Vor jedem Überschreiben sichert `fbSet` die alte Fassung unter `versions/`.
-- Geteilte Punkte (alle Apps, intern «Orte»): `orte/<id>` mit Art, Notiz, Foto, Stand-Datum. Entstehen beim
+- Geteilte Punkte (alle Disziplinen, intern «Orte»): `orte/<id>` mit Art, Notiz, Foto, Stand-Datum. Entstehen beim
   Speichern einer Tour aus ihren Infrastruktur-Punkten (Parkplatz, Haltestelle, Wasser, Toilette, Biwak;
   `fsShareTourPoints`, abschaltbar pro Punkt mit `share: false`), die Tour selbst bleibt dabei unverändert
   (`fromTour` am Ort). Touren zeigen geteilte Punkte im Umkreis von 5 km («In der Nähe»). Alte Verweise
