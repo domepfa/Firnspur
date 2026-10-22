@@ -2693,6 +2693,13 @@ function isPastAgendaItem(item){
   if(!ref) return false;
   return ref < todayStr();
 }
+// Lokal gespeichert, Hochladen ging nicht: offline ist das normal (ruhiger Hinweis), online ein Fehler
+function fsToastLocalSaved(subj){
+  const off = navigator.onLine === false || (typeof state !== 'undefined' && state.offlineMode);
+  const pl = / sind$/.test(subj);
+  showToast(off ? subj + ' auf dem Gerät gespeichert – ' + (pl ? 'werden' : 'wird') + ' hochgeladen, sobald Internet da ist.'
+    : subj + ' auf dem Gerät gespeichert, ' + (pl ? 'konnten' : 'konnte') + ' aber nicht hochgeladen werden. Prüfe deine Internetverbindung.', !off);
+}
 function showToast(message, isError){
   const old = document.querySelector('.toast');
   if(old) old.remove();
@@ -15465,7 +15472,7 @@ async function submitKlettergebietScanReview(){
     showToast((newGeb ? 'Klettergebiet mit ' : '') + created.length + ' Sektor' + (created.length===1?'':'en') + ' angelegt und synchronisiert.');
   }else{
     markUnsaved();
-    showToast('Einiges ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Einiges ist');
   }
   render();
 }
@@ -17383,7 +17390,9 @@ async function fsRetryUnsynced(){
 function fsUnsyncedSync(){
   const n = fsUnsyncedCount();
   let el = document.getElementById('fs-unsynced');
-  if(!n){ if(el) el.remove(); return; }
+  // Offline sagt der Hinweis oben schon «Änderungen werden später übertragen»; Hochladen ginge ohnehin nicht
+  const off = navigator.onLine === false || (typeof state !== 'undefined' && state.offlineMode);
+  if(!n || off){ if(el) el.remove(); return; }
   if(!el){
     el = document.createElement('div');
     el.id = 'fs-unsynced';
@@ -17400,6 +17409,7 @@ function fsUnsyncedSync(){
 }
 setInterval(fsUnsyncedSync, 4000);
 window.addEventListener('online', ()=> setTimeout(fsUnsyncedSync, 500));
+window.addEventListener('offline', ()=> fsUnsyncedSync());
 /* ===== Entwurf: nicht gespeicherte Eingaben überstehen Neuladen und beendete Tabs =====
    Android beendet Tabs im Hintergrund, ein Neuladen leert den Speicher. Solange ein Formular oder
    «Karte bearbeiten» ungespeicherte Änderungen hat, wird der Inhalt laufend auf dem Gerät abgelegt
@@ -18760,7 +18770,7 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
       if(ctx && muts.every(m=> ctx.contains(m.target))) return;
       if(queued) return;
       queued = true;
-      requestAnimationFrame(()=>{ queued = false; fsUpgradeFilterRows(); fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); });
+      requestAnimationFrame(()=>{ queued = false; fsUpgradeFilterRows(); fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); fsEnhanceForms(); });
     }).observe(document.body, {childList:true, subtree:true});
     fsUpgradeFilterRows();
     fsApplyTourSheetMode();
@@ -18770,6 +18780,28 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
   };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
+
+// Formulare bedienbarer machen (einmal pro Feld, ohne jedes Formular einzeln anzupassen):
+// Beschriftung mit dem Feld verbinden (Tippen auf die Beschriftung setzt den Fokus, Screenreader lesen sie vor),
+// Höhenfelder mit Zahlentastatur, Ein-/Aus-Chips mit aria-pressed.
+const FS_NUMERIC_FIELDS = ['targetAltitude', 'altitude', 'elevation', 'elevationGain', 'elevationLoss', 'elevationUp'];
+let fsFieldSeq = 0;
+function fsEnhanceForms(){
+  document.querySelectorAll('.field > label:not([for])').forEach(lab=>{
+    const f = lab.parentElement.querySelectorAll('input:not([type="hidden"]), select, textarea');
+    if(f.length !== 1) return;
+    const el = f[0];
+    if(el.type === 'checkbox' || el.type === 'radio') return;
+    if(!el.id) el.id = 'fs-f' + (++fsFieldSeq);
+    lab.htmlFor = el.id;
+  });
+  FS_NUMERIC_FIELDS.forEach(n=> document.querySelectorAll(`input[name="${n}"]:not([inputmode])`).forEach(el=> el.setAttribute('inputmode', 'numeric')));
+  fsSyncChipPressed();
+}
+function fsSyncChipPressed(){
+  document.querySelectorAll('button.chip').forEach(b=>{ const on = String(b.classList.contains('on')); if(b.getAttribute('aria-pressed') !== on) b.setAttribute('aria-pressed', on); });
+}
+document.addEventListener('click', (e)=>{ if(e.target.closest && e.target.closest('button.chip')) setTimeout(fsSyncChipPressed, 0); });
 
 async function refreshOfflineSectionUI(offlineId){
   const bodyEl = document.getElementById('offline-body-' + offlineId);
@@ -18925,7 +18957,7 @@ async function submitShareImportGpxLink(tourId, link){
   t._unsynced = !ok;
   if(!ok){
     markUnsaved();
-    showToast('GPX-Link ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('GPX-Link ist');
   }else{
     showToast('GPX-Link gespeichert und synchronisiert.');
   }
@@ -19706,16 +19738,27 @@ function setFormBusy(formId, busy){
 function showFormError(formId, message){
   const form = document.getElementById(formId);
   if(!form) return;
+  // Fehlt der Name: Meldung direkt unter dem Feld, Feld markieren und hinspringen (statt nur unten am Formular)
+  const nameField = /^Bitte einen Namen/.test(message) ? form.querySelector('[name="name"]') : null;
+  if(nameField) message = message.replace(/ \(ganz oben im Formular\)/, '');
   let box = form.querySelector('.form-error');
   if(!box){
     box = document.createElement('div');
     box.className = 'form-error';
-    const actions = form.querySelector('.form-actions');
-    if(actions) form.insertBefore(box, actions);
-    else form.appendChild(box);
+    box.setAttribute('role', 'alert');
   }
+  const anchor = nameField && (nameField.closest('.field') || nameField);
+  if(anchor) anchor.after(box);
+  else { const actions = form.querySelector('.form-actions'); if(actions) form.insertBefore(box, actions); else form.appendChild(box); }
   box.textContent = message;
-  box.scrollIntoView({behavior:'smooth', block:'center'});
+  if(nameField){
+    nameField.setAttribute('aria-invalid', 'true');
+    box.id = box.id || 'fs-form-err-' + formId;
+    nameField.setAttribute('aria-describedby', box.id);
+    nameField.addEventListener('input', ()=>{ nameField.removeAttribute('aria-invalid'); box.remove(); }, {once: true});
+    nameField.scrollIntoView({behavior:'smooth', block:'center'});
+    try{ nameField.focus({preventScroll: true}); }catch(e){ nameField.focus(); }
+  } else box.scrollIntoView({behavior:'smooth', block:'center'});
 }
 
 function toggleDiffFilter(code){

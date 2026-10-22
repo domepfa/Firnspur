@@ -1240,7 +1240,7 @@ async function submitTourFormSki(form, existing){
   }
   if(!ok){
     markUnsaved();
-    showToast('Tour ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Tour ist');
   }else{
     offerUndoAfterSave('Tour gespeichert.', state.tours, undoPrev, saveTourCloud);
   }
@@ -1302,7 +1302,7 @@ async function submitTourFormWand(form, existing){
   }
   if(!ok){
     markUnsaved();
-    showToast('Tour ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Tour ist');
   }else{
     offerUndoAfterSave('Tour gespeichert.', state.tours, undoPrev, saveTourCloud);
   }
@@ -1365,9 +1365,9 @@ function shellHtml__sw(){
   return `
   ${state.offlineMode ? `
   <div class="backup-banner fs-offline-banner" role="status">
-    ${fsIconHtml('offline')} Offline · Stand ${fmtDate(state.offlineCachedAt)} · Änderungen werden später übertragen
+    ${fsIconHtml('offline')} <span>Offline · Stand ${fmtDate(state.offlineCachedAt)}<span class="fs-ob-more"> · Änderungen werden später übertragen</span></span>
   </div>` : ''}
-  ${state.hasUnsavedChanges ? `
+  ${(state.hasUnsavedChanges && !state.offlineMode && navigator.onLine !== false) ? `
   <div class="backup-banner">
     ${fsIconHtml('alert')}Änderungen konnten nicht mit der Cloud synchronisiert werden (Internetverbindung prüfen) – exportiere zur Sicherheit eine Datei.
     <button data-act="export-data">Jetzt exportieren</button>
@@ -4725,7 +4725,7 @@ async function submitTourForm__fix(form, existing){
   if(routeUploads.length) Promise.all(routeUploads).then(r=>{ if(r.some(x=>x===false)) showToast('Eine GPX-Originaldatei konnte nicht gespeichert werden (Internet?).', true); });
   if(!ok){
     markUnsaved();
-    showToast('Tour ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Tour ist');
   }else{
     offerUndoAfterSave('Tour gespeichert.', state.tours, undoPrev, saveTourCloud);
   }
@@ -4771,7 +4771,7 @@ async function submitHutForm__fix(form, existing){
   h._unsynced = !ok;
   if(!ok){
     markUnsaved();
-    showToast('Hütte ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Hütte ist');
   }else{
     offerUndoAfterSave('Hütte gespeichert.', state.huts, undoPrev, saveHutCloud);
   }
@@ -5066,7 +5066,7 @@ async function submitSektorForm(form, existing){
   s._unsynced = !ok;
   if(!ok){
     markUnsaved();
-    showToast('Sektor ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Sektor ist');
   }else{
     offerUndoAfterSave('Sektor gespeichert.', state.sektoren, undoPrev, saveSektorCloud);
   }
@@ -5247,7 +5247,7 @@ async function submitSektorTopoRoutenForm(form){
   sek._unsynced = !ok;
   if(!ok){
     markUnsaved();
-    showToast('Änderungen sind lokal gespeichert, konnten aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Änderungen sind');
   }else{
     showToast('Topo & Routen gespeichert und synchronisiert.');
   }
@@ -5301,7 +5301,7 @@ async function submitKlettergebietForm(form, existing){
   }
   if(!ok || !sektorOk){
     markUnsaved();
-    showToast('Klettergebiet ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Klettergebiet ist');
   }else{
     if(autoSektor) showToast('Klettergebiet mit erstem Sektor angelegt.');
     else offerUndoAfterSave('Klettergebiet gespeichert.', state.klettergebiete, undoPrev, saveKlettergebietCloud);
@@ -5387,7 +5387,7 @@ async function submitGipfelForm(form, existing){
   g._unsynced = !ok;
   if(!ok){
     markUnsaved();
-    showToast('Gipfel ist lokal gespeichert, konnte aber nicht synchronisiert werden. Prüfe deine Internetverbindung.', true);
+    fsToastLocalSaved('Gipfel ist');
   }else{
     offerUndoAfterSave('Gipfel gespeichert.', state.gipfel, undoPrev, saveGipfelCloud);
   }
@@ -6113,9 +6113,9 @@ function shellHtml__fix(){
   return `
   ${state.offlineMode ? `
   <div class="backup-banner fs-offline-banner" role="status">
-    ${fsIconHtml('offline')} Offline · Stand ${fmtDate(state.offlineCachedAt)} · Änderungen werden später übertragen
+    ${fsIconHtml('offline')} <span>Offline · Stand ${fmtDate(state.offlineCachedAt)}<span class="fs-ob-more"> · Änderungen werden später übertragen</span></span>
   </div>` : ''}
-  ${state.hasUnsavedChanges ? `
+  ${(state.hasUnsavedChanges && !state.offlineMode && navigator.onLine !== false) ? `
   <div class="backup-banner">
     ${fsIconHtml('alert')}Änderungen konnten nicht mit der Cloud synchronisiert werden (Internetverbindung prüfen) – exportiere zur Sicherheit eine Datei.
     <button data-act="export-data">Jetzt exportieren</button>
