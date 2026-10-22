@@ -13,21 +13,22 @@ aus anderen Apps übernehmen.
 - Zweck und Umbau-Plan der App stehen in `docs/konzept.md` – neue Funktionen daran ausrichten.
 
 ## Dateien
-- `index.html` (Skitour), `fixseil.html` (Hochtour/Klettern), `wandern.html` (Wandern):
-  je eine App mit eigenem Code für Listen, Formulare und Laden.
-  In `beta/` laufen alle vier Disziplinen auf `index.html` (`?d=wand|hoch|klet`, Wechsel ohne Neuladen
-  über `fsSwitchDisc`; `DISC`, `fsDiscVars` stellen Pfade und Gerätekopie um). Zwei Teile: Skitour/Wandern
-  (Skript in index.html + `0-ski-wandern.js`; was sich unterscheidet als `…Ski`/`…Wand`) und Hochtour/
-  Klettern (Block «Hochtour / Klettern» am Ende von index.html, früher fixseil.html). Namen, die beide
-  Teile haben (state, render, loadAll …), heissen `Name__sw` / `Name__fix`; `fsModeSet` schaltet um
-  (Liste im Vorspann oben in index.html). `beta/wandern.html` und `beta/fixseil.html` leiten nur weiter.
-- `0-shared.js`: gemeinsamer Code aller drei Apps (Karten, Firebase, Rettung/Versionen,
+- `index.html`: die App für alle vier Disziplinen (`?d=wand|hoch|klet`, ohne = Skitour; Wechsel ohne
+  Neuladen über `fsSwitchDisc`; `DISC`, `fsDiscVars` stellen Pfade und Gerätekopie um). Zwei Teile:
+  Skitour/Wandern (Skript in index.html + `0-ski-wandern.js`; was sich unterscheidet als `…Ski`/`…Wand`)
+  und Hochtour/Klettern (Block «Hochtour / Klettern» am Ende von index.html, früher fixseil.html).
+  Namen, die beide Teile haben (state, render, loadAll …), heissen `Name__sw` / `Name__fix`; `fsModeSet`
+  schaltet um (Liste im Vorspann oben in index.html).
+- `fixseil.html` (→ `?d=hoch`, mit `?view=msl` → `?d=klet`) und `wandern.html` (→ `?d=wand`) leiten nur
+  weiter – für installierte Apps und Lesezeichen.
+- `0-shared.js`: gemeinsamer Code aller Disziplinen (Karten, Firebase, Rettung/Versionen,
   Tourenzettel, Icons …). Gross, gezielt suchen statt ganz lesen.
-- `0-ski-wandern.js`: Code, den nur Skitour und Wandern teilen (Ansichten, Formulare für Hütten
-  und Gebiete, Abgeschlossen, Export/Import, render). Fixseil lädt diese Datei nicht.
+- `0-ski-wandern.js`: Code, den nur Skitour und Wandern brauchen (Ansichten, Formulare für Hütten
+  und Gebiete, Abgeschlossen, Export/Import, render).
 - `look.css`: gemeinsamer Look. `0-geo-ch.js`: statische Geodaten für den Kartenstreifen.
+- `sw.js`: Offline-Speicher (Netz zuerst, offline gilt jede Adresse der Seite).
 - `beta/` enthält dieselben Dateien; `promote-beta.sh` kopiert sie in die Wurzel und zählt die
-  Cache-Version in `sw.js` hoch.
+  Cache-Version in `sw.js` hoch (`sw.js` selbst wird nicht kopiert).
 
 ## Code finden (statt ganze Dateien lesen)
 - Alle Dateien sind in Abschnitte mit `/* ===== Titel ===== */` gegliedert. Inhaltsverzeichnis
@@ -41,7 +42,7 @@ aus anderen Apps übernehmen.
   Modal rendering (Formulare), Event wiring, Init.
 
 ## Testen
-- `node tools/smoke-test.mjs` (oder `… beta`): öffnet alle Apps in Handygrösse in Chromium,
+- `node tools/smoke-test.mjs` (oder `… beta`): öffnet alle Disziplinen in Handygrösse in Chromium,
   ohne Internet (Firebase wird mit `vorlage/*.json` simuliert, nichts wird geschrieben). Prüft:
   keine JS-Fehler, Touren sichtbar, lokale Kopie unter dem richtigen Schlüssel, Tour über das
   Formular bearbeiten und speichern (kein Feld geht verloren, alte Fassung unter `versions/`),
