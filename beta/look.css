@@ -2851,7 +2851,7 @@ html.fs-mapmode:not([data-fs-home="liste"]) .fs-fab{ display:none !important; }
 
 /* ===== Hang-Scan ===== */
 html.fs-scanning :is(.fs-sheet, body > .fs-fab, #fs-home-mapbtn, .fs-topbar, #fs-glass, .fs-home-card){ display:none !important; }
-html.fs-scanning.fs-mapmode .fs-home-slot .fsm-ctlbox{ top:calc(env(safe-area-inset-top, 0px) + 12px) !important; bottom:auto; opacity:1; pointer-events:auto; }
+html.fs-scanning .fs-home-slot .fsm-ctlbox{ display:none !important; } /* Rahmen und Blatt brauchen den Platz; Kompass im Blatt */
 .fs-scan-aim{ position:fixed; left:0; right:0; bottom:0; z-index:70; max-width:640px; margin:0 auto; box-sizing:border-box;
   padding:14px 16px calc(16px + env(safe-area-inset-bottom, 0px)); background:var(--paper); color:var(--ink);
   border-radius:24px 24px 0 0; box-shadow:0 -10px 30px rgba(15,30,39,.2); display:grid; gap:10px; }
@@ -2889,3 +2889,7 @@ html.fs-scanning.fs-mapmode .fs-home-slot .fsm-ctlbox{ top:calc(env(safe-area-in
 .fs-scan-bul small{ color:var(--ink-soft); }
 .fs-scan-lvl{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:7px; color:#0F1E27; font-weight:800; }
 .fs-scan-me{ width:18px; height:18px; border-radius:50%; background:var(--ice-deep); border:3px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.35); }
+.fs-scan-frame{ position:fixed; z-index:65; pointer-events:none; border:3px solid #fff; border-radius:6px;
+  box-shadow:0 0 0 2px var(--ice-deep), 0 0 0 100vmax rgba(15,30,39,.28); }
+.fs-scan-frame-up{ position:absolute; left:50%; top:-15px; transform:translateX(-50%); width:28px; height:28px; border-radius:50%;
+  background:var(--ice-deep); color:#fff; font-style:normal; font-weight:800; font-size:16px; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.3); }
