@@ -1557,7 +1557,7 @@ function fsHomeFullToggle(on){
 // Browser-Vollbild von aussen beendet (Wischgeste, Esc): Ansicht mitnehmen
 document.addEventListener('fullscreenchange', ()=>{ if(!document.fullscreenElement && document.documentElement.classList.contains('fs-mapfull')) fsHomeFullToggle(false); });
 // Ausschnitt der Startkarte für die Sitzung merken: die andere Disziplin (eigene Seite) öffnet dort
-let fsHomeCamRestored = false;
+let fsHomeCamRestored = false, fsHomeFitDone = false;
 function fsHomeSaveCam(){
   if(!fsHomeMap || fsCtxUsesHome || fsPlanner) return;
   try{ const c = fsHomeMap.getCenter(); sessionStorage.setItem('fs-home-cam', JSON.stringify({lng: +c.lng.toFixed(5), lat: +c.lat.toFixed(5), zoom: +fsHomeMap.getZoom().toFixed(2), all: !!fsHomeAll, t: Date.now()})); }catch(e){}
@@ -1673,7 +1673,6 @@ function fsHomeSync(){
   if(!fsHomeMap || !fsHomeMap._fsmLoaded || !fsHomePts) return;
   const key = fsHomePts.kind + '|' + fsHomePts.points.map(p=> p.id + ':' + p.lat.toFixed(4) + ',' + p.lon.toFixed(4)).join(';');
   if(key !== fsHomeKey){
-    const kindChanged = fsHomeKey.split('|')[0] !== fsHomePts.kind;
     fsHomeKey = key;
     // Punkte wiederverwenden statt alle neu zu bauen (Wechsel Touren/Hütten/Gebiete, Suche)
     const keep = new Set(fsHomePts.points.map(p=> p.id));
@@ -1703,7 +1702,11 @@ function fsHomeSync(){
       el.setAttribute('aria-label', p.label || 'Eintrag'); // MapLibre setzt sonst «Map marker»
       return m;
     });
-    if((kindChanged && !fsHomeCamRestored) || fsHomeAll) fsHomeFitAll();
+    // Karte bleibt ruhig: nur beim ersten Füllen (ohne gemerkten Ausschnitt) und beim Suchen auf alle Punkte zoomen,
+    // nicht beim Wechsel der Disziplin oder Ansicht
+    const searching = typeof state !== 'undefined' && typeof state.search === 'string' && !!state.search.trim();
+    if(fsHomePts.points.length && ((!fsHomeFitDone && !fsHomeCamRestored) || (searching && fsHomeAll))) fsHomeFitAll();
+    if(fsHomePts.points.length) fsHomeFitDone = true;
     fsHomeCamRestored = false;
     fsHomeCluster();
   }
