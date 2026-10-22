@@ -18355,10 +18355,12 @@ function fsScanInProblem(res, i){
   const a = FS_RC_ASP[Math.round(res.asp[i] / 45) % 8], e = res.ele[i];
   return probs.some(pr=> (!pr.aspects.length || pr.aspects.indexOf(a) >= 0) && !(pr.lower && e < pr.lower) && !(pr.upper && e > pr.upper));
 }
-// Ebene als Bild (ein Pixel je Geländezelle; die Karte glättet beim Vergrössern)
+// Ebene als Bild (ein Pixel je Geländezelle; die Karte glättet beim Vergrössern), mit der Deckkraft
+// aus dem Regler gemalt (raster-opacity wirkt auf Gelände nicht zuverlässig).
 function fsScanImage(res, k){
+  const op = fsScanOpacity(), key = k + ':' + op;
   res.img = res.img || {};
-  if(res.img[k]) return res.img[k];
+  if(res.img[key]) return res.img[key];
   const {W, H, slope} = res;
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const cx = cv.getContext('2d'), im = cx.createImageData(W, H), d = im.data;
@@ -18368,24 +18370,24 @@ function fsScanImage(res, k){
     const sl = slope[i];
     if(isNaN(sl)) continue;
     let c = null, al = 0;
-    if(k === 'steil'){ c = sl < 25 ? C.green : sl < 30 ? C.yellow : sl < 35 ? C.orange : C.red; al = 150; }
+    if(k === 'steil'){ c = sl < 25 ? C.green : sl < 30 ? C.yellow : sl < 35 ? C.orange : C.red; al = 235; }
     else if(k === 'lawine'){
       if(sl >= 30 && sl < 60){
         const f = Math.min(1, (sl - 30) / 15);
-        c = [0, 1, 2].map(j=> Math.round(C.yellow[j] + (C.red[j] - C.yellow[j]) * f)); al = 165;
+        c = [0, 1, 2].map(j=> Math.round(C.yellow[j] + (C.red[j] - C.yellow[j]) * f)); al = 235;
         const x = i % W, y = (i - x) / W;
-        if(fsScanInProblem(res, i)){ hits++; if((x + y) % 6 < 2){ c = C.hatch; al = 235; } }
+        if(fsScanInProblem(res, i)){ hits++; if((x + y) % 6 < 2){ c = C.hatch; al = 255; } }
       }
     }else if(k === 'klippen'){
-      if(sl >= 60){ c = C.red; al = 215; } else if(sl >= 50){ c = C.orange; al = 200; }
+      if(sl >= 60){ c = C.red; al = 250; } else if(sl >= 50){ c = C.orange; al = 245; }
     }
     if(!c) continue;
-    d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = al;
+    d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = Math.round(al * Math.pow(op, 1.5)); // unten feiner abgestuft (wirkt sonst schon bei wenig Deckkraft kräftig)
   }
   if(k === 'lawine') res.hits = hits;
   cx.putImageData(im, 0, 0);
-  res.img[k] = cv.toDataURL('image/png');
-  return res.img[k];
+  res.img[key] = cv.toDataURL('image/png');
+  return res.img[key];
 }
 
 /* Zielen auf der Startkarte: Richtung (Tipp auf die Karte oder Kompass) und Länge, Vorschau als Rechteck */
@@ -18558,6 +18560,8 @@ async function fsScanCompass(on){
 }
 
 /* Ergebnis: eigene 3D-Ansicht mit dem eingefärbten Gelände und einem Blatt mit Kennzahlen */
+// Deckkraft der Einfärbung (gemerkt): weniger deckend zeigt das Gelände darunter
+function fsScanOpacity(){ try{ const v = parseFloat(localStorage.getItem('fs-scan-opacity')); return isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.55; }catch(e){ return 0.55; } }
 let fsScanMap = null;
 function fsScanClose(){
   if(fsScanMap){ try{ fsScanMap.remove(); }catch(e){} fsScanMap = null; }
@@ -18587,7 +18591,18 @@ async function fsScanOpen(s){
   let layer = 'steil';
   fsScanImage(res, 'lawine'); // zählt die Treffer fürs Blatt
   const card = wrap.querySelector('.fs-scan-card');
-  const drawCard = ()=>{ card.innerHTML = fsScanCardHtml(res, layer); card.hidden = false; };
+  const drawCard = ()=>{
+    card.innerHTML = `<label class="fs-scan-op"><span>Deckkraft</span><input type="range" min="0" max="100" step="5" value="${Math.round(fsScanOpacity() * 100)}" aria-label="Deckkraft der Farben"><b>${Math.round(fsScanOpacity() * 100)} %</b></label>` + fsScanCardHtml(res, layer);
+    card.hidden = false;
+    const r = card.querySelector('.fs-scan-op input'), out = card.querySelector('.fs-scan-op b');
+    let raf = 0;
+    r.addEventListener('input', ()=>{
+      out.textContent = r.value + ' %';
+      try{ localStorage.setItem('fs-scan-opacity', String(+r.value / 100)); }catch(e){}
+      if(raf) return;
+      raf = requestAnimationFrame(()=>{ raf = 0; const src = fsScanMap && fsScanMap.getSource('fs-scan'); if(src) src.updateImage({url: fsScanImage(res, layer), coordinates: res.coords}); });
+    });
+  };
   drawCard();
   await fsmEnsureLoaded();
   if(!document.body.contains(wrap)) return;
@@ -18605,7 +18620,7 @@ async function fsScanOpen(s){
     map.setTerrain({source:'dem', exaggeration:1});
     try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
     map.addSource('fs-scan', {type:'image', url: fsScanImage(res, layer), coordinates: res.coords});
-    map.addLayer({id:'fs-scan', type:'raster', source:'fs-scan', paint:{'raster-opacity':0.85, 'raster-resampling':'linear', 'raster-fade-duration':0}});
+    map.addLayer({id:'fs-scan', type:'raster', source:'fs-scan', paint:{'raster-opacity': 1, 'raster-resampling':'linear', 'raster-fade-duration':0}});
     map.addSource('fs-scan-box', {type:'geojson', data:{type:'Feature', properties:{}, geometry:{type:'LineString', coordinates: fsScanPolygon(s)}}});
     map.addLayer({id:'fs-scan-box', type:'line', source:'fs-scan-box', paint:{'line-color':'#ffffff', 'line-width':2, 'line-opacity':0.85}});
     if(s.origin) fsmAddMarker(map, s.origin.lat, s.origin.lon, '<div class="fs-scan-me" aria-label="Standort"></div>', {anchor:'center'});
