@@ -6696,15 +6696,64 @@ function fsmOpenPanel(map){
     document.body.appendChild(map._fsm.panelBack);
     document.body.appendChild(panel);
   }
+  const wasHidden = panel.hidden;
   panel.hidden = false;
   fsmSyncPanel(map);
+  // Als Blatt: Zurück-Geste schliesst es, und es lässt sich nach unten wegwischen
+  if(small && wasHidden && !map._fsm.panelLayer){
+    map._fsm.panelLayer = ()=>{ map._fsm.panelLayer = null; fsmClosePanelNow(map); };
+    pushOverlayLayer(map._fsm.panelLayer);
+  }
+  if(small) fsmWirePanelSwipe(map);
 }
 function fsmClosePanel(map){
   const panel = map._fsm && map._fsm.panel;
   if(!panel) return;
+  const layer = map._fsm.panelLayer;
+  if(layer && !panel.hidden){
+    // Eigener Verlaufseintrag: über die Ebenen-Liste schliessen (verbraucht den Eintrag mit)
+    if(overlayLayers[overlayLayers.length - 1] === layer){ closeTopOverlayLayer(); return; }
+    const i = overlayLayers.indexOf(layer); if(i >= 0) overlayLayers.splice(i, 1);
+    map._fsm.panelLayer = null;
+  }
+  fsmClosePanelNow(map);
+}
+function fsmClosePanelNow(map){
+  const panel = map._fsm && map._fsm.panel;
+  if(!panel) return;
   panel.hidden = true;
+  panel.style.transform = ''; panel.style.transition = '';
   if(map._fsm.panelBack) map._fsm.panelBack.remove();
   if(panel.parentNode !== map.getContainer()){ panel.classList.remove('fsm-panel-sheet'); map.getContainer().appendChild(panel); }
+}
+// Ebenen-Blatt nach unten wegwischen (oben am Kopf oder wenn die Liste ganz oben steht)
+function fsmWirePanelSwipe(map){
+  const panel = map._fsm.panel;
+  if(panel._fsSwipe) return;
+  panel._fsSwipe = true;
+  let y0 = 0, t0 = 0, dy = 0, on = false;
+  panel.addEventListener('touchstart', e=>{
+    if(!panel.classList.contains('fsm-panel-sheet') || e.touches.length !== 1) return;
+    if(panel.scrollTop > 0 && !e.target.closest('.fsm-sheet-head')) return;
+    if(e.target.closest('input, select, .fsm-seg')) return;
+    on = true; dy = 0; y0 = e.touches[0].clientY; t0 = Date.now(); panel.style.transition = 'none';
+  }, {passive: true});
+  panel.addEventListener('touchmove', e=>{
+    if(!on) return;
+    dy = Math.max(0, e.touches[0].clientY - y0);
+    if(dy > 0 && e.cancelable) e.preventDefault();
+    panel.style.transform = dy ? `translateY(${dy}px)` : '';
+  }, {passive: false});
+  const end = ()=>{
+    if(!on) return;
+    on = false;
+    const fast = dy > 30 && dy / Math.max(1, Date.now() - t0) > 0.5;
+    panel.style.transition = 'transform .2s ease-out';
+    if(dy > 90 || fast){ panel.style.transform = 'translateY(100%)'; setTimeout(()=> fsmClosePanel(map), 180); }
+    else panel.style.transform = '';
+  };
+  panel.addEventListener('touchend', end);
+  panel.addEventListener('touchcancel', end);
 }
 // Punkt setzen auf der Startkarte: gedrückt halten auf eine leere Stelle bietet «Neue Tour hier» usw.
 // oder hängt den Punkt an einen bestehenden Eintrag (gespeichert wie im Formular, über fbSet).
