@@ -18233,7 +18233,7 @@ function fsScanRect(s, z){
   z = z || FS_SCAN_Z;
   const m = fsScanMpp(s.lat, z), [ox, oy] = fsRcPx(s.lat, s.lon, z);
   const b = s.bearing * Math.PI / 180, f = [Math.sin(b), -Math.cos(b)], r = [Math.cos(b), Math.sin(b)];
-  const L = s.length / m, hw = Math.max(400, s.length * 0.8) / m / 2;
+  const L = s.length / m, hw = s.length * 0.8 / m / 2;
   const t0 = s.centered ? -L / 2 : -Math.min(L * 0.08, 60 / m), t1 = s.centered ? L / 2 : L;
   const corners = [[t0, -hw], [t1, -hw], [t1, hw], [t0, hw]].map(([t, u])=> [ox + f[0] * t + r[0] * u, oy + f[1] * t + r[1] * u]);
   return {ox, oy, f, r, t0, t1, hw, m, corners};
@@ -18339,9 +18339,10 @@ async function fsScanCompute(s){
   if(!n) return {error: 'Für diesen Ausschnitt gibt es keine Geländedaten.'};
   const lbl = i=> cls[i] ? FS_RC_CLASSES[cls[i] - 1].label : Math.round(slope[i]) + '°';
   let here = null;
-  if(!s.centered){
-    const i = (Math.floor(R.oy) - y0) * W + (Math.floor(R.ox) - x0);
-    if(i >= 0 && i < slope.length && !isNaN(slope[i])) here = {label: lbl(i), ele: ele[i]};
+  if(s.origin){
+    const [px, py] = fsRcPx(s.origin.lat, s.origin.lon, ZI);
+    const i = (Math.floor(py) - y0) * W + (Math.floor(px) - x0);
+    if(px >= x0 && px < x0 + W && py >= y0 && py < y0 + H && !isNaN(slope[i])) here = {label: lbl(i), ele: ele[i]};
   }
   const tl = fsScanLL(x0, y0, ZI), br = fsScanLL(x0 + W, y0 + H, ZI);
   return {s, W, H, x0, y0, ele, slope, asp, n, n30, n35, n50, here, official: useCls,
@@ -18397,67 +18398,99 @@ function fsScanFromGps(){
     ()=> showToast('Standort nicht verfügbar – auf der Karte gedrückt halten und «Hang scannen» wählen.', true),
     {enableHighAccuracy: true, timeout: 12000, maximumAge: 30000});
 }
+// Rahmen auf dem Bildschirm (Sucher): oben = Blickrichtung, Höhe = Länge, Breite = 0,8 × Länge
+function fsScanFrameBox(panelH){
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const top = 76, bottom = vh - panelH - 24, availH = Math.max(160, bottom - top), availW = vw - 56;
+  const h = Math.min(availH, availW / 0.8), w = h * 0.8;
+  return {left: (vw - w) / 2, top: top + (availH - h) / 2, w, h, cx: vw / 2, cy: top + availH / 2};
+}
+function fsScanZoomFor(lat, len, hPx){ return Math.log2(40075016.686 * Math.cos(lat * Math.PI / 180) / (512 * (len / hPx))); }
 function fsScanAim(o){
   const ml = fsHomeMap;
   if(!ml || !ml._fsmLoaded){ showToast('Die Karte lädt noch.', true); return; }
   if(fsScanAimSt) fsScanAimEnd();
   if(typeof fsHomeDetent !== 'undefined' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
-  const st = fsScanAimSt = {lat: o.lat, lon: o.lon, centered: !!o.centered, bearing: 0, length: 1000, userDir: false, compass: null};
+  // Vom Standort: der Standort liegt am unteren Rand des Rahmens; sonst liegt der Punkt in der Mitte
+  const st = fsScanAimSt = {origin: o.centered ? null : {lat: o.lat, lon: o.lon}, length: 1000, userDir: false, compass: null};
   document.documentElement.classList.add('fs-scanning');
   const panel = document.createElement('div');
   panel.className = 'fs-scan-aim';
-  const canCompass = !st.centered && typeof DeviceOrientationEvent !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+  const canCompass = typeof DeviceOrientationEvent !== 'undefined' && matchMedia('(pointer: coarse)').matches;
   panel.innerHTML = `<div class="fs-scan-aim-head"><b>${fsIconHtml('scan')}Hang-Scan</b><button type="button" class="x-btn" data-x aria-label="Schliessen">×</button></div>
     <div class="fs-scan-aim-row"><span>Richtung</span><b data-dir>–</b>${canCompass ? `<button type="button" class="btn secondary" data-compass>${fsIconHtml('compass')}Kompass</button>` : ''}</div>
-    <p class="fs-scan-aim-hint">${st.centered ? 'Der Scan liegt um den Punkt, entlang der Falllinie. Auf die Karte tippen, um die Richtung zu ändern.' : 'Auf die Karte tippen: dorthin zeigt der Scan.'}</p>
+    <p class="fs-scan-aim-hint">Karte verschieben und drehen, bis der Hang im Rahmen liegt. Oben im Rahmen ist die Blickrichtung.</p>
     <label class="fs-scan-aim-len"><span>Länge</span><b data-len></b><input type="range" min="300" max="3000" step="100" value="1000" aria-label="Länge des Scans"></label>
     <div class="fs-scan-aim-btns"><button type="button" class="btn secondary" data-x>Abbrechen</button><button type="button" class="btn" data-go>${fsIconHtml('scan')}Scannen</button></div>`;
   document.body.appendChild(panel);
-  st.panel = panel;
-  const ac = getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1E6AA0';
+  const frame = document.createElement('div');
+  frame.className = 'fs-scan-frame';
+  frame.innerHTML = '<i class="fs-scan-frame-up" aria-hidden="true">↑</i>';
+  document.body.appendChild(frame);
+  st.panel = panel; st.frame = frame;
+  const box = ()=> fsScanFrameBox(panel.offsetHeight);
+  const place = ()=>{ const b = box(); Object.assign(frame.style, {left: b.left + 'px', top: b.top + 'px', width: b.w + 'px', height: b.h + 'px'}); return b; };
+  const centerLL = ()=>{ const b = box(); return ml.unproject([b.cx, b.cy]); };
+  const bearing = ()=> ((ml.getBearing() % 360) + 360) % 360;
+  const lenNow = ()=>{
+    const b = box(), c = centerLL();
+    const mpp = 40075016.686 * Math.cos(c.lat * Math.PI / 180) / (512 * Math.pow(2, ml.getZoom()));
+    return Math.max(100, Math.round(mpp * b.h / 50) * 50);
+  };
+  let raf = 0;
   const upd = ()=>{
-    panel.querySelector('[data-dir]').textContent = Math.round(st.bearing) + '° ' + fsScanDir(st.bearing);
+    raf = 0;
+    if(fsScanAimSt !== st) return;
+    st.length = lenNow();
+    panel.querySelector('[data-dir]').textContent = Math.round(bearing()) + '° ' + fsScanDir(bearing());
     panel.querySelector('[data-len]').textContent = fsRcFmtM(st.length);
-    const data = {type:'FeatureCollection', features:[
-      {type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:[fsScanPolygon(st)]}},
-      {type:'Feature', properties:{o:1}, geometry:{type:'Point', coordinates:[st.lon, st.lat]}}]};
-    const src = ml.getSource('fs-scan-prev');
-    if(src) src.setData(data);
-    else{
-      ml.addSource('fs-scan-prev', {type:'geojson', data});
-      ml.addLayer({id:'fs-scan-prev-fill', type:'fill', source:'fs-scan-prev', filter:['==', ['geometry-type'], 'Polygon'], paint:{'fill-color': ac, 'fill-opacity':0.14}});
-      ml.addLayer({id:'fs-scan-prev-line', type:'line', source:'fs-scan-prev', filter:['==', ['geometry-type'], 'Polygon'], paint:{'line-color': ac, 'line-width':2.5}});
-      ml.addLayer({id:'fs-scan-prev-o', type:'circle', source:'fs-scan-prev', filter:['==', ['geometry-type'], 'Point'], paint:{'circle-radius':7, 'circle-color': ac, 'circle-stroke-color':'#fff', 'circle-stroke-width':3}});
-    }
+    const r = panel.querySelector('input[type="range"]');
+    if(document.activeElement !== r) r.value = String(Math.min(3000, Math.max(300, st.length)));
   };
-  st.upd = upd;
-  const fit = ()=>{
-    const b = new maplibregl.LngLatBounds();
-    fsScanPolygon(st).forEach(c=> b.extend(c));
-    try{ ml.fitBounds(b, {padding:{top:90, bottom: panel.offsetHeight + 30, left:40, right:70}, maxZoom:15, duration:400}); }catch(e){}
+  st.upd = ()=>{ if(!raf) raf = requestAnimationFrame(upd); };
+  // Kamera so, dass der Rahmen den Ausschnitt zeigt (Mitte des Rahmens = Mitte des Scans)
+  const go = (lat, lon, b, len, dur)=>{
+    const bx = place();
+    let cLat = lat, cLon = lon;
+    if(st.origin){ const d = len / 2, br = b * Math.PI / 180; cLat = lat + d * Math.cos(br) / 111320; cLon = lon + d * Math.sin(br) / (111320 * Math.cos(lat * Math.PI / 180)); }
+    try{ ml.easeTo({center: [cLon, cLat], zoom: fsScanZoomFor(cLat, len, bx.h), bearing: b, pitch: 0, offset: [bx.cx - ml.getContainer().clientWidth / 2, bx.cy - ml.getContainer().clientHeight / 2], duration: dur || 0}); }catch(e){}
   };
-  st.click = (e)=>{
-    if(e.originalEvent && e.originalEvent._fsmHandled) return;
-    const p = e.lngLat;
-    st.bearing = (Math.atan2((p.lng - st.lon) * Math.cos(st.lat * Math.PI / 180), p.lat - st.lat) * 180 / Math.PI + 360) % 360;
-    st.userDir = true; fsScanCompass(false); upd();
-  };
-  ml.on('click', st.click);
+  st.go = go;
+  st.setBearing = (b)=>{ try{ ml.easeTo({bearing: b, around: centerLL(), duration: 0}); }catch(e){} };
+  ml.on('move', st.upd);
+  st.resize = ()=>{ place(); st.upd(); };
+  window.addEventListener('resize', st.resize);
+  // Standort als Punkt auf der Karte
+  if(st.origin){
+    const ac = getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1E6AA0';
+    ml.addSource('fs-scan-prev', {type:'geojson', data:{type:'Feature', properties:{}, geometry:{type:'Point', coordinates:[st.origin.lon, st.origin.lat]}}});
+    ml.addLayer({id:'fs-scan-prev-o', type:'circle', source:'fs-scan-prev', paint:{'circle-radius':7, 'circle-color': ac, 'circle-stroke-color':'#fff', 'circle-stroke-width':3}});
+  }
   const range = panel.querySelector('input[type="range"]');
-  range.addEventListener('input', ()=>{ st.length = +range.value; upd(); });
-  range.addEventListener('change', fit);
+  range.addEventListener('input', ()=>{
+    const len = +range.value, c = centerLL();
+    try{ ml.easeTo({zoom: fsScanZoomFor(c.lat, len, box().h), around: c, duration: 0}); }catch(e){}
+  });
   panel.querySelectorAll('[data-x]').forEach(b=> b.addEventListener('click', ()=> closeTopOverlayLayer()));
   const cb = panel.querySelector('[data-compass]');
   if(cb) cb.addEventListener('click', ()=> fsScanCompass(!st.compass));
+  // Selbst gedreht: der Kompass hört auf
+  st.userRotate = (e)=>{ if(e && e.originalEvent){ st.userDir = true; if(st.compass) fsScanCompass(false); } };
+  ml.on('rotatestart', st.userRotate);
   panel.querySelector('[data-go]').addEventListener('click', ()=>{
-    const s = {lat: st.lat, lon: st.lon, bearing: st.bearing, length: st.length, centered: st.centered};
+    const c = centerLL();
+    const s = {lat: c.lat, lon: c.lng, bearing: bearing(), length: st.length, centered: true, origin: st.origin};
     closeTopOverlayLayer();
     setTimeout(()=> fsScanOpen(s), 50);
   });
   pushOverlayLayer(fsScanAimEnd);
-  upd(); setTimeout(fit, 30);
-  // Vorgabe: bergab (Falllinie) am Punkt
-  fsScanAspectAt(st.lat, st.lon).then(a=>{ if(a != null && fsScanAimSt === st && !st.userDir && !st.compass){ st.bearing = a; upd(); fit(); } }).catch(()=>{});
+  // Vorgabe: vom Standort bergab schauen; ein Hang auf der Karte von unten (Blick hangaufwärts auf die Flanke)
+  go(o.lat, o.lon, 0, st.length);
+  upd();
+  fsScanAspectAt(o.lat, o.lon).then(a=>{
+    if(a == null || fsScanAimSt !== st || st.userDir || st.compass) return;
+    go(o.lat, o.lon, st.origin ? a : (a + 180) % 360, st.length, 500);
+  }).catch(()=>{});
 }
 function fsScanAimEnd(){
   const st = fsScanAimSt;
@@ -18466,11 +18499,14 @@ function fsScanAimEnd(){
   fsScanAimSt = null;
   document.documentElement.classList.remove('fs-scanning');
   if(st.panel) st.panel.remove();
+  if(st.frame) st.frame.remove();
+  window.removeEventListener('resize', st.resize);
   const ml = fsHomeMap;
   if(ml){
-    ml.off('click', st.click);
-    ['fs-scan-prev-o', 'fs-scan-prev-line', 'fs-scan-prev-fill'].forEach(id=>{ try{ if(ml.getLayer(id)) ml.removeLayer(id); }catch(e){} });
+    ml.off('move', st.upd); ml.off('rotatestart', st.userRotate);
+    ['fs-scan-prev-o'].forEach(id=>{ try{ if(ml.getLayer(id)) ml.removeLayer(id); }catch(e){} });
     try{ if(ml.getSource('fs-scan-prev')) ml.removeSource('fs-scan-prev'); }catch(e){}
+    try{ ml.easeTo({bearing: 0, pitch: 0, duration: 300}); }catch(e){}
   }
 }
 // Kompass: Richtung folgt dem Handy (iOS fragt beim ersten Mal nach der Erlaubnis)
@@ -18493,7 +18529,7 @@ async function fsScanCompass(on){
     got = true;
     h = (h + ((screen.orientation && screen.orientation.angle) || 0) + 360) % 360;
     if(raf) return;
-    raf = requestAnimationFrame(()=>{ raf = 0; if(fsScanAimSt === st && st.compass){ st.bearing = h; st.userDir = true; st.upd(); } });
+    raf = requestAnimationFrame(()=>{ raf = 0; if(fsScanAimSt === st && st.compass) st.setBearing(h); });
   };
   window.addEventListener(ev, fn);
   st.compass = {ev, fn};
@@ -18552,14 +18588,14 @@ async function fsScanOpen(s){
     map.addLayer({id:'fs-scan', type:'raster', source:'fs-scan', paint:{'raster-opacity':0.85, 'raster-resampling':'linear', 'raster-fade-duration':0}});
     map.addSource('fs-scan-box', {type:'geojson', data:{type:'Feature', properties:{}, geometry:{type:'LineString', coordinates: fsScanPolygon(s)}}});
     map.addLayer({id:'fs-scan-box', type:'line', source:'fs-scan-box', paint:{'line-color':'#ffffff', 'line-width':2, 'line-opacity':0.85}});
-    if(!s.centered) fsmAddMarker(map, s.lat, s.lon, '<div class="fs-scan-me" aria-label="Standort"></div>', {anchor:'center'});
-    // Blick: vom Standort in Scan-Richtung; bei einem Hang auf der Karte von gegenüber auf die Flanke
-    const bearing = s.centered ? (s.bearing + 180) % 360 : s.bearing;
+    if(s.origin) fsmAddMarker(map, s.origin.lat, s.origin.lon, '<div class="fs-scan-me" aria-label="Standort"></div>', {anchor:'center'});
+    // Blick wie beim Zielen: vom unteren Rand des Rahmens zum oberen
+    const bearing = s.bearing;
     const bb = new maplibregl.LngLatBounds();
     fsScanPolygon(s).forEach(c=> bb.extend(c));
     const cam = map.cameraForBounds(bb, {padding:{top:110, bottom: Math.round(window.innerHeight * 0.3), left:20, right:20}, bearing});
     // Gekippt wirkt der Ausschnitt kleiner als flach gerechnet: etwas näher heran
-    if(cam) map.jumpTo({center: cam.center, zoom: cam.zoom + 0.45, bearing, pitch: 58});
+    if(cam) map.jumpTo({center: cam.center, zoom: cam.zoom, bearing, pitch: 58});
     loading.remove();
   });
   wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(b=> b.addEventListener('click', ()=>{
