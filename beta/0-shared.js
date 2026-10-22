@@ -11582,7 +11582,13 @@ function fsOpenConditions(lat, lon, ele, name){
 function meteoForecastWidgetHtml(lat, lon, alt, tour){
   if(!isFinite(lat) || !isFinite(lon)) return '';
   // Prognose zuerst (wichtigste Frage am Tag X), dann Rückblick, gemessen, Webcams
-  return (tour ? fsBergwetterHtml(tour) : '') + meteoForecastOnlyHtml(lat, lon) + fsConditionsHtml(lat, lon, alt);
+  const parts = [tour ? fsBergwetterHtml(tour) : '', meteoForecastOnlyHtml(lat, lon), fsConditionsHtml(lat, lon, alt)];
+  if(navigator.onLine !== false) return parts.join('');
+  // Offline: statt drei Leer-Meldungen untereinander nur eine Zeile; Teile mit gespeicherten Daten bleiben
+  const isEmptyOffline = (h)=>{ const txt = String(h || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(); return /Offline – /.test(txt) && txt.length < 160; };
+  const keep = parts.filter(h=> h && !isEmptyOffline(h));
+  const dropped = parts.some(h=> h && isEmptyOffline(h));
+  return (dropped ? '<p class="hint fs-cond-offline">Offline – Wetter und Bedingungen erscheinen, sobald wieder Internet da ist.</p>' : '') + keep.join('');
 }
 /* ===== Bergwetter: Stunden für Gipfel, Hütte und Start einer Tour (Open-Meteo, Modell MeteoSchweiz) =====
    Gerechnet auf der Höhe des Orts (Gipfel: Zielhöhe, Hütte: Hüttenhöhe, Start: Gelände). */
@@ -18198,7 +18204,7 @@ document.addEventListener('change', (ev)=>{
 // [Schlüssel, Titel, kurzer Name in der Sprungleiste, Icon]
 const FS_TD_SECTIONS = [
   ['beschreibung', 'Beschreibung', 'Info', 'note'], ['erfahrungen', 'Erfahrungen', 'Logbuch', 'users'], ['orte', 'Orte', 'Orte', 'pin'],
-  ['bedingungen', 'Bedingungen', 'Wetter', 'partly'], ['anreise', 'Anreise', 'Anreise', 'car'],
+  ['bedingungen', 'Wetter', 'Wetter', 'partly'], ['anreise', 'Anreise', 'Anreise', 'car'],
   ['mehr', 'Mehr', 'Mehr', 'more']
 ];
 function fsTdSection(key, id, inner, title){
@@ -18366,10 +18372,10 @@ fsApplyThemeClasses(); // so früh wie möglich, damit nichts hell aufblitzt
 function fsEnsureThemeToggles(){
   document.querySelectorAll('.who-menu .who-row').forEach(row=>{
     if(row.querySelector('.fs-theme-toggle')) return;
-    [['dark','Dunkelmodus'],['contrast','Hoher Kontrast (Sonne)']].forEach(([key, label])=>{
+    [['dark','Dunkelmodus'],['contrast','Hoher Kontrast (Sonne)']].forEach(([key, label], i)=>{
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'fs-theme-toggle';
+      b.className = 'fs-theme-toggle' + (i === 0 ? ' fs-menu-sep' : '');
       b.setAttribute('role', 'switch');
       const on = !!fsThemePrefs()[key];
       b.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -18880,6 +18886,8 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
       // sonst stand es ein Bild lang bildschirmhoch da (Flackern beim Öffnen und Nachladen)
       const ov = document.querySelector('#modal-root > .overlay:not(.fs-sheet-mode)');
       if(ov && ov.querySelector(':scope > .modal.td')) fsApplyTourSheetMode();
+      // Lese-/Bearbeiten-Modus ebenfalls sofort (sonst stand die Status-Zeile ein Bild lang zweizeilig da)
+      if(document.querySelector('#modal-root > .overlay > .modal.td:not(.fs-detail)')) fsApplyEditMode();
       if(queued) return;
       queued = true;
       requestAnimationFrame(()=>{ queued = false; fsUpgradeFilterRows(); fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); fsEnhanceForms(); fsTdSpy(); });
@@ -19155,7 +19163,7 @@ const FS_ICON_PATHS = {
   heli: 'M3 5h14M10 5v3M6 8h8a4 4 0 0 1 4 4v1a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3zM18 12h3M9 16l-1 3M15 16l1 3M6 19h12',
   shield: 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z',
   sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 5v4M8 15v4',
-  gps: 'M12 10a2 2 0 1 0 0 4a2 2 0 1 0 0-4zM5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14M8 8a5.5 5.5 0 0 0 0 8M16 8a5.5 5.5 0 0 1 0 8',
+  gps: 'M3 11l18-8-8 18-2-8z', // Ortungspfeil (eigener Standort), wie in Karten-Apps üblich
   lock: 'M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11',
   star: 'M12 3.2l2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8z',
   dot: 'M12 6a6 6 0 1 0 0 12a6 6 0 1 0 0-12z',

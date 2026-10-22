@@ -1380,13 +1380,13 @@ function shellHtml__sw(){
       <details class="who who-menu">
         <summary aria-label="Menü: Konto, Daten und Anzeige">${fsIconHtml('menu')}${state.myName ? `<span class="who-initial" aria-hidden="true">${esc(state.myName.trim().charAt(0).toUpperCase())}</span>` : ''}</summary>
         <div class="who-row">
-          ${state.myName ? `<span>Angemeldet als <strong>${esc(state.myName)}</strong></span><button data-act="change-name">Namen ändern</button>` : `<button data-act="change-name">Namen setzen</button>`}
-          <button data-act="export-data">${fsIconHtml('upload')}Exportieren</button>
+          <button data-act="view-abgeschlossen">${fsIconHtml('checkc')}Erledigte Touren</button>
+          <button data-act="fs-yearbook">${fsIconHtml('star')}Jahresrückblick</button>
+          <button data-act="export-data" class="fs-menu-sep">${fsIconHtml('upload')}Exportieren</button>
           <button data-act="import-data">${fsIconHtml('download')}Importieren</button>
-          <button data-act="view-abgeschlossen">✓ Erledigte Touren</button>
-          <button data-act="fs-yearbook">${fsIconHtml('calendar')}Jahresrückblick</button>
-          <button data-act="fs-datacheck">Datenprüfung</button>
+          <button data-act="fs-datacheck">${fsIconHtml('shield')}Datenprüfung</button>
           <button data-act="view-papierkorb">${fsIconHtml('trash')}Papierkorb${papierkorbTrashCount() ? ` (${papierkorbTrashCount()})` : ''}</button>
+          ${state.myName ? `<span class="fs-menu-sep">Angemeldet als <strong>${esc(state.myName)}</strong></span><button data-act="change-name">${fsIconHtml('user')}Namen ändern</button>` : `<button data-act="change-name" class="fs-menu-sep">${fsIconHtml('user')}Namen setzen</button>`}
         </div>
       </details>
     </div>
@@ -6128,13 +6128,13 @@ function shellHtml__fix(){
       <details class="who who-menu">
         <summary aria-label="Menü: Konto, Daten und Anzeige">${fsIconHtml('menu')}${state.myName ? `<span class="who-initial" aria-hidden="true">${esc(state.myName.trim().charAt(0).toUpperCase())}</span>` : ''}</summary>
         <div class="who-row">
-          ${state.myName ? `<span>Angemeldet als <strong>${esc(state.myName)}</strong></span><button data-act="change-name">Namen ändern</button>` : `<button data-act="change-name">Namen setzen</button>`}
-          <button data-act="export-data">${fsIconHtml('upload')}Exportieren</button>
+          <button data-act="view-abgeschlossen">${fsIconHtml('checkc')}Erledigte Touren</button>
+          <button data-act="fs-yearbook">${fsIconHtml('star')}Jahresrückblick</button>
+          <button data-act="export-data" class="fs-menu-sep">${fsIconHtml('upload')}Exportieren</button>
           <button data-act="import-data">${fsIconHtml('download')}Importieren</button>
-          <button data-act="view-abgeschlossen">✓ Erledigte Touren</button>
-          <button data-act="fs-yearbook">${fsIconHtml('calendar')}Jahresrückblick</button>
-          <button data-act="fs-datacheck">Datenprüfung</button>
+          <button data-act="fs-datacheck">${fsIconHtml('shield')}Datenprüfung</button>
           <button data-act="view-papierkorb">${fsIconHtml('trash')}Papierkorb${papierkorbTrashCount() ? ` (${papierkorbTrashCount()})` : ''}</button>
+          ${state.myName ? `<span class="fs-menu-sep">Angemeldet als <strong>${esc(state.myName)}</strong></span><button data-act="change-name">${fsIconHtml('user')}Namen ändern</button>` : `<button data-act="change-name" class="fs-menu-sep">${fsIconHtml('user')}Namen setzen</button>`}
         </div>
       </details>
     </div>
