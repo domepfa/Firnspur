@@ -505,7 +505,7 @@ main{ padding-top:6px; }
    die Karte bekommt eine eigene Ebene (isolation), das Blatt liegt per DOM-Reihenfolge darüber. */
 .fs-stage{ z-index:auto; isolation:isolate; top:54px; }
 .fs-sheet{ z-index:auto; }
-/* Die grosse Karte öffnet man jetzt direkt auf der Bühne ("Grosse Karte") — kein zweiter Knopf im Blatt */
+/* Die grosse Karte öffnet man jetzt direkt auf der Bühne ("Grosse Karte") – kein zweiter Knopf im Blatt */
 .map-strip-pin.open, .map-strip-cluster.open{ z-index:10; }
 
 /* =====================================================================
@@ -834,7 +834,7 @@ main{ padding-top:6px; }
 .fsp-chev{ width:9px; height:9px; margin-right:14px; border-right:2px solid var(--ink-faint); border-bottom:2px solid var(--ink-faint); transform:rotate(45deg); }
 .fsp-lifted .fsp-marker{ transform:scale(1.35) translateY(-6px); box-shadow:0 10px 20px rgba(15,30,39,.4); transition:transform .15s; }
 .fsp-wp-summary{ border-bottom:1px solid var(--line-soft) !important; }
-/* Punkt 7: dezentes Fotoband im Kopf — Foto oben, läuft weich ins Firnweiss aus, Titel darunter */
+/* Punkt 7: dezentes Fotoband im Kopf – Foto oben, läuft weich ins Firnweiss aus, Titel darunter */
 .hero{ padding-top:92px; }
 .hero::before{
   display:block; content:''; position:absolute; inset:auto; left:10px; right:10px; top:8px; height:128px;
@@ -847,7 +847,7 @@ main{ padding-top:6px; }
 .hero-top{ margin-top:-72px; align-items:flex-end; }
 .brand h1{ padding-top:58px; text-shadow:0 1px 0 rgba(243,246,248,.6); }
 .tabs{ margin-top:16px; }
-/* Punkt 1: Tourdetail — Titel gross und ruhig, Badges darunter, Routenname klein */
+/* Punkt 1: Tourdetail – Titel gross und ruhig, Badges darunter, Routenname klein */
 .td .modal-head > div:first-child{ display:flex; flex-direction:column; gap:8px; min-width:0; }
 .td .modal-head .agenda-date-row{ order:0; font-family:var(--font-ui) !important; font-size:11.5px !important; font-weight:800; letter-spacing:.14em; color:var(--ice-deep); margin:0; }
 .td .modal-head h2{ order:1; color:var(--ink) !important; font-size:38px; line-height:1.02; overflow-wrap:anywhere; }
@@ -915,7 +915,7 @@ main{ padding-top:6px; }
 /* Eine Bearbeiten-Maske, ein Speicherort: feste Leiste unten statt zusätzlichem Schwebe-Knopf */
 .fab-save{ display:none !important; }
 .modal form .form-actions{
-  position:sticky; bottom:0; z-index:6;
+  position:sticky; bottom:-24px; z-index:6; /* bündig am Rand (die .overlay hat 24px Innenabstand) */
   margin:20px -18px 0; padding:12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
   background:var(--paper); border-top:1px solid var(--line-soft, #E6EAED);
   box-shadow:0 -8px 20px rgba(15,30,39,.06);
@@ -945,7 +945,7 @@ html.fs-on-tour .emergency-tab{ display:inline-flex !important; z-index:60; }
 
 /* =====================================================================
    Flüssiges Scrollen (v. a. Android): kein Milchglas auf Elementen, die
-   beim Scrollen über bewegtem Inhalt liegen — dort müsste der Browser die
+   beim Scrollen über bewegtem Inhalt liegen – dort müsste der Browser die
    Unschärfe bei jedem Bild neu berechnen. Stattdessen fast deckende Flächen.
    Milchglas bleibt nur auf kleinen Knöpfen über der stehenden Karte.
    ===================================================================== */
@@ -2454,8 +2454,8 @@ html.fs-mapmode .fs-sheet > .tabs .tab .fs-i{ color:inherit; opacity:1; filter:n
 /* Knopf «Karte» in der Stufe «liste» */
 .fs-home-mapbtn{ display:none; }
 html.fs-mapmode[data-fs-home="liste"] .fs-home-mapbtn{
-  display:inline-flex; align-items:center; gap:8px; position:fixed; z-index:46; left:50%; transform:translateX(-50%);
-  bottom:calc(84px + env(safe-area-inset-bottom, 0px)); min-height:44px; padding:0 18px; border:none; border-radius:999px;
+  display:inline-flex; align-items:center; gap:8px; position:fixed; z-index:46; left:16px;
+  bottom:calc(18px + env(safe-area-inset-bottom, 0px)); min-height:56px; padding:0 20px; border:none; border-radius:18px;
   background:var(--ink); color:var(--paper); font:inherit; font-weight:800; font-size:14px; box-shadow:0 6px 18px rgba(15,30,39,.28); cursor:pointer;
 }
 .fs-home-mapbtn .fs-i{ width:18px; height:18px; }
