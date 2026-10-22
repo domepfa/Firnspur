@@ -18219,9 +18219,19 @@ const FS_SCAN_COL = {green:[63,174,90], yellow:[242,210,27], orange:[242,140,27]
 const FS_SCAN_LAYERS = [
   {k:'steil', label:'Steilheit', title:'Hangneigung', legend:[['green','unter 25°'], ['yellow','25–30°'], ['orange','30–35°'], ['red','über 35°']]},
   {k:'lawine', label:'Lawine', title:'Anrissgelände', legend:[['yellow','30°'], ['red','45° und steiler'], ['hatch','schraffiert: Lawinenproblem von heute – Höhe und Exposition passen']]},
-  {k:'klippen', label:'Klippen', title:'Absturzgelände', legend:[['orange','50–60° – steil, kein Sturz erlaubt'], ['red','über 60° – Klippe']]}
+  {k:'klippen', label:'Klippen', title:'Absturzgelände', legend:[['orange','50–60° – steil, kein Sturz erlaubt'], ['red','über 60° – Klippe']]},
+  {k:'sonne', label:'Sonne', title:'Sonne über den Tag (heute)', legend:[]}
 ];
 const fsScanRgb = k=> 'rgb(' + FS_SCAN_COL[k].join(',') + ')';
+// Sonne: Schatten (blau) über türkis und grün bis ganzer Tag (gelb)
+const FS_SCAN_SUN = [[0, [33, 64, 154]], [0.35, [41, 152, 196]], [0.65, [120, 190, 80]], [1, [242, 210, 27]]];
+function fsScanSunRgb(f){
+  for(let i = 1; i < FS_SCAN_SUN.length; i++){
+    const [f1, c1] = FS_SCAN_SUN[i], [f0, c0] = FS_SCAN_SUN[i - 1];
+    if(f <= f1){ const t = (f - f0) / (f1 - f0); return [0, 1, 2].map(j=> Math.round(c0[j] + (c1[j] - c0[j]) * t)); }
+  }
+  return FS_SCAN_SUN[FS_SCAN_SUN.length - 1][1];
+}
 const fsScanDir = b=> FS_RC_ASP[Math.round((((b % 360) + 360) % 360) / 45) % 8];
 function fsScanMpp(lat, z){ return 40075016.686 * Math.cos(lat * Math.PI / 180) / (256 * Math.pow(2, z || FS_SCAN_Z)); }
 function fsScanLL(px, py, z){
@@ -18345,7 +18355,7 @@ async function fsScanCompute(s){
     if(px >= x0 && px < x0 + W && py >= y0 && py < y0 + H && !isNaN(slope[i])) here = {label: lbl(i), ele: ele[i]};
   }
   const tl = fsScanLL(x0, y0, ZI), br = fsScanLL(x0 + W, y0 + H, ZI);
-  return {s, W, H, x0, y0, ele, slope, asp, n, n30, n35, n50, here, official: useCls,
+  return {s, z: ZI, W, H, x0, y0, ele, slope, asp, n, n30, n35, n50, here, official: useCls,
     steep: maxI >= 0 ? {label: lbl(maxI), ele: ele[maxI], asp: asp[maxI]} : null,
     coords: [[tl[1], tl[0]], [br[1], tl[0]], [br[1], br[0]], [tl[1], br[0]]]};
 }
@@ -18354,6 +18364,98 @@ function fsScanInProblem(res, i){
   if(!probs.length) return false;
   const a = FS_RC_ASP[Math.round(res.asp[i] / 45) % 8], e = res.ele[i];
   return probs.some(pr=> (!pr.aspects.length || pr.aspects.indexOf(a) >= 0) && !(pr.lower && e < pr.lower) && !(pr.upper && e > pr.upper));
+}
+/* Sonne: Sonnenstand heute alle 20 Minuten (Formeln wie SunCalc). Eine Stelle ist besonnt, wenn der
+   Hang zur Sonne geneigt ist und kein Gelände im Umkreis von 8 km davor steht (Horizont aus dem
+   Höhenmodell, Zoom 12). Gerechnet auf einem Raster von ca. 20 m, dazwischen geglättet. */
+function fsSunPos(date, lat, lon){
+  const rad = Math.PI / 180, d = date.valueOf() / 86400000 - 0.5 + 2440588 - 2451545;
+  const M = rad * (357.5291 + 0.98560028 * d), C = rad * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+  const L = M + C + rad * 102.9372 + Math.PI, e = rad * 23.4397;
+  const dec = Math.asin(Math.sin(e) * Math.sin(L)), ra = Math.atan2(Math.sin(L) * Math.cos(e), Math.cos(L));
+  const H = rad * (280.16 + 360.9856235 * d) + rad * lon - ra, phi = lat * rad;
+  const el = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi)) + Math.PI;
+  return {az, el};
+}
+function fsScanSunAt(sun, x, y){
+  const fx = x / sun.g, fy = y / sun.g, ix = Math.min(sun.GW - 2, Math.floor(fx)), iy = Math.min(sun.GH - 2, Math.floor(fy)), tx = fx - ix, ty = fy - iy;
+  const v = (a, b)=> sun.frac[b * sun.GW + a];
+  return (v(ix, iy) * (1 - tx) + v(ix + 1, iy) * tx) * (1 - ty) + (v(ix, iy + 1) * (1 - tx) + v(ix + 1, iy + 1) * tx) * ty;
+}
+async function fsScanSun(res){
+  const s = res.s, ZH = 12, kk = Math.pow(2, res.z - ZH);
+  const mppI = fsScanMpp(s.lat, res.z), mppH = fsScanMpp(s.lat, ZH), reach = 8000;
+  // Gitter: ca. 20 m, höchstens rund 20 000 Punkte
+  let g = Math.max(1, Math.round(20 / mppI));
+  while(Math.ceil(res.W / g + 1) * Math.ceil(res.H / g + 1) > 20000) g++;
+  const GW = Math.ceil((res.W - 1) / g) + 2, GH = Math.ceil((res.H - 1) / g) + 2;
+  // Höhenmodell Zoom 12 mit 8 km Rand
+  const m = reach / mppH + 2;
+  const hx0 = Math.floor(res.x0 / kk - m), hy0 = Math.floor(res.y0 / kk - m), HW = Math.ceil(res.W / kk + 2 * m) + 2, HH = Math.ceil(res.H / kk + 2 * m) + 2;
+  const {tiles, failed, total} = await fsScanTiles(hx0, hy0, hx0 + HW, hy0 + HH, FS3D_DEM, ZH);
+  if(failed >= total) return {error: 'Geländedaten für den Schattenwurf nicht erreichbar.'};
+  const he = new Float32Array(HW * HH);
+  for(let y = 0; y < HH; y++) for(let x = 0; x < HW; x++){ const v = fsRcEle(fsRcPix(tiles, ZH, hx0 + x, hy0 + y)); he[y * HW + x] = v == null ? NaN : v; }
+  const hAt = (fx, fy)=>{
+    const ix = Math.floor(fx), iy = Math.floor(fy);
+    if(ix < 0 || iy < 0 || ix >= HW - 1 || iy >= HH - 1) return NaN;
+    const tx = fx - ix, ty = fy - iy, i = iy * HW + ix;
+    return (he[i] * (1 - tx) + he[i + 1] * tx) * (1 - ty) + (he[i + HW] * (1 - tx) + he[i + HW + 1] * tx) * ty;
+  };
+  // Sonnenstände heute (Schweizer Zeit), alle 20 Minuten über dem Horizont
+  const zDay = d=> d.toLocaleDateString('de-CH', {timeZone: 'Europe/Zurich'});
+  const today = zDay(new Date()), t00 = Math.floor((Date.now() - 86400000) / 1200000) * 1200000;
+  const pos = [];
+  for(let t = t00; t < t00 + 2 * 86400000; t += 1200000){
+    const dt = new Date(t);
+    if(zDay(dt) !== today) continue;
+    const p = fsSunPos(dt, s.lat, s.lon);
+    if(p.el > 0) pos.push(Object.assign(p, {t: dt, tan: Math.tan(p.el), sx: Math.sin(p.az), sy: -Math.cos(p.az),
+      v: [Math.cos(p.el) * Math.sin(p.az), Math.cos(p.el) * Math.cos(p.az), Math.sin(p.el)]}));
+  }
+  if(!pos.length) return {error: 'Heute steigt die Sonne hier nicht über den Horizont.'};
+  // Schrittweiten entlang des Strahls: 40 m, dann jeweils etwas weiter, bis 8 km
+  const steps = [];
+  for(let d = 40; d <= reach; d *= 1.12) steps.push(d);
+  const now = fsSunPos(new Date(), s.lat, s.lon);
+  const nowI = now.el > 0.01 ? pos.reduce((b, p, i)=> Math.abs(p.t - Date.now()) < Math.abs(pos[b].t - Date.now()) ? i : b, 0) : -1;
+  const frac = new Float32Array(GW * GH).fill(NaN);
+  let inN = 0, inLit = 0, sumF = 0, sumN = 0;
+  const rad = Math.PI / 180;
+  for(let gy = 0; gy < GH; gy++){
+    for(let gx = 0; gx < GW; gx++){
+      const px = Math.min(res.W - 1, gx * g), py = Math.min(res.H - 1, gy * g), ii = py * res.W + px;
+      const fx = (res.x0 + px + 0.5) / kk - hx0 - 0.5, fy = (res.y0 + py + 0.5) / kk - hy0 - 0.5;
+      const h0 = hAt(fx, fy);
+      if(isNaN(h0)) continue;
+      const sl = res.slope[ii], as = res.asp[ii];
+      const n = isNaN(sl) || isNaN(as) ? null : [Math.sin(sl * rad) * Math.sin(as * rad), Math.sin(sl * rad) * Math.cos(as * rad), Math.cos(sl * rad)];
+      let lit = 0, litNow = false;
+      for(let k = 0; k < pos.length; k++){
+        const p = pos[k];
+        if(n && n[0] * p.v[0] + n[1] * p.v[1] + n[2] * p.v[2] <= 0) continue; // vom Hang selbst abgewandt
+        let shade = false;
+        for(const d of steps){
+          const h = hAt(fx + p.sx * d / mppH, fy + p.sy * d / mppH);
+          if(!isNaN(h) && (h - h0 - 3) / d > p.tan){ shade = true; break; }
+        }
+        if(!shade){ lit++; if(k === nowI) litNow = true; }
+      }
+      const f = lit / pos.length;
+      frac[gy * GW + gx] = f;
+      if(!isNaN(res.slope[ii])){ sumF += f; sumN++; if(nowI >= 0){ inN++; if(litNow) inLit++; } }
+    }
+  }
+  const fmt = d=> d.toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit', timeZone: 'Europe/Zurich'});
+  // Auf- und Untergang (ebener Horizont) auf 2 Minuten genau
+  let rise = null, set = null;
+  for(let t = pos[0].t.getTime() - 1200000; t <= pos[pos.length - 1].t.getTime() + 1200000; t += 120000){
+    if(fsSunPos(new Date(t), s.lat, s.lon).el > 0){ if(!rise) rise = new Date(t); set = new Date(t); }
+  }
+  const dayH = (set - rise) / 3600000;
+  return {g, GW, GH, frac, rise: fmt(rise), set: fmt(set), dayH,
+    avgH: sumN ? sumF / sumN * dayH : 0, nowPct: nowI >= 0 && inN ? Math.round(inLit / inN * 100) : null};
 }
 // Ebene als Bild (ein Pixel je Geländezelle; die Karte glättet beim Vergrössern), mit der Deckkraft
 // aus dem Regler gemalt (raster-opacity wirkt auf Gelände nicht zuverlässig).
@@ -18380,6 +18482,9 @@ function fsScanImage(res, k){
       }
     }else if(k === 'klippen'){
       if(sl >= 60){ c = C.red; al = 250; } else if(sl >= 50){ c = C.orange; al = 245; }
+    }else if(k === 'sonne' && res.sun){
+      const x = i % W, y = (i - x) / W, f = fsScanSunAt(res.sun, x, y);
+      if(!isNaN(f)){ c = fsScanSunRgb(f); al = 235; }
     }
     if(!c) continue;
     d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = Math.round(al * Math.pow(op, 1.5)); // unten feiner abgestuft (wirkt sonst schon bei wenig Deckkraft kräftig)
@@ -18609,7 +18714,7 @@ async function fsScanOpen(s){
   const R = fsScanRect(s);
   const cx = (R.corners[0][0] + R.corners[2][0]) / 2, cy = (R.corners[0][1] + R.corners[2][1]) / 2;
   const [clat, clon] = fsScanLL(cx, cy);
-  const map = fsmCreateMap('fs-scan-map', {center:[clat, clon], zoom: 14, ctlTop: 64});
+  const map = fsmCreateMap('fs-scan-map', {center:[clat, clon], zoom: 14, ctlTop: 122}); // Knöpfe unter der Ebenen-Leiste
   fsScanMap = map;
   map.setMaxPitch(80);
   try{ map.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); }catch(e){}
@@ -18633,9 +18738,19 @@ async function fsScanOpen(s){
     if(cam) map.jumpTo({center: cam.center, zoom: cam.zoom, bearing, pitch: 58});
     loading.remove();
   });
-  wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(b=> b.addEventListener('click', ()=>{
+  wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(b=> b.addEventListener('click', async ()=>{
     layer = b.dataset.k;
     wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(x=>{ const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
+    // Sonne erst beim ersten Antippen rechnen (Schattenwurf braucht Gelände im Umkreis)
+    if(layer === 'sonne' && !res.sun && !res.sunBusy){
+      res.sunBusy = true; drawCard();
+      await new Promise(r=> setTimeout(r, 30));
+      const sun = await fsScanSun(res).catch(()=> ({error: 'Sonne konnte nicht gerechnet werden.'}));
+      res.sunBusy = false;
+      if(sun.error) res.sunError = sun.error; else res.sun = sun;
+      if(!document.body.contains(wrap)) return;
+    }
+    if(b.dataset.k !== layer) return;
     const src = map.getSource && map.getSource('fs-scan');
     if(src) src.updateImage({url: fsScanImage(res, layer), coordinates: res.coords});
     drawCard();
@@ -18652,6 +18767,12 @@ function fsScanCardHtml(res, k){
   const bul = res.bul, top = bul && bul.ratings[0];
   let facts = `Steiler als 30°: <b>${pct(res.n30)}</b> der Fläche, steiler als 35°: <b>${pct(res.n35)}</b>.`;
   if(res.steep) facts += ` Steilste Stelle ${esc(res.steep.label)}${isFinite(res.steep.ele) ? ' auf ' + fsRcFmtE(res.steep.ele) + ' m' : ''}, Exposition ${FS_RC_ASP_LONG[fsScanDir(res.steep.asp)]}.`;
+  if(k === 'sonne'){
+    const sun = res.sun;
+    facts = res.sunBusy ? 'Sonne wird gerechnet …' : res.sunError ? esc(res.sunError)
+      : `Sonne heute über dem Horizont ${sun.rise}–${sun.set}. Im Scan im Mittel <b>${sun.avgH.toFixed(1).replace('.0', '')} h</b> Sonne`
+        + (sun.nowPct != null ? `, jetzt <b>${sun.nowPct} %</b> der Fläche in der Sonne.` : '.') + ' Wichtig für Firn, Nassschnee und Harschdeckel.';
+  }
   if(k === 'klippen') facts = res.n50 ? `Steiler als 50°: <b>${pct(res.n50)}</b> der Fläche.` : 'Kein Gelände steiler als 50° im Ausschnitt.';
   let lawine = '';
   if(k === 'lawine'){
@@ -18659,10 +18780,13 @@ function fsScanCardHtml(res, k){
       : `<p class="fs-scan-bul">${top ? `<span class="fs-scan-lvl" style="background:${top.color}">${top.level}</span><b>${esc(top.label)}</b>${top.elev ? ' · ' + esc(top.elev) : ''}` : ''}${bul.region ? `<small>${esc(bul.region)}</small>` : ''}</p>`
         + (res.probs.length ? `<p class="fs-scan-note">${res.probs.map(pr=> esc(pr.type) + (pr.aspects.length ? ' (' + pr.aspects.join(' ') + (pr.lower ? ', über ' + pr.lower + ' m' : '') + (pr.upper ? ', unter ' + pr.upper + ' m' : '') + ')' : '')).join(' · ')}.<br>${res.hits ? 'Schraffiert: Hänge im Scan, auf die ein Lawinenproblem von heute passt.' : 'Kein Hang im Scan passt nach Höhe und Exposition zu einem Lawinenproblem von heute.'}</p>` : '<p class="fs-scan-note">Das Bulletin nennt heute kein besonderes Lawinenproblem.</p>');
   }
+  const legendHtml = k === 'sonne'
+    ? `<div class="fs-scan-legend"><small>${esc(L.title)}</small><div class="fs-scan-sunbar" style="background:linear-gradient(90deg, ${FS_SCAN_SUN.map(([f, c])=> 'rgb(' + c.join(',') + ') ' + Math.round(f * 100) + '%').join(', ')})"></div><div class="fs-scan-sunlbl"><span>Schatten</span><span>ganzer Tag</span></div></div>`
+    : `<div class="fs-scan-legend"><small>${esc(L.title)}</small><ul>${legend}</ul></div>`;
   return `<div class="fs-scan-stats">${stats.map(([v, l])=> `<div><b>${esc(v)}</b><small>${esc(l)}</small></div>`).join('')}</div>
-    <div class="fs-scan-legend"><small>${esc(L.title)}</small><ul>${legend}</ul></div>
+    ${legendHtml}
     ${lawine}<p class="fs-scan-facts">${facts}</p>
-    <p class="fs-scan-note">${res.official ? 'Neigung ab 30° aus swisstopo (swissALTI3D, 2 m), flacher und Exposition aus dem Höhenmodell (ca. 30 m)' : 'Aus dem Höhenmodell gerechnet (ca. 30 m)'} – kleine Rinnen und Wechten fehlen. Ersetzt Bulletin und eigene Beurteilung nicht.</p>`;
+    <p class="fs-scan-note">${res.official ? 'Neigung ab 30° aus swisstopo (swissALTI3D, 2 m), flacher und Exposition aus dem Höhenmodell (ca. 30 m)' : 'Aus dem Höhenmodell gerechnet (ca. 30 m)'} – kleine Rinnen und Wechten fehlen.${k === 'sonne' ? ' Schatten aus dem Gelände bis 8 km, ohne Wolken, Bäume und Gebäude.' : ''} Ersetzt Bulletin und eigene Beurteilung nicht.</p>`;
 }
 
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
