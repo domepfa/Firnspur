@@ -2813,3 +2813,23 @@ html.fs-mapmode .fs-grip::after{ top:14px; }
   html.fs-mapmode[data-fs-home="liste"] .fs-home-mapbtn{ padding:0 16px; }
   .btn.fs-fab{ max-width:calc(100% - 104px); }
 }
+
+/* Disziplin-Auswahl als Blatt von unten (Daumenzone) statt Liste oben links */
+html.fs-mapmode .app-switch-bar.open{
+  top:auto; bottom:0; left:0; right:0; width:auto; max-width:640px; margin:0 auto;
+  padding:14px 12px calc(14px + env(safe-area-inset-bottom, 0px)); gap:4px; border-radius:24px 24px 0 0; z-index:120; align-items:stretch;
+  box-shadow:0 -10px 30px rgba(15,30,39,.18), 0 0 0 100vmax rgba(15,30,39,.32);
+}
+html.fs-mapmode .app-switch-bar.open a, html.fs-mapmode .app-switch-bar.open a:not(.active), html.fs-mapmode .app-switch-bar.open a.active{ min-height:56px; font-size:16px; width:auto; max-width:none; align-self:stretch; }
+@media (prefers-reduced-motion: reduce){
+  html.fs-mapmode .app-switch-bar.open{ animation:none; }
+}
+
+/* Weniger Bewegung, wenn am Handy eingestellt: Übergänge fast sofort (Fortschritt beim Gedrückthalten bleibt) */
+@media (prefers-reduced-motion: reduce){
+  *:not(.fs-hold-arming), *:not(.fs-hold-arming)::before, *:not(.fs-hold-arming)::after{
+    transition-duration:.01ms !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; scroll-behavior:auto !important;
+  }
+}
+/* Gedrückthalten: das Ziel wächst leicht, solange man hält (der Fortschritt liegt sonst unter dem Finger) */
+.fs-icon-btn.fs-hold-arming{ transform:scale(1.14); transition:transform .65s ease-out; }
