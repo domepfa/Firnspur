@@ -2833,3 +2833,12 @@ html.fs-mapmode .app-switch-bar.open a, html.fs-mapmode .app-switch-bar.open a:n
 }
 /* Gedrückthalten: das Ziel wächst leicht, solange man hält (der Fortschritt liegt sonst unter dem Finger) */
 .fs-icon-btn.fs-hold-arming{ transform:scale(1.14); transition:transform .65s ease-out; }
+
+/* ===== Wo bin ich? Aktives Kapitel deutlich (gefüllt in der Akzentfarbe, fett) ===== */
+html.fs-mapmode .fs-sheet > .tabs .tab.active,
+html.fs-dark.fs-mapmode .fs-sheet > .tabs .tab.active{ background:var(--ice-deep); color:#fff; font-weight:800; box-shadow:0 2px 8px rgba(15,30,39,.22); }
+html.fs-mapmode .fs-sheet > .tabs .tab.active .fs-i,
+html.fs-dark.fs-mapmode .fs-sheet > .tabs .tab.active .fs-i{ color:#fff; }
+/* Sprungleiste im Tourenblatt: der Abschnitt, in dem man gerade liest */
+.fs-td-jump button{ transition:background-color .15s, color .15s; }
+.fs-td-jump button.on{ background:var(--ice-deep); color:#fff; font-weight:800; box-shadow:0 2px 8px rgba(15,30,39,.18); }
