@@ -18768,6 +18768,10 @@ window.addEventListener('resize', ()=>{ if(document.documentElement.classList.co
       // Änderungen innerhalb der Tourenkarte selbst (Kacheln laden) ignorieren
       const ctx = document.getElementById('fs-tour-map');
       if(ctx && muts.every(m=> ctx.contains(m.target))) return;
+      // Neu gezeichnetes Tourenblatt sofort (vor dem nächsten Bild) in Blatt-Form bringen –
+      // sonst stand es ein Bild lang bildschirmhoch da (Flackern beim Öffnen und Nachladen)
+      const ov = document.querySelector('#modal-root > .overlay:not(.fs-sheet-mode)');
+      if(ov && ov.querySelector(':scope > .modal.td')) fsApplyTourSheetMode();
       if(queued) return;
       queued = true;
       requestAnimationFrame(()=>{ queued = false; fsUpgradeFilterRows(); fsApplyTourSheetMode(); fsApplyEditMode(); fsApplyOnTour(); fsEnsureThemeToggles(); fsTravelAutoFill(); fsEnhanceForms(); });
