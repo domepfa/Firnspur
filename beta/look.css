@@ -2913,3 +2913,7 @@ html.fs-scanning .fs-home-slot .fsm-ctlbox{ display:none !important; } /* Rahmen
 .fs-scan-tl b{ font-size:15px; font-weight:800; text-align:right; white-space:nowrap; }
 .fs-scan-play{ width:48px; height:48px; border:none; border-radius:50%; background:var(--ice-deep); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; }
 .fs-scan-play .fs-i{ width:22px; height:22px; }
+.fs-scan-aim-tools{ display:grid; grid-template-columns:repeat(auto-fit, minmax(0, 1fr)); gap:8px; }
+.fs-scan-aim-tools .btn{ min-height:46px; justify-content:center; }
+.fs-scan-aim-tools .btn.on{ background:var(--ice-deep); color:#fff; border-color:transparent; }
+.fs-scan-seg[hidden]{ display:none; }

@@ -18267,16 +18267,6 @@ function fsScanHorn(e, cell){
   const gx = ((c + 2 * f + i) - (a + 2 * d + g)) / (8 * cell), gn = ((a + 2 * b + c) - (g + 2 * h + i)) / (8 * cell);
   return [Math.atan(Math.hypot(gx, gn)) * 180 / Math.PI, ((Math.atan2(-gx, -gn) * 180 / Math.PI) + 360) % 360];
 }
-// Exposition am Punkt (für die Vorgabe der Richtung): bergab
-async function fsScanAspectAt(lat, lon){
-  const [x, y] = fsRcPx(lat, lon, FS_SCAN_Z);
-  const {tiles} = await fsScanTiles(x - 3, y - 3, x + 3, y + 3);
-  const e = [];
-  for(let dy = -2; dy <= 2; dy += 2) for(let dx = -2; dx <= 2; dx += 2) e.push(fsRcEle(fsRcPix(tiles, FS_SCAN_Z, x + dx, y + dy)));
-  if(e.some(v=> v == null)) return null;
-  const [sl, asp] = fsScanHorn(e, fsScanMpp(lat) * 2);
-  return sl > 3 ? asp : null;
-}
 async function fsScanCompute(s){
   // Bild im feineren Raster (Zoom 15, ca. 3 m; lange Scans Zoom 14). In der Schweiz kommen die Stufen ab 30°
   // aus der swisstopo-Karte «Hangneigung über 30°» (swissALTI3D, 2 m); darunter, Exposition und Höhe aus dem
@@ -18462,16 +18452,15 @@ async function fsScanSun(res){
     rise: fmt(rise), set: fmt(set), dayH,
     avgH: sumN ? sumF / sumN * dayH : 0, nowPct: nowI >= 0 && inN ? Math.round(inLit / inN * 100) : null};
 }
-// Ebene als Bild (ein Pixel je Geländezelle; die Karte glättet beim Vergrössern), mit der Deckkraft
-// aus dem Regler gemalt (raster-opacity wirkt auf Gelände nicht zuverlässig).
+// Ebene als Pixelfeld (ein Pixel je Geländezelle), mit der Deckkraft aus dem Regler gemalt
+// (raster-opacity wirkt auf Gelände nicht zuverlässig). Auf die Karte kommt es als Kacheln (fsscan://).
 function fsScanImage(res, k){
   const tk = k === 'sonne' && res.sunT != null ? res.sunT : null;
   const op = fsScanOpacity(), key = k + ':' + op + (tk != null ? ':t' + tk : '');
   res.img = res.img || {};
   if(res.img[key]) return res.img[key];
   const {W, H, slope} = res;
-  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const cx = cv.getContext('2d'), im = cx.createImageData(W, H), d = im.data;
+  const d = new Uint8ClampedArray(W * H * 4);
   const C = FS_SCAN_COL;
   let hits = 0;
   for(let i = 0; i < W * H; i++){
@@ -18500,21 +18489,57 @@ function fsScanImage(res, k){
     d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = Math.round(al * Math.pow(op, 1.5)); // unten feiner abgestuft (wirkt sonst schon bei wenig Deckkraft kräftig)
   }
   if(k === 'lawine') res.hits = hits;
-  cx.putImageData(im, 0, 0);
-  res.img[key] = cv.toDataURL('image/png');
-  return res.img[key];
+  res.img[key] = d;
+  return d;
+}
+/* Einfärbung als Kartenkacheln: ein einzelnes Bild (image-Quelle) wurde auf dem 3D-Gelände nur teilweise
+   gezeichnet (Rand abgeschnitten). Kacheln legt die Karte zuverlässig übers Gelände, wie die Grundkarte.
+   Die Kacheln entstehen auf dem Gerät aus dem Pixelfeld der aktuellen Ebene (bilinear geglättet). */
+let fsScanRender = null, fsScanTileVer = 0, fsScanProto = false;
+function fsScanTileUrl(){ return 'fsscan://' + fsScanTileVer + '/{z}/{x}/{y}'; }
+function fsScanEnsureProtocol(){
+  if(fsScanProto || typeof maplibregl === 'undefined' || !maplibregl.addProtocol) return;
+  fsScanProto = true;
+  maplibregl.addProtocol('fsscan', async (params)=>{
+    const m = /fsscan:\/\/(\d+)\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
+    const R = fsScanRender;
+    if(!m || !R) throw new Error('fsscan');
+    const z = +m[2], tx = +m[3], ty = +m[4], res = R.res, d = fsScanImage(res, R.layer);
+    const cv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(256, 256) : Object.assign(document.createElement('canvas'), {width: 256, height: 256});
+    const cx = cv.getContext('2d'), im = cx.createImageData(256, 256), o = im.data;
+    const f = Math.pow(2, res.z - z), W = res.W, H = res.H;
+    for(let py = 0; py < 256; py++){
+      const fy = (ty * 256 + py + 0.5) * f - res.y0 - 0.5, iy = Math.floor(fy), vy = fy - iy;
+      if(iy < -1 || iy >= H) continue;
+      for(let px = 0; px < 256; px++){
+        const fx = (tx * 256 + px + 0.5) * f - res.x0 - 0.5, ix = Math.floor(fx), vx = fx - ix;
+        if(ix < -1 || ix >= W) continue;
+        // bilinear über vier Nachbarn (fehlende zählen als durchsichtig)
+        let r = 0, g = 0, b = 0, a = 0;
+        const add = (xx, yy, w)=>{ if(xx < 0 || yy < 0 || xx >= W || yy >= H || !w) return; const j = (yy * W + xx) * 4, al = d[j + 3] * w; r += d[j] * al; g += d[j + 1] * al; b += d[j + 2] * al; a += al; };
+        add(ix, iy, (1 - vx) * (1 - vy)); add(ix + 1, iy, vx * (1 - vy)); add(ix, iy + 1, (1 - vx) * vy); add(ix + 1, iy + 1, vx * vy);
+        if(a <= 0) continue;
+        const q = (py * 256 + px) * 4;
+        o[q] = r / a; o[q + 1] = g / a; o[q + 2] = b / a; o[q + 3] = a;
+      }
+    }
+    cx.putImageData(im, 0, 0);
+    const blob = cv.convertToBlob ? await cv.convertToBlob({type: 'image/png'}) : await new Promise(r=> cv.toBlob(r, 'image/png'));
+    return {data: await blob.arrayBuffer()};
+  });
+}
+// Ebene, Deckkraft oder Uhrzeit geändert: neue Kacheln anfordern
+function fsScanShow(res, layer){
+  fsScanRender = {res, layer};
+  fsScanTileVer++;
+  const src = fsScanMap && fsScanMap.getSource('fs-scan');
+  if(src && src.setTiles) src.setTiles([fsScanTileUrl()]);
 }
 
 /* Zielen auf der Startkarte: Richtung (Tipp auf die Karte oder Kompass) und Länge, Vorschau als Rechteck */
 let fsScanAimSt = null;
-function fsScanFromGps(){
-  if(!navigator.geolocation){ showToast('Standort nicht verfügbar – auf der Karte gedrückt halten und «Hang scannen» wählen.', true); return; }
-  showToast('Standort wird bestimmt …');
-  navigator.geolocation.getCurrentPosition(
-    p=> fsScanAim({lat: p.coords.latitude, lon: p.coords.longitude, centered: false}),
-    ()=> showToast('Standort nicht verfügbar – auf der Karte gedrückt halten und «Hang scannen» wählen.', true),
-    {enableHighAccuracy: true, timeout: 12000, maximumAge: 30000});
-}
+// Aus dem Menü: der Rahmen liegt über dem Ausschnitt, der gerade offen ist (kein Springen, kein Drehen)
+function fsScanFromGps(){ fsScanAim({}); }
 // Rahmen auf dem Bildschirm (Sucher): oben = Blickrichtung, Höhe = Länge, Breite = ratio × Länge
 function fsScanFrameBox(panelH, ratio){
   ratio = ratio || 0.8;
@@ -18530,14 +18555,15 @@ function fsScanAim(o){
   if(fsScanAimSt) fsScanAimEnd();
   if(typeof fsHomeDetent !== 'undefined' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
   // Vom Standort: der Standort liegt am unteren Rand des Rahmens; sonst liegt der Punkt in der Mitte
-  const st = fsScanAimSt = {origin: o.centered ? null : {lat: o.lat, lon: o.lon}, length: 1000, ratio: 0.8, userDir: false, compass: null};
+  const st = fsScanAimSt = {origin: null, length: 1000, ratio: 0.8, userDir: false, compass: null};
   document.documentElement.classList.add('fs-scanning');
   const panel = document.createElement('div');
   panel.className = 'fs-scan-aim';
   const canCompass = typeof DeviceOrientationEvent !== 'undefined' && matchMedia('(pointer: coarse)').matches;
   panel.innerHTML = `<div class="fs-scan-aim-head"><b>${fsIconHtml('scan')}Hang-Scan</b><button type="button" class="x-btn" data-x aria-label="Schliessen">×</button></div>
-    <div class="fs-scan-aim-row"><span>Richtung</span><b data-dir>–</b>${canCompass ? `<button type="button" class="btn secondary" data-compass>${fsIconHtml('compass')}Kompass</button>` : ''}</div>
-    <p class="fs-scan-aim-hint">Karte verschieben und drehen, bis der Hang im Rahmen liegt. Oben ist die Blickrichtung, die Griffe links und rechts ändern die Breite.</p>
+    <div class="fs-scan-aim-row"><span>Richtung</span><b data-dir>–</b></div>
+    <div class="fs-scan-aim-tools"><button type="button" class="btn secondary" data-me>${fsIconHtml('gps')}Standort</button>${canCompass ? `<button type="button" class="btn secondary" data-compass>${fsIconHtml('compass')}Kompass</button>` : ''}<button type="button" class="btn secondary" data-3d>3D</button></div>
+    <p class="fs-scan-aim-hint" data-hint>Karte verschieben und drehen, bis der Hang im Rahmen liegt. Oben ist die Blickrichtung, die Griffe links und rechts ändern die Breite.</p>
     <label class="fs-scan-aim-len"><span>Länge · Breite</span><b data-len></b><input type="range" min="300" max="3000" step="100" value="1000" aria-label="Länge des Scans"></label>
     <div class="fs-scan-aim-btns"><button type="button" class="btn secondary" data-x>Abbrechen</button><button type="button" class="btn" data-go>${fsIconHtml('scan')}Scannen</button></div>`;
   document.body.appendChild(panel);
@@ -18598,11 +18624,31 @@ function fsScanAim(o){
   st.resize = ()=>{ place(); st.upd(); };
   window.addEventListener('resize', st.resize);
   // Standort als Punkt auf der Karte
-  if(st.origin){
-    const ac = getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1E6AA0';
-    ml.addSource('fs-scan-prev', {type:'geojson', data:{type:'Feature', properties:{}, geometry:{type:'Point', coordinates:[st.origin.lon, st.origin.lat]}}});
+  const ac = getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1E6AA0';
+  const drawPrev = ()=>{
+    const feats = [];
+    if(st.origin) feats.push({type:'Feature', properties:{}, geometry:{type:'Point', coordinates:[st.origin.lon, st.origin.lat]}});
+    const data = {type:'FeatureCollection', features: feats}, src = ml.getSource('fs-scan-prev');
+    if(src){ src.setData(data); return; }
+    ml.addSource('fs-scan-prev', {type:'geojson', data});
     ml.addLayer({id:'fs-scan-prev-o', type:'circle', source:'fs-scan-prev', paint:{'circle-radius':7, 'circle-color': ac, 'circle-stroke-color':'#fff', 'circle-stroke-width':3}});
-  }
+  };
+  const params = ()=>{ const c = centerLL(); return {lat: c.lat, lon: c.lng, bearing: bearing(), length: st.length, width: Math.round(st.length * st.ratio / 50) * 50, centered: true, origin: st.origin}; };
+  // Mein Standort: liegt danach am unteren Rand des Rahmens (Blickrichtung bleibt)
+  panel.querySelector('[data-me]').addEventListener('click', ()=>{
+    if(!navigator.geolocation){ showToast('Standort nicht verfügbar.', true); return; }
+    showToast('Standort wird bestimmt …');
+    navigator.geolocation.getCurrentPosition(p=>{
+      if(fsScanAimSt !== st) return;
+      st.origin = {lat: p.coords.latitude, lon: p.coords.longitude};
+      drawPrev();
+      go(st.origin.lat, st.origin.lon, bearing(), st.length, 500);
+    }, ()=> showToast('Standort nicht verfügbar.', true), {enableHighAccuracy: true, timeout: 12000, maximumAge: 30000});
+  });
+  // 3D-Vorschau: dieselbe 3D-Ansicht wie das Ergebnis, mit dem Ausschnitt als Rahmen (Zurück = weiter zielen)
+  const set3d = ()=> fsScanOpen(Object.assign(params(), {preview: true}));
+  st.set3d = set3d;
+  panel.querySelector('[data-3d]').addEventListener('click', ()=> set3d());
   const range = panel.querySelector('input[type="range"]');
   range.addEventListener('input', ()=>{
     const len = +range.value, c = centerLL();
@@ -18615,19 +18661,18 @@ function fsScanAim(o){
   st.userRotate = (e)=>{ if(e && e.originalEvent){ st.userDir = true; if(st.compass) fsScanCompass(false); } };
   ml.on('rotatestart', st.userRotate);
   panel.querySelector('[data-go]').addEventListener('click', ()=>{
-    const c = centerLL();
-    const s = {lat: c.lat, lon: c.lng, bearing: bearing(), length: st.length, width: Math.round(st.length * st.ratio / 50) * 50, centered: true, origin: st.origin};
+    const s = params();
     closeTopOverlayLayer();
     setTimeout(()=> fsScanOpen(s), 50);
   });
   pushOverlayLayer(fsScanAimEnd);
-  // Vorgabe: vom Standort bergab schauen; ein Hang auf der Karte von unten (Blick hangaufwärts auf die Flanke)
-  go(o.lat, o.lon, 0, st.length);
+  // Ausschnitt wie gerade offen: Drehung und Zoom bleiben; gedrückt gehaltener Punkt in die Mitte des Rahmens.
+  // Nur wenn die Länge ausserhalb 300 m – 3 km läge, wird gezoomt.
+  place();
+  const len0 = Math.min(3000, Math.max(300, lenNow()));
+  const c0 = o.lat != null ? {lat: o.lat, lon: o.lon} : (()=>{ const c = centerLL(); return {lat: c.lat, lon: c.lng}; })();
+  if(o.lat != null || Math.abs(len0 - lenNow()) > 60) go(c0.lat, c0.lon, bearing(), len0, o.lat != null ? 300 : 0);
   upd();
-  fsScanAspectAt(o.lat, o.lon).then(a=>{
-    if(a == null || fsScanAimSt !== st || st.userDir || st.compass) return;
-    go(o.lat, o.lon, st.origin ? a : (a + 180) % 360, st.length, 500);
-  }).catch(()=>{});
 }
 function fsScanAimEnd(){
   const st = fsScanAimSt;
@@ -18643,7 +18688,7 @@ function fsScanAimEnd(){
     ml.off('move', st.upd); ml.off('rotatestart', st.userRotate);
     ['fs-scan-prev-o'].forEach(id=>{ try{ if(ml.getLayer(id)) ml.removeLayer(id); }catch(e){} });
     try{ if(ml.getSource('fs-scan-prev')) ml.removeSource('fs-scan-prev'); }catch(e){}
-    try{ ml.easeTo({bearing: 0, pitch: 0, duration: 300}); }catch(e){}
+    try{ ml.easeTo({pitch: 0, duration: 300}); }catch(e){} // Drehung bleibt wie gewählt
   }
 }
 // Kompass: Richtung folgt dem Handy (iOS fragt beim ersten Mal nach der Erlaubnis)
@@ -18690,14 +18735,16 @@ async function fsScanOpen(s){
   const wrap = document.createElement('div');
   wrap.id = 'fs-scan';
   wrap.className = 'fs-3d fs-3d-ml fs-scan';
+  const pv = !!s.preview;
   wrap.innerHTML = `<div class="fs-3d-map" id="fs-scan-map"></div>
-    <div class="fs-3d-top"><button type="button" class="fs-3d-btn" data-sc="close" aria-label="Zurück">‹ Zurück</button><div class="fs-3d-title">Hang-Scan</div></div>
-    <div class="fs-scan-seg fs-3d-seg" role="group" aria-label="Ebene">${FS_SCAN_LAYERS.map((l, i)=> `<button type="button" data-k="${l.k}" class="${i ? '' : 'on'}" aria-pressed="${i ? 'false' : 'true'}">${l.label}</button>`).join('')}</div>
+    <div class="fs-3d-top"><button type="button" class="fs-3d-btn" data-sc="close" aria-label="Zurück">‹ Zurück</button><div class="fs-3d-title">${pv ? 'Vorschau' : 'Hang-Scan'}</div></div>
+    <div class="fs-scan-seg fs-3d-seg" role="group" aria-label="Ebene"${pv ? ' hidden' : ''}>${FS_SCAN_LAYERS.map((l, i)=> `<button type="button" data-k="${l.k}" class="${i ? '' : 'on'}" aria-pressed="${i ? 'false' : 'true'}">${l.label}</button>`).join('')}</div>
     <div class="fs-scan-card" hidden></div>
     <div class="fs-3d-loading" id="fs-scan-loading">Gelände wird gerechnet …</div>`;
   document.body.appendChild(wrap);
   pushOverlayLayer(fsScanClose);
   wrap.querySelector('[data-sc="close"]').addEventListener('click', ()=> closeTopOverlayLayer());
+  if(pv) return fsScanPreview(wrap, s);
   const [res, slf] = await Promise.all([fsScanCompute(s).catch(e=> ({error: 'Gelände konnte nicht gerechnet werden.'})), fsSlfForPoint(s.lat, s.lon).catch(()=> null)]);
   if(!document.body.contains(wrap)) return;
   const loading = wrap.querySelector('#fs-scan-loading');
@@ -18717,37 +18764,20 @@ async function fsScanOpen(s){
       out.textContent = r.value + ' %';
       try{ localStorage.setItem('fs-scan-opacity', String(+r.value / 100)); }catch(e){}
       if(raf) return;
-      raf = requestAnimationFrame(()=>{ raf = 0; const src = fsScanMap && fsScanMap.getSource('fs-scan'); if(src) src.updateImage({url: fsScanImage(res, layer), coordinates: res.coords}); });
+      raf = requestAnimationFrame(()=>{ raf = 0; fsScanShow(res, layer); });
     });
   };
   drawCard();
   await fsmEnsureLoaded();
   if(!document.body.contains(wrap)) return;
-  const R = fsScanRect(s);
-  const cx = (R.corners[0][0] + R.corners[2][0]) / 2, cy = (R.corners[0][1] + R.corners[2][1]) / 2;
-  const [clat, clon] = fsScanLL(cx, cy);
-  const map = fsmCreateMap('fs-scan-map', {center:[clat, clon], zoom: 14, ctlTop: 122}); // Knöpfe unter der Ebenen-Leiste
-  fsScanMap = map;
-  map.setMaxPitch(80);
-  try{ map.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); }catch(e){}
-  fsmWhenLoaded(map, ()=>{
-    if(fsScanMap !== map) return;
-    fsmSetBase(map, 'luftbild', true);
-    map.addSource('dem', {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 14, attribution:'Höhen: Mapzen/AWS Terrain Tiles'});
-    map.setTerrain({source:'dem', exaggeration:1});
-    try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
-    map.addSource('fs-scan', {type:'image', url: fsScanImage(res, layer), coordinates: res.coords});
+  const map = fsScanCreate3d(s, ()=>{
+    fsScanEnsureProtocol();
+    fsScanRender = {res, layer};
+    const bb0 = [Math.min(res.coords[0][0], res.coords[2][0]), Math.min(res.coords[0][1], res.coords[2][1]), Math.max(res.coords[0][0], res.coords[2][0]), Math.max(res.coords[0][1], res.coords[2][1])];
+    map.addSource('fs-scan', {type:'raster', tiles:[fsScanTileUrl()], tileSize:256, bounds: bb0, minzoom: 8, maxzoom: 17});
     map.addLayer({id:'fs-scan', type:'raster', source:'fs-scan', paint:{'raster-opacity': 1, 'raster-resampling':'linear', 'raster-fade-duration':0}});
     map.addSource('fs-scan-box', {type:'geojson', data:{type:'Feature', properties:{}, geometry:{type:'LineString', coordinates: fsScanPolygon(s)}}});
     map.addLayer({id:'fs-scan-box', type:'line', source:'fs-scan-box', paint:{'line-color':'#ffffff', 'line-width':2, 'line-opacity':0.85}});
-    if(s.origin) fsmAddMarker(map, s.origin.lat, s.origin.lon, '<div class="fs-scan-me" aria-label="Standort"></div>', {anchor:'center'});
-    // Blick wie beim Zielen: vom unteren Rand des Rahmens zum oberen
-    const bearing = s.bearing;
-    const bb = new maplibregl.LngLatBounds();
-    fsScanPolygon(s).forEach(c=> bb.extend(c));
-    const cam = map.cameraForBounds(bb, {padding:{top:110, bottom: Math.round(window.innerHeight * 0.3), left:20, right:20}, bearing});
-    // Gekippt wirkt der Ausschnitt kleiner als flach gerechnet: etwas näher heran
-    if(cam) map.jumpTo({center: cam.center, zoom: cam.zoom, bearing, pitch: 58});
     loading.remove();
   });
   wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(b=> b.addEventListener('click', async ()=>{
@@ -18764,10 +18794,54 @@ async function fsScanOpen(s){
       if(!document.body.contains(wrap)) return;
     }
     if(b.dataset.k !== layer) return;
-    const src = map.getSource && map.getSource('fs-scan');
-    if(src) src.updateImage({url: fsScanImage(res, layer), coordinates: res.coords});
+    if(map.getSource && map.getSource('fs-scan')) fsScanShow(res, layer);
     drawCard();
   }));
+}
+// 3D-Karte für Scan und Vorschau: Luftbild auf Gelände, Blick wie beim Zielen (vom unteren zum oberen Rand)
+function fsScanCreate3d(s, onReady){
+  const R = fsScanRect(s);
+  const [clat, clon] = fsScanLL((R.corners[0][0] + R.corners[2][0]) / 2, (R.corners[0][1] + R.corners[2][1]) / 2);
+  const map = fsmCreateMap('fs-scan-map', {center:[clat, clon], zoom: 14, ctlTop: 122}); // Knöpfe unter der Ebenen-Leiste
+  fsScanMap = map;
+  map.setMaxPitch(80);
+  try{ map.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); }catch(e){}
+  fsmWhenLoaded(map, ()=>{
+    if(fsScanMap !== map) return;
+    fsmSetBase(map, 'luftbild', true);
+    map.addSource('dem', {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 14, attribution:'Höhen: Mapzen/AWS Terrain Tiles'});
+    map.setTerrain({source:'dem', exaggeration:1});
+    try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
+    onReady();
+    if(s.origin) fsmAddMarker(map, s.origin.lat, s.origin.lon, '<div class="fs-scan-me" aria-label="Standort"></div>', {anchor:'center'});
+    const bb = new maplibregl.LngLatBounds();
+    fsScanPolygon(s).forEach(c=> bb.extend(c));
+    const cam = map.cameraForBounds(bb, {padding:{top:110, bottom: Math.round(window.innerHeight * 0.3), left:20, right:20}, bearing: s.bearing});
+    if(cam) map.jumpTo({center: cam.center, zoom: cam.zoom, bearing: s.bearing, pitch: 58});
+  });
+  return map;
+}
+// 3D-Vorschau beim Zielen: Luftbild auf Gelände, Ausschnitt als Rahmen; «Scannen» startet direkt
+async function fsScanPreview(wrap, s){
+  const card = wrap.querySelector('.fs-scan-card'), loading = wrap.querySelector('#fs-scan-loading');
+  loading.textContent = '3D wird geladen …';
+  card.innerHTML = `<p class="fs-scan-facts">Vorschau: ${fsRcFmtM(s.length)} × ${fsRcFmtM(s.width)}, Blick ${Math.round(s.bearing)}° ${fsScanDir(s.bearing)}. Zum Verschieben zurück zur Karte.</p>
+    <div class="fs-scan-aim-btns"><button type="button" class="btn secondary" data-back>Zurück</button><button type="button" class="btn" data-go>${fsIconHtml('scan')}Scannen</button></div>`;
+  card.hidden = false;
+  card.querySelector('[data-back]').addEventListener('click', ()=> closeTopOverlayLayer());
+  card.querySelector('[data-go]').addEventListener('click', ()=>{
+    closeTopOverlayLayer(); // Vorschau zu
+    // Erst wenn der Verlaufsschritt verarbeitet ist, wie «Scannen» im Zielen (sonst zwei Zurück auf einmal)
+    setTimeout(()=>{ const g = document.querySelector('.fs-scan-aim [data-go]'); if(g) g.click(); else fsScanOpen(Object.assign({}, s, {preview: false})); }, 250);
+  });
+  await fsmEnsureLoaded();
+  if(!document.body.contains(wrap)) return;
+  const map = fsScanCreate3d(s, ()=>{
+    map.addSource('fs-scan-box', {type:'geojson', data:{type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:[fsScanPolygon(s)]}}});
+    map.addLayer({id:'fs-scan-box-fill', type:'fill', source:'fs-scan-box', paint:{'fill-color':'#ffffff', 'fill-opacity':0.18}});
+    map.addLayer({id:'fs-scan-box', type:'line', source:'fs-scan-box', paint:{'line-color':'#ffffff', 'line-width':3}});
+    loading.remove();
+  });
 }
 // Zeitraffer der Sonne: Regler (ganz links = ganzer Tag) und Abspielen in 20-Minuten-Schritten
 let fsScanPlayTimer = 0;
@@ -18777,8 +18851,7 @@ function fsScanWireTimeline(card, res, layerNow, redraw){
   const r = row.querySelector('input'), lbl = row.querySelector('[data-tl]'), play = row.querySelector('[data-play]');
   const show = (t, full)=>{
     res.sunT = t < 0 ? null : t;
-    const src = fsScanMap && fsScanMap.getSource('fs-scan');
-    if(src && layerNow() === 'sonne') src.updateImage({url: fsScanImage(res, 'sonne'), coordinates: res.coords});
+    if(layerNow() === 'sonne') fsScanShow(res, 'sonne');
     if(full) redraw();
     else{
       lbl.textContent = res.sunT == null ? 'Ganzer Tag' : res.sun.times[res.sunT];
@@ -18804,8 +18877,7 @@ function fsScanWireTimeline(card, res, layerNow, redraw){
       const rr = card.querySelector('.fs-scan-tl input');
       if(rr) rr.value = String(t);
       res.sunT = t;
-      const src = fsScanMap && fsScanMap.getSource('fs-scan');
-      if(src) src.updateImage({url: fsScanImage(res, 'sonne'), coordinates: res.coords});
+      fsScanShow(res, 'sonne');
       const l = card.querySelector('[data-tl]'); if(l) l.textContent = res.sun.times[t];
       const f = card.querySelector('.fs-scan-facts'); if(f) f.innerHTML = `${res.sun.times[t]} Uhr: <b>${res.sun.pctAt[t]} %</b> der Fläche in der Sonne.`;
     }, 450);
