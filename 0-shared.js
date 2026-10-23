@@ -2205,6 +2205,14 @@ function fsHomeLayout(){
     const ag = row.querySelector('[data-fs-agenda]');
     if(ag) ag.after(pb); else row.prepend(pb);
   }
+  // Hang-Scan vom eigenen Standort (auf der Karte per Gedrückthalten «Hang scannen»)
+  if(row && !row.querySelector('[data-fs-scan]')){
+    const sb = document.createElement('button'); sb.type = 'button'; sb.setAttribute('data-fs-scan', '');
+    sb.innerHTML = fsIconHtml('scan') + 'Hang-Scan';
+    sb.addEventListener('click', ()=>{ menu.open = false; fsScanFromGps(); });
+    const pl = row.querySelector('[data-fs-plan]');
+    if(pl) pl.after(sb); else row.prepend(sb);
+  }
   // Segment Gebiete/Touren/Hütten ins Blatt, Griff davor
   // Nach «nur Liste neu» (Suche) fehlt das Segment im neuen Blatt: das bisherige wieder einsetzen
   const tabs = document.querySelector('#app .hero .tabs') || (fsHomeTabsEl && fsHomeTabsEl.isConnected === false ? fsHomeTabsEl : null) || document.querySelector('main .fs-sheet > .tabs');
@@ -2422,10 +2430,12 @@ function fsHomeWireDrag(sheet){
   sheet.addEventListener('pointerdown', e=>{
     if(e.button > 0 || e.target.closest('select, textarea, .fs-filter-sheet') || (e.target.closest('input') && !e.target.closest('.search-input'))) return;
     if(fsHomeDetent === 'liste' && !isHead(e.target)) return;
-    begin(e.clientY); st.id = e.pointerId; st.ptr = true;
+    begin(e.clientY); st.id = e.pointerId; st.ptr = true; st.x0 = e.clientX;
   });
   sheet.addEventListener('pointermove', e=>{
     if(!st || !st.ptr || e.pointerId !== st.id) return;
+    // Seitlich gewischt (Disziplin wechseln): nicht das Blatt ziehen, Kartenknöpfe bleiben stehen
+    if(!st.moved && Math.abs(e.clientX - st.x0) > Math.abs(e.clientY - st.y0)){ if(Math.abs(e.clientX - st.x0) > 8) st = null; return; }
     if(!st.moved && Math.abs(e.clientY - st.y0) < 8) return;
     if(!st.moved){ try{ sheet.setPointerCapture(e.pointerId); }catch(err){} }
     move(e.clientY);
@@ -6790,13 +6800,14 @@ function fsHomePointOffer(ll){
     .filter(n=> typeof window[n[2]] === 'function');
   const wrap = document.createElement('div');
   wrap.className = 'fs-pt-offer';
-  wrap.innerHTML = '<b>Punkt hier</b><div class="fs-pt-offer-new"><button type="button" class="btn secondary" data-plan>' + fsIconHtml('compass') + 'Route von hier planen</button>' + news.map((n, i)=> `<button type="button" class="btn" data-new="${i}">${fsIconHtml('plus')}${esc(n[1])}</button>`).join('') + '</div>'
+  wrap.innerHTML = '<b>Punkt hier</b><div class="fs-pt-offer-new"><button type="button" class="btn secondary" data-plan>' + fsIconHtml('compass') + 'Route von hier planen</button>' + '<button type="button" class="btn secondary" data-scan>' + fsIconHtml('scan') + 'Hang scannen</button>' + news.map((n, i)=> `<button type="button" class="btn" data-new="${i}">${fsIconHtml('plus')}${esc(n[1])}</button>`).join('') + '</div>'
     + '<label>Oder zu bestehendem Eintrag hinzufügen</label>'
     + '<div class="fs-pt-offer-meta"><input type="text" data-f="label" placeholder="Bezeichnung, z. B. Skidepot" autocomplete="off" aria-label="Bezeichnung des Punkts">'
     + '<select data-f="cat" aria-label="Art des Punkts">' + Object.keys(MAP_POINT_CATEGORIES).map(k=> `<option value="${k}">${esc(k ? MAP_POINT_CATEGORIES[k].label : 'Art: Punkt')}</option>`).join('') + '</select></div>'
     + '<input type="text" data-f="q" placeholder="Tour oder Hütte suchen …" autocomplete="off" aria-label="Eintrag suchen"><div class="fs-pt-offer-res"></div>';
   const close = ()=>{ if(ml._fsm && ml._fsm.popup) ml._fsm.popup.remove(); };
   wrap.querySelector('[data-plan]').addEventListener('click', ()=>{ close(); fsPlannerOpen(ll); });
+  wrap.querySelector('[data-scan]').addEventListener('click', ()=>{ close(); fsScanAim({lat, lon, centered: true}); });
   wrap.querySelectorAll('[data-new]').forEach(b=> b.addEventListener('click', ()=>{ close(); window[news[+b.dataset.new][2]](+lat.toFixed(6), +lon.toFixed(6)); }));
   const inp = wrap.querySelector('[data-f="q"]'), res = wrap.querySelector('.fs-pt-offer-res');
   const lbl = wrap.querySelector('[data-f="label"]'), cat = wrap.querySelector('[data-f="cat"]');
@@ -6814,7 +6825,7 @@ function fsHomeWireHold(ml){
   if(!ml || ml._fsHomeHold) return;
   ml._fsHomeHold = true;
   // Nur in der Startansicht auf freier Karte (nicht im Planer, nicht in Tour/Gebiet, nicht auf Punkten)
-  const ok = ev=> !fsCtxUsesHome && !fsPlanner && document.documentElement.classList.contains('fs-mapmode') && !(typeof state !== 'undefined' && state.modal)
+  const ok = ev=> !fsCtxUsesHome && !fsPlanner && !fsScanAimSt && document.documentElement.classList.contains('fs-mapmode') && !(typeof state !== 'undefined' && state.modal)
     && !(ev && ev.target && ev.target.closest && ev.target.closest('.maplibregl-marker, .maplibregl-popup, .fsm-ctlbox, .fsm-search-box'));
   ml.on('contextmenu', (e)=>{ if(e.originalEvent && e.originalEvent._fsmHandled) return; if(ok(e.originalEvent)) fsHomePointOffer(e.lngLat); });
   let timer = null, start = null;
@@ -18198,6 +18209,719 @@ document.addEventListener('change', (ev)=>{
   Array.from(fsRcCache.keys()).forEach(fsRcPaint);
 }, true);
 
+/* ===== Hang-Scan: Gelände in einer Richtung in 3D, eingefärbt nach Steilheit, Lawine, Klippen =====
+   Zielen (Richtung), Länge wählen, scannen. Gerechnet auf dem Handy aus dem Höhenmodell der 3D-Karte
+   (FS3D_DEM, Zoom 14, Raster ca. 7 m), Neigung und Exposition mit der Horn-Formel wie im Routen-Check.
+   Lawine: Hänge 30–60°, schraffiert, wo ein Lawinenproblem des SLF-Bulletins nach Exposition und Höhe
+   passt. Start vom eigenen Standort (Menü) oder per Gedrückthalten auf der Karte (Hang an diesem Punkt). */
+const FS_SCAN_Z = 14;
+const FS_SCAN_COL = {green:[63,174,90], yellow:[242,210,27], orange:[242,140,27], red:[215,38,61], hatch:[120,10,30]};
+const FS_SCAN_LAYERS = [
+  {k:'steil', label:'Steilheit', title:'Hangneigung', legend:[['green','unter 25°'], ['yellow','25–30°'], ['orange','30–35°'], ['red','über 35°']]},
+  {k:'lawine', label:'Lawine', title:'Anrissgelände', legend:[['yellow','30°'], ['red','45° und steiler'], ['hatch','schraffiert: Lawinenproblem von heute – Höhe und Exposition passen']]},
+  {k:'klippen', label:'Klippen', title:'Absturzgelände', legend:[['orange','50–60° – steil, kein Sturz erlaubt'], ['red','über 60° – Klippe']]},
+  {k:'sonne', label:'Sonne', title:'Sonne über den Tag (heute)', legend:[]}
+];
+const fsScanRgb = k=> 'rgb(' + FS_SCAN_COL[k].join(',') + ')';
+// Sonne: Schatten (blau) über türkis und grün bis ganzer Tag (gelb)
+const FS_SCAN_SUN = [[0, [33, 64, 154]], [0.35, [41, 152, 196]], [0.65, [120, 190, 80]], [1, [242, 210, 27]]];
+function fsScanSunRgb(f){
+  for(let i = 1; i < FS_SCAN_SUN.length; i++){
+    const [f1, c1] = FS_SCAN_SUN[i], [f0, c0] = FS_SCAN_SUN[i - 1];
+    if(f <= f1){ const t = (f - f0) / (f1 - f0); return [0, 1, 2].map(j=> Math.round(c0[j] + (c1[j] - c0[j]) * t)); }
+  }
+  return FS_SCAN_SUN[FS_SCAN_SUN.length - 1][1];
+}
+const fsScanDir = b=> FS_RC_ASP[Math.round((((b % 360) + 360) % 360) / 45) % 8];
+function fsScanMpp(lat, z){ return 40075016.686 * Math.cos(lat * Math.PI / 180) / (256 * Math.pow(2, z || FS_SCAN_Z)); }
+function fsScanLL(px, py, z){
+  const n = 256 * Math.pow(2, z || FS_SCAN_Z);
+  return [Math.atan(Math.sinh(Math.PI * (1 - 2 * py / n))) * 180 / Math.PI, px / n * 360 - 180];
+}
+// Rechteck des Scans in Pixeln (Zoom 14): vom Ursprung in Blickrichtung, oder um einen Punkt zentriert
+function fsScanRect(s, z){
+  z = z || FS_SCAN_Z;
+  const m = fsScanMpp(s.lat, z), [ox, oy] = fsRcPx(s.lat, s.lon, z);
+  const b = s.bearing * Math.PI / 180, f = [Math.sin(b), -Math.cos(b)], r = [Math.cos(b), Math.sin(b)];
+  const L = s.length / m, hw = (s.width || s.length * 0.8) / m / 2;
+  const t0 = s.centered ? -L / 2 : -Math.min(L * 0.08, 60 / m), t1 = s.centered ? L / 2 : L;
+  const corners = [[t0, -hw], [t1, -hw], [t1, hw], [t0, hw]].map(([t, u])=> [ox + f[0] * t + r[0] * u, oy + f[1] * t + r[1] * u]);
+  return {ox, oy, f, r, t0, t1, hw, m, corners};
+}
+function fsScanPolygon(s){
+  const c = fsScanRect(s).corners.map(p=>{ const [la, lo] = fsScanLL(p[0], p[1]); return [lo, la]; });
+  return c.concat([c[0]]);
+}
+async function fsScanTiles(x0, y0, x1, y1, tpl, z){
+  tpl = tpl || FS3D_DEM; z = z || FS_SCAN_Z;
+  const keys = [];
+  for(let tx = Math.floor(x0 / 256); tx <= Math.floor(x1 / 256); tx++) for(let ty = Math.floor(y0 / 256); ty <= Math.floor(y1 / 256); ty++) keys.push([tx, ty]);
+  const tiles = new Map();
+  let failed = 0;
+  await Promise.all(keys.map(async ([tx, ty])=>{ const d = await fsRcTile(tpl, z, tx, ty); if(!d) failed++; tiles.set(z + '/' + tx + '/' + ty, d); }));
+  return {tiles, failed, total: keys.length};
+}
+// Neigung (Grad) und Exposition (Grad, Richtung bergab) an einer Pixelstelle
+function fsScanHorn(e, cell){
+  const [a, b, c, d, , f, g, h, i] = e;
+  const gx = ((c + 2 * f + i) - (a + 2 * d + g)) / (8 * cell), gn = ((a + 2 * b + c) - (g + 2 * h + i)) / (8 * cell);
+  return [Math.atan(Math.hypot(gx, gn)) * 180 / Math.PI, ((Math.atan2(-gx, -gn) * 180 / Math.PI) + 360) % 360];
+}
+async function fsScanCompute(s){
+  // Bild im feineren Raster (Zoom 15, ca. 3 m; lange Scans Zoom 14). In der Schweiz kommen die Stufen ab 30°
+  // aus der swisstopo-Karte «Hangneigung über 30°» (swissALTI3D, 2 m); darunter, Exposition und Höhe aus dem
+  // Höhenmodell (geglättet, sonst treppig). Ausserhalb der Schweiz nur das Höhenmodell.
+  const ZI = s.length <= 2000 ? 15 : 14, k2 = Math.pow(2, ZI - FS_SCAN_Z);
+  const R = fsScanRect(s, ZI);
+  const xs = R.corners.map(c=> c[0]), ys = R.corners.map(c=> c[1]);
+  const x0 = Math.floor(Math.min(...xs)), y0 = Math.floor(Math.min(...ys));
+  const W = Math.ceil(Math.max(...xs)) + 1 - x0, H = Math.ceil(Math.max(...ys)) + 1 - y0;
+  // Höhenmodell (Zoom 14) für denselben Ausschnitt, mit Rand
+  const dx0 = Math.floor(x0 / k2) - 3, dy0 = Math.floor(y0 / k2) - 3, DW = Math.ceil(W / k2) + 7, DH = Math.ceil(H / k2) + 7;
+  const inCH = s.lat > 45.8 && s.lat < 47.9 && s.lon > 5.9 && s.lon < 10.6;
+  const [dem, sl] = await Promise.all([fsScanTiles(dx0, dy0, dx0 + DW, dy0 + DH, FS3D_DEM, FS_SCAN_Z),
+    inCH ? fsScanTiles(x0, y0, x0 + W, y0 + H, FS_RC_SLOPE_URL, ZI) : Promise.resolve(null)]);
+  if(dem.failed >= dem.total) return {error: navigator.onLine === false ? 'Offline – der Hang-Scan braucht Internet für das Gelände.' : 'Geländedaten nicht erreichbar.'};
+  const raw = new Float32Array(DW * DH);
+  for(let y = 0; y < DH; y++) for(let x = 0; x < DW; x++){ const v = fsRcEle(fsRcPix(dem.tiles, FS_SCAN_Z, dx0 + x, dy0 + y)); raw[y * DW + x] = v == null ? NaN : v; }
+  // 3×3 geglättet
+  const de = new Float32Array(DW * DH).fill(NaN);
+  for(let y = 1; y < DH - 1; y++) for(let x = 1; x < DW - 1; x++){
+    let sum = 0, n = 0;
+    for(let j = -1; j <= 1; j++) for(let k = -1; k <= 1; k++){ const v = raw[(y + j) * DW + x + k]; if(!isNaN(v)){ const w = (j || k) ? ((j && k) ? 1 : 2) : 4; sum += v * w; n += w; } }
+    if(n) de[y * DW + x] = sum / n;
+  }
+  const cell14 = fsScanMpp(s.lat);
+  const dSl = new Float32Array(DW * DH).fill(NaN), dAs = new Float32Array(DW * DH).fill(NaN);
+  for(let y = 2; y < DH - 2; y++) for(let x = 2; x < DW - 2; x++){
+    const e = [];
+    for(let j = -1; j <= 1; j++) for(let k = -1; k <= 1; k++) e.push(de[(y + j) * DW + x + k]);
+    if(e.some(v=> isNaN(v))) continue;
+    const [a, b] = fsScanHorn(e, cell14);
+    dSl[y * DW + x] = a; dAs[y * DW + x] = b;
+  }
+  // Wert im Höhenmodell an einer Bildstelle (bilinear)
+  const at = (arr, px, py)=>{
+    const fx = (x0 + px + 0.5) / k2 - dx0 - 0.5, fy = (y0 + py + 0.5) / k2 - dy0 - 0.5;
+    const ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
+    const g = (xx, yy)=> arr[yy * DW + xx];
+    const v00 = g(ix, iy), v10 = g(ix + 1, iy), v01 = g(ix, iy + 1), v11 = g(ix + 1, iy + 1);
+    if([v00, v10, v01, v11].some(v=> isNaN(v))) return isNaN(v00) ? NaN : v00;
+    return (v00 * (1 - tx) + v10 * tx) * (1 - ty) + (v01 * (1 - tx) + v11 * tx) * ty;
+  };
+  const MID = [0, 32.5, 37.5, 42.5, 47.5, 55];
+  const slope = new Float32Array(W * H).fill(NaN), asp = new Float32Array(W * H).fill(NaN), ele = new Float32Array(W * H).fill(NaN), cls = new Uint8Array(W * H);
+  const useCls = !!(sl && sl.failed < sl.total);
+  let n = 0, n30 = 0, n35 = 0, n50 = 0, max = -1, maxI = -1;
+  for(let y = 0; y < H; y++) for(let x = 0; x < W; x++){
+    const ddx = x0 + x + 0.5 - R.ox, ddy = y0 + y + 0.5 - R.oy;
+    const t = ddx * R.f[0] + ddy * R.f[1], u = ddx * R.r[0] + ddy * R.r[1];
+    if(t < R.t0 || t > R.t1 || Math.abs(u) > R.hw) continue;
+    let v = at(dSl, x, y);
+    if(isNaN(v)) continue;
+    const i = y * W + x;
+    // Aspekt nicht bilinear (Winkel): nächste Zelle
+    const fx = Math.round((x0 + x + 0.5) / k2 - dx0 - 0.5), fy = Math.round((y0 + y + 0.5) / k2 - dy0 - 0.5);
+    asp[i] = dAs[fy * DW + fx]; ele[i] = at(de, x, y);
+    if(useCls){
+      const k = fsRcClass(fsRcPix(sl.tiles, ZI, x0 + x, y0 + y));
+      cls[i] = k;
+      if(k === 5) v = Math.max(50, v);
+      else if(k) v = MID[k];
+      else v = Math.min(v, 29.5);
+    }
+    slope[i] = v; n++;
+    if(v >= 30) n30++;
+    if(v >= 35) n35++;
+    if(v >= 50) n50++;
+    if(v > max){ max = v; maxI = i; }
+  }
+  if(!n) return {error: 'Für diesen Ausschnitt gibt es keine Geländedaten.'};
+  const lbl = i=> cls[i] ? FS_RC_CLASSES[cls[i] - 1].label : Math.round(slope[i]) + '°';
+  let here = null;
+  if(s.origin){
+    const [px, py] = fsRcPx(s.origin.lat, s.origin.lon, ZI);
+    const i = (Math.floor(py) - y0) * W + (Math.floor(px) - x0);
+    if(px >= x0 && px < x0 + W && py >= y0 && py < y0 + H && !isNaN(slope[i])) here = {label: lbl(i), ele: ele[i]};
+  }
+  const tl = fsScanLL(x0, y0, ZI), br = fsScanLL(x0 + W, y0 + H, ZI);
+  return {s, z: ZI, W, H, x0, y0, ele, slope, asp, n, n30, n35, n50, here, official: useCls,
+    steep: maxI >= 0 ? {label: lbl(maxI), ele: ele[maxI], asp: asp[maxI]} : null,
+    coords: [[tl[1], tl[0]], [br[1], tl[0]], [br[1], br[0]], [tl[1], br[0]]]};
+}
+function fsScanInProblem(res, i){
+  const probs = res.probs || [];
+  if(!probs.length) return false;
+  const a = FS_RC_ASP[Math.round(res.asp[i] / 45) % 8], e = res.ele[i];
+  return probs.some(pr=> (!pr.aspects.length || pr.aspects.indexOf(a) >= 0) && !(pr.lower && e < pr.lower) && !(pr.upper && e > pr.upper));
+}
+/* Sonne: Sonnenstand heute alle 20 Minuten (Formeln wie SunCalc). Eine Stelle ist besonnt, wenn der
+   Hang zur Sonne geneigt ist und kein Gelände im Umkreis von 8 km davor steht (Horizont aus dem
+   Höhenmodell, Zoom 12). Gerechnet auf einem Raster von ca. 20 m, dazwischen geglättet. */
+function fsSunPos(date, lat, lon){
+  const rad = Math.PI / 180, d = date.valueOf() / 86400000 - 0.5 + 2440588 - 2451545;
+  const M = rad * (357.5291 + 0.98560028 * d), C = rad * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+  const L = M + C + rad * 102.9372 + Math.PI, e = rad * 23.4397;
+  const dec = Math.asin(Math.sin(e) * Math.sin(L)), ra = Math.atan2(Math.sin(L) * Math.cos(e), Math.cos(L));
+  const H = rad * (280.16 + 360.9856235 * d) + rad * lon - ra, phi = lat * rad;
+  const el = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi)) + Math.PI;
+  return {az, el};
+}
+// Wert an einer Bildstelle: Anteil am Tag, oder (k gesetzt) besonnt 0…1 zum Zeitpunkt k
+function fsScanSunAt(sun, x, y, k){
+  const fx = x / sun.g, fy = y / sun.g, ix = Math.min(sun.GW - 2, Math.floor(fx)), iy = Math.min(sun.GH - 2, Math.floor(fy)), tx = fx - ix, ty = fy - iy;
+  const v = k == null ? (a, b)=> sun.frac[b * sun.GW + a] : (a, b)=> isNaN(sun.frac[b * sun.GW + a]) ? NaN : sun.bits[(b * sun.GW + a) * sun.P + k];
+  return (v(ix, iy) * (1 - tx) + v(ix + 1, iy) * tx) * (1 - ty) + (v(ix, iy + 1) * (1 - tx) + v(ix + 1, iy + 1) * tx) * ty;
+}
+async function fsScanSun(res){
+  const s = res.s, ZH = 12, kk = Math.pow(2, res.z - ZH);
+  const mppI = fsScanMpp(s.lat, res.z), mppH = fsScanMpp(s.lat, ZH), reach = 8000;
+  // Gitter: ca. 20 m, höchstens rund 20 000 Punkte
+  let g = Math.max(1, Math.round(20 / mppI));
+  while(Math.ceil(res.W / g + 1) * Math.ceil(res.H / g + 1) > 20000) g++;
+  const GW = Math.ceil((res.W - 1) / g) + 2, GH = Math.ceil((res.H - 1) / g) + 2;
+  // Höhenmodell Zoom 12 mit 8 km Rand
+  const m = reach / mppH + 2;
+  const hx0 = Math.floor(res.x0 / kk - m), hy0 = Math.floor(res.y0 / kk - m), HW = Math.ceil(res.W / kk + 2 * m) + 2, HH = Math.ceil(res.H / kk + 2 * m) + 2;
+  const {tiles, failed, total} = await fsScanTiles(hx0, hy0, hx0 + HW, hy0 + HH, FS3D_DEM, ZH);
+  if(failed >= total) return {error: 'Geländedaten für den Schattenwurf nicht erreichbar.'};
+  const he = new Float32Array(HW * HH);
+  for(let y = 0; y < HH; y++) for(let x = 0; x < HW; x++){ const v = fsRcEle(fsRcPix(tiles, ZH, hx0 + x, hy0 + y)); he[y * HW + x] = v == null ? NaN : v; }
+  const hAt = (fx, fy)=>{
+    const ix = Math.floor(fx), iy = Math.floor(fy);
+    if(ix < 0 || iy < 0 || ix >= HW - 1 || iy >= HH - 1) return NaN;
+    const tx = fx - ix, ty = fy - iy, i = iy * HW + ix;
+    return (he[i] * (1 - tx) + he[i + 1] * tx) * (1 - ty) + (he[i + HW] * (1 - tx) + he[i + HW + 1] * tx) * ty;
+  };
+  // Sonnenstände heute (Schweizer Zeit), alle 20 Minuten über dem Horizont
+  const zDay = d=> d.toLocaleDateString('de-CH', {timeZone: 'Europe/Zurich'});
+  const today = zDay(new Date()), t00 = Math.floor((Date.now() - 86400000) / 1200000) * 1200000;
+  const pos = [];
+  for(let t = t00; t < t00 + 2 * 86400000; t += 1200000){
+    const dt = new Date(t);
+    if(zDay(dt) !== today) continue;
+    const p = fsSunPos(dt, s.lat, s.lon);
+    if(p.el > 0) pos.push(Object.assign(p, {t: dt, tan: Math.tan(p.el), sx: Math.sin(p.az), sy: -Math.cos(p.az),
+      v: [Math.cos(p.el) * Math.sin(p.az), Math.cos(p.el) * Math.cos(p.az), Math.sin(p.el)]}));
+  }
+  if(!pos.length) return {error: 'Heute steigt die Sonne hier nicht über den Horizont.'};
+  // Schrittweiten entlang des Strahls: 40 m, dann jeweils etwas weiter, bis 8 km
+  const steps = [];
+  for(let d = 40; d <= reach; d *= 1.12) steps.push(d);
+  const now = fsSunPos(new Date(), s.lat, s.lon);
+  const nowI = now.el > 0.01 ? pos.reduce((b, p, i)=> Math.abs(p.t - Date.now()) < Math.abs(pos[b].t - Date.now()) ? i : b, 0) : -1;
+  const frac = new Float32Array(GW * GH).fill(NaN), P = pos.length;
+  const bits = new Uint8Array(GW * GH * P), litPos = new Uint32Array(P); // Zeitraffer: besonnt je Zeitpunkt
+  let inN = 0, inLit = 0, sumF = 0, sumN = 0, nodesIn = 0;
+  const rad = Math.PI / 180;
+  for(let gy = 0; gy < GH; gy++){
+    for(let gx = 0; gx < GW; gx++){
+      const px = Math.min(res.W - 1, gx * g), py = Math.min(res.H - 1, gy * g), ii = py * res.W + px;
+      const fx = (res.x0 + px + 0.5) / kk - hx0 - 0.5, fy = (res.y0 + py + 0.5) / kk - hy0 - 0.5;
+      const h0 = hAt(fx, fy);
+      if(isNaN(h0)) continue;
+      const sl = res.slope[ii], as = res.asp[ii];
+      const n = isNaN(sl) || isNaN(as) ? null : [Math.sin(sl * rad) * Math.sin(as * rad), Math.sin(sl * rad) * Math.cos(as * rad), Math.cos(sl * rad)];
+      let lit = 0, litNow = false;
+      const node = gy * GW + gx, inside = !isNaN(res.slope[ii]);
+      if(inside) nodesIn++;
+      for(let k = 0; k < pos.length; k++){
+        const p = pos[k];
+        if(n && n[0] * p.v[0] + n[1] * p.v[1] + n[2] * p.v[2] <= 0) continue; // vom Hang selbst abgewandt
+        let shade = false;
+        for(const d of steps){
+          const h = hAt(fx + p.sx * d / mppH, fy + p.sy * d / mppH);
+          if(!isNaN(h) && (h - h0 - 3) / d > p.tan){ shade = true; break; }
+        }
+        if(!shade){ lit++; bits[node * P + k] = 1; if(inside) litPos[k]++; if(k === nowI) litNow = true; }
+      }
+      const f = lit / pos.length;
+      frac[gy * GW + gx] = f;
+      if(!isNaN(res.slope[ii])){ sumF += f; sumN++; if(nowI >= 0){ inN++; if(litNow) inLit++; } }
+    }
+  }
+  const fmt = d=> d.toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit', timeZone: 'Europe/Zurich'});
+  // Auf- und Untergang (ebener Horizont) auf 2 Minuten genau
+  let rise = null, set = null;
+  for(let t = pos[0].t.getTime() - 1200000; t <= pos[pos.length - 1].t.getTime() + 1200000; t += 120000){
+    if(fsSunPos(new Date(t), s.lat, s.lon).el > 0){ if(!rise) rise = new Date(t); set = new Date(t); }
+  }
+  const dayH = (set - rise) / 3600000;
+  return {g, GW, GH, frac, P, bits, times: pos.map(p=> fmt(p.t)), pctAt: Array.from(litPos, v=> nodesIn ? Math.round(v / nodesIn * 100) : 0), nowI,
+    rise: fmt(rise), set: fmt(set), dayH,
+    avgH: sumN ? sumF / sumN * dayH : 0, nowPct: nowI >= 0 && inN ? Math.round(inLit / inN * 100) : null};
+}
+// Ebene als Pixelfeld (ein Pixel je Geländezelle), mit der Deckkraft aus dem Regler gemalt
+// (raster-opacity wirkt auf Gelände nicht zuverlässig). Auf die Karte kommt es als Kacheln (fsscan://).
+function fsScanImage(res, k){
+  const tk = k === 'sonne' && res.sunT != null ? res.sunT : null;
+  const op = fsScanOpacity(), key = k + ':' + op + (tk != null ? ':t' + tk : '');
+  res.img = res.img || {};
+  if(res.img[key]) return res.img[key];
+  const {W, H, slope} = res;
+  const d = new Uint8ClampedArray(W * H * 4);
+  const C = FS_SCAN_COL;
+  let hits = 0;
+  for(let i = 0; i < W * H; i++){
+    const sl = slope[i];
+    if(isNaN(sl)) continue;
+    let c = null, al = 0;
+    if(k === 'steil'){ c = sl < 25 ? C.green : sl < 30 ? C.yellow : sl < 35 ? C.orange : C.red; al = 235; }
+    else if(k === 'lawine'){
+      if(sl >= 30 && sl < 60){
+        const f = Math.min(1, (sl - 30) / 15);
+        c = [0, 1, 2].map(j=> Math.round(C.yellow[j] + (C.red[j] - C.yellow[j]) * f)); al = 235;
+        const x = i % W, y = (i - x) / W;
+        if(fsScanInProblem(res, i)){ hits++; if((x + y) % 6 < 2){ c = C.hatch; al = 255; } }
+      }
+    }else if(k === 'klippen'){
+      if(sl >= 60){ c = C.red; al = 250; } else if(sl >= 50){ c = C.orange; al = 245; }
+    }else if(k === 'sonne' && res.sun){
+      const x = i % W, y = (i - x) / W, f = fsScanSunAt(res.sun, x, y, tk);
+      if(!isNaN(f)){
+        if(tk == null) c = fsScanSunRgb(f);
+        else c = [0, 1, 2].map(j=> Math.round(FS_SCAN_SUN[0][1][j] + (FS_SCAN_SUN[3][1][j] - FS_SCAN_SUN[0][1][j]) * f)); // Schatten blau, Sonne gelb
+        al = 235;
+      }
+    }
+    if(!c) continue;
+    d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = Math.round(al * Math.pow(op, 1.5)); // unten feiner abgestuft (wirkt sonst schon bei wenig Deckkraft kräftig)
+  }
+  if(k === 'lawine') res.hits = hits;
+  res.img[key] = d;
+  return d;
+}
+/* Einfärbung als Kartenkacheln: ein einzelnes Bild (image-Quelle) wurde auf dem 3D-Gelände nur teilweise
+   gezeichnet (Rand abgeschnitten). Kacheln legt die Karte zuverlässig übers Gelände, wie die Grundkarte.
+   Die Kacheln entstehen auf dem Gerät aus dem Pixelfeld der aktuellen Ebene (bilinear geglättet). */
+let fsScanRender = null, fsScanTileVer = 0, fsScanProto = false;
+function fsScanTileUrl(){ return 'fsscan://' + fsScanTileVer + '/{z}/{x}/{y}'; }
+function fsScanEnsureProtocol(){
+  if(fsScanProto || typeof maplibregl === 'undefined' || !maplibregl.addProtocol) return;
+  fsScanProto = true;
+  maplibregl.addProtocol('fsscan', async (params)=>{
+    const m = /fsscan:\/\/(\d+)\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
+    const R = fsScanRender;
+    if(!m || !R) throw new Error('fsscan');
+    const z = +m[2], tx = +m[3], ty = +m[4], res = R.res, d = fsScanImage(res, R.layer);
+    const cv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(256, 256) : Object.assign(document.createElement('canvas'), {width: 256, height: 256});
+    const cx = cv.getContext('2d'), im = cx.createImageData(256, 256), o = im.data;
+    const f = Math.pow(2, res.z - z), W = res.W, H = res.H;
+    for(let py = 0; py < 256; py++){
+      const fy = (ty * 256 + py + 0.5) * f - res.y0 - 0.5, iy = Math.floor(fy), vy = fy - iy;
+      if(iy < -1 || iy >= H) continue;
+      for(let px = 0; px < 256; px++){
+        const fx = (tx * 256 + px + 0.5) * f - res.x0 - 0.5, ix = Math.floor(fx), vx = fx - ix;
+        if(ix < -1 || ix >= W) continue;
+        // bilinear über vier Nachbarn (fehlende zählen als durchsichtig)
+        let r = 0, g = 0, b = 0, a = 0;
+        const add = (xx, yy, w)=>{ if(xx < 0 || yy < 0 || xx >= W || yy >= H || !w) return; const j = (yy * W + xx) * 4, al = d[j + 3] * w; r += d[j] * al; g += d[j + 1] * al; b += d[j + 2] * al; a += al; };
+        add(ix, iy, (1 - vx) * (1 - vy)); add(ix + 1, iy, vx * (1 - vy)); add(ix, iy + 1, (1 - vx) * vy); add(ix + 1, iy + 1, vx * vy);
+        if(a <= 0) continue;
+        const q = (py * 256 + px) * 4;
+        o[q] = r / a; o[q + 1] = g / a; o[q + 2] = b / a; o[q + 3] = a;
+      }
+    }
+    cx.putImageData(im, 0, 0);
+    const blob = cv.convertToBlob ? await cv.convertToBlob({type: 'image/png'}) : await new Promise(r=> cv.toBlob(r, 'image/png'));
+    return {data: await blob.arrayBuffer()};
+  });
+}
+// Ebene, Deckkraft oder Uhrzeit geändert: neue Kacheln anfordern
+function fsScanShow(res, layer){
+  fsScanRender = {res, layer};
+  fsScanTileVer++;
+  const src = fsScanMap && fsScanMap.getSource('fs-scan');
+  if(src && src.setTiles) src.setTiles([fsScanTileUrl()]);
+}
+
+/* Zielen auf der Startkarte: Richtung (Tipp auf die Karte oder Kompass) und Länge, Vorschau als Rechteck */
+let fsScanAimSt = null;
+// Aus dem Menü: der Rahmen liegt über dem Ausschnitt, der gerade offen ist (kein Springen, kein Drehen)
+function fsScanFromGps(){ fsScanAim({}); }
+// Rahmen auf dem Bildschirm (Sucher): oben = Blickrichtung, Höhe = Länge, Breite = ratio × Länge
+function fsScanFrameBox(panelH, ratio){
+  ratio = ratio || 0.8;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const top = 76, bottom = vh - panelH - 24, availH = Math.max(160, bottom - top), availW = vw - 72;
+  const h = Math.min(availH, availW / ratio), w = h * ratio;
+  return {left: (vw - w) / 2, top: top + (availH - h) / 2, w, h, cx: vw / 2, cy: top + availH / 2};
+}
+function fsScanZoomFor(lat, len, hPx){ return Math.log2(40075016.686 * Math.cos(lat * Math.PI / 180) / (512 * (len / hPx))); }
+function fsScanAim(o){
+  const ml = fsHomeMap;
+  if(!ml || !ml._fsmLoaded){ showToast('Die Karte lädt noch.', true); return; }
+  if(fsScanAimSt) fsScanAimEnd();
+  if(typeof fsHomeDetent !== 'undefined' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
+  // Vom Standort: der Standort liegt am unteren Rand des Rahmens; sonst liegt der Punkt in der Mitte
+  const st = fsScanAimSt = {origin: null, length: 1000, ratio: 0.8, userDir: false, compass: null};
+  document.documentElement.classList.add('fs-scanning');
+  const panel = document.createElement('div');
+  panel.className = 'fs-scan-aim';
+  const canCompass = typeof DeviceOrientationEvent !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+  panel.innerHTML = `<div class="fs-scan-aim-head"><b>${fsIconHtml('scan')}Hang-Scan</b><button type="button" class="x-btn" data-x aria-label="Schliessen">×</button></div>
+    <div class="fs-scan-aim-row"><span>Richtung</span><b data-dir>–</b></div>
+    <div class="fs-scan-aim-tools"><button type="button" class="btn secondary" data-me>${fsIconHtml('gps')}Standort</button>${canCompass ? `<button type="button" class="btn secondary" data-compass>${fsIconHtml('compass')}Kompass</button>` : ''}<button type="button" class="btn secondary" data-3d>3D</button></div>
+    <p class="fs-scan-aim-hint" data-hint>Karte verschieben und drehen, bis der Hang im Rahmen liegt. Oben ist die Blickrichtung, die Griffe links und rechts ändern die Breite.</p>
+    <label class="fs-scan-aim-len"><span>Länge · Breite</span><b data-len></b><input type="range" min="300" max="3000" step="100" value="1000" aria-label="Länge des Scans"></label>
+    <div class="fs-scan-aim-btns"><button type="button" class="btn secondary" data-x>Abbrechen</button><button type="button" class="btn" data-go>${fsIconHtml('scan')}Scannen</button></div>`;
+  document.body.appendChild(panel);
+  const frame = document.createElement('div');
+  frame.className = 'fs-scan-frame';
+  frame.innerHTML = '<i class="fs-scan-frame-up" aria-hidden="true">↑</i>'
+    + '<button type="button" class="fs-scan-grip" data-side="-1" aria-label="Breite ändern (ziehen)"></button><button type="button" class="fs-scan-grip" data-side="1" aria-label="Breite ändern (ziehen)"></button>';
+  document.body.appendChild(frame);
+  st.panel = panel; st.frame = frame;
+  const box = ()=> fsScanFrameBox(panel.offsetHeight, st.ratio);
+  const place = ()=>{ const b = box(); Object.assign(frame.style, {left: b.left + 'px', top: b.top + 'px', width: b.w + 'px', height: b.h + 'px'}); return b; };
+  const centerLL = ()=>{ const b = box(); return ml.unproject([b.cx, b.cy]); };
+  const bearing = ()=> ((ml.getBearing() % 360) + 360) % 360;
+  const lenNow = ()=>{
+    const b = box(), c = centerLL();
+    const mpp = 40075016.686 * Math.cos(c.lat * Math.PI / 180) / (512 * Math.pow(2, ml.getZoom()));
+    return Math.max(100, Math.round(mpp * b.h / 50) * 50);
+  };
+  let raf = 0;
+  const upd = ()=>{
+    raf = 0;
+    if(fsScanAimSt !== st) return;
+    st.length = lenNow();
+    panel.querySelector('[data-dir]').textContent = Math.round(bearing()) + '° ' + fsScanDir(bearing());
+    panel.querySelector('[data-len]').textContent = fsRcFmtM(st.length) + ' · ' + fsRcFmtM(Math.round(st.length * st.ratio / 50) * 50);
+    const r = panel.querySelector('input[type="range"]');
+    if(document.activeElement !== r) r.value = String(Math.min(3000, Math.max(300, st.length)));
+  };
+  st.upd = ()=>{ if(!raf) raf = requestAnimationFrame(upd); };
+  // Kamera so, dass der Rahmen den Ausschnitt zeigt (Mitte des Rahmens = Mitte des Scans)
+  const go = (lat, lon, b, len, dur)=>{
+    const bx = place();
+    let cLat = lat, cLon = lon;
+    if(st.origin){ const d = len / 2, br = b * Math.PI / 180; cLat = lat + d * Math.cos(br) / 111320; cLon = lon + d * Math.sin(br) / (111320 * Math.cos(lat * Math.PI / 180)); }
+    try{ ml.easeTo({center: [cLon, cLat], zoom: fsScanZoomFor(cLat, len, bx.h), bearing: b, pitch: 0, offset: [bx.cx - ml.getContainer().clientWidth / 2, bx.cy - ml.getContainer().clientHeight / 2], duration: dur || 0}); }catch(e){}
+  };
+  st.go = go;
+  st.setBearing = (b)=>{ try{ ml.easeTo({bearing: b, around: centerLL(), duration: 0}); }catch(e){} };
+  ml.on('move', st.upd);
+  // Griffe links und rechts: Breite ziehen (Höhe und damit Länge bleiben)
+  frame.querySelectorAll('.fs-scan-grip').forEach(g=>{
+    g.addEventListener('pointerdown', (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      try{ g.setPointerCapture(e.pointerId); }catch(err){}
+      const b0 = box(), avail = window.innerWidth - 72, len0 = st.length;
+      const move = (ev)=>{
+        const w = Math.min(avail, Math.max(b0.h * 0.3, Math.abs(ev.clientX - b0.cx) * 2));
+        st.ratio = Math.min(2, Math.max(0.3, w / b0.h));
+        // Rahmenhöhe kann sich dabei ändern: Zoom so nachführen, dass die Länge gleich bleibt
+        const b = place(), c = centerLL();
+        try{ ml.easeTo({zoom: fsScanZoomFor(c.lat, len0, b.h), around: c, duration: 0}); }catch(err){}
+        st.upd();
+      };
+      const up = ()=>{ g.removeEventListener('pointermove', move); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up); };
+      g.addEventListener('pointermove', move); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
+    });
+  });
+  st.resize = ()=>{ place(); st.upd(); };
+  window.addEventListener('resize', st.resize);
+  // Standort als Punkt auf der Karte
+  const ac = getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1E6AA0';
+  const drawPrev = ()=>{
+    const feats = [];
+    if(st.origin) feats.push({type:'Feature', properties:{}, geometry:{type:'Point', coordinates:[st.origin.lon, st.origin.lat]}});
+    const data = {type:'FeatureCollection', features: feats}, src = ml.getSource('fs-scan-prev');
+    if(src){ src.setData(data); return; }
+    ml.addSource('fs-scan-prev', {type:'geojson', data});
+    ml.addLayer({id:'fs-scan-prev-o', type:'circle', source:'fs-scan-prev', paint:{'circle-radius':7, 'circle-color': ac, 'circle-stroke-color':'#fff', 'circle-stroke-width':3}});
+  };
+  const params = ()=>{ const c = centerLL(); return {lat: c.lat, lon: c.lng, bearing: bearing(), length: st.length, width: Math.round(st.length * st.ratio / 50) * 50, centered: true, origin: st.origin}; };
+  // Mein Standort: liegt danach am unteren Rand des Rahmens (Blickrichtung bleibt)
+  panel.querySelector('[data-me]').addEventListener('click', ()=>{
+    if(!navigator.geolocation){ showToast('Standort nicht verfügbar.', true); return; }
+    showToast('Standort wird bestimmt …');
+    navigator.geolocation.getCurrentPosition(p=>{
+      if(fsScanAimSt !== st) return;
+      st.origin = {lat: p.coords.latitude, lon: p.coords.longitude};
+      drawPrev();
+      go(st.origin.lat, st.origin.lon, bearing(), st.length, 500);
+    }, ()=> showToast('Standort nicht verfügbar.', true), {enableHighAccuracy: true, timeout: 12000, maximumAge: 30000});
+  });
+  // 3D-Vorschau: dieselbe 3D-Ansicht wie das Ergebnis, mit dem Ausschnitt als Rahmen (Zurück = weiter zielen)
+  const set3d = ()=> fsScanOpen(Object.assign(params(), {preview: true}));
+  st.set3d = set3d;
+  panel.querySelector('[data-3d]').addEventListener('click', ()=> set3d());
+  const range = panel.querySelector('input[type="range"]');
+  range.addEventListener('input', ()=>{
+    const len = +range.value, c = centerLL();
+    try{ ml.easeTo({zoom: fsScanZoomFor(c.lat, len, box().h), around: c, duration: 0}); }catch(e){}
+  });
+  panel.querySelectorAll('[data-x]').forEach(b=> b.addEventListener('click', ()=> closeTopOverlayLayer()));
+  const cb = panel.querySelector('[data-compass]');
+  if(cb) cb.addEventListener('click', ()=> fsScanCompass(!st.compass));
+  // Selbst gedreht: der Kompass hört auf
+  st.userRotate = (e)=>{ if(e && e.originalEvent){ st.userDir = true; if(st.compass) fsScanCompass(false); } };
+  ml.on('rotatestart', st.userRotate);
+  panel.querySelector('[data-go]').addEventListener('click', ()=>{
+    const s = params();
+    closeTopOverlayLayer();
+    setTimeout(()=> fsScanOpen(s), 50);
+  });
+  pushOverlayLayer(fsScanAimEnd);
+  // Ausschnitt wie gerade offen: Drehung und Zoom bleiben; gedrückt gehaltener Punkt in die Mitte des Rahmens.
+  // Nur wenn die Länge ausserhalb 300 m – 3 km läge, wird gezoomt.
+  place();
+  const len0 = Math.min(3000, Math.max(300, lenNow()));
+  const c0 = o.lat != null ? {lat: o.lat, lon: o.lon} : (()=>{ const c = centerLL(); return {lat: c.lat, lon: c.lng}; })();
+  if(o.lat != null || Math.abs(len0 - lenNow()) > 60) go(c0.lat, c0.lon, bearing(), len0, o.lat != null ? 300 : 0);
+  upd();
+}
+function fsScanAimEnd(){
+  const st = fsScanAimSt;
+  if(!st) return;
+  fsScanCompass(false);
+  fsScanAimSt = null;
+  document.documentElement.classList.remove('fs-scanning');
+  if(st.panel) st.panel.remove();
+  if(st.frame) st.frame.remove();
+  window.removeEventListener('resize', st.resize);
+  const ml = fsHomeMap;
+  if(ml){
+    ml.off('move', st.upd); ml.off('rotatestart', st.userRotate);
+    ['fs-scan-prev-o'].forEach(id=>{ try{ if(ml.getLayer(id)) ml.removeLayer(id); }catch(e){} });
+    try{ if(ml.getSource('fs-scan-prev')) ml.removeSource('fs-scan-prev'); }catch(e){}
+    try{ ml.easeTo({pitch: 0, duration: 300}); }catch(e){} // Drehung bleibt wie gewählt
+  }
+}
+// Kompass: Richtung folgt dem Handy (iOS fragt beim ersten Mal nach der Erlaubnis)
+async function fsScanCompass(on){
+  const st = fsScanAimSt;
+  if(!st) return;
+  const btn = st.panel && st.panel.querySelector('[data-compass]');
+  if(!on){
+    if(st.compass){ window.removeEventListener(st.compass.ev, st.compass.fn); st.compass = null; }
+    if(btn) btn.classList.remove('on');
+    return;
+  }
+  try{ if(typeof DeviceOrientationEvent.requestPermission === 'function' && await DeviceOrientationEvent.requestPermission() !== 'granted'){ showToast('Kompass nicht erlaubt.', true); return; } }catch(e){}
+  const ev = 'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation';
+  let raf = 0, got = false;
+  const fn = (e)=>{
+    let h = e.webkitCompassHeading;
+    if(h == null && e.alpha != null && (e.absolute || ev === 'deviceorientationabsolute')) h = 360 - e.alpha;
+    if(h == null) return;
+    got = true;
+    h = (h + ((screen.orientation && screen.orientation.angle) || 0) + 360) % 360;
+    if(raf) return;
+    raf = requestAnimationFrame(()=>{ raf = 0; if(fsScanAimSt === st && st.compass) st.setBearing(h); });
+  };
+  window.addEventListener(ev, fn);
+  st.compass = {ev, fn};
+  if(btn) btn.classList.add('on');
+  setTimeout(()=>{ if(!got && fsScanAimSt === st && st.compass){ fsScanCompass(false); showToast('Kein Kompass gefunden – auf die Karte tippen.', true); } }, 2500);
+}
+
+/* Ergebnis: eigene 3D-Ansicht mit dem eingefärbten Gelände und einem Blatt mit Kennzahlen */
+// Deckkraft der Einfärbung (gemerkt): weniger deckend zeigt das Gelände darunter
+function fsScanOpacity(){ try{ const v = parseFloat(localStorage.getItem('fs-scan-opacity')); return isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.55; }catch(e){ return 0.55; } }
+let fsScanMap = null;
+function fsScanClose(){
+  if(fsScanPlayTimer){ clearInterval(fsScanPlayTimer); fsScanPlayTimer = 0; }
+  if(fsScanMap){ try{ fsScanMap.remove(); }catch(e){} fsScanMap = null; }
+  const el = document.getElementById('fs-scan');
+  if(el) el.remove();
+}
+async function fsScanOpen(s){
+  if(navigator.onLine === false){ showToast('Offline – der Hang-Scan braucht Internet für das Gelände.', true); return; }
+  fsScanClose();
+  const wrap = document.createElement('div');
+  wrap.id = 'fs-scan';
+  wrap.className = 'fs-3d fs-3d-ml fs-scan';
+  const pv = !!s.preview;
+  wrap.innerHTML = `<div class="fs-3d-map" id="fs-scan-map"></div>
+    <div class="fs-3d-top"><button type="button" class="fs-3d-btn" data-sc="close" aria-label="Zurück">‹ Zurück</button><div class="fs-3d-title">${pv ? 'Vorschau' : 'Hang-Scan'}</div></div>
+    <div class="fs-scan-seg fs-3d-seg" role="group" aria-label="Ebene"${pv ? ' hidden' : ''}>${FS_SCAN_LAYERS.map((l, i)=> `<button type="button" data-k="${l.k}" class="${i ? '' : 'on'}" aria-pressed="${i ? 'false' : 'true'}">${l.label}</button>`).join('')}</div>
+    <div class="fs-scan-card" hidden></div>
+    <div class="fs-3d-loading" id="fs-scan-loading">Gelände wird gerechnet …</div>`;
+  document.body.appendChild(wrap);
+  pushOverlayLayer(fsScanClose);
+  wrap.querySelector('[data-sc="close"]').addEventListener('click', ()=> closeTopOverlayLayer());
+  if(pv) return fsScanPreview(wrap, s);
+  const [res, slf] = await Promise.all([fsScanCompute(s).catch(e=> ({error: 'Gelände konnte nicht gerechnet werden.'})), fsSlfForPoint(s.lat, s.lon).catch(()=> null)]);
+  if(!document.body.contains(wrap)) return;
+  const loading = wrap.querySelector('#fs-scan-loading');
+  if(res.error){ loading.textContent = res.error; return; }
+  res.bul = slf ? fsRcSlfBul(slf) : null;
+  res.probs = fsRcSlfProblems(res.bul);
+  let layer = 'steil';
+  fsScanImage(res, 'lawine'); // zählt die Treffer fürs Blatt
+  const card = wrap.querySelector('.fs-scan-card');
+  const drawCard = ()=>{
+    card.innerHTML = `<label class="fs-scan-op"><span>Deckkraft</span><input type="range" min="0" max="100" step="5" value="${Math.round(fsScanOpacity() * 100)}" aria-label="Deckkraft der Farben"><b>${Math.round(fsScanOpacity() * 100)} %</b></label>` + fsScanCardHtml(res, layer);
+    card.hidden = false;
+    fsScanWireTimeline(card, res, ()=> layer, drawCard);
+    const r = card.querySelector('.fs-scan-op input'), out = card.querySelector('.fs-scan-op b');
+    let raf = 0;
+    r.addEventListener('input', ()=>{
+      out.textContent = r.value + ' %';
+      try{ localStorage.setItem('fs-scan-opacity', String(+r.value / 100)); }catch(e){}
+      if(raf) return;
+      raf = requestAnimationFrame(()=>{ raf = 0; fsScanShow(res, layer); });
+    });
+  };
+  drawCard();
+  await fsmEnsureLoaded();
+  if(!document.body.contains(wrap)) return;
+  const map = fsScanCreate3d(s, ()=>{
+    fsScanEnsureProtocol();
+    fsScanRender = {res, layer};
+    const bb0 = [Math.min(res.coords[0][0], res.coords[2][0]), Math.min(res.coords[0][1], res.coords[2][1]), Math.max(res.coords[0][0], res.coords[2][0]), Math.max(res.coords[0][1], res.coords[2][1])];
+    map.addSource('fs-scan', {type:'raster', tiles:[fsScanTileUrl()], tileSize:256, bounds: bb0, minzoom: 8, maxzoom: 17});
+    map.addLayer({id:'fs-scan', type:'raster', source:'fs-scan', paint:{'raster-opacity': 1, 'raster-resampling':'linear', 'raster-fade-duration':0}});
+    map.addSource('fs-scan-box', {type:'geojson', data:{type:'Feature', properties:{}, geometry:{type:'LineString', coordinates: fsScanPolygon(s)}}});
+    map.addLayer({id:'fs-scan-box', type:'line', source:'fs-scan-box', paint:{'line-color':'#ffffff', 'line-width':2, 'line-opacity':0.85}});
+    loading.remove();
+  });
+  wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(b=> b.addEventListener('click', async ()=>{
+    layer = b.dataset.k;
+    if(layer !== 'sonne' && fsScanPlayTimer){ clearInterval(fsScanPlayTimer); fsScanPlayTimer = 0; res.sunPlaying = false; }
+    wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(x=>{ const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
+    // Sonne erst beim ersten Antippen rechnen (Schattenwurf braucht Gelände im Umkreis)
+    if(layer === 'sonne' && !res.sun && !res.sunBusy){
+      res.sunBusy = true; drawCard();
+      await new Promise(r=> setTimeout(r, 30));
+      const sun = await fsScanSun(res).catch(()=> ({error: 'Sonne konnte nicht gerechnet werden.'}));
+      res.sunBusy = false;
+      if(sun.error) res.sunError = sun.error; else res.sun = sun;
+      if(!document.body.contains(wrap)) return;
+    }
+    if(b.dataset.k !== layer) return;
+    if(map.getSource && map.getSource('fs-scan')) fsScanShow(res, layer);
+    drawCard();
+  }));
+}
+// 3D-Karte für Scan und Vorschau: Luftbild auf Gelände, Blick wie beim Zielen (vom unteren zum oberen Rand)
+function fsScanCreate3d(s, onReady){
+  const R = fsScanRect(s);
+  const [clat, clon] = fsScanLL((R.corners[0][0] + R.corners[2][0]) / 2, (R.corners[0][1] + R.corners[2][1]) / 2);
+  const map = fsmCreateMap('fs-scan-map', {center:[clat, clon], zoom: 14, ctlTop: 122}); // Knöpfe unter der Ebenen-Leiste
+  fsScanMap = map;
+  map.setMaxPitch(80);
+  try{ map.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); }catch(e){}
+  fsmWhenLoaded(map, ()=>{
+    if(fsScanMap !== map) return;
+    fsmSetBase(map, 'luftbild', true);
+    map.addSource('dem', {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 14, attribution:'Höhen: Mapzen/AWS Terrain Tiles'});
+    map.setTerrain({source:'dem', exaggeration:1});
+    try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
+    onReady();
+    if(s.origin) fsmAddMarker(map, s.origin.lat, s.origin.lon, '<div class="fs-scan-me" aria-label="Standort"></div>', {anchor:'center'});
+    const bb = new maplibregl.LngLatBounds();
+    fsScanPolygon(s).forEach(c=> bb.extend(c));
+    const cam = map.cameraForBounds(bb, {padding:{top:110, bottom: Math.round(window.innerHeight * 0.3), left:20, right:20}, bearing: s.bearing});
+    if(cam) map.jumpTo({center: cam.center, zoom: cam.zoom, bearing: s.bearing, pitch: 58});
+  });
+  return map;
+}
+// 3D-Vorschau beim Zielen: Luftbild auf Gelände, Ausschnitt als Rahmen; «Scannen» startet direkt
+async function fsScanPreview(wrap, s){
+  const card = wrap.querySelector('.fs-scan-card'), loading = wrap.querySelector('#fs-scan-loading');
+  loading.textContent = '3D wird geladen …';
+  card.innerHTML = `<p class="fs-scan-facts">Vorschau: ${fsRcFmtM(s.length)} × ${fsRcFmtM(s.width)}, Blick ${Math.round(s.bearing)}° ${fsScanDir(s.bearing)}. Zum Verschieben zurück zur Karte.</p>
+    <div class="fs-scan-aim-btns"><button type="button" class="btn secondary" data-back>Zurück</button><button type="button" class="btn" data-go>${fsIconHtml('scan')}Scannen</button></div>`;
+  card.hidden = false;
+  card.querySelector('[data-back]').addEventListener('click', ()=> closeTopOverlayLayer());
+  card.querySelector('[data-go]').addEventListener('click', ()=>{
+    closeTopOverlayLayer(); // Vorschau zu
+    // Erst wenn der Verlaufsschritt verarbeitet ist, wie «Scannen» im Zielen (sonst zwei Zurück auf einmal)
+    setTimeout(()=>{ const g = document.querySelector('.fs-scan-aim [data-go]'); if(g) g.click(); else fsScanOpen(Object.assign({}, s, {preview: false})); }, 250);
+  });
+  await fsmEnsureLoaded();
+  if(!document.body.contains(wrap)) return;
+  const map = fsScanCreate3d(s, ()=>{
+    map.addSource('fs-scan-box', {type:'geojson', data:{type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:[fsScanPolygon(s)]}}});
+    map.addLayer({id:'fs-scan-box-fill', type:'fill', source:'fs-scan-box', paint:{'fill-color':'#ffffff', 'fill-opacity':0.18}});
+    map.addLayer({id:'fs-scan-box', type:'line', source:'fs-scan-box', paint:{'line-color':'#ffffff', 'line-width':3}});
+    loading.remove();
+  });
+}
+// Zeitraffer der Sonne: Regler (ganz links = ganzer Tag) und Abspielen in 20-Minuten-Schritten
+let fsScanPlayTimer = 0;
+function fsScanWireTimeline(card, res, layerNow, redraw){
+  const row = card.querySelector('.fs-scan-tl');
+  if(!row) return;
+  const r = row.querySelector('input'), lbl = row.querySelector('[data-tl]'), play = row.querySelector('[data-play]');
+  const show = (t, full)=>{
+    res.sunT = t < 0 ? null : t;
+    if(layerNow() === 'sonne') fsScanShow(res, 'sonne');
+    if(full) redraw();
+    else{
+      lbl.textContent = res.sunT == null ? 'Ganzer Tag' : res.sun.times[res.sunT];
+      const f = card.querySelector('.fs-scan-facts');
+      if(f && res.sunT != null) f.innerHTML = `${res.sun.times[res.sunT]} Uhr: <b>${res.sun.pctAt[res.sunT]} %</b> der Fläche in der Sonne.`;
+    }
+  };
+  const stop = ()=>{ if(fsScanPlayTimer){ clearInterval(fsScanPlayTimer); fsScanPlayTimer = 0; } res.sunPlaying = false; };
+  r.addEventListener('input', ()=>{
+    const was = res.sunT == null, t = +r.value;
+    stop();
+    // Zwischen «ganzer Tag» und Uhrzeit wechselt die Legende: dann ganz neu zeichnen
+    show(t, was !== (t < 0));
+  });
+  play.addEventListener('click', ()=>{
+    if(res.sunPlaying){ stop(); redraw(); return; }
+    res.sunPlaying = true;
+    let t = res.sunT == null || res.sunT >= res.sun.P - 1 ? 0 : res.sunT;
+    show(t, true);
+    fsScanPlayTimer = setInterval(()=>{
+      t++;
+      if(t >= res.sun.P){ stop(); redraw(); return; }
+      const rr = card.querySelector('.fs-scan-tl input');
+      if(rr) rr.value = String(t);
+      res.sunT = t;
+      fsScanShow(res, 'sonne');
+      const l = card.querySelector('[data-tl]'); if(l) l.textContent = res.sun.times[t];
+      const f = card.querySelector('.fs-scan-facts'); if(f) f.innerHTML = `${res.sun.times[t]} Uhr: <b>${res.sun.pctAt[t]} %</b> der Fläche in der Sonne.`;
+    }, 450);
+  });
+}
+function fsScanCardHtml(res, k){
+  const L = FS_SCAN_LAYERS.find(x=> x.k === k), s = res.s, pct = v=> Math.round(v / res.n * 100) + ' %';
+  const legend = L.legend.map(([c, t])=> `<li><i class="${c === 'hatch' ? 'fs-scan-hatch' : ''}" style="${c === 'hatch' ? '' : 'background:' + fsScanRgb(c)}"></i>${esc(t)}</li>`).join('');
+  const stats = [
+    [Math.round(s.bearing) + '° ' + fsScanDir(s.bearing), 'Richtung'],
+    [fsRcFmtM(s.length) + ' × ' + fsRcFmtM(s.width || s.length * 0.8), 'Länge × Breite'],
+    res.here ? [res.here.label, 'Neigung hier'] : (res.steep ? [res.steep.label, 'steilste Stelle'] : null)
+  ].filter(Boolean);
+  const bul = res.bul, top = bul && bul.ratings[0];
+  let facts = `Steiler als 30°: <b>${pct(res.n30)}</b> der Fläche, steiler als 35°: <b>${pct(res.n35)}</b>.`;
+  if(res.steep) facts += ` Steilste Stelle ${esc(res.steep.label)}${isFinite(res.steep.ele) ? ' auf ' + fsRcFmtE(res.steep.ele) + ' m' : ''}, Exposition ${FS_RC_ASP_LONG[fsScanDir(res.steep.asp)]}.`;
+  if(k === 'sonne' && res.sun && res.sunT != null){
+    facts = `${res.sun.times[res.sunT]} Uhr: <b>${res.sun.pctAt[res.sunT]} %</b> der Fläche in der Sonne.`;
+  }else if(k === 'sonne'){
+    const sun = res.sun;
+    facts = res.sunBusy ? 'Sonne wird gerechnet …' : res.sunError ? esc(res.sunError)
+      : `Sonne heute über dem Horizont ${sun.rise}–${sun.set}. Im Scan im Mittel <b>${sun.avgH.toFixed(1).replace('.0', '')} h</b> Sonne`
+        + (sun.nowPct != null ? `, jetzt <b>${sun.nowPct} %</b> der Fläche in der Sonne.` : '.') + ' Wichtig für Firn, Nassschnee und Harschdeckel.';
+  }
+  if(k === 'klippen') facts = res.n50 ? `Steiler als 50°: <b>${pct(res.n50)}</b> der Fläche.` : 'Kein Gelände steiler als 50° im Ausschnitt.';
+  let lawine = '';
+  if(k === 'lawine'){
+    lawine = !bul ? '<p class="fs-scan-note">Für diesen Ort gibt es gerade kein Lawinenbulletin – ohne Schraffur.</p>'
+      : `<p class="fs-scan-bul">${top ? `<span class="fs-scan-lvl" style="background:${top.color}">${top.level}</span><b>${esc(top.label)}</b>${top.elev ? ' · ' + esc(top.elev) : ''}` : ''}${bul.region ? `<small>${esc(bul.region)}</small>` : ''}</p>`
+        + (res.probs.length ? `<p class="fs-scan-note">${res.probs.map(pr=> esc(pr.type) + (pr.aspects.length ? ' (' + pr.aspects.join(' ') + (pr.lower ? ', über ' + pr.lower + ' m' : '') + (pr.upper ? ', unter ' + pr.upper + ' m' : '') + ')' : '')).join(' · ')}.<br>${res.hits ? 'Schraffiert: Hänge im Scan, auf die ein Lawinenproblem von heute passt.' : 'Kein Hang im Scan passt nach Höhe und Exposition zu einem Lawinenproblem von heute.'}</p>` : '<p class="fs-scan-note">Das Bulletin nennt heute kein besonderes Lawinenproblem.</p>');
+  }
+  const tl = k === 'sonne' && res.sun ? `<div class="fs-scan-tl"><button type="button" class="fs-scan-play" data-play aria-label="Zeitraffer abspielen">${fsIconHtml(res.sunPlaying ? 'pause' : 'play')}</button>
+      <input type="range" min="-1" max="${res.sun.P - 1}" step="1" value="${res.sunT == null ? -1 : res.sunT}" aria-label="Uhrzeit"><b data-tl>${res.sunT == null ? 'Ganzer Tag' : res.sun.times[res.sunT]}</b></div>` : '';
+  const legendHtml = k === 'sonne' && res.sunT != null
+    ? `${tl}<div class="fs-scan-legend"><ul><li><i style="background:rgb(${FS_SCAN_SUN[3][1].join(',')})"></i>Sonne</li><li><i style="background:rgb(${FS_SCAN_SUN[0][1].join(',')})"></i>Schatten</li></ul></div>`
+    : k === 'sonne'
+    ? `${tl}<div class="fs-scan-legend"><small>${esc(L.title)}</small><div class="fs-scan-sunbar" style="background:linear-gradient(90deg, ${FS_SCAN_SUN.map(([f, c])=> 'rgb(' + c.join(',') + ') ' + Math.round(f * 100) + '%').join(', ')})"></div><div class="fs-scan-sunlbl"><span>Schatten</span><span>ganzer Tag</span></div></div>`
+    : `<div class="fs-scan-legend"><small>${esc(L.title)}</small><ul>${legend}</ul></div>`;
+  return `<div class="fs-scan-stats">${stats.map(([v, l])=> `<div><b>${esc(v)}</b><small>${esc(l)}</small></div>`).join('')}</div>
+    ${legendHtml}
+    ${lawine}<p class="fs-scan-facts">${facts}</p>
+    <p class="fs-scan-note">${res.official ? 'Neigung ab 30° aus swisstopo (swissALTI3D, 2 m), flacher und Exposition aus dem Höhenmodell (ca. 30 m)' : 'Aus dem Höhenmodell gerechnet (ca. 30 m)'} – kleine Rinnen und Wechten fehlen.${k === 'sonne' ? ' Schatten aus dem Gelände bis 8 km, ohne Wolken, Bäume und Gebäude.' : ''} Ersetzt Bulletin und eigene Beurteilung nicht.</p>`;
+}
+
 /* ===== Tourenansicht: Abschnitte und Sprungleiste =====
    Reihenfolge: Bilder · Kennzahlen/Status · Beschreibung · Orte · Bedingungen · Anreise · Mehr.
    Leere Abschnitte fallen weg; die Sprungleiste zeigt nur, was es gibt. */
@@ -19163,7 +19887,9 @@ const FS_ICON_PATHS = {
   heli: 'M3 5h14M10 5v3M6 8h8a4 4 0 0 1 4 4v1a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3zM18 12h3M9 16l-1 3M15 16l1 3M6 19h12',
   shield: 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z',
   sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 5v4M8 15v4',
-  gps: 'M3 11l18-8-8 18-2-8z', // Ortungspfeil (eigener Standort), wie in Karten-Apps üblich
+  gps: 'M3 11l18-8-8 18-2-8z',
+  scan: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 16l3.5-5 2.5 3 1.5-2 2.5 4z',
+  pause: 'M8 5v14M16 5v14', // Hang-Scan: Gelände im Sucher // Ortungspfeil (eigener Standort), wie in Karten-Apps üblich
   lock: 'M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11',
   star: 'M12 3.2l2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8z',
   dot: 'M12 6a6 6 0 1 0 0 12a6 6 0 1 0 0-12z',
