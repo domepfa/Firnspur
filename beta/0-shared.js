@@ -6273,11 +6273,6 @@ const FSM_OVERLAYS = [
   // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln – siehe fsmLoadPoints
   // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt; Daten für «Wetter-Messwerte»
   {id:'slfstationen', group:'unterwegs', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
-  // Schneebedeckung aus Satellitenbildern (NASA GIBS, MODIS Terra, täglich, ca. 500 m): wo Schnee liegt, nicht wie viel.
-  // Bild von gestern (das von heute ist oft noch nicht gerechnet); unter Wolken keine Angabe. Versuch, nicht offline.
-  {id:'schneedecke', group:'unterwegs', label:'Schneebedeckung (Satellit, gestern)', icon:'snow', opacity:0.6, maxzoom:8,
-    tiles:['https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDSI_Snow_Cover/default/' + new Date(Date.now() - 86400000).toISOString().slice(0, 10) + '/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png'],
-    attribution:'Schneebedeckung: NASA GIBS (MODIS)'},
   // Satellitenbild Sentinel-2 (10 m), jüngste Aufnahme der letzten 30 Tage mit höchstens 20 % Wolken.
   // Copernicus Data Space (Sentinel Hub WMS, Gratiskonto, Konfiguration «firnspur», Ebene TRUE_COLOR).
   // Erst ab Zoom 10 (spart Kontingent: grosse Ausschnitte kosten viel); Kacheln bis Zoom 14, darüber vergrössert.
