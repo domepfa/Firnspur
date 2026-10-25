@@ -6284,7 +6284,7 @@ const FSM_OVERLAYS = [
   {id:'sentinel', group:'unterwegs', label:'Satellit aktuell (Sentinel-2)', icon:'image', minzoom:10, maxzoom:14,
     tiles:['https://sh.dataspace.copernicus.eu/ogc/wms/' + FS_SENTINEL_ID + '?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=TRUE_COLOR&MAXCC=20&PRIORITY=mostRecent&TIME='
       + new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10) + '/' + new Date().toISOString().slice(0, 10)
-      + '&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg'],
+      + '&SHOWLOGO=false&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg'], // ohne Copernicus-Schriftzug auf jeder Kachel
     attribution:'Satellitenbild: Copernicus Sentinel-2 (ESA), Copernicus Data Space'},
   // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
   {id:'wetter', group:'unterwegs', label:'Wetter', icon:'therm', wetter:true},
