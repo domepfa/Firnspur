@@ -2917,3 +2917,4 @@ html.fs-scanning .fs-home-slot .fsm-ctlbox{ display:none !important; } /* Rahmen
 .fs-scan-aim-tools .btn{ min-height:46px; justify-content:center; }
 .fs-scan-aim-tools .btn.on{ background:var(--ice-deep); color:#fff; border-color:transparent; }
 .fs-scan-seg[hidden]{ display:none; }
+.fsm-panel .fsm-days{ margin:-2px 0 10px 34px; }
