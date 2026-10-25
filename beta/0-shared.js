@@ -6299,13 +6299,59 @@ function fsmSetNasaDay(map, n){
   if(src && src.setTiles && map._fsm.sat === 'nasa') src.setTiles(FS_SAT.nasa.tiles());
   fsmSyncPanel(map); fsmSatBar(map);
 }
+// Bei «Aktuell»: Datum der Sentinel-2-Aufnahme in der Mitte des Ausschnitts (Copernicus-Katalog, STAC).
+// Gleiche Regel wie das Bild: jüngste Aufnahme der letzten 30 Tage mit höchstens 20 % Wolken.
+async function fsS2DateAt(lat, lon){
+  const key = lat.toFixed(2) + ',' + lon.toFixed(2);
+  fsS2DateAt.cache = fsS2DateAt.cache || new Map();
+  if(fsS2DateAt.cache.has(key)) return fsS2DateAt.cache.get(key);
+  const now = new Date(), from = new Date(Date.now() - 30 * 86400000);
+  const r = await fetch('https://catalogue.dataspace.copernicus.eu/stac/search', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({collections: ['sentinel-2-l2a'], bbox: [lon - 0.003, lat - 0.003, lon + 0.003, lat + 0.003],
+      datetime: from.toISOString() + '/' + now.toISOString(), limit: 40, sortby: [{field: 'properties.datetime', direction: 'desc'}]})});
+  if(!r.ok) throw new Error('STAC ' + r.status);
+  const j = await r.json();
+  const hit = (j.features || []).find(f=> f.properties && f.properties['eo:cloud_cover'] != null && f.properties['eo:cloud_cover'] <= 20);
+  const out = hit ? new Date(hit.properties.datetime) : null;
+  fsS2DateAt.cache.set(key, out);
+  return out;
+}
+function fsmS2DateUpdate(map){
+  const pill = map.getContainer().querySelector(':scope > .fsm-satbar .fsm-s2date');
+  if(!pill) return;
+  if(map.getZoom() < FS_SAT.s2.minzoom){ pill.textContent = 'Sentinel-2 · näher zoomen'; return; }
+  const c = map.getCenter(), seq = (map._fsm.s2seq = (map._fsm.s2seq || 0) + 1);
+  pill.textContent = 'Sentinel-2 · Aufnahme …';
+  fsS2DateAt(c.lat, c.lng).then(d=>{
+    if(seq !== map._fsm.s2seq) return;
+    pill.textContent = d ? 'Sentinel-2 · Aufnahme vom ' + d.toLocaleDateString('de-CH', {weekday: 'short', day: 'numeric', month: 'numeric', timeZone: 'Europe/Zurich'})
+      : 'Sentinel-2 · keine klare Aufnahme in 30 Tagen';
+  }).catch(()=>{ if(seq === map._fsm.s2seq) pill.textContent = 'Sentinel-2 · Datum nicht verfügbar'; });
+}
 function fsmSatBar(map){
   const cont = map.getContainer();
   let bar = cont.querySelector(':scope > .fsm-satbar');
-  if(map._fsm.sat !== 'nasa'){ if(bar) bar.remove(); return; }
+  const sat = map._fsm.sat;
+  if(sat !== 'nasa' && sat !== 's2'){ if(bar) bar.remove(); return; }
+  if(bar && bar.dataset.sat !== sat){ bar.remove(); bar = null; }
+  if(sat === 's2'){
+    if(!bar){
+      bar = document.createElement('div');
+      bar.className = 'fsm-satbar fsm-satbar-info'; bar.dataset.sat = 's2';
+      bar.innerHTML = '<span class="fsm-s2date" role="status"></span>';
+      cont.appendChild(bar);
+      if(!map._fsm.s2wired){
+        map._fsm.s2wired = true;
+        let tm = 0;
+        map.on('moveend', ()=>{ clearTimeout(tm); tm = setTimeout(()=>{ if(map._fsm.sat === 's2') fsmS2DateUpdate(map); }, 500); });
+      }
+    }
+    fsmS2DateUpdate(map);
+    return;
+  }
   if(!bar){
     bar = document.createElement('div');
-    bar.className = 'fsm-satbar fsm-seg';
+    bar.className = 'fsm-satbar fsm-seg'; bar.dataset.sat = 'nasa';
     bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', 'Tag des Satellitenbilds');
     ['click', 'pointerdown', 'touchstart', 'wheel', 'mousedown'].forEach(ev=> bar.addEventListener(ev, e=> e.stopPropagation()));
     bar.addEventListener('click', (e)=>{ const b = e.target.closest('[data-day]'); if(b) fsmSetNasaDay(map, +b.dataset.day); });
