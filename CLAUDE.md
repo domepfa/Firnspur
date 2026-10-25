@@ -38,6 +38,11 @@ aus anderen Apps übernehmen.
   Gerätespeicher, Versionen, GPX, Agenda, Notfallkarte, Karten (MapLibre `fsm*`, Leaflet-Ersatz
   `FL`, Routen `fsr*`, 3D), Login, Bearbeiten/Gedrückthalten, Topo-Bilder, Offline-Download,
   Anreise `fsTravel*`, Dunkelmodus, Icons (`FS_ICON_PATHS`), Tourenbriefing/Tourenzettel.
+- Hang-Scan (`fsScan*` in `0-shared.js`): Zielen mit festem Rahmen auf der Startkarte (Menü oder Gedrückthalten),
+  Rechnung auf dem Gerät, eigene 3D-Ansicht mit den Ebenen Steilheit, Lawine, Klippen, Sonne (Zeitraffer).
+  Neigung ab 30° aus der swisstopo-Karte «Hangneigung über 30°» (wie der Routen-Check `fsRc*`), sonst
+  Höhenmodell `FS3D_DEM`; Lawine gleicht Exposition und Höhe mit dem SLF-Bulletin ab. Die Einfärbung kommt
+  als Kacheln über das Protokoll `fsscan://` (ein einzelnes Bild wurde auf dem 3D-Gelände nur teilweise gezeichnet).
 - In den App-Dateien: Laden/Offline-Cache, Actions, Ansichten (Touren, Hütten, Gebiete),
   Modal rendering (Formulare), Event wiring, Init.
 
