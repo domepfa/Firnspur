@@ -6268,8 +6268,8 @@ function fsNasaUrl(n){ return 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/bes
 //        Gratiskonto, Konfiguration «firnspur»). Ab Zoom 8 (ganz draussen müsste der Dienst zu viele Aufnahmen
 //        zusammensetzen); Kacheln bis Zoom 14, darüber vergrössert.
 const FS_SAT = {
-  nasa: {label:'Täglich', minzoom:0, maxzoom:9, attribution:'Satellitenbild: NASA GIBS (VIIRS NOAA-20)', tiles:()=> [fsNasaUrl(fsNasaDay)]},
-  s2: {label:'Aktuell', minzoom:8, maxzoom:14, attribution:'Satellitenbild: Copernicus Sentinel-2 (ESA), Copernicus Data Space',
+  nasa: {label:'Täglich (grob)', minzoom:0, maxzoom:9, attribution:'Satellitenbild: NASA GIBS (VIIRS NOAA-20)', tiles:()=> [fsNasaUrl(fsNasaDay)]},
+  s2: {label:'Scharf (10\u00a0m)', minzoom:8, maxzoom:14, attribution:'Satellitenbild: Copernicus Sentinel-2 (ESA), Copernicus Data Space',
     tiles:()=> ['https://sh.dataspace.copernicus.eu/ogc/wms/' + FS_SENTINEL_ID + '?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=TRUE_COLOR&MAXCC=20&PRIORITY=mostRecent&TIME='
       + new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10) + '/' + new Date().toISOString().slice(0, 10)
       + '&SHOWLOGO=false&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg']} // ohne Schriftzug auf jeder Kachel
@@ -6291,7 +6291,7 @@ function fsmSetSat(map, v, silent){
   fsmSyncPanel(map);
   fsmSatBar(map);
 }
-// Bei «Täglich»: Tageswahl direkt auf der Karte (schnell vergleichen, ohne ins Menü)
+// Bei «Täglich (grob)»: Tageswahl direkt auf der Karte (schnell vergleichen, ohne ins Menü)
 function fsSatDayLabel(n){ return n === 1 ? 'Gestern' : n === 2 ? 'Vorgestern' : new Date(Date.now() - n * 86400000).toLocaleDateString('de-CH', {weekday:'short', day:'numeric', month:'numeric'}); }
 function fsmSetNasaDay(map, n){
   fsNasaDay = n;
@@ -6299,7 +6299,7 @@ function fsmSetNasaDay(map, n){
   if(src && src.setTiles && map._fsm.sat === 'nasa') src.setTiles(FS_SAT.nasa.tiles());
   fsmSyncPanel(map); fsmSatBar(map);
 }
-// Bei «Aktuell»: Datum der Sentinel-2-Aufnahme in der Mitte des Ausschnitts (Copernicus-Katalog, STAC).
+// Bei «Scharf»: Datum der Sentinel-2-Aufnahme in der Mitte des Ausschnitts (Copernicus-Katalog, STAC).
 // Gleiche Regel wie das Bild: jüngste Aufnahme der letzten 30 Tage mit höchstens 20 % Wolken.
 async function fsS2DateAt(lat, lon){
   const key = lat.toFixed(2) + ',' + lon.toFixed(2);

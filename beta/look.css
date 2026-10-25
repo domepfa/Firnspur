@@ -2917,7 +2917,8 @@ html.fs-scanning .fs-home-slot .fsm-ctlbox{ display:none !important; } /* Rahmen
 .fs-scan-aim-tools .btn{ min-height:46px; justify-content:center; }
 .fs-scan-aim-tools .btn.on{ background:var(--ice-deep); color:#fff; border-color:transparent; }
 .fs-scan-seg[hidden]{ display:none; }
-.fsm-sat{ display:grid; grid-template-columns:auto 1fr; align-items:center; gap:10px; margin:10px 0 0; }
+.fsm-sat{ display:grid; gap:6px; margin:12px 0 0; }
+.fsm-sat .fsm-seg button{ white-space:nowrap; }
 .fsm-sat > span{ font-size:11.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); }
 .fsm-panel .fsm-days{ margin:8px 0 0 0; }
 /* Tageswahl des täglichen Satellitenbilds direkt auf der Karte, oben unter der Suchleiste */
