@@ -6258,6 +6258,108 @@ const FSM_LIB = 'https://unpkg.com/maplibre-gl@4.7.1/dist/';
 const FSM_WMTS = (layer, ext)=> 'https://wmts.geo.admin.ch/1.0.0/' + layer + '/default/current/3857/{z}/{x}/{y}.' + ext;
 const FSM_NAMES_STYLE = 'https://vectortiles.geo.admin.ch/styles/ch.swisstopo.imagerybasemap.vt/style.json';
 // Zuschaltbare Ebenen (Reihenfolge = Reihenfolge im Ebenen-Fenster)
+// Tägliches NASA-Echtfarbenbild: Kacheln eines Tages (n Tage zurück; das von heute ist oft noch nicht fertig)
+let fsNasaDay = 1;
+function fsNasaDate(n){ return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
+function fsNasaUrl(n){ return 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_CorrectedReflectance_TrueColor/default/' + fsNasaDate(n) + '/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg'; }
+// Satellitenbild als zweite Ansicht über der Grundkarte (Zeile «Satellit» in den Kartenebenen), Namen bleiben darüber.
+//  nasa: täglich, Echtfarben VIIRS NOAA-20 (NASA GIBS), ca. 250 m, gratis; Tag wählbar (gestern … vor 3 Tagen)
+//  s2:   Sentinel-2, 10 m, jüngste Aufnahme der letzten 30 Tage mit höchstens 20 % Wolken (Copernicus Data Space,
+//        Gratiskonto, Konfiguration «firnspur»). Ab Zoom 8 (ganz draussen müsste der Dienst zu viele Aufnahmen
+//        zusammensetzen); Kacheln bis Zoom 14, darüber vergrössert.
+const FS_SAT = {
+  nasa: {label:'Täglich (grob)', minzoom:0, maxzoom:9, attribution:'Satellitenbild: NASA GIBS (VIIRS NOAA-20)', tiles:()=> [fsNasaUrl(fsNasaDay)]},
+  s2: {label:'Scharf (10\u00a0m)', minzoom:8, maxzoom:14, attribution:'Satellitenbild: Copernicus Sentinel-2 (ESA), Copernicus Data Space',
+    tiles:()=> ['https://sh.dataspace.copernicus.eu/ogc/wms/' + FS_SENTINEL_ID + '?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=TRUE_COLOR&MAXCC=20&PRIORITY=mostRecent&TIME='
+      + new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10) + '/' + new Date().toISOString().slice(0, 10)
+      + '&SHOWLOGO=false&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg']} // ohne Schriftzug auf jeder Kachel
+};
+function fsmSetSat(map, v, silent){
+  if(!map._fsmLoaded) return;
+  v = FS_SAT[v] ? v : 'off';
+  map._fsm.sat = v;
+  try{ if(map.getLayer('fs-sat')) map.removeLayer('fs-sat'); if(map.getSource('fs-sat')) map.removeSource('fs-sat'); }catch(e){}
+  if(v !== 'off'){
+    const d = FS_SAT[v];
+    map.addSource('fs-sat', {type:'raster', tiles: d.tiles(), tileSize:256, maxzoom: d.maxzoom, attribution: d.attribution});
+    // Direkt über der Grundkarte, unter allen Ebenen (Hangneigung, Routen …) und den Namen
+    const ls = map.getStyle().layers, bi = ls.findIndex(l=> l.id === 'base-luftbild');
+    map.addLayer({id:'fs-sat', type:'raster', source:'fs-sat', minzoom: d.minzoom, paint:{'raster-fade-duration':0}}, (bi >= 0 && ls[bi + 1]) ? ls[bi + 1].id : 'fsm-anchor-names');
+    if(!silent && map.getZoom() < d.minzoom) showToast('Satellit «' + d.label + '»: erst bei näherem Zoom sichtbar.');
+  }
+  if(!silent){ const p = fsmPrefs(); p.sat = v; fsmSavePrefs(p); }
+  fsmSyncPanel(map);
+  fsmSatBar(map);
+}
+// Bei «Täglich (grob)»: Tageswahl direkt auf der Karte (schnell vergleichen, ohne ins Menü)
+function fsSatDayLabel(n){ return n === 1 ? 'Gestern' : n === 2 ? 'Vorgestern' : new Date(Date.now() - n * 86400000).toLocaleDateString('de-CH', {weekday:'short', day:'numeric', month:'numeric'}); }
+function fsmSetNasaDay(map, n){
+  fsNasaDay = n;
+  const src = map.getSource && map.getSource('fs-sat');
+  if(src && src.setTiles && map._fsm.sat === 'nasa') src.setTiles(FS_SAT.nasa.tiles());
+  fsmSyncPanel(map); fsmSatBar(map);
+}
+// Bei «Scharf»: Datum der Sentinel-2-Aufnahme in der Mitte des Ausschnitts (Copernicus-Katalog, STAC).
+// Gleiche Regel wie das Bild: jüngste Aufnahme der letzten 30 Tage mit höchstens 20 % Wolken.
+async function fsS2DateAt(lat, lon){
+  const key = lat.toFixed(2) + ',' + lon.toFixed(2);
+  fsS2DateAt.cache = fsS2DateAt.cache || new Map();
+  if(fsS2DateAt.cache.has(key)) return fsS2DateAt.cache.get(key);
+  const now = new Date(), from = new Date(Date.now() - 30 * 86400000);
+  const r = await fetch('https://catalogue.dataspace.copernicus.eu/stac/search', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({collections: ['sentinel-2-l2a'], bbox: [lon - 0.003, lat - 0.003, lon + 0.003, lat + 0.003],
+      datetime: from.toISOString() + '/' + now.toISOString(), limit: 40, sortby: [{field: 'properties.datetime', direction: 'desc'}]})});
+  if(!r.ok) throw new Error('STAC ' + r.status);
+  const j = await r.json();
+  const hit = (j.features || []).find(f=> f.properties && f.properties['eo:cloud_cover'] != null && f.properties['eo:cloud_cover'] <= 20);
+  const out = hit ? new Date(hit.properties.datetime) : null;
+  fsS2DateAt.cache.set(key, out);
+  return out;
+}
+function fsmS2DateUpdate(map){
+  const pill = map.getContainer().querySelector(':scope > .fsm-satbar .fsm-s2date');
+  if(!pill) return;
+  if(map.getZoom() < FS_SAT.s2.minzoom){ pill.textContent = 'Sentinel-2 · näher zoomen'; return; }
+  const c = map.getCenter(), seq = (map._fsm.s2seq = (map._fsm.s2seq || 0) + 1);
+  pill.textContent = 'Sentinel-2 · Aufnahme …';
+  fsS2DateAt(c.lat, c.lng).then(d=>{
+    if(seq !== map._fsm.s2seq) return;
+    pill.textContent = d ? 'Sentinel-2 · Aufnahme vom ' + d.toLocaleDateString('de-CH', {weekday: 'short', day: 'numeric', month: 'numeric', timeZone: 'Europe/Zurich'})
+      : 'Sentinel-2 · keine klare Aufnahme in 30 Tagen';
+  }).catch(()=>{ if(seq === map._fsm.s2seq) pill.textContent = 'Sentinel-2 · Datum nicht verfügbar'; });
+}
+function fsmSatBar(map){
+  const cont = map.getContainer();
+  let bar = cont.querySelector(':scope > .fsm-satbar');
+  const sat = map._fsm.sat;
+  if(sat !== 'nasa' && sat !== 's2'){ if(bar) bar.remove(); return; }
+  if(bar && bar.dataset.sat !== sat){ bar.remove(); bar = null; }
+  if(sat === 's2'){
+    if(!bar){
+      bar = document.createElement('div');
+      bar.className = 'fsm-satbar fsm-satbar-info'; bar.dataset.sat = 's2';
+      bar.innerHTML = '<span class="fsm-s2date" role="status"></span>';
+      cont.appendChild(bar);
+      if(!map._fsm.s2wired){
+        map._fsm.s2wired = true;
+        let tm = 0;
+        map.on('moveend', ()=>{ clearTimeout(tm); tm = setTimeout(()=>{ if(map._fsm.sat === 's2') fsmS2DateUpdate(map); }, 500); });
+      }
+    }
+    fsmS2DateUpdate(map);
+    return;
+  }
+  if(!bar){
+    bar = document.createElement('div');
+    bar.className = 'fsm-satbar fsm-seg'; bar.dataset.sat = 'nasa';
+    bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', 'Tag des Satellitenbilds');
+    ['click', 'pointerdown', 'touchstart', 'wheel', 'mousedown'].forEach(ev=> bar.addEventListener(ev, e=> e.stopPropagation()));
+    bar.addEventListener('click', (e)=>{ const b = e.target.closest('[data-day]'); if(b) fsmSetNasaDay(map, +b.dataset.day); });
+    cont.appendChild(bar);
+  }
+  bar.innerHTML = [1, 2, 3].map(n=> `<button type="button" data-day="${n}" class="${fsNasaDay === n ? 'on' : ''}" aria-pressed="${fsNasaDay === n}">${fsSatDayLabel(n)}</button>`).join('');
+}
+const FS_SENTINEL_ID = 'd8e7cc2d-6b1a-4f13-8b93-65cd0819c139'; // Copernicus Data Space, Konfiguration «firnspur» (Gratiskontingent)
 const FSM_OVERLAYS = [
   {id:'wanderwege', group:'wege', label:'Wanderwege', icon:'walk', tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
   {id:'wanderrouten', group:'wege', label:'Wanderrouten (SchweizMobil)', icon:'walk', tiles:[FSM_WMTS('ch.astra.wanderland','png')]},
@@ -6421,6 +6523,7 @@ function fsmApplyPrefs(map){
   fsmAddOverview(map);
   fsmSetBase(map, p.base, true);
   fsmOverlaysForApp(map).forEach(o=> fsmSetOverlay(map, o.id, p.on.includes(o.id), true));
+  fsmSetSat(map, p.sat, true);
 }
 function fsmSetBase(map, base, silent){
   if(!map._fsmLoaded) return;
@@ -6507,8 +6610,9 @@ function fsmSetOverlay(map, id, on, silent){
       map.addLayer({id:lid, type:'fill', source:lid, paint:{'fill-color':['get','color'], 'fill-opacity':0.45, 'fill-outline-color':'#555'}}, 'fsm-anchor-names');
       fsmLoadSlf(map, lid);
     }else{
-      map.addSource(lid, {type:'raster', tiles:o.tiles, tileSize:256, maxzoom:18});
-      map.addLayer({id:lid, type:'raster', source:lid, paint:{'raster-opacity': o.opacity || 1}}, 'fsm-anchor-names');
+      map.addSource(lid, Object.assign({type:'raster', tiles: o.tiles, tileSize:256, maxzoom: o.maxzoom || 18}, o.attribution ? {attribution: o.attribution} : {}));
+      map.addLayer(Object.assign({id:lid, type:'raster', source:lid, paint:{'raster-opacity': o.opacity || 1}}, o.minzoom ? {minzoom: o.minzoom} : {}), 'fsm-anchor-names');
+      if(o.minzoom && map.getZoom() < o.minzoom) showToast(o.label + ': erst ab näherem Zoom sichtbar.');
     }
   }
   if(map.getLayer(lid)) map.setLayoutProperty(lid, 'visibility', on ? 'visible' : 'none');
@@ -7591,14 +7695,22 @@ function fsmSyncPanel(map){
   const p = fsmPrefs();
   const base = map._fsm.base || p.base;
   const ovs = fsmOverlaysForApp(map);
+  const dayLbl = fsSatDayLabel;
   const row = o=> `<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`;
+  const sat = map._fsm.sat || 'off';
+  const satRow = `<div class="fsm-sat"><span>Satellit</span><div class="fsm-seg">${[['off', 'Aus']].concat(Object.keys(FS_SAT).map(k=> [k, FS_SAT[k].label])).map(([k, l])=> `<button type="button" data-sat="${k}" class="${sat === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`
+    + (sat === 'nasa' ? `<div class="fsm-seg fsm-days">${[1, 2, 3].map(n=> `<button type="button" data-day="${n}" class="${fsNasaDay === n ? 'on' : ''}">${dayLbl(n)}</button>`).join('')}</div>` : '');
   panel.innerHTML = `${panel.classList.contains('fsm-panel-sheet') ? `<div class="fsm-sheet-head"><b>Kartenebenen</b><button type="button" class="fsm-sheet-done" data-fsm-done>Fertig</button></div>` : ''}
     <div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
+    ${satRow}
     ${FSM_OVERLAY_GROUPS.map(([g, label])=>{ const list = ovs.filter(o=> (o.group || 'unterwegs') === g); return list.length ? `<div class="fsm-group">${label}</div>${list.map(row).join('')}` : ''; }).join('')}`;
   const done = panel.querySelector('[data-fsm-done]');
   if(done) done.addEventListener('click', ()=> fsmClosePanel(map));
   panel.querySelectorAll('[data-base]').forEach(b=> b.addEventListener('click', ()=> fsmSetBase(map, b.getAttribute('data-base'))));
   panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=> fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked)));
+  panel.querySelectorAll('[data-sat]').forEach(b=> b.addEventListener('click', ()=> fsmSetSat(map, b.dataset.sat)));
+  // Tag des täglichen Satellitenbilds
+  panel.querySelectorAll('[data-day]').forEach(b=> b.addEventListener('click', ()=> fsmSetNasaDay(map, +b.dataset.day)));
   if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
 }
 /* --- Eigene Inhalte --- */
