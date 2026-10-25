@@ -6258,6 +6258,10 @@ const FSM_LIB = 'https://unpkg.com/maplibre-gl@4.7.1/dist/';
 const FSM_WMTS = (layer, ext)=> 'https://wmts.geo.admin.ch/1.0.0/' + layer + '/default/current/3857/{z}/{x}/{y}.' + ext;
 const FSM_NAMES_STYLE = 'https://vectortiles.geo.admin.ch/styles/ch.swisstopo.imagerybasemap.vt/style.json';
 // Zuschaltbare Ebenen (Reihenfolge = Reihenfolge im Ebenen-Fenster)
+// Tägliches NASA-Echtfarbenbild: Kacheln eines Tages (n Tage zurück; das von heute ist oft noch nicht fertig)
+let fsNasaDay = 1;
+function fsNasaDate(n){ return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
+function fsNasaUrl(n){ return 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_CorrectedReflectance_TrueColor/default/' + fsNasaDate(n) + '/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg'; }
 const FS_SENTINEL_ID = 'd8e7cc2d-6b1a-4f13-8b93-65cd0819c139'; // Copernicus Data Space, Konfiguration «firnspur» (Gratiskontingent)
 const FSM_OVERLAYS = [
   {id:'wanderwege', group:'wege', label:'Wanderwege', icon:'walk', tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
@@ -6273,6 +6277,10 @@ const FSM_OVERLAYS = [
   // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln – siehe fsmLoadPoints
   // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt; Daten für «Wetter-Messwerte»
   {id:'slfstationen', group:'unterwegs', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
+  // Satellitenbild täglich (NASA GIBS, VIIRS NOAA-20, Echtfarben, ca. 250 m): Überblick über Schneegrenze und Wolken.
+  // Weiss kann Schnee oder Wolke sein – auf dem Bild sieht man den Unterschied. Tag wählbar (gestern … vor 3 Tagen).
+  {id:'nasatag', group:'unterwegs', label:'Satellit täglich (grob, NASA)', icon:'image', maxzoom:9, days:[1, 2, 3],
+    tilesFn:()=> [fsNasaUrl(fsNasaDay)], attribution:'Satellitenbild: NASA GIBS (VIIRS NOAA-20)'},
   // Satellitenbild Sentinel-2 (10 m), jüngste Aufnahme der letzten 30 Tage mit höchstens 20 % Wolken.
   // Copernicus Data Space (Sentinel Hub WMS, Gratiskonto, Konfiguration «firnspur», Ebene TRUE_COLOR).
   // Erst ab Zoom 10 (spart Kontingent: grosse Ausschnitte kosten viel); Kacheln bis Zoom 14, darüber vergrössert.
@@ -6516,7 +6524,7 @@ function fsmSetOverlay(map, id, on, silent){
       map.addLayer({id:lid, type:'fill', source:lid, paint:{'fill-color':['get','color'], 'fill-opacity':0.45, 'fill-outline-color':'#555'}}, 'fsm-anchor-names');
       fsmLoadSlf(map, lid);
     }else{
-      map.addSource(lid, Object.assign({type:'raster', tiles:o.tiles, tileSize:256, maxzoom: o.maxzoom || 18}, o.attribution ? {attribution: o.attribution} : {}));
+      map.addSource(lid, Object.assign({type:'raster', tiles: o.tilesFn ? o.tilesFn() : o.tiles, tileSize:256, maxzoom: o.maxzoom || 18}, o.attribution ? {attribution: o.attribution} : {}));
       map.addLayer(Object.assign({id:lid, type:'raster', source:lid, paint:{'raster-opacity': o.opacity || 1}}, o.minzoom ? {minzoom: o.minzoom} : {}), 'fsm-anchor-names');
       if(o.minzoom && map.getZoom() < o.minzoom) showToast(o.label + ': erst ab näherem Zoom sichtbar.');
     }
@@ -7601,14 +7609,23 @@ function fsmSyncPanel(map){
   const p = fsmPrefs();
   const base = map._fsm.base || p.base;
   const ovs = fsmOverlaysForApp(map);
-  const row = o=> `<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`;
+  const dayLbl = n=> n === 1 ? 'Gestern' : n === 2 ? 'Vorgestern' : new Date(Date.now() - n * 86400000).toLocaleDateString('de-CH', {weekday:'short', day:'numeric', month:'numeric'});
+  const row = o=> `<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`
+    + (o.days && fsmOverlayOn(map, o.id) ? `<div class="fsm-seg fsm-days">${o.days.map(n=> `<button type="button" data-day="${n}" data-day-ov="${o.id}" class="${fsNasaDay === n ? 'on' : ''}">${dayLbl(n)}</button>`).join('')}</div>` : '');
   panel.innerHTML = `${panel.classList.contains('fsm-panel-sheet') ? `<div class="fsm-sheet-head"><b>Kartenebenen</b><button type="button" class="fsm-sheet-done" data-fsm-done>Fertig</button></div>` : ''}
     <div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
     ${FSM_OVERLAY_GROUPS.map(([g, label])=>{ const list = ovs.filter(o=> (o.group || 'unterwegs') === g); return list.length ? `<div class="fsm-group">${label}</div>${list.map(row).join('')}` : ''; }).join('')}`;
   const done = panel.querySelector('[data-fsm-done]');
   if(done) done.addEventListener('click', ()=> fsmClosePanel(map));
   panel.querySelectorAll('[data-base]').forEach(b=> b.addEventListener('click', ()=> fsmSetBase(map, b.getAttribute('data-base'))));
-  panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=> fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked)));
+  panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=>{ fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked); if(FSM_OVERLAYS.some(o=> o.id === i.getAttribute('data-ov') && o.days)) fsmSyncPanel(map); }));
+  // Tag des Satellitenbilds wählen
+  panel.querySelectorAll('[data-day]').forEach(b=> b.addEventListener('click', ()=>{
+    fsNasaDay = +b.dataset.day;
+    const o = FSM_OVERLAYS.find(x=> x.id === b.dataset.dayOv), src = map.getSource('ov-' + o.id);
+    if(src && src.setTiles) src.setTiles(o.tilesFn());
+    fsmSyncPanel(map);
+  }));
   if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
 }
 /* --- Eigene Inhalte --- */
