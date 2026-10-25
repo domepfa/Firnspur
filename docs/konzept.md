@@ -25,6 +25,9 @@ Erfahrungen ergänzen. Kein Navigationswerkzeug.
   Aus einer Erfahrung wird mit einem Tippen ein Vorschlag zur Beschreibung (Eigentümer übernimmt).
 - **Eigentümer und Vorschläge** (siehe CLAUDE.md, Daten): Ergänzen frei, Ändern als Vorschlag.
 - Planen/Termine und «Tour starten» sind Nebenfunktionen (unter «Mehr»).
+- **Hang-Scan** ist Orientierung für die Planung (Steilheit, Lawine, Klippen, Sonne), kein Entscheid am Hang.
+  Grenzen stehen in der App beim Ergebnis; die Lawinen-Schraffur im Winter mit echtem Bulletin an bekannten
+  Hängen prüfen.
 
 ## Umbau-Reihenfolge
 1. Startansicht: echte Karte und Liste gekoppelt (Liste = Kartenausschnitt), Filter in einer Zeile,
