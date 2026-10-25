@@ -18215,9 +18215,9 @@ document.addEventListener('change', (ev)=>{
    Lawine: Hänge 30–60°, schraffiert, wo ein Lawinenproblem des SLF-Bulletins nach Exposition und Höhe
    passt. Start vom eigenen Standort (Menü) oder per Gedrückthalten auf der Karte (Hang an diesem Punkt). */
 const FS_SCAN_Z = 14;
-const FS_SCAN_COL = {green:[63,174,90], yellow:[242,210,27], orange:[242,140,27], red:[215,38,61], hatch:[120,10,30]};
+const FS_SCAN_COL = {green:[63,174,90], yellow:[242,210,27], orange:[242,140,27], red:[215,38,61], darkred:[140,16,40], violet:[118,64,170], gray:[52,54,62], hatch:[120,10,30]};
 const FS_SCAN_LAYERS = [
-  {k:'steil', label:'Steilheit', title:'Hangneigung', legend:[['green','unter 25°'], ['yellow','25–30°'], ['orange','30–35°'], ['red','über 35°']]},
+  {k:'steil', label:'Steilheit', title:'Hangneigung', legend:[['green','unter 25°'], ['yellow','25–30°'], ['orange','30–35°'], ['red','35–40°'], ['darkred','40–45°'], ['violet','45–50°'], ['gray','über 50°']]},
   {k:'lawine', label:'Lawine', title:'Anrissgelände', legend:[['yellow','30°'], ['red','45° und steiler'], ['hatch','schraffiert: Lawinenproblem von heute – Höhe und Exposition passen']]},
   {k:'klippen', label:'Klippen', title:'Absturzgelände', legend:[['orange','50–60° – steil, kein Sturz erlaubt'], ['red','über 60° – Klippe']]},
   {k:'sonne', label:'Sonne', title:'Sonne über den Tag (heute)', legend:[]}
@@ -18312,7 +18312,7 @@ async function fsScanCompute(s){
   const MID = [0, 32.5, 37.5, 42.5, 47.5, 55];
   const slope = new Float32Array(W * H).fill(NaN), asp = new Float32Array(W * H).fill(NaN), ele = new Float32Array(W * H).fill(NaN), cls = new Uint8Array(W * H);
   const useCls = !!(sl && sl.failed < sl.total);
-  let n = 0, n30 = 0, n35 = 0, n50 = 0, max = -1, maxI = -1;
+  let n = 0, n30 = 0, n35 = 0, n40 = 0, n50 = 0, max = -1, maxI = -1;
   for(let y = 0; y < H; y++) for(let x = 0; x < W; x++){
     const ddx = x0 + x + 0.5 - R.ox, ddy = y0 + y + 0.5 - R.oy;
     const t = ddx * R.f[0] + ddy * R.f[1], u = ddx * R.r[0] + ddy * R.r[1];
@@ -18333,6 +18333,7 @@ async function fsScanCompute(s){
     slope[i] = v; n++;
     if(v >= 30) n30++;
     if(v >= 35) n35++;
+    if(v >= 40) n40++;
     if(v >= 50) n50++;
     if(v > max){ max = v; maxI = i; }
   }
@@ -18345,7 +18346,7 @@ async function fsScanCompute(s){
     if(px >= x0 && px < x0 + W && py >= y0 && py < y0 + H && !isNaN(slope[i])) here = {label: lbl(i), ele: ele[i]};
   }
   const tl = fsScanLL(x0, y0, ZI), br = fsScanLL(x0 + W, y0 + H, ZI);
-  return {s, z: ZI, W, H, x0, y0, ele, slope, asp, n, n30, n35, n50, here, official: useCls,
+  return {s, z: ZI, W, H, x0, y0, ele, slope, asp, n, n30, n35, n40, n50, here, official: useCls,
     steep: maxI >= 0 ? {label: lbl(maxI), ele: ele[maxI], asp: asp[maxI]} : null,
     coords: [[tl[1], tl[0]], [br[1], tl[0]], [br[1], br[0]], [tl[1], br[0]]]};
 }
@@ -18467,7 +18468,7 @@ function fsScanImage(res, k){
     const sl = slope[i];
     if(isNaN(sl)) continue;
     let c = null, al = 0;
-    if(k === 'steil'){ c = sl < 25 ? C.green : sl < 30 ? C.yellow : sl < 35 ? C.orange : C.red; al = 235; }
+    if(k === 'steil'){ c = sl < 25 ? C.green : sl < 30 ? C.yellow : sl < 35 ? C.orange : sl < 40 ? C.red : sl < 45 ? C.darkred : sl < 50 ? C.violet : C.gray; al = 235; }
     else if(k === 'lawine'){
       if(sl >= 30 && sl < 60){
         const f = Math.min(1, (sl - 30) / 15);
@@ -18892,7 +18893,7 @@ function fsScanCardHtml(res, k){
     res.here ? [res.here.label, 'Neigung hier'] : (res.steep ? [res.steep.label, 'steilste Stelle'] : null)
   ].filter(Boolean);
   const bul = res.bul, top = bul && bul.ratings[0];
-  let facts = `Steiler als 30°: <b>${pct(res.n30)}</b> der Fläche, steiler als 35°: <b>${pct(res.n35)}</b>.`;
+  let facts = `Steiler als 30°: <b>${pct(res.n30)}</b> der Fläche, steiler als 35°: <b>${pct(res.n35)}</b>, steiler als 40°: <b>${pct(res.n40)}</b>.`;
   if(res.steep) facts += ` Steilste Stelle ${esc(res.steep.label)}${isFinite(res.steep.ele) ? ' auf ' + fsRcFmtE(res.steep.ele) + ' m' : ''}, Exposition ${FS_RC_ASP_LONG[fsScanDir(res.steep.asp)]}.`;
   if(k === 'sonne' && res.sun && res.sunT != null){
     facts = `${res.sun.times[res.sunT]} Uhr: <b>${res.sun.pctAt[res.sunT]} %</b> der Fläche in der Sonne.`;
