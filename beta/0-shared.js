@@ -6272,6 +6272,11 @@ const FSM_OVERLAYS = [
   // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln – siehe fsmLoadPoints
   // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt; Daten für «Wetter-Messwerte»
   {id:'slfstationen', group:'unterwegs', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
+  // Schneebedeckung aus Satellitenbildern (NASA GIBS, MODIS Terra, täglich, ca. 500 m): wo Schnee liegt, nicht wie viel.
+  // Bild von gestern (das von heute ist oft noch nicht gerechnet); unter Wolken keine Angabe. Versuch, nicht offline.
+  {id:'schneedecke', group:'unterwegs', label:'Schneebedeckung (Satellit, gestern)', icon:'snow', opacity:0.6, maxzoom:8,
+    tiles:['https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDSI_Snow_Cover/default/' + new Date(Date.now() - 86400000).toISOString().slice(0, 10) + '/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png'],
+    attribution:'Schneebedeckung: NASA GIBS (MODIS)'},
   // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
   {id:'wetter', group:'unterwegs', label:'Wetter', icon:'therm', wetter:true},
   // Nur Startkarte: Linien der Touren im Ausschnitt (ab mittlerem Zoom), siehe fsHomeRoutesSync
@@ -6507,7 +6512,7 @@ function fsmSetOverlay(map, id, on, silent){
       map.addLayer({id:lid, type:'fill', source:lid, paint:{'fill-color':['get','color'], 'fill-opacity':0.45, 'fill-outline-color':'#555'}}, 'fsm-anchor-names');
       fsmLoadSlf(map, lid);
     }else{
-      map.addSource(lid, {type:'raster', tiles:o.tiles, tileSize:256, maxzoom:18});
+      map.addSource(lid, Object.assign({type:'raster', tiles:o.tiles, tileSize:256, maxzoom: o.maxzoom || 18}, o.attribution ? {attribution: o.attribution} : {}));
       map.addLayer({id:lid, type:'raster', source:lid, paint:{'raster-opacity': o.opacity || 1}}, 'fsm-anchor-names');
     }
   }
