@@ -6289,6 +6289,29 @@ function fsmSetSat(map, v, silent){
   }
   if(!silent){ const p = fsmPrefs(); p.sat = v; fsmSavePrefs(p); }
   fsmSyncPanel(map);
+  fsmSatBar(map);
+}
+// Bei «Täglich»: Tageswahl direkt auf der Karte (schnell vergleichen, ohne ins Menü)
+function fsSatDayLabel(n){ return n === 1 ? 'Gestern' : n === 2 ? 'Vorgestern' : new Date(Date.now() - n * 86400000).toLocaleDateString('de-CH', {weekday:'short', day:'numeric', month:'numeric'}); }
+function fsmSetNasaDay(map, n){
+  fsNasaDay = n;
+  const src = map.getSource && map.getSource('fs-sat');
+  if(src && src.setTiles && map._fsm.sat === 'nasa') src.setTiles(FS_SAT.nasa.tiles());
+  fsmSyncPanel(map); fsmSatBar(map);
+}
+function fsmSatBar(map){
+  const cont = map.getContainer();
+  let bar = cont.querySelector(':scope > .fsm-satbar');
+  if(map._fsm.sat !== 'nasa'){ if(bar) bar.remove(); return; }
+  if(!bar){
+    bar = document.createElement('div');
+    bar.className = 'fsm-satbar fsm-seg';
+    bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', 'Tag des Satellitenbilds');
+    ['click', 'pointerdown', 'touchstart', 'wheel', 'mousedown'].forEach(ev=> bar.addEventListener(ev, e=> e.stopPropagation()));
+    bar.addEventListener('click', (e)=>{ const b = e.target.closest('[data-day]'); if(b) fsmSetNasaDay(map, +b.dataset.day); });
+    cont.appendChild(bar);
+  }
+  bar.innerHTML = [1, 2, 3].map(n=> `<button type="button" data-day="${n}" class="${fsNasaDay === n ? 'on' : ''}" aria-pressed="${fsNasaDay === n}">${fsSatDayLabel(n)}</button>`).join('');
 }
 const FS_SENTINEL_ID = 'd8e7cc2d-6b1a-4f13-8b93-65cd0819c139'; // Copernicus Data Space, Konfiguration «firnspur» (Gratiskontingent)
 const FSM_OVERLAYS = [
@@ -7626,7 +7649,7 @@ function fsmSyncPanel(map){
   const p = fsmPrefs();
   const base = map._fsm.base || p.base;
   const ovs = fsmOverlaysForApp(map);
-  const dayLbl = n=> n === 1 ? 'Gestern' : n === 2 ? 'Vorgestern' : new Date(Date.now() - n * 86400000).toLocaleDateString('de-CH', {weekday:'short', day:'numeric', month:'numeric'});
+  const dayLbl = fsSatDayLabel;
   const row = o=> `<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`;
   const sat = map._fsm.sat || 'off';
   const satRow = `<div class="fsm-sat"><span>Satellit</span><div class="fsm-seg">${[['off', 'Aus']].concat(Object.keys(FS_SAT).map(k=> [k, FS_SAT[k].label])).map(([k, l])=> `<button type="button" data-sat="${k}" class="${sat === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`
@@ -7641,12 +7664,7 @@ function fsmSyncPanel(map){
   panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=> fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked)));
   panel.querySelectorAll('[data-sat]').forEach(b=> b.addEventListener('click', ()=> fsmSetSat(map, b.dataset.sat)));
   // Tag des täglichen Satellitenbilds
-  panel.querySelectorAll('[data-day]').forEach(b=> b.addEventListener('click', ()=>{
-    fsNasaDay = +b.dataset.day;
-    const src = map.getSource('fs-sat');
-    if(src && src.setTiles && map._fsm.sat === 'nasa') src.setTiles(FS_SAT.nasa.tiles());
-    fsmSyncPanel(map);
-  }));
+  panel.querySelectorAll('[data-day]').forEach(b=> b.addEventListener('click', ()=> fsmSetNasaDay(map, +b.dataset.day)));
   if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
 }
 /* --- Eigene Inhalte --- */

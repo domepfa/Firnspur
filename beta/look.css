@@ -2920,3 +2920,10 @@ html.fs-scanning .fs-home-slot .fsm-ctlbox{ display:none !important; } /* Rahmen
 .fsm-sat{ display:grid; grid-template-columns:auto 1fr; align-items:center; gap:10px; margin:10px 0 0; }
 .fsm-sat > span{ font-size:11.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); }
 .fsm-panel .fsm-days{ margin:8px 0 0 0; }
+/* Tageswahl des täglichen Satellitenbilds direkt auf der Karte, oben unter der Suchleiste */
+.fsm-satbar{ position:absolute; z-index:6; left:50%; transform:translateX(-50%); top:calc(env(safe-area-inset-top, 0px) + 80px);
+  display:flex; gap:2px; width:max-content; max-width:calc(100% - 24px); box-sizing:border-box; background:color-mix(in srgb, var(--paper) 94%, transparent); box-shadow:0 4px 14px rgba(15,30,39,.2); }
+.fsm-satbar button{ flex:none; }
+.fsm-satbar button{ min-height:40px; padding:0 11px; font-size:13.5px; white-space:nowrap; }
+.fs-3d .fsm-satbar{ top:calc(env(safe-area-inset-top, 0px) + 64px); }
+html.fs-scanning .fsm-satbar{ display:none; }
