@@ -6258,6 +6258,7 @@ const FSM_LIB = 'https://unpkg.com/maplibre-gl@4.7.1/dist/';
 const FSM_WMTS = (layer, ext)=> 'https://wmts.geo.admin.ch/1.0.0/' + layer + '/default/current/3857/{z}/{x}/{y}.' + ext;
 const FSM_NAMES_STYLE = 'https://vectortiles.geo.admin.ch/styles/ch.swisstopo.imagerybasemap.vt/style.json';
 // Zuschaltbare Ebenen (Reihenfolge = Reihenfolge im Ebenen-Fenster)
+const FS_SENTINEL_ID = 'd8e7cc2d-6b1a-4f13-8b93-65cd0819c139'; // Copernicus Data Space, Konfiguration «firnspur» (Gratiskontingent)
 const FSM_OVERLAYS = [
   {id:'wanderwege', group:'wege', label:'Wanderwege', icon:'walk', tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
   {id:'wanderrouten', group:'wege', label:'Wanderrouten (SchweizMobil)', icon:'walk', tiles:[FSM_WMTS('ch.astra.wanderland','png')]},
@@ -6277,6 +6278,14 @@ const FSM_OVERLAYS = [
   {id:'schneedecke', group:'unterwegs', label:'Schneebedeckung (Satellit, gestern)', icon:'snow', opacity:0.6, maxzoom:8,
     tiles:['https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDSI_Snow_Cover/default/' + new Date(Date.now() - 86400000).toISOString().slice(0, 10) + '/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png'],
     attribution:'Schneebedeckung: NASA GIBS (MODIS)'},
+  // Satellitenbild Sentinel-2 (10 m), jüngste Aufnahme der letzten 30 Tage mit höchstens 20 % Wolken.
+  // Copernicus Data Space (Sentinel Hub WMS, Gratiskonto, Konfiguration «firnspur», Ebene TRUE_COLOR).
+  // Erst ab Zoom 10 (spart Kontingent: grosse Ausschnitte kosten viel); Kacheln bis Zoom 14, darüber vergrössert.
+  {id:'sentinel', group:'unterwegs', label:'Satellit aktuell (Sentinel-2)', icon:'image', minzoom:10, maxzoom:14,
+    tiles:['https://sh.dataspace.copernicus.eu/ogc/wms/' + FS_SENTINEL_ID + '?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=TRUE_COLOR&MAXCC=20&PRIORITY=mostRecent&TIME='
+      + new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10) + '/' + new Date().toISOString().slice(0, 10)
+      + '&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg'],
+    attribution:'Satellitenbild: Copernicus Sentinel-2 (ESA), Copernicus Data Space'},
   // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
   {id:'wetter', group:'unterwegs', label:'Wetter', icon:'therm', wetter:true},
   // Nur Startkarte: Linien der Touren im Ausschnitt (ab mittlerem Zoom), siehe fsHomeRoutesSync
@@ -6513,7 +6522,8 @@ function fsmSetOverlay(map, id, on, silent){
       fsmLoadSlf(map, lid);
     }else{
       map.addSource(lid, Object.assign({type:'raster', tiles:o.tiles, tileSize:256, maxzoom: o.maxzoom || 18}, o.attribution ? {attribution: o.attribution} : {}));
-      map.addLayer({id:lid, type:'raster', source:lid, paint:{'raster-opacity': o.opacity || 1}}, 'fsm-anchor-names');
+      map.addLayer(Object.assign({id:lid, type:'raster', source:lid, paint:{'raster-opacity': o.opacity || 1}}, o.minzoom ? {minzoom: o.minzoom} : {}), 'fsm-anchor-names');
+      if(o.minzoom && map.getZoom() < o.minzoom) showToast(o.label + ': erst ab näherem Zoom sichtbar.');
     }
   }
   if(map.getLayer(lid)) map.setLayoutProperty(lid, 'visibility', on ? 'visible' : 'none');
