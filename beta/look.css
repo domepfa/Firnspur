@@ -2917,4 +2917,6 @@ html.fs-scanning .fs-home-slot .fsm-ctlbox{ display:none !important; } /* Rahmen
 .fs-scan-aim-tools .btn{ min-height:46px; justify-content:center; }
 .fs-scan-aim-tools .btn.on{ background:var(--ice-deep); color:#fff; border-color:transparent; }
 .fs-scan-seg[hidden]{ display:none; }
-.fsm-panel .fsm-days{ margin:-2px 0 10px 34px; }
+.fsm-sat{ display:grid; grid-template-columns:auto 1fr; align-items:center; gap:10px; margin:10px 0 0; }
+.fsm-sat > span{ font-size:11.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); }
+.fsm-panel .fsm-days{ margin:8px 0 0 0; }
