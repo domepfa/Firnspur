@@ -7743,7 +7743,7 @@ function fsmAddControls(map){
   map.getContainer().appendChild(box);
   const panel = document.createElement('div');
   panel.className = 'fsm-panel';
-  if(map._fsm.ctlTop) panel.style.top = map._fsm.ctlTop + 'px';
+  if(map._fsm.ctlTop){ panel.style.top = map._fsm.ctlTop + 'px'; panel.style.maxHeight = 'calc(100% - ' + (map._fsm.ctlTop + 12) + 'px - env(safe-area-inset-bottom, 0px))'; }
   panel.hidden = true;
   map.getContainer().appendChild(panel);
   map._fsm.panel = panel;
@@ -7833,7 +7833,8 @@ function fsmAddMarker(map, lat, lon, html, opts){
   const el = document.createElement('div');
   el.className = 'fsm-marker';
   el.innerHTML = html;
-  const m = new maplibregl.Marker({element: el, anchor: opts.anchor || 'center'}).setLngLat([lon, lat]).addTo(map);
+  // 3D: nicht verblassen lassen – die Prüfung «hinter dem Berg» irrt aus der Ferne oft und machte Punkte blass
+  const m = new maplibregl.Marker(Object.assign({element: el, anchor: opts.anchor || 'center'}, map.getContainer().closest('.fs-3d') ? {opacityWhenCovered: '1'} : {})).setLngLat([lon, lat]).addTo(map);
   if(opts.popup){
     el.style.cursor = 'pointer';
     el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmPopup(map, {lng:lon, lat}, opts.popup, opts.anchor === 'bottom' ? 30 : 14); });
