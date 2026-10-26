@@ -1680,6 +1680,9 @@ html.fs-filter-open body{ overflow:hidden; }
 .fsm-val-0{ min-width:0; width:10px; height:10px; padding:0; background:#ADB5BD; }
 .fsm-cam{ width:30px; height:30px; border-radius:50%; background:#fff; color:#0E5072; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(15,30,39,.35); cursor:pointer; }
 .fsm-cam .fs-i{ width:17px; height:17px; }
+.fsm-park{ width:26px; height:26px; border-radius:7px; }
+.fsm-park .fs-i{ width:16px; height:16px; }
+.fs-park-src{ display:block; margin-top:6px; font-size:11px; color:var(--ink-faint); }
 .fs-cam-pop{ display:flex; flex-direction:column; gap:4px; min-width:180px; }
 .fs-cam-pop b{ font-size:14px; }
 .fs-cam-pop span{ font-size:12.5px; color:var(--ink-soft); }
@@ -2928,4 +2931,11 @@ html.fs-scanning .fs-home-slot .fsm-ctlbox{ display:none !important; } /* Rahmen
 .fsm-satbar button{ min-height:40px; padding:0 11px; font-size:13.5px; white-space:nowrap; }
 .fs-3d .fsm-satbar{ top:calc(env(safe-area-inset-top, 0px) + 64px); }
 html.fs-scanning .fsm-satbar{ display:none; }
+/* Mit Wetter-Leiste: Satelliten-Leiste darunter, bei offener Wetterwahl ausgeblendet */
+.fsm-wx-on > .fsm-satbar{ top:132px; }
+html.fs-mapmode .fs-home-slot .fsm-wx-on > .fsm-satbar{ top:calc(var(--fs-glass-bottom) + 74px); }
+.fsm-wx-on:has(> .fsm-wx-head.open) > .fsm-satbar{ display:none; }
 .fsm-satbar-info{ padding:8px 14px; border-radius:999px; font-size:13.5px; font-weight:700; color:var(--ink); pointer-events:none; white-space:nowrap; }
+/* Vollbild: Kartenknöpfe stehen oben rechts – Wetter- und Satelliten-Leiste links daneben statt darüber */
+html.fs-mapfull.fs-mapmode .fs-home-slot .fsm-wx-head{ right:calc(var(--fs-ctl-w, 62px) + 12px); }
+html.fs-mapfull.fs-mapmode .fs-home-slot .fsm-satbar{ left:12px; transform:none; max-width:calc(100% - var(--fs-ctl-w, 62px) - 24px); }
