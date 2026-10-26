@@ -2931,4 +2931,8 @@ html.fs-scanning .fs-home-slot .fsm-ctlbox{ display:none !important; } /* Rahmen
 .fsm-satbar button{ min-height:40px; padding:0 11px; font-size:13.5px; white-space:nowrap; }
 .fs-3d .fsm-satbar{ top:calc(env(safe-area-inset-top, 0px) + 64px); }
 html.fs-scanning .fsm-satbar{ display:none; }
+/* Mit Wetter-Leiste: Satelliten-Leiste darunter, bei offener Wetterwahl ausgeblendet */
+.fsm-wx-on > .fsm-satbar{ top:132px; }
+html.fs-mapmode .fs-home-slot .fsm-wx-on > .fsm-satbar{ top:calc(var(--fs-glass-bottom) + 74px); }
+.fsm-wx-on:has(> .fsm-wx-head.open) > .fsm-satbar{ display:none; }
 .fsm-satbar-info{ padding:8px 14px; border-radius:999px; font-size:13.5px; font-weight:700; color:var(--ink); pointer-events:none; white-space:nowrap; }

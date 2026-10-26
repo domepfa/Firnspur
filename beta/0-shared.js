@@ -6265,14 +6265,14 @@ function fsNasaUrl(n){ return 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/bes
 // Satellitenbild als zweite Ansicht über der Grundkarte (Zeile «Satellit» in den Kartenebenen), Namen bleiben darüber.
 //  nasa: täglich, Echtfarben VIIRS NOAA-20 (NASA GIBS), ca. 250 m, gratis; Tag wählbar (gestern … vor 3 Tagen)
 //  s2:   Sentinel-2, 10 m, jüngste Aufnahme der letzten 30 Tage mit höchstens 20 % Wolken (Copernicus Data Space,
-//        Gratiskonto, Konfiguration «firnspur»). Ab Zoom 8 (ganz draussen müsste der Dienst zu viele Aufnahmen
-//        zusammensetzen); Kacheln bis Zoom 14, darüber vergrössert.
+//        Gratiskonto, Konfiguration «firnspur»). Ab Zoom 10 (darunter über 200 m pro Bildpunkt: der Dienst
+//        liefert dann nur eine Fehlermeldung als Bild); Kacheln bis Zoom 14, darüber vergrössert.
 const FS_SAT = {
   nasa: {label:'Täglich (grob)', minzoom:0, maxzoom:9, attribution:'Satellitenbild: NASA GIBS (VIIRS NOAA-20)', tiles:()=> [fsNasaUrl(fsNasaDay)]},
-  s2: {label:'Scharf (10\u00a0m)', minzoom:8, maxzoom:14, attribution:'Satellitenbild: Copernicus Sentinel-2 (ESA), Copernicus Data Space',
+  s2: {label:'Scharf (10\u00a0m)', minzoom:10, maxzoom:14, attribution:'Satellitenbild: Copernicus Sentinel-2 (ESA), Copernicus Data Space',
     tiles:()=> ['https://sh.dataspace.copernicus.eu/ogc/wms/' + FS_SENTINEL_ID + '?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=TRUE_COLOR&MAXCC=20&PRIORITY=mostRecent&TIME='
       + new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10) + '/' + new Date().toISOString().slice(0, 10)
-      + '&SHOWLOGO=false&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg']} // ohne Schriftzug auf jeder Kachel
+      + '&SHOWLOGO=false&WARNINGS=NO&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg']} // ohne Schriftzug auf jeder Kachel
 };
 function fsmSetSat(map, v, silent){
   if(!map._fsmLoaded) return;
@@ -6281,7 +6281,7 @@ function fsmSetSat(map, v, silent){
   try{ if(map.getLayer('fs-sat')) map.removeLayer('fs-sat'); if(map.getSource('fs-sat')) map.removeSource('fs-sat'); }catch(e){}
   if(v !== 'off'){
     const d = FS_SAT[v];
-    map.addSource('fs-sat', {type:'raster', tiles: d.tiles(), tileSize:256, maxzoom: d.maxzoom, attribution: d.attribution});
+    map.addSource('fs-sat', {type:'raster', tiles: d.tiles(), tileSize:256, minzoom: d.minzoom, maxzoom: d.maxzoom, attribution: d.attribution});
     // Direkt über der Grundkarte, unter allen Ebenen (Hangneigung, Routen …) und den Namen
     const ls = map.getStyle().layers, bi = ls.findIndex(l=> l.id === 'base-luftbild');
     map.addLayer({id:'fs-sat', type:'raster', source:'fs-sat', minzoom: d.minzoom, paint:{'raster-fade-duration':0}}, (bi >= 0 && ls[bi + 1]) ? ls[bi + 1].id : 'fsm-anchor-names');
@@ -6603,7 +6603,7 @@ function fsmSetOverlay(map, id, on, silent){
     if(fsmIsHomeMap(map)) setTimeout(()=>{ fsHomeRoutesSync(); fsHomeExtrasSync(); }, 0);
   }else if(o.parking){
     map._fsm.overlays[id] = !!on;
-    if(on) fsmParking(map, o);
+    if(on){ if(map._fsm.park) map._fsm.park.hinted = false; fsmParking(map, o); }
     ((map._fsm.park && map._fsm.park.list) || []).forEach(m=>{ m.getElement().style.display = on ? '' : 'none'; });
   }else if(o.points){
     // Punkte als HTML-Marker (Messwerte, Webcams)
@@ -6768,16 +6768,16 @@ async function fsmWindyCams(map, o){
   }catch(e){}
 }
 /* ===== Parkplätze (OpenStreetMap) =====
-   Abfrage über Overpass je Kachel (Zoom 12, etwa 10 × 7 km), erst ab Zoom 12, beim Verschieben nachgeladen.
+   Abfrage über Overpass je Kachel (Zoom 11, etwa 20 × 13 km), erst ab Zoom 11, beim Verschieben nachgeladen.
    Private Parkplätze und solche nur für Kunden fehlen. Antippen: Name, Gebühr, Plätze, Navigieren, als Ort übernehmen. */
-const FS_PARK_Z = 12;
+const FS_PARK_Z = 11;
 function fsParkTiles(map){
   const b = map.getBounds(), n = 1 << FS_PARK_Z;
   const tx = (lon)=> Math.floor((lon + 180) / 360 * n);
   const ty = (lat)=> Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n);
   const out = [];
   for(let x = tx(b.getWest()); x <= tx(b.getEast()); x++) for(let y = ty(b.getNorth()); y <= ty(b.getSouth()); y++) out.push([x, y]);
-  return out.length > 12 ? [] : out;
+  return out.length > 9 ? [] : out;
 }
 function fsParkTileBox(x, y){
   const n = 1 << FS_PARK_Z;
@@ -6799,7 +6799,7 @@ async function fsmParking(map, o){
   if(!todo.length) return;
   const bx = todo.map(t=> fsParkTileBox(t[0], t[1]));
   const s = Math.min(...bx.map(b=> b.s)), w = Math.min(...bx.map(b=> b.w)), n = Math.max(...bx.map(b=> b.n)), e = Math.max(...bx.map(b=> b.e));
-  const q = `[out:json][timeout:25];nwr["amenity"="parking"]["access"!~"^(private|no|customers|permit)$"](${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)});out center tags 400;`;
+  const q = `[out:json][timeout:25];nwr["amenity"="parking"]["access"!~"^(private|no|customers|permit)$"](${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)});out center tags 1500;`;
   st.busy = true;
   try{
     const r = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body: 'data=' + encodeURIComponent(q), headers:{'Content-Type':'application/x-www-form-urlencoded'}});
