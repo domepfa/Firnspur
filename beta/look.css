@@ -2936,3 +2936,6 @@ html.fs-scanning .fsm-satbar{ display:none; }
 html.fs-mapmode .fs-home-slot .fsm-wx-on > .fsm-satbar{ top:calc(var(--fs-glass-bottom) + 74px); }
 .fsm-wx-on:has(> .fsm-wx-head.open) > .fsm-satbar{ display:none; }
 .fsm-satbar-info{ padding:8px 14px; border-radius:999px; font-size:13.5px; font-weight:700; color:var(--ink); pointer-events:none; white-space:nowrap; }
+/* Vollbild: Kartenknöpfe stehen oben rechts – Wetter- und Satelliten-Leiste links daneben statt darüber */
+html.fs-mapfull.fs-mapmode .fs-home-slot .fsm-wx-head{ right:calc(var(--fs-ctl-w, 62px) + 12px); }
+html.fs-mapfull.fs-mapmode .fs-home-slot .fsm-satbar{ left:12px; transform:none; max-width:calc(100% - var(--fs-ctl-w, 62px) - 24px); }
