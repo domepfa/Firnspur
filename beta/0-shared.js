@@ -6382,6 +6382,8 @@ const FSM_OVERLAYS = [
   {id:'eigene', group:'wege', label:'Hütten und Zustiege', icon:'hut', homeOnly:true},
   // Gemeinsame Orte (Parkplatz, Maut, Biwak …), siehe Baustein «Orte»
   {id:'orte', group:'unterwegs', label:'Geteilte Punkte', icon:'pin', orte:true},
+  // Parkplätze aus OpenStreetMap (Overpass), ab mittlerem Zoom nur im Ausschnitt; siehe fsmParking
+  {id:'parkplaetze', group:'unterwegs', label:'Parkplätze', icon:'parking', parking:true},
   {id:'webcams', group:'unterwegs', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
 ];
 const FSM_BASES = [
@@ -6599,6 +6601,10 @@ function fsmSetOverlay(map, id, on, silent){
   }else if(o.homeOnly){
     map._fsm.overlays[id] = !!on;
     if(fsmIsHomeMap(map)) setTimeout(()=>{ fsHomeRoutesSync(); fsHomeExtrasSync(); }, 0);
+  }else if(o.parking){
+    map._fsm.overlays[id] = !!on;
+    if(on) fsmParking(map, o);
+    ((map._fsm.park && map._fsm.park.list) || []).forEach(m=>{ m.getElement().style.display = on ? '' : 'none'; });
   }else if(o.points){
     // Punkte als HTML-Marker (Messwerte, Webcams)
     map._fsm.pt = map._fsm.pt || {};
@@ -6760,6 +6766,99 @@ async function fsmWindyCams(map, o){
       (map._fsm.pt[o.id] = map._fsm.pt[o.id] || []).push(m);
     });
   }catch(e){}
+}
+/* ===== Parkplätze (OpenStreetMap) =====
+   Abfrage über Overpass je Kachel (Zoom 12, etwa 10 × 7 km), erst ab Zoom 12, beim Verschieben nachgeladen.
+   Private Parkplätze und solche nur für Kunden fehlen. Antippen: Name, Gebühr, Plätze, Navigieren, als Ort übernehmen. */
+const FS_PARK_Z = 12;
+function fsParkTiles(map){
+  const b = map.getBounds(), n = 1 << FS_PARK_Z;
+  const tx = (lon)=> Math.floor((lon + 180) / 360 * n);
+  const ty = (lat)=> Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n);
+  const out = [];
+  for(let x = tx(b.getWest()); x <= tx(b.getEast()); x++) for(let y = ty(b.getNorth()); y <= ty(b.getSouth()); y++) out.push([x, y]);
+  return out.length > 12 ? [] : out;
+}
+function fsParkTileBox(x, y){
+  const n = 1 << FS_PARK_Z;
+  const lat = (yy)=> Math.atan(Math.sinh(Math.PI * (1 - 2 * yy / n))) * 180 / Math.PI;
+  return {w: x / n * 360 - 180, e: (x + 1) / n * 360 - 180, n: lat(y), s: lat(y + 1)};
+}
+async function fsmParking(map, o){
+  const st = map._fsm.park = map._fsm.park || {done: new Set(), seen: new Set(), list: [], tm: null, busy: false};
+  if(!st.wired){
+    st.wired = true;
+    map.on('moveend', ()=>{ clearTimeout(st.tm); st.tm = setTimeout(()=>{ if(fsmOverlayOn(map, o.id)) fsmParking(map, o); }, 400); });
+  }
+  if(st.busy || !navigator.onLine) return;
+  if(map.getZoom() < FS_PARK_Z - 0.5){
+    if(!st.hinted){ st.hinted = true; showToast('Parkplätze: erst ab näherem Zoom sichtbar.'); }
+    return;
+  }
+  const todo = fsParkTiles(map).filter(t=> !st.done.has(t.join('/')));
+  if(!todo.length) return;
+  const bx = todo.map(t=> fsParkTileBox(t[0], t[1]));
+  const s = Math.min(...bx.map(b=> b.s)), w = Math.min(...bx.map(b=> b.w)), n = Math.max(...bx.map(b=> b.n)), e = Math.max(...bx.map(b=> b.e));
+  const q = `[out:json][timeout:25];nwr["amenity"="parking"]["access"!~"^(private|no|customers|permit)$"](${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)});out center tags 400;`;
+  st.busy = true;
+  try{
+    const r = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body: 'data=' + encodeURIComponent(q), headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+    if(!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    if(!map._fsm || !map.getStyle()) return;
+    todo.forEach(t=> st.done.add(t.join('/')));
+    (j.elements || []).forEach(el=>{
+      const key = el.type + el.id;
+      const lat = el.lat != null ? el.lat : el.center && el.center.lat, lon = el.lon != null ? el.lon : el.center && el.center.lon;
+      if(st.seen.has(key) || !isFinite(lat) || !isFinite(lon)) return;
+      st.seen.add(key);
+      const p = Object.assign({lat, lon, osm: el.type + '/' + el.id}, el.tags || {});
+      const m = fsmAddMarker(map, lat, lon, `<div class="fsm-cam fsm-park">${fsIconHtml('parking')}</div>`);
+      const elm = m.getElement();
+      elm.style.cursor = 'pointer';
+      elm.setAttribute('aria-label', p.name || 'Parkplatz');
+      elm.addEventListener('click', (ev)=>{ ev.stopPropagation(); fsmPopup(map, {lng: lon, lat}, fsParkPopup(p), 14); });
+      elm.style.display = fsmOverlayOn(map, o.id) ? '' : 'none';
+      st.list.push(m);
+    });
+  }catch(e){
+    if(!st.failed){ st.failed = true; showToast('Parkplätze gerade nicht verfügbar.', true); }
+  }finally{ st.busy = false; }
+}
+// Gebühr, Plätze, Art und Zeiten als kurze Zeilen (auch als Notiz beim Übernehmen)
+function fsParkFacts(p){
+  const rows = [];
+  const fee = String(p.fee || '').toLowerCase();
+  if(fee === 'no') rows.push(['Gebühr', 'gratis']);
+  else if(fee && fee !== 'unknown') rows.push(['Gebühr', p.charge ? String(p.charge) : 'ja']);
+  else if(p.charge) rows.push(['Gebühr', String(p.charge)]);
+  if(p.capacity && /^\d+$/.test(p.capacity)) rows.push(['Plätze', p.capacity]);
+  const art = {surface:'Aussenparkplatz', underground:'Tiefgarage', 'multi-storey':'Parkhaus', street_side:'am Strassenrand', lane:'am Strassenrand', rooftop:'Parkdeck'}[p.parking];
+  if(art) rows.push(['Art', art]);
+  if(p.park_ride && p.park_ride !== 'no') rows.push(['P+R', 'ja']);
+  if(p.opening_hours) rows.push(['Offen', String(p.opening_hours)]);
+  if(p.maxstay) rows.push(['Höchstdauer', String(p.maxstay)]);
+  return rows;
+}
+function fsParkPopup(p){
+  const wrap = document.createElement('div');
+  wrap.className = 'fs-cam-pop fs-oev-pop';
+  const name = p.name || 'Parkplatz';
+  wrap.insertAdjacentHTML('beforeend', `<b>${fsIconHtml('parking')} ${esc(name)}</b>`
+    + fsParkFacts(p).map(r=> `<div class="fs-imis-row"><span>${esc(r[0])}</span><b>${esc(r[1])}</b></div>`).join('')
+    + `<a class="fs-cam-link" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat.toFixed(6)},${p.lon.toFixed(6)}" target="_blank" rel="noopener noreferrer">Navigieren ↗</a>`);
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'fs-oev-take';
+  b.innerHTML = fsIconHtml('plus') + 'Als Ort übernehmen';
+  b.addEventListener('click', ()=>{
+    const near = fsOrteAll().find(o=> o.kind === 'parkplatz' && isFinite(o.lat) && fsKm(o, p) < 0.1);
+    if(near){ fsOpenOrt(near.id); return; }
+    const note = fsParkFacts(p).filter(r=> r[0] !== 'Art').map(r=> r[0] + ': ' + r[1]).join(', ');
+    fsOpenOrtForm({id: uid('o'), name: p.name || '', kind: 'parkplatz', lat: +p.lat.toFixed(6), lon: +p.lon.toFixed(6), note});
+  });
+  wrap.appendChild(b);
+  wrap.insertAdjacentHTML('beforeend', '<span class="fs-park-src">Daten: © OpenStreetMap-Mitwirkende</span>');
+  return wrap;
 }
 function fsmOverlayOn(map, id){ return !!(map && map._fsm && map._fsm.overlays[id]); }
 async function fsmLoadSlf(map, lid){
