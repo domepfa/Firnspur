@@ -5129,10 +5129,37 @@ function fs3dMlOpen(opts){
             map.addLayer({id:'fs3d-others-dash', type:'line', source:'fs3d-others', minzoom: 9, filter:['==', ['get', 'dash'], 1], paint:{'line-color': rc, 'line-width':3, 'line-dasharray':[1.8, 1.5]}});
           }
         }catch(e){}
+        const pins = [];
         fs3dPins(t).forEach(pn=>{
           const m = fsmAddMarker(map, pn.lat, pn.lon, `<div class="fs3d-pin fs3d-pin-${pn.kind}"><i></i><span>${esc(pn.name)}</span></div>`, {anchor:'left'});
           const el = m.getElement(); el.style.cursor = 'pointer';
-          el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmPopup(map, {lng: pn.lon, lat: pn.lat}, fs3dPinNode(pn), 14); });
+          el.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            const r = map.getContainer().getBoundingClientRect();
+            const hit = nearest({x: e.clientX - r.left, y: e.clientY - r.top}) || pn; // sonst der Name, auf den getippt wurde
+            fsmPopup(map, {lng: hit.lon, lat: hit.lat}, fs3dPinNode(hit), 14);
+          });
+          pins.push({pn, el});
+        });
+        // Tipp auf oder knapp neben einen Punkt (Handschuhe): der nächste sichtbare Punkt im Umkreis von 32 px –
+        // auch wenn der Name eines Nachbarn darüber liegt. «preclick» kommt vor den übrigen Klick-Auswertungen.
+        // Lage des Punkts auf dem Bildschirm (map.project kennt das Gelände nicht genau: bis 20 px daneben)
+        const nearest = (pt)=>{
+          let best = null, bd = 32 * 32;
+          const cr = map.getContainer().getBoundingClientRect();
+          pins.forEach(({pn, el})=>{
+            if(el.style.opacity === '0' || el.style.display === 'none') return;
+            const r = el.querySelector('i').getBoundingClientRect();
+            const d = (r.left + r.width / 2 - cr.left - pt.x) ** 2 + (r.top + r.height / 2 - cr.top - pt.y) ** 2;
+            if(d < bd){ bd = d; best = pn; }
+          });
+          return best;
+        };
+        map.on('preclick', (e)=>{
+          const best = nearest(e.point);
+          if(!best) return;
+          if(e.originalEvent) e.originalEvent._fsmHandled = true;
+          fsmPopup(map, {lng: best.lon, lat: best.lat}, fs3dPinNode(best), 14);
         });
         map._fsm.orteIds = t ? fsTourShowOrteIds(t) : [];
         try{ fsmOrteDraw(map); }catch(e){}
