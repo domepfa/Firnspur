@@ -7833,8 +7833,8 @@ function fsmAddMarker(map, lat, lon, html, opts){
   const el = document.createElement('div');
   el.className = 'fsm-marker';
   el.innerHTML = html;
-  // 3D: nicht verblassen lassen – die Prüfung «hinter dem Berg» irrt aus der Ferne oft und machte Punkte blass
-  const m = new maplibregl.Marker(Object.assign({element: el, anchor: opts.anchor || 'center'}, map.getContainer().closest('.fs-3d') ? {opacityWhenCovered: '1'} : {})).setLngLat([lon, lat]).addTo(map);
+  // 3D: Punkte hinter einem Berg ganz ausblenden (MapLibre liess sie sonst zu 20 % stehen: blasse Namen im Gelände)
+  const m = new maplibregl.Marker(Object.assign({element: el, anchor: opts.anchor || 'center'}, map.getContainer().closest('.fs-3d') ? {opacityWhenCovered: '0'} : {})).setLngLat([lon, lat]).addTo(map);
   if(opts.popup){
     el.style.cursor = 'pointer';
     el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmPopup(map, {lng:lon, lat}, opts.popup, opts.anchor === 'bottom' ? 30 : 14); });
