@@ -1896,6 +1896,28 @@ function fsHomeRoutesSync(){
     map.addLayer({id:'fs-home-route-sel', type:'line', source:'fs-home-routes', filter:['==', ['get', 'id'], ''],
       layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color': color, 'line-width': 5, 'line-opacity': 1}});
   }
+  // Linie antippen (auch knapp daneben, 14 px): Kurzinfo der Tour wie beim Antippen ihres Punkts.
+  // «preclick» kommt vor dem Klick, der die Kurzinfo sonst schliesst; bei Fingertipps kommt auf der Startkarte
+  // nur «click» an (dann zeigt sich die Kurzinfo nach dem Schliessen gleich wieder).
+  if(!map._fsHomeRouteTap){
+    map._fsHomeRouteTap = true;
+    const tap = (e)=>{
+      if(e.originalEvent && e.originalEvent._fsHomeRouteSeen) return;
+      if(e.originalEvent) e.originalEvent._fsHomeRouteSeen = true;
+      if(fsPlanner || !fsmOverlayOn(map, 'tourrouten') || !map.getLayer('fs-home-routes') || !fsHomePts) return;
+      const tg = e.originalEvent && e.originalEvent.target;
+      if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return;
+      const r = 14, box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
+      const hits = map.queryRenderedFeatures(box, {layers: ['fs-home-route-sel', 'fs-home-routes']});
+      const id = hits.length && hits[0].properties && hits[0].properties.id;
+      const pt = id && fsHomePts.points.find(q=> q.id === id);
+      if(!pt) return;
+      if(e.originalEvent) e.originalEvent._fsmHandled = true;
+      fsHomeCard(pt);
+    };
+    map.on('preclick', tap);
+    map.on('click', tap);
+  }
   if(key !== fsHomeRoutesKey){
     fsHomeRoutesKey = key;
     const features = [];
@@ -1948,7 +1970,7 @@ function fsHomeCard(p){
     ['click','pointerdown','touchstart','mousedown'].forEach(ev=> card.addEventListener(ev, e=> e.stopPropagation()));
     fsHomeEl.appendChild(card);
     // Ein Tipp auf einen Punkt kommt bei MapLibre auch als Klick in die Karte an: der zählt nicht als «daneben»
-    if(fsHomeMap) fsHomeMap.on('click', (e)=>{ const tg = e && e.originalEvent && e.originalEvent.target; if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return; card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick || fsHomeGroup){ fsHomePick = null; fsHomeGroup = null; fsHomeFilter(); fsHomeCluster(); } });
+    if(fsHomeMap) fsHomeMap.on('click', (e)=>{ if(e && e.originalEvent && e.originalEvent._fsmHandled) return; const tg = e && e.originalEvent && e.originalEvent.target; if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return; card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick || fsHomeGroup){ fsHomePick = null; fsHomeGroup = null; fsHomeFilter(); fsHomeCluster(); } });
   }
   const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
   const x = all.find(o=> o && o.id === p.id) || {name: p.label};
