@@ -2004,7 +2004,7 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxp .l, html.fs-dark .fsm-wxp .t, h
 .fs-home-map .maplibregl-ctrl-bottom-right{ top:8px; left:8px; right:auto; bottom:auto; }
 
 /* ===== 3D: Stecknadeln aller Touren und Hütten ===== */
-.fs3d-pin{ display:flex; align-items:center; gap:4px; cursor:pointer; }
+.fs3d-pin{ display:flex; align-items:center; gap:4px; cursor:pointer; padding:8px 0; } /* grössere Trefferfläche, Lage bleibt (Anker links, Mitte) */
 .fs3d-pin i{ display:block; width:14px; height:14px; border-radius:50%; background:var(--ice-deep); border:2.5px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); flex-shrink:0; margin-left:-7px; }
 .fs3d-pin-hut i{ background:#fff; border-color:var(--ice-deep); border-radius:3px; }
 /* Hinter einem Berg ausgeblendete Punkte (MapLibre setzt opacity: 0) nicht antippbar */
