@@ -1896,6 +1896,28 @@ function fsHomeRoutesSync(){
     map.addLayer({id:'fs-home-route-sel', type:'line', source:'fs-home-routes', filter:['==', ['get', 'id'], ''],
       layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color': color, 'line-width': 5, 'line-opacity': 1}});
   }
+  // Linie antippen (auch knapp daneben, 14 px): Kurzinfo der Tour wie beim Antippen ihres Punkts.
+  // «preclick» kommt vor dem Klick, der die Kurzinfo sonst schliesst; bei Fingertipps kommt auf der Startkarte
+  // nur «click» an (dann zeigt sich die Kurzinfo nach dem Schliessen gleich wieder).
+  if(!map._fsHomeRouteTap){
+    map._fsHomeRouteTap = true;
+    const tap = (e)=>{
+      if(e.originalEvent && e.originalEvent._fsHomeRouteSeen) return;
+      if(e.originalEvent) e.originalEvent._fsHomeRouteSeen = true;
+      if(fsPlanner || !fsmOverlayOn(map, 'tourrouten') || !map.getLayer('fs-home-routes') || !fsHomePts) return;
+      const tg = e.originalEvent && e.originalEvent.target;
+      if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return;
+      const r = 14, box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
+      const hits = map.queryRenderedFeatures(box, {layers: ['fs-home-route-sel', 'fs-home-routes']});
+      const id = hits.length && hits[0].properties && hits[0].properties.id;
+      const pt = id && fsHomePts.points.find(q=> q.id === id);
+      if(!pt) return;
+      if(e.originalEvent) e.originalEvent._fsmHandled = true;
+      fsHomeCard(pt);
+    };
+    map.on('preclick', tap);
+    map.on('click', tap);
+  }
   if(key !== fsHomeRoutesKey){
     fsHomeRoutesKey = key;
     const features = [];
@@ -1948,7 +1970,7 @@ function fsHomeCard(p){
     ['click','pointerdown','touchstart','mousedown'].forEach(ev=> card.addEventListener(ev, e=> e.stopPropagation()));
     fsHomeEl.appendChild(card);
     // Ein Tipp auf einen Punkt kommt bei MapLibre auch als Klick in die Karte an: der zählt nicht als «daneben»
-    if(fsHomeMap) fsHomeMap.on('click', (e)=>{ const tg = e && e.originalEvent && e.originalEvent.target; if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return; card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick || fsHomeGroup){ fsHomePick = null; fsHomeGroup = null; fsHomeFilter(); fsHomeCluster(); } });
+    if(fsHomeMap) fsHomeMap.on('click', (e)=>{ if(e && e.originalEvent && e.originalEvent._fsmHandled) return; const tg = e && e.originalEvent && e.originalEvent.target; if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return; card.hidden = true; fsHomeEl.querySelectorAll('.fs-home-pin.on').forEach(x=> x.classList.remove('on')); if(fsHomeSel) fsHomeSelect(null); if(fsHomePick || fsHomeGroup){ fsHomePick = null; fsHomeGroup = null; fsHomeFilter(); fsHomeCluster(); } });
   }
   const all = [].concat(state.tours || [], state.huts || [], state.gebiete || [], state.klettergebiete || [], state.sektoren || []);
   const x = all.find(o=> o && o.id === p.id) || {name: p.label};
@@ -5129,10 +5151,37 @@ function fs3dMlOpen(opts){
             map.addLayer({id:'fs3d-others-dash', type:'line', source:'fs3d-others', minzoom: 9, filter:['==', ['get', 'dash'], 1], paint:{'line-color': rc, 'line-width':3, 'line-dasharray':[1.8, 1.5]}});
           }
         }catch(e){}
+        const pins = [];
         fs3dPins(t).forEach(pn=>{
           const m = fsmAddMarker(map, pn.lat, pn.lon, `<div class="fs3d-pin fs3d-pin-${pn.kind}"><i></i><span>${esc(pn.name)}</span></div>`, {anchor:'left'});
           const el = m.getElement(); el.style.cursor = 'pointer';
-          el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmPopup(map, {lng: pn.lon, lat: pn.lat}, fs3dPinNode(pn), 14); });
+          el.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            const r = map.getContainer().getBoundingClientRect();
+            const hit = nearest({x: e.clientX - r.left, y: e.clientY - r.top}) || pn; // sonst der Name, auf den getippt wurde
+            fsmPopup(map, {lng: hit.lon, lat: hit.lat}, fs3dPinNode(hit), 14);
+          });
+          pins.push({pn, el});
+        });
+        // Tipp auf oder knapp neben einen Punkt (Handschuhe): der nächste sichtbare Punkt im Umkreis von 32 px –
+        // auch wenn der Name eines Nachbarn darüber liegt. «preclick» kommt vor den übrigen Klick-Auswertungen.
+        // Lage des Punkts auf dem Bildschirm (map.project kennt das Gelände nicht genau: bis 20 px daneben)
+        const nearest = (pt)=>{
+          let best = null, bd = 32 * 32;
+          const cr = map.getContainer().getBoundingClientRect();
+          pins.forEach(({pn, el})=>{
+            if(el.style.opacity === '0' || el.style.display === 'none') return;
+            const r = el.querySelector('i').getBoundingClientRect();
+            const d = (r.left + r.width / 2 - cr.left - pt.x) ** 2 + (r.top + r.height / 2 - cr.top - pt.y) ** 2;
+            if(d < bd){ bd = d; best = pn; }
+          });
+          return best;
+        };
+        map.on('preclick', (e)=>{
+          const best = nearest(e.point);
+          if(!best) return;
+          if(e.originalEvent) e.originalEvent._fsmHandled = true;
+          fsmPopup(map, {lng: best.lon, lat: best.lat}, fs3dPinNode(best), 14);
         });
         map._fsm.orteIds = t ? fsTourShowOrteIds(t) : [];
         try{ fsmOrteDraw(map); }catch(e){}
@@ -7743,7 +7792,7 @@ function fsmAddControls(map){
   map.getContainer().appendChild(box);
   const panel = document.createElement('div');
   panel.className = 'fsm-panel';
-  if(map._fsm.ctlTop) panel.style.top = map._fsm.ctlTop + 'px';
+  if(map._fsm.ctlTop){ panel.style.top = map._fsm.ctlTop + 'px'; panel.style.maxHeight = 'calc(100% - ' + (map._fsm.ctlTop + 12) + 'px - env(safe-area-inset-bottom, 0px))'; }
   panel.hidden = true;
   map.getContainer().appendChild(panel);
   map._fsm.panel = panel;
@@ -7833,7 +7882,8 @@ function fsmAddMarker(map, lat, lon, html, opts){
   const el = document.createElement('div');
   el.className = 'fsm-marker';
   el.innerHTML = html;
-  const m = new maplibregl.Marker({element: el, anchor: opts.anchor || 'center'}).setLngLat([lon, lat]).addTo(map);
+  // 3D: Punkte hinter einem Berg ganz ausblenden (MapLibre liess sie sonst zu 20 % stehen: blasse Namen im Gelände)
+  const m = new maplibregl.Marker(Object.assign({element: el, anchor: opts.anchor || 'center'}, map.getContainer().closest('.fs-3d') ? {opacityWhenCovered: '0'} : {})).setLngLat([lon, lat]).addTo(map);
   if(opts.popup){
     el.style.cursor = 'pointer';
     el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmPopup(map, {lng:lon, lat}, opts.popup, opts.anchor === 'bottom' ? 30 : 14); });
