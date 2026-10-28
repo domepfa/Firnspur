@@ -11397,12 +11397,11 @@ const WINDY_API_KEY = 'JwRDc13gnvDtVTHbGqmQTN224CTyNjpJ'; // Windy-Webcams: Schl
 const FS_MS = (layer)=> 'https://data.geo.admin.ch/ch.meteoschweiz.' + layer + '/ch.meteoschweiz.' + layer + '_de.json';
 // Messgrössen für Karte (B) und Bedingungen (C). src: ms = MeteoSchweiz-Datei, slf = eigene SLF-Datei
 const FS_WX_PARAMS = [
-  {id:'neuschnee', short:'Neuschnee', zero:'kein Neuschnee', label:'Neuschnee 24 h', unit:'cm', ms:'messwerte-neuschnee-1d', slf:'dhs24', scale:[[0,'#ADB5BD'],[1,'#91A7FF'],[5,'#748FFC'],[15,'#5C7CFA'],[30,'#7048E8'],[50,'#5F3DC4']]},
+  {id:'neuschnee', short:'Neuschnee', zero:'kein Neuschnee', label:'Neuschnee 24 h', unit:'cm', ms:'messwerte-neuschnee-1d', slf:'dhs24', fc:'snowfall', sum24:true, scale:[[0,'#ADB5BD'],[1,'#91A7FF'],[5,'#748FFC'],[15,'#5C7CFA'],[30,'#7048E8'],[50,'#5F3DC4']]},
   {id:'schnee', short:'Schnee', zero:'kein Schnee', label:'Schneehöhe', unit:'cm', ms:'messwerte-schneehoehe-automatisch-10min', slf:'hs', scale:[[0,'#ADB5BD'],[1,'#A5D8FF'],[50,'#74C0FC'],[100,'#339AF0'],[200,'#1971C2'],[300,'#0B4F8A']]},
-  {id:'regen', short:'Regen', zero:'trocken', label:'Niederschlag 24 h', unit:'mm', ms:'messwerte-niederschlag-24h', scale:[[0,'#ADB5BD'],[0.5,'#A5D8FF'],[5,'#4DABF7'],[15,'#1971C2'],[30,'#5F3DC4']]},
-  {id:'temp', short:'Temp.', label:'Temperatur', unit:'°', ms:'messwerte-lufttemperatur-10min', slf:'ta', scale:[[-15,'#5B3FA8'],[-5,'#3B5BDB'],[0,'#4DABF7'],[5,'#63C5B5'],[10,'#8BC34A'],[15,'#E8C547'],[20,'#F59F00'],[25,'#F76707'],[30,'#E03131']]},
-  {id:'prog', short:'Prognose', label:'Prognose', forecast:true, scale:[]},
-  {id:'wind', short:'Wind', zero:'windstill', label:'Windböen', unit:'km/h', ms:'messwerte-wind-boeenspitze-kmh-10min', scale:[[0,'#8BC34A'],[30,'#E8C547'],[50,'#F59F00'],[70,'#F76707'],[90,'#E03131']]}
+  {id:'regen', short:'Regen', zero:'trocken', label:'Niederschlag 24 h', unit:'mm', ms:'messwerte-niederschlag-24h', fc:'precipitation', sum24:true, scale:[[0,'#ADB5BD'],[0.5,'#A5D8FF'],[5,'#4DABF7'],[15,'#1971C2'],[30,'#5F3DC4']]},
+  {id:'temp', short:'Temp.', label:'Temperatur', unit:'°', ms:'messwerte-lufttemperatur-10min', slf:'ta', fc:'temperature_2m', scale:[[-15,'#5B3FA8'],[-5,'#3B5BDB'],[0,'#4DABF7'],[5,'#63C5B5'],[10,'#8BC34A'],[15,'#E8C547'],[20,'#F59F00'],[25,'#F76707'],[30,'#E03131']]},
+  {id:'wind', short:'Wind', zero:'windstill', label:'Windböen', unit:'km/h', ms:'messwerte-wind-boeenspitze-kmh-10min', fc:'wind_gusts_10m', scale:[[0,'#8BC34A'],[30,'#E8C547'],[50,'#F59F00'],[70,'#F76707'],[90,'#E03131']]}
 ];
 function fsWxColor(p, v){ let c = p.scale[0][1]; p.scale.forEach(([t, col])=>{ if(v >= t) c = col; }); return c; }
 function fsWxFmt(p, v){ return p.id === 'temp' ? Math.round(v) + '°' : (p.id === 'regen' && v < 10 ? v.toFixed(1) : String(Math.round(v))); }
@@ -11546,8 +11545,15 @@ async function fsWebcamsNear(lat, lon){
   }catch(e){ return []; }
 }
 
-/* ===== Wetter auf der Karte (B): eine Grösse, wenige lesbare Werte, Farbskala; Prognose mit Zeitschieber ===== */
-function fsWxParam(){ let id = null; try{ id = localStorage.getItem('fs-wx-param'); }catch(e){} return FS_WX_PARAMS.find(p=> p.id === id) || FS_WX_PARAMS[0]; }
+/* ===== Wetter auf der Karte (B): eine Grösse, wenige lesbare Werte, Farbskala =====
+   Bedienung unten in der Daumenzone (wie Windy, MeteoSchweiz): Wetterart als Chips, darunter eine
+   Zeitleiste zum Wischen – «Jetzt» zeigt die Messwerte der Stationen, alles danach die Prognose an
+   Gipfeln (Open-Meteo) in 3-h-Schritten, mit Zeitraffer. Die Karte oben bleibt frei. */
+const FS_WX_CHIPS = ['temp', 'neuschnee', 'schnee', 'wind', 'regen'];
+function fsWxParam(){ let id = null; try{ id = localStorage.getItem('fs-wx-param'); }catch(e){} return FS_WX_PARAMS.find(p=> p.id === id) || FS_WX_PARAMS.find(p=> p.id === 'temp'); }
+// Zeigt die Karte gerade Prognose (Schritt 0…23) statt Messwerte («Jetzt», Schritt -1)?
+function fsmWxIsFc(st){ return !!(st && st.param && st.param.fc && st.fcStep >= 0); }
+const FS_WX_CELL = 56; // Breite einer Zelle der Zeitleiste in px
 const FS_WX_DAYS = ['So','Mo','Di','Mi','Do','Fr','Sa'];
 function fsWxCodeIcon(c){ return c >= 95 ? 'storm' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? 'snow' : c >= 51 ? 'rain' : c >= 45 ? 'fog' : c === 3 ? 'cloud' : c >= 1 ? 'partly' : 'sun'; }
 function fsWxHourLabel(ts){ const d = new Date(ts); const today = new Date(); const dd = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 864e5); return (dd === 0 ? 'Heute' : dd === 1 ? 'Morgen' : FS_WX_DAYS[d.getDay()]) + ' ' + d.getHours() + ' Uhr'; }
@@ -11560,7 +11566,10 @@ async function fsmWxStart(map){
     cont.append(st.head, st.card);
     ['click','pointerdown','touchstart','wheel','mousedown'].forEach(ev=> [st.head, st.card].forEach(el=> el.addEventListener(ev, e=> e.stopPropagation())));
     let tm = null;
-    map.on('moveend', ()=>{ fsmWxPlace(map); if(st.param && st.param.forecast){ clearTimeout(tm); tm = setTimeout(()=> fsmWxForecastLoad(map), 350); } });
+    map.on('moveend', ()=>{ fsmWxPlace(map); if(fsmWxIsFc(st)){ clearTimeout(tm); tm = setTimeout(()=> fsmWxForecastLoad(map), 350); } });
+    // Kurze Etiketten (nur Wert) bis Zoom 11, darüber mit Name und Höhe
+    const cz = ()=> cont.classList.toggle('fsm-wx-compact', map.getZoom() < 11);
+    map.on('zoomend', cz); cz();
     // Antippen: offene Karte schliessen, sonst Prognose für genau diese Stelle. Klicks auf Touren,
     // Linien und Punkte haben Vorrang (sie markieren das Ereignis oder halten es an).
     // Ob beim Antippen schon eine Karte oder ein Fenster offen war, wird beim Drücken gemerkt
@@ -11579,38 +11588,98 @@ async function fsmWxStart(map){
   }
   st.head.hidden = false;
   cont.classList.add('fsm-wx-on'); // Touren treten zurück, solange das Wetter gezeigt wird
+  // Startkarte: Blatt auf die tiefste Stufe, damit Karte und Zeitleiste Platz haben
+  if(fsmIsHomeMap(map) && typeof fsHomeSetDetent === 'function' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
   const p = fsWxParam();
+  fsmWxPlayStop(st);
   fsmWxClear(st);
   st.param = p; st.pts = []; st.loaded = false; st.measItems = null; st.measSel = {}; st.fcSel = st.fcSel || {};
-  const tabs = `<div class="tabs" role="tablist">${FS_WX_PARAMS.map(x=> `<button type="button" role="tab" data-wx="${x.id}" class="${x.id === p.id ? 'on' : ''}" aria-selected="${x.id === p.id}">${x.short || x.label}</button>`).join('')}</div>`;
-  let body;
-  if(p.forecast){
-    if(st.fcStep == null) st.fcStep = 0;
-    body = `<div class="time"><input type="range" min="0" max="23" step="1" value="${st.fcStep}" aria-label="Zeitpunkt der Prognose"/><span class="when"></span></div>`;
-  }else{
-    body = `<div class="g">${p.scale.map(([t, col])=> `<i style="background:${col}"><b>${p.id === 'temp' ? t + '°' : t}</b></i>`).join('')}</div><p class="note">${p.label}, gemessen</p>`;
+  if(st.fcStep == null || !p.fc) st.fcStep = -1;
+  const chips = `<div class="chips" role="tablist" aria-label="Wetterart">${FS_WX_CHIPS.map(id=>{ const x = FS_WX_PARAMS.find(q=> q.id === id); return `<button type="button" role="tab" data-wx="${x.id}" class="${x.id === p.id ? 'on' : ''}" aria-selected="${x.id === p.id}">${x.short || x.label}</button>`; }).join('')}</div>`;
+  // Skala: bei vielen Stufen nur jede zweite Zahl, sonst überlappen sie
+  const lstep = p.scale.length > 5 ? 2 : 1;
+  const legend = `<div class="g" aria-hidden="true">${p.scale.map(([t, col], i)=> `<i style="background:${col}">${i % lstep ? '' : `<b>${p.id === 'temp' ? t + '°' : t}</b>`}</i>`).join('')}</div>`;
+  let tl = '';
+  if(p.fc){
+    let prevDay = -1;
+    const cells = [`<button type="button" class="c now" data-i="-1"><small>gemessen</small><b>Jetzt</b></button>`];
+    for(let i = 0; i < 24; i++){
+      const d = new Date(fsWxStepTime(i)), day = d.getDate();
+      const lbl = day !== prevDay ? fsWxDayLabel(d) : '';
+      prevDay = day;
+      cells.push(`<button type="button" class="c${lbl ? ' day' : ''}" data-i="${i}"><small>${lbl}</small><b>${String(d.getHours()).padStart(2, '0')}:00</b></button>`);
+    }
+    tl = `<div class="tl"><button type="button" class="play" aria-label="Zeitraffer abspielen">${fsIconHtml('play')}</button><div class="track" aria-label="Zeitpunkt wählen">${cells.join('')}</div></div>`;
   }
-  // Startansicht: kompakt – gewählte Wetterart als Knopf neben Skala/Zeitschieber, Antippen zeigt alle sechs
-  const pick = `<button type="button" class="pick" aria-expanded="false" aria-label="Wetterart wählen: ${esc(p.label)}">${esc(p.short || p.label)}${fsIconHtml('chevdown')}</button>`;
-  st.head.innerHTML = `${tabs}<div class="row">${pick}<div class="body">${body}</div></div>`;
-  st.head.querySelector('.pick').addEventListener('click', ()=>{ const o = !st.head.classList.contains('open'); st.head.classList.toggle('open', o); st.head.querySelector('.pick').setAttribute('aria-expanded', o); });
-  const tabEl = st.head.querySelector('.tabs'), onTab = tabEl.querySelector('.on');
-  if(st.tabScroll != null) tabEl.scrollLeft = st.tabScroll; else if(onTab) tabEl.scrollLeft = onTab.offsetLeft - 8;
-  tabEl.addEventListener('scroll', ()=>{ st.tabScroll = tabEl.scrollLeft; }, {passive:true});
-  st.head.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} st.card.hidden = true; st.head.classList.remove('open'); fsmWxTapClear(st); fsmWxStart(map); }));
-  const rng = st.head.querySelector('input[type=range]');
-  if(rng){
-    const upd = ()=>{ st.fcStep = +rng.value; st.head.querySelector('.when').textContent = fsWxHourLabel(fsWxStepTime(st.fcStep)); fsmWxPlace(map, true); };
-    rng.addEventListener('input', upd); upd();
-    fsmWxForecastLoad(map);
-    return;
-  }
+  st.head.innerHTML = `<div class="top">${legend}<p class="note"></p></div>${chips}${tl}`;
+  st.head.classList.toggle('no-tl', !p.fc);
+  if(!st.ro && window.ResizeObserver){ st.ro = new ResizeObserver(()=> cont.style.setProperty('--fs-wx-h', st.head.offsetHeight + 'px')); st.ro.observe(st.head); }
+  const chipEl = st.head.querySelector('.chips'), onChip = chipEl.querySelector('.on');
+  if(onChip) chipEl.scrollLeft = Math.max(0, onChip.offsetLeft - 12);
+  st.head.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} st.card.hidden = true; fsmWxTapClear(st); fsmWxStart(map); }));
+  if(p.fc) fsmWxWireTimeline(map, st);
+  fsmWxNote(map);
+  if(fsmWxIsFc(st)) fsmWxForecastLoad(map);
   fsmWxPlace(map);
   const pts = await fsWxPoints(p);
   if(st.param !== p) return;
   st.pts = pts; st.loaded = true; st.measItems = null; st.measSel = {};
-  if(!pts.length) showToast('Wetter-Messwerte gerade nicht verfügbar (Internet?).', true);
-  fsmWxPlace(map);
+  if(!pts.length && !fsmWxIsFc(st)) showToast('Wetter-Messwerte gerade nicht verfügbar (Internet?).', true);
+  fsmWxPlace(map); fsmWxNote(map);
+}
+function fsWxDayLabel(d){ const today = new Date(); const dd = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 864e5); return dd === 0 ? 'Heute' : dd === 1 ? 'Morgen' : FS_WX_DAYS[d.getDay()] + ' ' + d.getDate() + '.'; }
+// Zeitleiste: wischen (rastet je Zelle ein), Zelle antippen, Zeitraffer
+function fsmWxWireTimeline(map, st){
+  const track = st.head.querySelector('.track'), play = st.head.querySelector('.play');
+  if(!track) return;
+  const cells = [...track.querySelectorAll('.c')];
+  const mark = ()=> cells.forEach(c=>{ const on = +c.dataset.i === st.fcStep; c.classList.toggle('on', on); c.setAttribute('aria-pressed', on); });
+  const go = (i, smooth)=> track.scrollTo({left: (i + 1) * FS_WX_CELL, behavior: smooth && !fsReducedMotion() ? 'smooth' : 'auto'});
+  const setStep = (i)=>{
+    i = Math.max(-1, Math.min(23, i));
+    if(i === st.fcStep) return;
+    const wasFc = fsmWxIsFc(st);
+    st.fcStep = i; mark(); fsmWxNote(map);
+    if(fsmWxIsFc(st) !== wasFc){ fsmWxClear(st); st.card.hidden = true; }
+    if(fsmWxIsFc(st)){ fsmWxForecastLoad(map); }
+    fsmWxPlace(map, true);
+  };
+  let raf = 0;
+  track.addEventListener('scroll', ()=>{ if(raf) return; raf = requestAnimationFrame(()=>{ raf = 0; setStep(Math.round(track.scrollLeft / FS_WX_CELL) - 1); }); }, {passive: true});
+  cells.forEach(c=> c.addEventListener('click', ()=>{ fsmWxPlayStop(st); go(+c.dataset.i, true); }));
+  ['pointerdown', 'touchstart', 'wheel'].forEach(ev=> track.addEventListener(ev, ()=> fsmWxPlayStop(st), {passive: true}));
+  play.addEventListener('click', ()=>{
+    if(st.playTm){ fsmWxPlayStop(st); return; }
+    if(st.fcStep >= 23) go(-1, false);
+    play.innerHTML = fsIconHtml('pause'); play.setAttribute('aria-label', 'Zeitraffer anhalten');
+    st.playPl = play;
+    st.playTm = setInterval(()=>{ if(st.fcStep >= 23){ fsmWxPlayStop(st); return; } go(st.fcStep + 1, true); }, 1100);
+  });
+  mark();
+  requestAnimationFrame(()=> go(st.fcStep, false));
+}
+function fsmWxPlayStop(st){
+  if(!st || !st.playTm) return;
+  clearInterval(st.playTm); st.playTm = null;
+  if(st.playPl){ st.playPl.innerHTML = fsIconHtml('play'); st.playPl.setAttribute('aria-label', 'Zeitraffer abspielen'); }
+}
+function fsReducedMotion(){ try{ return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } }
+// Zeile über den Chips: was die Karte gerade zeigt
+function fsmWxNote(map){
+  const st = map._fsm && map._fsm.wx, note = st && st.head && st.head.querySelector('.note');
+  if(!note || !st.param) return;
+  const p = st.param;
+  if(fsmWxIsFc(st)){ note.textContent = (p.sum24 ? p.label + ' · ' : '') + 'Prognose ' + fsWxHourLabel(fsWxStepTime(st.fcStep)); return; }
+  let txt = '';
+  if(st.loaded){
+    const b = map.getBounds();
+    const inView = st.pts.filter(x=> x.lat > b.getSouth() && x.lat < b.getNorth() && x.lon > b.getWest() && x.lon < b.getEast());
+    const zeros = inView.filter(x=> fsWxIsZero(p, x)).length;
+    if(!st.pts.length) txt = 'keine Messwerte (Internet?)';
+    else if(!inView.length) txt = 'keine Station im Ausschnitt';
+    else if(zeros && p.zero) txt = zeros === inView.length ? `überall ${p.zero}` : `${zeros} von ${inView.length} ${p.zero}`;
+  }
+  note.textContent = (p.sum24 ? p.label + ' · ' : '') + 'gemessen' + (txt ? ' · ' + txt : '');
 }
 // Prognose: 24 Schritte à 3 Stunden ab der nächsten vollen Stunde
 function fsWxStepTime(i){ const d = new Date(); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1 + i * 3); return d.getTime(); }
@@ -11619,10 +11688,10 @@ function fsWxStepTime(i){ const d = new Date(); d.setMinutes(0, 0, 0); d.setHour
 // am Rand neue dazu. Erst eine neue halbe Zoomstufe wählt neu.
 function fsWxWorld(lat, lon, z){ const sc = 512 * Math.pow(2, z), r = lat * Math.PI / 180; return [(lon + 180) / 360 * sc, (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * sc]; }
 function fsWxSelect(items, z){
-  const cell = 160, grid = new Map(), out = new Set();
+  const cell = 160, grid = new Map(), out = new Set(), compact = z < 11;
   for(const it of items){
-    const [x, y] = fsWxWorld(it.lat, it.lon, z);
-    const box = [x - it.w / 2 - 4, y - 50, x + it.w / 2 + 4, y + 6];
+    const [x, y] = fsWxWorld(it.lat, it.lon, z), w = compact && it.wc ? it.wc : it.w;
+    const box = [x - w / 2 - 4, y - 50, x + w / 2 + 4, y + 6];
     const x0 = Math.floor(box[0] / cell), x1 = Math.floor(box[2] / cell), y0 = Math.floor(box[1] / cell), y1 = Math.floor(box[3] / cell);
     let hit = false;
     for(let cx = x0; cx <= x1 && !hit; cx++) for(let cy = y0; cy <= y1 && !hit; cy++){
@@ -11642,7 +11711,7 @@ async function fsmWxFcItems(st){
   let peaks = [];
   try{ peaks = await fsPeaksLoad(); }catch(e){ return []; }
   st.fcItems = peaks.filter(pk=> pk.kind !== 'p' && pk.name).sort((x, y)=> y.ele - x.ele)
-    .map(pk=>({k: pk.lat.toFixed(5) + ',' + pk.lon.toFixed(5), lat: pk.lat, lon: pk.lon, ele: pk.ele, name: pk.name, w: fsmWxPinW('-10°', pk.name, Math.round(pk.ele) + ' m', true)}));
+    .map(pk=>({k: pk.lat.toFixed(5) + ',' + pk.lon.toFixed(5), lat: pk.lat, lon: pk.lon, ele: pk.ele, name: pk.name, w: fsmWxPinW('-10°', pk.name, Math.round(pk.ele) + ' m', true), wc: fsmWxPinW('-10°', '', '', true)}));
   return st.fcItems;
 }
 // Orte mit Etikett im (leicht erweiterten) Ausschnitt
@@ -11656,21 +11725,21 @@ function fsmWxWanted(map, items, selCache){
 }
 async function fsmWxForecastLoad(map){
   const st = map._fsm.wx;
-  if(!st || !st.param || !st.param.forecast) return;
+  if(!fsmWxIsFc(st)) return;
   const items = await fsmWxFcItems(st), now = Date.now();
-  if(!st.param || !st.param.forecast) return;
+  if(!fsmWxIsFc(st)) return;
   const miss = fsmWxWanted(map, items, st.fcSel).filter(g=> !st.fc[g.k] || now - st.fc[g.k].at > 60*60e3).slice(0, 60);
   fsmWxPlace(map);
   if(!miss.length) return;
   try{
-    const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + miss.map(g=> g.lat).join(',') + '&longitude=' + miss.map(g=> g.lon).join(',') + '&elevation=' + miss.map(g=> g.ele).join(',') + '&hourly=temperature_2m,weather_code,precipitation,snowfall,freezing_level_height&forecast_days=4&timezone=Europe%2FZurich&timeformat=unixtime';
+    const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + miss.map(g=> g.lat).join(',') + '&longitude=' + miss.map(g=> g.lon).join(',') + '&elevation=' + miss.map(g=> g.ele).join(',') + '&hourly=temperature_2m,weather_code,precipitation,snowfall,freezing_level_height,wind_gusts_10m&past_days=1&forecast_days=4&timezone=Europe%2FZurich&timeformat=unixtime';
     const r = await fetch(u);
     if(!r.ok) throw new Error(r.status);
     let j = await r.json();
     if(!Array.isArray(j)) j = [j];
     j.forEach((d, i)=>{ if(d && d.hourly && miss[i]) st.fc[miss[i].k] = {at: now, ele: d.elevation, h: d.hourly}; });
-  }catch(e){ showToast('Prognose gerade nicht verfügbar (Internet?).', true); }
-  if(st.param && st.param.forecast) fsmWxPlace(map);
+  }catch(e){ if(!st.fcFailed){ st.fcFailed = true; showToast('Prognose gerade nicht verfügbar (Internet?).', true); } }
+  if(fsmWxIsFc(st)) fsmWxPlace(map, true);
 }
 function fsWxFcAt(fc, ts){
   const t = fc.h.time; if(!t) return null;
@@ -11678,9 +11747,18 @@ function fsWxFcAt(fc, ts){
   const sum = (a)=> a ? [0, 1, 2].reduce((s, o)=> s + (a[Math.max(0, i - o)] || 0), 0) : 0;
   return {temp: fc.h.temperature_2m[i], code: fc.h.weather_code[i], pr: sum(fc.h.precipitation), sn: sum(fc.h.snowfall), fz: fc.h.freezing_level_height && fc.h.freezing_level_height[i], i};
 }
+// Prognosewert der Grösse p zum Zeitpunkt ts (Neuschnee und Regen: Summe der 24 Stunden davor, wie gemessen)
+function fsWxFcVal(p, fc, ts){
+  const t = fc.h.time, a = fc.h[p.fc]; if(!t || !a) return null;
+  const i = t.findIndex(x=> x * 1000 >= ts); if(i < 0) return null;
+  if(!p.sum24) return a[i];
+  let sum = 0; for(let k = Math.max(0, i - 23); k <= i; k++) sum += a[k] || 0;
+  return sum;
+}
 function fsmWxStop(map){
   const st = map._fsm && map._fsm.wx;
   if(!st) return;
+  fsmWxPlayStop(st);
   fsmWxClear(st);
   [st.head, st.card].forEach(el=>{ if(el) el.hidden = true; });
   fsmWxTapClear(st);
@@ -11691,8 +11769,14 @@ function fsmWxStop(map){
 function fsmWxPinEl(val, color, name, sub, icon){
   const el = document.createElement('button');
   el.type = 'button'; el.className = 'fsm-wxp' + (color ? '' : ' z');
-  el.innerHTML = `<span class="l">${icon ? fsIconHtml(icon) : ''}<b class="v"${color ? ` style="--c:${color}"` : ''}>${esc(val)}</b><span class="n">${esc(name || 'Station')}${sub ? `<small>${esc(sub)}</small>` : ''}</span></span><i class="t"></i><i class="d"></i>`;
+  el.innerHTML = `<span class="l">${icon ? fsIconHtml(icon) : ''}<b class="v"${color ? ` style="--c:${color}; --cv:${fsWxInk(color)}"` : ''}>${esc(val)}</b><span class="n">${esc(name || 'Station')}${sub ? `<small>${esc(sub)}</small>` : ''}</span></span><i class="t"></i><i class="d"></i>`;
   return el;
+}
+// Schrift auf der Wertfarbe: dunkel auf hellen Farben, sonst weiss
+function fsWxInk(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if(!m) return '#fff';
+  const n = parseInt(m[1], 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 165 ? '#14222B' : '#fff';
 }
 // Breite des Etiketts grob schätzen (für die Überlappungsprüfung)
 function fsmWxPinW(val, name, sub, icon){ return 22 + (icon ? 22 : 0) + Math.max(26, String(val).length * 8 + 10) + Math.min(92, Math.max(String(name || '').length * 6.6, String(sub || '').length * 5.8)); }
@@ -11704,7 +11788,7 @@ function fsmWxMeasItems(st){
   st.measItems = st.pts.map((x, i)=>{
     const zero = fsWxIsZero(p, x), val = zero ? '0' : fsWxFmt(p, x.v);
     const sub = zero ? eleTxt(x.ele) : [eleTxt(x.ele), x.src === 'SLF' ? 'SLF' : ''].filter(Boolean).join(' · ');
-    return {k: x.src + ':' + (x.name || '') + ':' + x.lat.toFixed(4) + ',' + x.lon.toFixed(4) + ':' + i, lat: x.lat, lon: x.lon, ele: x.ele, x, zero, val, sub, w: fsmWxPinW(val, x.name, sub)};
+    return {k: x.src + ':' + (x.name || '') + ':' + x.lat.toFixed(4) + ',' + x.lon.toFixed(4) + ':' + i, lat: x.lat, lon: x.lon, ele: x.ele, x, zero, val, sub, w: fsmWxPinW(val, x.name, sub), wc: fsmWxPinW(val, '', '')};
   }).sort((a, c)=> (a.zero - c.zero) || ((c.ele || 0) - (a.ele || 0)));
   return st.measItems;
 }
@@ -11716,13 +11800,15 @@ function fsmWxPlace(map, refresh){
   st.mk = st.mk || new Map();
   const p = st.param;
   let want = [], draw;
-  if(p.forecast){
-    const ts = fsWxStepTime(st.fcStep || 0), tp = FS_WX_PARAMS.find(x=> x.id === 'temp');
-    want = st.fcItems ? fsmWxWanted(map, st.fcItems, st.fcSel).filter(g=> st.fc[g.k] && fsWxFcAt(st.fc[g.k], ts)) : [];
+  const fcNow = fsmWxIsFc(st);
+  if(fcNow){
+    const ts = fsWxStepTime(st.fcStep);
+    want = st.fcItems ? fsmWxWanted(map, st.fcItems, st.fcSel).filter(g=> st.fc[g.k] && fsWxFcAt(st.fc[g.k], ts) && fsWxFcVal(p, st.fc[g.k], ts) != null) : [];
     draw = (g)=>{
-      const fc = st.fc[g.k], v = fsWxFcAt(fc, ts), sub = Math.round(g.ele || fc.ele) + ' m';
-      return {el: fsmWxPinEl(Math.round(v.temp) + '°', fsWxColor(tp, v.temp), g.name, sub, fsWxCodeIcon(v.code)), label: g.name + ', ' + sub + ': ' + Math.round(v.temp) + ' Grad',
-        click: ()=> fsmWxFcCard(map, g, fc, fsWxFcAt(fc, fsWxStepTime(st.fcStep || 0)), fsWxStepTime(st.fcStep || 0))};
+      const fc = st.fc[g.k], v = fsWxFcAt(fc, ts), val = fsWxFcVal(p, fc, ts), sub = Math.round(g.ele || fc.ele) + ' m';
+      const zero = fsWxIsZero(p, {v: val}), txt = zero ? '0' : fsWxFmt(p, val);
+      return {el: fsmWxPinEl(txt, zero ? '' : fsWxColor(p, val), g.name, sub, fsWxCodeIcon(v.code)), label: g.name + ', ' + sub + ': ' + (zero ? p.zero : txt + ' ' + (p.unit || '')),
+        click: ()=> fsmWxFcCard(map, g, fc, fsWxFcAt(fc, fsWxStepTime(st.fcStep)), fsWxStepTime(st.fcStep))};
     };
   }else{
     const items = fsmWxMeasItems(st);
@@ -11741,19 +11827,7 @@ function fsmWxPlace(map, refresh){
     el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxTapClear(st); if(el._fsClick) el._fsClick(); });
     st.mk.set(it.k, new maplibregl.Marker({element: el, anchor: 'bottom', offset: [0, 4], opacity: '1', opacityWhenCovered: '1'}).setLngLat([it.lon, it.lat]).addTo(map));
   });
-  if(p.forecast) return;
-  // Hinweis, damit «alles null» nicht wie «geht nicht» aussieht
-  const note = st.head && st.head.querySelector('.note');
-  if(note){
-    const b = map.getBounds();
-    const inView = st.pts.filter(x=> x.lat > b.getSouth() && x.lat < b.getNorth() && x.lon > b.getWest() && x.lon < b.getEast());
-    const zeros = inView.filter(x=> fsWxIsZero(p, x)).length;
-    let txt = '';
-    if(st.loaded && !st.pts.length) txt = 'keine Messwerte erhalten (Internet?)';
-    else if(st.loaded && !inView.length) txt = 'keine Station im Ausschnitt';
-    else if(zeros && p.zero) txt = zeros === inView.length ? `alle ${inView.length} Stationen ${p.zero}` : `${zeros} von ${inView.length} Stationen ${p.zero}`;
-    note.textContent = p.label + ', gemessen' + (txt ? ' · ' + txt : '');
-  }
+  if(!fcNow) fsmWxNote(map);
 }
 // Prognose für eine angetippte Stelle, gerechnet für die Geländehöhe dort
 function fsmWxTapClear(st){ if(st && st.tapMk){ st.tapMk.remove(); st.tapMk = null; } }
@@ -11787,7 +11861,7 @@ async function fsmWxTap(map, lat, lon){
     const sn = sum(H.snowfall), pr = sum(H.precipitation);
     rows.push(['Nächste 24 h', sn >= 0.5 ? Math.round(sn) + ' cm Neuschnee' : pr >= 0.2 ? pr.toFixed(1) + ' mm Niederschlag' : 'trocken']);
     if(H.freezing_level_height && H.freezing_level_height[i] != null) rows.push(['Nullgradgrenze', Math.round(H.freezing_level_height[i] / 100) * 100 + ' m']);
-    if(p && !p.forecast && st.pts.length){
+    if(p && !fsmWxIsFc(st) && st.pts.length){
       const n = fsNearest(st.pts, lat, lon, 30000);
       if(n){
         const dh = ele != null && n.ele ? Math.round(n.ele - ele) : null;
