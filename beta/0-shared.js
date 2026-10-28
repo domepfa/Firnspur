@@ -11554,8 +11554,28 @@ async function fsWebcamsNear(lat, lon){
    Gipfeln (Open-Meteo) in 3-h-Schritten, mit Zeitraffer. Die Karte oben bleibt frei. */
 const FS_WX_CHIPS = ['temp', 'neuschnee', 'schnee', 'wind', 'niederschlag', 'wolken'];
 function fsWxParam(){ let id = null; try{ id = localStorage.getItem('fs-wx-param'); }catch(e){} return FS_WX_PARAMS.find(p=> p.id === id) || FS_WX_PARAMS.find(p=> p.id === 'temp'); }
-// Zeigt die Karte gerade Prognose (Schritt 0…23) statt Messwerte («Jetzt», Schritt -1)?
-function fsmWxIsFc(st){ return !!(st && st.param && st.param.fc && st.fcStep >= 0); }
+// Schritte der Zeitleiste: Messwerte/Prognose in 3 h über drei Tage; Niederschlag und Wolken feiner –
+// die letzten 2 Stunden alle 10 Minuten (Radar bzw. Satellitenbild), danach stündlich für 24 Stunden.
+function fsWxBuildSteps(p){
+  const out = [];
+  if(!p.fc) return [{kind:'now'}];
+  if(p.field){
+    const lag = p.field === 'cloud' ? 35 : 6, grid = p.field === 'cloud' ? 10 : 5;
+    const b = new Date(Date.now() - lag * 60e3); b.setUTCMinutes(Math.floor(b.getUTCMinutes() / grid) * grid, 0, 0);
+    for(let k = 12; k >= 1; k--) out.push({kind:'past', ts: b.getTime() - k * 10 * 60e3});
+    out.push({kind:'now', ts: b.getTime()});
+    const h = new Date(); h.setMinutes(0, 0, 0);
+    for(let i = 1; i <= 24; i++) out.push({kind:'fc', ts: h.getTime() + i * 36e5});
+    return out;
+  }
+  out.push({kind:'now'});
+  for(let i = 0; i < 24; i++) out.push({kind:'fc', ts: fsWxStepTime(i)});
+  return out;
+}
+function fsmWxStep(st){ return (st && st.steps && st.steps[st.si]) || {kind:'now'}; }
+function fsmWxTs(st){ return fsmWxStep(st).ts; }
+// Zeigt die Karte gerade Prognose statt Messwerte bzw. Radar/Satellit?
+function fsmWxIsFc(st){ return !!(st && st.param && st.param.fc && fsmWxStep(st).kind === 'fc'); }
 const FS_WX_CELL = 56; // Breite einer Zelle der Zeitleiste in px
 const FS_WX_DAYS = ['So','Mo','Di','Mi','Do','Fr','Sa'];
 function fsWxCodeIcon(c){ return c >= 95 ? 'storm' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? 'snow' : c >= 51 ? 'rain' : c >= 45 ? 'fog' : c === 3 ? 'cloud' : c >= 1 ? 'partly' : 'sun'; }
@@ -11597,21 +11617,27 @@ async function fsmWxStart(map){
   fsmWxPlayStop(st);
   fsmWxClear(st);
   st.param = p; st.pts = []; st.loaded = false; st.measItems = null; st.measSel = {}; st.fcSel = st.fcSel || {};
-  if(st.fcStep == null || !p.fc) st.fcStep = -1;
+  // Gewählte Prognosezeit beim Wechsel der Grösse behalten, sonst «Jetzt»
+  const prevTs = fsmWxIsFc(st) ? fsmWxTs(st) : null;
+  st.steps = fsWxBuildSteps(p);
+  st.si = Math.max(0, st.steps.findIndex(x=> prevTs != null ? x.kind === 'fc' && x.ts === prevTs : x.kind === 'now'));
+  if(prevTs != null && st.steps[st.si].ts !== prevTs) st.si = st.steps.findIndex(x=> x.kind === 'now');
   const chips = `<div class="chips" role="tablist" aria-label="Wetterart">${FS_WX_CHIPS.map(id=>{ const x = FS_WX_PARAMS.find(q=> q.id === id); return `<button type="button" role="tab" data-wx="${x.id}" class="${x.id === p.id ? 'on' : ''}" aria-selected="${x.id === p.id}">${x.short || x.label}</button>`; }).join('')}</div>`;
   // Skala: bei vielen Stufen nur jede zweite Zahl, sonst überlappen sie
   const lstep = p.scale.length > 5 ? 2 : 1;
   const legend = `<div class="g" aria-hidden="true">${p.scale.map(([t, col], i)=> `<i style="background:${col}">${i % lstep ? '' : `<b>${p.id === 'temp' ? t + '°' : t}</b>`}</i>`).join('')}</div>`;
   let tl = '';
   if(p.fc){
-    let prevDay = -1;
-    const cells = [`<button type="button" class="c now" data-i="-1"><small>gemessen</small><b>Jetzt</b></button>`];
-    for(let i = 0; i < 24; i++){
-      const d = new Date(fsWxStepTime(i)), day = d.getDate();
-      const lbl = day !== prevDay ? fsWxDayLabel(d) : '';
+    let prevDay = -1, firstPast = true;
+    const hm = (ts)=> new Date(ts).toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit'}); // Gerätezeit wie die Prognose-Zellen
+    const src = p.field === 'cloud' ? 'Satellit' : p.field ? 'Radar' : 'gemessen';
+    const cells = st.steps.map((x, i)=>{
+      if(x.kind === 'past'){ const lbl = firstPast ? src : ''; firstPast = false; return `<button type="button" class="c past" data-i="${i}"><small>${lbl}</small><b>${hm(x.ts)}</b></button>`; }
+      if(x.kind === 'now') return `<button type="button" class="c now${p.field ? ' day' : ''}" data-i="${i}"><small>${p.field ? '' : src}</small><b>Jetzt</b></button>`;
+      const d = new Date(x.ts), day = d.getDate(), lbl = day !== prevDay ? fsWxDayLabel(d) : '';
       prevDay = day;
-      cells.push(`<button type="button" class="c${lbl ? ' day' : ''}" data-i="${i}"><small>${lbl}</small><b>${String(d.getHours()).padStart(2, '0')}:00</b></button>`);
-    }
+      return `<button type="button" class="c${lbl ? ' day' : ''}" data-i="${i}"><small>${lbl}</small><b>${String(d.getHours()).padStart(2, '0')}:00</b></button>`;
+    });
     tl = `<div class="tl"><button type="button" class="play" aria-label="Zeitraffer abspielen">${fsIconHtml('play')}</button><div class="track" aria-label="Zeitpunkt wählen">${cells.join('')}</div></div>`;
   }
   st.head.innerHTML = `<div class="top">${legend}<p class="note"></p></div>${chips}${tl}`;
@@ -11638,31 +11664,32 @@ function fsmWxWireTimeline(map, st){
   const track = st.head.querySelector('.track'), play = st.head.querySelector('.play');
   if(!track) return;
   const cells = [...track.querySelectorAll('.c')];
-  const mark = ()=> cells.forEach(c=>{ const on = +c.dataset.i === st.fcStep; c.classList.toggle('on', on); c.setAttribute('aria-pressed', on); });
-  const go = (i, smooth)=> track.scrollTo({left: (i + 1) * FS_WX_CELL, behavior: smooth && !fsReducedMotion() ? 'smooth' : 'auto'});
+  const last = st.steps.length - 1;
+  const mark = ()=> cells.forEach(c=>{ const on = +c.dataset.i === st.si; c.classList.toggle('on', on); c.setAttribute('aria-pressed', on); });
+  const go = (i, smooth)=> track.scrollTo({left: i * FS_WX_CELL, behavior: smooth && !fsReducedMotion() ? 'smooth' : 'auto'});
   const setStep = (i)=>{
-    i = Math.max(-1, Math.min(23, i));
-    if(i === st.fcStep) return;
+    i = Math.max(0, Math.min(last, i));
+    if(i === st.si) return;
     const wasFc = fsmWxIsFc(st);
-    st.fcStep = i; mark(); fsmWxNote(map);
+    st.si = i; mark(); fsmWxNote(map);
     if(fsmWxIsFc(st) !== wasFc){ fsmWxClear(st); st.card.hidden = true; }
     if(st.param.field){ fsmWxField(map); return; }
     if(fsmWxIsFc(st)){ fsmWxForecastLoad(map); }
     fsmWxPlace(map, true);
   };
   let raf = 0;
-  track.addEventListener('scroll', ()=>{ if(raf) return; raf = requestAnimationFrame(()=>{ raf = 0; setStep(Math.round(track.scrollLeft / FS_WX_CELL) - 1); }); }, {passive: true});
+  track.addEventListener('scroll', ()=>{ if(raf) return; raf = requestAnimationFrame(()=>{ raf = 0; setStep(Math.round(track.scrollLeft / FS_WX_CELL)); }); }, {passive: true});
   cells.forEach(c=> c.addEventListener('click', ()=>{ fsmWxPlayStop(st); go(+c.dataset.i, true); }));
   ['pointerdown', 'touchstart', 'wheel'].forEach(ev=> track.addEventListener(ev, ()=> fsmWxPlayStop(st), {passive: true}));
   play.addEventListener('click', ()=>{
     if(st.playTm){ fsmWxPlayStop(st); return; }
-    if(st.fcStep >= 23) go(-1, false);
+    if(st.si >= last) go(0, false);
     play.innerHTML = fsIconHtml('pause'); play.setAttribute('aria-label', 'Zeitraffer anhalten');
     st.playPl = play;
-    st.playTm = setInterval(()=>{ if(st.fcStep >= 23){ fsmWxPlayStop(st); return; } go(st.fcStep + 1, true); }, 1100);
+    st.playTm = setInterval(()=>{ if(st.si >= last){ fsmWxPlayStop(st); return; } go(st.si + 1, true); }, st.param.field ? 800 : 1100);
   });
   mark();
-  requestAnimationFrame(()=> go(st.fcStep, false));
+  requestAnimationFrame(()=> go(st.si, false));
 }
 function fsmWxPlayStop(st){
   if(!st || !st.playTm) return;
@@ -11676,7 +11703,7 @@ function fsmWxNote(map){
   if(!note || !st.param) return;
   const p = st.param;
   if(p.field){ note.textContent = st.fieldNote || ''; return; }
-  if(fsmWxIsFc(st)){ note.textContent = (p.sum24 ? p.label + ' · ' : '') + 'Prognose ' + fsWxHourLabel(fsWxStepTime(st.fcStep)); return; }
+  if(fsmWxIsFc(st)){ note.textContent = (p.sum24 ? p.label + ' · ' : '') + 'Prognose ' + fsWxHourLabel(fsmWxTs(st)); return; }
   let txt = '';
   if(st.loaded){
     const b = map.getBounds();
@@ -11766,9 +11793,10 @@ function fsWxFcVal(p, fc, ts){
    Jetzt: Niederschlag aus dem Radar von MeteoSchweiz (Open Data, alle 5 Min., HDF5 – gelesen mit jsfive,
    erst bei Bedarf geladen), Wolken aus Meteosat (EUMETSAT, «GeoColour»: tagsüber Farbe, nachts Infrarot).
    Prognose: Open-Meteo auf einem groben Raster über der Schweiz (0.2°), weich zu einer Fläche gerechnet. */
-const FS_WX_FIELD_IDS = ['fs-wx-sat', 'fs-wx-field'];
+const FS_WX_FIELD_IDS = ['fs-wx-field'];
+function fsmWxSatLayers(map){ try{ return map.getStyle().layers.map(l=> l.id).filter(id=> id.indexOf('fs-wx-sat-') === 0); }catch(e){ return []; } }
 function fsmWxFieldClear(map){
-  FS_WX_FIELD_IDS.forEach(id=>{ try{ if(map.getLayer(id)) map.removeLayer(id); if(map.getSource(id)) map.removeSource(id); }catch(e){} });
+  fsmWxSatLayers(map).concat(FS_WX_FIELD_IDS).forEach(id=>{ try{ if(map.getLayer(id)) map.removeLayer(id); if(map.getSource(id)) map.removeSource(id); }catch(e){} });
 }
 function fsmWxFieldBefore(map){ return map.getLayer('fsm-anchor-names') ? 'fsm-anchor-names' : undefined; }
 // Zeigt die passende Fläche zur gewählten Grösse und Zeit (oder räumt sie weg)
@@ -11779,33 +11807,36 @@ async function fsmWxField(map){
   if(!p || !p.field){ fsmWxFieldClear(map); return; }
   const tok = st.fieldTok = {};
   const note = (t)=>{ if(st.fieldTok === tok){ st.fieldNote = t; fsmWxNote(map); } };
+  const hm = (d)=> d.toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'});
   if(!fsmWxIsFc(st) && p.field === 'cloud'){
-    // Satellitenbild: gut 30 Minuten Verzögerung, alle 10 Minuten ein Bild
-    const t = new Date(Date.now() - 35 * 60e3); t.setUTCMinutes(Math.floor(t.getUTCMinutes() / 10) * 10, 0, 0);
-    const time = t.toISOString().replace('.000', '');
+    // Satellitenbild der gewählten Zeit (alle 10 Minuten). Das neue Bild kommt über das alte;
+    // das alte verschwindet erst, wenn das neue geladen ist (kein Aufblitzen beim Zeitraffer).
+    const t = new Date(fsmWxTs(st)), time = t.toISOString().replace('.000', ''), id = 'fs-wx-sat-' + t.getTime();
     if(map.getLayer('fs-wx-field')){ map.removeLayer('fs-wx-field'); map.removeSource('fs-wx-field'); }
-    if(!map.getSource('fs-wx-sat') || map._fsWxSatTime !== time){
-      if(map.getLayer('fs-wx-sat')){ map.removeLayer('fs-wx-sat'); map.removeSource('fs-wx-sat'); }
-      map.addSource('fs-wx-sat', {type:'raster', tileSize:256, maxzoom:10, attribution:'Wolken: EUMETSAT (Meteosat)',
+    if(!map.getLayer(id)){
+      map.addSource(id, {type:'raster', tileSize:256, maxzoom:10, attribution:'Wolken: EUMETSAT (Meteosat)',
         tiles:['https://view.eumetsat.int/geoserver/wms?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=mtg_fd:rgb_geocolour&STYLES=&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg&TIME=' + time]});
-      map.addLayer({id:'fs-wx-sat', type:'raster', source:'fs-wx-sat', paint:{'raster-opacity':0.85, 'raster-fade-duration':0}}, fsmWxFieldBefore(map));
-      map._fsWxSatTime = time;
+      map.addLayer({id, type:'raster', source:id, paint:{'raster-opacity':0.85, 'raster-fade-duration':0}}, fsmWxFieldBefore(map));
+      const tidy = ()=>{ if(st.fieldTok !== tok) return; fsmWxSatLayers(map).filter(x=> x !== id).forEach(x=>{ try{ map.removeLayer(x); map.removeSource(x); }catch(e){} }); };
+      map.once('idle', tidy);
     }
-    note('Satellitenbild ' + t.toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'}) + ' Uhr · Meteosat');
+    note('Satellitenbild ' + hm(t) + ' Uhr · Meteosat');
     return;
   }
-  if(map.getLayer('fs-wx-sat')){ map.removeLayer('fs-wx-sat'); map.removeSource('fs-wx-sat'); }
+  fsmWxSatLayers(map).forEach(x=>{ try{ map.removeLayer(x); map.removeSource(x); }catch(e){} });
   let img = null;
   try{
     if(!fsmWxIsFc(st)){
       note('Radar lädt …');
-      const r = await fsWxRadarImage();
+      const step = fsmWxStep(st);
+      const r = await fsWxRadarImage(step.ts, step.kind === 'now');
       if(st.fieldTok !== tok) return;
       img = r;
+      fsWxRadarPrefetch(st);
       note('Radar ' + r.when.toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'}) + ' Uhr · MeteoSchweiz');
     }else{
       note('Prognose lädt …');
-      const ts = fsWxStepTime(st.fcStep);
+      const ts = fsmWxTs(st);
       const r = await fsWxGridImage(p, ts);
       if(st.fieldTok !== tok) return;
       img = r;
@@ -11869,13 +11900,15 @@ function fsWgsToLv95(lat, lon){
 let fsJsfive = null;
 function fsJsfiveLoad(){ return fsJsfive || (fsJsfive = import('https://unpkg.com/jsfive@0.4.2/dist/esm/index.mjs').catch(e=>{ fsJsfive = null; throw e; })); }
 // Jüngstes Radarbild (Niederschlagsrate, 1 km, Gebiet um die Schweiz): Dateiname aus der Zeit (UTC)
-let fsWxRadarCache = null;
-async function fsWxRadarImage(){
-  if(fsWxRadarCache && Date.now() - fsWxRadarCache.at < 4 * 60e3) return fsWxRadarCache.img;
+// Bild der Zeit ts; fallback: bei «Jetzt» auch etwas ältere Bilder versuchen (Radar kommt mit 5–15 Min. Verzögerung)
+const fsWxRadarCache = new Map();
+async function fsWxRadarImage(ts, fallback){
+  const hit = fsWxRadarCache.get(ts + ':' + !!fallback);
+  if(hit) return hit;
   const lib = await fsJsfiveLoad();
   let buf = null, when = null;
-  const t = new Date(Date.now() - 6 * 60e3); t.setUTCMinutes(Math.floor(t.getUTCMinutes() / 5) * 5, 0, 0);
-  for(let k = 0; k < 6 && !buf; k++, t.setTime(t.getTime() - 5 * 60e3)){
+  const t = new Date(ts);
+  for(let k = 0; k < (fallback ? 4 : 1) && !buf; k++, t.setTime(t.getTime() - 5 * 60e3)){
     const y = t.getUTCFullYear(), doy = Math.floor((Date.UTC(y, t.getUTCMonth(), t.getUTCDate()) - Date.UTC(y, 0, 0)) / 864e5);
     const p2 = (v)=> String(v).padStart(2, '0');
     const name = 'rzc' + String(y).slice(2) + String(doy).padStart(3, '0') + p2(t.getUTCHours()) + p2(t.getUTCMinutes()) + 'rl.001.h5';
@@ -11896,8 +11929,19 @@ async function fsWxRadarImage(){
   };
   const img = fsWxRenderMerc(560, 480, 4.6, 11.4, 44.9, 48.6, at, 'precip');
   img.when = when;
-  fsWxRadarCache = {at: Date.now(), img};
+  if(fsWxRadarCache.size > 40) fsWxRadarCache.clear();
+  fsWxRadarCache.set(ts + ':' + !!fallback, img);
   return img;
+}
+// Die Radarbilder der letzten 2 Stunden im Hintergrund holen, damit der Zeitraffer flüssig läuft
+async function fsWxRadarPrefetch(st){
+  if(st.radarPre) return;
+  st.radarPre = true;
+  for(const x of (st.steps || []).filter(q=> q.kind === 'past').reverse()){
+    if(!st.param || st.param.field !== 'precip') break;
+    try{ await fsWxRadarImage(x.ts, false); }catch(e){}
+  }
+  st.radarPre = false;
 }
 // Prognose-Raster (Open-Meteo, eine Abfrage für alle Punkte, eine Stunde gültig)
 const FS_WX_GRID = {w: 5.6, e: 10.8, s: 45.6, n: 48.0, step: 0.2};
@@ -11976,13 +12020,13 @@ function fsmWxPlace(map, refresh){
   let want = [], draw;
   const fcNow = fsmWxIsFc(st);
   if(fcNow){
-    const ts = fsWxStepTime(st.fcStep);
+    const ts = fsmWxTs(st);
     want = st.fcItems ? fsmWxWanted(map, st.fcItems, st.fcSel).filter(g=> st.fc[g.k] && fsWxFcAt(st.fc[g.k], ts) && fsWxFcVal(p, st.fc[g.k], ts) != null) : [];
     draw = (g)=>{
       const fc = st.fc[g.k], v = fsWxFcAt(fc, ts), val = fsWxFcVal(p, fc, ts), sub = Math.round(g.ele || fc.ele) + ' m';
       const zero = fsWxIsZero(p, {v: val}), txt = zero ? '0' : fsWxFmt(p, val);
       return {el: fsmWxPinEl(txt, zero ? '' : fsWxColor(p, val), g.name, sub, fsWxCodeIcon(v.code)), label: g.name + ', ' + sub + ': ' + (zero ? p.zero : txt + ' ' + (p.unit || '')),
-        click: ()=> fsmWxFcCard(map, g, fc, fsWxFcAt(fc, fsWxStepTime(st.fcStep)), fsWxStepTime(st.fcStep))};
+        click: ()=> fsmWxFcCard(map, g, fc, fsWxFcAt(fc, fsmWxTs(st)), fsmWxTs(st))};
     };
   }else{
     const items = fsmWxMeasItems(st);
