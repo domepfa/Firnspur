@@ -28,6 +28,16 @@ Erfahrungen ergänzen. Kein Navigationswerkzeug.
 - **Hang-Scan** ist Orientierung für die Planung (Steilheit, Lawine, Klippen, Sonne), kein Entscheid am Hang.
   Grenzen stehen in der App beim Ergebnis; die Lawinen-Schraffur im Winter mit echtem Bulletin an bekannten
   Hängen prüfen.
+- **Wetter auf der Karte** dient dem Auswählen am Tag X (Region, Zeitfenster), nicht der Navigation.
+  Ruhig statt vollgestellt: Bedienung unten in der Daumenzone, oben bleibt die Karte frei.
+  - *Übersicht:* Wettersymbole der Ortsprognosen von MeteoSchweiz je Tag, ein Tag aufgeklappt alle 3 Stunden.
+  - *Grössen* (Temperatur, Niederschlag, Wind, Wolken, Schnee): weiche Farbflächen statt Zahlen-Etiketten,
+    den genauen Wert zeigt ein Fadenkreuz in der Mitte (Tippen schiebt die Stelle darunter); Messstationen
+    nur bei «Jetzt» als kleine Punkte.
+  - *Zeit:* Niederschlag vom Radar (2 Stunden zurück, alle 5 Minuten) über die eigene Kurzfristprognose
+    (2 Stunden) zum Modell ICON-CH1 (stündlich, 1 km); Zeitraffer weich überblendet.
+  - Quellen nur offen und gratis (MeteoSchweiz, EUMETSAT); grosse Rohdaten wandelt eine GitHub-Aktion in kleine
+    Bilder/Dateien, Firebase bleibt unberührt. Grenzen offen nennen (Kurzfristprognose sieht neue Schauer nicht).
 
 ## Umbau-Reihenfolge
 1. Startansicht: echte Karte und Liste gekoppelt (Liste = Kartenausschnitt), Filter in einer Zeile,
