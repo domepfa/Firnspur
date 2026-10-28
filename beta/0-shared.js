@@ -12307,8 +12307,9 @@ function fsmWxXhLL(map){ try{ const pt = fsmWxXhPt(map); return map.unproject([p
 function fsmWxReadout(map){
   const st = map._fsm && map._fsm.wx;
   if(!st || !st.rdo || !st.param) return;
-  st.xh.hidden = !!st.param.sym;
-  if(st.param.sym){ st.rdo.hidden = true; return; }
+  // Eingeklappt: nur die Karte (Fadenkreuz und Wert verschwinden mit der Leiste)
+  st.xh.hidden = !!st.param.sym || !!st.folded;
+  if(st.param.sym || st.folded){ st.rdo.hidden = true; return; }
   fsmWxXhPlace(map);
   const p = st.param, ll = fsmWxXhLL(map), cur = st.cur;
   let txt = '';
