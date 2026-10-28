@@ -11401,6 +11401,9 @@ const FS_WX_PARAMS = [
   {id:'schnee', short:'Schnee', zero:'kein Schnee', label:'Schneehöhe', unit:'cm', ms:'messwerte-schneehoehe-automatisch-10min', slf:'hs', scale:[[0,'#ADB5BD'],[1,'#A5D8FF'],[50,'#74C0FC'],[100,'#339AF0'],[200,'#1971C2'],[300,'#0B4F8A']]},
   {id:'regen', short:'Regen', zero:'trocken', label:'Niederschlag 24 h', unit:'mm', ms:'messwerte-niederschlag-24h', fc:'precipitation', sum24:true, scale:[[0,'#ADB5BD'],[0.5,'#A5D8FF'],[5,'#4DABF7'],[15,'#1971C2'],[30,'#5F3DC4']]},
   {id:'temp', short:'Temp.', label:'Temperatur', unit:'°', ms:'messwerte-lufttemperatur-10min', slf:'ta', fc:'temperature_2m', scale:[[-15,'#5B3FA8'],[-5,'#3B5BDB'],[0,'#4DABF7'],[5,'#63C5B5'],[10,'#8BC34A'],[15,'#E8C547'],[20,'#F59F00'],[25,'#F76707'],[30,'#E03131']]},
+  // Flächen statt Stationswerte: jetzt Radar bzw. Satellitenbild, danach Prognose als Raster (siehe «Wetter-Flächen»)
+  {id:'niederschlag', short:'Niederschlag', label:'Niederschlag', unit:'mm/h', field:'precip', fc:'precipitation', scale:[[0.1,'#A5D8FF'],[0.5,'#74C0FC'],[1,'#339AF0'],[2,'#1C7ED6'],[5,'#5F3DC4'],[10,'#AE3EC9'],[20,'#E03131']]},
+  {id:'wolken', short:'Wolken', label:'Bewölkung', unit:'%', field:'cloud', fc:'cloud_cover', scale:[[0,'#E9EEF2'],[25,'#D3DCE3'],[50,'#B4C0CA'],[75,'#8E9BA6'],[100,'#6B7782']]},
   {id:'wind', short:'Wind', zero:'windstill', label:'Windböen', unit:'km/h', ms:'messwerte-wind-boeenspitze-kmh-10min', fc:'wind_gusts_10m', scale:[[0,'#8BC34A'],[30,'#E8C547'],[50,'#F59F00'],[70,'#F76707'],[90,'#E03131']]}
 ];
 function fsWxColor(p, v){ let c = p.scale[0][1]; p.scale.forEach(([t, col])=>{ if(v >= t) c = col; }); return c; }
@@ -11549,7 +11552,7 @@ async function fsWebcamsNear(lat, lon){
    Bedienung unten in der Daumenzone (wie Windy, MeteoSchweiz): Wetterart als Chips, darunter eine
    Zeitleiste zum Wischen – «Jetzt» zeigt die Messwerte der Stationen, alles danach die Prognose an
    Gipfeln (Open-Meteo) in 3-h-Schritten, mit Zeitraffer. Die Karte oben bleibt frei. */
-const FS_WX_CHIPS = ['temp', 'neuschnee', 'schnee', 'wind', 'regen'];
+const FS_WX_CHIPS = ['temp', 'neuschnee', 'schnee', 'wind', 'niederschlag', 'wolken'];
 function fsWxParam(){ let id = null; try{ id = localStorage.getItem('fs-wx-param'); }catch(e){} return FS_WX_PARAMS.find(p=> p.id === id) || FS_WX_PARAMS.find(p=> p.id === 'temp'); }
 // Zeigt die Karte gerade Prognose (Schritt 0…23) statt Messwerte («Jetzt», Schritt -1)?
 function fsmWxIsFc(st){ return !!(st && st.param && st.param.fc && st.fcStep >= 0); }
@@ -11619,6 +11622,8 @@ async function fsmWxStart(map){
   st.head.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} st.card.hidden = true; fsmWxTapClear(st); fsmWxStart(map); }));
   if(p.fc) fsmWxWireTimeline(map, st);
   fsmWxNote(map);
+  fsmWxField(map);
+  if(p.field){ st.loaded = true; return; }
   if(fsmWxIsFc(st)) fsmWxForecastLoad(map);
   fsmWxPlace(map);
   const pts = await fsWxPoints(p);
@@ -11641,6 +11646,7 @@ function fsmWxWireTimeline(map, st){
     const wasFc = fsmWxIsFc(st);
     st.fcStep = i; mark(); fsmWxNote(map);
     if(fsmWxIsFc(st) !== wasFc){ fsmWxClear(st); st.card.hidden = true; }
+    if(st.param.field){ fsmWxField(map); return; }
     if(fsmWxIsFc(st)){ fsmWxForecastLoad(map); }
     fsmWxPlace(map, true);
   };
@@ -11669,6 +11675,7 @@ function fsmWxNote(map){
   const st = map._fsm && map._fsm.wx, note = st && st.head && st.head.querySelector('.note');
   if(!note || !st.param) return;
   const p = st.param;
+  if(p.field){ note.textContent = st.fieldNote || ''; return; }
   if(fsmWxIsFc(st)){ note.textContent = (p.sum24 ? p.label + ' · ' : '') + 'Prognose ' + fsWxHourLabel(fsWxStepTime(st.fcStep)); return; }
   let txt = '';
   if(st.loaded){
@@ -11755,6 +11762,172 @@ function fsWxFcVal(p, fc, ts){
   let sum = 0; for(let k = Math.max(0, i - 23); k <= i; k++) sum += a[k] || 0;
   return sum;
 }
+/* ===== Wetter-Flächen: Niederschlag und Wolken =====
+   Jetzt: Niederschlag aus dem Radar von MeteoSchweiz (Open Data, alle 5 Min., HDF5 – gelesen mit jsfive,
+   erst bei Bedarf geladen), Wolken aus Meteosat (EUMETSAT, «GeoColour»: tagsüber Farbe, nachts Infrarot).
+   Prognose: Open-Meteo auf einem groben Raster über der Schweiz (0.2°), weich zu einer Fläche gerechnet. */
+const FS_WX_FIELD_IDS = ['fs-wx-sat', 'fs-wx-field'];
+function fsmWxFieldClear(map){
+  FS_WX_FIELD_IDS.forEach(id=>{ try{ if(map.getLayer(id)) map.removeLayer(id); if(map.getSource(id)) map.removeSource(id); }catch(e){} });
+}
+function fsmWxFieldBefore(map){ return map.getLayer('fsm-anchor-names') ? 'fsm-anchor-names' : undefined; }
+// Zeigt die passende Fläche zur gewählten Grösse und Zeit (oder räumt sie weg)
+async function fsmWxField(map){
+  const st = map._fsm && map._fsm.wx;
+  if(!map.getStyle()) return;
+  const p = st && st.param;
+  if(!p || !p.field){ fsmWxFieldClear(map); return; }
+  const tok = st.fieldTok = {};
+  const note = (t)=>{ if(st.fieldTok === tok){ st.fieldNote = t; fsmWxNote(map); } };
+  if(!fsmWxIsFc(st) && p.field === 'cloud'){
+    // Satellitenbild: gut 30 Minuten Verzögerung, alle 10 Minuten ein Bild
+    const t = new Date(Date.now() - 35 * 60e3); t.setUTCMinutes(Math.floor(t.getUTCMinutes() / 10) * 10, 0, 0);
+    const time = t.toISOString().replace('.000', '');
+    if(map.getLayer('fs-wx-field')){ map.removeLayer('fs-wx-field'); map.removeSource('fs-wx-field'); }
+    if(!map.getSource('fs-wx-sat') || map._fsWxSatTime !== time){
+      if(map.getLayer('fs-wx-sat')){ map.removeLayer('fs-wx-sat'); map.removeSource('fs-wx-sat'); }
+      map.addSource('fs-wx-sat', {type:'raster', tileSize:256, maxzoom:10, attribution:'Wolken: EUMETSAT (Meteosat)',
+        tiles:['https://view.eumetsat.int/geoserver/wms?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=mtg_fd:rgb_geocolour&STYLES=&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg&TIME=' + time]});
+      map.addLayer({id:'fs-wx-sat', type:'raster', source:'fs-wx-sat', paint:{'raster-opacity':0.85, 'raster-fade-duration':0}}, fsmWxFieldBefore(map));
+      map._fsWxSatTime = time;
+    }
+    note('Satellitenbild ' + t.toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'}) + ' Uhr · Meteosat');
+    return;
+  }
+  if(map.getLayer('fs-wx-sat')){ map.removeLayer('fs-wx-sat'); map.removeSource('fs-wx-sat'); }
+  let img = null;
+  try{
+    if(!fsmWxIsFc(st)){
+      note('Radar lädt …');
+      const r = await fsWxRadarImage();
+      if(st.fieldTok !== tok) return;
+      img = r;
+      note('Radar ' + r.when.toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'}) + ' Uhr · MeteoSchweiz');
+    }else{
+      note('Prognose lädt …');
+      const ts = fsWxStepTime(st.fcStep);
+      const r = await fsWxGridImage(p, ts);
+      if(st.fieldTok !== tok) return;
+      img = r;
+      note((p.field === 'cloud' ? 'Bewölkung' : 'Niederschlag') + ' · Prognose ' + fsWxHourLabel(ts));
+    }
+  }catch(e){
+    if(st.fieldTok !== tok) return;
+    note(navigator.onLine === false ? 'Offline – erst mit Internet' : (fsmWxIsFc(st) ? 'Prognose' : 'Radar') + ' gerade nicht verfügbar');
+    if(map.getLayer('fs-wx-field')){ map.removeLayer('fs-wx-field'); map.removeSource('fs-wx-field'); }
+    return;
+  }
+  if(!map.getStyle() || st.fieldTok !== tok) return;
+  const src = map.getSource('fs-wx-field');
+  if(src && src.updateImage) src.updateImage({url: img.url, coordinates: img.coords});
+  else{
+    if(map.getLayer('fs-wx-field')) map.removeLayer('fs-wx-field');
+    if(map.getSource('fs-wx-field')) map.removeSource('fs-wx-field');
+    map.addSource('fs-wx-field', {type:'image', url: img.url, coordinates: img.coords});
+    map.addLayer({id:'fs-wx-field', type:'raster', source:'fs-wx-field', paint:{'raster-opacity':0.8, 'raster-fade-duration':0, 'raster-resampling':'linear'}}, fsmWxFieldBefore(map));
+  }
+}
+// Farbe einer Fläche (RGBA): Niederschlag nach Skala, Wolken weiss-grau mit Deckung nach Bedeckungsgrad
+function fsWxFieldRGBA(kind, v){
+  if(!(v > 0) || !isFinite(v)) return null;
+  if(kind === 'cloud'){
+    if(v < 8) return null;
+    const a = Math.min(0.85, (v - 8) / 92 * 0.9), g = Math.round(250 - v * 0.6);
+    return [g, g + 2, g + 5, Math.round(a * 255)];
+  }
+  if(v < 0.1) return null;
+  const sc = FS_WX_PARAMS.find(x=> x.id === 'niederschlag').scale;
+  let c = sc[0][1]; sc.forEach(([t, col])=>{ if(v >= t) c = col; });
+  const n = parseInt(c.slice(1), 16);
+  return [n >> 16, (n >> 8) & 255, n & 255, v < 0.5 ? 170 : 220];
+}
+// Bild in Web-Mercator für ein Gebiet (lon/lat-Grenzen), Wert je Bildpunkt über eine Funktion
+function fsWxRenderMerc(W, H, w, e, s, n, valueAt, kind){
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d'), im = ctx.createImageData(W, H);
+  const my = (lat)=> Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
+  const y0 = my(n), y1 = my(s);
+  for(let y = 0; y < H; y++){
+    const lat = (2 * Math.atan(Math.exp(y0 + (y + 0.5) / H * (y1 - y0))) - Math.PI / 2) * 180 / Math.PI;
+    for(let x = 0; x < W; x++){
+      const lon = w + (x + 0.5) / W * (e - w);
+      const c = fsWxFieldRGBA(kind, valueAt(lat, lon));
+      if(!c) continue;
+      const o = (y * W + x) * 4;
+      im.data[o] = c[0]; im.data[o + 1] = c[1]; im.data[o + 2] = c[2]; im.data[o + 3] = c[3];
+    }
+  }
+  ctx.putImageData(im, 0, 0);
+  return {url: cv.toDataURL('image/png'), coords: [[w, n], [e, n], [e, s], [w, s]]};
+}
+// Längen-/Breitengrad → Schweizer Landeskoordinaten LV95 (Näherungsformel swisstopo, ~1 m)
+function fsWgsToLv95(lat, lon){
+  const p = (lat * 3600 - 169028.66) / 10000, l = (lon * 3600 - 26782.5) / 10000;
+  return [2600072.37 + 211455.93 * l - 10938.51 * l * p - 0.36 * l * p * p - 44.54 * l * l * l,
+    1200147.07 + 308807.95 * p + 3745.25 * l * l + 76.63 * p * p - 194.56 * l * l * p + 119.79 * p * p * p];
+}
+let fsJsfive = null;
+function fsJsfiveLoad(){ return fsJsfive || (fsJsfive = import('https://unpkg.com/jsfive@0.4.2/dist/esm/index.mjs').catch(e=>{ fsJsfive = null; throw e; })); }
+// Jüngstes Radarbild (Niederschlagsrate, 1 km, Gebiet um die Schweiz): Dateiname aus der Zeit (UTC)
+let fsWxRadarCache = null;
+async function fsWxRadarImage(){
+  if(fsWxRadarCache && Date.now() - fsWxRadarCache.at < 4 * 60e3) return fsWxRadarCache.img;
+  const lib = await fsJsfiveLoad();
+  let buf = null, when = null;
+  const t = new Date(Date.now() - 6 * 60e3); t.setUTCMinutes(Math.floor(t.getUTCMinutes() / 5) * 5, 0, 0);
+  for(let k = 0; k < 6 && !buf; k++, t.setTime(t.getTime() - 5 * 60e3)){
+    const y = t.getUTCFullYear(), doy = Math.floor((Date.UTC(y, t.getUTCMonth(), t.getUTCDate()) - Date.UTC(y, 0, 0)) / 864e5);
+    const p2 = (v)=> String(v).padStart(2, '0');
+    const name = 'rzc' + String(y).slice(2) + String(doy).padStart(3, '0') + p2(t.getUTCHours()) + p2(t.getUTCMinutes()) + 'rl.001.h5';
+    const dir = y + p2(t.getUTCMonth() + 1) + p2(t.getUTCDate()) + '-ch';
+    try{
+      const r = await fetch('https://data.geo.admin.ch/ch.meteoschweiz.ogd-radar-precip/' + dir + '/' + name);
+      if(r.ok){ buf = await r.arrayBuffer(); when = new Date(t.getTime()); }
+    }catch(e){}
+  }
+  if(!buf) throw new Error('kein Radarbild');
+  const f = new lib.File(buf, 'radar.h5');
+  const ds = f.get('dataset1/data1/data'), [rows, cols] = ds.shape, data = ds.value;
+  // Raster in LV95: Ost 2 255 000 – 2 965 000, Nord 840 000 – 1 480 000, 1 km, erste Zeile im Norden
+  const at = (lat, lon)=>{
+    const [E, N] = fsWgsToLv95(lat, lon);
+    const c = Math.floor((E - 2255000) / 1000), r = Math.floor((1480000 - N) / 1000);
+    return c < 0 || r < 0 || c >= cols || r >= rows ? NaN : data[r * cols + c];
+  };
+  const img = fsWxRenderMerc(560, 480, 4.6, 11.4, 44.9, 48.6, at, 'precip');
+  img.when = when;
+  fsWxRadarCache = {at: Date.now(), img};
+  return img;
+}
+// Prognose-Raster (Open-Meteo, eine Abfrage für alle Punkte, eine Stunde gültig)
+const FS_WX_GRID = {w: 5.6, e: 10.8, s: 45.6, n: 48.0, step: 0.2};
+let fsWxGridCache = null;
+async function fsWxGridData(){
+  if(fsWxGridCache && Date.now() - fsWxGridCache.at < 60 * 60e3) return fsWxGridCache;
+  const G = FS_WX_GRID, lats = [], lons = [];
+  const nx = Math.round((G.e - G.w) / G.step) + 1, ny = Math.round((G.n - G.s) / G.step) + 1;
+  for(let j = 0; j < ny; j++) for(let i = 0; i < nx; i++){ lats.push((G.s + j * G.step).toFixed(2)); lons.push((G.w + i * G.step).toFixed(2)); }
+  const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lats.join(',') + '&longitude=' + lons.join(',') + '&hourly=cloud_cover,precipitation&forecast_days=4&timezone=UTC&timeformat=unixtime');
+  if(!r.ok) throw new Error(r.status);
+  let j = await r.json(); if(!Array.isArray(j)) j = [j];
+  fsWxGridCache = {at: Date.now(), nx, ny, time: j[0].hourly.time, pts: j.map(d=> d.hourly), imgs: {}};
+  return fsWxGridCache;
+}
+async function fsWxGridImage(p, ts){
+  const g = await fsWxGridData(), key = p.fc + ':' + ts;
+  if(g.imgs[key]) return g.imgs[key];
+  let i = g.time.findIndex(x=> x * 1000 >= ts); if(i < 0) throw new Error('ausserhalb');
+  const G = FS_WX_GRID, vals = g.pts.map(h=> (h[p.fc] || [])[i] || 0);
+  // Weich zwischen den Rasterpunkten (bilinear)
+  const at = (lat, lon)=>{
+    const fx = (lon - G.w) / G.step, fy = (lat - G.s) / G.step;
+    const x0 = Math.max(0, Math.min(g.nx - 2, Math.floor(fx))), y0 = Math.max(0, Math.min(g.ny - 2, Math.floor(fy)));
+    const tx = Math.max(0, Math.min(1, fx - x0)), ty = Math.max(0, Math.min(1, fy - y0));
+    const v = (x, y)=> vals[y * g.nx + x];
+    return (v(x0, y0) * (1 - tx) + v(x0 + 1, y0) * tx) * (1 - ty) + (v(x0, y0 + 1) * (1 - tx) + v(x0 + 1, y0 + 1) * tx) * ty;
+  };
+  return (g.imgs[key] = fsWxRenderMerc(260, 180, G.w, G.e, G.s, G.n, at, p.field));
+}
 function fsmWxStop(map){
   const st = map._fsm && map._fsm.wx;
   if(!st) return;
@@ -11763,6 +11936,7 @@ function fsmWxStop(map){
   [st.head, st.card].forEach(el=>{ if(el) el.hidden = true; });
   fsmWxTapClear(st);
   st.param = null;
+  fsmWxField(map);
   try{ map.getContainer().classList.remove('fsm-wx-on'); }catch(e){}
 }
 // Etikett mit Wert, Name und Höhe; Zeiger und Punkt darunter zeigen die genaue Stelle.
@@ -11796,7 +11970,7 @@ function fsmWxMeasItems(st){
 // refresh: Inhalt der vorhandenen erneuern (Zeitschieber der Prognose).
 function fsmWxPlace(map, refresh){
   const st = map._fsm && map._fsm.wx;
-  if(!st || !st.param) return;
+  if(!st || !st.param || st.param.field) return;
   st.mk = st.mk || new Map();
   const p = st.param;
   let want = [], draw;
