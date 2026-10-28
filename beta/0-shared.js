@@ -11402,8 +11402,10 @@ const FS_WX_PARAMS = [
   {id:'regen', short:'Regen', zero:'trocken', label:'Niederschlag 24 h', unit:'mm', ms:'messwerte-niederschlag-24h', fc:'precipitation', sum24:true, scale:[[0,'#ADB5BD'],[0.5,'#A5D8FF'],[5,'#4DABF7'],[15,'#1971C2'],[30,'#5F3DC4']]},
   {id:'temp', short:'Temp.', label:'Temperatur', unit:'°', ms:'messwerte-lufttemperatur-10min', slf:'ta', fc:'temperature_2m', field:'temp', scale:[[-15,'#5B3FA8'],[-5,'#3B5BDB'],[0,'#4DABF7'],[5,'#63C5B5'],[10,'#8BC34A'],[15,'#E8C547'],[20,'#F59F00'],[25,'#F76707'],[30,'#E03131']]},
   // Flächen statt Stationswerte: jetzt Radar bzw. Satellitenbild, danach Prognose als Raster (siehe «Wetter-Flächen»)
-  {id:'niederschlag', short:'Niederschlag', label:'Niederschlag', unit:'mm/h', field:'precip', fc:'precipitation', scale:[[0.1,'#A5D8FF'],[0.5,'#74C0FC'],[1,'#339AF0'],[2,'#1C7ED6'],[5,'#5F3DC4'],[10,'#AE3EC9'],[20,'#E03131']]},
+  {id:'niederschlag', short:'Nieder\u00adschlag', label:'Niederschlag', unit:'mm/h', field:'precip', fc:'precipitation', scale:[[0.1,'#A5D8FF'],[0.5,'#74C0FC'],[1,'#339AF0'],[2,'#1C7ED6'],[5,'#5F3DC4'],[10,'#AE3EC9'],[20,'#E03131']]},
   {id:'wolken', short:'Wolken', label:'Bewölkung', unit:'%', field:'cloud', fc:'cloud_cover', scale:[[0,'#E9EEF2'],[25,'#D3DCE3'],[50,'#B4C0CA'],[75,'#8E9BA6'],[100,'#6B7782']]},
+  // Übersicht: Wettersymbole der Ortsprognosen von MeteoSchweiz (tools/wetterorte.py), je Tag oder alle 3 Stunden
+  {id:'uebersicht', short:'Über\u00adsicht', label:'Übersicht', sym:true, fc:'sym', scale:[]},
   {id:'wind', short:'Wind', zero:'windstill', label:'Windböen', unit:'km/h', ms:'messwerte-wind-boeenspitze-kmh-10min', fc:'wind_gusts_10m', field:'wind', scale:[[0,'#8BC34A'],[30,'#E8C547'],[50,'#F59F00'],[70,'#F76707'],[90,'#E03131']]}
 ];
 function fsWxColor(p, v){ let c = p.scale[0][1]; p.scale.forEach(([t, col])=>{ if(v >= t) c = col; }); return c; }
@@ -11552,13 +11554,19 @@ async function fsWebcamsNear(lat, lon){
    Bedienung unten in der Daumenzone (wie Windy, MeteoSchweiz): Wetterart als Chips, darunter eine
    Zeitleiste zum Wischen. Auf der Karte nur weiche Flächen (Radar, Satellit, Modell ICON-CH1) und bei
    «Jetzt» die Messstationen als kleine Punkte; den genauen Wert zeigt das Fadenkreuz in der Mitte. */
-const FS_WX_CHIPS = ['temp', 'niederschlag', 'wind', 'wolken', 'schnee'];
+const FS_WX_CHIPS = ['uebersicht', 'temp', 'niederschlag', 'wind', 'wolken', 'schnee'];
 function fsWxParam(){ let id = null; try{ id = localStorage.getItem('fs-wx-param'); }catch(e){} return FS_WX_PARAMS.find(p=> p.id === id) || FS_WX_PARAMS.find(p=> p.id === 'temp'); }
 // Schritte der Zeitleiste: stündlich aus dem Modell; Niederschlag und Wolken zudem die letzten 2 Stunden
 // alle 5 (Radar) bzw. 10 Minuten (Satellit), Niederschlag die nächsten 2 Stunden alle 5 Minuten.
-function fsWxBuildSteps(p){
+function fsWxBuildSteps(p, st){
   const out = [];
   if(!p.fc) return [{kind:'now'}];
+  if(p.sym){
+    // Tage mit Symbolen; ein aufgeklappter Tag zeigt seine 3-Stunden-Schritte
+    if(st.symDay && st.symH) return st.symH.times.map((t, i)=> ({kind:'h3', ts: t * 1000, hi: i}));
+    const o = fsWxOrteData;
+    return o ? o.days.map((d, i)=> ({kind:'day', day: d, di: i})).filter(x=> o.pts.some(q=> q[4][x.di] != null)) : [];
+  }
   if(p.field === 'precip' || p.field === 'cloud'){
     const lag = p.field === 'cloud' ? 35 : 6, grid = p.field === 'cloud' ? 10 : 5;
     const b = new Date(Date.now() - lag * 60e3); b.setUTCMinutes(Math.floor(b.getUTCMinutes() / grid) * grid, 0, 0);
@@ -11609,8 +11617,16 @@ async function fsmWxStart(map){
     st.rdo.addEventListener('click', ()=>{ const ll = fsmWxXhLL(map); if(ll) fsOpenConditions(ll.lat, ll.lng, null, 'Stelle beim Fadenkreuz'); });
     let raf = 0;
     map.on('move', ()=>{ if(raf) return; raf = requestAnimationFrame(()=>{ raf = 0; fsmWxReadout(map); }); });
-    // Ein Tipp in die Karte schliesst die Karte einer Station
-    map.on('click', ()=>{ if(st.card) st.card.hidden = true; });
+    // Ein Tipp in die Karte: offene Karte einer Station schliessen, sonst die Stelle unter das Fadenkreuz schieben
+    cont.addEventListener('pointerdown', ()=>{ st.downOpen = st.card && !st.card.hidden; }, true);
+    map.on('click', (e)=>{
+      if(!st.param) return;
+      if(st.downOpen || (st.card && !st.card.hidden)){ st.card.hidden = true; st.downOpen = false; return; }
+      const oe = e.originalEvent;
+      if(st.param.sym || (oe && (oe._fsmHandled || oe._flStopped)) || (map._fsInfoBlock && map._fsInfoBlock()) || fsPlanner) return;
+      const pt = fsmWxXhPt(map);
+      map.panBy([e.point.x - pt.x, e.point.y - pt.y], {duration: fsReducedMotion() ? 0 : 350});
+    });
   }
   st.head.hidden = false; st.xh.hidden = false; st.rdo.hidden = false;
   cont.classList.add('fsm-wx-on'); // Touren treten zurück, solange das Wetter gezeigt wird
@@ -11619,16 +11635,23 @@ async function fsmWxStart(map){
   const p = fsWxParam();
   fsmWxPlayStop(st);
   fsmWxClear(st);
+  const startTok = st.startTok = {};
+  if(p.sym){
+    try{ await fsWxOrteLoad(); }catch(e){}
+    if(st.symDay && !st.symH) st.symDay = null;
+    if(st.startTok !== startTok) return;
+    fsmWxClear(st);
+  }else{ st.symDay = null; st.symH = null; }
   st.param = p; st.pts = []; st.loaded = false; st.measItems = null; st.measSel = {}; st.cur = null;
   // Gewählte Prognosezeit beim Wechsel der Grösse behalten, sonst «Jetzt»
   const prevTs = fsmWxIsFc(st) ? fsmWxTs(st) : null;
-  st.steps = fsWxBuildSteps(p);
-  st.si = Math.max(0, st.steps.findIndex(x=> prevTs != null ? x.kind === 'fc' && x.ts === prevTs : x.kind === 'now'));
+  st.steps = fsWxBuildSteps(p, st);
+  st.si = p.sym ? Math.min(st.symSi || 0, Math.max(0, st.steps.length - 1)) : Math.max(0, st.steps.findIndex(x=> prevTs != null ? x.kind === 'fc' && x.ts === prevTs : x.kind === 'now'));
   if(prevTs != null && st.steps[st.si].ts !== prevTs) st.si = st.steps.findIndex(x=> x.kind === 'now');
   const chips = `<div class="chips" role="tablist" aria-label="Wetterart">${FS_WX_CHIPS.map(id=>{ const x = FS_WX_PARAMS.find(q=> q.id === id); return `<button type="button" role="tab" data-wx="${x.id}" class="${x.id === p.id ? 'on' : ''}" aria-selected="${x.id === p.id}">${x.short || x.label}</button>`; }).join('')}</div>`;
   // Skala schmal: Farbverlauf mit erstem und letztem Wert (den genauen Wert zeigt das Fadenkreuz)
   const sc = p.scale, u = p.id === 'temp' ? '°' : ' ' + (p.unit || '');
-  const legend = `<div class="g" aria-hidden="true"><span>${sc[0][0]}${p.id === 'temp' ? '°' : ''}</span><i style="background:linear-gradient(90deg,${sc.map(x=> x[1]).join(',')})"></i><span>${sc[sc.length - 1][0]}${u}</span></div>`;
+  const legend = !sc.length ? '' : `<div class="g" aria-hidden="true"><span>${sc[0][0]}${p.id === 'temp' ? '°' : ''}</span><i style="background:linear-gradient(90deg,${sc.map(x=> x[1]).join(',')})"></i><span>${sc[sc.length - 1][0]}${u}</span></div>`;
   let tl = '';
   if(p.fc){
     let prevDay = -1, firstPast = true;
@@ -11638,14 +11661,17 @@ async function fsmWxStart(map){
       if(x.kind === 'past'){ const lbl = firstPast ? src : ''; firstPast = false; return `<button type="button" class="c past" data-i="${i}"><small>${lbl}</small><b>${hm(x.ts)}</b></button>`; }
       if(x.kind === 'now') return `<button type="button" class="c now${p.field ? ' day' : ''}" data-i="${i}"><small>${p.field ? '' : src}</small><b>Jetzt</b></button>`;
       if(x.kind === 'nc') return `<button type="button" class="c nc${x.lead === 1 ? ' day' : ''}" data-i="${i}"><small>${x.lead === 1 ? 'Prognose' : ''}</small><b>${hm(x.ts)}</b></button>`;
+      if(x.kind === 'day'){ const d = new Date(+x.day.slice(0, 4), +x.day.slice(4, 6) - 1, +x.day.slice(6, 8)); return `<button type="button" class="c" data-i="${i}"><small>${i === st.si ? 'Stunden ›' : ''}</small><b>${fsWxDayLabel(d)}</b></button>`; }
+      if(x.kind === 'h3') return `<button type="button" class="c" data-i="${i}"><small>${i === 0 ? fsWxDayLabel(new Date(x.ts)) : ''}</small><b>${hm(x.ts)}</b></button>`;
       const d = new Date(x.ts), day = d.getDate(), lbl = day !== prevDay ? fsWxDayLabel(d) : '';
       prevDay = day;
       return `<button type="button" class="c${lbl ? ' day' : ''}" data-i="${i}"><small>${lbl}</small><b>${String(d.getHours()).padStart(2, '0')}:00</b></button>`;
     });
-    tl = `<div class="tl"><button type="button" class="play" aria-label="Zeitraffer abspielen">${fsIconHtml('play')}</button><div class="track" aria-label="Zeitpunkt wählen">${cells.join('')}</div></div>`;
+    const back = st.symDay ? `<button type="button" class="play back" aria-label="Zurück zu den Tagen">${fsIconHtml('chevleft')}</button>` : '';
+    tl = `<div class="tl">${back}<button type="button" class="play" aria-label="Zeitraffer abspielen">${fsIconHtml('play')}</button><div class="track" aria-label="Zeitpunkt wählen">${cells.join('')}</div></div>`;
   }
   const kinds = p.field === 'precip' ? `<div class="kinds" aria-label="Niederschlagsart"><span><i style="background:#339AF0"></i>Regen</span><span><i style="background:#F06595"></i>Mischung</span><span><i style="background:#20C997"></i>Schnee</span></div>` : '';
-  st.head.innerHTML = `<div class="top">${kinds || legend}<p class="note"></p></div>${chips}${tl}`;
+  st.head.innerHTML = `<div class="top">${p.sym ? '' : kinds || legend}<p class="note"></p></div>${chips}${tl}`;
   st.head.classList.toggle('no-tl', !p.fc);
   if(!st.ro && window.ResizeObserver){ st.ro = new ResizeObserver(()=> cont.style.setProperty('--fs-wx-h', st.head.offsetHeight + 'px')); st.ro.observe(st.head); }
   st.head.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} st.card.hidden = true; fsmWxStart(map); }));
@@ -11654,6 +11680,7 @@ async function fsmWxStart(map){
   fsmWxNote(map);
   fsmWxField(map);
   fsmWxReadout(map);
+  if(p.sym) fsmWxPlace(map);
   if(!p.ms){ st.loaded = true; return; }
   const pts = await fsWxPoints(p);
   if(st.param !== p) return;
@@ -11675,13 +11702,22 @@ function fsmWxWireTimeline(map, st){
     if(i === st.si) return;
     const wasFc = fsmWxIsFc(st);
     st.si = i; mark(); fsmWxNote(map);
+    if(st.param.sym && !st.symDay){ st.symSi = i; cells.forEach(c=>{ const sm = c.querySelector('small'); if(sm) sm.textContent = +c.dataset.i === i ? 'Stunden ›' : ''; }); }
     if(fsmWxIsFc(st) !== wasFc){ st.card.hidden = true; }
     fsmWxPlace(map);
     if(st.param.field) fsmWxField(map);
   };
   let raf = 0;
   track.addEventListener('scroll', ()=>{ if(raf) return; raf = requestAnimationFrame(()=>{ raf = 0; setStep(Math.round(track.scrollLeft / FS_WX_CELL)); }); }, {passive: true});
-  cells.forEach(c=> c.addEventListener('click', ()=>{ fsmWxPlayStop(st); go(+c.dataset.i, true); }));
+  cells.forEach(c=> c.addEventListener('click', ()=>{
+    fsmWxPlayStop(st);
+    const i = +c.dataset.i;
+    // Übersicht: gewählten Tag nochmals antippen klappt die 3-Stunden-Schritte auf
+    if(st.param.sym && !st.symDay && i === st.si){ fsmWxSymOpenDay(map, st.steps[i].day); return; }
+    go(i, true);
+  }));
+  const bk = st.head.querySelector('.play.back');
+  if(bk) bk.addEventListener('click', ()=>{ st.symSi = st.symDaySi || 0; st.symDay = null; st.symH = null; fsmWxStart(map); });
   ['pointerdown', 'touchstart', 'wheel'].forEach(ev=> track.addEventListener(ev, ()=> fsmWxPlayStop(st), {passive: true}));
   play.addEventListener('click', ()=>{
     if(st.playTm){ fsmWxPlayStop(st); return; }
@@ -11705,6 +11741,12 @@ function fsmWxNote(map){
   if(!note || !st.param) return;
   const p = st.param;
   if(p.field){ note.textContent = st.fieldNote || ''; return; }
+  if(p.sym){
+    const x = fsmWxStep(st);
+    note.textContent = !fsWxOrteData ? (navigator.onLine === false ? 'Offline – erst mit Internet' : 'Ortsprognosen laden …')
+      : (x.kind === 'h3' ? fsWxHourLabel(x.ts) + ' · ' : 'Tag · ') + 'Ortsprognose MeteoSchweiz';
+    return;
+  }
   let txt = '';
   if(st.loaded){
     const b = map.getBounds();
@@ -12173,6 +12215,7 @@ function fsmWxPlace(map){
   if(!st || !st.param) return;
   st.mk = st.mk || new Map();
   const p = st.param;
+  if(p.sym){ fsmWxSymPlace(map); return; }
   if(!p.ms || fsmWxStep(st).kind !== 'now' || !st.pts.length){ fsmWxClear(st); return; }
   const want = fsmWxWanted(map, fsmWxMeasItems(st), st.measSel);
   const keep = new Set(want.map(it=> it.k));
@@ -12208,6 +12251,8 @@ function fsmWxXhLL(map){ try{ const pt = fsmWxXhPt(map); return map.unproject([p
 function fsmWxReadout(map){
   const st = map._fsm && map._fsm.wx;
   if(!st || !st.rdo || !st.param) return;
+  st.xh.hidden = !!st.param.sym;
+  if(st.param.sym){ st.rdo.hidden = true; return; }
   fsmWxXhPlace(map);
   const p = st.param, ll = fsmWxXhLL(map), cur = st.cur;
   let txt = '';
@@ -12239,6 +12284,90 @@ function fsmWxReadout(map){
   st.rdo.setAttribute('aria-label', txt ? st.rdo.textContent + ' – Bedingungen für diese Stelle' : '');
   // Geländehöhe des Modells einmal nachladen (für die Temperatur)
   if(p.field === 'temp' && !st.hm && !st.hmLoading){ st.hmLoading = true; fsWxIconGrid('height').then(g=>{ st.hm = g; fsmWxReadout(map); }).catch(()=>{}).finally(()=>{ st.hmLoading = false; }); }
+}
+/* ===== Wetter-Übersicht: Symbole der Ortsprognosen (MeteoSchweiz) =====
+   Daten aus dem Branch «wetterorte» (tools/wetterorte.py). Symbolnummern von MeteoSchweiz, 101–142 = Nacht;
+   die Gruppen unten sind aus den Prognosewerten selbst abgeleitet (Niederschlag, Sonne, Temperatur je Nummer). */
+const FS_WX_ORTE = 'https://raw.githubusercontent.com/domepfa/Firnspur/wetterorte/';
+let fsWxOrteData = null, fsWxOrteAt = 0;
+async function fsWxOrteLoad(){
+  if(fsWxOrteData && Date.now() - fsWxOrteAt < 30 * 60e3) return fsWxOrteData;
+  const r = await fetch(FS_WX_ORTE + 'orte.json', {cache: 'no-cache'});
+  if(!r.ok) throw new Error(r.status);
+  fsWxOrteData = await r.json(); fsWxOrteAt = Date.now();
+  fsWxOrteData.items = fsWxOrteData.pts.map((q, i)=> ({k: q[0] + ':' + q[1], lat: q[1], lon: q[2], ele: q[3], i, w: 48, wc: 48}));
+  return fsWxOrteData;
+}
+async function fsmWxSymOpenDay(map, day){
+  const st = map._fsm.wx;
+  try{
+    const r = await fetch(FS_WX_ORTE + 'h-' + day + '.json?r=' + encodeURIComponent(fsWxOrteData.run));
+    if(!r.ok) throw new Error(r.status);
+    st.symH = await r.json();
+  }catch(e){ showToast('3-Stunden-Prognose gerade nicht verfügbar.', true); return; }
+  st.symDaySi = st.si; st.symDay = day; st.symSi = Math.max(0, st.symH.times.findIndex(t=> new Date(t * 1000).getHours() >= 12));
+  fsmWxStart(map);
+}
+const FS_WX_SYM = [
+  [[1], 'sun', 'sonnig'], [[2, 26], 'partly', 'ziemlich sonnig'], [[3], 'partly', 'wechselnd bewölkt'],
+  [[4], 'cloud', 'stark bewölkt'], [[5, 35], 'cloud', 'bedeckt'], [[27, 28], 'fog', 'Nebel oder Hochnebel'],
+  [[6, 9, 29], 'rain', 'Regenschauer'], [[14], 'rain', 'leichter Regen'], [[17], 'rain', 'Regen'], [[20], 'rain', 'starker Regen'],
+  [[7, 10, 15, 18, 21], 'sleet', 'Schneeregen'], [[8, 11, 16, 19, 22, 30], 'snowfall', 'Schneefall'],
+  [[12, 13, 23, 24, 25], 'storm', 'Gewitter']];
+function fsWxSym(code){
+  if(code == null) return null;
+  const night = code > 100, c = code % 100;
+  const hit = FS_WX_SYM.find(x=> x[0].includes(c)) || [[], 'cloud', 'bewölkt'];
+  let icon = hit[1];
+  if(night && icon === 'sun') icon = 'moon';
+  if(night && icon === 'partly') icon = 'moonpart';
+  return {icon, txt: night && c === 1 ? 'klar' : hit[2]};
+}
+function fsmWxSymPlace(map){
+  const st = map._fsm.wx, o = fsWxOrteData;
+  if(!o){ fsmWxClear(st); return; }
+  const x = fsmWxStep(st), h3 = x.kind === 'h3' && st.symH;
+  const val = (it)=> h3 ? (st.symH.pts[it.i] || [])[x.hi] || [] : [o.pts[it.i][4][x.di], o.pts[it.i][6][x.di]];
+  const want = fsmWxWanted(map, o.items.filter(it=> val(it)[0] != null), st.symSel || (st.symSel = {}));
+  const keep = new Set(want.map(it=> it.k));
+  st.mk.forEach((m, k)=>{ if(!keep.has(k)){ m.remove(); st.mk.delete(k); } });
+  want.forEach(it=>{
+    const [code, t] = val(it), sy = fsWxSym(code), q = o.pts[it.i];
+    const html = `${fsIconHtml(sy.icon)}<b>${t != null ? t + '°' : ''}</b>`;
+    const label = `${q[0]}${q[3] ? ', ' + q[3] + ' m' : ''}: ${sy.txt}${t != null ? ', ' + (h3 ? '' : 'höchstens ') + t + ' Grad' : ''}`;
+    let m = st.mk.get(it.k);
+    if(!m){
+      const el = document.createElement('button');
+      el.type = 'button'; el.className = 'fsm-wxs';
+      el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmWxSymCard(map, it.i); });
+      m = new maplibregl.Marker({element: el, opacity: '1', opacityWhenCovered: '1'}).setLngLat([it.lon, it.lat]).addTo(map);
+      st.mk.set(it.k, m);
+    }
+    const el = m.getElement();
+    if(el._h !== html){ el.innerHTML = html; el._h = html; }
+    el.setAttribute('aria-label', label);
+  });
+  fsmWxNote(map);
+}
+function fsmWxSymCard(map, i){
+  const st = map._fsm.wx, o = fsWxOrteData, q = o.pts[i], x = fsmWxStep(st);
+  const rows = [];
+  let head = '';
+  if(x.kind === 'h3' && st.symH){
+    const [code, t] = (st.symH.pts[i] || [])[x.hi] || [], sy = fsWxSym(code);
+    head = `${sy ? fsIconHtml(sy.icon) : ''}${t != null ? t + '°' : ''} <em>${sy ? esc(sy.txt) : ''}</em>`;
+  }else{
+    const sy = fsWxSym(q[4][x.di]);
+    head = `${sy ? fsIconHtml(sy.icon) : ''}${q[6][x.di] != null ? q[6][x.di] + '°' : ''} <em>${sy ? esc(sy.txt) : ''}</em>`;
+    if(q[5][x.di] != null) rows.push(['Tiefst / Höchst', q[5][x.di] + '° / ' + q[6][x.di] + '°']);
+    if(q[7][x.di] != null) rows.push(['Niederschlag', q[7][x.di] >= 0.1 ? q[7][x.di] + ' mm' : 'trocken']);
+  }
+  const when = x.kind === 'h3' ? fsWxHourLabel(x.ts) : (()=>{ const d = new Date(+x.day.slice(0, 4), +x.day.slice(4, 6) - 1, +x.day.slice(6, 8)); return fsWxDayLabel(d); })();
+  st.card.innerHTML = `<button type="button" class="x" aria-label="Schliessen">×</button>
+    <b class="n">${esc(q[0])}</b><span class="s">${q[3] ? q[3] + ' m · ' : ''}${esc(when)} · Ortsprognose MeteoSchweiz</span>
+    <div class="big">${head}</div>${rows.map(r=> `<div class="fs-imis-row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('')}
+    <button type="button" class="cond">Bedingungen hier ansehen</button>`;
+  fsmWxCardWire(st, q[1], q[2], q[3], q[0]);
 }
 function fsWxIsZero(p, x){ return p.id !== 'temp' && x.v < (p.id === 'regen' ? 0.1 : 0.5); }
 function fsmWxCard(map, x){
@@ -20532,6 +20661,10 @@ const FS_ICON_PATHS = {
   image: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 9.5a1.5 1.5 0 1 0 0-.01',
   chevdown: 'M6 9l6 6 6-6',
   chevright: 'M9 6l6 6-6 6',
+  chevleft: 'M15 6l-6 6 6 6',
+  snowfall: 'M7 15a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 8.5a3.5 3.5 0 0 1-1 6.5M8 17.5v4M6.3 18.5l3.4 2M6.3 20.5l3.4-2M15.5 17.5v4M13.8 18.5l3.4 2M13.8 20.5l3.4-2',
+  sleet: 'M7 15a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 8.5a3.5 3.5 0 0 1-1 6.5M9 18l-1 2.5M15.5 17.5v4M13.8 18.5l3.4 2M13.8 20.5l3.4-2',
+  moonpart: 'M11.8 9.6A4.2 4.2 0 0 1 6.4 4.2a4.6 4.6 0 1 0 5.4 5.4zM9 20h9a3.5 3.5 0 0 0 0-7 5 5 0 0 0-9.6 1.2A3 3 0 0 0 9 20z',
   plus: 'M12 5v14M5 12h14',
   calendar: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4',
   save: 'M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6',
