@@ -11555,14 +11555,16 @@ async function fsWebcamsNear(lat, lon){
 const FS_WX_CHIPS = ['temp', 'neuschnee', 'schnee', 'wind', 'niederschlag', 'wolken'];
 function fsWxParam(){ let id = null; try{ id = localStorage.getItem('fs-wx-param'); }catch(e){} return FS_WX_PARAMS.find(p=> p.id === id) || FS_WX_PARAMS.find(p=> p.id === 'temp'); }
 // Schritte der Zeitleiste: Messwerte/Prognose in 3 h über drei Tage; Niederschlag und Wolken feiner –
-// die letzten 2 Stunden alle 10 Minuten (Radar bzw. Satellitenbild), danach stündlich für 24 Stunden.
+// die letzten 2 Stunden alle 5 (Radar) bzw. 10 Minuten (Satellit), danach stündlich für 24 Stunden.
 function fsWxBuildSteps(p){
   const out = [];
   if(!p.fc) return [{kind:'now'}];
   if(p.field){
     const lag = p.field === 'cloud' ? 35 : 6, grid = p.field === 'cloud' ? 10 : 5;
     const b = new Date(Date.now() - lag * 60e3); b.setUTCMinutes(Math.floor(b.getUTCMinutes() / grid) * grid, 0, 0);
-    for(let k = 12; k >= 1; k--) out.push({kind:'past', ts: b.getTime() - k * 10 * 60e3});
+    // Radar alle 5 Minuten (wie MeteoSchweiz), Satellit alle 10 Minuten – je die letzten 2 Stunden
+    const every = p.field === 'cloud' ? 10 : 5;
+    for(let k = 120 / every; k >= 1; k--) out.push({kind:'past', ts: b.getTime() - k * every * 60e3});
     out.push({kind:'now', ts: b.getTime()});
     const h = new Date(); h.setMinutes(0, 0, 0);
     for(let i = 1; i <= 24; i++) out.push({kind:'fc', ts: h.getTime() + i * 36e5});
@@ -11640,7 +11642,8 @@ async function fsmWxStart(map){
     });
     tl = `<div class="tl"><button type="button" class="play" aria-label="Zeitraffer abspielen">${fsIconHtml('play')}</button><div class="track" aria-label="Zeitpunkt wählen">${cells.join('')}</div></div>`;
   }
-  st.head.innerHTML = `<div class="top">${legend}<p class="note"></p></div>${chips}${tl}`;
+  const kinds = p.field === 'precip' ? `<div class="kinds" aria-label="Niederschlagsart in der Prognose"><span><i style="background:#339AF0"></i>Regen</span><span><i style="background:#F06595"></i>Mischung</span><span><i style="background:#20C997"></i>Schnee</span></div>` : '';
+  st.head.innerHTML = `<div class="top"><div class="lg">${legend}${kinds}</div><p class="note"></p></div>${chips}${tl}`;
   st.head.classList.toggle('no-tl', !p.fc);
   if(!st.ro && window.ResizeObserver){ st.ro = new ResizeObserver(()=> cont.style.setProperty('--fs-wx-h', st.head.offsetHeight + 'px')); st.ro.observe(st.head); }
   const chipEl = st.head.querySelector('.chips'), onChip = chipEl.querySelector('.on');
@@ -11686,7 +11689,7 @@ function fsmWxWireTimeline(map, st){
     if(st.si >= last) go(0, false);
     play.innerHTML = fsIconHtml('pause'); play.setAttribute('aria-label', 'Zeitraffer anhalten');
     st.playPl = play;
-    st.playTm = setInterval(()=>{ if(st.si >= last){ fsmWxPlayStop(st); return; } go(st.si + 1, true); }, st.param.field ? 800 : 1100);
+    st.playTm = setInterval(()=>{ if(st.si >= last){ fsmWxPlayStop(st); return; } go(st.si + 1, true); }, st.param.field ? (fsmWxStep(st).kind === 'fc' ? 900 : 500) : 1100);
   });
   mark();
   requestAnimationFrame(()=> go(st.si, false));
@@ -11837,10 +11840,12 @@ async function fsmWxField(map){
     }else{
       note('Prognose lädt …');
       const ts = fsmWxTs(st);
-      const r = await fsWxGridImage(p, ts);
+      // Zuerst die feinen Bilder aus dem Modell ICON-CH1 (GitHub-Aktion), sonst das grobe Open-Meteo-Raster
+      let r = await fsWxIconImage(p, ts).catch(()=> null), src = 'MeteoSchweiz';
+      if(!r){ r = await fsWxGridImage(p, ts); src = 'Open-Meteo'; }
       if(st.fieldTok !== tok) return;
       img = r;
-      note((p.field === 'cloud' ? 'Bewölkung' : 'Niederschlag') + ' · Prognose ' + fsWxHourLabel(ts));
+      note('Prognose ' + fsWxHourLabel(ts) + ' · ' + src);
     }
   }catch(e){
     if(st.fieldTok !== tok) return;
@@ -11956,6 +11961,25 @@ async function fsWxGridData(){
   let j = await r.json(); if(!Array.isArray(j)) j = [j];
   fsWxGridCache = {at: Date.now(), nx, ny, time: j[0].hourly.time, pts: j.map(d=> d.hourly), imgs: {}};
   return fsWxGridCache;
+}
+// Prognosebilder aus ICON-CH1 (1 km), von tools/wetterbilder.py stündlich in den Branch «wetterbilder» gelegt
+const FS_WX_ICON = 'https://raw.githubusercontent.com/domepfa/Firnspur/wetterbilder/';
+let fsWxIconIdx = null;
+async function fsWxIconIndex(){
+  if(fsWxIconIdx && Date.now() - fsWxIconIdx.at < 15 * 60e3) return fsWxIconIdx.data;
+  const r = await fetch(FS_WX_ICON + 'index.json', {cache: 'no-cache'});
+  if(!r.ok) throw new Error(r.status);
+  const data = await r.json();
+  fsWxIconIdx = {at: Date.now(), data};
+  return data;
+}
+async function fsWxIconImage(p, ts){
+  const ix = await fsWxIconIndex(), ref = Date.parse(ix.ref);
+  const h = Math.round((ts - ref) / 36e5);
+  if(!(ix.hours || []).includes(h) || Math.abs(ref + h * 36e5 - ts) > 60e3) return null;
+  const [w, s, e, n] = ix.bounds;
+  const url = FS_WX_ICON + (p.field === 'cloud' ? 'c' : 'p') + String(h).padStart(2, '0') + '.png?r=' + encodeURIComponent(ix.ref);
+  return {url, coords: [[w, n], [e, n], [e, s], [w, s]]};
 }
 async function fsWxGridImage(p, ts){
   const g = await fsWxGridData(), key = p.fc + ':' + ts;
