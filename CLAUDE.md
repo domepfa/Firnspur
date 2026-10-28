@@ -112,4 +112,5 @@ aus anderen Apps übernehmen.
 - Tägliches verschlüsseltes Backup: `.github/workflows/backup.yml`.
 - Wetter-Prognosebilder (Niederschlag mit Art, Bewölkung) aus MeteoSchweiz ICON-CH1: `tools/wetterbilder.py`,
   stündlich über `.github/workflows/wetterbilder.yml` in den Branch `wetterbilder` (ohne Verlauf). Radar und
-  Satellitenbild lädt die App direkt (MeteoSchweiz-Radar als HDF5 mit jsfive, Meteosat über EUMETSAT).
+  Satellitenbild lädt die App direkt (MeteoSchweiz-Radar als HDF5 mit jsfive, Meteosat über EUMETSAT, nachts
+  Bewölkung des Modells). Kurzfristprognose 2 h rechnet das Gerät aus dem Radar (`fsWxNowcast*`, Bewegung + Verschieben).

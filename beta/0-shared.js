@@ -11566,8 +11566,16 @@ function fsWxBuildSteps(p){
     const every = p.field === 'cloud' ? 10 : 5;
     for(let k = 120 / every; k >= 1; k--) out.push({kind:'past', ts: b.getTime() - k * every * 60e3});
     out.push({kind:'now', ts: b.getTime()});
-    const h = new Date(); h.setMinutes(0, 0, 0);
-    for(let i = 1; i <= 24; i++) out.push({kind:'fc', ts: h.getTime() + i * 36e5});
+    // Niederschlag: die nächsten 2 Stunden alle 5 Minuten aus dem Radar weitergezogen (Kurzfristprognose),
+    // danach stündlich aus dem Modell
+    let from = Date.now();
+    if(p.field === 'precip'){
+      for(let k = 1; k <= 24; k++) out.push({kind:'nc', ts: b.getTime() + k * 5 * 60e3, lead: k});
+      from = b.getTime() + 120 * 60e3;
+    }
+    const h = new Date(from); h.setMinutes(0, 0, 0);
+    const end = Date.now() + 24 * 36e5;
+    for(let t = h.getTime() + 36e5; t <= end; t += 36e5) out.push({kind:'fc', ts: t});
     return out;
   }
   out.push({kind:'now'});
@@ -11577,7 +11585,7 @@ function fsWxBuildSteps(p){
 function fsmWxStep(st){ return (st && st.steps && st.steps[st.si]) || {kind:'now'}; }
 function fsmWxTs(st){ return fsmWxStep(st).ts; }
 // Zeigt die Karte gerade Prognose statt Messwerte bzw. Radar/Satellit?
-function fsmWxIsFc(st){ return !!(st && st.param && st.param.fc && fsmWxStep(st).kind === 'fc'); }
+function fsmWxIsFc(st){ const k = fsmWxStep(st).kind; return !!(st && st.param && st.param.fc && (k === 'fc' || k === 'nc')); }
 const FS_WX_CELL = 56; // Breite einer Zelle der Zeitleiste in px
 const FS_WX_DAYS = ['So','Mo','Di','Mi','Do','Fr','Sa'];
 function fsWxCodeIcon(c){ return c >= 95 ? 'storm' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? 'snow' : c >= 51 ? 'rain' : c >= 45 ? 'fog' : c === 3 ? 'cloud' : c >= 1 ? 'partly' : 'sun'; }
@@ -11636,6 +11644,7 @@ async function fsmWxStart(map){
     const cells = st.steps.map((x, i)=>{
       if(x.kind === 'past'){ const lbl = firstPast ? src : ''; firstPast = false; return `<button type="button" class="c past" data-i="${i}"><small>${lbl}</small><b>${hm(x.ts)}</b></button>`; }
       if(x.kind === 'now') return `<button type="button" class="c now${p.field ? ' day' : ''}" data-i="${i}"><small>${p.field ? '' : src}</small><b>Jetzt</b></button>`;
+      if(x.kind === 'nc') return `<button type="button" class="c nc${x.lead === 1 ? ' day' : ''}" data-i="${i}"><small>${x.lead === 1 ? 'Prognose' : ''}</small><b>${hm(x.ts)}</b></button>`;
       const d = new Date(x.ts), day = d.getDate(), lbl = day !== prevDay ? fsWxDayLabel(d) : '';
       prevDay = day;
       return `<button type="button" class="c${lbl ? ' day' : ''}" data-i="${i}"><small>${lbl}</small><b>${String(d.getHours()).padStart(2, '0')}:00</b></button>`;
@@ -11796,7 +11805,7 @@ function fsWxFcVal(p, fc, ts){
    Jetzt: Niederschlag aus dem Radar von MeteoSchweiz (Open Data, alle 5 Min., HDF5 – gelesen mit jsfive,
    erst bei Bedarf geladen), Wolken aus Meteosat (EUMETSAT, «GeoColour»: tagsüber Farbe, nachts Infrarot).
    Prognose: Open-Meteo auf einem groben Raster über der Schweiz (0.2°), weich zu einer Fläche gerechnet. */
-const FS_WX_FIELD_IDS = ['fs-wx-field'];
+const FS_WX_FIELD_IDS = ['fs-wx-field', 'fs-wx-field2'];
 function fsmWxSatLayers(map){ try{ return map.getStyle().layers.map(l=> l.id).filter(id=> id.indexOf('fs-wx-sat-') === 0); }catch(e){ return []; } }
 function fsmWxFieldClear(map){
   fsmWxSatLayers(map).concat(FS_WX_FIELD_IDS).forEach(id=>{ try{ if(map.getLayer(id)) map.removeLayer(id); if(map.getSource(id)) map.removeSource(id); }catch(e){} });
@@ -11810,36 +11819,56 @@ async function fsmWxField(map){
   if(!p || !p.field){ fsmWxFieldClear(map); return; }
   const tok = st.fieldTok = {};
   const note = (t)=>{ if(st.fieldTok === tok){ st.fieldNote = t; fsmWxNote(map); } };
-  const hm = (d)=> d.toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'});
-  if(!fsmWxIsFc(st) && p.field === 'cloud'){
-    // Satellitenbild der gewählten Zeit (alle 10 Minuten). Das neue Bild kommt über das alte;
-    // das alte verschwindet erst, wenn das neue geladen ist (kein Aufblitzen beim Zeitraffer).
-    const t = new Date(fsmWxTs(st)), time = t.toISOString().replace('.000', ''), id = 'fs-wx-sat-' + t.getTime();
-    if(map.getLayer('fs-wx-field')){ map.removeLayer('fs-wx-field'); map.removeSource('fs-wx-field'); }
-    if(!map.getLayer(id)){
-      map.addSource(id, {type:'raster', tileSize:256, maxzoom:10, attribution:'Wolken: EUMETSAT (Meteosat)',
-        tiles:['https://view.eumetsat.int/geoserver/wms?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=mtg_fd:rgb_geocolour&STYLES=&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg&TIME=' + time]});
-      map.addLayer({id, type:'raster', source:id, paint:{'raster-opacity':0.85, 'raster-fade-duration':0}}, fsmWxFieldBefore(map));
-      const tidy = ()=>{ if(st.fieldTok !== tok) return; fsmWxSatLayers(map).filter(x=> x !== id).forEach(x=>{ try{ map.removeLayer(x); map.removeSource(x); }catch(e){} }); };
-      map.once('idle', tidy);
+  const hm = (d)=> new Date(d).toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'});
+  const step = fsmWxStep(st), ts = step.ts;
+  if(p.field === 'cloud' && step.kind !== 'fc'){
+    // Tagsüber das echte Satellitenbild (Echtfarben, zeigt auch Hochnebel). Nachts taugt das Infrarot in den
+    // Alpen wenig (kalte, verschneite Gipfel sehen aus wie Wolken): dann die Bewölkung des Modells dieser Stunde.
+    const c = map.getCenter(), sun = fsSunPos(new Date(ts), c.lat, c.lng);
+    if(sun.el * 180 / Math.PI > 2){
+      const t = new Date(ts), time = t.toISOString().replace('.000', ''), id = 'fs-wx-sat-' + t.getTime();
+      fsmWxImgHide(map);
+      if(!map.getLayer(id)){
+        map.addSource(id, {type:'raster', tileSize:256, maxzoom:10, attribution:'Wolken: EUMETSAT (Meteosat)',
+          tiles:['https://view.eumetsat.int/geoserver/wms?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=mtg_fd:rgb_truecolour&STYLES=&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg&TIME=' + time]});
+        // Weich einblenden; das alte Bild verschwindet erst, wenn das neue geladen ist
+        map.addLayer({id, type:'raster', source:id, paint:{'raster-opacity':0, 'raster-opacity-transition':{duration:400, delay:0}, 'raster-fade-duration':0}}, fsmWxFieldBefore(map));
+        const show = ()=>{
+          if(st.fieldTok !== tok || !map.getLayer(id)) return;
+          map.setPaintProperty(id, 'raster-opacity', 0.85);
+          setTimeout(()=>{ if(st.fieldTok === tok) fsmWxSatLayers(map).filter(x=> x !== id).forEach(x=>{ try{ map.removeLayer(x); map.removeSource(x); }catch(e){} }); }, 450);
+        };
+        map.once('idle', show);
+      }
+      note('Satellitenbild ' + hm(t) + ' Uhr · Meteosat');
+      return;
     }
-    note('Satellitenbild ' + hm(t) + ' Uhr · Meteosat');
+    const hr = Math.round(ts / 36e5) * 36e5;
+    const r = await fsWxIconImage(p, hr).catch(()=> null);
+    if(st.fieldTok !== tok) return;
+    fsmWxSatLayers(map).forEach(x=>{ try{ map.removeLayer(x); map.removeSource(x); }catch(e){} });
+    if(!r){ note('Nachts kein Satellitenbild · Modell gerade nicht verfügbar'); fsmWxImgHide(map); return; }
+    await fsmWxImgShow(map, st, tok, r);
+    note('Nacht: Bewölkung ' + hm(hr) + ' Uhr aus dem Modell (MeteoSchweiz)');
     return;
   }
   fsmWxSatLayers(map).forEach(x=>{ try{ map.removeLayer(x); map.removeSource(x); }catch(e){} });
   let img = null;
   try{
-    if(!fsmWxIsFc(st)){
+    if(step.kind === 'past' || step.kind === 'now'){
       note('Radar lädt …');
-      const step = fsmWxStep(st);
-      const r = await fsWxRadarImage(step.ts, step.kind === 'now');
+      const g = await fsWxRadarGrid(ts, step.kind === 'now');
       if(st.fieldTok !== tok) return;
-      img = r;
+      img = fsWxRadarRender(g);
       fsWxRadarPrefetch(st);
-      note('Radar ' + r.when.toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'}) + ' Uhr · MeteoSchweiz');
+      note('Radar ' + hm(g.when) + ' Uhr · MeteoSchweiz');
+    }else if(step.kind === 'nc'){
+      note('Kurzfristprognose wird gerechnet …');
+      img = await fsWxNowcastImage(st, step.lead);
+      if(st.fieldTok !== tok) return;
+      note('Prognose ' + hm(ts) + ' Uhr · aus dem Radar weitergezogen');
     }else{
       note('Prognose lädt …');
-      const ts = fsmWxTs(st);
       // Zuerst die feinen Bilder aus dem Modell ICON-CH1 (GitHub-Aktion), sonst das grobe Open-Meteo-Raster
       let r = await fsWxIconImage(p, ts).catch(()=> null), src = 'MeteoSchweiz';
       if(!r){ r = await fsWxGridImage(p, ts); src = 'Open-Meteo'; }
@@ -11850,19 +11879,36 @@ async function fsmWxField(map){
   }catch(e){
     if(st.fieldTok !== tok) return;
     note(navigator.onLine === false ? 'Offline – erst mit Internet' : (fsmWxIsFc(st) ? 'Prognose' : 'Radar') + ' gerade nicht verfügbar');
-    if(map.getLayer('fs-wx-field')){ map.removeLayer('fs-wx-field'); map.removeSource('fs-wx-field'); }
+    fsmWxImgHide(map);
     return;
   }
   if(!map.getStyle() || st.fieldTok !== tok) return;
-  const src = map.getSource('fs-wx-field');
+  await fsmWxImgShow(map, st, tok, img);
+}
+// Zwei Bildebenen im Wechsel: das neue Bild wird erst geladen, dann weich über das alte geblendet
+const FS_WX_IMG = ['fs-wx-field', 'fs-wx-field2'];
+async function fsmWxImgShow(map, st, tok, img){
+  try{ const im = new Image(); im.src = img.url; await im.decode(); }catch(e){}
+  if(!map.getStyle() || st.fieldTok !== tok) return;
+  const cur = st.imgCur || 0, nxt = map.getLayer(FS_WX_IMG[cur]) ? 1 - cur : cur, id = FS_WX_IMG[nxt], old = FS_WX_IMG[1 - nxt];
+  const src = map.getSource(id);
   if(src && src.updateImage) src.updateImage({url: img.url, coordinates: img.coords});
   else{
-    if(map.getLayer('fs-wx-field')) map.removeLayer('fs-wx-field');
-    if(map.getSource('fs-wx-field')) map.removeSource('fs-wx-field');
-    map.addSource('fs-wx-field', {type:'image', url: img.url, coordinates: img.coords});
-    map.addLayer({id:'fs-wx-field', type:'raster', source:'fs-wx-field', paint:{'raster-opacity':0.8, 'raster-fade-duration':0, 'raster-resampling':'linear'}}, fsmWxFieldBefore(map));
+    if(map.getLayer(id)) map.removeLayer(id);
+    if(map.getSource(id)) map.removeSource(id);
+    map.addSource(id, {type:'image', url: img.url, coordinates: img.coords});
+    map.addLayer({id, type:'raster', source:id, paint:{'raster-opacity':0, 'raster-opacity-transition':{duration:350, delay:0}, 'raster-fade-duration':0, 'raster-resampling':'linear'}}, fsmWxFieldBefore(map));
   }
+  // Das neue Bild über das alte legen, dann tauschen
+  try{ map.moveLayer(id, fsmWxFieldBefore(map)); }catch(e){}
+  requestAnimationFrame(()=>{
+    if(!map.getLayer(id)) return;
+    map.setPaintProperty(id, 'raster-opacity', 0.8);
+    if(map.getLayer(old)) map.setPaintProperty(old, 'raster-opacity', 0);
+  });
+  st.imgCur = nxt;
 }
+function fsmWxImgHide(map){ FS_WX_IMG.forEach(id=>{ if(map.getLayer(id)) map.setPaintProperty(id, 'raster-opacity', 0); }); }
 // Farbe einer Fläche (RGBA): Niederschlag nach Skala, Wolken weiss-grau mit Deckung nach Bedeckungsgrad
 function fsWxFieldRGBA(kind, v){
   if(!(v > 0) || !isFinite(v)) return null;
@@ -11905,10 +11951,11 @@ function fsWgsToLv95(lat, lon){
 let fsJsfive = null;
 function fsJsfiveLoad(){ return fsJsfive || (fsJsfive = import('https://unpkg.com/jsfive@0.4.2/dist/esm/index.mjs').catch(e=>{ fsJsfive = null; throw e; })); }
 // Jüngstes Radarbild (Niederschlagsrate, 1 km, Gebiet um die Schweiz): Dateiname aus der Zeit (UTC)
-// Bild der Zeit ts; fallback: bei «Jetzt» auch etwas ältere Bilder versuchen (Radar kommt mit 5–15 Min. Verzögerung)
+// Radar-Raster der Zeit ts (mm/h, 1 km, LV95); fallback: bei «Jetzt» auch etwas ältere Bilder versuchen
+// (das Radar kommt mit 5–15 Minuten Verzögerung)
 const fsWxRadarCache = new Map();
-async function fsWxRadarImage(ts, fallback){
-  const hit = fsWxRadarCache.get(ts + ':' + !!fallback);
+async function fsWxRadarGrid(ts, fallback){
+  const key = ts + ':' + !!fallback, hit = fsWxRadarCache.get(key);
   if(hit) return hit;
   const lib = await fsJsfiveLoad();
   let buf = null, when = null;
@@ -11925,18 +11972,27 @@ async function fsWxRadarImage(ts, fallback){
   }
   if(!buf) throw new Error('kein Radarbild');
   const f = new lib.File(buf, 'radar.h5');
-  const ds = f.get('dataset1/data1/data'), [rows, cols] = ds.shape, data = ds.value;
-  // Raster in LV95: Ost 2 255 000 – 2 965 000, Nord 840 000 – 1 480 000, 1 km, erste Zeile im Norden
+  const ds = f.get('dataset1/data1/data'), [rows, cols] = ds.shape;
+  const g = {rows, cols, data: Float32Array.from(ds.value), when};
+  if(fsWxRadarCache.size > 60) fsWxRadarCache.clear();
+  fsWxRadarCache.set(key, g);
+  return g;
+}
+// Raster in LV95: Ost 2 255 000 – 2 965 000, Nord 840 000 – 1 480 000, 1 km, erste Zeile im Norden.
+// Bild in Web-Mercator, Wert weich zwischen den Rasterpunkten (bilinear)
+function fsWxRadarRender(g, data){
+  data = data || g.data;
+  const {rows, cols} = g;
   const at = (lat, lon)=>{
     const [E, N] = fsWgsToLv95(lat, lon);
-    const c = Math.floor((E - 2255000) / 1000), r = Math.floor((1480000 - N) / 1000);
-    return c < 0 || r < 0 || c >= cols || r >= rows ? NaN : data[r * cols + c];
+    const fx = (E - 2255000) / 1000 - 0.5, fy = (1480000 - N) / 1000 - 0.5;
+    const x0 = Math.floor(fx), y0 = Math.floor(fy);
+    if(x0 < 0 || y0 < 0 || x0 >= cols - 1 || y0 >= rows - 1) return NaN;
+    const tx = fx - x0, ty = fy - y0, o = y0 * cols + x0;
+    const v = (i)=>{ const q = data[i]; return q > 0 ? q : 0; };
+    return (v(o) * (1 - tx) + v(o + 1) * tx) * (1 - ty) + (v(o + cols) * (1 - tx) + v(o + cols + 1) * tx) * ty;
   };
-  const img = fsWxRenderMerc(560, 480, 4.6, 11.4, 44.9, 48.6, at, 'precip');
-  img.when = when;
-  if(fsWxRadarCache.size > 40) fsWxRadarCache.clear();
-  fsWxRadarCache.set(ts + ':' + !!fallback, img);
-  return img;
+  return fsWxRenderMerc(560, 480, 4.6, 11.4, 44.9, 48.6, at, 'precip');
 }
 // Die Radarbilder der letzten 2 Stunden im Hintergrund holen, damit der Zeitraffer flüssig läuft
 async function fsWxRadarPrefetch(st){
@@ -11944,9 +12000,93 @@ async function fsWxRadarPrefetch(st){
   st.radarPre = true;
   for(const x of (st.steps || []).filter(q=> q.kind === 'past').reverse()){
     if(!st.param || st.param.field !== 'precip') break;
-    try{ await fsWxRadarImage(x.ts, false); }catch(e){}
+    try{ await fsWxRadarGrid(x.ts, false); }catch(e){}
   }
   st.radarPre = false;
+}
+/* ===== Kurzfristprognose aus dem Radar (Nowcasting) =====
+   Wie bei den Wetterdiensten für die erste Stunde: Zugrichtung und Tempo des Niederschlags aus zwei Radarbildern
+   im Abstand von 15 Minuten (Block-Vergleich auf 2-km-Raster, Blöcke 48 km), zu einem weichen Bewegungsfeld
+   ausgeglichen; dann das jüngste Radarbild entlang dieses Felds in 5-Minuten-Schritten weitergeschoben.
+   Neu entstehende oder zerfallende Schauer erfasst das nicht. */
+async function fsWxNowcastField(st){
+  const now = (st.steps || []).find(x=> x.kind === 'now');
+  if(!now) throw new Error('kein Jetzt');
+  if(st.nc && st.nc.ts === now.ts) return st.nc;
+  const g1 = await fsWxRadarGrid(now.ts, true);
+  const g0 = await fsWxRadarGrid(g1.when.getTime() - 15 * 60e3, false);
+  const {rows, cols} = g1;
+  // 2-km-Raster, Werte gestaucht (log), damit starke Zellen den Vergleich nicht beherrschen
+  const R = rows >> 1, C = cols >> 1;
+  const down = (d)=>{ const o = new Float32Array(R * C); for(let y = 0; y < R; y++) for(let x = 0; x < C; x++){ let s = 0; for(let dy = 0; dy < 2; dy++) for(let dx = 0; dx < 2; dx++){ const v = d[(2 * y + dy) * cols + 2 * x + dx]; s += v > 0 ? v : 0; } o[y * C + x] = Math.log1p(s / 4); } return o; };
+  const a = down(g0.data), b = down(g1.data);
+  const B = 24, S = 12, M = 10; // Blockgrösse, Schritt, Suchweite (je 2 km): bis 20 km in 15 Min. = 80 km/h
+  const vx = [], vy = [], ok = [];
+  const bx = Math.floor((C - B) / S) + 1, by = Math.floor((R - B) / S) + 1;
+  for(let j = 0; j < by; j++) for(let i = 0; i < bx; i++){
+    const x0 = i * S, y0 = j * S;
+    let wet = 0;
+    for(let y = y0; y < y0 + B; y += 2) for(let x = x0; x < x0 + B; x += 2) if(b[y * C + x] > 0.1) wet++;
+    if(wet < 12){ vx.push(0); vy.push(0); ok.push(0); continue; }
+    let best = Infinity, bu = 0, bv = 0;
+    for(let v = -M; v <= M; v++) for(let u = -M; u <= M; u++){
+      // Block im jüngeren Bild an (x0,y0) mit dem älteren Bild an (x0-u, y0-v) vergleichen
+      let e = 0;
+      for(let y = y0; y < y0 + B && e < best; y += 2){
+        const ys = y - v; if(ys < 0 || ys >= R){ e += 1e3; continue; }
+        for(let x = x0; x < x0 + B; x += 2){
+          const xs = x - u; if(xs < 0 || xs >= C){ e += 10; continue; }
+          const d = b[y * C + x] - a[ys * C + xs]; e += d * d;
+        }
+      }
+      if(e < best - 1e-6 || (Math.abs(e - best) < 1e-6 && u * u + v * v < bu * bu + bv * bv)){ best = e; bu = u; bv = v; }
+    }
+    vx.push(bu); vy.push(bv); ok.push(wet);
+  }
+  // Lücken füllen und glätten: gewichtetes Mittel der Nachbarn (Gewicht = Regenmenge im Block)
+  let tot = 0, mx = 0, my = 0; ok.forEach((w, k)=>{ if(w){ tot += w; mx += vx[k] * w; my += vy[k] * w; } });
+  mx = tot ? mx / tot : 0; my = tot ? my / tot : 0;
+  const sx = new Float32Array(bx * by), sy = new Float32Array(bx * by);
+  for(let j = 0; j < by; j++) for(let i = 0; i < bx; i++){
+    let w = 0.5, ax = mx * 0.5, ay = my * 0.5;
+    for(let dj = -2; dj <= 2; dj++) for(let di = -2; di <= 2; di++){
+      const ii = i + di, jj = j + dj; if(ii < 0 || jj < 0 || ii >= bx || jj >= by) continue;
+      const k = jj * bx + ii; if(!ok[k]) continue;
+      const q = ok[k] / (1 + di * di + dj * dj); w += q; ax += vx[k] * q; ay += vy[k] * q;
+    }
+    sx[j * bx + i] = ax / w; sy[j * bx + i] = ay / w;
+  }
+  // Bewegung je 5 Minuten in 1-km-Zellen (Messung: 15 Minuten, 2-km-Zellen)
+  const f = 2 / 3;
+  const vAt = (x, y)=>{ // x, y in 1-km-Zellen
+    const fx = Math.max(0, Math.min(bx - 1.001, (x / 2 - B / 2) / S)), fy = Math.max(0, Math.min(by - 1.001, (y / 2 - B / 2) / S));
+    const i0 = Math.floor(fx), j0 = Math.floor(fy), tx = fx - i0, ty = fy - j0;
+    const L = (arr)=> (arr[j0 * bx + i0] * (1 - tx) + arr[j0 * bx + i0 + 1] * tx) * (1 - ty) + (arr[(j0 + 1) * bx + i0] * (1 - tx) + arr[(j0 + 1) * bx + i0 + 1] * tx) * ty;
+    return [L(sx) * f, L(sy) * f];
+  };
+  // Bewegungsfeld auf 8-km-Raster vorrechnen (schnell beim Verschieben)
+  const Q = 8, qc = Math.ceil(cols / Q), qr = Math.ceil(rows / Q), ux = new Float32Array(qc * qr), uy = new Float32Array(qc * qr);
+  for(let y = 0; y < qr; y++) for(let x = 0; x < qc; x++){ const [u, v] = vAt(x * Q + Q / 2, y * Q + Q / 2); ux[y * qc + x] = u; uy[y * qc + x] = v; }
+  st.nc = {ts: now.ts, g: g1, Q, qc, qr, ux, uy, imgs: {}, mean: [mx * f, my * f]};
+  return st.nc;
+}
+// Radarbild nach lead × 5 Minuten: jeden Punkt Schritt für Schritt entlang der Bewegung zurückverfolgen
+async function fsWxNowcastImage(st, lead){
+  const nc = await fsWxNowcastField(st);
+  if(nc.imgs[lead]) return nc.imgs[lead];
+  const {g, Q, qc, qr, ux, uy} = nc, {rows, cols} = g, src = g.data;
+  const out = new Float32Array(rows * cols);
+  const vel = (x, y)=>{ const i = Math.max(0, Math.min(qc - 1, Math.floor(x / Q))), j = Math.max(0, Math.min(qr - 1, Math.floor(y / Q))); return j * qc + i; };
+  for(let y = 0; y < rows; y++) for(let x = 0; x < cols; x++){
+    let px = x, py = y;
+    for(let k = 0; k < lead; k++){ const q = vel(px, py); px -= ux[q]; py -= uy[q]; }
+    const x0 = Math.floor(px), y0 = Math.floor(py);
+    if(x0 < 0 || y0 < 0 || x0 >= cols - 1 || y0 >= rows - 1){ out[y * cols + x] = 0; continue; }
+    const tx = px - x0, ty = py - y0, o = y0 * cols + x0;
+    const v = (i)=>{ const q = src[i]; return q > 0 ? q : 0; };
+    out[y * cols + x] = (v(o) * (1 - tx) + v(o + 1) * tx) * (1 - ty) + (v(o + cols) * (1 - tx) + v(o + cols + 1) * tx) * ty;
+  }
+  return (nc.imgs[lead] = fsWxRadarRender(g, out));
 }
 // Prognose-Raster (Open-Meteo, eine Abfrage für alle Punkte, eine Stunde gültig)
 const FS_WX_GRID = {w: 5.6, e: 10.8, s: 45.6, n: 48.0, step: 0.2};
