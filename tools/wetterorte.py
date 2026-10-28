@@ -93,13 +93,27 @@ def main(out):
     # Reihenfolge: Stationen vor Hütten/Gipfeln (Stationen sind gleichmässiger verteilt), sonst nach Höhe
     ids = sorted((p for p in pts if any(p in daily[d] for d in days)), key=lambda p: (pts[p]['type'] != '1', -pts[p]['ele']))
     rnd = lambda v, k=0: None if v is None else (int(round(v)) if k == 0 else round(v, k))
+    # Heute: ab Mittag liefert MeteoSchweiz kein Tagessymbol mehr. Dann das nächste 3-Stunden-Symbol des Tages
+    # und Tiefst-/Höchstwert der restlichen Stunden (Niederschlag bleibt leer)
+    now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+    today = (now + dt.timedelta(hours=1)).strftime('%Y%m%d')
+    rest = [t for t in sorted(hourly) if t > now and (t + dt.timedelta(hours=1)).strftime('%Y%m%d') == today]
+    today_from = int(rest[0].replace(tzinfo=dt.timezone.utc).timestamp()) if rest and today in days else None
     out_pts = []
     for p in ids:
         q = pts[p]
         g = lambda par, k=0: [rnd(daily[d].get(p, {}).get(par), k) for d in days]
-        out_pts.append([q['name'], q['lat'], q['lon'], q['ele'], g('jp2000d0'), g('tre200dn'), g('tre200dx'), g('rka150d0', 1)])
+        row = [q['name'], q['lat'], q['lon'], q['ele'], g('jp2000d0'), g('tre200dn'), g('tre200dx'), g('rka150d0', 1)]
+        if today_from and row[4][days.index(today)] is None:
+            di = days.index(today)
+            sym = next((hourly[t][p]['jww003i0'] for t in rest if hourly[t].get(p, {}).get('jww003i0') is not None), None)
+            temps = [hourly[t][p]['tre200h0'] for t in rest if hourly[t].get(p, {}).get('tre200h0') is not None]
+            row[4][di] = rnd(sym)
+            row[5][di] = rnd(min(temps)) if temps else None
+            row[6][di] = rnd(max(temps)) if temps else None
+        out_pts.append(row)
     with open(os.path.join(out, 'orte.json'), 'w') as f:
-        json.dump({'run': run, 'days': days, 'pts': out_pts, 'source': 'MeteoSchweiz Ortsprognose (Open Data)'}, f, separators=(',', ':'))
+        json.dump({'run': run, 'days': days, 'todayFrom': today_from, 'pts': out_pts, 'source': 'MeteoSchweiz Ortsprognose (Open Data)'}, f, separators=(',', ':'))
     # 3-Stunden-Werte je Tag (Ortszeit; die App lädt nur den aufgeklappten Tag)
     by_day = {}
     for when in sorted(hourly):

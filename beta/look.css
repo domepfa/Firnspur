@@ -2982,3 +2982,7 @@ html.fs-mapmode[data-fs-home="liste"] .fs-home-slot :is(.fsm-wx-xh, .fsm-wx-rdo)
 .fsm-wxs b{ font-size:11.5px; font-weight:800; line-height:1.1; font-variant-numeric:tabular-nums; }
 .fsm-wxs b:empty{ display:none; }
 .fsm-wx-head .play.back{ background:var(--line-soft); color:var(--ink); }
+
+/* Karte einer Tour: Wetter-Leiste über dem Blatt der Tour; bei ganz offenem Blatt weg */
+#fs-tour-map .fsm-wx-head{ bottom:calc(var(--fs-sheet-h, 196px) + 8px); }
+html[data-fs-detent="full"] #fs-tour-map :is(.fsm-wx-head, .fsm-wx-xh, .fsm-wx-rdo){ display:none; }

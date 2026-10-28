@@ -2170,6 +2170,7 @@ function fsHomeApply(animate){
   if(fsHomeDetent !== 'liste') sheet.scrollTop = 0;
   // Zeigt die Karte alle Einträge, bleiben sie über dem Blatt sichtbar
   if(animate && fsHomeAll && fsHomeDetent !== 'liste') try{ fsHomeFitAll(380); }catch(e){}
+  fsmWxReadoutSoon();
 }
 // Von Glas-Leiste und Blatt verdeckter Rand der Karte (nur in der Startansicht)
 function fsHomeInset(){
@@ -11630,8 +11631,10 @@ async function fsmWxStart(map){
   }
   st.head.hidden = false; st.xh.hidden = false; st.rdo.hidden = false;
   cont.classList.add('fsm-wx-on'); // Touren treten zurück, solange das Wetter gezeigt wird
-  // Startkarte: Blatt auf die tiefste Stufe, damit Karte und Zeitleiste Platz haben
-  if(fsmIsHomeMap(map) && typeof fsHomeSetDetent === 'function' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
+  // Startkarte: Blatt auf die tiefste Stufe, damit Karte und Zeitleiste Platz haben; ebenso das Blatt einer Tour
+  const inTour = !!map.getContainer().closest('#fs-tour-map');
+  if(inTour){ if(fsSheetDetent !== 'peek') fsSetSheetDetent('peek'); }
+  else if(fsmIsHomeMap(map) && typeof fsHomeSetDetent === 'function' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
   const p = fsWxParam();
   fsmWxPlayStop(st);
   fsmWxClear(st);
@@ -12246,6 +12249,10 @@ function fsmWxXhPlace(map){
   st.xh.style.left = pt.x + 'px'; st.xh.style.top = pt.y + 'px';
   st.rdo.style.left = pt.x + 'px'; st.rdo.style.top = pt.y + 'px';
 }
+// Nach dem Verschieben eines Blatts (Übergang .38 s) Leiste und Fadenkreuz neu ausrichten
+function fsmWxReadoutSoon(){
+  setTimeout(()=>{ [typeof fsHomeMap !== 'undefined' && fsHomeMap, typeof fsCtxMap !== 'undefined' && fsCtxMap].forEach(m=>{ if(m && m._fsm && m._fsm.wx && m._fsm.wx.param) fsmWxReadout(m); }); }, 420);
+}
 function fsmWxXhLL(map){ try{ const pt = fsmWxXhPt(map); return map.unproject([pt.x, pt.y]); }catch(e){ return null; } }
 // Wert unter dem Fadenkreuz
 function fsmWxReadout(map){
@@ -12305,7 +12312,10 @@ async function fsmWxSymOpenDay(map, day){
     if(!r.ok) throw new Error(r.status);
     st.symH = await r.json();
   }catch(e){ showToast('3-Stunden-Prognose gerade nicht verfügbar.', true); return; }
-  st.symDaySi = st.si; st.symDay = day; st.symSi = Math.max(0, st.symH.times.findIndex(t=> new Date(t * 1000).getHours() >= 12));
+  // Heute ab dem nächsten Zeitpunkt, sonst ab Mittag
+  const now = Date.now(), next = st.symH.times.findIndex(t=> t * 1000 >= now - 90 * 60e3);
+  st.symDaySi = st.si; st.symDay = day;
+  st.symSi = Math.max(0, next > 0 ? next : st.symH.times.findIndex(t=> new Date(t * 1000).getHours() >= 12));
   fsmWxStart(map);
 }
 const FS_WX_SYM = [
@@ -12352,6 +12362,8 @@ function fsmWxSymPlace(map){
 function fsmWxSymCard(map, i){
   const st = map._fsm.wx, o = fsWxOrteData, q = o.pts[i], x = fsmWxStep(st);
   const rows = [];
+  // Abends ist «Heute» aus den restlichen 3-Stunden-Werten gerechnet (tools/wetterorte.py, todayFrom)
+  const partToday = x.kind === 'day' && o.todayFrom && x.di === 0 && new Date(o.todayFrom * 1000).toDateString() === new Date().toDateString();
   let head = '';
   if(x.kind === 'h3' && st.symH){
     const [code, t] = (st.symH.pts[i] || [])[x.hi] || [], sy = fsWxSym(code);
@@ -12359,10 +12371,11 @@ function fsmWxSymCard(map, i){
   }else{
     const sy = fsWxSym(q[4][x.di]);
     head = `${sy ? fsIconHtml(sy.icon) : ''}${q[6][x.di] != null ? q[6][x.di] + '°' : ''} <em>${sy ? esc(sy.txt) : ''}</em>`;
-    if(q[5][x.di] != null) rows.push(['Tiefst / Höchst', q[5][x.di] + '° / ' + q[6][x.di] + '°']);
+    if(q[5][x.di] != null) rows.push([partToday ? 'Restlicher Tag' : 'Tiefst / Höchst', q[5][x.di] + '° / ' + q[6][x.di] + '°']);
     if(q[7][x.di] != null) rows.push(['Niederschlag', q[7][x.di] >= 0.1 ? q[7][x.di] + ' mm' : 'trocken']);
   }
-  const when = x.kind === 'h3' ? fsWxHourLabel(x.ts) : (()=>{ const d = new Date(+x.day.slice(0, 4), +x.day.slice(4, 6) - 1, +x.day.slice(6, 8)); return fsWxDayLabel(d); })();
+  const when = x.kind === 'h3' ? fsWxHourLabel(x.ts) : partToday ? 'Heute ab ' + new Date(o.todayFrom * 1000).getHours() + ' Uhr'
+    : (()=>{ const d = new Date(+x.day.slice(0, 4), +x.day.slice(4, 6) - 1, +x.day.slice(6, 8)); return fsWxDayLabel(d); })();
   st.card.innerHTML = `<button type="button" class="x" aria-label="Schliessen">×</button>
     <b class="n">${esc(q[0])}</b><span class="s">${q[3] ? q[3] + ' m · ' : ''}${esc(when)} · Ortsprognose MeteoSchweiz</span>
     <div class="big">${head}</div>${rows.map(r=> `<div class="fs-imis-row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('')}
@@ -20013,6 +20026,7 @@ function fsSetSheetDetent(detent){
     modal.dataset.detent = detent;
     if(detent !== 'full') modal.scrollTop = 0;
   }
+  fsmWxReadoutSoon(); // Wetter-Leiste und Fadenkreuz folgen dem Blatt
 }
 function fsWireSheetGrabber(grabber, modal){
   let startY = null, startH = 0, moved = 0;
