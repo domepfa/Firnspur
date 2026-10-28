@@ -11654,7 +11654,10 @@ async function fsmWxStart(map){
   const chips = `<div class="chips" role="tablist" aria-label="Wetterart">${FS_WX_CHIPS.map(id=>{ const x = FS_WX_PARAMS.find(q=> q.id === id); return `<button type="button" role="tab" data-wx="${x.id}" class="${x.id === p.id ? 'on' : ''}" aria-selected="${x.id === p.id}">${x.short || x.label}</button>`; }).join('')}</div>`;
   // Skala schmal: Farbverlauf mit erstem und letztem Wert (den genauen Wert zeigt das Fadenkreuz)
   const sc = p.scale, u = p.id === 'temp' ? '°' : ' ' + (p.unit || '');
-  const legend = !sc.length ? '' : `<div class="g" aria-hidden="true"><span>${sc[0][0]}${p.id === 'temp' ? '°' : ''}</span><i style="background:linear-gradient(90deg,${sc.map(x=> x[1]).join(',')})"></i><span>${sc[sc.length - 1][0]}${u}</span></div>`;
+  // Skala über die ganze Breite, Zahl unter jeder Stufe (letzte mit Einheit)
+  const pct = (i)=> (sc.length > 1 ? i / (sc.length - 1) * 100 : 0).toFixed(1);
+  const legend = !sc.length ? '' : `<div class="g" aria-hidden="true"><i style="background:linear-gradient(90deg,${sc.map((x, i)=> x[1] + ' ' + pct(i) + '%').join(',')})"></i>`
+    + `<div class="tk">${sc.map((x, i)=> `<span style="left:${pct(i)}%">${x[0]}${p.id === 'temp' ? '°' : i === sc.length - 1 ? u : ''}</span>`).join('')}</div></div>`;
   let tl = '';
   if(p.fc){
     let prevDay = -1, firstPast = true;
@@ -11674,7 +11677,7 @@ async function fsmWxStart(map){
     tl = `<div class="tl">${back}<button type="button" class="play" aria-label="Zeitraffer abspielen">${fsIconHtml('play')}</button><div class="track" aria-label="Zeitpunkt wählen">${cells.join('')}</div></div>`;
   }
   const kinds = p.field === 'precip' ? `<div class="kinds" aria-label="Niederschlagsart"><span><i style="background:#339AF0"></i>Regen</span><span><i style="background:#F06595"></i>Mischung</span><span><i style="background:#20C997"></i>Schnee</span></div>` : '';
-  st.head.innerHTML = `<div class="top">${p.sym ? '' : kinds || legend}<p class="note"></p></div>${chips}${tl}`;
+  st.head.innerHTML = `<div class="top"><p class="note"></p>${p.sym ? '' : kinds || legend}</div>${chips}${tl}`;
   st.head.classList.toggle('no-tl', !p.fc);
   if(!st.ro && window.ResizeObserver){ st.ro = new ResizeObserver(()=> cont.style.setProperty('--fs-wx-h', st.head.offsetHeight + 'px')); st.ro.observe(st.head); }
   st.head.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} st.card.hidden = true; fsmWxStart(map); }));
@@ -11858,7 +11861,7 @@ async function fsmWxField(map){
       if(!g) throw new Error('keine Stunde');
       st.cur = {grid: g, ts: hr}; fsmWxReadout(map);
       img = g;
-      note(step.kind === 'now' ? 'Modell jetzt · Punkte: Stationen' : 'Prognose ' + fsWxHourLabel(hr) + ' · MeteoSchweiz');
+      note(step.kind === 'now' ? 'Jetzt · Fläche gerechnet, Punkte gemessen' : 'Prognose ' + fsWxHourLabel(hr) + ' · MeteoSchweiz');
     }else if(step.kind === 'past' || step.kind === 'now'){
       note('Radar lädt …');
       const g = await fsWxRadarGrid(ts, step.kind === 'now');
@@ -12276,7 +12279,7 @@ function fsmWxReadout(map){
       if(b === 255) txt = 'ausserhalb des Modells';
       else if(p.field === 'temp'){
         const hb = fsWxGridByte(st.hm, ll.lat, ll.lng);
-        txt = `${Math.round(b / 3 - 40)}°` + (hb !== 255 ? ` <small>Modell auf ${hb * 20} m</small>` : '');
+        txt = `${Math.round(b / 3 - 40)}°` + (hb !== 255 ? ` <small>· ${hb * 20} m</small>` : '');
       }else if(p.field === 'wind') txt = `Böen ${b} km/h`;
       else if(p.field === 'cloud') txt = `${b} % bewölkt` + (cur.src === 'Modell' && fsmWxStep(st).kind !== 'fc' ? ' <small>Modell</small>' : '');
       else if(p.field === 'precip'){
