@@ -110,3 +110,6 @@ aus anderen Apps übernehmen.
 - Datenbank-Regeln stehen in `database.rules.json` und müssen zu den Pfaden passen
   (Änderungen in der Firebase-Konsole einfügen).
 - Tägliches verschlüsseltes Backup: `.github/workflows/backup.yml`.
+- Wetter-Prognosebilder (Niederschlag mit Art, Bewölkung) aus MeteoSchweiz ICON-CH1: `tools/wetterbilder.py`,
+  stündlich über `.github/workflows/wetterbilder.yml` in den Branch `wetterbilder` (ohne Verlauf). Radar und
+  Satellitenbild lädt die App direkt (MeteoSchweiz-Radar als HDF5 mit jsfive, Meteosat über EUMETSAT).
