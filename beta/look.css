@@ -2909,22 +2909,18 @@ html.fs-mapfull.fs-mapmode .fs-home-slot .fsm-satbar{ left:12px; transform:none;
   background:color-mix(in srgb, var(--paper) 94%, transparent); -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px);
   box-shadow:0 4px 18px rgba(15,30,39,.22); color:var(--ink);
 }
-.fsm-wx-head .top{ display:flex; align-items:flex-start; gap:10px; padding:0 14px; }
-.fsm-wx-head .lg{ flex:0 0 46%; display:flex; flex-direction:column; gap:2px; }
-.fsm-wx-head .g{ display:flex; padding-top:2px; }
+.fsm-wx-head .top{ display:flex; align-items:center; gap:10px; padding:0 14px; min-height:18px; }
+.fsm-wx-head .g{ flex:none; display:flex; align-items:center; gap:6px; font-size:11px; font-weight:700; color:var(--ink-soft); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.fsm-wx-head .g i{ display:block; width:72px; height:6px; border-radius:3px; }
 .fsm-wx-head .kinds{ display:flex; gap:8px; font-size:10px; font-weight:700; color:var(--ink-soft); }
 .fsm-wx-head .kinds span{ display:inline-flex; align-items:center; gap:3px; }
 .fsm-wx-head .kinds i{ display:block; width:8px; height:8px; border-radius:2px; }
-.fsm-wx-head .g i{ display:block; flex:1; height:6px; position:relative; margin-bottom:13px; }
-.fsm-wx-head .g i:first-child{ border-radius:3px 0 0 3px; }
-.fsm-wx-head .g i:last-child{ border-radius:0 3px 3px 0; }
-.fsm-wx-head .g b{ position:absolute; left:0; top:8px; font-size:10px; font-weight:700; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
 .fsm-wx-head .note{ flex:1; min-width:0; margin:0; font-size:11.5px; font-weight:700; line-height:1.3; color:var(--ink-soft); text-align:right;
-  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-.fsm-wx-head .chips{ display:flex; flex-wrap:nowrap; gap:6px; overflow-x:auto; scrollbar-width:none; padding:0 12px; }
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fsm-wx-head .chips{ display:flex; flex-wrap:nowrap; gap:5px; padding:0 10px; }
 .fsm-wx-head .chips::-webkit-scrollbar{ display:none; }
-.fsm-wx-head .chips button{ flex:0 0 auto; min-height:40px; padding:0 14px; border:none; border-radius:999px; background:var(--line-soft);
-  font:inherit; font-size:13.5px; font-weight:700; color:var(--ink); cursor:pointer; }
+.fsm-wx-head .chips button{ flex:1 1 auto; min-width:0; min-height:44px; padding:0 6px; border:none; border-radius:999px; background:var(--line-soft);
+  font:inherit; font-size:12.5px; font-weight:700; color:var(--ink); cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .fsm-wx-head .chips button.on{ background:var(--ice-deep); color:#fff; }
 .fsm-wx-head .tl{ display:flex; align-items:center; gap:8px; padding:0 12px 0 10px; }
 .fsm-wx-head .play{ flex:none; width:44px; height:44px; border:none; border-radius:50%; background:var(--ice-deep); color:#fff;
@@ -2960,3 +2956,21 @@ html.fs-dark .fsm-wx-head{ background:color-mix(in srgb, var(--paper) 90%, trans
 @media (prefers-reduced-motion: reduce){ .fsm-wx-head .track{ scroll-behavior:auto; } }
 /* 3D: über «Gipfel ringsum» */
 .fs-3d .fsm-wx-head{ bottom:calc(76px + env(safe-area-inset-bottom, 0px)); }
+
+/* Fadenkreuz in der Mitte des freien Kartenteils, Wert darüber (antippen: Bedingungen) */
+.fsm-wx-xh{ position:absolute; z-index:5; width:28px; height:28px; margin:-14px 0 0 -14px; pointer-events:none; }
+.fsm-wx-xh::before, .fsm-wx-xh::after{ content:''; position:absolute; background:var(--ink); box-shadow:0 0 0 1.5px rgba(255,255,255,.9); border-radius:1px; }
+.fsm-wx-xh::before{ left:13px; top:2px; width:2px; height:24px; }
+.fsm-wx-xh::after{ top:13px; left:2px; height:2px; width:24px; }
+.fsm-wx-rdo{ position:absolute; z-index:6; transform:translate(-50%, calc(-100% - 22px)); display:flex; align-items:center; gap:4px; max-width:calc(100% - 32px);
+  min-height:40px; padding:6px 8px 6px 14px; border:none; border-radius:999px; background:color-mix(in srgb, var(--paper) 96%, transparent);
+  box-shadow:0 3px 12px rgba(15,30,39,.25); font:inherit; font-size:14.5px; font-weight:800; color:var(--ink); cursor:pointer; white-space:nowrap; }
+.fsm-wx-rdo span{ overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
+.fsm-wx-rdo small{ font-size:12px; font-weight:600; color:var(--ink-soft); margin-left:4px; }
+.fsm-wx-rdo .fs-i{ width:16px; height:16px; flex:none; color:var(--ink-faint); }
+.fsm-wx-xh[hidden], .fsm-wx-rdo[hidden]{ display:none; }
+.fsm-wx-on:has(> .fsm-wx-card:not([hidden])) > :is(.fsm-wx-xh, .fsm-wx-rdo){ visibility:hidden; }
+html.fs-mapmode[data-fs-home="liste"] .fs-home-slot :is(.fsm-wx-xh, .fsm-wx-rdo){ display:none; }
+/* Messstationen: kleine Punkte in der Wertfarbe, grosse Trefferfläche */
+.fsm-wxd{ width:30px; height:30px; padding:0; border:none; background:none; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.fsm-wxd::before{ content:''; width:12px; height:12px; border-radius:50%; background:var(--c); border:2px solid #fff; box-shadow:0 1px 4px rgba(15,30,39,.4); }
