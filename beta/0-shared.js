@@ -11613,7 +11613,13 @@ async function fsmWxStart(map){
     // Fadenkreuz in der Mitte des freien Kartenteils; Antippen des Werts öffnet «Bedingungen» für diese Stelle
     st.xh = document.createElement('div'); st.xh.className = 'fsm-wx-xh'; st.xh.setAttribute('aria-hidden', 'true');
     st.rdo = document.createElement('button'); st.rdo.type = 'button'; st.rdo.className = 'fsm-wx-rdo';
-    cont.append(st.xh, st.rdo);
+    // Eingeklappt: kleine Pille unten; antippen oder ein Tipp in die Karte holt die Leiste zurück
+    st.pill = document.createElement('button'); st.pill.type = 'button'; st.pill.className = 'fsm-wx-pill'; st.pill.hidden = true;
+    st.pill.innerHTML = fsIconHtml('chevup') + '<span>Wetter</span>';
+    st.pill.setAttribute('aria-label', 'Wetter-Leiste aufklappen');
+    cont.append(st.xh, st.rdo, st.pill);
+    ['click','pointerdown','touchstart','mousedown'].forEach(ev=> st.pill.addEventListener(ev, e=> e.stopPropagation()));
+    st.pill.addEventListener('click', ()=> fsmWxFold(map, false));
     ['click','pointerdown','touchstart','mousedown'].forEach(ev=> st.rdo.addEventListener(ev, e=> e.stopPropagation()));
     st.rdo.addEventListener('click', ()=>{ const ll = fsmWxXhLL(map); if(ll) fsOpenConditions(ll.lat, ll.lng, null, 'Stelle beim Fadenkreuz'); });
     let raf = 0;
@@ -11623,6 +11629,7 @@ async function fsmWxStart(map){
     map.on('click', (e)=>{
       if(!st.param) return;
       if(st.downOpen || (st.card && !st.card.hidden)){ st.card.hidden = true; st.downOpen = false; return; }
+      if(st.folded) fsmWxFold(map, false);
       const oe = e.originalEvent;
       if(st.param.sym || (oe && (oe._fsmHandled || oe._flStopped)) || (map._fsInfoBlock && map._fsInfoBlock()) || fsPlanner) return;
       const pt = fsmWxXhPt(map);
@@ -11630,6 +11637,7 @@ async function fsmWxStart(map){
     });
   }
   st.head.hidden = false; st.xh.hidden = false; st.rdo.hidden = false;
+  fsmWxFold(map, false);
   cont.classList.add('fsm-wx-on'); // Touren treten zurück, solange das Wetter gezeigt wird
   // Startkarte: Blatt auf die tiefste Stufe, damit Karte und Zeitleiste Platz haben; ebenso das Blatt einer Tour
   const inTour = !!map.getContainer().closest('#fs-tour-map');
@@ -11677,9 +11685,12 @@ async function fsmWxStart(map){
     tl = `<div class="tl">${back}<button type="button" class="play" aria-label="Zeitraffer abspielen">${fsIconHtml('play')}</button><div class="track" aria-label="Zeitpunkt wählen">${cells.join('')}</div></div>`;
   }
   const kinds = p.field === 'precip' ? `<div class="kinds" aria-label="Niederschlagsart"><span><i style="background:#339AF0"></i>Regen</span><span><i style="background:#F06595"></i>Mischung</span><span><i style="background:#20C997"></i>Schnee</span></div>` : '';
-  st.head.innerHTML = `<div class="top"><p class="note"></p>${p.sym ? '' : kinds || legend}</div>${chips}${tl}`;
+  const tools = `<div class="tools"><button type="button" class="fold" aria-label="Wetter-Leiste einklappen">${fsIconHtml('chevdown')}</button><button type="button" class="off" aria-label="Wetter ausblenden">${fsIconHtml('x')}</button></div>`;
+  st.head.innerHTML = `${tools}<div class="top"><p class="note"></p>${p.sym ? '' : kinds || legend}</div>${chips}${tl}`;
+  st.head.querySelector('.fold').addEventListener('click', ()=> fsmWxFold(map, true));
+  st.head.querySelector('.off').addEventListener('click', ()=>{ fsmWxFold(map, false); fsmSetOverlay(map, 'wetter', false); });
   st.head.classList.toggle('no-tl', !p.fc);
-  if(!st.ro && window.ResizeObserver){ st.ro = new ResizeObserver(()=> cont.style.setProperty('--fs-wx-h', st.head.offsetHeight + 'px')); st.ro.observe(st.head); }
+  if(!st.ro && window.ResizeObserver){ st.ro = new ResizeObserver(()=> fsmWxSetH(map)); st.ro.observe(st.head); st.ro.observe(st.pill); }
   st.head.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} st.card.hidden = true; fsmWxStart(map); }));
   if(p.fc) fsmWxWireTimeline(map, st);
   requestAnimationFrame(()=> fsmWxXhPlace(map));
@@ -12202,7 +12213,8 @@ function fsmWxStop(map){
   if(!st) return;
   fsmWxPlayStop(st);
   fsmWxClear(st);
-  [st.head, st.card, st.xh, st.rdo].forEach(el=>{ if(el) el.hidden = true; });
+  [st.head, st.card, st.xh, st.rdo, st.pill].forEach(el=>{ if(el) el.hidden = true; });
+  st.folded = false; if(st.head) st.head.classList.remove('folded');
   st.param = null; st.cur = null;
   fsmWxField(map);
   try{ map.getContainer().classList.remove('fsm-wx-on'); }catch(e){}
@@ -12243,7 +12255,8 @@ function fsmWxXhPt(map){
   let top = 0;
   const glass = document.getElementById('fs-glass');
   if(fsmIsHomeMap(map) && glass && glass.offsetParent && !document.documentElement.classList.contains('fs-mapfull')) top = glass.getBoundingClientRect().bottom - cr.top;
-  const bottom = st.head && !st.head.hidden ? st.head.getBoundingClientRect().top - cr.top : cr.height;
+  const bar = st.folded ? st.pill : st.head;
+  const bottom = bar && !bar.hidden && bar.offsetParent ? bar.getBoundingClientRect().top - cr.top : cr.height;
   return {x: cr.width / 2, y: Math.max(top + 40, (top + bottom) / 2)};
 }
 function fsmWxXhPlace(map){
@@ -12255,6 +12268,39 @@ function fsmWxXhPlace(map){
 // Nach dem Verschieben eines Blatts (Übergang .38 s) Leiste und Fadenkreuz neu ausrichten
 function fsmWxReadoutSoon(){
   setTimeout(()=>{ [typeof fsHomeMap !== 'undefined' && fsHomeMap, typeof fsCtxMap !== 'undefined' && fsCtxMap].forEach(m=>{ if(m && m._fsm && m._fsm.wx && m._fsm.wx.param) fsmWxReadout(m); }); }, 420);
+}
+// Ein- und ausklappen der Wetter-Leiste
+function fsmWxFold(map, fold){
+  const st = map._fsm && map._fsm.wx;
+  if(!st || !st.head) return;
+  st.folded = !!fold;
+  st.head.classList.toggle('folded', st.folded);
+  if(st.pill) st.pill.hidden = !st.folded;
+  if(st.folded) fsmWxPlayStop(st);
+  fsmWxSetH(map);
+  requestAnimationFrame(()=> fsmWxReadout(map));
+}
+function fsmWxSetH(map){
+  const st = map._fsm.wx, el = st.folded ? st.pill : st.head;
+  map.getContainer().style.setProperty('--fs-wx-h', (el && el.offsetHeight || 0) + 'px');
+}
+// Geländehöhe (swisstopo) an der Stelle, gemerkt je ~100 m; während des Ladens null
+const fsWxHeights = new Map();
+function fsWxHeightAt(map, lat, lon){
+  const key = lat.toFixed(3) + ',' + lon.toFixed(3);
+  if(fsWxHeights.has(key)) return fsWxHeights.get(key);
+  const st = map._fsm.wx;
+  clearTimeout(st.hTm);
+  st.hTm = setTimeout(async ()=>{
+    if(fsWxHeights.has(key)) return;
+    const [E, N] = fsWgsToLv95(lat, lon);
+    let h = null;
+    try{ const r = await fetch('https://api3.geo.admin.ch/rest/services/height?easting=' + Math.round(E) + '&northing=' + Math.round(N) + '&sr=2056'); if(r.ok){ const j = await r.json(); h = parseFloat(j.height); } }catch(e){}
+    if(fsWxHeights.size > 500) fsWxHeights.clear();
+    fsWxHeights.set(key, isFinite(h) ? h : null);
+    fsmWxReadout(map);
+  }, 250);
+  return null;
 }
 function fsmWxXhLL(map){ try{ const pt = fsmWxXhPt(map); return map.unproject([pt.x, pt.y]); }catch(e){ return null; } }
 // Wert unter dem Fadenkreuz
@@ -12278,8 +12324,10 @@ function fsmWxReadout(map){
       const b = fsWxGridByte(cur.grid, ll.lat, ll.lng);
       if(b === 255) txt = 'ausserhalb des Modells';
       else if(p.field === 'temp'){
-        const hb = fsWxGridByte(st.hm, ll.lat, ll.lng);
-        txt = `${Math.round(b / 3 - 40)}°` + (hb !== 255 ? ` <small>· ${hb * 20} m</small>` : '');
+        // Auf die echte Geländehöhe unter dem Kreuz umgerechnet (swisstopo), 0.65° je 100 m
+        const hb = fsWxGridByte(st.hm, ll.lat, ll.lng), t = b / 3 - 40, real = fsWxHeightAt(map, ll.lat, ll.lng);
+        txt = real != null && hb !== 255 ? `${Math.round(t + 0.0065 * (hb * 20 - real))}° <small>· ${Math.round(real)} m</small>`
+          : `${Math.round(t)}°` + (hb !== 255 ? ` <small>· ${hb * 20} m</small>` : '');
       }else if(p.field === 'wind') txt = `Böen ${b} km/h`;
       else if(p.field === 'cloud') txt = `${b} % bewölkt` + (cur.src === 'Modell' && fsmWxStep(st).kind !== 'fc' ? ' <small>Modell</small>' : '');
       else if(p.field === 'precip'){
@@ -20679,6 +20727,7 @@ const FS_ICON_PATHS = {
   chevdown: 'M6 9l6 6 6-6',
   chevright: 'M9 6l6 6-6 6',
   chevleft: 'M15 6l-6 6 6 6',
+  chevup: 'M6 15l6-6 6 6',
   snowfall: 'M7 15a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 8.5a3.5 3.5 0 0 1-1 6.5M8 17.5v4M6.3 18.5l3.4 2M6.3 20.5l3.4-2M15.5 17.5v4M13.8 18.5l3.4 2M13.8 20.5l3.4-2',
   sleet: 'M7 15a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 8.5a3.5 3.5 0 0 1-1 6.5M9 18l-1 2.5M15.5 17.5v4M13.8 18.5l3.4 2M13.8 20.5l3.4-2',
   moonpart: 'M11.8 9.6A4.2 4.2 0 0 1 6.4 4.2a4.6 4.6 0 1 0 5.4 5.4zM9 20h9a3.5 3.5 0 0 0 0-7 5 5 0 0 0-9.6 1.2A3 3 0 0 0 9 20z',

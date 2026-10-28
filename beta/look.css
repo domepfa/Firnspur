@@ -2990,3 +2990,20 @@ html.fs-mapmode[data-fs-home="liste"] .fs-home-slot :is(.fsm-wx-xh, .fsm-wx-rdo)
 /* Karte einer Tour: Wetter-Leiste über dem Blatt der Tour; bei ganz offenem Blatt weg */
 #fs-tour-map .fsm-wx-head{ bottom:calc(var(--fs-sheet-h, 196px) + 8px); }
 html[data-fs-detent="full"] #fs-tour-map :is(.fsm-wx-head, .fsm-wx-xh, .fsm-wx-rdo){ display:none; }
+/* Wetter-Leiste: einklappen und ausblenden oben rechts; eingeklappt nur eine Pille */
+.fsm-wx-head .tools{ position:absolute; top:4px; right:8px; display:flex; gap:4px; z-index:1; }
+.fsm-wx-head .tools button{ width:36px; height:36px; display:flex; align-items:center; justify-content:center; padding:0; border:none; border-radius:50%;
+  background:var(--line-soft); color:var(--ink-soft); cursor:pointer; }
+.fsm-wx-head .tools .fs-i{ width:18px; height:18px; }
+.fsm-wx-head .top{ padding-right:96px; min-height:34px; justify-content:center; }
+.fsm-wx-head.folded{ display:none; }
+.fsm-wx-pill{ position:absolute; z-index:6; left:50%; transform:translateX(-50%); bottom:calc(12px + env(safe-area-inset-bottom, 0px));
+  display:flex; align-items:center; gap:6px; min-height:44px; padding:0 18px 0 14px; border:none; border-radius:999px;
+  background:color-mix(in srgb, var(--paper) 94%, transparent); box-shadow:0 3px 12px rgba(15,30,39,.25); color:var(--ink); font:inherit; font-size:14px; font-weight:800; cursor:pointer; }
+.fsm-wx-pill .fs-i{ width:18px; height:18px; }
+.fsm-wx-pill[hidden]{ display:none; }
+html.fs-mapmode .fs-home-slot .fsm-wx-pill{ bottom:calc(var(--fs-home-vis, 50vh) + 8px); }
+html.fs-mapfull.fs-mapmode .fs-home-slot .fsm-wx-pill{ bottom:calc(12px + env(safe-area-inset-bottom, 0px)); }
+html.fs-mapmode[data-fs-home="liste"] .fs-home-slot .fsm-wx-pill{ display:none; }
+#fs-tour-map .fsm-wx-pill{ bottom:calc(var(--fs-sheet-h, 196px) + 8px); }
+.fs-3d .fsm-wx-pill{ bottom:calc(76px + env(safe-area-inset-bottom, 0px)); }
