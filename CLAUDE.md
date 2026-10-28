@@ -115,3 +115,5 @@ aus anderen Apps übernehmen.
   stündlich über `.github/workflows/wetterbilder.yml` in den Branch `wetterbilder` (ohne Verlauf). Radar und
   Satellitenbild lädt die App direkt (MeteoSchweiz-Radar als HDF5 mit jsfive, Meteosat über EUMETSAT, nachts
   Bewölkung des Modells). Kurzfristprognose 2 h rechnet das Gerät aus dem Radar (`fsWxNowcast*`, Bewegung + Verschieben).
+- Wetter-Übersicht (Symbole je Tag und alle 3 h, dieselben Ortsprognosen wie die MeteoSchweiz-App): `tools/wetterorte.py`,
+  stündlich über `.github/workflows/wetterorte.yml` in den Branch `wetterorte`.

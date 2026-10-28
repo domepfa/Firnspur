@@ -1,0 +1,38 @@
+name: Wetterorte
+
+# Ortsprognosen von MeteoSchweiz (Open Data, dieselben wie in der MeteoSchweiz-App) für die Wetter-
+# Übersicht der Karte: Wettersymbol je Tag und alle 3 Stunden für Stationen, Hütten und Gipfel.
+# tools/wetterorte.py macht aus den grossen CSV-Dateien kleine JSON (orte.json, h-JJJJMMTT.json) und legt
+# sie in den Branch «wetterorte». Die Prognose wird stündlich neu gerechnet. Der Branch wird jedes Mal
+# ersetzt (kein Verlauf, das Repository wächst nicht).
+
+on:
+  schedule:
+    - cron: '25 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wetterorte
+  cancel-in-progress: true
+
+jobs:
+  orte:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ortsprognosen holen
+        run: python3 tools/wetterorte.py "$RUNNER_TEMP/wetterorte"
+      - name: In Branch «wetterorte» ablegen
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/wetterorte"
+          git init -q -b wetterorte
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -qm "Wetterorte $(python3 -c 'import json; print(json.load(open("orte.json"))["run"])')"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" wetterorte
