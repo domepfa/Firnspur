@@ -2826,7 +2826,7 @@ const REGION_SUBAREAS = {
   'Graubünden': ['Oberengadin','Unterengadin','Davos','Arosa/Schanfigg','Prättigau','Albula','Surselva','Safiental','Rheinwald','Avers','Bergell','Puschlav','Val Müstair','Misox','Julierpass','Albulapass','Flüelapass','Ofenpass','Splügenpass','Berninapass'],
   'Tessin': ['Bedretto','Maggiatal','Blenio','Leventina','San Bernardino','Nufenenpass','Gotthardpass','Lukmanierpass'],
   'Zentralschweiz': ['Urner Alpen','Glarner Alpen','Nidwalden','Schwyz','Sustenpass','Klausenpass','Gotthardpass','Jochpass'],
-  'Jura': ['Solothurner Jura','Waadtländer Jura','Baselbieter Jura','Neuenburger Jura','Passwang','Col de Pierre Pertuis','Balmberg'],
+  'Jura': ['Berner Jura','Solothurner Jura','Waadtländer Jura','Baselbieter Jura','Neuenburger Jura','Passwang','Col de Pierre Pertuis','Balmberg'],
   'Freiburger Alpen': ['Gantrischgebiet','Vanil-Noir-Gebiet','Jaunpass'],
   'Waadtländer Alpen': ['Diablerets-Gebiet','Villars/Leysin-Gebiet','Col des Mosses','Col du Pillon','Col de la Croix']
 };
@@ -7028,7 +7028,8 @@ const FSM_OVERLAY_GROUPS = [['wege', 'Wege und Routen'], ['gefahr', 'Gefahren un
 function fsmOpenPanel(map){
   const panel = map._fsm.panel;
   // Startansicht: die Karte ist zwar bildschirmgross, liegt aber unter Glas-Leiste und Blatt
-  const small = map.getContainer().clientHeight < 600 || (fsmIsHomeMap(map) && document.documentElement.classList.contains('fs-mapmode'));
+  // Handy: immer als Blatt (in der Bearbeiten-Karte lief die Liste sonst unten aus dem Bild und liess sich nicht scrollen)
+  const small = map.getContainer().clientHeight < 600 || window.innerWidth < 700 || (fsmIsHomeMap(map) && document.documentElement.classList.contains('fs-mapmode'));
   panel.classList.toggle('fsm-panel-sheet', small);
   if(small){
     if(!map._fsm.panelBack){
@@ -14494,7 +14495,9 @@ function wireAppSwitchSwipe(){
   document.addEventListener('touchstart', (e)=>{
     if(e.touches.length !== 1){ g = null; return; }
     const onBar = !!(e.target.closest && e.target.closest('.app-switch-bar'));
-    g = (onBar || !fsSwipeBlocked(e.target)) ? {x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), mode: null} : null;
+    // Vom äussersten Rand wischt das Handy selbst (Zurück-Geste): nicht als Disziplinwechsel nehmen
+    const x = e.touches[0].clientX, edge = x < 24 || x > window.innerWidth - 24;
+    g = (onBar || (!edge && !fsSwipeBlocked(e.target))) ? {x, y: e.touches[0].clientY, t: Date.now(), mode: null} : null;
   }, {passive:true});
   document.addEventListener('touchmove', (e)=>{
     if(!g || e.touches.length !== 1) return;
@@ -14550,6 +14553,8 @@ function wireAppSwitchSwipe(){
   document.addEventListener('touchcancel', ()=>{ if(g){ g = null; reset(true); } }, {passive:true});
   // Zurück aus dem Verlauf (bfcache) mit verschobener Seite: zurücksetzen
   window.addEventListener('pageshow', ()=> reset(false));
+  // App in den Hintergrund mitten in der Geste (kein touchend): sonst bliebe das Schild mit dem Namen stehen
+  document.addEventListener('visibilitychange', ()=>{ if(g){ g = null; } reset(false); });
 }
 
 /* ================= Vorlagen fuer ChatGPT/Gemini + Bedienungsanleitung (direkt in der App) ================= */
@@ -14645,7 +14650,7 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
     Nufenenpass, Gotthardpass, Lukmanierpass
   - **Zentralschweiz**: Urner Alpen, Glarner Alpen, Nidwalden, Schwyz,
     Sustenpass, Klausenpass, Gotthardpass, Jochpass
-  - **Jura**: Solothurner Jura, Waadtländer Jura, Baselbieter Jura,
+  - **Jura**: Berner Jura, Solothurner Jura, Waadtländer Jura, Baselbieter Jura,
     Neuenburger Jura, Passwang, Col de Pierre Pertuis, Balmberg
   - **Freiburger Alpen**: Gantrischgebiet, Vanil-Noir-Gebiet, Jaunpass
   - **Waadtländer Alpen**: Diablerets-Gebiet, Villars/Leysin-Gebiet, Col des
