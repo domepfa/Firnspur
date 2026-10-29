@@ -5075,6 +5075,19 @@ function fs3dSwissTerrain(){
     return qm.registerQuantizedMeshTerrain(maplibregl, {dataset: ds, decode: dec.default, protocol: 'fsqm'}).sourceSpec;
   })().catch(e=>{ fs3dSwissTerrainP = null; throw e; }));
 }
+// Gipfelnamen mit Höhe in der 3D-Ansicht (Gipfelliste der App), höhere zuerst; MapLibre blendet Überlappende aus
+async function fs3dPeakNames(map){
+  let peaks = [];
+  try{ peaks = await fsPeaksLoad(); }catch(e){ return; }
+  if(fs3dMap !== map || !map.getStyle() || map.getSource('fs3d-peaks')) return;
+  if(!map.getStyle().glyphs){ map.once('styledata', ()=> fs3dPeakNames(map)); return; }
+  map.addSource('fs3d-peaks', {type:'geojson', data:{type:'FeatureCollection', features: peaks.filter(q=> q.name).map(q=> ({type:'Feature',
+    properties:{name: q.name, ele: Math.round(q.ele || 0)}, geometry:{type:'Point', coordinates:[q.lon, q.lat]}}))}});
+  map.addLayer({id:'fs3d-peaks', type:'symbol', source:'fs3d-peaks', minzoom: 10,
+    layout:{'text-field':['case', ['>', ['get', 'ele'], 0], ['concat', ['get', 'name'], '\n', ['to-string', ['get', 'ele']]], ['get', 'name']], 'text-font':['Frutiger Neue Regular'], 'text-size':12.5,
+      'text-anchor':'bottom', 'text-offset':[0, -0.3], 'symbol-sort-key':['-', 0, ['get', 'ele']], 'text-padding':6, 'text-max-width':9},
+    paint:{'text-color':'#ffffff', 'text-halo-color':'rgba(15,30,39,.8)', 'text-halo-width':1.6}});
+}
 function fs3dQualityKey(){
   const conn = navigator.connection || navigator.webkitConnection;
   const cellular = !!(conn && (conn.type === 'cellular' || (!conn.type && conn.saveData)));
@@ -5151,6 +5164,7 @@ function fs3dMlOpen(opts){
       // Grundkarte wie in 2D; reines Luftbild in 3D mit Namen (die Wahl für 2D bleibt unverändert)
       if(fsmPrefs().base === 'luftbild') fsmSetBase(map, 'hybrid', true);
       setDem(quality);
+      fs3dPeakNames(map);
       try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
       // Eigene Linien und Punkte
       const lines = opts.edit ? [] : (opts.lines || fs3dTourLines(t));
