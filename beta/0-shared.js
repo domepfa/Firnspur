@@ -6732,7 +6732,7 @@ function fsmSetOverlay(map, id, on, silent){
   }else if(o.pisten){
     map._fsm.overlays[id] = !!on;
     if(on) fsmPisten(map, o);
-    ['ov-pisten-lift', 'ov-pisten-route', 'ov-pisten'].forEach(l=>{ if(map.getLayer(l)) map.setLayoutProperty(l, 'visibility', on ? 'visible' : 'none'); });
+    ['ov-pisten-lift', 'ov-pisten-route', 'ov-pisten', 'ov-pisten-hit'].forEach(l=>{ if(map.getLayer(l)) map.setLayoutProperty(l, 'visibility', on ? 'visible' : 'none'); });
   }else if(o.parking){
     map._fsm.overlays[id] = !!on;
     if(on){ if(map._fsm.park) map._fsm.park.hinted = false; fsmParking(map, o); }
@@ -6980,6 +6980,8 @@ async function fsmPisten(map, o){
       paint: {'line-color': FS_PISTE_COLS.freeride, 'line-width': w, 'line-opacity': 0.9, 'line-dasharray': [2, 1.5]}}, 'fsm-anchor-names');
     map.addLayer({id: 'ov-pisten', type: 'line', source: 'ov-pisten', filter: ['all', ['!=', ['get', 'lift'], 1], ['!', route]], minzoom: 10, layout: {'line-cap': 'round', 'line-join': 'round'},
       paint: {'line-color': ['match', ['get', 'diff'], ...Object.entries(FS_PISTE_COLS).flat(), '#1971C2'], 'line-width': w, 'line-opacity': 0.9}}, 'fsm-anchor-names');
+    // Unsichtbare breite Linie zum Antippen (die dünnen Linien trifft man mit dem Finger kaum)
+    map.addLayer({id: 'ov-pisten-hit', type: 'line', source: 'ov-pisten', minzoom: 10, paint: {'line-color': '#000', 'line-width': 26, 'line-opacity': 0.01}});
   }
   if(!st.wired){
     st.wired = true;
@@ -6987,11 +6989,12 @@ async function fsmPisten(map, o){
     // Antippen: Name und Schwierigkeit
     const tap = (e)=>{
       const p = e.features && e.features[0] && e.features[0].properties;
-      if(!p) return;
+      // Eine Tour (Linie oder Punkt) an derselben Stelle hat Vorrang
+      if(!p || (e.originalEvent && e.originalEvent._fsmHandled)) return;
       if(e.originalEvent) e.originalEvent._fsmHandled = true;
       fsmPopup(map, e.lngLat, `<div class="fs-cam-pop"><b>${esc(p.name || (p.lift ? 'Lift' : 'Piste'))}</b><span>${esc(p.lift ? (p.kind || 'Lift') : (FS_PISTE_LABEL[p.diff] || 'Piste'))}</span><span class="fs-park-src">Daten: © OpenStreetMap-Mitwirkende</span></div>`, 8);
     };
-    ['ov-pisten', 'ov-pisten-route', 'ov-pisten-lift'].forEach(l=> map.on('click', l, tap));
+    map.on('click', 'ov-pisten-hit', tap);
   }
   if(st.busy || !navigator.onLine) return;
   if(map.getZoom() < FS_PARK_Z - 0.5){
