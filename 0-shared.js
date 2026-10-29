@@ -6850,6 +6850,13 @@ async function fsmWindyCams(map, o){
     });
   }catch(e){}
 }
+// Webcam-Bild antippen: im Vollbild öffnen (Zoomen mit zwei Fingern oder Doppeltippen) statt zur Webseite
+document.addEventListener('click', e=>{
+  const img = e.target.closest && e.target.closest('.fs-cam-pop img, .fs-cond-cams img, .fs-cam-row img');
+  if(!img || !img.src) return;
+  e.preventDefault(); e.stopPropagation();
+  showTopoImageLightbox([{url: img.src}], 0);
+}, true);
 /* ===== Parkplätze (OpenStreetMap) =====
    Abfrage über Overpass je Kachel (Zoom 11, etwa 20 × 13 km), erst ab Zoom 11, beim Verschieben nachgeladen.
    Private Parkplätze und solche nur für Kunden fehlen. Antippen: Name, Gebühr, Plätze, Navigieren, als Ort übernehmen. */
@@ -7105,7 +7112,13 @@ function fsHomePointOffer(ll){
   });
   // Blatt nach unten, damit die Auswahl Platz hat
   if(fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
-  fsmPopup(ml, ll, wrap, 8);
+  // Das Loslassen nach dem Gedrückthalten kommt als Tippen auf die Karte an und würde das Fenster gleich
+  // wieder schliessen: erst ein späteres Tippen schliesst es
+  const t0 = Date.now();
+  const pop = fsmPopup(ml, ll, wrap, 8, {closeOnClick: false});
+  const onClick = ()=>{ if(Date.now() - t0 > 700) pop.remove(); };
+  ml.on('click', onClick);
+  pop.on('close', ()=> ml.off('click', onClick));
 }
 function fsHomeWireHold(ml){
   if(!ml || ml._fsHomeHold) return;
@@ -7925,9 +7938,9 @@ function fsmAddMarker(map, lat, lon, html, opts){
   map._fsm.markers.push(m);
   return m;
 }
-function fsmPopup(map, lngLat, content, offset){
+function fsmPopup(map, lngLat, content, offset, opts){
   if(map._fsm.popup) map._fsm.popup.remove();
-  const p = new maplibregl.Popup({maxWidth: fsmPopupMaxWidth(map), offset: offset || 8, className:'fsm-popup'}).setLngLat(lngLat);
+  const p = new maplibregl.Popup(Object.assign({maxWidth: fsmPopupMaxWidth(map), offset: offset || 8, className:'fsm-popup'}, opts)).setLngLat(lngLat);
   if(typeof content === 'string') p.setHTML(content); else p.setDOMContent(content);
   p.addTo(map);
   fsmPopupStopEvents(p);
