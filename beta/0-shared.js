@@ -1692,6 +1692,47 @@ function fsmTerrainButtons(map){
     pano.hidden = !on;
   });
 }
+// Bearbeiten im Vollbild: die Startkarte ausleihen (gleicher Ausschnitt, Ebenen, 2D/3D), die Werkzeuge des
+// Editors (Punkt, Linie, Route) hängen als FL-Hülle daran; beim Schliessen wird alles Eigene wieder entfernt
+let fsEdFl = null;
+function fsEdAcquire(innerId){
+  if(fsEdFl) fsEdRelease(fsEdFl);
+  // Tour hinter dem Blatt: deren Karte zuerst zurückgeben (wird beim Zurückkehren neu aufgebaut)
+  if(fsCtxUsesHome && fsCtxOwner === 'ctx' && typeof fsDestroyContextMap === 'function') fsDestroyContextMap();
+  if(fsCtxUsesHome || (typeof fsPlanner !== 'undefined' && fsPlanner)) return null;
+  const inner = document.getElementById(innerId);
+  if(!inner) return null;
+  // Ganzflächig wie die bisherige Bearbeiten-Karte (die Bedienung schwebt darüber)
+  inner.style.position = 'absolute'; inner.style.inset = '0';
+  const ml = fsCtxAcquire(innerId, null, 'edit');
+  fsHomeEl.classList.remove('in-ctx');
+  fsHomeEl.classList.add('in-edit');
+  if(ml._fsm && ml._fsm.popup){ try{ ml._fsm.popup.remove(); }catch(e){} }
+  // Tipps gehören dem Editor (keine Infos zu SAC-Routen, Pisten …)
+  ml._fsInfoBlock = ()=> true;
+  const fm = FL.map(ml);
+  ml._fl = fm;
+  fm._onRemove = ()=> fsEdRelease(fm);
+  fsEdFl = fm;
+  return fm;
+}
+function fsEdRelease(fm){
+  if(!fm || fm._released) return;
+  fm._released = true;
+  const ml = fm._ml;
+  fm.detach();
+  ml._fsInfoBlock = null;
+  if(fsEdFl === fm) fsEdFl = null;
+  const reg = window.__activeLeafletMaps;
+  if(reg) Object.keys(reg).forEach(k=>{ if(reg[k] === fm) delete reg[k]; });
+  if(fsHomeEl) fsHomeEl.classList.remove('in-edit');
+  if(fsCtxOwner === 'edit'){
+    if(ml._fsm){ ml._fsm.ctlTop = 52; ml.getContainer().querySelectorAll('.fsm-ctlbox, .fsm-panel').forEach(el=>{ el.style.top = '52px'; }); }
+    fsCtxRelease('edit');
+    // Tour oder Gebiet noch offen: deren Karte wieder hinter das Blatt
+    setTimeout(()=>{ try{ if(typeof fsSheetShowContext === 'function') fsSheetShowContext(); }catch(e){} }, 0);
+  }
+}
 function fsCtxRelease(owner){
   if((owner || 'ctx') !== fsCtxOwner) return;
   fsCtxOwner = '';
@@ -1974,7 +2015,7 @@ function fsHomeRoutesSync(){
     const tap = (e)=>{
       if(e.originalEvent && e.originalEvent._fsHomeRouteSeen) return;
       if(e.originalEvent) e.originalEvent._fsHomeRouteSeen = true;
-      if(fsPlanner || !fsmOverlayOn(map, 'tourrouten') || !map.getLayer('fs-home-routes') || !fsHomePts) return;
+      if(fsPlanner || fsCtxOwner === 'edit' || !fsmOverlayOn(map, 'tourrouten') || !map.getLayer('fs-home-routes') || !fsHomePts) return;
       const tg = e.originalEvent && e.originalEvent.target;
       if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return;
       const r = 14, box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
@@ -4922,6 +4963,8 @@ function closeFullscreenMap(){
     try{ lastPointsEditorMapView = {center: m.getCenter(), zoom: m.getZoom()}; }catch(e){}
   }
   overlay.style.display = 'none';
+  // Ausgeliehene Startkarte zurückgeben, bevor der Inhalt verschwindet
+  if(m && m._onRemove){ try{ m.remove(); }catch(e){} delete window.__activeLeafletMaps['fullscreen-map-container-inner']; }
   const container = document.getElementById('fullscreen-map-container');
   if(container) container.innerHTML = '';
   if(overlay._onClose){ overlay._onClose(); overlay._onClose = null; }
@@ -7023,7 +7066,7 @@ async function fsmPisten(map, o){
     const tap = (e)=>{
       const p = e.features && e.features[0] && e.features[0].properties;
       // Eine Tour (Linie oder Punkt) an derselben Stelle hat Vorrang
-      if(!p || (e.originalEvent && e.originalEvent._fsmHandled)) return;
+      if(!p || (e.originalEvent && e.originalEvent._fsmHandled) || (map._fsInfoBlock && map._fsInfoBlock())) return;
       if(e.originalEvent) e.originalEvent._fsmHandled = true;
       fsmPopup(map, e.lngLat, `<div class="fs-cam-pop"><b>${esc(p.name || (p.lift ? 'Lift' : 'Piste'))}</b><span>${esc(p.lift ? (p.kind || 'Lift') : (FS_PISTE_LABEL[p.diff] || 'Piste'))}</span><span class="fs-park-src">Daten: © OpenStreetMap-Mitwirkende</span></div>`, 8);
     };
@@ -9814,7 +9857,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const center = lastPointsEditorMapView ? lastPointsEditorMapView.center
       : (points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : (firstRefPoint || [46.8182, 8.2275]))));
     const zoom = lastPointsEditorMapView ? lastPointsEditorMapView.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
-    const map = fsmCreateFlMap(mapDivId, isFullscreen ? {on3d: (ml)=> openEditor3d(ml)} : undefined).setView(center, zoom);
+    // Vollbild: dieselbe Karte wie überall (Startkarte ausgeliehen); nur die kleine Karte im Formular ist eigen
+    const map = ((isFullscreen && fsEdAcquire(mapDivId)) || fsmCreateFlMap(mapDivId, isFullscreen ? {on3d: (ml)=> openEditor3d(ml)} : undefined)).setView(center, zoom);
     map._isPointsEditorMap = true;
     if(fsPeTop){
       // Kartenknöpfe (Ebenen, Standort, 3D) unter die schwebende Leiste schieben
@@ -20495,6 +20539,7 @@ function fsFitContextMap(){
   fsmFit(fsCtxMap, fsCtxMap._fsCoords, {top:70, left:30, right:70, bottom: bottom + 20}, 14);
 }
 function fsShowContextMap(t){
+  if(fsCtxOwner === 'edit') return; // Karte gerade beim Bearbeiten im Vollbild; danach neu (fsEdRelease)
   if(!fsTourHasContextData(t)){ fsDestroyContextMap(); return; }
   const key = t.id + '|' + (t.updatedAt || '') + '|' + (fsTourHut(t) ? (fsTourHut(t).updatedAt || '') : '');
   let el = document.getElementById('fs-tour-map');
@@ -20628,6 +20673,7 @@ function fsAreaHasData(a){
   return (a.points||[]).length || (a.spots||[]).length || (a.huts||[]).some(h=> h.points && h.points.length) || (a.tours||[]).some(t=> tourMapPoint(t) || fsTourRoutes(t).length);
 }
 function fsShowAreaContextMap(a){
+  if(fsCtxOwner === 'edit') return;
   if(!fsAreaHasData(a)){ fsDestroyContextMap(); return; }
   const stamp = x=> (x.updatedAt || '') + (x.id || '');
   const key = 'area|' + a.key + '|' + [...(a.tours||[]), ...(a.huts||[])].map(stamp).join(',');

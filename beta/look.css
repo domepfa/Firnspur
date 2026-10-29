@@ -2071,6 +2071,9 @@ html.fs-dark .fs-slf-hit{ background:#3A2C12; color:#F2CF8A; }
 
 /* ===== Eine Karte für alles: Startkarte in Tour/Gebiet ===== */
 .fs-home-map.in-ctx{ opacity:1; }
+.fs-home-map.in-edit{ opacity:1; }
+/* Bearbeiten auf der Startkarte: die anderen Einträge und das Vollbild-Umschalten ausblenden */
+.fs-home-map.in-edit :is(.fs-home-pin, .fs-home-clu, .fs-home-tpt, .fs-xpt), .fs-home-map.in-edit .fsm-full{ display:none !important; }
 .fs-home-map.in-ctx .fs-home-pin{ opacity:.5; }
 
 /* ===== Bergwetter (Tour): Stunden für Gipfel, Hütte, Start ===== */
