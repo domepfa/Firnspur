@@ -5053,7 +5053,8 @@ const FS3D_DEM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x
 let fs3dMap = null;
 function fsOpen3d(opts){
   opts = opts || {};
-  if(opts.panorama || fs3dQuality() === 'hi') return fs3dCesiumOpen(opts);
+  // Eine 3D-Ansicht für «Hoch» und «Spar» (MapLibre, Einstellungen wie in 2D); Cesium nur noch für «Gipfel ringsum»
+  if(opts.panorama) return fs3dCesiumOpen(opts);
   return fs3dMlOpen(opts);
 }
 // Zwischen Hoch (Cesium) und Spar (MapLibre) wechseln, gleicher Ausschnitt, gleicher Verlaufseintrag
@@ -5062,6 +5063,30 @@ function fs3dSwitchQuality(q, view){
   fs3dClose(); fs3dMlClose(); overlayLayers.pop();
   const o = Object.assign({}, view, {reuseHistory: true});
   if(q === 'hi') fs3dCesiumOpen(o); else fs3dMlOpen(o);
+}
+// swisstopo-Gelände (Quantized Mesh wie in Cesium) für MapLibre: die Erweiterung rechnet die Dreiecke in
+// Höhenkacheln um (bis Zoom 16, rund 1.5 m pro Bildpunkt). Einmal geladen und angemeldet.
+let fs3dSwissTerrainP = null;
+function fs3dSwissTerrain(){
+  return fs3dSwissTerrainP || (fs3dSwissTerrainP = (async ()=>{
+    const [qm, dec] = await Promise.all([import('https://unpkg.com/maplibre-gl-3dtiles-terrain@0.1.0/src/index.js'), import('https://unpkg.com/@here/quantized-mesh-decoder@1.2.8/src/index.js')]);
+    const ds = await qm.loadQuantizedMeshDataset('https://3d.geo.admin.ch/ch.swisstopo.terrain.3d/v1/layer.json',
+      {attribution: 'Gelände: © swisstopo', boundsOverride: {west: 5.6, south: 45.5, east: 11.0, north: 48.2}, maxZoom: 16});
+    return qm.registerQuantizedMeshTerrain(maplibregl, {dataset: ds, decode: dec.default, protocol: 'fsqm'}).sourceSpec;
+  })().catch(e=>{ fs3dSwissTerrainP = null; throw e; }));
+}
+// Gipfelnamen mit Höhe in der 3D-Ansicht (Gipfelliste der App), höhere zuerst; MapLibre blendet Überlappende aus
+async function fs3dPeakNames(map){
+  let peaks = [];
+  try{ peaks = await fsPeaksLoad(); }catch(e){ return; }
+  if(fs3dMap !== map || !map.getStyle() || map.getSource('fs3d-peaks')) return;
+  if(!map.getStyle().glyphs){ map.once('styledata', ()=> fs3dPeakNames(map)); return; }
+  map.addSource('fs3d-peaks', {type:'geojson', data:{type:'FeatureCollection', features: peaks.filter(q=> q.name).map(q=> ({type:'Feature',
+    properties:{name: q.name, ele: Math.round(q.ele || 0)}, geometry:{type:'Point', coordinates:[q.lon, q.lat]}}))}});
+  map.addLayer({id:'fs3d-peaks', type:'symbol', source:'fs3d-peaks', minzoom: 10,
+    layout:{'text-field':['case', ['>', ['get', 'ele'], 0], ['concat', ['get', 'name'], '\n', ['to-string', ['get', 'ele']]], ['get', 'name']], 'text-font':['Frutiger Neue Regular'], 'text-size':12.5,
+      'text-anchor':'bottom', 'text-offset':[0, -0.3], 'symbol-sort-key':['-', 0, ['get', 'ele']], 'text-padding':6, 'text-max-width':9},
+    paint:{'text-color':'#ffffff', 'text-halo-color':'rgba(15,30,39,.8)', 'text-halo-width':1.6}});
 }
 function fs3dQualityKey(){
   const conn = navigator.connection || navigator.webkitConnection;
@@ -5101,37 +5126,45 @@ function fs3dMlOpen(opts){
   wrap.querySelector('[data-3d="close"]').addEventListener('click', ()=> closeTopOverlayLayer());
   fsmEnsureLoaded().then(()=>{
     if(!document.getElementById('fs-3d-map')) return;
-    const quality = 'lo';
+    let quality = fs3dQuality();
     const map = fsmCreateMap('fs-3d-map', {center:[opts.lat, opts.lon], zoom: Math.max(11, Math.min(15, (opts.zoom || 13) - 0.5)), ctlTop: 64, gpsOnce: true});
     fs3dMap = map;
     map.setMaxPitch(80);
-    try{ map.setPixelRatio(1); }catch(e){}
+    // Spar: halbe Bildschärfe spart Daten; Hoch: volle Schärfe des Luftbilds
+    const setRatio = (q)=>{ try{ map.setPixelRatio(q === 'hi' ? Math.min(2, window.devicePixelRatio || 1) : 1); }catch(e){} };
+    setRatio(quality);
     fsmWireInfoClicks(map, {sac:{allowAttach:false}});
     // Ebenen-Fenster: zusätzlich die Auflösung (Hoch = schärfer und feineres Gelände, Spar = weniger Daten)
     map._fsm.extraPanel = (panel)=>{
-      const q = 'lo';
+      const q = quality;
       const row = document.createElement('div');
       row.className = 'fsm-extra';
       row.innerHTML = `<div class="fsm-extra-label">Auflösung (Hoch = genaues swisstopo-Gelände)</div><div class="fsm-seg"><button type="button" data-q="hi" class="${q==='hi'?'on':''}">Hoch</button><button type="button" data-q="lo" class="${q==='lo'?'on':''}">Spar</button></div>`;
       row.querySelectorAll('[data-q]').forEach(b=> b.addEventListener('click', ()=>{
         const nq = b.getAttribute('data-q');
-        if(nq === 'hi'){ const c = map.getCenter(); fs3dSwitchQuality('hi', Object.assign({}, opts, {lat: c.lat, lon: c.lng, zoom: map.getZoom() + 0.5, heading: map.getBearing()})); return; }
         try{ localStorage.setItem(fs3dQualityKey().key, nq); }catch(e){}
+        // Umschalten an Ort und Stelle: nur Gelände und Bildschärfe wechseln
+        if(nq !== quality){ quality = nq; setRatio(nq); setDem(nq); }
         fsmSyncPanel(map);
       }));
       panel.appendChild(row);
     };
-    const setDem = (q)=>{
+    // Gelände: Hoch = genaues swisstopo-Gelände (wie map.geo.admin.ch), Spar = gröbere Höhendaten (weniger Daten)
+    const setDem = async (q)=>{
+      let spec = {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 11, attribution:'Höhen: Mapzen/AWS Terrain Tiles'};
+      if(q === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){ showToast('Genaues Gelände gerade nicht verfügbar – gröberes geladen.', true); } }
+      if(fs3dMap !== map || q !== quality) return;
       try{ map.setTerrain(null); }catch(e){}
       if(map.getSource('dem')) map.removeSource('dem');
-      map.addSource('dem', {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: q === 'lo' ? 11 : 14, attribution:'Höhen: Mapzen/AWS Terrain Tiles'});
+      map.addSource('dem', spec);
       map.setTerrain({source:'dem', exaggeration:1});
     };
     fsmWhenLoaded(map, ()=>{
       if(fs3dMap !== map) return;
-      // In 3D immer mit Beschriftung: Luftbild + Namen (die Wahl für 2D bleibt unverändert)
-      if(fsmPrefs().base !== 'hybrid') fsmSetBase(map, 'hybrid', true);
+      // Grundkarte wie in 2D; reines Luftbild in 3D mit Namen (die Wahl für 2D bleibt unverändert)
+      if(fsmPrefs().base === 'luftbild') fsmSetBase(map, 'hybrid', true);
       setDem(quality);
+      fs3dPeakNames(map);
       try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
       // Eigene Linien und Punkte
       const lines = opts.edit ? [] : (opts.lines || fs3dTourLines(t));
@@ -11598,6 +11631,8 @@ function fsmWxTs(st){ return fsmWxStep(st).ts; }
 // Zeigt die Karte gerade Prognose statt Messwerte bzw. Radar/Satellit?
 function fsmWxIsFc(st){ const k = fsmWxStep(st).kind; return !!(st && st.param && st.param.fc && (k === 'fc' || k === 'nc')); }
 const FS_WX_CELL = 56; // Breite einer Zelle der Zeitleiste in px
+// Gewählte Prognosezeit und eingeklappt/offen gelten für alle Karten (2D, Tour, 3D)
+const fsWxShared = {ts: null, folded: false};
 const FS_WX_DAYS = ['So','Mo','Di','Mi','Do','Fr','Sa'];
 function fsWxCodeIcon(c){ return c >= 95 ? 'storm' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? 'snow' : c >= 51 ? 'rain' : c >= 45 ? 'fog' : c === 3 ? 'cloud' : c >= 1 ? 'partly' : 'sun'; }
 function fsWxHourLabel(ts){ const d = new Date(ts); const today = new Date(); const dd = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 864e5); return (dd === 0 ? 'Heute' : dd === 1 ? 'Morgen' : FS_WX_DAYS[d.getDay()]) + ' ' + d.getHours() + ' Uhr'; }
@@ -11637,7 +11672,7 @@ async function fsmWxStart(map){
     });
   }
   st.head.hidden = false; st.xh.hidden = false; st.rdo.hidden = false;
-  fsmWxFold(map, false);
+  fsmWxFold(map, fsWxShared.folded);
   cont.classList.add('fsm-wx-on'); // Touren treten zurück, solange das Wetter gezeigt wird
   // Startkarte: Blatt auf die tiefste Stufe, damit Karte und Zeitleiste Platz haben; ebenso das Blatt einer Tour
   const inTour = !!map.getContainer().closest('#fs-tour-map');
@@ -11655,7 +11690,7 @@ async function fsmWxStart(map){
   }else{ st.symDay = null; st.symH = null; }
   st.param = p; st.pts = []; st.loaded = false; st.measItems = null; st.measSel = {}; st.cur = null;
   // Gewählte Prognosezeit beim Wechsel der Grösse behalten, sonst «Jetzt»
-  const prevTs = fsmWxIsFc(st) ? fsmWxTs(st) : null;
+  const prevTs = st.steps ? (fsmWxIsFc(st) ? fsmWxTs(st) : null) : fsWxShared.ts;
   st.steps = fsWxBuildSteps(p, st);
   st.si = p.sym ? Math.min(st.symSi || 0, Math.max(0, st.steps.length - 1)) : Math.max(0, st.steps.findIndex(x=> prevTs != null ? x.kind === 'fc' && x.ts === prevTs : x.kind === 'now'));
   if(prevTs != null && st.steps[st.si].ts !== prevTs) st.si = st.steps.findIndex(x=> x.kind === 'now');
@@ -11688,7 +11723,7 @@ async function fsmWxStart(map){
   const tools = `<div class="tools"><button type="button" class="fold" aria-label="Wetter-Leiste einklappen">${fsIconHtml('chevdown')}</button><button type="button" class="off" aria-label="Wetter ausblenden">${fsIconHtml('x')}</button></div>`;
   st.head.innerHTML = `${tools}<div class="top"><p class="note"></p>${p.sym ? '' : kinds || legend}</div>${chips}${tl}`;
   st.head.querySelector('.fold').addEventListener('click', ()=> fsmWxFold(map, true));
-  st.head.querySelector('.off').addEventListener('click', ()=>{ fsmWxFold(map, false); fsmSetOverlay(map, 'wetter', false); });
+  st.head.querySelector('.off').addEventListener('click', ()=>{ fsmWxFold(map, false); fsWxShared.ts = null; fsmSetOverlay(map, 'wetter', false); });
   st.head.classList.toggle('no-tl', !p.fc);
   if(!st.ro && window.ResizeObserver){ st.ro = new ResizeObserver(()=> fsmWxSetH(map)); st.ro.observe(st.head); st.ro.observe(st.pill); }
   st.head.querySelectorAll('[data-wx]').forEach(b=> b.addEventListener('click', ()=>{ try{ localStorage.setItem('fs-wx-param', b.getAttribute('data-wx')); }catch(e){} st.card.hidden = true; fsmWxStart(map); }));
@@ -11719,6 +11754,7 @@ function fsmWxWireTimeline(map, st){
     if(i === st.si) return;
     const wasFc = fsmWxIsFc(st);
     st.si = i; mark(); fsmWxNote(map);
+    fsWxShared.ts = fsmWxIsFc(st) ? fsmWxTs(st) : null;
     if(st.param.sym && !st.symDay){ st.symSi = i; cells.forEach(c=>{ const sm = c.querySelector('small'); if(sm) sm.textContent = +c.dataset.i === i ? 'Stunden ›' : ''; }); }
     if(fsmWxIsFc(st) !== wasFc){ st.card.hidden = true; }
     fsmWxPlace(map);
@@ -12273,7 +12309,7 @@ function fsmWxReadoutSoon(){
 function fsmWxFold(map, fold){
   const st = map._fsm && map._fsm.wx;
   if(!st || !st.head) return;
-  st.folded = !!fold;
+  st.folded = fsWxShared.folded = !!fold;
   st.head.classList.toggle('folded', st.folded);
   if(st.pill) st.pill.hidden = !st.folded;
   if(st.folded) fsmWxPlayStop(st);
