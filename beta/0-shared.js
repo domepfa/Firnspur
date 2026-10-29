@@ -1578,12 +1578,8 @@ function fsHomeStartView(){
   return {bounds: [[w, so], [e, n]], fitBoundsOptions: {padding: {top: 60 + ins.top, bottom: 40 + ins.bottom, left: 40, right: 70}, maxZoom: pts.length > 1 ? 11 : 8}};
 }
 function fsHomeCreateMap(){
-  fsHomeMap = fsmCreateMap('fs-home-map-inner', Object.assign({zoom: 7, ctlTop: 52, full: true}, fsHomeStartView(), {on3d: (m)=>{
-    // Tour/Gebiet: Karte hinter dem Blatt an Ort und Stelle neigen; im Vollbild die volle 3D-Ansicht
-    if(fsCtxOn3d && !document.documentElement.classList.contains('fs-mapfull')){ fsmTerrainToggle(m); return; }
-    if(fsCtxOn3d){ fsCtxOn3d(m); return; }
-    const c = m.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom: Math.max(12, m.getZoom()), heading: m.getBearing()});
-  }}));
+  // 3D ist dieselbe Karte, nur geneigt mit Gelände: Ausschnitt, Ebenen, Gedrückthalten, Planer und Hang-Scan bleiben
+  fsHomeMap = fsmCreateMap('fs-home-map-inner', Object.assign({zoom: 7, ctlTop: 52, full: true}, fsHomeStartView(), {on3d: (m)=> fsmTerrainToggle(m)}));
   fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
   fsHomeWireHold(fsHomeMap);
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
@@ -1631,13 +1627,13 @@ function fsCtxAcquire(innerId, on3d, owner){
 async function fsmTerrainToggle(map, on){
   if(on === undefined) on = !map._fsTerrain;
   map._fsTerrain = on;
-  map.getContainer().querySelectorAll('.fsm-3d').forEach(b=>{ b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  fsmTerrainButtons(map);
   if(!on){
     try{ map.setTerrain(null); }catch(e){}
-    if(map.getPitch() > 1) map.easeTo({pitch: 0, padding: {top: 0, left: 0, right: 0, bottom: 0}, duration: 500});
+    if(map.getPitch() > 1) map.easeTo({pitch: 0, duration: 500});
     return;
   }
-  if(!navigator.onLine){ map._fsTerrain = false; map.getContainer().querySelectorAll('.fsm-3d').forEach(b=> b.classList.remove('on')); showToast('3D braucht Internet für das Gelände.', true); return; }
+  if(!navigator.onLine){ map._fsTerrain = false; fsmTerrainButtons(map); showToast('3D braucht Internet für das Gelände.', true); return; }
   if(!map.getSource('fs-terrain')){
     let spec = {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 11, attribution:'Höhen: Mapzen/AWS Terrain Tiles'};
     if(fs3dQuality() === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){} }
@@ -1646,17 +1642,19 @@ async function fsmTerrainToggle(map, on){
   }
   map.setTerrain({source:'fs-terrain', exaggeration:1});
   try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
-  // Schräg auf die Tour, im sichtbaren Teil über dem Blatt
-  const bottom = (typeof fsSheetHeightPx === 'function' && document.documentElement.classList.contains('fs-sheet-open')) ? fsSheetHeightPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent) : 0;
-  const pad = {top: 60, left: 30, right: 70, bottom: bottom + 20};
-  let cam = null, mid = null;
-  if(map._fsCoords && map._fsCoords.length){
+  // Schräg auf denselben Ausschnitt; die Mitte liegt im sichtbaren Teil (über dem Blatt bzw. unter der Leiste)
+  const sheet = document.documentElement.classList.contains('fs-sheet-open');
+  const ins = sheet ? {top: 0, bottom: fsSheetHeightPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent)} : (fsmIsHomeMap(map) ? fsHomeInset() : {top: 0, bottom: 0});
+  const top = 60 + ins.top, bottom = ins.bottom + 20, offset = [0, Math.round((top - bottom) / 2)];
+  let target = {center: map.getCenter(), zoom: Math.max(map.getZoom(), 11)};
+  if(sheet && map._fsCoords && map._fsCoords.length){
+    // Tour offen: schräg auf die Tour
     const bb = new maplibregl.LngLatBounds();
     map._fsCoords.forEach(c=> bb.extend([c[1], c[0]]));
-    mid = bb.getCenter();
-    cam = map.cameraForBounds(bb, {padding: pad, maxZoom: 14, bearing: map.getBearing()});
+    const cam = map.cameraForBounds(bb, {padding: {top, bottom, left: 30, right: 70}, maxZoom: 14, bearing: map.getBearing()});
+    if(cam) target = {center: bb.getCenter(), zoom: cam.zoom - 0.6};
   }
-  map.easeTo(cam ? {center: mid, zoom: cam.zoom - 0.6, bearing: map.getBearing(), pitch: 60, padding: pad, duration: 800} : {pitch: 60, padding: pad, duration: 700});
+  map.easeTo(Object.assign(target, {bearing: map.getBearing(), pitch: 60, offset, duration: 800}));
   // MapLibre 4.7 lässt nach easeTo mit Gelände die Höhe der Mitte eingefroren (bei 0 m): die Tour läge dann
   // weit über dem Bild. Nach jeder Bewegung wieder freigeben, dann rechnet die Karte die Höhe neu.
   if(!map._fsTerrainFix){
@@ -1664,11 +1662,29 @@ async function fsmTerrainToggle(map, on){
     map.on('moveend', ()=>{ if(map.getTerrain() && map._elevationFreeze && !map.isMoving()){ map._elevationFreeze = false; map.triggerRepaint(); } });
   }
 }
+// 3D-Knopf gefüllt, solange 3D an ist; dann darunter «Gipfel ringsum» (Panorama der umliegenden Gipfel)
+function fsmTerrainButtons(map){
+  const on = !!map._fsTerrain;
+  map.getContainer().querySelectorAll('.fsm-3d').forEach(b=>{
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+    let pano = b.parentNode.querySelector('[data-fsm="pano"]');
+    if(!pano){
+      pano = document.createElement('button');
+      pano.type = 'button'; pano.className = 'fsm-btn'; pano.dataset.fsm = 'pano';
+      pano.setAttribute('aria-label', 'Gipfel ringsum');
+      pano.innerHTML = fsIconHtml('mountain');
+      pano.addEventListener('click', ()=>{ const c = map.getCenter(); fsOpen3d({lat: c.lat, lon: c.lng, zoom: map.getZoom(), panorama: true}); });
+      b.after(pano);
+    }
+    pano.hidden = !on;
+  });
+}
 function fsCtxRelease(owner){
   if((owner || 'ctx') !== fsCtxOwner) return;
   fsCtxOwner = '';
   const map = fsHomeMap;
-  if(map && map._fsTerrain){ map._fsTerrain = false; try{ map.setTerrain(null); map.jumpTo({pitch: 0, padding: {top: 0, left: 0, right: 0, bottom: 0}}); }catch(e){} map.getContainer().querySelectorAll('.fsm-3d').forEach(b=>{ b.classList.remove('on'); b.setAttribute('aria-pressed', 'false'); }); }
+  // 3D bleibt an (dieselbe Karte); nur ein früher gesetzter Rand wird zurückgesetzt
+  try{ if(map) map.jumpTo({padding: {top: 0, left: 0, right: 0, bottom: 0}}); }catch(e){}
   fsCtxUsesHome = false; fsCtxOn3d = null;
   if(map && map._fsm){
     try{
