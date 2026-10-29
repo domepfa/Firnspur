@@ -1,6 +1,6 @@
 # Foto-Scan für Kletterrouten — Einrichtung
 
-Drei Cloud Functions in dieser Datei, **alle drei deployt und live**:
+Vier Cloud Functions in dieser Datei, **alle vier deployt und live** (Node.js 22):
 - `scanKletterrouten` — ein Sektor, eine Routenliste.
 - `scanKlettergebiet` — ein Foto mit MEHREREN Sektoren gleichzeitig (z. B. eine ganze
   Führerbuch-Seite mit Sektor A–G), erkennt jeden Sektor samt eigener Routenliste sowie,
@@ -21,7 +21,6 @@ Drei Cloud Functions in dieser Datei, **alle drei deployt und live**:
   («Nr. 112»). Liefert pro Feld den Wert **und das Originalzitat**; die App zeigt alles zum Prüfen,
   nur Angehaktes kommt ins Formular «Neue Tour». Nutzt bewusst ein stärkeres Modell
   (`claude-opus-5-5`) als die Kletter-Scans, weil es hier darum geht, das Wichtige herauszulesen.
-  **Neu – muss einmal deployt werden** (siehe unten), bis dahin meldet der Knopf «noch nicht freigeschaltet».
 
 Falls künftig eine neue Function dazukommt, zeigt ihr "📷 Foto scannen"-Knopf in der App
 bis zum nächsten Deploy eine Fehlermeldung statt zu funktionieren — das ist erwartet und
