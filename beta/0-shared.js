@@ -6732,7 +6732,7 @@ function fsmSetOverlay(map, id, on, silent){
   }else if(o.pisten){
     map._fsm.overlays[id] = !!on;
     if(on) fsmPisten(map, o);
-    ['ov-pisten-lift', 'ov-pisten-route', 'ov-pisten', 'ov-pisten-hit'].forEach(l=>{ if(map.getLayer(l)) map.setLayoutProperty(l, 'visibility', on ? 'visible' : 'none'); });
+    ['ov-pisten-case', 'ov-pisten-lift', 'ov-pisten-route', 'ov-pisten', 'ov-pisten-hit'].forEach(l=>{ if(map.getLayer(l)) map.setLayoutProperty(l, 'visibility', on ? 'visible' : 'none'); });
   }else if(o.parking){
     map._fsm.overlays[id] = !!on;
     if(on){ if(map._fsm.park) map._fsm.park.hinted = false; fsmParking(map, o); }
@@ -6965,21 +6965,25 @@ const FS_PISTE_COLS = {novice: '#2F9E44', easy: '#1971C2', intermediate: '#E0313
 const FS_PISTE_LABEL = {novice: 'sehr leicht', easy: 'leicht', intermediate: 'mittel', advanced: 'schwer', expert: 'sehr schwer', freeride: 'Skiroute / Freeride', extreme: 'extrem'};
 function fsPistenLegendHtml(){
   const sw = (c, dash)=> `<i style="background:${dash ? `repeating-linear-gradient(90deg, ${c} 0 5px, transparent 5px 8px)` : c}; height:4px; border-radius:2px;"></i>`;
-  return `<div class="fsm-legend-row"><span>${sw('#1971C2')}leicht</span><span>${sw('#E03131')}mittel</span><span>${sw('#212529')}schwer</span><span>${sw('#E8590C', true)}Skiroute</span><span>${sw('#495057', true)}Lift</span></div>
+  return `<div class="fsm-legend-row"><span>${sw('#1971C2')}leicht</span><span>${sw('#E03131')}mittel</span><span>${sw('#212529')}schwer</span><span>${sw('#E8590C', true)}Skiroute</span><span>${sw('#343A40', true)}Lift</span></div>
     <small>Aus OpenStreetMap, ohne Gewähr. Ab mittlerem Zoom.</small>`;
 }
 async function fsmPisten(map, o){
   const st = map._fsm.pist = map._fsm.pist || {done: new Set(), seen: new Set(), feats: [], tm: null, busy: false};
   if(!map.getSource('ov-pisten')){
     map.addSource('ov-pisten', {type: 'geojson', data: {type: 'FeatureCollection', features: []}, attribution: 'Pisten: © OpenStreetMap-Mitwirkende'});
-    map.addLayer({id: 'ov-pisten-lift', type: 'line', source: 'ov-pisten', filter: ['==', ['get', 'lift'], 1], minzoom: 10,
-      paint: {'line-color': '#495057', 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1.2, 15, 2.4], 'line-dasharray': [3, 1.5]}}, 'fsm-anchor-names');
-    // Skirouten gestrichelt (Strichmuster lässt sich nicht je Linie wählen: eigene Ebene)
-    const route = ['in', ['get', 'diff'], ['literal', ['freeride', 'extreme']]], w = ['interpolate', ['linear'], ['zoom'], 11, 1.6, 15, 3.5];
-    map.addLayer({id: 'ov-pisten-route', type: 'line', source: 'ov-pisten', filter: ['all', ['!=', ['get', 'lift'], 1], route], minzoom: 10,
-      paint: {'line-color': FS_PISTE_COLS.freeride, 'line-width': w, 'line-opacity': 0.9, 'line-dasharray': [2, 1.5]}}, 'fsm-anchor-names');
-    map.addLayer({id: 'ov-pisten', type: 'line', source: 'ov-pisten', filter: ['all', ['!=', ['get', 'lift'], 1], ['!', route]], minzoom: 10, layout: {'line-cap': 'round', 'line-join': 'round'},
-      paint: {'line-color': ['match', ['get', 'diff'], ...Object.entries(FS_PISTE_COLS).flat(), '#1971C2'], 'line-width': w, 'line-opacity': 0.9}}, 'fsm-anchor-names');
+    // Kräftig mit weissem Rand, damit sie auch auf Luftbild und Fels erkennbar sind
+    const route = ['in', ['get', 'diff'], ['literal', ['freeride', 'extreme']]], isLift = ['==', ['get', 'lift'], 1];
+    const w = ['interpolate', ['linear'], ['zoom'], 11, 2.4, 14, 4, 16, 6];
+    const wc = ['interpolate', ['linear'], ['zoom'], 11, 4.4, 14, 7, 16, 10];
+    map.addLayer({id: 'ov-pisten-case', type: 'line', source: 'ov-pisten', minzoom: 10, layout: {'line-cap': 'round', 'line-join': 'round'},
+      paint: {'line-color': '#ffffff', 'line-width': wc, 'line-opacity': 0.85}}, 'fsm-anchor-names');
+    map.addLayer({id: 'ov-pisten-route', type: 'line', source: 'ov-pisten', filter: ['all', ['!', isLift], route], minzoom: 10,
+      paint: {'line-color': FS_PISTE_COLS.freeride, 'line-width': w, 'line-dasharray': [2, 1.2]}}, 'fsm-anchor-names');
+    map.addLayer({id: 'ov-pisten', type: 'line', source: 'ov-pisten', filter: ['all', ['!', isLift], ['!', route]], minzoom: 10, layout: {'line-cap': 'round', 'line-join': 'round'},
+      paint: {'line-color': ['match', ['get', 'diff'], ...Object.entries(FS_PISTE_COLS).flat(), '#1971C2'], 'line-width': w}}, 'fsm-anchor-names');
+    map.addLayer({id: 'ov-pisten-lift', type: 'line', source: 'ov-pisten', filter: isLift, minzoom: 10,
+      paint: {'line-color': '#343A40', 'line-width': w, 'line-dasharray': [2.5, 1]}}, 'fsm-anchor-names');
     // Unsichtbare breite Linie zum Antippen (die dünnen Linien trifft man mit dem Finger kaum)
     map.addLayer({id: 'ov-pisten-hit', type: 'line', source: 'ov-pisten', minzoom: 10, paint: {'line-color': '#000', 'line-width': 26, 'line-opacity': 0.01}});
   }
