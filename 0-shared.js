@@ -6488,7 +6488,11 @@ const FSM_OVERLAYS = [
   {id:'wanderwege', group:'wege', label:'Wanderwege', icon:'walk', tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
   {id:'wanderrouten', group:'wege', label:'Wanderrouten (SchweizMobil)', icon:'walk', tiles:[FSM_WMTS('ch.astra.wanderland','png')]},
   {id:'skitouren', group:'wege', label:'SAC-Skitouren', icon:'snow', tiles:[FSM_WMTS('ch.swisstopo-karto.skitouren','png')]},
+  // Skipisten und Lifte aus OpenStreetMap (Overpass), ab mittlerem Zoom; siehe fsmPisten
+  {id:'pisten', group:'wege', label:'Skipisten und Lifte', icon:'cable', pisten:true, legend:()=> fsPistenLegendHtml()},
   {id:'hangneigung', group:'gefahr', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
+  // Hangexposition: rechnet das Gerät aus dem Höhenmodell (fsAspect*), Legende im Ebenen-Fenster
+  {id:'exposition', group:'gefahr', label:'Hangexposition', icon:'compass', aspect:true, tiles:['fsaspect://{z}/{x}/{y}'], minzoom: 11, maxzoom: 14, opacity:0.6, attribution:'Höhen: Mapzen/AWS Terrain Tiles', legend:()=> fsAspectLegendHtml()},
   {id:'slf', group:'gefahr', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
   {id:'sperrungen', group:'gefahr', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // ÖV-Haltestellen (BAV); antippen zeigt Name, Fahrplan und «als Ort übernehmen»
@@ -6725,6 +6729,10 @@ function fsmSetOverlay(map, id, on, silent){
   }else if(o.homeOnly){
     map._fsm.overlays[id] = !!on;
     if(fsmIsHomeMap(map)) setTimeout(()=>{ fsHomeRoutesSync(); fsHomeExtrasSync(); }, 0);
+  }else if(o.pisten){
+    map._fsm.overlays[id] = !!on;
+    if(on) fsmPisten(map, o);
+    ['ov-pisten-case', 'ov-pisten-lift', 'ov-pisten-route', 'ov-pisten', 'ov-pisten-hit'].forEach(l=>{ if(map.getLayer(l)) map.setLayoutProperty(l, 'visibility', on ? 'visible' : 'none'); });
   }else if(o.parking){
     map._fsm.overlays[id] = !!on;
     if(on){ if(map._fsm.park) map._fsm.park.hinted = false; fsmParking(map, o); }
@@ -6740,6 +6748,7 @@ function fsmSetOverlay(map, id, on, silent){
       map.addLayer({id:lid, type:'fill', source:lid, paint:{'fill-color':['get','color'], 'fill-opacity':0.45, 'fill-outline-color':'#555'}}, 'fsm-anchor-names');
       fsmLoadSlf(map, lid);
     }else{
+      if(o.aspect) fsAspectEnsureProtocol();
       map.addSource(lid, Object.assign({type:'raster', tiles: o.tiles, tileSize:256, maxzoom: o.maxzoom || 18}, o.attribution ? {attribution: o.attribution} : {}));
       map.addLayer(Object.assign({id:lid, type:'raster', source:lid, paint:{'raster-opacity': o.opacity || 1}}, o.minzoom ? {minzoom: o.minzoom} : {}), 'fsm-anchor-names');
       if(o.minzoom && map.getZoom() < o.minzoom) showToast(o.label + ': erst ab näherem Zoom sichtbar.');
@@ -6898,6 +6907,129 @@ document.addEventListener('click', e=>{
   e.preventDefault(); e.stopPropagation();
   showTopoImageLightbox([{url: img.src}], 0);
 }, true);
+/* ===== Hangexposition (Ebene) =====
+   Wohin ein Hang schaut, gerechnet auf dem Gerät aus dem Höhenmodell (Terrarium wie 3D «Spar», etwa 30 m genau):
+   Nordhänge blau, Südhänge orange; flaches Gelände (unter etwa 10°) bleibt frei. Kacheln über das Protokoll fsaspect://. */
+const FS_ASPECT_STOPS = [[0, [43, 95, 168]], [45, [111, 163, 214]], [90, [185, 204, 217]], [135, [240, 192, 138]], [180, [232, 121, 43]], [225, [180, 84, 42]], [270, [107, 91, 134]], [315, [59, 74, 143]], [360, [43, 95, 168]]];
+const FS_ASPECT_DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
+let fsAspectLut = null, fsAspectProto = false;
+function fsAspectRgb(deg){
+  const S = FS_ASPECT_STOPS;
+  let i = 0; while(i < S.length - 2 && deg > S[i + 1][0]) i++;
+  const f = (deg - S[i][0]) / (S[i + 1][0] - S[i][0]);
+  return S[i][1].map((v, k)=> Math.round(v + (S[i + 1][1][k] - v) * f));
+}
+function fsAspectLegendHtml(){
+  return `<div class="fsm-legend-row">${FS_ASPECT_DIRS.map((d, i)=> `<span><i style="background:rgb(${fsAspectRgb(i * 45).join(',')})"></i>${d}</span>`).join('')}</div>
+    <small>Richtung, in die der Hang abfällt. Flaches Gelände bleibt frei. Aus dem Höhenmodell (etwa 30 m), ab mittlerem Zoom.</small>`;
+}
+function fsAspectEnsureProtocol(){
+  if(fsAspectProto || typeof maplibregl === 'undefined' || !maplibregl.addProtocol) return;
+  fsAspectProto = true;
+  fsAspectLut = new Uint8Array(361 * 3);
+  for(let d = 0; d <= 360; d++) fsAspectLut.set(fsAspectRgb(d), d * 3);
+  maplibregl.addProtocol('fsaspect', async (params, abort)=>{
+    const m = /fsaspect:\/\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
+    if(!m) throw new Error('fsaspect');
+    const z = +m[1], tx = +m[2], ty = +m[3];
+    const r = await fetch(FS3D_DEM.replace('{z}', z).replace('{x}', tx).replace('{y}', ty), {signal: abort && abort.signal});
+    if(!r.ok) throw new Error('Höhenkachel ' + r.status);
+    const bmp = await createImageBitmap(await r.blob());
+    const mk = ()=> typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(256, 256) : Object.assign(document.createElement('canvas'), {width: 256, height: 256});
+    const src = mk(), sx = src.getContext('2d', {willReadFrequently: true});
+    sx.drawImage(bmp, 0, 0);
+    const d = sx.getImageData(0, 0, 256, 256).data, e = new Float32Array(65536);
+    for(let i = 0; i < 65536; i++) e[i] = d[i * 4] * 256 + d[i * 4 + 1] + d[i * 4 + 2] / 256 - 32768;
+    // Bildpunktgrösse in Metern (Mitte der Kachel)
+    const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 0.5) / Math.pow(2, z)))), cell = 40075016.686 * Math.cos(lat) / (256 * Math.pow(2, z));
+    const out = mk(), ox = out.getContext('2d'), im = ox.createImageData(256, 256), o = im.data;
+    const E = (x, y)=> e[(y < 0 ? 0 : y > 255 ? 255 : y) * 256 + (x < 0 ? 0 : x > 255 ? 255 : x)];
+    for(let y = 0; y < 256; y++) for(let x = 0; x < 256; x++){
+      const a = E(x - 1, y - 1), b = E(x, y - 1), c = E(x + 1, y - 1), dd = E(x - 1, y), f = E(x + 1, y), g = E(x - 1, y + 1), h = E(x, y + 1), k = E(x + 1, y + 1);
+      const gx = ((c + 2 * f + k) - (a + 2 * dd + g)) / (8 * cell), gn = ((a + 2 * b + c) - (g + 2 * h + k)) / (8 * cell);
+      const slope = Math.atan(Math.hypot(gx, gn)) * 180 / Math.PI;
+      if(slope < 8) continue;
+      const asp = Math.round(((Math.atan2(-gx, -gn) * 180 / Math.PI) + 360) % 360), q = (y * 256 + x) * 4;
+      o[q] = fsAspectLut[asp * 3]; o[q + 1] = fsAspectLut[asp * 3 + 1]; o[q + 2] = fsAspectLut[asp * 3 + 2];
+      o[q + 3] = slope >= 15 ? 255 : Math.round((slope - 8) / 7 * 255);
+    }
+    ox.putImageData(im, 0, 0);
+    const blob = out.convertToBlob ? await out.convertToBlob({type: 'image/png'}) : await new Promise(res=> out.toBlob(res, 'image/png'));
+    return {data: await blob.arrayBuffer()};
+  });
+}
+/* ===== Skipisten und Lifte (OpenStreetMap) =====
+   Abfrage über Overpass je Kachel (Zoom 11, wie Parkplätze), erst ab Zoom 11. Farben wie in der Schweiz:
+   blau leicht, rot mittel, schwarz schwer, orange gestrichelt Skiroute/Freeride; Lifte dunkel gestrichelt. */
+const FS_PISTE_COLS = {novice: '#2F9E44', easy: '#1971C2', intermediate: '#E03131', advanced: '#212529', expert: '#212529', freeride: '#E8590C', extreme: '#E8590C'};
+const FS_PISTE_LABEL = {novice: 'sehr leicht', easy: 'leicht', intermediate: 'mittel', advanced: 'schwer', expert: 'sehr schwer', freeride: 'Skiroute / Freeride', extreme: 'extrem'};
+function fsPistenLegendHtml(){
+  const sw = (c, dash)=> `<i style="background:${dash ? `repeating-linear-gradient(90deg, ${c} 0 5px, transparent 5px 8px)` : c}; height:4px; border-radius:2px;"></i>`;
+  return `<div class="fsm-legend-row"><span>${sw('#1971C2')}leicht</span><span>${sw('#E03131')}mittel</span><span>${sw('#212529')}schwer</span><span>${sw('#E8590C', true)}Skiroute</span><span>${sw('#343A40', true)}Lift</span></div>
+    <small>Aus OpenStreetMap, ohne Gewähr. Ab mittlerem Zoom.</small>`;
+}
+async function fsmPisten(map, o){
+  const st = map._fsm.pist = map._fsm.pist || {done: new Set(), seen: new Set(), feats: [], tm: null, busy: false};
+  if(!map.getSource('ov-pisten')){
+    map.addSource('ov-pisten', {type: 'geojson', data: {type: 'FeatureCollection', features: []}, attribution: 'Pisten: © OpenStreetMap-Mitwirkende'});
+    // Kräftig mit weissem Rand, damit sie auch auf Luftbild und Fels erkennbar sind
+    const route = ['in', ['get', 'diff'], ['literal', ['freeride', 'extreme']]], isLift = ['==', ['get', 'lift'], 1];
+    const w = ['interpolate', ['linear'], ['zoom'], 11, 2.4, 14, 4, 16, 6];
+    const wc = ['interpolate', ['linear'], ['zoom'], 11, 4.4, 14, 7, 16, 10];
+    map.addLayer({id: 'ov-pisten-case', type: 'line', source: 'ov-pisten', minzoom: 10, layout: {'line-cap': 'round', 'line-join': 'round'},
+      paint: {'line-color': '#ffffff', 'line-width': wc, 'line-opacity': 0.85}}, 'fsm-anchor-names');
+    map.addLayer({id: 'ov-pisten-route', type: 'line', source: 'ov-pisten', filter: ['all', ['!', isLift], route], minzoom: 10,
+      paint: {'line-color': FS_PISTE_COLS.freeride, 'line-width': w, 'line-dasharray': [2, 1.2]}}, 'fsm-anchor-names');
+    map.addLayer({id: 'ov-pisten', type: 'line', source: 'ov-pisten', filter: ['all', ['!', isLift], ['!', route]], minzoom: 10, layout: {'line-cap': 'round', 'line-join': 'round'},
+      paint: {'line-color': ['match', ['get', 'diff'], ...Object.entries(FS_PISTE_COLS).flat(), '#1971C2'], 'line-width': w}}, 'fsm-anchor-names');
+    map.addLayer({id: 'ov-pisten-lift', type: 'line', source: 'ov-pisten', filter: isLift, minzoom: 10,
+      paint: {'line-color': '#343A40', 'line-width': w, 'line-dasharray': [2.5, 1]}}, 'fsm-anchor-names');
+    // Unsichtbare breite Linie zum Antippen (die dünnen Linien trifft man mit dem Finger kaum)
+    map.addLayer({id: 'ov-pisten-hit', type: 'line', source: 'ov-pisten', minzoom: 10, paint: {'line-color': '#000', 'line-width': 26, 'line-opacity': 0.01}});
+  }
+  if(!st.wired){
+    st.wired = true;
+    map.on('moveend', ()=>{ clearTimeout(st.tm); st.tm = setTimeout(()=>{ if(fsmOverlayOn(map, o.id)) fsmPisten(map, o); }, 400); });
+    // Antippen: Name und Schwierigkeit
+    const tap = (e)=>{
+      const p = e.features && e.features[0] && e.features[0].properties;
+      // Eine Tour (Linie oder Punkt) an derselben Stelle hat Vorrang
+      if(!p || (e.originalEvent && e.originalEvent._fsmHandled)) return;
+      if(e.originalEvent) e.originalEvent._fsmHandled = true;
+      fsmPopup(map, e.lngLat, `<div class="fs-cam-pop"><b>${esc(p.name || (p.lift ? 'Lift' : 'Piste'))}</b><span>${esc(p.lift ? (p.kind || 'Lift') : (FS_PISTE_LABEL[p.diff] || 'Piste'))}</span><span class="fs-park-src">Daten: © OpenStreetMap-Mitwirkende</span></div>`, 8);
+    };
+    map.on('click', 'ov-pisten-hit', tap);
+  }
+  if(st.busy || !navigator.onLine) return;
+  if(map.getZoom() < FS_PARK_Z - 0.5){
+    if(!st.hinted){ st.hinted = true; showToast('Skipisten: erst ab näherem Zoom sichtbar.'); }
+    return;
+  }
+  const todo = fsParkTiles(map).filter(t=> !st.done.has(t.join('/')));
+  if(!todo.length) return;
+  const bx = todo.map(t=> fsParkTileBox(t[0], t[1]));
+  const bb = [Math.min(...bx.map(b=> b.s)), Math.min(...bx.map(b=> b.w)), Math.max(...bx.map(b=> b.n)), Math.max(...bx.map(b=> b.e))].map(v=> v.toFixed(4)).join(',');
+  const q = `[out:json][timeout:25];(way["piste:type"="downhill"](${bb});way["aerialway"~"^(cable_car|gondola|mixed_lift|chair_lift|drag_lift|t-bar|j-bar|platter|rope_tow|magic_carpet|funicular)$"](${bb}););out geom tags 3000;`;
+  st.busy = true;
+  try{
+    const r = await fetch('https://overpass-api.de/api/interpreter', {method: 'POST', body: 'data=' + encodeURIComponent(q), headers: {'Content-Type': 'application/x-www-form-urlencoded'}});
+    if(!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    if(!map._fsm || !map.getSource('ov-pisten')) return;
+    todo.forEach(t=> st.done.add(t.join('/')));
+    const kinds = {cable_car: 'Luftseilbahn', gondola: 'Gondelbahn', mixed_lift: 'Kombibahn', chair_lift: 'Sesselbahn', drag_lift: 'Skilift', 't-bar': 'Skilift', 'j-bar': 'Skilift', platter: 'Tellerlift', rope_tow: 'Seillift', magic_carpet: 'Förderband', funicular: 'Standseilbahn'};
+    (j.elements || []).forEach(el=>{
+      if(st.seen.has(el.id) || !el.geometry || el.geometry.length < 2) return;
+      st.seen.add(el.id);
+      const t = el.tags || {}, lift = t.aerialway ? 1 : 0;
+      st.feats.push({type: 'Feature', properties: {lift, diff: t['piste:difficulty'] || '', name: t.name || t['piste:name'] || '', kind: kinds[t.aerialway] || ''},
+        geometry: {type: 'LineString', coordinates: el.geometry.map(g=> [g.lon, g.lat])}});
+    });
+    map.getSource('ov-pisten').setData({type: 'FeatureCollection', features: st.feats});
+  }catch(e){
+    if(!st.failed){ st.failed = true; showToast('Skipisten gerade nicht verfügbar.', true); }
+  }finally{ st.busy = false; }
+}
 /* ===== Parkplätze (OpenStreetMap) =====
    Abfrage über Overpass je Kachel (Zoom 11, etwa 20 × 13 km), erst ab Zoom 11, beim Verschieben nachgeladen.
    Private Parkplätze und solche nur für Kunden fehlen. Antippen: Name, Gebühr, Plätze, Navigieren, als Ort übernehmen. */
@@ -7933,7 +8065,8 @@ function fsmSyncPanel(map){
   const base = map._fsm.base || p.base;
   const ovs = fsmOverlaysForApp(map);
   const dayLbl = fsSatDayLabel;
-  const row = o=> `<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`;
+  const row = o=> `<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`
+    + (o.legend && fsmOverlayOn(map, o.id) ? `<div class="fsm-legend">${o.legend()}</div>` : '');
   const sat = map._fsm.sat || 'off';
   const satRow = `<div class="fsm-sat"><span>Satellit</span><div class="fsm-seg">${[['off', 'Aus']].concat(Object.keys(FS_SAT).map(k=> [k, FS_SAT[k].label])).map(([k, l])=> `<button type="button" data-sat="${k}" class="${sat === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`
     + (sat === 'nasa' ? `<div class="fsm-seg fsm-days">${[1, 2, 3].map(n=> `<button type="button" data-day="${n}" class="${fsNasaDay === n ? 'on' : ''}">${dayLbl(n)}</button>`).join('')}</div>` : '');
