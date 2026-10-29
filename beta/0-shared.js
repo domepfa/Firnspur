@@ -6850,6 +6850,13 @@ async function fsmWindyCams(map, o){
     });
   }catch(e){}
 }
+// Webcam-Bild antippen: im Vollbild öffnen (Zoomen mit zwei Fingern oder Doppeltippen) statt zur Webseite
+document.addEventListener('click', e=>{
+  const img = e.target.closest && e.target.closest('.fs-cam-pop img, .fs-cond-cams img, .fs-cam-row img');
+  if(!img || !img.src) return;
+  e.preventDefault(); e.stopPropagation();
+  showTopoImageLightbox([{url: img.src}], 0);
+}, true);
 /* ===== Parkplätze (OpenStreetMap) =====
    Abfrage über Overpass je Kachel (Zoom 11, etwa 20 × 13 km), erst ab Zoom 11, beim Verschieben nachgeladen.
    Private Parkplätze und solche nur für Kunden fehlen. Antippen: Name, Gebühr, Plätze, Navigieren, als Ort übernehmen. */
