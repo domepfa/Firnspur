@@ -2826,7 +2826,7 @@ const REGION_SUBAREAS = {
   'Graubünden': ['Oberengadin','Unterengadin','Davos','Arosa/Schanfigg','Prättigau','Albula','Surselva','Safiental','Rheinwald','Avers','Bergell','Puschlav','Val Müstair','Misox','Julierpass','Albulapass','Flüelapass','Ofenpass','Splügenpass','Berninapass'],
   'Tessin': ['Bedretto','Maggiatal','Blenio','Leventina','San Bernardino','Nufenenpass','Gotthardpass','Lukmanierpass'],
   'Zentralschweiz': ['Urner Alpen','Glarner Alpen','Nidwalden','Schwyz','Sustenpass','Klausenpass','Gotthardpass','Jochpass'],
-  'Jura': ['Solothurner Jura','Waadtländer Jura','Baselbieter Jura','Neuenburger Jura','Passwang','Col de Pierre Pertuis','Balmberg'],
+  'Jura': ['Berner Jura','Solothurner Jura','Waadtländer Jura','Baselbieter Jura','Neuenburger Jura','Passwang','Col de Pierre Pertuis','Balmberg'],
   'Freiburger Alpen': ['Gantrischgebiet','Vanil-Noir-Gebiet','Jaunpass'],
   'Waadtländer Alpen': ['Diablerets-Gebiet','Villars/Leysin-Gebiet','Col des Mosses','Col du Pillon','Col de la Croix']
 };
@@ -14645,7 +14645,7 @@ Kartenpunkten, z. B. Parkplatz, Bushaltestelle, Ausgangspunkt, Hütte selbst.
     Nufenenpass, Gotthardpass, Lukmanierpass
   - **Zentralschweiz**: Urner Alpen, Glarner Alpen, Nidwalden, Schwyz,
     Sustenpass, Klausenpass, Gotthardpass, Jochpass
-  - **Jura**: Solothurner Jura, Waadtländer Jura, Baselbieter Jura,
+  - **Jura**: Berner Jura, Solothurner Jura, Waadtländer Jura, Baselbieter Jura,
     Neuenburger Jura, Passwang, Col de Pierre Pertuis, Balmberg
   - **Freiburger Alpen**: Gantrischgebiet, Vanil-Noir-Gebiet, Jaunpass
   - **Waadtländer Alpen**: Diablerets-Gebiet, Villars/Leysin-Gebiet, Col des
