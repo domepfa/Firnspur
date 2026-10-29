@@ -1634,12 +1634,7 @@ async function fsmTerrainToggle(map, on){
     return;
   }
   if(!navigator.onLine){ map._fsTerrain = false; fsmTerrainButtons(map); showToast('3D braucht Internet für das Gelände.', true); return; }
-  if(!map.getSource('fs-terrain')){
-    let spec = {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 11, attribution:'Höhen: Mapzen/AWS Terrain Tiles'};
-    if(fs3dQuality() === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){} }
-    if(!map._fsTerrain || map.getSource('fs-terrain')) return;
-    map.addSource('fs-terrain', spec);
-  }
+  if(!(await fsmTerrainSource(map))) return;
   map.setTerrain({source:'fs-terrain', exaggeration:1});
   try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
   // Schräg auf denselben Ausschnitt; die Mitte liegt im sichtbaren Teil (über dem Blatt bzw. unter der Leiste)
@@ -1661,6 +1656,24 @@ async function fsmTerrainToggle(map, on){
     map._fsTerrainFix = true;
     map.on('moveend', ()=>{ if(map.getTerrain() && map._elevationFreeze && !map.isMoving()){ map._elevationFreeze = false; map.triggerRepaint(); } });
   }
+}
+// Gelände-Quelle nach gewählter Auflösung: Hoch = swisstopo-Gelände (wie map.geo.admin.ch, bis etwa 1.5 m), Spar = gröber
+async function fsmTerrainSource(map){
+  const q = fs3dQuality();
+  if(map.getSource('fs-terrain') && map._fsTerrainQ === q) return true;
+  let spec = {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 11, attribution:'Höhen: Mapzen/AWS Terrain Tiles'};
+  if(q === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){ showToast('Genaues Gelände gerade nicht verfügbar – gröberes geladen.', true); } }
+  if(!map._fsTerrain || q !== fs3dQuality()) return false;
+  try{ map.setTerrain(null); }catch(e){}
+  if(map.getSource('fs-terrain')) map.removeSource('fs-terrain');
+  map.addSource('fs-terrain', spec);
+  map._fsTerrainQ = q;
+  return true;
+}
+async function fsmTerrainSetQuality(map, q){
+  try{ localStorage.setItem(fs3dQualityKey().key, q); }catch(e){}
+  if(map._fsTerrain && await fsmTerrainSource(map)) map.setTerrain({source:'fs-terrain', exaggeration:1});
+  fsmSyncPanel(map);
 }
 // 3D-Knopf gefüllt, solange 3D an ist; dann darunter «Gipfel ringsum» (Panorama der umliegenden Gipfel)
 function fsmTerrainButtons(map){
@@ -8097,6 +8110,13 @@ function fsmSyncPanel(map){
   panel.querySelectorAll('[data-sat]').forEach(b=> b.addEventListener('click', ()=> fsmSetSat(map, b.dataset.sat)));
   // Tag des täglichen Satellitenbilds
   panel.querySelectorAll('[data-day]').forEach(b=> b.addEventListener('click', ()=> fsmSetNasaDay(map, +b.dataset.day)));
+  if(map._fsTerrain){
+    const q = fs3dQuality(), row = document.createElement('div');
+    row.className = 'fsm-extra';
+    row.innerHTML = `<div class="fsm-extra-label">3D-Gelände (Hoch = genaues swisstopo-Gelände)</div><div class="fsm-seg"><button type="button" data-q="hi" class="${q === 'hi' ? 'on' : ''}">Hoch</button><button type="button" data-q="lo" class="${q === 'lo' ? 'on' : ''}">Spar</button></div>`;
+    row.querySelectorAll('[data-q]').forEach(b=> b.addEventListener('click', ()=> fsmTerrainSetQuality(map, b.dataset.q)));
+    panel.appendChild(row);
+  }
   if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
 }
 /* --- Eigene Inhalte --- */
