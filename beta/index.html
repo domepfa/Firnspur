@@ -2572,6 +2572,7 @@ function wireModalHandlers__sw(){
   if(pointsMapToggleBtn) pointsMapToggleBtn.addEventListener('click', ()=>{
     const mapDiv = document.getElementById('points-map');
     if(mapDiv) mapDiv.style.display = '';
+    pointsMapToggleBtn.style.display = 'none'; // die Übersicht hat ihren eigenen Knopf zur Karte
     const refTracks = [];
     // Der eigene GPX-Track der Tour (falls vorhanden) wird nicht mehr als starre Referenzlinie
     // gezeigt, sondern direkt in dieser Karte bearbeitbar (siehe gpxConfig unten) – ersetzt die
@@ -2599,6 +2600,7 @@ function wireModalHandlers__sw(){
       duration: tourFormForAutofill.querySelector('[name="duration"]')
     } : null;
     renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', pmRefTracks, undefined, pmAutofillFields, pmGpxConfig);
+    { const ob = document.getElementById('points-map-open'); if(ob && !fsEdNoAuto) ob.click(); } // gleich die Bearbeiten-Karte (Startkarte im Vollbild)
   });
   // Direkter Sprung von der Übersichtskarte ins Bearbeiten (siehe openTourEditFromMap &Co. in
   // 0-shared.js) öffnet die Punkte-Karte gleich mit, statt den Knopf oben extra antippen zu müssen.
@@ -2621,7 +2623,7 @@ function wireModalHandlers__sw(){
   // "Karte öffnen".
   function refreshPointsMapIfOpen(){
     const pointsMapDiv = document.getElementById('points-map');
-    if(pointsMapDiv && pointsMapDiv.style.display !== 'none' && pointsMapToggleBtn) pointsMapToggleBtn.click();
+    if(pointsMapDiv && pointsMapDiv.style.display !== 'none' && pointsMapToggleBtn) { fsEdNoAuto = true; pointsMapToggleBtn.click(); fsEdNoAuto = false; }
   }
   if(root.querySelector('#fs-routes-edit')) fsWireRoutesEditor();
   const gpxFileInput = root.querySelector('#gpx-file-input');
@@ -2739,6 +2741,9 @@ function wireModalHandlers__sw(){
       const qeRefTracks = refTracks.concat(siblingRouteRefTracks(item, null));
       const qeGpxConfig = (kind==='tour') ? { hiddenId: `quick-track-simplified-hidden-${id}`, id, trackPathPrefix: GPX_TRACKS_PATH, statusId: null } : null;
       renderPointsEditorMap(mapContainerId, `quick-points-hidden-${id}`, `quick-edit-list-${id}`, `quick-manual-track-hidden-${id}`, qeRefTracks, undefined, undefined, qeGpxConfig);
+      // Gleich die Bearbeiten-Karte (Startkarte im Vollbild) öffnen; im Blatt bleiben Übersicht, Speichern und Verwerfen
+      const openBtn = document.getElementById(mapContainerId + '-open');
+      if(openBtn) openBtn.click();
     });
   });
 
@@ -3085,7 +3090,7 @@ function wireModalHandlers__sw(){
     const routeMapToggleBtn = document.getElementById('access-route-map-toggle-btn');
     function refreshAccessRouteMapIfOpen(){
       const mapDiv = document.getElementById('access-route-map');
-      if(mapDiv && mapDiv.style.display !== 'none' && routeMapToggleBtn) routeMapToggleBtn.click();
+      if(mapDiv && mapDiv.style.display !== 'none' && routeMapToggleBtn) { fsEdNoAuto = true; routeMapToggleBtn.click(); fsEdNoAuto = false; }
     }
     const gpxInput = document.getElementById('access-route-gpx-input');
     if(gpxInput) gpxInput.addEventListener('change', ()=>{
@@ -3098,6 +3103,7 @@ function wireModalHandlers__sw(){
     });
 
     if(routeMapToggleBtn) routeMapToggleBtn.addEventListener('click', ()=>{
+      routeMapToggleBtn.style.display = 'none'; // die Übersicht hat ihren eigenen Knopf zur Karte
       const mapDiv = document.getElementById('access-route-map');
       if(mapDiv) mapDiv.style.display = '';
       if(!document.getElementById('access-route-points-dummy')){
@@ -3116,6 +3122,7 @@ function wireModalHandlers__sw(){
       const arAutofillFields = { ascent: accessRouteForm.querySelector('[name="elevation"]'), duration: accessRouteForm.querySelector('[name="duration"]') };
       const arGpxConfig = { hiddenId: 'access-route-track-hidden', idHiddenId: 'access-route-id-for-track', trackPathPrefix: ACCESS_ROUTE_GPX_PATH, statusId: 'access-route-gpx-status' };
       renderPointsEditorMap('access-route-map', 'access-route-points-dummy', 'access-route-points-dummy-list', 'access-route-manual-track-hidden', arRefTracks, arRefPoints, arAutofillFields, arGpxConfig);
+      { const ob = document.getElementById('access-route-map-open'); if(ob && !fsEdNoAuto) ob.click(); } // gleich die Bearbeiten-Karte (Startkarte im Vollbild)
     });
 
     const routeSaveBtn = document.getElementById('access-route-save-btn');
@@ -7880,6 +7887,7 @@ function wireModalHandlers__fix(){
   if(pointsMapToggleBtn) pointsMapToggleBtn.addEventListener('click', ()=>{
     const mapDiv = document.getElementById('points-map');
     if(mapDiv) mapDiv.style.display = '';
+    pointsMapToggleBtn.style.display = 'none'; // die Übersicht hat ihren eigenen Knopf zur Karte
     const refTracks = [];
     // Der eigene GPX-Track der Tour (falls vorhanden) wird nicht mehr als starre Referenzlinie
     // gezeigt, sondern direkt in dieser Karte bearbeitbar (siehe gpxConfig unten) – ersetzt die
@@ -7909,6 +7917,7 @@ function wireModalHandlers__fix(){
       duration: tourFormForAutofill.querySelector('[name="duration"]')
     } : null;
     renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', pmRefTracks, undefined, pmAutofillFields, pmGpxConfig);
+    { const ob = document.getElementById('points-map-open'); if(ob && !fsEdNoAuto) ob.click(); } // gleich die Bearbeiten-Karte (Startkarte im Vollbild)
   });
   // Direkter Sprung von der Übersichtskarte ins Bearbeiten (siehe openTourEditFromMap &Co. in
   // 0-shared.js) öffnet die Punkte-Karte gleich mit, statt den Knopf oben extra antippen zu müssen.
@@ -7931,7 +7940,7 @@ function wireModalHandlers__fix(){
   // "Karte öffnen".
   function refreshPointsMapIfOpen(){
     const pointsMapDiv = document.getElementById('points-map');
-    if(pointsMapDiv && pointsMapDiv.style.display !== 'none' && pointsMapToggleBtn) pointsMapToggleBtn.click();
+    if(pointsMapDiv && pointsMapDiv.style.display !== 'none' && pointsMapToggleBtn) { fsEdNoAuto = true; pointsMapToggleBtn.click(); fsEdNoAuto = false; }
   }
   if(root.querySelector('#fs-routes-edit')) fsWireRoutesEditor();
   const gpxFileInput = root.querySelector('#gpx-file-input');
@@ -8129,6 +8138,9 @@ function wireModalHandlers__fix(){
       const qeRefTracks = refTracks.concat(siblingRouteRefTracks(item, null));
       const qeGpxConfig = (kind==='tour') ? { hiddenId: `quick-track-simplified-hidden-${id}`, id, trackPathPrefix: GPX_TRACKS_PATH, statusId: null } : null;
       renderPointsEditorMap(mapContainerId, `quick-points-hidden-${id}`, `quick-edit-list-${id}`, `quick-manual-track-hidden-${id}`, qeRefTracks, undefined, undefined, qeGpxConfig);
+      // Gleich die Bearbeiten-Karte (Startkarte im Vollbild) öffnen; im Blatt bleiben Übersicht, Speichern und Verwerfen
+      const openBtn = document.getElementById(mapContainerId + '-open');
+      if(openBtn) openBtn.click();
     });
   });
 
@@ -8545,7 +8557,7 @@ function wireModalHandlers__fix(){
     const routeMapToggleBtn = document.getElementById('access-route-map-toggle-btn');
     function refreshAccessRouteMapIfOpen(){
       const mapDiv = document.getElementById('access-route-map');
-      if(mapDiv && mapDiv.style.display !== 'none' && routeMapToggleBtn) routeMapToggleBtn.click();
+      if(mapDiv && mapDiv.style.display !== 'none' && routeMapToggleBtn) { fsEdNoAuto = true; routeMapToggleBtn.click(); fsEdNoAuto = false; }
     }
     const gpxInput = document.getElementById('access-route-gpx-input');
     if(gpxInput) gpxInput.addEventListener('change', ()=>{
@@ -8558,6 +8570,7 @@ function wireModalHandlers__fix(){
     });
 
     if(routeMapToggleBtn) routeMapToggleBtn.addEventListener('click', ()=>{
+      routeMapToggleBtn.style.display = 'none'; // die Übersicht hat ihren eigenen Knopf zur Karte
       const mapDiv = document.getElementById('access-route-map');
       if(mapDiv) mapDiv.style.display = '';
       if(!document.getElementById('access-route-points-dummy')){
@@ -8576,6 +8589,7 @@ function wireModalHandlers__fix(){
       const arAutofillFields = { ascent: accessRouteForm.querySelector('[name="elevation"]'), duration: accessRouteForm.querySelector('[name="duration"]') };
       const arGpxConfig = { hiddenId: 'access-route-track-hidden', idHiddenId: 'access-route-id-for-track', trackPathPrefix: ACCESS_ROUTE_GPX_PATH, statusId: 'access-route-gpx-status' };
       renderPointsEditorMap('access-route-map', 'access-route-points-dummy', 'access-route-points-dummy-list', 'access-route-manual-track-hidden', arRefTracks, arRefPoints, arAutofillFields, arGpxConfig);
+      { const ob = document.getElementById('access-route-map-open'); if(ob && !fsEdNoAuto) ob.click(); } // gleich die Bearbeiten-Karte (Startkarte im Vollbild)
     });
 
     const routeSaveBtn = document.getElementById('access-route-save-btn');
@@ -8604,7 +8618,7 @@ function wireModalHandlers__fix(){
     const routeMapToggleBtn = document.getElementById('tour-route-map-toggle-btn');
     function refreshTourRouteMapIfOpen(){
       const mapDiv = document.getElementById('tour-route-map');
-      if(mapDiv && mapDiv.style.display !== 'none' && routeMapToggleBtn) routeMapToggleBtn.click();
+      if(mapDiv && mapDiv.style.display !== 'none' && routeMapToggleBtn) { fsEdNoAuto = true; routeMapToggleBtn.click(); fsEdNoAuto = false; }
     }
     const gpxInput = document.getElementById('tour-route-gpx-input');
     if(gpxInput) gpxInput.addEventListener('change', ()=>{
@@ -8621,6 +8635,7 @@ function wireModalHandlers__fix(){
     });
 
     if(routeMapToggleBtn) routeMapToggleBtn.addEventListener('click', ()=>{
+      routeMapToggleBtn.style.display = 'none'; // die Übersicht hat ihren eigenen Knopf zur Karte
       const mapDiv = document.getElementById('tour-route-map');
       if(mapDiv) mapDiv.style.display = '';
       if(!document.getElementById('tour-route-points-dummy')){
@@ -8643,6 +8658,7 @@ function wireModalHandlers__fix(){
         : { ascent: tourRouteForm.querySelector('[name="elevation"]'), duration: tourRouteForm.querySelector('[name="duration"]') };
       const trGpxConfig = { hiddenId: 'tour-route-track-hidden', idHiddenId: 'tour-route-id-for-track', trackPathPrefix: tourRouteGpxPath(trKindField ? trKindField.value : 'access'), statusId: 'tour-route-gpx-status' };
       renderPointsEditorMap('tour-route-map', 'tour-route-points-dummy', 'tour-route-points-dummy-list', 'tour-route-manual-track-hidden', trRefTracks, trRefPoints, trAutofillFields, trGpxConfig);
+      { const ob = document.getElementById('tour-route-map-open'); if(ob && !fsEdNoAuto) ob.click(); } // gleich die Bearbeiten-Karte (Startkarte im Vollbild)
     });
 
     const routeSaveBtn = document.getElementById('tour-route-save-btn');
@@ -9067,6 +9083,7 @@ function wireModalHandlers__fix(){
         : { ascent: sektorRouteForm.querySelector('[name="elevation"]'), duration: sektorRouteForm.querySelector('[name="duration"]') };
       const srGpxConfig = { hiddenId: 'sektor-route-track-hidden', idHiddenId: 'sektor-route-id-for-track', trackPathPrefix: sektorRouteGpxPath(srKindField ? srKindField.value : 'access'), statusId: 'sektor-route-gpx-status' };
       renderPointsEditorMap('sektor-route-map', 'sektor-route-points-dummy', 'sektor-route-points-dummy-list', 'sektor-route-manual-track-hidden', srRefTracks, srRefPoints, srAutofillFields, srGpxConfig);
+      { const ob = document.getElementById('sektor-route-map-open'); if(ob && !fsEdNoAuto) ob.click(); } // gleich die Bearbeiten-Karte (Startkarte im Vollbild)
     });
 
     const sektorRouteSaveBtn = document.getElementById('sektor-route-save-btn');

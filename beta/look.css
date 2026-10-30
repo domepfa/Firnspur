@@ -1494,6 +1494,10 @@ html.fs-dark .bf-ed-item.lv-opt{ background:#4A3E1E; border-color:#7A6430; }
 #fs-tracks-field .fs-route-add{margin-bottom:8px;}
 .fs-gpx-status{font-size:12.5px;color:var(--ink-soft);margin:6px 0 0;}
 .fs-gpx-status:empty{display:none;}
+/* Formular: Übersicht statt kleiner Karte, Bearbeiten auf der Startkarte im Vollbild */
+.fs-ed-compact{ display:flex; flex-direction:column; gap:10px; padding:12px 14px; border-radius:16px; background:var(--ice-light); }
+.fs-ed-compact > span{ display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; color:var(--ink); }
+.fs-ed-compact .btn{ width:100%; min-height:48px; justify-content:center; }
 /* Grosse Karte: 3D-Knopf genau in der Knopf-Spalte (alter Abstand aus der Leaflet-Zeit) */
 .fsm-ctlbox .fsm-3d{ margin:0 !important; width:46px; height:46px; }
 .fsm-ctlbox .fsm-3d.on{ background:var(--ice-deep) !important; color:#fff !important; }

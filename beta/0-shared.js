@@ -9525,6 +9525,25 @@ function fetchLocationIntoForm(latInputId, lonInputId, statusId){
   );
 }
 
+// Nach einem GPX-Upload nur die Übersicht neu zeichnen, die Bearbeiten-Karte nicht von selbst öffnen
+let fsEdNoAuto = false;
+// Übersicht statt kleiner Karte: was eingetragen ist (Punkte, Linie, GPX) und ein Knopf zur Bearbeiten-Karte
+function fsEdCompact(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, gpxHiddenId, open){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  const read = (id)=>{ const i = id && document.getElementById(id); try{ const v = JSON.parse((i && i.value) || '[]'); return Array.isArray(v) ? v : []; }catch(e){ return []; } };
+  const pts = read(hiddenInputId), line = read(manualTrackHiddenId), gpx = read(gpxHiddenId);
+  const km = (c)=>{ let d = 0; for(let i = 1; i < c.length; i++) d += fsGeoDist(c[i - 1][0], c[i - 1][1], c[i][0], c[i][1]); return d / 1000; };
+  const facts = [pts.length ? pts.length + (pts.length === 1 ? ' Punkt' : ' Punkte') : 'noch keine Punkte'];
+  if(line.length > 1) facts.push('Linie ' + km(line).toFixed(1) + ' km');
+  if(gpx.length > 1) facts.push('GPX-Track ' + km(gpx).toFixed(1) + ' km');
+  el.style.display = el.style.display === 'none' ? '' : el.style.display;
+  el.innerHTML = `<div class="fs-ed-compact"><span>${fsIconHtml('map')}${esc(facts.join(' · '))}</span>
+    <button type="button" class="btn" id="${esc(containerId)}-open">${fsIconHtml('edit')}Auf der Karte bearbeiten</button></div>`;
+  el.querySelector('button').addEventListener('click', open);
+  const listEl = listContainerId && document.getElementById(listContainerId);
+  if(listEl) listEl.innerHTML = pts.length ? '<div class="chips" style="margin-top:8px;">' + pts.map(p=> `<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category || ''] || MAP_POINT_CATEGORIES['']).icon} ${esc(p.label || 'Punkt')}</span>`).join('') + '</div>' : '';
+}
 /* ================= Interaktive Punkte-Karte (mehrere Stecknadeln, manuell setzbar) ================= */
 // Referenz-Tracks für die Karte eines Elements mit Zustiegen/Abstiegen (Hütte, MSL-Tour, Sektor):
 // alle bereits erfassten Routen ausser der ggf. gerade selbst bearbeiteten – so ist innerhalb eines
@@ -9565,6 +9584,14 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
   // separate Karte zu benötigen ("zu viele Karten" – vorher gab es dafür renderGpxTrackEditorMap).
   refTracks = Array.isArray(refTracks) ? refTracks.filter(rt=>rt && rt.coords && rt.coords.length) : [];
   refPoints = Array.isArray(refPoints) ? refPoints.filter(rp=>rp && typeof rp.lat==='number' && typeof rp.lon==='number') : [];
+  // Formular und Tourblatt: keine eigene kleine Karte mehr, sondern eine Übersicht und «Auf der Karte bearbeiten»
+  // (die Startkarte im Vollbild, siehe fsEdAcquire). Nach dem Schliessen wieder die Übersicht.
+  if(containerId !== 'fullscreen-map-container'){
+    fsEdCompact(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, gpxConfig && gpxConfig.hiddenId, ()=> openFullscreenMap(
+      (id)=> renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig),
+      ()=> renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig)));
+    return;
+  }
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
   fsmEnsureLoaded().then(()=>{
