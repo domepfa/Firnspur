@@ -835,6 +835,12 @@ function purgeFromTrash(id, trashedList, path){
    vorhanden sind, werden sie sicher beiseitegelegt (fs-rescue-<app>) und zum Wiederherstellen
    angeboten. Wird beim Laden aufgerufen, bevor der lokale Speicher mit dem neuen Stand
    überschrieben wird. */
+// Funktion nach Namen: die je nach Disziplin umgeschalteten (let im Vorspann von index.html, fsModeSet) liegen
+// nicht auf window – window[name] fand sie nie (Rettung, «Punkt hier» speicherten darum nichts)
+function fsFn(name){
+  const m = {saveTourCloud: typeof saveTourCloud === 'function' ? saveTourCloud : null, saveHutCloud: typeof saveHutCloud === 'function' ? saveHutCloud : null, saveGebietCloud: typeof saveGebietCloud === 'function' ? saveGebietCloud : null, saveSektorCloud: typeof saveSektorCloud === 'function' ? saveSektorCloud : null, saveKlettergebietCloud: typeof saveKlettergebietCloud === 'function' ? saveKlettergebietCloud : null, saveGipfelCloud: typeof saveGipfelCloud === 'function' ? saveGipfelCloud : null, openAddTourWithPoint: typeof openAddTourWithPoint === 'function' ? openAddTourWithPoint : null, openAddHutWithPoint: typeof openAddHutWithPoint === 'function' ? openAddHutWithPoint : null, openAddSektorWithPoint: typeof openAddSektorWithPoint === 'function' ? openAddSektorWithPoint : null, openAddKlettergebietWithPoint: typeof openAddKlettergebietWithPoint === 'function' ? openAddKlettergebietWithPoint : null};
+  return m[name] || (typeof window[name] === 'function' ? window[name] : null);
+}
 const FS_RESCUE_COLLS = {tours:['Touren','saveTourCloud'], huts:['Hütten','saveHutCloud'], gebiete:['Gebiete','saveGebietCloud'],
   sektoren:['Sektoren','saveSektorCloud'], klettergebiete:['Klettergebiete','saveKlettergebietCloud'], gipfel:['Gipfel','saveGipfelCloud']};
 const fsRescueCap = s=> s[0].toUpperCase() + s.slice(1);
@@ -892,7 +898,7 @@ function fsRescueCollect(appKey, cacheKeys){
   let store = {};
   try{ store = JSON.parse(localStorage.getItem(storeKey) || '{}') || {}; }catch(e){ store = {}; }
   Object.keys(FS_RESCUE_COLLS).forEach(coll=>{
-    if(!Array.isArray(state[coll]) || typeof window[FS_RESCUE_COLLS[coll][1]] !== 'function') return;
+    if(!Array.isArray(state[coll]) || !fsFn(FS_RESCUE_COLLS[coll][1])) return;
     const have = new Set([...(state[coll] || []), ...(state['trashed' + fsRescueCap(coll)] || [])].map(x=> x && x.id));
     const found = new Map((store[coll] || []).map(x=> [x.id, x]));
     cacheKeys.forEach(k=>{
@@ -1138,7 +1144,7 @@ function fsBetterCollect(appKey, cacheKeys){
   let store = {};
   try{ store = JSON.parse(localStorage.getItem(key) || '{}') || {}; }catch(e){ store = {}; }
   Object.keys(FS_RESCUE_COLLS).forEach(coll=>{
-    if(!Array.isArray(state[coll]) || typeof window[FS_RESCUE_COLLS[coll][1]] !== 'function') return;
+    if(!Array.isArray(state[coll]) || !fsFn(FS_RESCUE_COLLS[coll][1])) return;
     const cloud = new Map([...(state[coll] || []), ...(state['trashed' + fsRescueCap(coll)] || [])].map(x=> [x && x.id, x]));
     const found = new Map((store[coll] || []).map(x=> [x.id, x]));
     cacheKeys.forEach(k=>{
@@ -1195,7 +1201,7 @@ function fsBetterOffer(appKey){
     btn.disabled = true; btn.textContent = 'Wird übernommen …';
     let ok = 0;
     for(const c of colls){
-      const save = window[FS_RESCUE_COLLS[c][1]];
+      const save = fsFn(FS_RESCUE_COLLS[c][1]);
       for(const [i, b] of store[c].entries()){
         const cb = box.querySelector(`[data-b="${c}:${i}"]`);
         if(!cb || !cb.checked) continue;
@@ -1238,7 +1244,7 @@ function fsRescueOffer(appKey){
     btn.disabled = true; btn.textContent = 'Wird wiederhergestellt …';
     let ok = 0, fail = 0;
     for(const c of colls){
-      const save = window[FS_RESCUE_COLLS[c][1]];
+      const save = fsFn(FS_RESCUE_COLLS[c][1]);
       const keep = [];
       for(const x of store[c]){
         const item = Object.assign({}, x); delete item._unsynced;
@@ -7222,8 +7228,17 @@ function fsmLocateOnce(map, btn){
     if(btn) btn.classList.remove('busy');
     const ll = [p.coords.longitude, p.coords.latitude];
     if(map._fsmOnceMarker) map._fsmOnceMarker.setLngLat(ll);
-    else{ const el = document.createElement('div'); el.className = 'fsm-gps'; map._fsmOnceMarker = new maplibregl.Marker({element: el}).setLngLat(ll).addTo(map); }
+    else{ const el = document.createElement('div'); el.className = 'fsm-me'; map._fsmOnceMarker = new maplibregl.Marker({element: el}).setLngLat(ll).addTo(map); }
+    map._fsmOnceMarker.getElement().classList.remove('fsm-me-out');
     map.flyTo({center: ll, zoom: Math.max(map.getZoom(), 13.5), duration: 1400});
+    // Nur kurz zeigen, wo man ist: nach 15 Sekunden ausblenden und entfernen
+    clearTimeout(map._fsmOnceTm);
+    map._fsmOnceTm = setTimeout(()=>{
+      const m = map._fsmOnceMarker;
+      if(!m) return;
+      m.getElement().classList.add('fsm-me-out');
+      map._fsmOnceTm = setTimeout(()=>{ if(map._fsmOnceMarker === m){ m.remove(); map._fsmOnceMarker = null; } }, 600);
+    }, 15000);
   }, ()=>{ if(btn) btn.classList.remove('busy'); showToast('Standort nicht verfügbar – Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
 }
 const FSM_OVERLAY_GROUPS = [['wege', 'Wege und Routen'], ['gefahr', 'Gefahren und Schutz'], ['unterwegs', 'Unterwegs']];
@@ -7317,7 +7332,7 @@ async function fsAppendPointTo(kind, id, lat, lon, label, category){
   const lists = {tour: state.tours, hut: state.huts, sektor: state.sektoren, klettergebiet: state.klettergebiete};
   const savers = {tour: 'saveTourCloud', hut: 'saveHutCloud', sektor: 'saveSektorCloud', klettergebiet: 'saveKlettergebietCloud'};
   const x = (lists[kind] || []).find(y=> y.id === id);
-  const save = window[savers[kind]];
+  const save = fsFn(savers[kind]);
   if(!x || typeof save !== 'function') return;
   x.points = Array.isArray(x.points) ? x.points.slice() : [];
   x.points.push({label: label || '', lat: +lat.toFixed(6), lon: +lon.toFixed(6), category: category || ''});
@@ -7336,7 +7351,7 @@ function fsHomePointOffer(ll){
   const fix = typeof SEKTOREN_PATH !== 'undefined';
   const news = [['tour', 'Neue Tour hier', 'openAddTourWithPoint'], ['hut', 'Neue Hütte hier', 'openAddHutWithPoint']]
     .concat(fix ? [['sektor', 'Neuer Sektor hier', 'openAddSektorWithPoint'], ['klettergebiet', 'Neues Klettergebiet hier', 'openAddKlettergebietWithPoint']] : [])
-    .filter(n=> typeof window[n[2]] === 'function');
+    .filter(n=> fsFn(n[2]));
   const wrap = document.createElement('div');
   wrap.className = 'fs-pt-offer';
   wrap.innerHTML = '<b>Punkt hier</b><div class="fs-pt-offer-new"><button type="button" class="btn secondary" data-plan>' + fsIconHtml('compass') + 'Route von hier planen</button>' + '<button type="button" class="btn secondary" data-scan>' + fsIconHtml('scan') + 'Hang scannen</button>' + news.map((n, i)=> `<button type="button" class="btn" data-new="${i}">${fsIconHtml('plus')}${esc(n[1])}</button>`).join('') + '</div>'
@@ -7347,7 +7362,7 @@ function fsHomePointOffer(ll){
   const close = ()=>{ if(ml._fsm && ml._fsm.popup) ml._fsm.popup.remove(); };
   wrap.querySelector('[data-plan]').addEventListener('click', ()=>{ close(); fsPlannerOpen(ll); });
   wrap.querySelector('[data-scan]').addEventListener('click', ()=>{ close(); fsScanAim({lat, lon, centered: true}); });
-  wrap.querySelectorAll('[data-new]').forEach(b=> b.addEventListener('click', ()=>{ close(); window[news[+b.dataset.new][2]](+lat.toFixed(6), +lon.toFixed(6)); }));
+  wrap.querySelectorAll('[data-new]').forEach(b=> b.addEventListener('click', ()=>{ close(); fsFn(news[+b.dataset.new][2])(+lat.toFixed(6), +lon.toFixed(6)); }));
   const inp = wrap.querySelector('[data-f="q"]'), res = wrap.querySelector('.fs-pt-offer-res');
   const lbl = wrap.querySelector('[data-f="label"]'), cat = wrap.querySelector('[data-f="cat"]');
   inp.addEventListener('input', ()=>{
@@ -9525,6 +9540,25 @@ function fetchLocationIntoForm(latInputId, lonInputId, statusId){
   );
 }
 
+// Nach einem GPX-Upload nur die Übersicht neu zeichnen, die Bearbeiten-Karte nicht von selbst öffnen
+let fsEdNoAuto = false;
+// Übersicht statt kleiner Karte: was eingetragen ist (Punkte, Linie, GPX) und ein Knopf zur Bearbeiten-Karte
+function fsEdCompact(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, gpxHiddenId, open){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  const read = (id)=>{ const i = id && document.getElementById(id); try{ const v = JSON.parse((i && i.value) || '[]'); return Array.isArray(v) ? v : []; }catch(e){ return []; } };
+  const pts = read(hiddenInputId), line = read(manualTrackHiddenId), gpx = read(gpxHiddenId);
+  const km = (c)=>{ let d = 0; for(let i = 1; i < c.length; i++) d += fsGeoDist(c[i - 1][0], c[i - 1][1], c[i][0], c[i][1]); return d / 1000; };
+  const facts = [pts.length ? pts.length + (pts.length === 1 ? ' Punkt' : ' Punkte') : 'noch keine Punkte'];
+  if(line.length > 1) facts.push('Linie ' + km(line).toFixed(1) + ' km');
+  if(gpx.length > 1) facts.push('GPX-Track ' + km(gpx).toFixed(1) + ' km');
+  el.style.display = el.style.display === 'none' ? '' : el.style.display;
+  el.innerHTML = `<div class="fs-ed-compact"><span>${fsIconHtml('map')}${esc(facts.join(' · '))}</span>
+    <button type="button" class="btn" id="${esc(containerId)}-open">${fsIconHtml('edit')}Auf der Karte bearbeiten</button></div>`;
+  el.querySelector('button').addEventListener('click', open);
+  const listEl = listContainerId && document.getElementById(listContainerId);
+  if(listEl) listEl.innerHTML = pts.length ? '<div class="chips" style="margin-top:8px;">' + pts.map(p=> `<span class="chip" style="background:var(--ice-light); border-color:transparent;">${(MAP_POINT_CATEGORIES[p.category || ''] || MAP_POINT_CATEGORIES['']).icon} ${esc(p.label || 'Punkt')}</span>`).join('') + '</div>' : '';
+}
 /* ================= Interaktive Punkte-Karte (mehrere Stecknadeln, manuell setzbar) ================= */
 // Referenz-Tracks für die Karte eines Elements mit Zustiegen/Abstiegen (Hütte, MSL-Tour, Sektor):
 // alle bereits erfassten Routen ausser der ggf. gerade selbst bearbeiteten – so ist innerhalb eines
@@ -9565,6 +9599,14 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
   // separate Karte zu benötigen ("zu viele Karten" – vorher gab es dafür renderGpxTrackEditorMap).
   refTracks = Array.isArray(refTracks) ? refTracks.filter(rt=>rt && rt.coords && rt.coords.length) : [];
   refPoints = Array.isArray(refPoints) ? refPoints.filter(rp=>rp && typeof rp.lat==='number' && typeof rp.lon==='number') : [];
+  // Formular und Tourblatt: keine eigene kleine Karte mehr, sondern eine Übersicht und «Auf der Karte bearbeiten»
+  // (die Startkarte im Vollbild, siehe fsEdAcquire). Nach dem Schliessen wieder die Übersicht.
+  if(containerId !== 'fullscreen-map-container'){
+    fsEdCompact(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, gpxConfig && gpxConfig.hiddenId, ()=> openFullscreenMap(
+      (id)=> renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig),
+      ()=> renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig)));
+    return;
+  }
   const el = document.getElementById(containerId);
   if(el){ el.innerHTML = '<p style="font-size:13px; color:var(--ink-soft);">Karte wird geladen…</p>'; }
   fsmEnsureLoaded().then(()=>{
@@ -17327,7 +17369,7 @@ function startLiveGpsOnMap(map, offlineId){
     const latlng = [pos.coords.latitude, pos.coords.longitude];
     if(map && map._fsm){
       // MapLibre-Karte: blauer Punkt als HTML-Marker
-      if(!gpsMarker){ const el = document.createElement('div'); el.className = 'fsm-gps'; gpsMarker = new maplibregl.Marker({element: el}).setLngLat([latlng[1], latlng[0]]).addTo(map); gpsMarker._fsmMap = map; }
+      if(!gpsMarker){ const el = document.createElement('div'); el.className = 'fsm-me'; gpsMarker = new maplibregl.Marker({element: el}).setLngLat([latlng[1], latlng[0]]).addTo(map); gpsMarker._fsmMap = map; }
       else gpsMarker.setLngLat([latlng[1], latlng[0]]);
       if(map._fsmFlyOnFix){ map._fsmFlyOnFix = false; map.easeTo({center:[latlng[1], latlng[0]], zoom: Math.max(map.getZoom(), 14), duration: 800}); }
       return;
@@ -18644,7 +18686,7 @@ async function fsRetryUnsynced(){
   if(typeof state === 'undefined') return;
   const jobs = [];
   Object.keys(FS_RESCUE_COLLS).forEach(coll=>{
-    const fn = window[FS_RESCUE_COLLS[coll][1]];
+    const fn = fsFn(FS_RESCUE_COLLS[coll][1]);
     if(typeof fn !== 'function' || !Array.isArray(state[coll])) return;
     [...state[coll], ...(state['trashed' + fsRescueCap(coll)] || [])].filter(x=> x && x._unsynced).forEach(x=> jobs.push(fn(x).catch(()=> false)));
   });
