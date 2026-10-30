@@ -7333,7 +7333,7 @@ async function fsAppendPointTo(kind, id, lat, lon, label, category){
   const savers = {tour: 'saveTourCloud', hut: 'saveHutCloud', sektor: 'saveSektorCloud', klettergebiet: 'saveKlettergebietCloud'};
   const x = (lists[kind] || []).find(y=> y.id === id);
   const save = fsFn(savers[kind]);
-  if(!x || typeof save !== 'function') return;
+  if(!x || typeof save !== 'function'){ showToast('Punkt konnte nicht gespeichert werden – Eintrag nicht gefunden.', true); return; }
   x.points = Array.isArray(x.points) ? x.points.slice() : [];
   x.points.push({label: label || '', lat: +lat.toFixed(6), lon: +lon.toFixed(6), category: category || ''});
   x.updatedAt = new Date().toISOString();
