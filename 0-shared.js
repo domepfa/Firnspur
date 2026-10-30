@@ -1578,12 +1578,8 @@ function fsHomeStartView(){
   return {bounds: [[w, so], [e, n]], fitBoundsOptions: {padding: {top: 60 + ins.top, bottom: 40 + ins.bottom, left: 40, right: 70}, maxZoom: pts.length > 1 ? 11 : 8}};
 }
 function fsHomeCreateMap(){
-  fsHomeMap = fsmCreateMap('fs-home-map-inner', Object.assign({zoom: 7, ctlTop: 52, full: true}, fsHomeStartView(), {on3d: (m)=>{
-    // Tour/Gebiet: Karte hinter dem Blatt an Ort und Stelle neigen; im Vollbild die volle 3D-Ansicht
-    if(fsCtxOn3d && !document.documentElement.classList.contains('fs-mapfull')){ fsmTerrainToggle(m); return; }
-    if(fsCtxOn3d){ fsCtxOn3d(m); return; }
-    const c = m.getCenter(); fsOpen3d({lat:c.lat, lon:c.lng, zoom: Math.max(12, m.getZoom()), heading: m.getBearing()});
-  }}));
+  // 3D ist dieselbe Karte, nur geneigt mit Gelände: Ausschnitt, Ebenen, Gedrückthalten, Planer und Hang-Scan bleiben
+  fsHomeMap = fsmCreateMap('fs-home-map-inner', Object.assign({zoom: 7, ctlTop: 52, full: true}, fsHomeStartView(), {on3d: (m)=> fsmTerrainToggle(m)}));
   fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
   fsHomeWireHold(fsHomeMap);
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
@@ -1631,32 +1627,29 @@ function fsCtxAcquire(innerId, on3d, owner){
 async function fsmTerrainToggle(map, on){
   if(on === undefined) on = !map._fsTerrain;
   map._fsTerrain = on;
-  map.getContainer().querySelectorAll('.fsm-3d').forEach(b=>{ b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  fsmTerrainButtons(map);
   if(!on){
     try{ map.setTerrain(null); }catch(e){}
-    if(map.getPitch() > 1) map.easeTo({pitch: 0, padding: {top: 0, left: 0, right: 0, bottom: 0}, duration: 500});
+    if(map.getPitch() > 1) map.easeTo({pitch: 0, duration: 500});
     return;
   }
-  if(!navigator.onLine){ map._fsTerrain = false; map.getContainer().querySelectorAll('.fsm-3d').forEach(b=> b.classList.remove('on')); showToast('3D braucht Internet für das Gelände.', true); return; }
-  if(!map.getSource('fs-terrain')){
-    let spec = {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 11, attribution:'Höhen: Mapzen/AWS Terrain Tiles'};
-    if(fs3dQuality() === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){} }
-    if(!map._fsTerrain || map.getSource('fs-terrain')) return;
-    map.addSource('fs-terrain', spec);
-  }
+  if(!navigator.onLine){ map._fsTerrain = false; fsmTerrainButtons(map); showToast('3D braucht Internet für das Gelände.', true); return; }
+  if(!(await fsmTerrainSource(map))) return;
   map.setTerrain({source:'fs-terrain', exaggeration:1});
   try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
-  // Schräg auf die Tour, im sichtbaren Teil über dem Blatt
-  const bottom = (typeof fsSheetHeightPx === 'function' && document.documentElement.classList.contains('fs-sheet-open')) ? fsSheetHeightPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent) : 0;
-  const pad = {top: 60, left: 30, right: 70, bottom: bottom + 20};
-  let cam = null, mid = null;
-  if(map._fsCoords && map._fsCoords.length){
+  // Schräg auf denselben Ausschnitt; die Mitte liegt im sichtbaren Teil (über dem Blatt bzw. unter der Leiste)
+  const sheet = document.documentElement.classList.contains('fs-sheet-open');
+  const ins = sheet ? {top: 0, bottom: fsSheetHeightPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent)} : (fsmIsHomeMap(map) ? fsHomeInset() : {top: 0, bottom: 0});
+  const top = 60 + ins.top, bottom = ins.bottom + 20, offset = [0, Math.round((top - bottom) / 2)];
+  let target = {center: map.getCenter(), zoom: Math.max(map.getZoom(), 11)};
+  if(sheet && map._fsCoords && map._fsCoords.length){
+    // Tour offen: schräg auf die Tour
     const bb = new maplibregl.LngLatBounds();
     map._fsCoords.forEach(c=> bb.extend([c[1], c[0]]));
-    mid = bb.getCenter();
-    cam = map.cameraForBounds(bb, {padding: pad, maxZoom: 14, bearing: map.getBearing()});
+    const cam = map.cameraForBounds(bb, {padding: {top, bottom, left: 30, right: 70}, maxZoom: 14, bearing: map.getBearing()});
+    if(cam) target = {center: bb.getCenter(), zoom: cam.zoom - 0.6};
   }
-  map.easeTo(cam ? {center: mid, zoom: cam.zoom - 0.6, bearing: map.getBearing(), pitch: 60, padding: pad, duration: 800} : {pitch: 60, padding: pad, duration: 700});
+  map.easeTo(Object.assign(target, {bearing: map.getBearing(), pitch: 60, offset, duration: 800}));
   // MapLibre 4.7 lässt nach easeTo mit Gelände die Höhe der Mitte eingefroren (bei 0 m): die Tour läge dann
   // weit über dem Bild. Nach jeder Bewegung wieder freigeben, dann rechnet die Karte die Höhe neu.
   if(!map._fsTerrainFix){
@@ -1664,11 +1657,88 @@ async function fsmTerrainToggle(map, on){
     map.on('moveend', ()=>{ if(map.getTerrain() && map._elevationFreeze && !map.isMoving()){ map._elevationFreeze = false; map.triggerRepaint(); } });
   }
 }
+// Gelände-Quelle nach gewählter Auflösung: Hoch = swisstopo-Gelände (wie map.geo.admin.ch, bis etwa 1.5 m), Spar = gröber
+async function fsmTerrainSource(map){
+  const q = fs3dQuality();
+  if(map.getSource('fs-terrain') && map._fsTerrainQ === q) return true;
+  let spec = {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 11, attribution:'Höhen: Mapzen/AWS Terrain Tiles'};
+  if(q === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){ showToast('Genaues Gelände gerade nicht verfügbar – gröberes geladen.', true); } }
+  if(!map._fsTerrain || q !== fs3dQuality()) return false;
+  try{ map.setTerrain(null); }catch(e){}
+  if(map.getSource('fs-terrain')) map.removeSource('fs-terrain');
+  map.addSource('fs-terrain', spec);
+  map._fsTerrainQ = q;
+  return true;
+}
+async function fsmTerrainSetQuality(map, q){
+  try{ localStorage.setItem(fs3dQualityKey().key, q); }catch(e){}
+  if(map._fsTerrain && await fsmTerrainSource(map)) map.setTerrain({source:'fs-terrain', exaggeration:1});
+  fsmSyncPanel(map);
+}
+// 3D-Knopf gefüllt, solange 3D an ist; dann darunter «Gipfel ringsum» (Panorama der umliegenden Gipfel)
+function fsmTerrainButtons(map){
+  const on = !!map._fsTerrain;
+  map.getContainer().querySelectorAll('.fsm-3d').forEach(b=>{
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+    let pano = b.parentNode.querySelector('[data-fsm="pano"]');
+    if(!pano){
+      pano = document.createElement('button');
+      pano.type = 'button'; pano.className = 'fsm-btn'; pano.dataset.fsm = 'pano';
+      pano.setAttribute('aria-label', 'Gipfel ringsum');
+      pano.innerHTML = fsIconHtml('mountain');
+      pano.addEventListener('click', ()=>{ const c = map.getCenter(); fsOpen3d({lat: c.lat, lon: c.lng, zoom: map.getZoom(), panorama: true}); });
+      b.after(pano);
+    }
+    pano.hidden = !on;
+  });
+}
+// Bearbeiten im Vollbild: die Startkarte ausleihen (gleicher Ausschnitt, Ebenen, 2D/3D), die Werkzeuge des
+// Editors (Punkt, Linie, Route) hängen als FL-Hülle daran; beim Schliessen wird alles Eigene wieder entfernt
+let fsEdFl = null;
+function fsEdAcquire(innerId){
+  if(fsEdFl) fsEdRelease(fsEdFl);
+  // Tour hinter dem Blatt: deren Karte zuerst zurückgeben (wird beim Zurückkehren neu aufgebaut)
+  if(fsCtxUsesHome && fsCtxOwner === 'ctx' && typeof fsDestroyContextMap === 'function') fsDestroyContextMap();
+  if(fsCtxUsesHome || (typeof fsPlanner !== 'undefined' && fsPlanner)) return null;
+  const inner = document.getElementById(innerId);
+  if(!inner) return null;
+  // Ganzflächig wie die bisherige Bearbeiten-Karte (die Bedienung schwebt darüber)
+  inner.style.position = 'absolute'; inner.style.inset = '0';
+  const ml = fsCtxAcquire(innerId, null, 'edit');
+  fsHomeEl.classList.remove('in-ctx');
+  fsHomeEl.classList.add('in-edit');
+  if(ml._fsm && ml._fsm.popup){ try{ ml._fsm.popup.remove(); }catch(e){} }
+  // Tipps gehören dem Editor (keine Infos zu SAC-Routen, Pisten …)
+  ml._fsInfoBlock = ()=> true;
+  const fm = FL.map(ml);
+  ml._fl = fm;
+  fm._onRemove = ()=> fsEdRelease(fm);
+  fsEdFl = fm;
+  return fm;
+}
+function fsEdRelease(fm){
+  if(!fm || fm._released) return;
+  fm._released = true;
+  const ml = fm._ml;
+  fm.detach();
+  ml._fsInfoBlock = null;
+  if(fsEdFl === fm) fsEdFl = null;
+  const reg = window.__activeLeafletMaps;
+  if(reg) Object.keys(reg).forEach(k=>{ if(reg[k] === fm) delete reg[k]; });
+  if(fsHomeEl) fsHomeEl.classList.remove('in-edit');
+  if(fsCtxOwner === 'edit'){
+    if(ml._fsm){ ml._fsm.ctlTop = 52; ml.getContainer().querySelectorAll('.fsm-ctlbox, .fsm-panel').forEach(el=>{ el.style.top = '52px'; }); }
+    fsCtxRelease('edit');
+    // Tour oder Gebiet noch offen: deren Karte wieder hinter das Blatt
+    setTimeout(()=>{ try{ if(typeof fsSheetShowContext === 'function') fsSheetShowContext(); }catch(e){} }, 0);
+  }
+}
 function fsCtxRelease(owner){
   if((owner || 'ctx') !== fsCtxOwner) return;
   fsCtxOwner = '';
   const map = fsHomeMap;
-  if(map && map._fsTerrain){ map._fsTerrain = false; try{ map.setTerrain(null); map.jumpTo({pitch: 0, padding: {top: 0, left: 0, right: 0, bottom: 0}}); }catch(e){} map.getContainer().querySelectorAll('.fsm-3d').forEach(b=>{ b.classList.remove('on'); b.setAttribute('aria-pressed', 'false'); }); }
+  // 3D bleibt an (dieselbe Karte); nur ein früher gesetzter Rand wird zurückgesetzt
+  try{ if(map) map.jumpTo({padding: {top: 0, left: 0, right: 0, bottom: 0}}); }catch(e){}
   fsCtxUsesHome = false; fsCtxOn3d = null;
   if(map && map._fsm){
     try{
@@ -1945,7 +2015,7 @@ function fsHomeRoutesSync(){
     const tap = (e)=>{
       if(e.originalEvent && e.originalEvent._fsHomeRouteSeen) return;
       if(e.originalEvent) e.originalEvent._fsHomeRouteSeen = true;
-      if(fsPlanner || !fsmOverlayOn(map, 'tourrouten') || !map.getLayer('fs-home-routes') || !fsHomePts) return;
+      if(fsPlanner || fsCtxOwner === 'edit' || !fsmOverlayOn(map, 'tourrouten') || !map.getLayer('fs-home-routes') || !fsHomePts) return;
       const tg = e.originalEvent && e.originalEvent.target;
       if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return;
       const r = 14, box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
@@ -4893,6 +4963,8 @@ function closeFullscreenMap(){
     try{ lastPointsEditorMapView = {center: m.getCenter(), zoom: m.getZoom()}; }catch(e){}
   }
   overlay.style.display = 'none';
+  // Ausgeliehene Startkarte zurückgeben, bevor der Inhalt verschwindet
+  if(m && m._onRemove){ try{ m.remove(); }catch(e){} delete window.__activeLeafletMaps['fullscreen-map-container-inner']; }
   const container = document.getElementById('fullscreen-map-container');
   if(container) container.innerHTML = '';
   if(overlay._onClose){ overlay._onClose(); overlay._onClose = null; }
@@ -6994,7 +7066,7 @@ async function fsmPisten(map, o){
     const tap = (e)=>{
       const p = e.features && e.features[0] && e.features[0].properties;
       // Eine Tour (Linie oder Punkt) an derselben Stelle hat Vorrang
-      if(!p || (e.originalEvent && e.originalEvent._fsmHandled)) return;
+      if(!p || (e.originalEvent && e.originalEvent._fsmHandled) || (map._fsInfoBlock && map._fsInfoBlock())) return;
       if(e.originalEvent) e.originalEvent._fsmHandled = true;
       fsmPopup(map, e.lngLat, `<div class="fs-cam-pop"><b>${esc(p.name || (p.lift ? 'Lift' : 'Piste'))}</b><span>${esc(p.lift ? (p.kind || 'Lift') : (FS_PISTE_LABEL[p.diff] || 'Piste'))}</span><span class="fs-park-src">Daten: © OpenStreetMap-Mitwirkende</span></div>`, 8);
     };
@@ -8081,6 +8153,13 @@ function fsmSyncPanel(map){
   panel.querySelectorAll('[data-sat]').forEach(b=> b.addEventListener('click', ()=> fsmSetSat(map, b.dataset.sat)));
   // Tag des täglichen Satellitenbilds
   panel.querySelectorAll('[data-day]').forEach(b=> b.addEventListener('click', ()=> fsmSetNasaDay(map, +b.dataset.day)));
+  if(map._fsTerrain){
+    const q = fs3dQuality(), row = document.createElement('div');
+    row.className = 'fsm-extra';
+    row.innerHTML = `<div class="fsm-extra-label">3D-Gelände (Hoch = genaues swisstopo-Gelände)</div><div class="fsm-seg"><button type="button" data-q="hi" class="${q === 'hi' ? 'on' : ''}">Hoch</button><button type="button" data-q="lo" class="${q === 'lo' ? 'on' : ''}">Spar</button></div>`;
+    row.querySelectorAll('[data-q]').forEach(b=> b.addEventListener('click', ()=> fsmTerrainSetQuality(map, b.dataset.q)));
+    panel.appendChild(row);
+  }
   if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
 }
 /* --- Eigene Inhalte --- */
@@ -9778,7 +9857,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const center = lastPointsEditorMapView ? lastPointsEditorMapView.center
       : (points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : (firstRefPoint || [46.8182, 8.2275]))));
     const zoom = lastPointsEditorMapView ? lastPointsEditorMapView.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
-    const map = fsmCreateFlMap(mapDivId, isFullscreen ? {on3d: (ml)=> openEditor3d(ml)} : undefined).setView(center, zoom);
+    // Vollbild: dieselbe Karte wie überall (Startkarte ausgeliehen); nur die kleine Karte im Formular ist eigen
+    const map = ((isFullscreen && fsEdAcquire(mapDivId)) || fsmCreateFlMap(mapDivId, isFullscreen ? {on3d: (ml)=> openEditor3d(ml)} : undefined)).setView(center, zoom);
     map._isPointsEditorMap = true;
     if(fsPeTop){
       // Kartenknöpfe (Ebenen, Standort, 3D) unter die schwebende Leiste schieben
@@ -20459,6 +20539,7 @@ function fsFitContextMap(){
   fsmFit(fsCtxMap, fsCtxMap._fsCoords, {top:70, left:30, right:70, bottom: bottom + 20}, 14);
 }
 function fsShowContextMap(t){
+  if(fsCtxOwner === 'edit') return; // Karte gerade beim Bearbeiten im Vollbild; danach neu (fsEdRelease)
   if(!fsTourHasContextData(t)){ fsDestroyContextMap(); return; }
   const key = t.id + '|' + (t.updatedAt || '') + '|' + (fsTourHut(t) ? (fsTourHut(t).updatedAt || '') : '');
   let el = document.getElementById('fs-tour-map');
@@ -20592,6 +20673,7 @@ function fsAreaHasData(a){
   return (a.points||[]).length || (a.spots||[]).length || (a.huts||[]).some(h=> h.points && h.points.length) || (a.tours||[]).some(t=> tourMapPoint(t) || fsTourRoutes(t).length);
 }
 function fsShowAreaContextMap(a){
+  if(fsCtxOwner === 'edit') return;
   if(!fsAreaHasData(a)){ fsDestroyContextMap(); return; }
   const stamp = x=> (x.updatedAt || '') + (x.id || '');
   const key = 'area|' + a.key + '|' + [...(a.tours||[]), ...(a.huts||[])].map(stamp).join(',');
