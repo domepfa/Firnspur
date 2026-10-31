@@ -6997,7 +6997,7 @@ function fsAspectRgb(deg){
   return S[i][1].map((v, k)=> Math.round(v + (S[i + 1][1][k] - v) * f));
 }
 function fsAspectLegendHtml(){
-  return `<div class="fsm-legend-row">${FS_ASPECT_DIRS.map((d, i)=> `<span><i style="background:rgb(${fsAspectRgb(i * 45).join(',')})"></i>${d}</span>`).join('')}</div>
+  return `<div class="fsm-legend-row fsm-legend-grid">${FS_ASPECT_DIRS.map((d, i)=> `<span><i style="background:rgb(${fsAspectRgb(i * 45).join(',')})"></i>${d}</span>`).join('')}</div>
     <small>Richtung, in die der Hang abfällt. Flaches Gelände bleibt frei. Aus dem Höhenmodell (etwa 30 m), ab mittlerem Zoom.</small>`;
 }
 function fsAspectEnsureProtocol(){
@@ -7825,9 +7825,9 @@ function fsPlannerOpen(from){
   }
 
   function statCardHtml(icon, value){
-    return `<div style="flex:1; background:#EAF3EC; border-radius:6px; padding:8px 6px; text-align:center;">
+    return `<div style="flex:1; background:var(--ice-light); border-radius:6px; padding:8px 6px; text-align:center;">
       <div style="font-size:16px;">${icon}</div>
-      <div style="font-size:14px; font-weight:700; color:#2F6B44;">${esc(value)}</div>
+      <div style="font-size:14px; font-weight:700; color:var(--accent-ink);">${esc(value)}</div>
     </div>`;
   }
 
@@ -8283,7 +8283,7 @@ function fsmAddMarker(map, lat, lon, html, opts){
 }
 function fsmPopup(map, lngLat, content, offset, opts){
   if(map._fsm.popup) map._fsm.popup.remove();
-  const p = new maplibregl.Popup(Object.assign({maxWidth: fsmPopupMaxWidth(map), offset: offset || 8, className:'fsm-popup'}, opts)).setLngLat(lngLat);
+  const p = new maplibregl.Popup(Object.assign({maxWidth: fsmPopupMaxWidth(map), offset: offset || 8, className:'fsm-popup', focusAfterOpen:false}, opts)).setLngLat(lngLat);
   if(typeof content === 'string') p.setHTML(content); else p.setDOMContent(content);
   p.addTo(map);
   fsmPopupStopEvents(p);
@@ -8604,7 +8604,7 @@ const FL = (function(){
     fm.closePopup();
     const maxW = this.options.maxWidth ? Math.min(this.options.maxWidth, parseInt(fsmPopupMaxWidth(fm._ml), 10)) + 'px' : fsmPopupMaxWidth(fm._ml);
     const off = this.options._off != null ? this.options._off : (this.options.offset && this.options.offset[1] ? Math.abs(this.options.offset[1]) : 10);
-    this._p = new maplibregl.Popup({maxWidth:maxW, offset:off, className:'fsm-popup', closeOnClick:true}).setLngLat([this._ll.lng, this._ll.lat]);
+    this._p = new maplibregl.Popup({maxWidth:maxW, offset:off, className:'fsm-popup', closeOnClick:true, focusAfterOpen:false}).setLngLat([this._ll.lng, this._ll.lat]);
     if(typeof this._content === 'string') this._p.setHTML(this._content); else if(this._content) this._p.setDOMContent(this._content);
     this._p.addTo(fm._ml);
     fsmPopupStopEvents(this._p);
@@ -9862,13 +9862,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // mit Zähler, wie viele Wegpunkte schon gesetzt sind, und einem grossen, deutlich erkennbaren
     // "Route berechnen"-Knopf, der erst ab zwei Wegpunkten farbig/aktiv wird.
     const routeActionsRow = document.createElement('div');
-    routeActionsRow.style.cssText = 'display:none; margin-top:8px; padding:10px 12px; background:#EAF3EC; border-left:3px solid #2F6B44; border-radius:4px;';
+    routeActionsRow.style.cssText = 'display:none; margin-top:8px; padding:10px 12px; background:var(--ice-light); border-left:3px solid var(--ice-deep); border-radius:4px;';
     const routeHint = document.createElement('p');
     routeHint.className = 'hint';
     routeHint.style.cssText = 'margin:0 0 8px 0;';
     routeHint.textContent = 'Start, ggf. Zwischenziele und Ziel antippen – die App sucht dann einen echten Wanderweg dazwischen.';
     const routeWaypointCount = document.createElement('span');
-    routeWaypointCount.style.cssText = 'display:inline-block; margin-bottom:8px; font-size:12px; font-weight:700; color:#2F6B44; background:#fff; border:1px solid #2F6B44; border-radius:12px; padding:3px 10px;';
+    routeWaypointCount.style.cssText = 'display:inline-block; margin-bottom:8px; font-size:12px; font-weight:700; color:var(--accent-ink); background:var(--paper); border:1px solid var(--ice-deep); border-radius:12px; padding:3px 10px;';
     const routeSmallBtnsRow = document.createElement('div');
     routeSmallBtnsRow.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;';
     const routeUndoBtn = document.createElement('button');
@@ -10373,7 +10373,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           const insertBtn = document.createElement('button');
           insertBtn.type = 'button';
           insertBtn.textContent = '➕ Zwischenpunkt danach setzen';
-          insertBtn.style.cssText = 'width:100%; margin-bottom:6px; background:#2F6B44; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+          insertBtn.style.cssText = 'width:100%; margin-bottom:6px; background:var(--ice-deep); color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
           insertBtn.addEventListener('click', ()=>{
             insertAfterWaypointIndex = i;
             routeStatus.style.color = 'var(--ink-soft)';
@@ -10423,7 +10423,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       routeWaypointCount.textContent = n===0 ? 'Noch keine Wegpunkte gesetzt' : n===1 ? '1 Wegpunkt gesetzt – noch ein Ziel antippen' : n + ' Wegpunkte gesetzt';
       const ready = n >= 2;
       calcRouteBtn.disabled = !ready;
-      calcRouteBtn.style.background = ready ? '#2F6B44' : 'var(--line)';
+      calcRouteBtn.style.background = ready ? 'var(--ice-deep)' : 'var(--line)';
       calcRouteBtn.style.color = ready ? '#fff' : 'var(--ink-faint)';
       calcRouteBtn.style.boxShadow = ready ? '0 2px 8px rgba(47,107,68,0.4)' : 'none';
       calcRouteBtn.style.cursor = ready ? 'pointer' : 'default';
@@ -11365,13 +11365,13 @@ function renderRouteStatCards(el, r, onDelete, onEdit){
   if(!cards.length){ el.style.display = 'none'; el.innerHTML = ''; return; }
   el.style.display = 'flex';
   el.innerHTML = cards.map(c=>
-    `<div style="flex:1; min-width:80px; background:#EAF3EC; border-radius:6px; padding:8px 6px; text-align:center;">
+    `<div style="flex:1; min-width:80px; background:var(--ice-light); border-radius:6px; padding:8px 6px; text-align:center;">
       <div style="font-size:16px;">${c.icon}</div>
-      <div style="font-size:14px; font-weight:700; color:#2F6B44;">${esc(c.value)}</div>
+      <div style="font-size:14px; font-weight:700; color:var(--accent-ink);">${esc(c.value)}</div>
       <div style="font-size:10.5px; color:var(--ink-soft);">${esc(c.label)}</div>
     </div>`
   ).join('')
-    + (onEdit ? '<button type="button" data-act="edit-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid #2F6B44; color:#2F6B44; border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">✏️ Route bearbeiten</button>' : '')
+    + (onEdit ? '<button type="button" data-act="edit-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid var(--ice-deep); color:var(--accent-ink); border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">✏️ Route bearbeiten</button>' : '')
     + '<button type="button" data-act="delete-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid var(--danger); color:var(--danger); border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">🗑️ Diese Route löschen</button>'
     + '<p style="width:100%; margin:6px 0 0 0; font-size:11.5px; color:var(--ink-faint);">Auf den Routenstrich tippen zeigt dies erneut an. Grobe Schätzung, ohne Pausen.</p>';
   const editBtn = el.querySelector('[data-act="edit-calculated-route"]');
@@ -15400,12 +15400,12 @@ function copyTextareaContent(textareaId){
 }
 
 const HIKE_SCALE = {
-  'T1': {label:'Wandern', color:'#5FA8D3', desc:'Weg gut gebahnt, keine Absturzgefahr.'},
-  'T2': {label:'Bergwandern', color:'#2E7EB0', desc:'Weg mit durchgehendem Trassee, kann steil sein.'},
-  'T3': {label:'Anspruchsvolles Bergwandern', color:'#C9A227', desc:'Weg nicht immer sichtbar, exponierte Stellen teils gesichert.'},
-  'T4': {label:'Alpinwandern', color:'#D97B3E', desc:'Weglos oder spärlich markiert, anspruchsvolles Gelände, Hände nötig.'},
-  'T5': {label:'Anspruchsvolles Alpinwandern', color:'#C2452D', desc:'Exponiert, weglos, evtl. Firn/Blockgletscher.'},
-  'T6': {label:'Schwieriges Alpinwandern', color:'#8A2E2E', desc:'Sehr exponiert, Gletscher/Firn, Kletterstellen bis II.'}
+  'T1': {label:'Wandern', color:'#3478A8', desc:'Weg gut gebahnt, keine Absturzgefahr.'},
+  'T2': {label:'Bergwandern', color:'#1F5A86', desc:'Weg mit durchgehendem Trassee, kann steil sein.'},
+  'T3': {label:'Anspruchsvolles Bergwandern', color:'#8C6A0A', desc:'Weg nicht immer sichtbar, exponierte Stellen teils gesichert.'},
+  'T4': {label:'Alpinwandern', color:'#B0561C', desc:'Weglos oder spärlich markiert, anspruchsvolles Gelände, Hände nötig.'},
+  'T5': {label:'Anspruchsvolles Alpinwandern', color:'#AE3A22', desc:'Exponiert, weglos, evtl. Firn/Blockgletscher.'},
+  'T6': {label:'Schwieriges Alpinwandern', color:'#7E2828', desc:'Sehr exponiert, Gletscher/Firn, Kletterstellen bis II.'}
 };
 const HIKE_SCALE_ORDER = ['T1','T2','T3','T4','T5','T6'];
 
