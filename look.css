@@ -1090,7 +1090,11 @@ html[data-fs-detent="full"].fs-sheet-open .emergency-tab{ bottom:calc(18px + env
 /* Mit Tourenkarte: die kleinen "Karte anzeigen"-Knöpfe im Blatt sind überflüssig */
 html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-map"],
 html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-tour-routes-map"],
-html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-access-routes-map"]{ display:none; }
+html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-access-routes-map"],
+html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-gebiet-overview-map"],
+html.fs-ctx-map .overlay.fs-sheet-mode [data-act="show-klettergebiet-overview-map"],
+html.fs-ctx-map .overlay.fs-sheet-mode [data-sektor-overview-map],
+html.fs-ctx-map .overlay.fs-sheet-mode .fs-minimap-hint{ display:none; }
 .fs-nomap-hint{ margin:0; padding:10px 12px; border-radius:12px; background:var(--ice-light); color:var(--accent-ink, #1F4D63); font-size:13.5px; font-weight:600; }
 
 /* =====================================================================
@@ -1395,6 +1399,7 @@ html.fs-dark .fsm-row{ border-top-color:#33414C; }
 .fsm-switch:checked::after{ left:21px; }
 .fs-tour-map-inner.maplibregl-map{ position:absolute; inset:0; }
 .fsm-btn.on{ color:#1565C0; }
+.fsm-ctlbox [data-fsm="gps"].on{ background:var(--ice-deep) !important; color:#fff !important; }
 /* FL (Leaflet-Befehle auf MapLibre): Ecken für Steuerelemente, Marker */
 .fl-corner{ position:absolute; z-index:4; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
 .fl-corner > *{ pointer-events:auto; }
