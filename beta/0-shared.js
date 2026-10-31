@@ -7220,9 +7220,13 @@ async function fsmLoadSlf(map, lid){
 }
 // Knöpfe oben rechts: Ebenen, Kompass (nur wenn gedreht/gekippt), 3D
 // Standort nur auf Tipp: einmal orten, hinfliegen, blauen Punkt setzen – kein laufender Standort (Akku)
+// Standort-Knopf zum Ein- und Ausschalten: einmal tippen holt den Standort einmal (kein dauerndes Suchen),
+// zeigt ihn und lässt den Punkt stehen; nochmals tippen nimmt ihn wieder weg
 function fsmLocateOnce(map, btn){
   if(map && map._ml) map = map._ml; // FL-Karte: die MapLibre-Karte darunter
   if(!map || !map._fsm) return;
+  const setOn = (on)=>{ if(btn){ btn.classList.toggle('on', on); btn.setAttribute('aria-pressed', String(on)); } };
+  if(map._fsmOnceMarker){ map._fsmOnceMarker.remove(); map._fsmOnceMarker = null; setOn(false); return; }
   if(!navigator.geolocation){ showToast('Standort ist auf diesem Gerät nicht verfügbar.', true); return; }
   if(btn) btn.classList.add('busy');
   navigator.geolocation.getCurrentPosition((p)=>{
@@ -7230,16 +7234,8 @@ function fsmLocateOnce(map, btn){
     const ll = [p.coords.longitude, p.coords.latitude];
     if(map._fsmOnceMarker) map._fsmOnceMarker.setLngLat(ll);
     else{ const el = document.createElement('div'); el.className = 'fsm-me'; map._fsmOnceMarker = new maplibregl.Marker({element: el}).setLngLat(ll).addTo(map); }
-    map._fsmOnceMarker.getElement().classList.remove('fsm-me-out');
+    setOn(true);
     map.flyTo({center: ll, zoom: Math.max(map.getZoom(), 13.5), duration: 1400});
-    // Nur kurz zeigen, wo man ist: nach 15 Sekunden ausblenden und entfernen
-    clearTimeout(map._fsmOnceTm);
-    map._fsmOnceTm = setTimeout(()=>{
-      const m = map._fsmOnceMarker;
-      if(!m) return;
-      m.getElement().classList.add('fsm-me-out');
-      map._fsmOnceTm = setTimeout(()=>{ if(map._fsmOnceMarker === m){ m.remove(); map._fsmOnceMarker = null; } }, 600);
-    }, 15000);
   }, ()=>{ if(btn) btn.classList.remove('busy'); showToast('Standort nicht verfügbar – Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
 }
 const FSM_OVERLAY_GROUPS = [['wege', 'Wege und Routen'], ['gefahr', 'Gefahren und Schutz'], ['unterwegs', 'Unterwegs']];
@@ -8118,7 +8114,7 @@ function fsmAddControls(map){
   if(pb) pb.addEventListener('click', ()=> fsPlannerOpen());
   box.querySelector('[data-fsm="north"]').addEventListener('click', ()=> map.easeTo({bearing:0, pitch:0, duration:500}));
   const gpsBtn = box.querySelector('[data-fsm="gps"]');
-  gpsBtn.classList.toggle('on', !!(gpsMarker && gpsMarker._fsmMap === map));
+  gpsBtn.classList.toggle('on', !!((gpsMarker && gpsMarker._fsmMap === map) || map._fsmOnceMarker));
   gpsBtn.addEventListener('click', ()=>{
     fsmLocateOnce(map, gpsBtn);
     return;
