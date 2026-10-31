@@ -1399,6 +1399,7 @@ html.fs-dark .fsm-row{ border-top-color:#33414C; }
 .fsm-switch:checked::after{ left:21px; }
 .fs-tour-map-inner.maplibregl-map{ position:absolute; inset:0; }
 .fsm-btn.on{ color:#1565C0; }
+.fsm-ctlbox [data-fsm="gps"].on{ background:var(--ice-deep) !important; color:#fff !important; }
 /* FL (Leaflet-Befehle auf MapLibre): Ecken für Steuerelemente, Marker */
 .fl-corner{ position:absolute; z-index:4; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
 .fl-corner > *{ pointer-events:auto; }
