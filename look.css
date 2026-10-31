@@ -1694,6 +1694,8 @@ html.fs-filter-open body{ overflow:hidden; }
 .fsm-cam .fs-i{ width:17px; height:17px; }
 .fsm-park{ width:26px; height:26px; border-radius:7px; }
 .fsm-park .fs-i{ width:16px; height:16px; }
+.fsm-osm-water{ color:#1971C2 !important; }
+.fsm-osm-shelter{ color:#8B5A2B !important; }
 .fs-park-src{ display:block; margin-top:6px; font-size:11px; color:var(--ink-faint); }
 .fs-cam-pop{ display:flex; flex-direction:column; gap:4px; min-width:180px; }
 .fs-cam-pop b{ font-size:14px; }
