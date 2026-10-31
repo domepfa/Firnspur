@@ -1668,7 +1668,7 @@ async function fsmTerrainSource(map){
   const q = fs3dQuality();
   if(map.getSource('fs-terrain') && map._fsTerrainQ === q) return true;
   let spec = {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 11, attribution:'Höhen: Mapzen/AWS Terrain Tiles'};
-  if(q === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){ showToast('Genaues Gelände gerade nicht verfügbar – gröberes geladen.', true); } }
+  if(q === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){ showToast('Genaues Gelände gerade nicht verfügbar – gröberes geladen.'); } }
   if(!map._fsTerrain || q !== fs3dQuality()) return false;
   try{ map.setTerrain(null); }catch(e){}
   if(map.getSource('fs-terrain')) map.removeSource('fs-terrain');
@@ -1681,22 +1681,12 @@ async function fsmTerrainSetQuality(map, q){
   if(map._fsTerrain && await fsmTerrainSource(map)) map.setTerrain({source:'fs-terrain', exaggeration:1});
   fsmSyncPanel(map);
 }
-// 3D-Knopf gefüllt, solange 3D an ist; dann darunter «Gipfel ringsum» (Panorama der umliegenden Gipfel)
+// 3D-Knopf gefüllt, solange 3D an ist («Gipfel ringsum» steht dann im Ebenen-Fenster, damit die Knopfsäule
+// nicht unter die Suchleiste wächst)
 function fsmTerrainButtons(map){
   const on = !!map._fsTerrain;
-  map.getContainer().querySelectorAll('.fsm-3d').forEach(b=>{
-    b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
-    let pano = b.parentNode.querySelector('[data-fsm="pano"]');
-    if(!pano){
-      pano = document.createElement('button');
-      pano.type = 'button'; pano.className = 'fsm-btn'; pano.dataset.fsm = 'pano';
-      pano.setAttribute('aria-label', 'Gipfel ringsum');
-      pano.innerHTML = fsIconHtml('mountain');
-      pano.addEventListener('click', ()=>{ const c = map.getCenter(); fsOpen3d({lat: c.lat, lon: c.lng, zoom: map.getZoom(), panorama: true}); });
-      b.after(pano);
-    }
-    pano.hidden = !on;
-  });
+  map.getContainer().querySelectorAll('.fsm-3d').forEach(b=>{ b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  fsmSyncPanel(map);
 }
 // Bearbeiten im Vollbild: die Startkarte ausleihen (gleicher Ausschnitt, Ebenen, 2D/3D), die Werkzeuge des
 // Editors (Punkt, Linie, Route) hängen als FL-Hülle daran; beim Schliessen wird alles Eigene wieder entfernt
@@ -2296,6 +2286,8 @@ function fsHomeInset(){
   return {top: 24, // Glas-Leiste (--fs-glass-bottom 64 px) abzüglich Grundabstand
     bottom: Math.min(fsHomeDetentPx(fsHomeDetent), Math.round(window.innerHeight * 0.6))};
 }
+// Aktuelle Suche (für Leertexte: «Keine Tour zu … gefunden» statt «passt zu diesem Filter»)
+function fsSearchQ(){ return (typeof state !== 'undefined' && typeof state.search === 'string') ? state.search.trim() : ''; }
 function fsHomeSetDetent(d, animate){
   if(d === fsHomeDetent && document.documentElement.dataset.fsHome === d) return;
   fsHomeDetent = d;
@@ -2438,7 +2430,8 @@ function fsTopbarEnsure(glass, bar){
       }catch(e){ if(seq === fsTopbarSeq) closeRes(); } // offline: nur die Liste filtert
     }, 300);
   });
-  q.addEventListener('focus', ()=>{ if(fsHomeDetent === 'karte') fsHomeSetDetent('mitte'); });
+  // Mit Tastatur bleibt unten wenig Platz: die Liste ganz hoch, damit die Treffer sichtbar sind
+  q.addEventListener('focus', ()=>{ if(fsHomeDetent !== 'liste') fsHomeSetDetent('liste'); });
   q.addEventListener('keydown', e=>{ if(e.key === 'Escape'){ q.value = ''; q.dispatchEvent(new Event('input')); q.blur(); } if(e.key === 'Enter') q.blur(); });
   x.addEventListener('click', ()=>{ q.value = ''; q.dispatchEvent(new Event('input')); q.focus(); });
   document.addEventListener('pointerdown', e=>{ if(!e.target.closest('.fs-tb-res, .fs-topbar')) closeRes(); }, true);
@@ -3425,8 +3418,8 @@ function agendaDetailHtml(id){
       <button type="button" id="delete-agenda-trigger" data-id="${a.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Termin löschen</button>
       <div id="delete-agenda-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
         Wirklich unwiderruflich löschen?
-        <button type="button" id="delete-agenda-yes" data-id="${a.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-        <button type="button" id="delete-agenda-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+        <button type="button" id="delete-agenda-yes" data-id="${a.id}" class="btn danger">Ja, löschen</button>
+        <button type="button" id="delete-agenda-no" class="btn secondary fs-del-keep">Behalten</button>
       </div>
     </div>
   </div>`;
@@ -4939,7 +4932,7 @@ function ensureFullscreenMapOverlay(){
     overlay.id = 'fullscreen-map-overlay';
     overlay.style.cssText = 'position:fixed; inset:0; z-index:200; background:#000; display:none;';
     overlay.innerHTML = `
-      <button id="fullscreen-map-close" style="position:absolute; top:14px; right:14px; z-index:100000; background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 18px; height:46px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.5); display:flex; align-items:center; gap:6px;">✕ Schliessen</button>
+      <button id="fullscreen-map-close" style="position:absolute; top:14px; right:14px; z-index:100000; background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 18px; height:46px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.5); display:flex; align-items:center; gap:6px;">Schliessen</button>
       <div id="fullscreen-map-container" style="width:100%; height:100%;"></div>
     `;
     document.body.appendChild(overlay);
@@ -4970,6 +4963,8 @@ function closeFullscreenMap(){
     try{ lastPointsEditorMapView = {center: m.getCenter(), zoom: m.getZoom()}; }catch(e){}
   }
   overlay.style.display = 'none';
+  const cb = document.getElementById('fullscreen-map-close');
+  if(cb) cb.innerHTML = fsIconHtml('x') + 'Schliessen';
   // Ausgeliehene Startkarte zurückgeben, bevor der Inhalt verschwindet
   if(m && m._onRemove){ try{ m.remove(); }catch(e){} delete window.__activeLeafletMaps['fullscreen-map-container-inner']; }
   const container = document.getElementById('fullscreen-map-container');
@@ -5272,7 +5267,7 @@ function fs3dMlOpen(opts){
     // Gelände: Hoch = genaues swisstopo-Gelände (wie map.geo.admin.ch), Spar = gröbere Höhendaten (weniger Daten)
     const setDem = async (q)=>{
       let spec = {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 11, attribution:'Höhen: Mapzen/AWS Terrain Tiles'};
-      if(q === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){ showToast('Genaues Gelände gerade nicht verfügbar – gröberes geladen.', true); } }
+      if(q === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){ showToast('Genaues Gelände gerade nicht verfügbar – gröberes geladen.'); } }
       if(fs3dMap !== map || q !== quality) return;
       try{ map.setTerrain(null); }catch(e){}
       if(map.getSource('dem')) map.removeSource('dem');
@@ -7417,10 +7412,8 @@ function fsHomePointOffer(ll){
     + '<div class="fs-pt-offer-meta"><input type="text" data-f="label" placeholder="Bezeichnung, z. B. Skidepot" autocomplete="off" aria-label="Bezeichnung des Punkts">'
     + '<select data-f="cat" aria-label="Art des Punkts">' + Object.keys(MAP_POINT_CATEGORIES).map(k=> `<option value="${k}">${esc(k ? MAP_POINT_CATEGORIES[k].label : 'Art: Punkt')}</option>`).join('') + '</select></div>'
     + '<input type="text" data-f="q" placeholder="Tour oder Hütte suchen …" autocomplete="off" aria-label="Eintrag suchen"><div class="fs-pt-offer-res"></div>';
-  const close = ()=>{ if(ml._fsm && ml._fsm.popup) ml._fsm.popup.remove(); };
-  wrap.querySelector('[data-plan]').addEventListener('click', ()=>{ close(); fsPlannerOpen(ll); });
-  wrap.querySelector('[data-scan]').addEventListener('click', ()=>{ close(); fsScanAim({lat, lon, centered: true}); });
-  wrap.querySelectorAll('[data-new]').forEach(b=> b.addEventListener('click', ()=>{ close(); fsFn(news[+b.dataset.new][2])(+lat.toFixed(6), +lon.toFixed(6)); }));
+  let close = ()=>{};
+  wrap.querySelectorAll('[data-new]').forEach(b=> b.addEventListener('click', ()=>{ close(); setTimeout(()=> fsFn(news[+b.dataset.new][2])(+lat.toFixed(6), +lon.toFixed(6)), 250); }));
   const inp = wrap.querySelector('[data-f="q"]'), res = wrap.querySelector('.fs-pt-offer-res');
   const lbl = wrap.querySelector('[data-f="label"]'), cat = wrap.querySelector('[data-f="cat"]');
   inp.addEventListener('input', ()=>{
@@ -7429,21 +7422,42 @@ function fsHomePointOffer(ll){
     res.innerHTML = hits.map((t, i)=> `<button type="button" data-i="${i}">${fsIconHtml(t.icon)}<span>${esc(t.name)}</span><small>${esc(t.label)}</small></button>`).join('');
     res.querySelectorAll('[data-i]').forEach(b=> b.addEventListener('click', ()=>{ const t = hits[+b.dataset.i]; close(); fsAppendPointTo(t.kind, t.id, lat, lon, lbl.value.trim(), cat.value); }));
   });
-  // Blatt nach unten, damit die Auswahl Platz hat
+  // Blatt nach unten, damit die Stelle auf der Karte sichtbar bleibt
   if(fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
-  // Das Loslassen nach dem Gedrückthalten kommt als Tippen auf die Karte an und würde das Fenster gleich
-  // wieder schliessen: erst ein späteres Tippen schliesst es
-  const t0 = Date.now();
-  const pop = fsmPopup(ml, ll, wrap, 8, {closeOnClick: false});
-  const onClick = ()=>{ if(Date.now() - t0 > 700) pop.remove(); };
-  ml.on('click', onClick);
-  pop.on('close', ()=> ml.off('click', onClick));
+  // Als Blatt von unten (wie Filter und Ebenen) statt als Fenster an der Karte: verdeckt keine Kartenknöpfe,
+  // und mit offener Tastatur rückt es über sie (visualViewport). Ein Pin markiert die Stelle.
+  if(ml._fsPtClose) ml._fsPtClose();
+  const pin = fsmAddMarker(ml, lat, lon, fsmCategoryMarkerHtml(''), {anchor: 'bottom'});
+  const back = document.createElement('div');
+  back.className = 'fsm-panel-back';
+  const sheet = document.createElement('div');
+  sheet.className = 'fs-pt-sheet';
+  sheet.setAttribute('role', 'dialog');
+  sheet.setAttribute('aria-label', 'Punkt hier');
+  sheet.innerHTML = '<button type="button" class="x-btn fs-pt-x" aria-label="Schliessen">×</button>';
+  sheet.appendChild(wrap);
+  const vv = window.visualViewport;
+  const lift = ()=>{ if(vv) sheet.style.bottom = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) + 'px'; };
+  const closeNow = ()=>{ sheet.remove(); back.remove(); try{ pin.remove(); }catch(e){} if(vv) vv.removeEventListener('resize', lift); if(ml._fsPtClose === drop) ml._fsPtClose = null; };
+  const drop = ()=>{ const i = overlayLayers.indexOf(layer); if(i >= 0) overlayLayers.splice(i, 1); closeNow(); };
+  ml._fsPtClose = drop;
+  const layer = closeNow;
+  // Schliessen über den Verlauf (Zurück-Geste); eine gewählte Aktion startet erst danach (eigener Verlaufseintrag)
+  close = ()=>{ if(overlayLayers[overlayLayers.length - 1] === layer) closeTopOverlayLayer(); else ml._fsPtClose && ml._fsPtClose(); };
+  const after = (fn)=> (...args)=>{ close(); setTimeout(()=> fn(...args), 250); };
+  wrap.querySelector('[data-plan]').onclick = after(()=> fsPlannerOpen(ll));
+  wrap.querySelector('[data-scan]').onclick = after(()=> fsScanAim({lat, lon, centered: true}));
+  back.addEventListener('click', close);
+  sheet.querySelector('.fs-pt-x').addEventListener('click', close);
+  if(vv) vv.addEventListener('resize', lift);
+  document.body.append(back, sheet);
+  pushOverlayLayer(layer);
 }
 function fsHomeWireHold(ml){
   if(!ml || ml._fsHomeHold) return;
   ml._fsHomeHold = true;
   // Nur in der Startansicht auf freier Karte (nicht im Planer, nicht in Tour/Gebiet, nicht auf Punkten)
-  const ok = ev=> !fsCtxUsesHome && !fsPlanner && !fsScanAimSt && document.documentElement.classList.contains('fs-mapmode') && !(typeof state !== 'undefined' && state.modal)
+  const ok = ev=> !fsCtxUsesHome && !fsPlanner && !fsScanAimSt && !ml._fsPtClose && document.documentElement.classList.contains('fs-mapmode') && !(typeof state !== 'undefined' && state.modal)
     && !(ev && ev.target && ev.target.closest && ev.target.closest('.maplibregl-marker, .maplibregl-popup, .fsm-ctlbox, .fsm-search-box'));
   ml.on('contextmenu', (e)=>{ if(e.originalEvent && e.originalEvent._fsmHandled) return; if(ok(e.originalEvent)) fsHomePointOffer(e.lngLat); });
   let timer = null, start = null;
@@ -8229,8 +8243,10 @@ function fsmSyncPanel(map){
   if(map._fsTerrain){
     const q = fs3dQuality(), row = document.createElement('div');
     row.className = 'fsm-extra';
-    row.innerHTML = `<div class="fsm-extra-label">3D-Gelände (Hoch = genaues swisstopo-Gelände)</div><div class="fsm-seg"><button type="button" data-q="hi" class="${q === 'hi' ? 'on' : ''}">Hoch</button><button type="button" data-q="lo" class="${q === 'lo' ? 'on' : ''}">Spar</button></div>`;
+    row.innerHTML = `<div class="fsm-extra-label">3D-Gelände (Hoch = genaues swisstopo-Gelände)</div><div class="fsm-seg"><button type="button" data-q="hi" class="${q === 'hi' ? 'on' : ''}">Hoch</button><button type="button" data-q="lo" class="${q === 'lo' ? 'on' : ''}">Spar</button></div>
+      <button type="button" class="btn secondary fsm-pano-btn" data-pano>${fsIconHtml('mountain')}Gipfel ringsum</button>`;
     row.querySelectorAll('[data-q]').forEach(b=> b.addEventListener('click', ()=> fsmTerrainSetQuality(map, b.dataset.q)));
+    row.querySelector('[data-pano]').addEventListener('click', ()=>{ const c = map.getCenter(); fsmClosePanel(map); fsOpen3d({lat: c.lat, lon: c.lng, zoom: map.getZoom(), panorama: true}); });
     panel.appendChild(row);
   }
   if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
@@ -9775,7 +9791,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const pointHint = document.createElement('p');
     pointHint.className = 'hint';
     pointHint.style.marginBottom = '4px';
-    pointHint.textContent = 'Lange drücken, um einen Punkt zu setzen. Normal antippen zeigt Infos zur Skitouren-Ebene (falls eingeschaltet).';
+    pointHint.textContent = 'Auf die Karte tippen und «Punkt hier setzen» wählen. Punkte lassen sich verschieben und antippen zum Beschriften.';
     wrapDiv.appendChild(pointHint);
 
     if(gpxTrackFromHidden){
@@ -9959,6 +9975,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const zoom = lastPointsEditorMapView ? lastPointsEditorMapView.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
     // Vollbild: dieselbe Karte wie überall (Startkarte ausgeliehen); nur die kleine Karte im Formular ist eigen
     const map = ((isFullscreen && fsEdAcquire(mapDivId)) || fsmCreateFlMap(mapDivId, isFullscreen ? {on3d: (ml)=> openEditor3d(ml)} : undefined)).setView(center, zoom);
+    // Bearbeiten: «Fertig» statt «Schliessen» – die Änderungen bleiben (gespeichert wird im Blatt bzw. Formular)
+    if(isFullscreen){ const cb = document.getElementById('fullscreen-map-close'); if(cb) cb.innerHTML = fsIconHtml('check') + 'Fertig'; }
     map._isPointsEditorMap = true;
     if(fsPeTop){
       // Kartenknöpfe (Ebenen, Standort, 3D) unter die schwebende Leiste schieben
@@ -10644,9 +10662,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         }
         redrawRoute();
       }else{
-        // Punkt-Modus: ein normaler Klick zeigt Infos zur angetippten SAC-Route/Sperrung (falls
-        // die Ebene an ist), statt einen Punkt zu setzen (das geht per langem Drücken, s. u.).
-        await fsmHandleInfoClick(map._ml, e.latlng, {sac:{allowAttach:false}});
+        // Punkt-Modus: Tippen bietet «Punkt hier setzen» an (wie langes Drücken); ein bewusster
+        // zweiter Tipp, damit beim Verschieben der Karte nicht versehentlich Punkte entstehen
+        offerPointAt(e);
       }
     });
 
@@ -10655,16 +10673,20 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     map.on('contextmenu', (e)=>{
       if(mode!=='point') return;
       FL.DomEvent.preventDefault(e.originalEvent);
+      offerPointAt(e);
+    });
+    function offerPointAt(e){
       const wrap = document.createElement('div');
       wrap.style.minWidth = '170px';
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = '📍 Punkt hier setzen';
-      btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+      btn.className = 'btn';
+      btn.style.cssText = 'width:100%; min-height:48px; justify-content:center;';
+      btn.innerHTML = fsIconHtml('pin') + 'Punkt hier setzen';
       btn.addEventListener('click', ()=> addPointAt(e.latlng.lat, e.latlng.lng));
       wrap.appendChild(btn);
       FL.popup().setLatLng(e.latlng).setContent(wrap).openOn(map);
-    });
+    }
 
     redraw();
     renderList();
@@ -14092,6 +14114,7 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'delete-access-route','delete-tour-route','delete-sektor-route','delete-calculated-route',
   'remove-completion','remove-alt-track',
   'quick-edit-toggle','toggle-tour-status','set-tour-status','toggle-hut-status',
+  'convert-sektor-to-klettergebiet', // ändert die Struktur: erst im Bearbeiten-Modus
   'fs-ort-link','fs-ort-edit','fs-ort-unlink','fs-ort-delete','fs-link-hut','fs-erf-new','fs-erf-apply','fs-erf-delete',
   'open-complete-tour','open-complete-hut','mark-done',
   'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
@@ -14601,6 +14624,12 @@ function fsHandleExitGuard(ev){
   const st = ev && ev.state;
   if(st && st.fsLayer) return false; // noch innerhalb unserer Einträge
   const url = fsCurrentUrl();
+  // Startkarte in 3D: Zurück macht sie zuerst wieder flach (statt «Nochmals Zurück zum Beenden»)
+  if(typeof fsHomeMap !== 'undefined' && fsHomeMap && fsHomeMap._fsTerrain && !fsCtxUsesHome){
+    try{ history.replaceState(history.state, '', url); history.pushState({fsLayer:'guard'}, '', url); }catch(e){}
+    fsmTerrainToggle(fsHomeMap, false);
+    return true;
+  }
   if(Date.now() - fsExitAskedAt < 2500){
     // Ist dies der erste Eintrag (installierte App), schliesst erst das nächste Zurück die App.
     fsExitLeaving = true;

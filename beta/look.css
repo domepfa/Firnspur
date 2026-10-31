@@ -309,7 +309,7 @@ main{ padding:22px 16px 110px; }
   font-size:11.5px; font-weight:800; letter-spacing:.08em; color:var(--ink-faint); margin-bottom:5px;
 }
 .field input, .field select, .field textarea{
-  min-height:46px; padding:10px 14px; border-radius:12px; border:1px solid var(--line); font-size:15px;
+  min-height:46px; padding:10px 14px; border-radius:12px; border:1px solid var(--line); font-size:16px;
 }
 .detail-section{ margin-top:22px; }
 .detail-section h4{ border-bottom:none; padding-bottom:0; margin-bottom:8px; }
@@ -1618,6 +1618,7 @@ html.fs-filter-open body{ overflow:hidden; }
 .fs-3d-quality-edit{ bottom:calc(150px + env(safe-area-inset-bottom, 0px)); }
 .fs-3d-pano .fs-3d-quality{ display:none; }
 
+.fsm-pano-btn{ width:100%; min-height:48px; margin-top:10px; justify-content:center; }
 /* ===== 3D mit MapLibre ===== */
 .fs-3d-ml{ background:#DDEBF5; }
 .fs-3d-ml .fs-3d-top{ right:70px; }
@@ -2662,6 +2663,10 @@ html.fs-planning .fs-home-pin, html.fs-planning .fs-home-clu{ pointer-events:non
 .fs-pt-offer-res button .fs-i{ width:18px; height:18px; color:var(--ice-deep); flex:none; }
 .fs-pt-offer-res button span{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .fs-pt-offer-res small{ color:var(--ink-soft); font-size:12px; }
+/* «Punkt hier» als Blatt von unten */
+.fs-pt-sheet{ position:fixed; left:0; right:0; bottom:0; z-index:650; max-width:620px; margin:0 auto; max-height:78vh; overflow-y:auto; overscroll-behavior:contain; background:var(--paper); color:var(--ink); border-radius:22px 22px 0 0; padding:16px 16px calc(16px + env(safe-area-inset-bottom, 0px)); box-shadow:0 -8px 30px rgba(15,30,39,.25); }
+.fs-pt-sheet .fs-pt-offer{ min-width:0; }
+.fs-pt-x{ position:absolute; top:10px; right:10px; width:44px; height:44px; }
 /* Ebene «Hütten und Zustiege» auf der Startkarte */
 .fs-xpt{ width:30px; height:30px; padding:0; border-radius:50%; border:2px solid #fff; background:var(--paper); color:var(--ink-soft); display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(15,30,39,.3); cursor:pointer; }
 .fs-xpt .fs-i{ width:16px; height:16px; }
@@ -3030,3 +3035,11 @@ html.fs-mapfull.fs-mapmode .fs-home-slot .fsm-wx-pill{ bottom:calc(12px + env(sa
 html.fs-mapmode[data-fs-home="liste"] .fs-home-slot .fsm-wx-pill{ display:none; }
 #fs-tour-map .fsm-wx-pill{ bottom:calc(var(--fs-sheet-h, 196px) + 8px); }
 .fs-3d .fsm-wx-pill{ bottom:calc(76px + env(safe-area-inset-bottom, 0px)); }
+
+/* ===== Eingaben mindestens 16 px: darunter vergrössert das iPhone beim Antippen die ganze Seite ===== */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), select, textarea{ font-size:max(16px, 1em) !important; }
+
+/* ===== Lösch-Rückfrage: «Ja, löschen» und «Behalten» gleich gross nebeneinander ===== */
+[id^="delete-"][id$="-confirm"]{ text-align:left; line-height:1.45; }
+[id^="delete-"][id$="-confirm"] .btn{ display:inline-flex; align-items:center; justify-content:center; min-height:48px; width:calc(50% - 6px); margin:10px 0 0; font-size:15px; }
+[id^="delete-"][id$="-confirm"] .btn + .btn{ margin-left:12px; }
