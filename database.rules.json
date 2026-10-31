@@ -1,15 +1,15 @@
 {
   "rules": {
-    ".read": "auth != null",
+    ".read": "auth != null && auth.token.email === 'firn@spur.so'",
     "$top": {
       "$a": {
-        ".write": "auth != null && $top !== 'fixseil' && $top !== 'wandern' && $top !== 'versions'",
+        ".write": "auth != null && auth.token.email === 'firn@spur.so' && $top !== 'fixseil' && $top !== 'wandern' && $top !== 'versions'",
         ".validate": "!newData.exists() || ($top !== 'tours' && $top !== 'huts' && $top !== 'orte') || (newData.child('name').isString() && newData.child('name').val().length > 0)",
         "$b": {
-          ".write": "auth != null && ($top === 'fixseil' || $top === 'wandern')",
+          ".write": "auth != null && auth.token.email === 'firn@spur.so' && ($top === 'fixseil' || $top === 'wandern')",
           ".validate": "!newData.exists() || !(($top === 'fixseil' || $top === 'wandern') && $a === 'tours') || (newData.child('name').isString() && newData.child('name').val().length > 0)",
           "$c": {
-            ".write": "auth != null && $top === 'versions' && !data.exists() && newData.exists()"
+            ".write": "auth != null && auth.token.email === 'firn@spur.so' && $top === 'versions' && !data.exists() && newData.exists()"
           }
         }
       }

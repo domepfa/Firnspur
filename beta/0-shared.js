@@ -15652,8 +15652,8 @@ function accessRouteRowHtml(r, index, hutId){
   const color = accessRouteColor(r, index);
   const seasonIcon = r.season==='sommer' ? '🌞' : (r.season==='winter' ? '❄️' : '📍');
   const diffBadges = [];
-  if(r.difficulty) diffBadges.push(`<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${r.difficulty}</span>`);
-  if(r.difficultyT) diffBadges.push(`<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span>`);
+  if(r.difficulty) diffBadges.push(`<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${esc(r.difficulty)}</span>`);
+  if(r.difficultyT) diffBadges.push(`<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${esc(r.difficultyT)}</span>`);
   return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="open-access-route" data-hut-id="${hutId}" data-route-id="${r.id}" tabindex="0" role="button">
     <div class="card-top">
       <h3 style="font-size:15px;">${seasonIcon} ${esc(r.name)}</h3>
@@ -15680,8 +15680,8 @@ function accessRouteDetailHtml(hutId, route){
       ${r.duration ? `<div class="detail-stat"><div class="num">${esc(r.duration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>` : ''}
     ${(r.difficulty || r.difficultyT) ? `<div style="margin:10px 0;">
-      ${r.difficulty ? `<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${r.difficulty}</span> ` : ''}
-      ${r.difficultyT ? `<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span>` : ''}
+      ${r.difficulty ? `<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${esc(r.difficulty)}</span> ` : ''}
+      ${r.difficultyT ? `<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${esc(r.difficultyT)}</span>` : ''}
     </div>` : ''}
     ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(r.description)}</p></div>` : ''}
     ${r.gpxLink ? `<div class="detail-section"><h4>GPX-Link</h4><p><a href="${esc(r.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(r.gpxLink)}</a></p></div>` : ''}
