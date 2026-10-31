@@ -1743,6 +1743,7 @@ function fsCtxRelease(owner){
   if((owner || 'ctx') !== fsCtxOwner) return;
   fsCtxOwner = '';
   const map = fsHomeMap;
+  if(map) map._fsGzKey = null;
   // 3D bleibt an (dieselbe Karte); nur ein früher gesetzter Rand wird zurückgesetzt
   try{ if(map) map.jumpTo({padding: {top: 0, left: 0, right: 0, bottom: 0}}); }catch(e){}
   fsCtxUsesHome = false; fsCtxOn3d = null;
@@ -7219,9 +7220,13 @@ async function fsmLoadSlf(map, lid){
 }
 // Knöpfe oben rechts: Ebenen, Kompass (nur wenn gedreht/gekippt), 3D
 // Standort nur auf Tipp: einmal orten, hinfliegen, blauen Punkt setzen – kein laufender Standort (Akku)
+// Standort-Knopf zum Ein- und Ausschalten: einmal tippen holt den Standort einmal (kein dauerndes Suchen),
+// zeigt ihn und lässt den Punkt stehen; nochmals tippen nimmt ihn wieder weg
 function fsmLocateOnce(map, btn){
   if(map && map._ml) map = map._ml; // FL-Karte: die MapLibre-Karte darunter
   if(!map || !map._fsm) return;
+  const setOn = (on)=>{ if(btn){ btn.classList.toggle('on', on); btn.setAttribute('aria-pressed', String(on)); } };
+  if(map._fsmOnceMarker){ map._fsmOnceMarker.remove(); map._fsmOnceMarker = null; setOn(false); return; }
   if(!navigator.geolocation){ showToast('Standort ist auf diesem Gerät nicht verfügbar.', true); return; }
   if(btn) btn.classList.add('busy');
   navigator.geolocation.getCurrentPosition((p)=>{
@@ -7229,16 +7234,8 @@ function fsmLocateOnce(map, btn){
     const ll = [p.coords.longitude, p.coords.latitude];
     if(map._fsmOnceMarker) map._fsmOnceMarker.setLngLat(ll);
     else{ const el = document.createElement('div'); el.className = 'fsm-me'; map._fsmOnceMarker = new maplibregl.Marker({element: el}).setLngLat(ll).addTo(map); }
-    map._fsmOnceMarker.getElement().classList.remove('fsm-me-out');
+    setOn(true);
     map.flyTo({center: ll, zoom: Math.max(map.getZoom(), 13.5), duration: 1400});
-    // Nur kurz zeigen, wo man ist: nach 15 Sekunden ausblenden und entfernen
-    clearTimeout(map._fsmOnceTm);
-    map._fsmOnceTm = setTimeout(()=>{
-      const m = map._fsmOnceMarker;
-      if(!m) return;
-      m.getElement().classList.add('fsm-me-out');
-      map._fsmOnceTm = setTimeout(()=>{ if(map._fsmOnceMarker === m){ m.remove(); map._fsmOnceMarker = null; } }, 600);
-    }, 15000);
   }, ()=>{ if(btn) btn.classList.remove('busy'); showToast('Standort nicht verfügbar – Ortung erlaubt?', true); }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
 }
 const FSM_OVERLAY_GROUPS = [['wege', 'Wege und Routen'], ['gefahr', 'Gefahren und Schutz'], ['unterwegs', 'Unterwegs']];
@@ -7333,7 +7330,7 @@ async function fsAppendPointTo(kind, id, lat, lon, label, category){
   const savers = {tour: 'saveTourCloud', hut: 'saveHutCloud', sektor: 'saveSektorCloud', klettergebiet: 'saveKlettergebietCloud'};
   const x = (lists[kind] || []).find(y=> y.id === id);
   const save = fsFn(savers[kind]);
-  if(!x || typeof save !== 'function') return;
+  if(!x || typeof save !== 'function'){ showToast('Punkt konnte nicht gespeichert werden – Eintrag nicht gefunden.', true); return; }
   x.points = Array.isArray(x.points) ? x.points.slice() : [];
   x.points.push({label: label || '', lat: +lat.toFixed(6), lon: +lon.toFixed(6), category: category || ''});
   x.updatedAt = new Date().toISOString();
@@ -8117,7 +8114,7 @@ function fsmAddControls(map){
   if(pb) pb.addEventListener('click', ()=> fsPlannerOpen());
   box.querySelector('[data-fsm="north"]').addEventListener('click', ()=> map.easeTo({bearing:0, pitch:0, duration:500}));
   const gpsBtn = box.querySelector('[data-fsm="gps"]');
-  gpsBtn.classList.toggle('on', !!(gpsMarker && gpsMarker._fsmMap === map));
+  gpsBtn.classList.toggle('on', !!((gpsMarker && gpsMarker._fsmMap === map) || map._fsmOnceMarker));
   gpsBtn.addEventListener('click', ()=>{
     fsmLocateOnce(map, gpsBtn);
     return;
@@ -20580,6 +20577,29 @@ function fsFitContextMap(){
   const bottom = fsSheetHeightPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent);
   fsmFit(fsCtxMap, fsCtxMap._fsCoords, {top:70, left:30, right:70, bottom: bottom + 20}, 14);
 }
+// «Weitere Routen auf diesen Gipfel»: alle Routen mit diesem Gipfelziel farbig auf die Karte hinter dem Blatt
+// (gleiche Farben wie die Legende), Blatt klein. Die Linien verschwinden mit der Tour (own-…).
+function fsCtxShowGipfelziel(name){
+  const map = fsCtxMap;
+  if(!map || !fsCtxUsesHome || !document.documentElement.classList.contains('fs-ctx-map') || typeof gipfelzielKey !== 'function') return false;
+  const key = gipfelzielKey(name);
+  const tours = (state.tours || []).filter(t=> gipfelzielKey(t.name) === key);
+  const all = [];
+  const draw = map._fsGzKey !== key;
+  tours.forEach((t, i)=>{
+    const color = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
+    fsTourRoutes(t).forEach(r=>{
+      if(!r.coords || r.coords.length < 2) return;
+      if(draw) fsmAddLine(map, r.coords, {color, width: 4, label: t.name + (t.routeName ? ' – ' + t.routeName : '')});
+      all.push(...r.coords);
+    });
+  });
+  if(!all.length) return false;
+  map._fsGzKey = key;
+  fsSetSheetDetent('peek');
+  fsmFit(map, all, {top: 70, left: 30, right: 70, bottom: fsSheetHeightPx('peek') + 20}, 14);
+  return true;
+}
 function fsShowContextMap(t){
   if(fsCtxOwner === 'edit') return; // Karte gerade beim Bearbeiten im Vollbild; danach neu (fsEdRelease)
   if(!fsTourHasContextData(t)){ fsDestroyContextMap(); return; }
@@ -21122,7 +21142,7 @@ const FS_ICON_PATHS = {
   heli: 'M3 5h14M10 5v3M6 8h8a4 4 0 0 1 4 4v1a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3zM18 12h3M9 16l-1 3M15 16l1 3M6 19h12',
   shield: 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z',
   sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 5v4M8 15v4',
-  gps: 'M3 11l18-8-8 18-2-8z',
+  gps: 'M19 12a7 7 0 1 1-14 0a7 7 0 1 1 14 0zM14.5 12a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0zM12 2v3M12 19v3M2 12h3M19 12h3', // Standort: Fadenkreuz (kein Navi-Pfeil)
   scan: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 16l3.5-5 2.5 3 1.5-2 2.5 4z',
   pause: 'M8 5v14M16 5v14', // Hang-Scan: Gelände im Sucher // Ortungspfeil (eigener Standort), wie in Karten-Apps üblich
   lock: 'M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11',
