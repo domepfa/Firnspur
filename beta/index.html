@@ -1580,16 +1580,16 @@ function emptyTouren__sw(...a){ return (DISC === 'wand' ? emptyTourenWand : empt
 function emptyTourenSki(){
   const hasAny = state.tours.length>0;
   return `<div class="empty">
-    <h3>${hasAny ? 'Keine Tour passt zu diesem Filter' : 'Noch keine Tour erfasst'}</h3>
-    <p>${hasAny ? 'Filter anpassen oder eine neue Tour hinzufügen.' : 'Trag die erste Skitour ein – Name, Schwierigkeit, Höhenmeter und ein paar Zeilen zu Anfahrt, Auf- und Abstieg reichen.'}</p>
+    <h3>${(hasAny && fsSearchQ()) ? 'Keine Tour zu «' + esc(fsSearchQ()) + '» gefunden' : hasAny ? 'Keine Tour passt zu diesem Filter' : 'Noch keine Tour erfasst'}</h3>
+    <p>${(hasAny && fsSearchQ()) ? 'Andere Schreibweise versuchen oder die Suche leeren.' : hasAny ? 'Filter anpassen oder eine neue Tour hinzufügen.' : 'Trag die erste Skitour ein – Name, Schwierigkeit, Höhenmeter und ein paar Zeilen zu Anfahrt, Auf- und Abstieg reichen.'}</p>
     <button class="btn" data-act="add-tour">+ Neue Tour</button>
   </div>`;
 }
 function emptyTourenWand(){
   const hasAny = state.tours.length>0;
   return `<div class="empty">
-    <h3>${hasAny ? 'Keine Tour passt zu diesem Filter' : 'Noch keine Tour erfasst'}</h3>
-    <p>${hasAny ? 'Filter anpassen oder eine neue Tour hinzufügen.' : 'Trag die erste Wanderung ein – Ziel, Wanderskala, Zeitbedarf und ein paar Zeilen zu Anreise und Route reichen.'}</p>
+    <h3>${(hasAny && fsSearchQ()) ? 'Keine Tour zu «' + esc(fsSearchQ()) + '» gefunden' : hasAny ? 'Keine Tour passt zu diesem Filter' : 'Noch keine Tour erfasst'}</h3>
+    <p>${(hasAny && fsSearchQ()) ? 'Andere Schreibweise versuchen oder die Suche leeren.' : hasAny ? 'Filter anpassen oder eine neue Tour hinzufügen.' : 'Trag die erste Wanderung ein – Ziel, Wanderskala, Zeitbedarf und ein paar Zeilen zu Anreise und Route reichen.'}</p>
     <button class="btn" data-act="add-tour">+ Neue Tour</button>
   </div>`;
 }
@@ -1687,8 +1687,8 @@ function gebietFormHtmlSki(existing){
         <button type="button" id="delete-gebiet-trigger" data-id="${g.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Gebiet löschen</button>
         <div id="delete-gebiet-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
           In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)? Verlinkte Touren/Hütten bleiben erhalten, verlieren aber die Gebiets-Zuordnung.
-          <button type="button" id="delete-gebiet-yes" data-id="${g.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-          <button type="button" id="delete-gebiet-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+          <button type="button" id="delete-gebiet-yes" data-id="${g.id}" class="btn danger">Ja, löschen</button>
+          <button type="button" id="delete-gebiet-no" class="btn secondary fs-del-keep">Behalten</button>
         </div>
       </div>` : ''}
     </form>
@@ -1735,8 +1735,8 @@ function gebietFormHtmlWand(existing){
         <button type="button" id="delete-gebiet-trigger" data-id="${g.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Gebiet löschen</button>
         <div id="delete-gebiet-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
           In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)? Verlinkte Touren/Hütten bleiben erhalten, verlieren aber die Gebiets-Zuordnung.
-          <button type="button" id="delete-gebiet-yes" data-id="${g.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-          <button type="button" id="delete-gebiet-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+          <button type="button" id="delete-gebiet-yes" data-id="${g.id}" class="btn danger">Ja, löschen</button>
+          <button type="button" id="delete-gebiet-no" class="btn secondary fs-del-keep">Behalten</button>
         </div>
       </div>` : ''}
     </form>
@@ -1963,8 +1963,8 @@ function tourFormHtmlSki(existing){
         <button type="button" id="delete-tour-trigger" data-id="${t.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Tour löschen</button>
         <div id="delete-tour-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
           In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)?
-          <button type="button" id="delete-tour-yes" data-id="${t.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-          <button type="button" id="delete-tour-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+          <button type="button" id="delete-tour-yes" data-id="${t.id}" class="btn danger">Ja, löschen</button>
+          <button type="button" id="delete-tour-no" class="btn secondary fs-del-keep">Behalten</button>
         </div>
       </div>` : ''}
     </form>
@@ -2102,8 +2102,8 @@ function tourFormHtmlWand(existing){
         <button type="button" id="delete-tour-trigger" data-id="${t.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Tour löschen</button>
         <div id="delete-tour-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
           In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)?
-          <button type="button" id="delete-tour-yes" data-id="${t.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-          <button type="button" id="delete-tour-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+          <button type="button" id="delete-tour-yes" data-id="${t.id}" class="btn danger">Ja, löschen</button>
+          <button type="button" id="delete-tour-no" class="btn secondary fs-del-keep">Behalten</button>
         </div>
       </div>` : ''}
     </form>
@@ -4545,7 +4545,8 @@ function closeModal__fix(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     // genau die unges­icherten Eingaben verwerfen, die der Nutzer gerade bewusst behalten wollte.
     // Bei der Hardware-/Browser-Zurück-Taste wurde der History-Eintrag bereits konsumiert (siehe
     // popstate-Handler) – den stellen wir hier gezielt wieder her, ohne die Maske neu zu rendern.
-    if(fromPopstate) pushModalHistoryIfNeeded();
+    // Der Eintrag ist verbraucht, auch wenn modalHistoryPushed noch true sagt: neu anlegen
+    if(fromPopstate){ modalHistoryPushed = false; pushModalHistoryIfNeeded(); }
     return;
   }
   // Nach dem Speichern geschlossen: Formular gilt als erledigt, sein Entwurf ist überflüssig
@@ -5145,8 +5146,8 @@ function sektorFormHtml(existing){
         <button type="button" id="delete-sektor-trigger" data-id="${s.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Sektor löschen</button>
         <div id="delete-sektor-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
           In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)? Verlinkte Touren verlieren die Sektor-Zuordnung.
-          <button type="button" id="delete-sektor-yes" data-id="${s.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-          <button type="button" id="delete-sektor-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+          <button type="button" id="delete-sektor-yes" data-id="${s.id}" class="btn danger">Ja, löschen</button>
+          <button type="button" id="delete-sektor-no" class="btn secondary fs-del-keep">Behalten</button>
         </div>
       </div>` : ''}
     </form>
@@ -5366,8 +5367,8 @@ function klettergebietFormHtml(existing){
         <button type="button" id="delete-klettergebiet-trigger" data-id="${g.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Klettergebiet löschen</button>
         <div id="delete-klettergebiet-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
           In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)? Verlinkte Sektoren bleiben erhalten, verlieren aber die Gebiets-Zuordnung.
-          <button type="button" id="delete-klettergebiet-yes" data-id="${g.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-          <button type="button" id="delete-klettergebiet-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+          <button type="button" id="delete-klettergebiet-yes" data-id="${g.id}" class="btn danger">Ja, löschen</button>
+          <button type="button" id="delete-klettergebiet-no" class="btn secondary fs-del-keep">Behalten</button>
         </div>
       </div>` : ''}
     </form>
@@ -5444,8 +5445,8 @@ function gipfelFormHtml(existing){
         <button type="button" id="delete-gipfel-trigger" data-id="${g.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Gipfel löschen</button>
         <div id="delete-gipfel-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
           In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)? Verlinkte Touren bleiben erhalten, verlieren aber die Gipfel-Zuordnung.
-          <button type="button" id="delete-gipfel-yes" data-id="${g.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-          <button type="button" id="delete-gipfel-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+          <button type="button" id="delete-gipfel-yes" data-id="${g.id}" class="btn danger">Ja, löschen</button>
+          <button type="button" id="delete-gipfel-no" class="btn secondary fs-del-keep">Behalten</button>
         </div>
       </div>` : ''}
     </form>
@@ -6356,8 +6357,8 @@ function gipfelDetailHtml(id){
 function emptyTouren__fix(){
   const hasAny = state.tours.filter(t=> (t.tourCategory||'hochtour')==='hochtour').length>0;
   return `<div class="empty">
-    <h3>${hasAny ? 'Keine Tour passt zu diesem Filter' : 'Noch keine Hochtour erfasst'}</h3>
-    <p>${hasAny ? 'Filter anpassen oder eine neue Tour hinzufügen.' : 'Trag die erste Hochtour ein – Name, Schwierigkeit, Höhenmeter und ein paar Zeilen zu Zustieg, Auf- und Abstieg reichen.'}</p>
+    <h3>${(hasAny && fsSearchQ()) ? 'Keine Tour zu «' + esc(fsSearchQ()) + '» gefunden' : hasAny ? 'Keine Tour passt zu diesem Filter' : 'Noch keine Hochtour erfasst'}</h3>
+    <p>${(hasAny && fsSearchQ()) ? 'Andere Schreibweise versuchen oder die Suche leeren.' : hasAny ? 'Filter anpassen oder eine neue Tour hinzufügen.' : 'Trag die erste Hochtour ein – Name, Schwierigkeit, Höhenmeter und ein paar Zeilen zu Zustieg, Auf- und Abstieg reichen.'}</p>
     <button class="btn" data-act="add-tour">+ Neue Tour</button>
   </div>`;
 }
@@ -7121,8 +7122,8 @@ function tourFormHtml__fix(existing){
         <button type="button" id="delete-tour-trigger" data-id="${t.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Tour löschen</button>
         <div id="delete-tour-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
           In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)?
-          <button type="button" id="delete-tour-yes" data-id="${t.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-          <button type="button" id="delete-tour-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+          <button type="button" id="delete-tour-yes" data-id="${t.id}" class="btn danger">Ja, löschen</button>
+          <button type="button" id="delete-tour-no" class="btn secondary fs-del-keep">Behalten</button>
         </div>
       </div>` : ''}
     </form>
@@ -7420,8 +7421,8 @@ function hutFormHtml__fix(existing){
         <button type="button" id="delete-hut-trigger" data-id="${h.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Hütte löschen</button>
         <div id="delete-hut-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
           In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)?
-          <button type="button" id="delete-hut-yes" data-id="${h.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-          <button type="button" id="delete-hut-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+          <button type="button" id="delete-hut-yes" data-id="${h.id}" class="btn danger">Ja, löschen</button>
+          <button type="button" id="delete-hut-no" class="btn secondary fs-del-keep">Behalten</button>
         </div>
       </div>` : ''}
     </form>

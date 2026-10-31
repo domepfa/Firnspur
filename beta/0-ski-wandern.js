@@ -80,7 +80,8 @@ function closeModal__sw(fromPopstate, skipDirtyCheck, keepHistoryLayer){
     // genau die unges­icherten Eingaben verwerfen, die der Nutzer gerade bewusst behalten wollte.
     // Bei der Hardware-/Browser-Zurück-Taste wurde der History-Eintrag bereits konsumiert (siehe
     // popstate-Handler) – den stellen wir hier gezielt wieder her, ohne die Maske neu zu rendern.
-    if(fromPopstate) pushModalHistoryIfNeeded();
+    // Der Eintrag ist verbraucht, auch wenn modalHistoryPushed noch true sagt: neu anlegen
+    if(fromPopstate){ modalHistoryPushed = false; pushModalHistoryIfNeeded(); }
     return;
   }
   // Nach dem Speichern geschlossen: Formular gilt als erledigt, sein Entwurf ist überflüssig
@@ -618,8 +619,8 @@ function hutFormHtml__sw(existing){
         <button type="button" id="delete-hut-trigger" data-id="${h.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Hütte löschen</button>
         <div id="delete-hut-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
           In den Papierkorb verschieben (${TRASH_RETENTION_DAYS} Tage wiederherstellbar)?
-          <button type="button" id="delete-hut-yes" data-id="${h.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-          <button type="button" id="delete-hut-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+          <button type="button" id="delete-hut-yes" data-id="${h.id}" class="btn danger">Ja, löschen</button>
+          <button type="button" id="delete-hut-no" class="btn secondary fs-del-keep">Behalten</button>
         </div>
       </div>` : ''}
     </form>
