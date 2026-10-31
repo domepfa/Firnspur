@@ -1743,6 +1743,7 @@ function fsCtxRelease(owner){
   if((owner || 'ctx') !== fsCtxOwner) return;
   fsCtxOwner = '';
   const map = fsHomeMap;
+  if(map) map._fsGzKey = null;
   // 3D bleibt an (dieselbe Karte); nur ein früher gesetzter Rand wird zurückgesetzt
   try{ if(map) map.jumpTo({padding: {top: 0, left: 0, right: 0, bottom: 0}}); }catch(e){}
   fsCtxUsesHome = false; fsCtxOn3d = null;
@@ -20579,6 +20580,29 @@ function fsFitContextMap(){
   if(!fsCtxMap || !fsCtxMap._fsCoords) return;
   const bottom = fsSheetHeightPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent);
   fsmFit(fsCtxMap, fsCtxMap._fsCoords, {top:70, left:30, right:70, bottom: bottom + 20}, 14);
+}
+// «Weitere Routen auf diesen Gipfel»: alle Routen mit diesem Gipfelziel farbig auf die Karte hinter dem Blatt
+// (gleiche Farben wie die Legende), Blatt klein. Die Linien verschwinden mit der Tour (own-…).
+function fsCtxShowGipfelziel(name){
+  const map = fsCtxMap;
+  if(!map || !fsCtxUsesHome || !document.documentElement.classList.contains('fs-ctx-map') || typeof gipfelzielKey !== 'function') return false;
+  const key = gipfelzielKey(name);
+  const tours = (state.tours || []).filter(t=> gipfelzielKey(t.name) === key);
+  const all = [];
+  const draw = map._fsGzKey !== key;
+  tours.forEach((t, i)=>{
+    const color = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
+    fsTourRoutes(t).forEach(r=>{
+      if(!r.coords || r.coords.length < 2) return;
+      if(draw) fsmAddLine(map, r.coords, {color, width: 4, label: t.name + (t.routeName ? ' – ' + t.routeName : '')});
+      all.push(...r.coords);
+    });
+  });
+  if(!all.length) return false;
+  map._fsGzKey = key;
+  fsSetSheetDetent('peek');
+  fsmFit(map, all, {top: 70, left: 30, right: 70, bottom: fsSheetHeightPx('peek') + 20}, 14);
+  return true;
 }
 function fsShowContextMap(t){
   if(fsCtxOwner === 'edit') return; // Karte gerade beim Bearbeiten im Vollbild; danach neu (fsEdRelease)

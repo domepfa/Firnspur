@@ -2663,6 +2663,8 @@ function wireModalHandlers__sw(){
 
   root.querySelectorAll('[data-act="show-gipfelziel-overview-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
+      // Tourenkarte hinter dem Blatt: die Routen dort einzeichnen statt einer eigenen Karte
+      if(fsCtxShowGipfelziel(btn.getAttribute('data-gipfelziel'))) return;
       renderGipfelzielOverviewMap(btn.getAttribute('data-target'), btn.getAttribute('data-gipfelziel'));
     });
   });
@@ -5756,7 +5758,7 @@ function sektorDetailHtml(id){
   if(hut) migrateHutAccessRoutes(hut);
   const hutRoutes = hut ? (hut.accessRoutes || []) : [];
   const hutRange = accessRouteDifficultyRangeHtml(hutRoutes);
-  return `<div class="modal fs-onroute" data-stop="1">
+  return `<div class="modal td gd fs-onroute" data-stop="1">
     <div class="modal-head">
       <div>
         <h2 style="color:var(--ice-deep);">🏕️ ${esc(sek.name)}</h2>
@@ -5791,7 +5793,7 @@ function sektorDetailHtml(id){
       const legend = sektorOverviewLegendHtml(sek.id);
       return `<div class="detail-section">
         <h4>🗺️ Karte</h4>
-        <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Ausgangspunkt(e) &amp; Touren dieses Klettergartens, automatisch zusammengeführt. Antippen zum Vergrössern.</p>
+        <p class="fs-minimap-hint" style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Ausgangspunkt(e) &amp; Touren dieses Klettergartens, automatisch zusammengeführt. Antippen zum Vergrössern.</p>
         ${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}
         <div id="map-sektor-overview-${sek.id}" data-sektor-overview-map="${sek.id}"></div>
       </div>`;
@@ -6608,6 +6610,13 @@ function klettergebietHochtouren(geb){ return klettergebietTouren(geb).filter(t=
 function klettergebietMslTouren(geb){ return klettergebietTouren(geb).filter(t=>t.tourCategory==='msl'); }
 // Gebiet als Blatt über der Karte: Touren, Hütten und Klettergärten (siehe fsShowAreaContextMap)
 function fsAreaForMap__fix(modal){
+  // Sektor: dieselbe Karte hinter dem Blatt wie beim Gebiet (Punkte des Sektors und seine Touren)
+  if(modal && modal.type === 'sektor-detail'){
+    const sek = state.sektoren.find(x=> x.id === modal.payload);
+    if(!sek) return null;
+    const extraPoints = (sek.points || []).filter(p=> p && isFinite(p.lat) && isFinite(p.lon)).map(p=> ({lat:+p.lat, lon:+p.lon, category:p.category || '', label:p.label || '', owner:sek.name}));
+    return {key: 'sek-' + sek.id, name: sek.name, tours: state.tours.filter(t=> t.sektorId === sek.id), huts: [], spots: [], spotsLabel: 'Klettergärten', points: sek.points || [], extraPoints};
+  }
   if(!modal || modal.type !== 'klettergebiet-detail') return null;
   const geb = state.klettergebiete.find(x=>x.id===modal.payload);
   if(!geb) return null;
@@ -9034,6 +9043,8 @@ function wireModalHandlers__fix(){
     const sektorId = el.getAttribute('data-sektor-overview-map');
     if(el.getAttribute('data-rendered-for')!==sektorId){
       el.setAttribute('data-rendered-for', sektorId);
+      // Blatt mit Karte dahinter (fsAreaForMap): keine zweite, eigene Karte
+      if(typeof fsAreaForMap === 'function' && fsAreaForMap(state.modal)){ el.hidden = true; return; }
       renderSektorOverviewMap(el.id, sektorId);
     }
   });
