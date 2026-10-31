@@ -22,8 +22,10 @@ async function requireAppAuth(req){
   const match = header.match(/^Bearer (.+)$/);
   if(!match) return false;
   try{
-    await admin.auth().verifyIdToken(match[1]);
-    return true;
+    // Nur das gemeinsame Gruppenkonto: ein selbst angelegtes Firebase-Konto (mit dem öffentlichen API-Schlüssel
+    // möglich, solange die Registrierung nicht abgeschaltet ist) bekommt keinen Zugriff
+    const tok = await admin.auth().verifyIdToken(match[1]);
+    return tok.email === 'firn@spur.so';
   }catch(e){
     return false;
   }
