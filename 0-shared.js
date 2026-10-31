@@ -6590,7 +6590,9 @@ const FSM_OVERLAYS = [
   // Gemeinsame Orte (Parkplatz, Maut, Biwak …), siehe Baustein «Orte»
   {id:'orte', group:'unterwegs', label:'Geteilte Punkte', icon:'pin', orte:true},
   // Parkplätze aus OpenStreetMap (Overpass), ab mittlerem Zoom nur im Ausschnitt; siehe fsmParking
-  {id:'parkplaetze', group:'unterwegs', label:'Parkplätze', icon:'parking', parking:true},
+  {id:'parkplaetze', group:'unterwegs', label:'Parkplätze', icon:'parking', osm:'park'},
+  // Trinkwasser, Quellen, Biwaks und Unterstände aus OpenStreetMap (Overpass), wie Parkplätze; siehe FS_OSM_WATER
+  {id:'wasser', group:'unterwegs', label:'Wasser und Unterstände', icon:'drop', osm:'water'},
   {id:'webcams', group:'unterwegs', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
 ];
 const FSM_BASES = [
@@ -6812,10 +6814,11 @@ function fsmSetOverlay(map, id, on, silent){
     map._fsm.overlays[id] = !!on;
     if(on) fsmPisten(map, o);
     ['ov-pisten-case', 'ov-pisten-lift', 'ov-pisten-route', 'ov-pisten', 'ov-pisten-hit'].forEach(l=>{ if(map.getLayer(l)) map.setLayoutProperty(l, 'visibility', on ? 'visible' : 'none'); });
-  }else if(o.parking){
+  }else if(o.osm){
+    const cfg = FS_OSM_CFG[o.osm];
     map._fsm.overlays[id] = !!on;
-    if(on){ if(map._fsm.park) map._fsm.park.hinted = false; fsmParking(map, o); }
-    ((map._fsm.park && map._fsm.park.list) || []).forEach(m=>{ m.getElement().style.display = on ? '' : 'none'; });
+    if(on){ if(map._fsm[cfg.key]) map._fsm[cfg.key].hinted = false; fsmOsmPoints(map, o, cfg); }
+    ((map._fsm[cfg.key] && map._fsm[cfg.key].list) || []).forEach(m=>{ m.getElement().style.display = on ? '' : 'none'; });
   }else if(o.points){
     // Punkte als HTML-Marker (Messwerte, Webcams)
     map._fsm.pt = map._fsm.pt || {};
@@ -7126,25 +7129,26 @@ function fsParkTileBox(x, y){
   const lat = (yy)=> Math.atan(Math.sinh(Math.PI * (1 - 2 * yy / n))) * 180 / Math.PI;
   return {w: x / n * 360 - 180, e: (x + 1) / n * 360 - 180, n: lat(y), s: lat(y + 1)};
 }
-async function fsmParking(map, o){
-  const st = map._fsm.park = map._fsm.park || {done: new Set(), seen: new Set(), list: [], tm: null, busy: false};
+// Punkte aus OpenStreetMap (Overpass) je Kachel (Zoom 11), erst ab Zoom 11, beim Verschieben nachgeladen.
+// cfg: {key, label, query(bb) → Overpass-Abfrage, marker(p) → HTML, popup(p) → DOM}
+async function fsmOsmPoints(map, o, cfg){
+  const st = map._fsm[cfg.key] = map._fsm[cfg.key] || {done: new Set(), seen: new Set(), list: [], tm: null, busy: false};
   if(!st.wired){
     st.wired = true;
-    map.on('moveend', ()=>{ clearTimeout(st.tm); st.tm = setTimeout(()=>{ if(fsmOverlayOn(map, o.id)) fsmParking(map, o); }, 400); });
+    map.on('moveend', ()=>{ clearTimeout(st.tm); st.tm = setTimeout(()=>{ if(fsmOverlayOn(map, o.id)) fsmOsmPoints(map, o, cfg); }, 400); });
   }
   if(st.busy || !navigator.onLine) return;
   if(map.getZoom() < FS_PARK_Z - 0.5){
-    if(!st.hinted){ st.hinted = true; showToast('Parkplätze: erst ab näherem Zoom sichtbar.'); }
+    if(!st.hinted){ st.hinted = true; showToast(cfg.label + ': erst ab näherem Zoom sichtbar.'); }
     return;
   }
   const todo = fsParkTiles(map).filter(t=> !st.done.has(t.join('/')));
   if(!todo.length) return;
   const bx = todo.map(t=> fsParkTileBox(t[0], t[1]));
-  const s = Math.min(...bx.map(b=> b.s)), w = Math.min(...bx.map(b=> b.w)), n = Math.max(...bx.map(b=> b.n)), e = Math.max(...bx.map(b=> b.e));
-  const q = `[out:json][timeout:25];nwr["amenity"="parking"]["access"!~"^(private|no|customers|permit)$"](${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)});out center tags 1500;`;
+  const bb = [Math.min(...bx.map(b=> b.s)), Math.min(...bx.map(b=> b.w)), Math.max(...bx.map(b=> b.n)), Math.max(...bx.map(b=> b.e))].map(v=> v.toFixed(4)).join(',');
   st.busy = true;
   try{
-    const r = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body: 'data=' + encodeURIComponent(q), headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+    const r = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body: 'data=' + encodeURIComponent(cfg.query(bb)), headers:{'Content-Type':'application/x-www-form-urlencoded'}});
     if(!r.ok) throw new Error(r.status);
     const j = await r.json();
     if(!map._fsm || !map.getStyle()) return;
@@ -7155,18 +7159,75 @@ async function fsmParking(map, o){
       if(st.seen.has(key) || !isFinite(lat) || !isFinite(lon)) return;
       st.seen.add(key);
       const p = Object.assign({lat, lon, osm: el.type + '/' + el.id}, el.tags || {});
-      const m = fsmAddMarker(map, lat, lon, `<div class="fsm-cam fsm-park">${fsIconHtml('parking')}</div>`);
+      const html = cfg.marker(p);
+      if(!html) return;
+      const m = fsmAddMarker(map, lat, lon, html);
       const elm = m.getElement();
       elm.style.cursor = 'pointer';
-      elm.setAttribute('aria-label', p.name || 'Parkplatz');
-      elm.addEventListener('click', (ev)=>{ ev.stopPropagation(); fsmPopup(map, {lng: lon, lat}, fsParkPopup(p), 14); });
+      elm.setAttribute('aria-label', p.name || cfg.label);
+      elm.addEventListener('click', (ev)=>{ ev.stopPropagation(); fsmPopup(map, {lng: lon, lat}, cfg.popup(p), 14); });
       elm.style.display = fsmOverlayOn(map, o.id) ? '' : 'none';
       st.list.push(m);
     });
   }catch(e){
-    if(!st.failed){ st.failed = true; showToast('Parkplätze gerade nicht verfügbar.', true); }
+    if(!st.failed){ st.failed = true; showToast(cfg.label + ' gerade nicht verfügbar.', true); }
   }finally{ st.busy = false; }
 }
+const FS_OSM_PARK = {key: 'park', label: 'Parkplätze',
+  query: (bb)=> `[out:json][timeout:25];nwr["amenity"="parking"]["access"!~"^(private|no|customers|permit)$"](${bb});out center tags 1500;`,
+  marker: ()=> `<div class="fsm-cam fsm-park">${fsIconHtml('parking')}</div>`,
+  popup: (p)=> fsParkPopup(p)};
+function fsmParking(map, o){ return fsmOsmPoints(map, o, FS_OSM_PARK); }
+/* ===== Wasser und Unterstände (OpenStreetMap) =====
+   Brunnen mit Trinkwasser, Quellen (ohne Angabe: Trinkwasser nicht geprüft), Biwaks, unbewartete Hütten,
+   Unterstände und Felsdächer. Bewartete Hütten fehlen hier bewusst (die hat die App selbst). */
+function fsOsmWaterKind(p){
+  if(p.amenity === 'drinking_water') return 'wasser';
+  if(p.natural === 'spring') return 'quelle';
+  if(p.tourism === 'wilderness_hut') return 'huette';
+  if(p.amenity === 'shelter') return p.shelter_type === 'basic_hut' ? 'huette' : p.shelter_type === 'rock_shelter' ? 'fels' : 'unterstand';
+  return '';
+}
+const FS_OSM_WATER_LABEL = {wasser: 'Trinkwasser', quelle: 'Quelle', huette: 'Biwak / unbewartete Hütte', unterstand: 'Unterstand', fels: 'Felsdach'};
+function fsOsmWaterPopup(p){
+  const k = fsOsmWaterKind(p), water = k === 'wasser' || k === 'quelle';
+  const wrap = document.createElement('div');
+  wrap.className = 'fs-cam-pop fs-oev-pop';
+  const rows = [['Art', FS_OSM_WATER_LABEL[k] || 'Punkt']];
+  const dw = String(p.drinking_water || '').toLowerCase();
+  if(k === 'quelle') rows.push(['Trinkwasser', dw === 'yes' ? 'ja' : dw === 'no' ? 'nein' : 'nicht geprüft']);
+  if(p.seasonal === 'yes' || p.seasonal === 'summer') rows.push(['Saison', p.seasonal === 'summer' ? 'nur im Sommer' : 'nicht ganzjährig']);
+  if(!water){
+    const beds = p.beds || p.capacity;
+    if(beds && /^\d+$/.test(beds)) rows.push(['Plätze', beds]);
+    if(p.fireplace === 'yes' || p.stove === 'yes' || p['stove:wood'] === 'yes') rows.push(['Ofen / Feuerstelle', 'ja']);
+    if(p.drinking_water === 'yes' || p.water_source) rows.push(['Wasser', p.water_source ? String(p.water_source) : 'ja']);
+    if(p.reservation === 'required') rows.push(['Reservation', 'nötig']);
+  }
+  if(p.ele && /^\d+/.test(p.ele)) rows.push(['Höhe', Math.round(parseFloat(p.ele)) + ' m']);
+  wrap.insertAdjacentHTML('beforeend', `<b>${fsIconHtml(water ? 'drop' : 'tent')} ${esc(p.name || FS_OSM_WATER_LABEL[k] || 'Punkt')}</b>`
+    + rows.map(r=> `<div class="fs-imis-row"><span>${esc(r[0])}</span><b>${esc(r[1])}</b></div>`).join('')
+    + (p.description ? `<span class="fs-park-src">${esc(String(p.description).slice(0, 160))}</span>` : '')
+    + `<a class="fs-cam-link" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat.toFixed(6)},${p.lon.toFixed(6)}" target="_blank" rel="noopener noreferrer">Navigieren ↗</a>`);
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'fs-oev-take';
+  b.innerHTML = fsIconHtml('plus') + 'Als Ort übernehmen';
+  const kind = water ? 'wasser' : 'biwak';
+  b.addEventListener('click', ()=>{
+    const near = fsOrteAll().find(o=> o.kind === kind && isFinite(o.lat) && fsKm(o, p) < 0.1);
+    if(near){ fsOpenOrt(near.id); return; }
+    const note = rows.filter(r=> r[0] !== 'Art').map(r=> r[0] + ': ' + r[1]).join(', ');
+    fsOpenOrtForm({id: uid('o'), name: p.name || (FS_OSM_WATER_LABEL[fsOsmWaterKind(p)] || ''), kind, lat: +p.lat.toFixed(6), lon: +p.lon.toFixed(6), note});
+  });
+  wrap.appendChild(b);
+  wrap.insertAdjacentHTML('beforeend', '<span class="fs-park-src">Daten: © OpenStreetMap-Mitwirkende, ohne Gewähr</span>');
+  return wrap;
+}
+const FS_OSM_WATER = {key: 'water', label: 'Wasser und Unterstände',
+  query: (bb)=> `[out:json][timeout:25];(node["amenity"="drinking_water"](${bb});node["natural"="spring"](${bb});nwr["tourism"="wilderness_hut"](${bb});nwr["amenity"="shelter"]["shelter_type"!~"^(public_transport|field_shelter|sun_shelter)$"]["access"!~"^(private|no)$"](${bb}););out center tags 2000;`,
+  marker: (p)=>{ const k = fsOsmWaterKind(p); if(!k) return ''; const water = k === 'wasser' || k === 'quelle'; return `<div class="fsm-cam fsm-park ${water ? 'fsm-osm-water' : 'fsm-osm-shelter'}">${fsIconHtml(water ? 'drop' : 'tent')}</div>`; },
+  popup: (p)=> fsOsmWaterPopup(p)};
+const FS_OSM_CFG = {park: FS_OSM_PARK, water: FS_OSM_WATER};
 // Gebühr, Plätze, Art und Zeiten als kurze Zeilen (auch als Notiz beim Übernehmen)
 function fsParkFacts(p){
   const rows = [];
