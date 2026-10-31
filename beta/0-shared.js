@@ -21122,7 +21122,7 @@ const FS_ICON_PATHS = {
   heli: 'M3 5h14M10 5v3M6 8h8a4 4 0 0 1 4 4v1a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3zM18 12h3M9 16l-1 3M15 16l1 3M6 19h12',
   shield: 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z',
   sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 5v4M8 15v4',
-  gps: 'M3 11l18-8-8 18-2-8z',
+  gps: 'M19 12a7 7 0 1 1-14 0a7 7 0 1 1 14 0zM14.5 12a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0zM12 2v3M12 19v3M2 12h3M19 12h3', // Standort: Fadenkreuz (kein Navi-Pfeil)
   scan: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 16l3.5-5 2.5 3 1.5-2 2.5 4z',
   pause: 'M8 5v14M16 5v14', // Hang-Scan: Gelände im Sucher // Ortungspfeil (eigener Standort), wie in Karten-Apps üblich
   lock: 'M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11',
