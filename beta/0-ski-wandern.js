@@ -328,7 +328,7 @@ function renderGebietOverviewMap(containerId, gebId){
     huetten.forEach(h=>{
       (h.points||[]).forEach(p=>{
         try{
-          const m = FL.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>🛖 ${esc(h.name)}</strong><br/>${esc(p.label||'Punkt')}`);
+          const m = FL.marker([p.lat, p.lon], {icon: makeCategoryIcon(p.category)}).addTo(map).bindPopup(`<strong>${fsIconHtml('hut')} ${esc(h.name)}</strong><br/>${esc(p.label||'Punkt')}`);
           boundsItems.push(m);
         }catch(e){ /* einzelnen fehlerhaften Punkt überspringen */ }
       });
@@ -419,14 +419,14 @@ function exportModalHtml__sw(payload){
     <div class="field">
       <label>Was exportieren?</label>
       <div class="chips" id="export-filter-chips">
-        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours" data-act="toggle-export-filter">🏔️ Touren</button>
-        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="huts" data-act="toggle-export-filter">🛖 Hütten</button>
-        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="agenda" data-act="toggle-export-filter">📅 Agenda</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours" data-act="toggle-export-filter">${fsIconHtml('mountain')} Touren</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="huts" data-act="toggle-export-filter">${fsIconHtml('hut')} Hütten</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="agenda" data-act="toggle-export-filter">${fsIconHtml('calendar')} Agenda</button>
       </div>
     </div>`
     }
     <div class="form-actions" style="margin-bottom:12px; flex-wrap:wrap;">
-      <button class="btn" data-act="download-export">📥 Als Datei herunterladen</button>
+      <button class="btn" data-act="download-export">${fsIconHtml('download')} Als Datei herunterladen</button>
       <button class="btn secondary" data-act="copy-export">In Zwischenablage kopieren</button>
     </div>
     <textarea readonly style="width:100%; min-height:180px; font-family:'Manrope'; font-size:11.5px;" id="export-text"></textarea>
@@ -440,7 +440,7 @@ function importModalHtml__sw(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Importieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Wähle eine Datei, die dir jemand geschickt hat, oder füge den Text ein. Bestehende Einträge mit gleicher ID werden aktualisiert, neue werden hinzugefügt.</p>
-    <p style="font-size:13px; margin:0 0 12px 0;"><button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="open-vorlagen">📋 Ressourcen &amp; Vorlagen</button> – Bedienungsanleitung, JSON-Vorlage &amp; KI-Anleitung, zum Weitergeben an Kolleg:innen.</p>
+    <p style="font-size:13px; margin:0 0 12px 0;"><button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="open-vorlagen">${fsIconHtml('note')} Ressourcen &amp; Vorlagen</button> – Bedienungsanleitung, JSON-Vorlage &amp; KI-Anleitung, zum Weitergeben an Kolleg:innen.</p>
     <div class="field">
       <label>Datei wählen</label>
       <input type="file" id="import-file" accept="application/json,.json,.txt"/>
@@ -567,7 +567,7 @@ function hutFormHtml__sw(existing){
       <div class="field"><label>Höhe (m ü. M.)</label><input name="altitude" value="${esc(h.altitude||'')}" placeholder="z. B. 1834"/></div>
       <div class="field"><label>Hütte bewartet</label>
         <div class="chips" id="staffed-months-chips">${monthChipsRowHtml('staffed-month-chip', h.staffedMonths, h.staffedMonthsPartial)}</div>
-        <div class="hint">Antippen: 🟢 ganzen Monat offen. Nochmal antippen: 🟡 nur teilweise offen. Nochmal: wieder aus.</div>
+        <div class="hint">Antippen: ${fsIconHtml('dot', '#3C8A55', true)} ganzen Monat offen. Nochmal antippen: ${fsIconHtml('dot', '#E0A91B', true)} nur teilweise offen. Nochmal: wieder aus.</div>
       </div>
       <div class="field"><label>Bewartung – Zusatzinfo</label><textarea name="staffedNote">${esc(h.staffedNote||'')}</textarea></div>
       <div class="field"><label>Winterraum / Schutzraum</label><textarea name="winterraum" placeholder="Vorhanden? Anzahl Plätze, Zugang, Ausstattung …">${esc(h.winterraum||'')}</textarea></div>
@@ -578,16 +578,16 @@ function hutFormHtml__sw(existing){
       <div class="field"><label>Betten / Kapazität</label><input name="capacity" value="${esc(h.capacity||'')}" placeholder="z. B. 40 Betten"/></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
-          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('auto')?'on':''}" style="${(h.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
-          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('oev')?'on':''}" style="${(h.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">🚌 ÖV</button>
-          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(h.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">🚡 Seilbahn</button>
-          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('zufuss')?'on':''}" style="${(h.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('auto')?'on':''}" style="${(h.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">${fsIconHtml('car')} Auto</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('oev')?'on':''}" style="${(h.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">${fsIconHtml('bus')} ÖV</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(h.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">${fsIconHtml('cable')} Seilbahn</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('zufuss')?'on':''}" style="${(h.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">${fsIconHtml('walk')} Zu Fuss</button>
         </div>
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(h.approach||'')}</textarea></div>
       <div class="field"><label>Punkte auf der Karte (Hütte, Parkplatz, Haltestelle …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte zum Setzen von Punkten öffnen</button>
-        <div class="hint">📍 Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: eigenen Zustieg einzeichnen, falls kein GPX-Track vorhanden – antippen fügt Wegpunkte hinzu.</div>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte zum Setzen von Punkten öffnen</button>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: eigenen Zustieg einzeichnen, falls kein GPX-Track vorhanden – antippen fügt Wegpunkte hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(h.points || (h.lat && h.lon ? [{label:"Hütte", lat:h.lat, lon:h.lon}] : [])))}'/>
@@ -605,8 +605,8 @@ function hutFormHtml__sw(existing){
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
       <div class="field"><label>Status</label>
         <select name="status">
-          <option value="entwurf" ${(!h.status || h.status==='entwurf')?'selected':''}>📝 Entwurf</option>
-          <option value="vollstaendig" ${h.status==='vollstaendig'?'selected':''}>✅ Vollständig</option>
+          <option value="entwurf" ${(!h.status || h.status==='entwurf')?'selected':''}>Entwurf</option>
+          <option value="vollstaendig" ${h.status==='vollstaendig'?'selected':''}>Vollständig</option>
         </select>
       </div>
       <div class="form-actions">
@@ -639,11 +639,11 @@ function hutDetailHtml__sw(id){
   const hasMapData = (h.points && h.points.length) || (h.manualTrack && h.manualTrack.length) || routes.length;
   return `<div class="modal fs-onroute" data-stop="1">
     <div class="modal-head">
-      <div><h2>🛖 ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(h.region)}</p>` : ''}</div>
+      <div><h2>${fsIconHtml('hut')} ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(h.region)}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     <p class="fs-status-line" style="font-size:13px; color:var(--ink-soft); margin:0 0 10px 0;">${hutStatusLabel(h)}</p>
-    ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">⛰️ Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
+    ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">${fsIconHtml('mountain')} Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
     <div class="detail-stats">
       ${h.altitude ? `<div class="detail-stat"><div class="num">${esc(h.altitude)}</div><div class="lbl">m ü. M.</div></div>` : ''}
       ${h.capacity ? `<div class="detail-stat"><div class="num">${esc(h.capacity)}</div><div class="lbl">Kapazität</div></div>` : ''}
@@ -663,15 +663,15 @@ function hutDetailHtml__sw(id){
     ${h.hutLink ? `<div class="detail-section"><h4>Link zur Hütte</h4><p><a href="${esc(h.hutLink)}" target="_blank" rel="noopener noreferrer">${esc(h.hutLink)}</a></p></div>` : ''}
     ${((h.approachTypes && h.approachTypes.length) || h.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
-      ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}</div>` : ''}
+      ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</span>`).join('')}</div>` : ''}
       ${h.approach ? `<p>${esc(h.approach)}</p>` : ''}
     </div>` : ''}
     ${(h.points && h.points.length || (h.manualTrack && h.manualTrack.length)) ? `<div class="detail-section">
       <h4>Standort${h.points && h.points.length>1?'e':''}${(h.manualTrack && h.manualTrack.length) ? ' & Linie' : ''}</h4>
       <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Allgemeine Punkte/Linie zur Hütte (z. B. Parkplatz).</p>
-      ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
-      ${(h.manualTrack && h.manualTrack.length) ? `<span class="hint">🔴 Rot: selbst eingezeichnet</span>` : ''}
-      ${(h.manualTrack && h.manualTrack.length) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(h.manualTrack))}' data-name="${esc(h.name)}">📥 Route als GPX exportieren</button>` : ''}
+      ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${fsIco((MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon)} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      ${(h.manualTrack && h.manualTrack.length) ? `<span class="hint">${fsIconHtml('dot', '#C0392B', true)} Rot: selbst eingezeichnet</span>` : ''}
+      ${(h.manualTrack && h.manualTrack.length) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(h.manualTrack))}' data-name="${esc(h.name)}">${fsIconHtml('download')} Route als GPX exportieren</button>` : ''}
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${h.id}" data-act="quick-edit-toggle" data-id="${h.id}" data-kind="hut" title="Gedrückt halten, um die Karte zu bearbeiten">Karte bearbeiten</button>
       <div id="quick-edit-map-${h.id}" style="margin-top:10px; display:none;"></div>
       <div id="quick-edit-list-${h.id}"></div>
@@ -684,9 +684,9 @@ function hutDetailHtml__sw(id){
     </div>` : ''}
 
     ${hasMapData ? `<div class="detail-section">
-      <h4>🗺️ Karte</h4>
+      <h4>${fsIconHtml('map')} Karte</h4>
       <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Standorte, selbst eingezeichnete Linie und alle Zustiege zusammen auf einer Karte.</p>
-      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-hut-id="${h.id}" data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
+      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-hut-id="${h.id}" data-target="map-hut-${h.id}">${fsIconHtml('map')} Karte anzeigen</button>
       <div id="map-hut-${h.id}" style="margin-bottom:10px;"></div>
     </div>` : ''}
 
@@ -748,7 +748,7 @@ function abgeschlossenViewHtml__sw(){
     const isMe = state.myName && name===state.myName;
     const total = g.tours.length + g.huts.length;
     return `<div class="detail-section" style="margin-bottom:28px;">
-      <h4>${isMe ? '⭐ Meine Liste' : esc(name)} (${total})</h4>
+      <h4>${isMe ? (fsIconHtml('star', '#D99A1E', true) + ' Meine Liste') : esc(name)} (${total})</h4>
       ${g.tours.length ? `<div class="grid" style="margin-top:6px;">${g.tours.map(tourCardHtml).join('')}</div>` : ''}
       ${g.huts.length ? `<div class="grid" style="margin-top:${g.tours.length?12:6}px;">${g.huts.map(hutCardHtml).join('')}</div>` : ''}
     </div>`;

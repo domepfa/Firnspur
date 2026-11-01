@@ -3073,3 +3073,5 @@ html.fs-dark .fsm-popup .maplibregl-popup-close-button:hover{ background:var(--p
 .fs-head-alt{ display:inline-flex; align-items:center; min-height:28px; font-size:14px; font-weight:700; color:var(--ink-soft); }
 .modal-head .fs-icon-btn, .modal-head .fav-toggle-btn{ background:#EEF2F4; border-radius:50%; }
 html.fs-dark .modal-head .fs-icon-btn, html.fs-dark .modal-head .fav-toggle-btn{ background:var(--paper-2); }
+.fs-trash-actions{ flex-wrap:wrap; }
+.fs-trash-actions .btn{ flex:1 1 140px; }
