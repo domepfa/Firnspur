@@ -19,7 +19,7 @@
   --paper:#FFFFFF;
   --ink:#0F1E27;
   --ink-soft:#4A5A64;
-  --ink-faint:#66757F;
+  --ink-faint:#5C6B75;
   --line:#E1E7EB;
   --line-soft:#EDF1F3;
   --danger:#B42318;
@@ -41,7 +41,7 @@
 :root[data-disc="ski"]{  --ice:#2F7DB5; --ice-deep:#1E6AA0; --ice-light:#E3EDF6; --accent-ink:#124E7A; }
 :root[data-disc="hoch"]{ --ice:#6570B0; --ice-deep:#4E5A9C; --ice-light:#E7E9F5; --accent-ink:#3A4580; }
 :root[data-disc="klet"]{ --ice:#B06A2A; --ice-deep:#9A5418; --ice-light:#F5EADF; --accent-ink:#7A3F0E; }
-:root[data-disc="wand"]{ --ice:#4E8A5E; --ice-deep:#3D7A4E; --ice-light:#E4F0E6; --accent-ink:#265A35; }
+:root[data-disc="wand"]{ --ice:#4E8A5E; --ice-deep:#367047; --ice-light:#E4F0E6; --accent-ink:#265A35; }
 
 html{ background:var(--cream); }
 body{
@@ -983,7 +983,7 @@ html.fs-on-tour .emergency-tab{ display:inline-flex !important; z-index:60; }
 .fs-primary h4{ display:none; }
 .fs-primary .btn[data-act="download-offline"]{
   width:100%; min-height:48px; border-radius:15px; border:none;
-  background:var(--ice-light) !important; color:var(--ice-deep) !important; font-size:15px; font-weight:800;
+  background:var(--ice-light) !important; color:var(--accent-ink) !important; font-size:15px; font-weight:800;
 }
 .fs-tiles{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }
 .fs-tile{
@@ -1223,6 +1223,11 @@ html.fs-dark input[type="search"], html.fs-dark input[type="text"], html.fs-dark
   background:var(--paper-2); color:var(--ink); border-color:var(--line);
 }
 html.fs-dark .chip{ background:var(--paper-2); color:var(--ink); border-color:var(--line); }
+html.fs-dark .chip.on{ color:#fff; }
+html.fs-dark a:not([class]){ color:var(--accent-ink); }
+html.fs-dark .td .modal-head .agenda-date-row{ color:var(--accent-ink); }
+html.fs-dark .fs-call-rega, html.fs-dark .emergency-tab{ background:#C2352B !important; }
+html.fs-dark .fs-call-pol{ background:#4A5A64 !important; }
 html.fs-dark .btn.secondary{ background:var(--paper-2); color:var(--ink); border-color:var(--line); }
 html.fs-dark .conditions-note{ background:#3A2C12; color:#F2CF8A; }
 html.fs-dark .detail-stats, html.fs-dark .cond-box{ background:var(--paper-2); }
@@ -1868,7 +1873,7 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxp .l, html.fs-dark .fsm-wxp .t, h
 .overlay.fs-sheet-mode .fs-td-jump{ top:32px; }
 .modal.fs-editing .fs-td-jump{ display:none; }
 .fs-td-jump button{ min-width:0; min-height:52px; padding:4px 2px; border:none; border-radius:14px;
-  background:var(--ice-light); color:var(--ice-deep); font:inherit; font-size:12px; font-weight:700; cursor:pointer;
+  background:var(--ice-light); color:var(--accent-ink); font:inherit; font-size:12px; font-weight:700; cursor:pointer;
   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; }
 .fs-td-jump button .fs-i{ width:20px; height:20px; }
 .fs-td-jump button span{ max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1882,7 +1887,7 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxp .l, html.fs-dark .fsm-wxp .t, h
 .fs-ort-row{ display:flex; align-items:center; gap:12px; width:100%; min-height:56px; padding:8px 12px; border:1px solid var(--line); border-radius:14px;
   background:var(--paper); color:var(--ink); font:inherit; text-align:left; cursor:pointer; }
 .fs-ort-sheet .fs-ort-row{ margin-bottom:8px; }
-.fs-ort-ic{ flex-shrink:0; width:38px; height:38px; border-radius:12px; background:var(--ice-light); color:var(--ice-deep); display:flex; align-items:center; justify-content:center; }
+.fs-ort-ic{ flex-shrink:0; width:38px; height:38px; border-radius:12px; background:var(--ice-light); color:var(--accent-ink); display:flex; align-items:center; justify-content:center; }
 .fs-ort-ic .fs-i{ width:20px; height:20px; }
 .fs-ort-tx{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
 .fs-ort-tx b{ font-size:15px; font-weight:700; }
@@ -1903,7 +1908,7 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxp .l, html.fs-dark .fsm-wxp .t, h
 .fs-ort-btns .btn .fs-i{ width:18px; height:18px; }
 .fs-ort-btns .btn.danger{ color:var(--danger); }
 .fs-ort-tours{ display:flex; flex-wrap:wrap; gap:6px; }
-.fs-ort-tours button{ min-height:40px; padding:0 12px; border:none; border-radius:999px; background:var(--ice-light); color:var(--ice-deep); font:inherit; font-size:13.5px; font-weight:700; cursor:pointer; }
+.fs-ort-tours button{ min-height:40px; padding:0 12px; border:none; border-radius:999px; background:var(--ice-light); color:var(--accent-ink); font:inherit; font-size:13.5px; font-weight:700; cursor:pointer; }
 .fs-ort-new{ width:100%; min-height:52px; margin-top:12px; display:flex; align-items:center; justify-content:center; gap:8px; }
 .fs-ort-new .fs-i{ width:18px; height:18px; }
 .fs-ort-lbl{ display:block; margin:12px 0 6px; font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); }
@@ -1953,7 +1958,7 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxp .l, html.fs-dark .fsm-wxp .t, h
 .fs-oev-pop b{ display:flex; align-items:center; gap:6px; }
 .fs-oev-pop b .fs-i{ width:16px; height:16px; }
 .fs-oev-take{ display:flex; align-items:center; justify-content:center; gap:6px; width:100%; min-height:44px; margin-top:8px; border:none; border-radius:12px;
-  background:var(--ice-light); color:var(--ice-deep); font:inherit; font-size:14px; font-weight:700; cursor:pointer; }
+  background:var(--ice-light); color:var(--accent-ink); font:inherit; font-size:14px; font-weight:700; cursor:pointer; }
 .fs-oev-take .fs-i{ width:16px; height:16px; }
 
 /* ===== Datenprüfung und Versionsliste ===== */
@@ -3068,3 +3073,5 @@ html.fs-dark .fsm-popup .maplibregl-popup-close-button:hover{ background:var(--p
 .fs-head-alt{ display:inline-flex; align-items:center; min-height:28px; font-size:14px; font-weight:700; color:var(--ink-soft); }
 .modal-head .fs-icon-btn, .modal-head .fav-toggle-btn{ background:#EEF2F4; border-radius:50%; }
 html.fs-dark .modal-head .fs-icon-btn, html.fs-dark .modal-head .fav-toggle-btn{ background:var(--paper-2); }
+.fs-trash-actions{ flex-wrap:wrap; }
+.fs-trash-actions .btn{ flex:1 1 140px; }
