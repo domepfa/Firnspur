@@ -19,6 +19,8 @@ aus anderen Apps übernehmen.
   und Hochtour/Klettern (Block «Hochtour / Klettern» am Ende von index.html, früher fixseil.html).
   Namen, die beide Teile haben (state, render, loadAll …), heissen `Name__sw` / `Name__fix`; `fsModeSet`
   schaltet um (Liste im Vorspann oben in index.html).
+  Diese umgeschalteten Namen sind `let` und liegen nicht auf `window`: aus 0-shared.js nie `window[name]`,
+  sondern direkt aufrufen oder `fsFn(name)` (Speichern, Rettung, «Punkt hier»).
 - `fixseil.html` (→ `?d=hoch`, mit `?view=msl` → `?d=klet`) und `wandern.html` (→ `?d=wand`) leiten nur
   weiter – für installierte Apps und Lesezeichen.
 - `0-shared.js`: gemeinsamer Code aller Disziplinen (Karten, Firebase, Rettung/Versionen,
@@ -38,6 +40,15 @@ aus anderen Apps übernehmen.
   Gerätespeicher, Versionen, GPX, Agenda, Notfallkarte, Karten (MapLibre `fsm*`, Leaflet-Ersatz
   `FL`, Routen `fsr*`, 3D), Login, Bearbeiten/Gedrückthalten, Topo-Bilder, Offline-Download,
   Anreise `fsTravel*`, Dunkelmodus, Icons (`FS_ICON_PATHS`), Tourenbriefing/Tourenzettel.
+- **Eine Karte für alles:** die Startkarte `fsHomeMap`. Tour, Gebiet, Klettergebiet und Sektor zeigen sie hinter
+  dem Blatt (`fsCtxAcquire`/`fsCtxRelease`, Inhalte über `fsAreaForMap`). «Karte bearbeiten» leiht sie im Vollbild
+  aus (`fsEdAcquire`/`fsEdRelease`, Werkzeuge als FL-Hülle aus `renderPointsEditorMap`); Formular und Blatt zeigen
+  nur eine Übersicht (`fsEdCompact`). 3D ist dieselbe Karte, geneigt mit Gelände (`fsmTerrainToggle`; Hoch =
+  swisstopo-Gelände, Spar = Terrarium, Wahl im Ebenen-Fenster; Zurück macht sie flach). Eigene Ansichten nur noch
+  für Überflug/«Bearbeiten in 3D» (`fs3dMlOpen`), «Gipfel ringsum» (Cesium) und Hang-Scan.
+- Kartenebenen (`FSM_OVERLAYS`): Hangexposition rechnet das Gerät aus dem Höhenmodell (Protokoll `fsaspect://`);
+  Skipisten/Lifte (`fsmPisten`), Parkplätze und Wasser/Unterstände (`fsmOsmPoints`, `FS_OSM_CFG`) kommen aus
+  OpenStreetMap über Overpass, je Kachel ab Zoom 11. Legenden stehen im Ebenen-Fenster (`legend`).
 - Hang-Scan (`fsScan*` in `0-shared.js`): Zielen mit festem Rahmen auf der Startkarte (Menü oder Gedrückthalten),
   Rechnung auf dem Gerät, eigene 3D-Ansicht mit den Ebenen Steilheit, Lawine, Klippen, Sonne (Zeitraffer).
   Neigung ab 30° aus der swisstopo-Karte «Hangneigung über 30°» (wie der Routen-Check `fsRc*`), sonst
@@ -108,7 +119,9 @@ aus anderen Apps übernehmen.
   Die Notbremse fragt bei Punkten, Routen, Fotos, Erfahrungen und Orten schon bei einem Eintrag.
 - Import ergänzt, ersetzt nie (`fsImportMerge`).
 - Datenbank-Regeln stehen in `database.rules.json` und müssen zu den Pfaden passen
-  (Änderungen in der Firebase-Konsole einfügen).
+  (`firebase deploy --only database` oder in der Firebase-Konsole einfügen). Zugriff nur für das Gruppenkonto
+  (`auth.token.email === 'firn@spur.so'`); die Cloud Functions prüfen dasselbe (`requireAppAuth`), die Registrierung
+  neuer Konten ist in der Konsole abgeschaltet. Die App und die Sicherung melden sich mit diesem Konto an.
 - Tägliches verschlüsseltes Backup: `.github/workflows/backup.yml`.
 - Wetter-Wertebilder (Niederschlag mit Art, Neuschnee, Temperatur, Böen, Bewölkung, Modellhöhe) aus MeteoSchweiz
   ICON-CH1: `tools/wetterbilder.py` (Kodierung dort), die App färbt sie ein und liest den Wert fürs Fadenkreuz;

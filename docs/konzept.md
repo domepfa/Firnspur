@@ -15,6 +15,9 @@ Erfahrungen ergänzen. Kein Navigationswerkzeug.
 
 ## Grundsätze
 - **Karte ist die Hauptansicht** zur Orientierung; die Liste zeigt, was im Kartenausschnitt liegt.
+- **Eine einzige Karte:** Startkarte, Tour hinter dem Blatt, Bearbeiten und 3D sind dieselbe Karte mit
+  demselben Ausschnitt, denselben Ebenen und denselben Werkzeugen (Gedrückthalten, Planer, Hang-Scan).
+  Keine kleinen Zusatzkarten in Formularen oder Detailseiten.
 - Vier Disziplinen bleiben getrennt (Skitour, Hochtour, Klettern, Wandern), je etwa 100 Touren.
 - **Status selbst gesetzt:** Idee · in Recherche · bereit. «Erledigt» ist ein Filter, kein Bereich.
 - **Bilder** sind zentral: Topos (Klettern), Routen, Schlüsselstellen; Titelbild nachträglich.
