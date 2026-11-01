@@ -213,7 +213,7 @@
   .stat-row .mono{color:var(--ink); font-weight:600;}
   .card p.excerpt{font-size:13.5px; color:var(--ink-soft); line-height:1.5; margin:0;}
   .hut-link-chip{
-    align-self:flex-start; font-size:12px; background:var(--ice-light); color:var(--ice-deep);
+    align-self:flex-start; font-size:12px; background:var(--ice-light); color:var(--accent-ink);
     padding:3px 9px; border-radius:20px; font-weight:600;
   }
   .conditions-note{
@@ -289,7 +289,7 @@
   }
   .field textarea{resize:vertical; min-height:56px;}
   .field input:focus, .field select:focus, .field textarea:focus{outline:2px solid var(--ice); outline-offset:1px;}
-  .field .hint{font-size:11.5px; color:var(--ink-faint); margin-top:4px;}
+  .field .hint{font-size:12px; color:var(--ink-faint); margin-top:4px;}
   .row2{display:grid; grid-template-columns:1fr 1fr; gap:9px;}
   .form-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:20px;}
   .fab-save{
@@ -5654,7 +5654,7 @@ function sektorOverviewLegendHtml(sektorId){
   const linkedTours = state.tours.filter(t=>t.sektorId===sektorId);
   return linkedTours.map((t,i)=>{
     const color = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
-    return `<button type="button" class="hint" data-act="open-tour" data-id="${t.id}" style="display:inline-flex; align-items:center; gap:4px; margin-right:10px; margin-bottom:4px; background:none; border:none; padding:0; cursor:pointer; font-family:inherit; text-align:left;"><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; flex-shrink:0;"></span>${esc(t.name)}${t.routeName ? ' – '+esc(t.routeName) : ''}</button>`;
+    return `<button type="button" class="hint" data-act="open-tour" data-id="${t.id}" style="display:inline-flex; align-items:center; gap:4px; margin-right:12px; min-height:44px; background:none; border:none; padding:0; cursor:pointer; font-family:inherit; text-align:left;"><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; flex-shrink:0;"></span>${esc(t.name)}${t.routeName ? ' – '+esc(t.routeName) : ''}</button>`;
   }).join('');
 }
 

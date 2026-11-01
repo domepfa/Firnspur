@@ -425,7 +425,7 @@ function exportModalHtml__sw(payload){
       </div>
     </div>`
     }
-    <div class="form-actions" style="margin-bottom:12px;">
+    <div class="form-actions" style="margin-bottom:12px; flex-wrap:wrap;">
       <button class="btn" data-act="download-export">📥 Als Datei herunterladen</button>
       <button class="btn secondary" data-act="copy-export">In Zwischenablage kopieren</button>
     </div>
