@@ -2132,7 +2132,7 @@ function tourDetailHtmlSki(id){
       <div>
         <div class="detail-badge-row">
         ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty} · ${d.label}</span>` : `<span class="badge" style="background:var(--ink-faint)">unbewertet</span>`}
-        ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
+        ${t.targetAltitude ? `<span class="fs-head-alt">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
       </div>
         <h2 style="color:var(--ice-deep);">${esc(t.name)}</h2>
       </div>
@@ -2260,7 +2260,7 @@ function tourDetailHtmlWand(id){
       <div>
         <div class="detail-badge-row">
         ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty} · ${d.label}</span>` : `<span class="badge" style="background:var(--ink-faint)">unbewertet</span>`}
-        ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
+        ${t.targetAltitude ? `<span class="fs-head-alt">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
       </div>
         <h2 style="color:var(--ice-deep);">${esc(t.name)}</h2>
       </div>
@@ -5574,7 +5574,7 @@ function klettergebietDetailHtml(id){
   return `<div class="modal td gd fs-onroute" data-stop="1">
     <div class="modal-head">
       <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
-      <div style="display:flex; align-items:flex-start; gap:4px;">${favoriteToggleButtonHtml(geb.id)}<button class="x-btn" data-act="close-modal">×</button></div>
+      <div style="display:flex; align-items:flex-start; gap:4px;">${favoriteToggleButtonHtml(geb.id)}${editIconButtonHtml('edit-klettergebiet', geb.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
     ${(gradeRange || altitude) ? `<div class="chips" style="margin-bottom:14px;">
       ${gradeRange ? `<span class="hut-link-chip">🧗 ${esc(gradeRange)}</span>` : ''}
@@ -5648,10 +5648,6 @@ function klettergebietDetailHtml(id){
     })()}
     ${(geb.points && geb.points.length) ? meteoForecastWidgetHtml(geb.points[0].lat, geb.points[0].lon) : ''}
     ${geb._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
-    <div class="form-actions">
-      <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
-      <button type="button" class="btn" data-act="edit-klettergebiet" data-id="${geb.id}">✏️ Bearbeiten</button>
-    </div>
   </div>`;
 }
 
@@ -5766,7 +5762,7 @@ function sektorDetailHtml(id){
         ${sek.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}
         ${gebKlettergaerten.length>1 && gebIdx>=0 ? `<p style="color:var(--ink-faint); font-size:11px; margin:4px 0 0 0;">↔ ${esc(geb.name)} · Klettergarten ${gebIdx+1}/${gebKlettergaerten.length} – wischen zum Wechseln</p>` : ''}
       </div>
-      <button class="x-btn" data-act="close-modal">×</button>
+      <div style="display:flex; align-items:flex-start; gap:4px;">${editIconButtonHtml('edit-sektor', sek.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
     ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : ''}
     ${!sek.klettergebietId ? `<div style="display:flex; gap:8px; flex-wrap:wrap; margin:10px 0;">
@@ -5840,10 +5836,6 @@ function sektorDetailHtml(id){
     </div>
     `}
     ${sek._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
-    <div class="form-actions">
-      <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
-      <button type="button" class="btn" data-act="edit-sektor" data-id="${sek.id}">✏️ Bearbeiten</button>
-    </div>
   </div>`;
 }
 
@@ -7155,7 +7147,7 @@ function tourDetailHtml__fix(id){
             ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty} · ${d.label}</span>` : `<span class="badge" style="background:var(--ink-faint)">unbewertet</span>`}
             ${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}
           `}
-          ${t.targetAltitude ? `<span class="badge" style="background:var(--ice-deep)">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
+          ${t.targetAltitude ? `<span class="fs-head-alt">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
         </div>
         <h2 style="color:var(--ice-deep);">${esc(t.name)}</h2>
       </div>

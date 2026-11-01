@@ -3183,11 +3183,11 @@ async function loadAgendaWeather(agendaId){
             <div class="aw-day-d">${i === 0 ? 'Tourtag' : esc(dl.wd + ' ' + dl.dm)}</div>
             <div style="font-size:16px;">${dInfo.icon}</div>
             <div style="font-size:12px;">${Math.round(day.tempMin)}° / ${Math.round(day.tempMax)}°</div>
-            ${day.precipitation ? `<div style="font-size:11px; color:var(--ink-soft);">${day.precipitation} mm</div>` : ''}
+            ${day.precipitation ? `<div style="font-size:12px; color:var(--ink-soft);">${day.precipitation} mm</div>` : ''}
           </div>`;
         }).join('')}
       </div>` : ''}
-      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose: ${esc(w.source||'Open-Meteo')} – kann sich noch ändern.</p>
+      <p style="font-size:12px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose: ${esc(w.source||'Open-Meteo')} – kann sich noch ändern.</p>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <a href="${esc(meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary">🌦️ MeteoSchweiz öffnen</a>
         <button type="button" class="btn secondary" id="save-weather-snapshot-btn-${agendaId}">📥 Für unterwegs speichern</button>
@@ -3376,7 +3376,7 @@ function agendaDetailHtml(id){
       <h4>📥 Für unterwegs gespeichert${a.weatherSnapshot.locationLabel ? ' – ' + esc(a.weatherSnapshot.locationLabel) : ''}</h4>
       <p style="font-size:15px; margin:0 0 4px 0;">${a.weatherSnapshot.icon||'🌡️'} ${esc(a.weatherSnapshot.label||'')}</p>
       <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(a.weatherSnapshot.tempMin)}° / ${Math.round(a.weatherSnapshot.tempMax)}° · 💧 ${a.weatherSnapshot.precipitation} mm · 💨 ${Math.round(a.weatherSnapshot.windMax)} km/h</p>
-      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Stand vom ${esc(fmtDate(a.weatherSnapshot.savedAt))}${a.weatherSnapshot.source ? ' · ' + esc(a.weatherSnapshot.source) : ''} – bleibt auch ohne Netz sichtbar.</p>
+      <p style="font-size:12px; color:var(--ink-faint); margin:6px 0 0 0;">Stand vom ${esc(fmtDate(a.weatherSnapshot.savedAt))}${a.weatherSnapshot.source ? ' · ' + esc(a.weatherSnapshot.source) : ''} – bleibt auch ohne Netz sichtbar.</p>
       ${a.weatherSnapshot.meteoSwissLink ? `<a href="${esc(a.weatherSnapshot.meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block; margin-top:8px;">🌦️ MeteoSchweiz öffnen</a>` : ''}
     </div>` : ''}
     <div id="agenda-weather-${a.id}"></div>
@@ -3799,7 +3799,7 @@ function printTourenzettel(agendaId){
       el.innerHTML = `<p class="wx-big">Gefahrenstufe ${escHtml(b.level)}${b.region ? ` <span class="muted" style="font-weight:400;">· ${escHtml(b.region)}</span>` : ''}</p>
         ${b.ratings.length ? `<div>${b.ratings.map(r=>`<div>${escHtml(r)}</div>`).join('')}</div>` : ''}
         ${b.problems.length ? `<div style="margin-top:6px;"><b>Lawinenprobleme:</b> ${b.problems.map(escHtml).join(' · ')}</div>` : ''}
-        <p class="muted" style="margin:6px 0 0 0;font-size:11.5px;">SLF-Bulletin gültig bis ${escHtml(b.validUntil)} – <a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener">slf.ch</a></p>`;
+        <p class="muted" style="margin:6px 0 0 0;font-size:12px;">SLF-Bulletin gültig bis ${escHtml(b.validUntil)} – <a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener">slf.ch</a></p>`;
     }).catch(()=>{ const el = $('tz-avalanche'); if(el) el.innerHTML = fillIn('Bulletin gerade nicht abrufbar.'); });
   }
 
@@ -3835,7 +3835,7 @@ function printTourenzettel(agendaId){
             <div class="wx-big">${fsIconHtml('train')} ${escHtml(r.dep)} → ${escHtml(r.arr)}${r.durS ? ' · ' + escHtml(fsFmtDur(r.durS)) : ''}</div>
             <div class="muted" style="margin-bottom:4px;">${escHtml(r.from)} → ${escHtml(r.to)} · ${typeof r.transfers === 'number' ? (r.transfers === 0 ? 'direkt' : r.transfers + '× umsteigen') : ''}</div>
             ${(r.legs || []).length ? `<div class="legs">${r.legs.map(l=>`<div><b>${escHtml(l.dep)}</b> ${escHtml(l.from)}${l.platform ? ' (Gl. ' + escHtml(l.platform) + ')' : ''} · ${escHtml(l.line)} → ${escHtml(l.to)} <b>${escHtml(l.arr)}</b></div>`).join('')}</div>` : ''}
-            <div class="muted" style="font-size:11.5px;margin-top:4px;">Fahrplan-Abfrage ${time ? 'ab ' + escHtml(time) + ' ' : ''}– kurz vorher in der SBB-App prüfen.</div>
+            <div class="muted" style="font-size:12px;margin-top:4px;">Fahrplan-Abfrage ${time ? 'ab ' + escHtml(time) + ' ' : ''}– kurz vorher in der SBB-App prüfen.</div>
           </div><div class="qr" data-qr="${escHtml(gm(dest, 'transit'))}"></div></div>`);
         return null;
       }).catch(()=>{ parts.push(`<div>${fsIconHtml('train')} ÖV-Verbindung gerade nicht abrufbar. <a href="${gm(dest, 'transit')}" target="_blank" rel="noopener">ÖV-Route ↗</a></div>`); return null; }));
@@ -9220,7 +9220,7 @@ function buildSkitourPopupContent(featureOrList, opts){
     // schon hier vor. Nur sinnvoll, wenn es überhaupt eigene Touren gibt.
     if(!allowAttach){
       const note = document.createElement('p');
-      note.style.cssText = 'margin:8px 0 0 0; font-size:11.5px; color:#6B7682;';
+      note.style.cssText = 'margin:8px 0 0 0; font-size:12px; color:#6B7682;';
       note.textContent = 'Zu einer Tour übernehmen: auf der grossen Karte antippen.';
       wrap.appendChild(note);
     }else if(Array.isArray(state.tours) && state.tours.length){
@@ -9711,7 +9711,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     searchRow.style.cssText = 'display:flex; gap:4px; margin-bottom:8px;';
     const searchInput = document.createElement('input');
     searchInput.type = 'text';
-    searchInput.placeholder = 'Ort, Berg oder Dorf suchen …';
+    searchInput.placeholder = 'Ort suchen …';
     searchInput.style.cssText = 'flex:1; min-width:0; border:1px solid var(--line); border-radius:4px; padding:7px 9px; font-size:13px;';
     const searchBtn = document.createElement('button');
     searchBtn.type = 'button';
@@ -9766,7 +9766,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function makeModeBtn(key){
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.style.cssText = 'flex:1; border:none; background:transparent; border-radius:16px; padding:10px 4px; font-size:13px; font-weight:700; cursor:pointer; transition:background 0.15s ease, color 0.15s ease; color:var(--ink-soft);';
+      btn.style.cssText = 'flex:1; min-height:44px; border:none; background:transparent; border-radius:16px; padding:10px 4px; font-size:13px; font-weight:700; cursor:pointer; transition:background 0.15s ease, color 0.15s ease; color:var(--ink-soft);';
       btn.textContent = MODE_META[key].label;
       return btn;
     }
@@ -11316,7 +11316,7 @@ function elevationProfileSvgHtml(profile){
       <polygon points="${areaPoints}" fill="var(--ice-light)" stroke="none"/>
       <polyline points="${points}" fill="none" stroke="var(--ice-deep)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
     </svg>
-    <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--ink-faint); margin-top:2px;">
+    <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--ink-faint); margin-top:2px;">
       <span>${Math.round(minEle)} m</span>
       <span>Höhenprofil</span>
       <span>${Math.round(maxEle)} m</span>
@@ -11368,12 +11368,12 @@ function renderRouteStatCards(el, r, onDelete, onEdit){
     `<div style="flex:1; min-width:80px; background:var(--ice-light); border-radius:6px; padding:8px 6px; text-align:center;">
       <div style="font-size:16px;">${c.icon}</div>
       <div style="font-size:14px; font-weight:700; color:var(--accent-ink);">${esc(c.value)}</div>
-      <div style="font-size:10.5px; color:var(--ink-soft);">${esc(c.label)}</div>
+      <div style="font-size:12px; color:var(--ink-soft);">${esc(c.label)}</div>
     </div>`
   ).join('')
     + (onEdit ? '<button type="button" data-act="edit-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid var(--ice-deep); color:var(--accent-ink); border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">✏️ Route bearbeiten</button>' : '')
     + '<button type="button" data-act="delete-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid var(--danger); color:var(--danger); border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">🗑️ Diese Route löschen</button>'
-    + '<p style="width:100%; margin:6px 0 0 0; font-size:11.5px; color:var(--ink-faint);">Auf den Routenstrich tippen zeigt dies erneut an. Grobe Schätzung, ohne Pausen.</p>';
+    + '<p style="width:100%; margin:6px 0 0 0; font-size:12px; color:var(--ink-faint);">Auf den Routenstrich tippen zeigt dies erneut an. Grobe Schätzung, ohne Pausen.</p>';
   const editBtn = el.querySelector('[data-act="edit-calculated-route"]');
   if(editBtn && onEdit) editBtn.addEventListener('click', onEdit);
   const deleteBtn = el.querySelector('[data-act="delete-calculated-route"]');
@@ -11826,10 +11826,10 @@ const FS_WX_PARAMS = [
   {id:'regen', short:'Regen', zero:'trocken', label:'Niederschlag 24 h', unit:'mm', ms:'messwerte-niederschlag-24h', fc:'precipitation', sum24:true, scale:[[0,'#ADB5BD'],[0.5,'#A5D8FF'],[5,'#4DABF7'],[15,'#1971C2'],[30,'#5F3DC4']]},
   {id:'temp', short:'Temp.', label:'Temperatur', unit:'°', ms:'messwerte-lufttemperatur-10min', slf:'ta', fc:'temperature_2m', field:'temp', scale:[[-15,'#5B3FA8'],[-5,'#3B5BDB'],[0,'#4DABF7'],[5,'#63C5B5'],[10,'#8BC34A'],[15,'#E8C547'],[20,'#F59F00'],[25,'#F76707'],[30,'#E03131']]},
   // Flächen statt Stationswerte: jetzt Radar bzw. Satellitenbild, danach Prognose als Raster (siehe «Wetter-Flächen»)
-  {id:'niederschlag', short:'Nieder\u00adschlag', label:'Niederschlag', unit:'mm/h', field:'precip', fc:'precipitation', scale:[[0.1,'#A5D8FF'],[0.5,'#74C0FC'],[1,'#339AF0'],[2,'#1C7ED6'],[5,'#5F3DC4'],[10,'#AE3EC9'],[20,'#E03131']]},
+  {id:'niederschlag', short:'Regen', label:'Niederschlag', unit:'mm/h', field:'precip', fc:'precipitation', scale:[[0.1,'#A5D8FF'],[0.5,'#74C0FC'],[1,'#339AF0'],[2,'#1C7ED6'],[5,'#5F3DC4'],[10,'#AE3EC9'],[20,'#E03131']]},
   {id:'wolken', short:'Wolken', label:'Bewölkung', unit:'%', field:'cloud', fc:'cloud_cover', scale:[[0,'#E9EEF2'],[25,'#D3DCE3'],[50,'#B4C0CA'],[75,'#8E9BA6'],[100,'#6B7782']]},
   // Übersicht: Wettersymbole der Ortsprognosen von MeteoSchweiz (tools/wetterorte.py), je Tag oder alle 3 Stunden
-  {id:'uebersicht', short:'Über\u00adsicht', label:'Übersicht', sym:true, fc:'sym', scale:[]},
+  {id:'uebersicht', short:'Symbole', label:'Übersicht', sym:true, fc:'sym', scale:[]},
   {id:'wind', short:'Wind', zero:'windstill', label:'Windböen', unit:'km/h', ms:'messwerte-wind-boeenspitze-kmh-10min', fc:'wind_gusts_10m', field:'wind', scale:[[0,'#8BC34A'],[30,'#E8C547'],[50,'#F59F00'],[70,'#F76707'],[90,'#E03131']]}
 ];
 function fsWxColor(p, v){ let c = p.scale[0][1]; p.scale.forEach(([t, col])=>{ if(v >= t) c = col; }); return c; }
@@ -12090,7 +12090,7 @@ async function fsmWxStart(map){
   // Skala über die ganze Breite, Zahl unter jeder Stufe (letzte mit Einheit)
   const pct = (i)=> (sc.length > 1 ? i / (sc.length - 1) * 100 : 0).toFixed(1);
   const legend = !sc.length ? '' : `<div class="g" aria-hidden="true"><i style="background:linear-gradient(90deg,${sc.map((x, i)=> x[1] + ' ' + pct(i) + '%').join(',')})"></i>`
-    + `<div class="tk">${sc.map((x, i)=> `<span style="left:${pct(i)}%">${x[0]}${p.id === 'temp' ? '°' : i === sc.length - 1 ? u : ''}</span>`).join('')}</div></div>`;
+    + `<div class="tk">${sc.map((x, i)=> (sc.length > 6 && i % 2 && i !== sc.length - 1) ? '' : `<span style="left:${pct(i)}%">${x[0]}${p.id === 'temp' ? '°' : i === sc.length - 1 ? u : ''}</span>`).join('')}</div></div>`; // viele Stufen: nur jede zweite Zahl, sonst stossen sie zusammen
   let tl = '';
   if(p.fc){
     let prevDay = -1, firstPast = true;
@@ -13133,7 +13133,7 @@ function meteoForecastOnlyHtml(lat, lon){
     // nicht live verifizieren; diese Angaben helfen, eine falsche Spaltenannahme zu erkennen.
     const dbg = entry.debug;
     return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Keine Prognosedaten für diesen Punkt gefunden.</p>
-      ${dbg ? `<details style="margin-top:6px; font-size:11px; color:var(--ink-faint);"><summary>Diagnose</summary>Punkt: ${esc(dbg.pointId)} / Typ ${esc(dbg.pointTypeId)}<br/>Zeilen in Prognosedatei: ${dbg.tempRowCount}, davon passend: ${dbg.tempMatches}<br/>Spalten: ${esc((dbg.tempHeader||[]).join(', '))}</details>` : ''}
+      ${dbg ? `<details style="margin-top:6px; font-size:12px; color:var(--ink-faint);"><summary>Diagnose</summary>Punkt: ${esc(dbg.pointId)} / Typ ${esc(dbg.pointTypeId)}<br/>Zeilen in Prognosedatei: ${dbg.tempRowCount}, davon passend: ${dbg.tempMatches}<br/>Spalten: ${esc((dbg.tempHeader||[]).join(', '))}</details>` : ''}
     </div>`;
   }
   // Neuer Look: ruhiger Streifen statt grosser farbiger Kacheln; antippen öffnet MeteoSchweiz.
@@ -13219,7 +13219,7 @@ function meteoCardForecastRowHtml(lat, lon){
   return `<div class="weather-card-row" role="button" tabindex="0" data-act="open-meteo" data-lat="${lat}" data-lon="${lon}" style="display:flex; gap:5px; margin:0 0 8px; cursor:pointer;" title="Wetter bei MeteoSchweiz öffnen · nächste Tage bei ${esc(result.point.name)} (${result.distanceKm.toFixed(1)} km entfernt)" aria-label="Wetter bei MeteoSchweiz öffnen">
     ${days.map(d=>{
       const lbl = meteoFormatDayLabel(d.date);
-      return `<span style="font-size:11px; background:var(--ice-light); border-radius:4px; padding:3px 7px; white-space:nowrap;">${lbl.weekday} ${meteoDayIcon(d.precipMm)} ${Math.round(d.tempMax)}°</span>`;
+      return `<span style="font-size:12px; background:var(--ice-light); border-radius:4px; padding:3px 7px; white-space:nowrap;">${lbl.weekday} ${meteoDayIcon(d.precipMm)} ${Math.round(d.tempMax)}°</span>`;
     }).join('')}
   </div>`;
 }
@@ -13940,7 +13940,7 @@ function fsTourMissingForReady(t){
 /* ================= Tour-Status: Idee / in Recherche / bereit =================
    Alte Werte werden nur anders gelesen, nicht umgeschrieben: entwurf → Idee, vollstaendig → bereit. */
 const FS_TOUR_STATUS = [
-  {key:'idee', label:'Idee', icon:'ring'},
+  {key:'idee', label:'Idee', icon:'note'},
   {key:'recherche', label:'in Recherche', icon:'search'},
   {key:'bereit', label:'bereit', icon:'checkc'}
 ];
@@ -16459,9 +16459,9 @@ function kletterroutenTableHtml(routes){
   const sorted = routes.slice().sort((a,b)=> (a.nr||0) - (b.nr||0));
   return `<table style="width:100%; border-collapse:collapse; font-size:14px; margin-top:8px;">
     <thead><tr>
-      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Nr.</th>
-      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Route</th>
-      <th style="text-align:center; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 0 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
+      <th style="text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Nr.</th>
+      <th style="text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Route</th>
+      <th style="text-align:center; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 0 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
     </tr></thead>
     <tbody>${sorted.map(r=>`
       <tr style="border-bottom:1px solid var(--line);">
@@ -17005,9 +17005,9 @@ function renderKletterroutenEditor(containerId, hiddenInputId){
     table.style.cssText = 'width:100%; border-collapse:collapse; font-size:13.5px; margin-top:14px;';
     const thead = document.createElement('thead');
     thead.innerHTML = `<tr>
-      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:38px;">Nr.</th>
-      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line);">Route</th>
-      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
+      <th style="text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:38px;">Nr.</th>
+      <th style="text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line);">Route</th>
+      <th style="text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
       <th style="border-bottom:1px solid var(--line); width:26px;"></th>
     </tr>`;
     table.appendChild(thead);
@@ -21166,7 +21166,7 @@ const FS_ICON_PATHS = {
   more: 'M5 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM12 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM19 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
   hut: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5',
-  climb: 'M9 3h5a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8a5 5 0 0 1 5-5zM8 8v8',
+  climb: 'M15.5 4a1.5 1.5 0 1 1-3 0a1.5 1.5 0 1 1 3 0zM13.5 7.5l-2.5 5.5M13.5 7.5l4-3M12.6 9.5l-4.6-1.5M11 13l3.5 3-1 5M11 13l-4 3.5M20.5 3v18', // Kletternde Figur an der Wand
   pin: 'M12 21s-7-6.2-7-11.5a7 7 0 1 1 14 0C19 14.8 12 21 12 21zM12 7.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z',
   mountain: 'M2.5 20l7-12.5 4 7 2.5-4 5.5 9.5zM7.3 11.5l2.2 1.8 2-1.6',
   edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
