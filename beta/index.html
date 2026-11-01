@@ -417,14 +417,14 @@
 </head>
 <body>
 <div class="app-switch-bar">
-  <a href="./index.html" class="active">🎿 Skitour</a>
-  <a href="./index.html?d=hoch" id="switch-hochtour">🏔️ Hochtour</a>
-  <a href="./index.html?d=klet" id="switch-msl">🧗 Klettern</a>
-  <a href="./index.html?d=wand">🥾 Wandern</a>
+  <a href="./index.html" class="active">Skitour</a>
+  <a href="./index.html?d=hoch" id="switch-hochtour">Hochtour</a>
+  <a href="./index.html?d=klet" id="switch-msl">Klettern</a>
+  <a href="./index.html?d=wand">Wandern</a>
 </div>
 <div id="app"></div>
 <button class="emergency-tab" id="emergency-btn">SOS</button>
-<button class="agenda-tab" id="agenda-tab-btn">📅 Agenda</button>
+<button class="agenda-tab" id="agenda-tab-btn">Agenda</button>
 <button class="debug-toggle" id="debug-toggle-btn" onclick="toggleDebugPanel()">Diagnose v12</button>
 <div id="debug-panel-root"></div>
 
@@ -854,7 +854,7 @@ function fsDiscVars(d){
   GEBIETE_PATH = w ? 'wandern/gebiete' : 'gebiete';
   GPX_TRACKS_PATH = w ? 'wandern/gpxTracks' : 'gpxTracks';
   OTHER_TOURS_PATHS = w ? ['tours', 'fixseil/tours'] : ['fixseil/tours', 'wandern/tours'];
-  OWN_APP_LABEL = w ? '🥾 Wandern' : '🎿 Skitour';
+  OWN_APP_LABEL = w ? 'Wandern' : 'Skitour';
   LOCAL_CACHE_KEY = w ? 'wandernbeta-cache' : 'firnspurbeta-cache';
   TOUR_VORLAGE_JSON = w ? TOUR_VORLAGE_JSON_WAND : TOUR_VORLAGE_JSON_SKI;
   fsModeSet('sw');
@@ -864,7 +864,7 @@ fsDiscVars(fsDiscMode(DISC) === 'fix' ? 'ski' : DISC);
 const HUT_GPX_SUMMER_PATH__sw = 'hutGpxTracksSummer'; HUT_GPX_SUMMER_PATH = HUT_GPX_SUMMER_PATH__sw;
 const HUT_GPX_WINTER_PATH__sw = 'hutGpxTracksWinter'; HUT_GPX_WINTER_PATH = HUT_GPX_WINTER_PATH__sw;
 const ACCESS_ROUTE_GPX_PATH__sw = 'hutAccessRouteGpxTracks'; ACCESS_ROUTE_GPX_PATH = ACCESS_ROUTE_GPX_PATH__sw; // appübergreifend geteilt, wie die Hütten selbst
-const OTHER_APP_LABEL__sw = '🧗 Hochtour'; OTHER_APP_LABEL = OTHER_APP_LABEL__sw;
+const OTHER_APP_LABEL__sw = 'Hochtour'; OTHER_APP_LABEL = OTHER_APP_LABEL__sw;
 const USERS_PATH__sw = 'users'; USERS_PATH = USERS_PATH__sw; // appübergreifend geteilt (Namen-Passwortschutz + Merkliste)
 
 
@@ -1088,9 +1088,9 @@ async function loadOtherAppTours__sw(){
 /* ================= Papierkorb ================= */
 function papierkorbGroups__sw(){
   return [
-    { kind:'tour', icon: DISC === 'wand' ? '🥾' : '🎿', label:'Touren', trashedList: state.trashedTours },
-    { kind:'hut', icon:'🛖', label:'Hütten', trashedList: state.trashedHuts },
-    { kind:'gebiet', icon:'⛰️', label:'Gebiete', trashedList: state.trashedGebiete },
+    { kind:'tour', icon: DISC === 'wand' ? 'walk' : 'snow', label:'Touren', trashedList: state.trashedTours },
+    { kind:'hut', icon:'hut', label:'Hütten', trashedList: state.trashedHuts },
+    { kind:'gebiet', icon:'mountain', label:'Gebiete', trashedList: state.trashedGebiete },
   ];
 }
 const PAPIERKORB_ENTITY_MAP__sw = {
@@ -1478,7 +1478,7 @@ function tourenViewHtmlSki(){
     </div>
     <div class="toolbar toolbar-row">
       <button type="button" class="btn secondary" id="tour-filter-toggle-btn">${fsIconHtml('sliders')} Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
-      <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">⭐ Nur Merkliste</button>
+      <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">${fsIconHtml('star', '#D99A1E', true)} Nur Merkliste</button>
       ${sortControlHtml('tour', TOUR_SORT_OPTIONS, state.tourSortBy, state.tourSortDir)}
     </div>
     <div id="tour-filter-panel" style="display:${state.tourFilterPanelOpen ? '' : 'none'}; margin-bottom:14px;">
@@ -1494,12 +1494,12 @@ function tourenViewHtmlSki(){
       </div>` : ''}
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips">
-          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeApproachTypeFilters.has(v)?'on':''}" style="${state.activeApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-approach-type" data-value="${v}">${APPROACH_TYPE_LABELS[v]}</button>`).join('')}
+          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeApproachTypeFilters.has(v)?'on':''}" style="${state.activeApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-approach-type" data-value="${v}">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Ausgangspunkt / Aufenthalt</label>
         <div class="chips">
-          ${Object.keys(STAY_TYPE_LABELS).map(v=>`<button class="chip ${state.activeStayTypeFilters.has(v)?'on':''}" style="${state.activeStayTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-stay-type" data-value="${v}">${STAY_TYPE_LABELS[v]}</button>`).join('')}
+          ${Object.keys(STAY_TYPE_LABELS).map(v=>`<button class="chip ${state.activeStayTypeFilters.has(v)?'on':''}" style="${state.activeStayTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-stay-type" data-value="${v}">${fsTypeLabel(STAY_TYPE_LABELS, v)}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Status</label>
@@ -1530,7 +1530,7 @@ function tourenViewHtmlWand(){
     </div>
     <div class="toolbar toolbar-row">
       <button type="button" class="btn secondary" id="tour-filter-toggle-btn">${fsIconHtml('sliders')} Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
-      <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">⭐ Nur Merkliste</button>
+      <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">${fsIconHtml('star', '#D99A1E', true)} Nur Merkliste</button>
       ${sortControlHtml('tour', TOUR_SORT_OPTIONS, state.tourSortBy, state.tourSortDir)}
     </div>
     <div id="tour-filter-panel" style="display:${state.tourFilterPanelOpen ? '' : 'none'}; margin-bottom:14px;">
@@ -1556,12 +1556,12 @@ function tourenViewHtmlWand(){
       </div>` : ''}
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips">
-          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeApproachTypeFilters.has(v)?'on':''}" style="${state.activeApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-approach-type" data-value="${v}">${APPROACH_TYPE_LABELS[v]}</button>`).join('')}
+          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeApproachTypeFilters.has(v)?'on':''}" style="${state.activeApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-approach-type" data-value="${v}">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Ausgangspunkt / Aufenthalt</label>
         <div class="chips">
-          ${Object.keys(STAY_TYPE_LABELS).map(v=>`<button class="chip ${state.activeStayTypeFilters.has(v)?'on':''}" style="${state.activeStayTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-stay-type" data-value="${v}">${STAY_TYPE_LABELS[v]}</button>`).join('')}
+          ${Object.keys(STAY_TYPE_LABELS).map(v=>`<button class="chip ${state.activeStayTypeFilters.has(v)?'on':''}" style="${state.activeStayTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-stay-type" data-value="${v}">${fsTypeLabel(STAY_TYPE_LABELS, v)}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Status</label>
@@ -1669,8 +1669,8 @@ function gebietFormHtmlSki(existing){
       </div>
       <div class="field"><label>Beschreibung</label><textarea name="description" placeholder="Charakter des Gebiets, grobe Übersicht …">${esc(g.description||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
-        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(g.points || []))}'/>
@@ -1717,8 +1717,8 @@ function gebietFormHtmlWand(existing){
       </div>
       <div class="field"><label>Beschreibung</label><textarea name="description" placeholder="Charakter des Gebiets, grobe Übersicht …">${esc(g.description||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
-        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(g.points || []))}'/>
@@ -1752,21 +1752,21 @@ function gebietDetailHtmlSki(id){
   const hasMapData = (geb.points && geb.points.length) || huetten.some(h=>h.points && h.points.length) || touren.some(t=> (t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length));
   return `<div class="modal td gd" data-stop="1">
     <div class="modal-head">
-      <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
+      <div><h2 style="color:var(--ice-deep);">${fsIconHtml('mountain')} ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <div style="display:flex; align-items:flex-start; gap:4px;">${favoriteToggleButtonHtml(geb.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
     ${geb.description ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 10px 0;">${esc(geb.description)}</p>` : ''}
     ${hasMapData ? `<div class="detail-section fs-area-mapsec">
-      <h4>🗺️ Übersichtskarte</h4>
-      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gebiet-overview-map" data-gebiet-id="${geb.id}" data-target="map-gebiet-${geb.id}">🗺️ Karte anzeigen</button>
+      <h4>${fsIconHtml('map')} Übersichtskarte</h4>
+      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gebiet-overview-map" data-gebiet-id="${geb.id}" data-target="map-gebiet-${geb.id}">${fsIconHtml('map')} Karte anzeigen</button>
       <div id="map-gebiet-${geb.id}"></div>
     </div>` : ''}
     <div class="detail-section">
-      <h4>🎿 Touren (${touren.length})</h4>
+      <h4>${fsIconHtml('snow')} Touren (${touren.length})</h4>
       ${touren.length ? `<div class="grid" style="margin-top:6px;">${touren.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour in diesem Gebiet.</p>`}
     </div>
     <div class="detail-section">
-      <h4>🛖 Hütten (${huetten.length})</h4>
+      <h4>${fsIconHtml('hut')} Hütten (${huetten.length})</h4>
       ${huetten.length ? `<div class="grid" style="margin-top:6px;">${huetten.map(hutCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hütte in diesem Gebiet.</p>`}
       <p class="hint" style="font-size:12.5px; color:var(--ink-faint); margin:10px 0 0 0;">Touren und Hütten ordnest du in der jeweiligen Tour/Hütte unter Bearbeiten → Gebiet zu.</p>
     </div>
@@ -1784,21 +1784,21 @@ function gebietDetailHtmlWand(id){
   const hasMapData = (geb.points && geb.points.length) || huetten.some(h=>h.points && h.points.length) || touren.some(t=> (t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length));
   return `<div class="modal td gd" data-stop="1">
     <div class="modal-head">
-      <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
+      <div><h2 style="color:var(--ice-deep);">${fsIconHtml('mountain')} ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <div style="display:flex; align-items:flex-start; gap:4px;">${favoriteToggleButtonHtml(geb.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
     ${geb.description ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 10px 0;">${esc(geb.description)}</p>` : ''}
     ${hasMapData ? `<div class="detail-section fs-area-mapsec">
-      <h4>🗺️ Übersichtskarte</h4>
-      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gebiet-overview-map" data-gebiet-id="${geb.id}" data-target="map-gebiet-${geb.id}">🗺️ Karte anzeigen</button>
+      <h4>${fsIconHtml('map')} Übersichtskarte</h4>
+      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gebiet-overview-map" data-gebiet-id="${geb.id}" data-target="map-gebiet-${geb.id}">${fsIconHtml('map')} Karte anzeigen</button>
       <div id="map-gebiet-${geb.id}"></div>
     </div>` : ''}
     <div class="detail-section">
-      <h4>🥾 Touren (${touren.length})</h4>
+      <h4>${fsIconHtml('walk')} Touren (${touren.length})</h4>
       ${touren.length ? `<div class="grid" style="margin-top:6px;">${touren.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Tour in diesem Gebiet.</p>`}
     </div>
     <div class="detail-section">
-      <h4>🛖 Hütten (${huetten.length})</h4>
+      <h4>${fsIconHtml('hut')} Hütten (${huetten.length})</h4>
       ${huetten.length ? `<div class="grid" style="margin-top:6px;">${huetten.map(hutCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hütte in diesem Gebiet.</p>`}
       <p class="hint" style="font-size:12.5px; color:var(--ink-faint); margin:10px 0 0 0;">Touren und Hütten ordnest du in der jeweiligen Tour/Hütte unter Bearbeiten → Gebiet zu.</p>
     </div>
@@ -1899,7 +1899,7 @@ function tourFormHtmlSki(existing){
         <div class="field"><label>Abfahrt (Hm, falls abweichend)</label><input name="elevationLoss" value="${esc(t.elevationLoss||'')}" placeholder="z. B. 1600"/></div>
       </div>
       <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" id="tour-link-input" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/>
-        <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">🔍 Auf Camptocamp.org suchen</button>
+        <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">${fsIconHtml('search')} Auf Camptocamp.org suchen</button>
         <div id="camptocamp-search-box" style="margin-top:10px; display:none;"></div>
       </div>
       <div class="field"><label>Link zu einer GPX-Datei (optional)</label><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></div>
@@ -1916,24 +1916,24 @@ function tourFormHtmlSki(existing){
       <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('auto')?'on':''}" style="${(t.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('oev')?'on':''}" style="${(t.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">🚌 ÖV</button>
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(t.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">🚡 Seilbahn</button>
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('zufuss')?'on':''}" style="${(t.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('auto')?'on':''}" style="${(t.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">${fsIconHtml('car')} Auto</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('oev')?'on':''}" style="${(t.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">${fsIconHtml('bus')} ÖV</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(t.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">${fsIconHtml('cable')} Seilbahn</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('zufuss')?'on':''}" style="${(t.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">${fsIconHtml('walk')} Zu Fuss</button>
         </div>
       </div>
       <div class="field"><label>Ausgangspunkt / Aufenthalt</label>
         <div class="chips" id="stay-type-chips">
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('tagestour')?'on':''}" style="${(t.stayTypes||[]).includes('tagestour')?'background:var(--ice-deep)':''}" data-value="tagestour">☀️ Tagestour</button>
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('huette')?'on':''}" style="${(t.stayTypes||[]).includes('huette')?'background:var(--ice-deep)':''}" data-value="huette">🛖 Hütte</button>
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('biwak')?'on':''}" style="${(t.stayTypes||[]).includes('biwak')?'background:var(--ice-deep)':''}" data-value="biwak">⛺ Biwak</button>
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('zelt')?'on':''}" style="${(t.stayTypes||[]).includes('zelt')?'background:var(--ice-deep)':''}" data-value="zelt">🏕️ Zelt</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('tagestour')?'on':''}" style="${(t.stayTypes||[]).includes('tagestour')?'background:var(--ice-deep)':''}" data-value="tagestour">${fsIconHtml('sun', '#C27C0E')} Tagestour</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('huette')?'on':''}" style="${(t.stayTypes||[]).includes('huette')?'background:var(--ice-deep)':''}" data-value="huette">${fsIconHtml('hut')} Hütte</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('biwak')?'on':''}" style="${(t.stayTypes||[]).includes('biwak')?'background:var(--ice-deep)':''}" data-value="biwak">${fsIconHtml('tent')} Biwak</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('zelt')?'on':''}" style="${(t.stayTypes||[]).includes('zelt')?'background:var(--ice-deep)':''}" data-value="zelt">${fsIconHtml('tent')} Zelt</button>
         </div>
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
-        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
@@ -2038,7 +2038,7 @@ function tourFormHtmlWand(existing){
       </div>
       <div class="field"><label>Zeitbedarf (h)</label><input name="duration" value="${esc(t.duration||'')}" placeholder="z. B. 6–7"/></div>
       <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" id="tour-link-input" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/>
-        <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">🔍 Auf Camptocamp.org suchen</button>
+        <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">${fsIconHtml('search')} Auf Camptocamp.org suchen</button>
         <div id="camptocamp-search-box" style="margin-top:10px; display:none;"></div>
       </div>
       <div class="field"><label>Link zu einer GPX-Datei (optional)</label><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></div>
@@ -2055,24 +2055,24 @@ function tourFormHtmlWand(existing){
       <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('auto')?'on':''}" style="${(t.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('oev')?'on':''}" style="${(t.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">🚌 ÖV</button>
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(t.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">🚡 Seilbahn</button>
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('zufuss')?'on':''}" style="${(t.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('auto')?'on':''}" style="${(t.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">${fsIconHtml('car')} Auto</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('oev')?'on':''}" style="${(t.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">${fsIconHtml('bus')} ÖV</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(t.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">${fsIconHtml('cable')} Seilbahn</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('zufuss')?'on':''}" style="${(t.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">${fsIconHtml('walk')} Zu Fuss</button>
         </div>
       </div>
       <div class="field"><label>Ausgangspunkt / Aufenthalt</label>
         <div class="chips" id="stay-type-chips">
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('tagestour')?'on':''}" style="${(t.stayTypes||[]).includes('tagestour')?'background:var(--ice-deep)':''}" data-value="tagestour">☀️ Tagestour</button>
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('huette')?'on':''}" style="${(t.stayTypes||[]).includes('huette')?'background:var(--ice-deep)':''}" data-value="huette">🛖 Hütte</button>
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('biwak')?'on':''}" style="${(t.stayTypes||[]).includes('biwak')?'background:var(--ice-deep)':''}" data-value="biwak">⛺ Biwak</button>
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('zelt')?'on':''}" style="${(t.stayTypes||[]).includes('zelt')?'background:var(--ice-deep)':''}" data-value="zelt">🏕️ Zelt</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('tagestour')?'on':''}" style="${(t.stayTypes||[]).includes('tagestour')?'background:var(--ice-deep)':''}" data-value="tagestour">${fsIconHtml('sun', '#C27C0E')} Tagestour</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('huette')?'on':''}" style="${(t.stayTypes||[]).includes('huette')?'background:var(--ice-deep)':''}" data-value="huette">${fsIconHtml('hut')} Hütte</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('biwak')?'on':''}" style="${(t.stayTypes||[]).includes('biwak')?'background:var(--ice-deep)':''}" data-value="biwak">${fsIconHtml('tent')} Biwak</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('zelt')?'on':''}" style="${(t.stayTypes||[]).includes('zelt')?'background:var(--ice-deep)':''}" data-value="zelt">${fsIconHtml('tent')} Zelt</button>
         </div>
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
-        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
@@ -2160,8 +2160,8 @@ function tourDetailHtmlSki(id){
     ])}
     ${(hut || gebiet || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">
       ${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}
-      ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
-      ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">⛰️ Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
+      ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">${fsIconHtml('hut')} Zur Hütte: ${esc(hut.name)}</button>` : ''}
+      ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">${fsIconHtml('mountain')} Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
     </div>` : ''}
     ${hutGuess ? fsLinkHutBtnHtml(t, hutGuess) : ''}
     ${fsSuggestionsHtml(t)}
@@ -2176,9 +2176,9 @@ function tourDetailHtmlSki(id){
     <div class="detail-section" id="tour-map-section-${t.id}">
       ${fsTourOrteHtml(t)}
       ${!fsTourHasContextData(t) ? `<p class="fs-nomap-hint">Noch nichts auf der Karte – Stift gedrückt halten, um Punkte oder eine Route zu setzen.</p>` : ''}
-      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${fsIco((MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon)} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${fsRoutesListHtml(t)}
-      ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
+      ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">${fsIconHtml('map')} Karte anzeigen</button>` : ''}
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${t.id}" data-act="quick-edit-toggle" data-id="${t.id}" data-kind="tour" title="Gedrückt halten, um die Karte zu bearbeiten">Karte bearbeiten</button>
       <div id="quick-edit-list-${t.id}"></div>
@@ -2201,8 +2201,8 @@ function tourDetailHtmlSki(id){
       anreise: `
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
       ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length)) ? `<div class="chips" style="margin-bottom:8px;">
-        ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}
-        ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${STAY_TYPE_LABELS[v]}</span>`).join('')}
+        ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</span>`).join('')}
+        ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(STAY_TYPE_LABELS, v)}</span>`).join('')}
       </div>` : ''}
       ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
     </div>` : ''}
@@ -2222,10 +2222,10 @@ function tourDetailHtmlSki(id){
       const sameGipfel = state.tours.filter(x=> x.id!==t.id && gipfelzielKey(x.name)===gipfelzielKey(t.name));
       if(!sameGipfel.length) return '';
       return `<div class="detail-section">
-        <h4>🗺️ Weitere Routen auf ${esc(t.name)} (${sameGipfel.length})</h4>
+        <h4>${fsIconHtml('map')} Weitere Routen auf ${esc(t.name)} (${sameGipfel.length})</h4>
         <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Alle Routen mit diesem Gipfelziel automatisch zusammengeführt – keine erneute Eingabe nötig.</p>
         <div style="margin-bottom:8px;">${gipfelzielLegendHtml(t.name)}</div>
-        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gipfelziel-overview-map" data-gipfelziel="${esc(t.name)}" data-target="map-gipfelziel-overview-${t.id}">🗺️ Karte anzeigen</button>
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gipfelziel-overview-map" data-gipfelziel="${esc(t.name)}" data-target="map-gipfelziel-overview-${t.id}">${fsIconHtml('map')} Karte anzeigen</button>
         <div id="map-gipfelziel-overview-${t.id}"></div>
         <div class="grid" style="margin-top:10px;">${sameGipfel.map(tourCardHtml).join('')}</div>
       </div>`;
@@ -2288,8 +2288,8 @@ function tourDetailHtmlWand(id){
     ])}
     ${(hut || gebiet || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">
       ${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}
-      ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zur Hütte: ${esc(hut.name)}</button>` : ''}
-      ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">⛰️ Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
+      ${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">${fsIconHtml('hut')} Zur Hütte: ${esc(hut.name)}</button>` : ''}
+      ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">${fsIconHtml('mountain')} Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
     </div>` : ''}
     ${hutGuess ? fsLinkHutBtnHtml(t, hutGuess) : ''}
     ${fsSuggestionsHtml(t)}
@@ -2304,9 +2304,9 @@ function tourDetailHtmlWand(id){
     <div class="detail-section" id="tour-map-section-${t.id}">
       ${fsTourOrteHtml(t)}
       ${!fsTourHasContextData(t) ? `<p class="fs-nomap-hint">Noch nichts auf der Karte – Stift gedrückt halten, um Punkte oder eine Route zu setzen.</p>` : ''}
-      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${fsIco((MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon)} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${fsRoutesListHtml(t)}
-      ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
+      ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">${fsIconHtml('map')} Karte anzeigen</button>` : ''}
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${t.id}" data-act="quick-edit-toggle" data-id="${t.id}" data-kind="tour" title="Gedrückt halten, um die Karte zu bearbeiten">Karte bearbeiten</button>
       <div id="quick-edit-list-${t.id}"></div>
@@ -2329,8 +2329,8 @@ function tourDetailHtmlWand(id){
       anreise: `
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
       ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length)) ? `<div class="chips" style="margin-bottom:8px;">
-        ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}
-        ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${STAY_TYPE_LABELS[v]}</span>`).join('')}
+        ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</span>`).join('')}
+        ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(STAY_TYPE_LABELS, v)}</span>`).join('')}
       </div>` : ''}
       ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
     </div>` : ''}
@@ -2350,10 +2350,10 @@ function tourDetailHtmlWand(id){
       const sameGipfel = state.tours.filter(x=> x.id!==t.id && gipfelzielKey(x.name)===gipfelzielKey(t.name));
       if(!sameGipfel.length) return '';
       return `<div class="detail-section">
-        <h4>🗺️ Weitere Routen auf ${esc(t.name)} (${sameGipfel.length})</h4>
+        <h4>${fsIconHtml('map')} Weitere Routen auf ${esc(t.name)} (${sameGipfel.length})</h4>
         <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Alle Routen mit diesem Gipfelziel automatisch zusammengeführt – keine erneute Eingabe nötig.</p>
         <div style="margin-bottom:8px;">${gipfelzielLegendHtml(t.name)}</div>
-        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gipfelziel-overview-map" data-gipfelziel="${esc(t.name)}" data-target="map-gipfelziel-overview-${t.id}">🗺️ Karte anzeigen</button>
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gipfelziel-overview-map" data-gipfelziel="${esc(t.name)}" data-target="map-gipfelziel-overview-${t.id}">${fsIconHtml('map')} Karte anzeigen</button>
         <div id="map-gipfelziel-overview-${t.id}"></div>
         <div class="grid" style="margin-top:10px;">${sameGipfel.map(tourCardHtml).join('')}</div>
       </div>`;
@@ -2538,7 +2538,7 @@ function wireModalHandlers__sw(){
       }).catch(err=>{
         showToast('Fehler beim Herunterladen: ' + (err && err.message ? err.message : err), true);
         downloadOfflineBtn.disabled = false;
-        downloadOfflineBtn.textContent = '🔽 Für unterwegs herunterladen';
+        downloadOfflineBtn.innerHTML = (fsIconHtml('chevdown') + ' Für unterwegs herunterladen');
       });
       return;
     }
@@ -2556,7 +2556,7 @@ function wireModalHandlers__sw(){
       const offlineId = gpsToggleBtn.getAttribute('data-offline-id');
       const mapInner = (typeof fsCtxMap !== 'undefined' && fsCtxMap) || (window.__activeLeafletMaps && window.__activeLeafletMaps['map-tour-' + offlineId + '-inner']);
       if(!mapInner){
-        showToast('Bitte zuerst "🗺️ Karte anzeigen" antippen.', true);
+        showToast('Bitte zuerst "Karte anzeigen" antippen.', true);
         return;
       }
       // Standort nur auf Tipp: einmal orten und auf der Karte zeigen (kein laufender Standort)
@@ -2581,11 +2581,11 @@ function wireModalHandlers__sw(){
     const pmGpxConfig = tourTrackHidden ? { hiddenId: 'track-simplified-hidden', idHiddenId: 'tour-id-for-track', trackPathPrefix: GPX_TRACKS_PATH, statusId: 'gpx-upload-status' } : null;
     const hutSummerHidden = document.getElementById('track-simplified-summer-hidden');
     if(hutSummerHidden && hutSummerHidden.value){
-      try{ const t = JSON.parse(hutSummerHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8B93E', label:'🟡 Gelb: Sommer-Zustieg (GPX)'}); }catch(e){}
+      try{ const t = JSON.parse(hutSummerHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8B93E', label:'Gelb: Sommer-Zustieg (GPX)'}); }catch(e){}
     }
     const hutWinterHidden = document.getElementById('track-simplified-winter-hidden');
     if(hutWinterHidden && hutWinterHidden.value){
-      try{ const t = JSON.parse(hutWinterHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#1565C0', label:'🔵 Blau: Winter-Zustieg (GPX)'}); }catch(e){}
+      try{ const t = JSON.parse(hutWinterHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#1565C0', label:'Blau: Winter-Zustieg (GPX)'}); }catch(e){}
     }
     // Zustiege des Elements immer mit anzeigen, damit auf jeder Karte innerhalb einer Hütte/Tour
     // dasselbe zu sehen ist und nichts beim Wechsel zwischen den Ansichten übersehen wird.
@@ -2721,7 +2721,7 @@ function wireModalHandlers__sw(){
       state.quickEditOpenId = id;
       syncModalDirtyTracking();
       btn.style.display = 'none';
-      // Bei Touren denselben Kartenbereich wiederverwenden, den auch "🗺️ Karte anzeigen" nutzt
+      // Bei Touren denselben Kartenbereich wiederverwenden, den auch "Karte anzeigen" nutzt
       // (map-tour-<id>) – sonst würde eine zweite, redundante Karte für dieselbe Tour aufgehen.
       // Bei Hütten bleibt es beim eigenen Bereich, da "Karte anzeigen" dort etwas anderes zeigt
       // (alle Zustiege zusammen, nicht nur die eigenen Punkte/Linie der Hütte).
@@ -2736,8 +2736,8 @@ function wireModalHandlers__sw(){
       // Bei Touren wird der eigene GPX-Track jetzt direkt editierbar (gpxConfig unten) statt nur als
       // Referenz gezeigt – sonst dieselbe Redundanz wie zuvor im vollen Bearbeiten-Formular.
       if(item && kind==='hut'){
-        if(item.trackSimplifiedSummer && item.trackSimplifiedSummer.length) refTracks.push({coords:item.trackSimplifiedSummer, color:'#E8B93E', label:'🟡 Gelb: Sommer-Zustieg (GPX)'});
-        if(item.trackSimplifiedWinter && item.trackSimplifiedWinter.length) refTracks.push({coords:item.trackSimplifiedWinter, color:'#1565C0', label:'🔵 Blau: Winter-Zustieg (GPX)'});
+        if(item.trackSimplifiedSummer && item.trackSimplifiedSummer.length) refTracks.push({coords:item.trackSimplifiedSummer, color:'#E8B93E', label:'Gelb: Sommer-Zustieg (GPX)'});
+        if(item.trackSimplifiedWinter && item.trackSimplifiedWinter.length) refTracks.push({coords:item.trackSimplifiedWinter, color:'#1565C0', label:'Blau: Winter-Zustieg (GPX)'});
         migrateHutAccessRoutes(item);
       }
       const qeRefTracks = refTracks.concat(siblingRouteRefTracks(item, null));
@@ -3927,8 +3927,8 @@ const GIPFEL_PATH = 'fixseil/gipfel'; // Hochtouren-Gipfel – eine Tour kann me
 const SEKTOR_ACCESS_ROUTE_GPX_PATH = 'sektorAccessRouteGpxTracks'; // Zustiege bei Sektoren
 const SEKTOR_DESCENT_ROUTE_GPX_PATH = 'sektorDescentRouteGpxTracks'; // Abstiege bei Sektoren
 const OTHER_TOURS_PATH = 'tours';
-const OWN_APP_LABEL__fix = '🧗 Hochtour';
-const OTHER_APP_LABEL__fix = '🎿 Skitour'; OTHER_APP_LABEL = OTHER_APP_LABEL__fix;
+const OWN_APP_LABEL__fix = 'Hochtour';
+const OTHER_APP_LABEL__fix = 'Skitour'; OTHER_APP_LABEL = OTHER_APP_LABEL__fix;
 const USERS_PATH__fix = 'users'; USERS_PATH = USERS_PATH__fix; // appübergreifend geteilt (Namen-Passwortschutz + Merkliste)
 
 
@@ -4025,7 +4025,7 @@ let state__fix = {
   // beim Schliessen einer andersartigen, später unabhängig geöffneten Ansicht verwendet wird.
   modalBackStack: []
 }; state = state__fix;
-// Direkter Einstieg per Link aus der oberen Umschalt-Leiste ("🧗 Klettern" führt hierher mit
+// Direkter Einstieg per Link aus der oberen Umschalt-Leiste ("Klettern" führt hierher mit
 // ?view=msl), damit man nicht immer erst über "Hochtour" navigieren muss. Landet auf den
 // Klettergebieten (state.view='sektoren') statt der flachen Touren-Liste, da ein Klettergebiet
 // der primäre Einstiegspunkt in den Klettern-Bereich ist – siehe sektorenViewHtml().
@@ -4430,11 +4430,11 @@ async function loadOtherAppTours__fix(){
 /* ================= Papierkorb ================= */
 function papierkorbGroups__fix(){
   return [
-    { kind:'tour', icon:'🏔️', label:'Touren', trashedList: state.trashedTours },
-    { kind:'hut', icon:'🛖', label:'Hütten', trashedList: state.trashedHuts },
-    { kind:'sektor', icon:'🧭', label:'Sektoren', trashedList: state.trashedSektoren },
-    { kind:'klettergebiet', icon:'⛰️', label:'Klettergebiete', trashedList: state.trashedKlettergebiete },
-    { kind:'gipfel', icon:'🏔️', label:'Gipfel', trashedList: state.trashedGipfel },
+    { kind:'tour', icon:'mountain', label:'Touren', trashedList: state.trashedTours },
+    { kind:'hut', icon:'hut', label:'Hütten', trashedList: state.trashedHuts },
+    { kind:'sektor', icon:'compass', label:'Sektoren', trashedList: state.trashedSektoren },
+    { kind:'klettergebiet', icon:'mountain', label:'Klettergebiete', trashedList: state.trashedKlettergebiete },
+    { kind:'gipfel', icon:'mountain', label:'Gipfel', trashedList: state.trashedGipfel },
   ];
 }
 const PAPIERKORB_ENTITY_MAP__fix = {
@@ -4799,7 +4799,7 @@ function tourRouteTitle(kind){ return kind==='descent' ? 'Abstieg' : 'Zustieg'; 
 
 function tourRouteRowHtml(r, index, tourId, kind){
   const color = accessRouteColor(r, index);
-  const icon = kind==='descent' ? '🔽' : '🚶';
+  const icon = kind==='descent' ? (fsIconHtml('chevdown')) : (fsIconHtml('walk'));
   return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="open-tour-route" data-tour-id="${tourId}" data-kind="${kind}" data-route-id="${r.id}" tabindex="0" role="button">
     <div class="card-top">
       <h3 style="font-size:15px;">${icon} ${esc(r.name)}</h3>
@@ -4808,7 +4808,7 @@ function tourRouteRowHtml(r, index, tourId, kind){
     ${(r.elevation || r.elevationUp || r.duration) ? `<div class="stat-row">
       ${r.elevation ? `<span>${kind==='descent'?'↓':'↑'} <span class="mono">${esc(r.elevation)}</span> Hm</span>` : ''}
       ${r.elevationUp ? `<span>↑ <span class="mono">${esc(r.elevationUp)}</span> Hm Gegenanstieg</span>` : ''}
-      ${r.duration ? `<span>⏱ <span class="mono">${esc(r.duration)}</span></span>` : ''}
+      ${r.duration ? `<span>${fsIconHtml('clock')} <span class="mono">${esc(r.duration)}</span></span>` : ''}
     </div>` : ''}
     ${r.difficultyT ? `<div class="badge-row"><span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span></div>` : ''}
     ${r.description ? `<p class="excerpt">${esc(r.description)}</p>` : ''}
@@ -4817,7 +4817,7 @@ function tourRouteRowHtml(r, index, tourId, kind){
 
 function tourRouteDetailHtml(tourId, route, kind){
   const r = route;
-  const icon = kind==='descent' ? '🔽' : '🚶';
+  const icon = kind==='descent' ? (fsIconHtml('chevdown')) : (fsIconHtml('walk'));
   const title = tourRouteTitle(kind);
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${icon} ${esc(r.name)}</h2><button class="x-btn" data-act="close-modal">×</button></div>
@@ -4832,12 +4832,12 @@ function tourRouteDetailHtml(tourId, route, kind){
     ${r.gpxLink ? `<div class="detail-section"><h4>GPX-Link</h4><p><a href="${esc(r.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(r.gpxLink)}</a></p></div>` : ''}
     ${(r.trackSimplified || (r.manualTrack && r.manualTrack.length)) ? `<div class="detail-section">
       <h4>Karte</h4>
-      <button type="button" class="btn secondary" data-act="show-tour-route-map" data-track='${esc(JSON.stringify(r.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(r.manualTrack||[]))}' data-target="map-tour-route-${r.id}">🗺️ Karte anzeigen</button>
+      <button type="button" class="btn secondary" data-act="show-tour-route-map" data-track='${esc(JSON.stringify(r.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(r.manualTrack||[]))}' data-target="map-tour-route-${r.id}">${fsIconHtml('map')} Karte anzeigen</button>
       <div id="map-tour-route-${r.id}" style="margin-top:10px;"></div>
     </div>` : ''}
     <div class="form-actions">
       <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
-      <button type="button" class="btn" data-act="edit-tour-route" data-tour-id="${esc(tourId)}" data-kind="${kind}" data-route-id="${esc(r.id)}">✏️ Bearbeiten</button>
+      <button type="button" class="btn" data-act="edit-tour-route" data-tour-id="${esc(tourId)}" data-kind="${kind}" data-route-id="${esc(r.id)}">${fsIconHtml('edit')} Bearbeiten</button>
     </div>
   </div>`;
 }
@@ -4870,13 +4870,13 @@ function tourRouteFormHtml(tourId, kind, route){
         <input type="file" id="tour-route-gpx-input" accept=".gpx,application/gpx+xml"/>
         <div class="hint">Wird automatisch für die Kartenanzeige vereinfacht und direkt in der Karte unten bearbeitbar. Die Originaldatei bleibt separat gespeichert und ist jederzeit als Volldownload abrufbar.</div>
         <p id="tour-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
-        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="tour-route-gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>` : ''}
+        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="tour-route-gpx-remove-btn" style="margin-top:6px;">${fsIconHtml('trash')} Track entfernen</button>` : ''}
         <input type="hidden" name="trackSimplified" id="tour-route-track-hidden" value='${esc(r.trackSimplified ? JSON.stringify(r.trackSimplified) : "")}'/>
         <input type="hidden" name="routeIdForTrack" id="tour-route-id-for-track" value="${esc(r.id||'')}"/>
       </div>
       <div class="field"><label>Route auf der Karte einzeichnen (falls kein GPX vorhanden)</label>
-        <button type="button" class="btn secondary" id="tour-route-map-toggle-btn">🗺️ Karte öffnen</button>
-        <div class="hint">✏️ Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
+        <button type="button" class="btn secondary" id="tour-route-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
+        <div class="hint">${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
         <div id="tour-route-map" style="margin-top:10px; display:none;"></div>
         <input type="hidden" name="manualTrack" id="tour-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
       </div>
@@ -5023,11 +5023,11 @@ function tourAssignMenuHtml(tourId){
     ${otherLooseTours.length ? `<div class="detail-section">
       <h4>Mit anderer Tour zusammenführen</h4>
       <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Bildet einen neuen gemeinsamen Sektor.</p>
-      <div class="grid">${otherLooseTours.map(o=>`<button type="button" class="btn secondary" style="text-align:left;" data-act="assign-merge-tours" data-tour-id="${tourId}" data-other-id="${o.id}">🏔️ ${esc(o.name)}${o.routeName ? ' – '+esc(o.routeName) : ''}</button>`).join('')}</div>
+      <div class="grid">${otherLooseTours.map(o=>`<button type="button" class="btn secondary" style="text-align:left;" data-act="assign-merge-tours" data-tour-id="${tourId}" data-other-id="${o.id}">${fsIconHtml('mountain')} ${esc(o.name)}${o.routeName ? ' – '+esc(o.routeName) : ''}</button>`).join('')}</div>
     </div>` : ''}
     ${sektorenList.length ? `<div class="detail-section">
       <h4>Zu bestehendem Sektor hinzufügen</h4>
-      <div class="grid">${sektorenList.map(s=>`<button type="button" class="btn secondary" style="text-align:left;" data-act="assign-tour-to-sektor" data-tour-id="${tourId}" data-sektor-id="${s.id}">🧭 ${esc(s.name)}</button>`).join('')}</div>
+      <div class="grid">${sektorenList.map(s=>`<button type="button" class="btn secondary" style="text-align:left;" data-act="assign-tour-to-sektor" data-tour-id="${tourId}" data-sektor-id="${s.id}">${fsIconHtml('compass')} ${esc(s.name)}</button>`).join('')}</div>
     </div>` : ''}
     ${(!otherLooseTours.length && !sektorenList.length) ? `<p style="font-size:13px; color:var(--ink-soft);">Keine andere freistehende Tour und noch kein Sektor vorhanden.</p>` : ''}
     <div class="form-actions"><button type="button" class="btn secondary" data-act="close-modal">Abbrechen</button></div>
@@ -5120,8 +5120,8 @@ function sektorFormHtml(existing){
         <p style="font-size:13px; color:var(--ink-soft); margin:0;">Nach dem Anlegen kannst du in der Detailansicht ein Topo-Bild und die Routenliste (Nr./Name/Grad) hinzufügen.</p>
       </div>`}
       <div class="field"><label>Gemeinsamer Ausgangspunkt – Punkte &amp; Linie auf der Karte</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
-        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(s.points || []))}'/>
@@ -5162,7 +5162,7 @@ function sektorTopoRoutenFormHtml(sektorId){
   const ROPE_TYPES = ['Gletscherseil','Einfachseil','Halbseilstrang','Zwillingsseil'];
   const ROPE_LENGTHS = ['30m','40m','50m','60m','70m'];
   return `<div class="modal" data-stop="1">
-    <div class="modal-head"><h2>🧗 Topo &amp; Routen – ${esc(sek.name)}</h2><button class="x-btn" data-act="close-modal">×</button></div>
+    <div class="modal-head"><h2>${fsIconHtml('climb')} Topo &amp; Routen – ${esc(sek.name)}</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <form id="sektor-topo-routen-form" novalidate>
       <input type="hidden" name="sektorId" value="${esc(sektorId)}"/>
       <input type="hidden" id="sektor-id-for-topo" value="${esc(sektorId)}"/>
@@ -5175,7 +5175,7 @@ function sektorTopoRoutenFormHtml(sektorId){
       </div>
       <div class="field"><label>Kletterrouten (Nr. / Name / Grad)</label>
         <div class="hint">Für Sektoren mit mehreren benannten Routen an derselben Wand – macht diesen Sektor zum Klettergarten. Ein Sektor kann daneben unabhängig davon auch eigene MSL-Touren verlinkt haben.</div>
-        <button type="button" class="btn secondary" id="sektor-scan-topo-btn" style="margin-bottom:10px;">📷 Foto scannen (oben ausgewähltes Bild)</button>
+        <button type="button" class="btn secondary" id="sektor-scan-topo-btn" style="margin-bottom:10px;">${fsIconHtml('camera')} Foto scannen (oben ausgewähltes Bild)</button>
         <div id="kletterrouten-editor" style="margin-top:8px;"></div>
         <input type="hidden" name="kletterrouten" id="kletterrouten-hidden" value='${esc(sek.kletterrouten ? JSON.stringify(sek.kletterrouten) : "[]")}'/>
       </div>
@@ -5345,8 +5345,8 @@ function klettergebietFormHtml(existing){
       </div>
       <div class="field"><label>Beschreibung / Material</label><textarea name="description" placeholder="Charakter des Gebiets, grobe Zustiegs-Übersicht, übliches Material …">${esc(g.description||'')}</textarea></div>
       <div class="field"><label>Zustieg / Lage – Punkte &amp; Linie auf der Karte</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
-        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(g.points || []))}'/>
@@ -5538,9 +5538,9 @@ function klettergebietKlettergartenChapterBodyHtml(geb, klettergaerten, unlinked
     ${klettergaerten.length ? `<div class="grid" style="margin-top:6px;">${klettergaerten.map(sektorCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Klettergarten (Sektor mit Routen-Liste) in diesem Gebiet.</p>`}
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
       <button type="button" class="btn secondary" data-act="add-sektor-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Neuer Sektor in diesem Gebiet</button>
-      <button type="button" class="btn secondary" id="klettergebiet-scan-btn" data-klettergebiet-id="${geb.id}">📷 Foto(s) scannen (mehrere Sektoren)</button>
+      <button type="button" class="btn secondary" id="klettergebiet-scan-btn" data-klettergebiet-id="${geb.id}">${fsIconHtml('camera')} Foto(s) scannen (mehrere Sektoren)</button>
       <input type="file" id="klettergebiet-scan-input" accept="image/*" multiple style="display:none;"/>
-      <button type="button" class="btn secondary" id="klettergebiet-scan-camera-btn" data-klettergebiet-id="${geb.id}">📸 Direkt fotografieren</button>
+      <button type="button" class="btn secondary" id="klettergebiet-scan-camera-btn" data-klettergebiet-id="${geb.id}">${fsIconHtml('camera')} Direkt fotografieren</button>
       <input type="file" id="klettergebiet-scan-camera-input" accept="image/*" capture="environment" style="display:none;"/>
     </div>
     <p style="font-size:12px; color:var(--ink-soft); margin:4px 0 0 0;">Mehrere Fotos gleichzeitig auswählbar, falls das Gebiet über mehrere Führerbuch-Seiten geht – alle erkannten Sektoren landen in einer gemeinsamen Übersicht.</p>
@@ -5568,11 +5568,11 @@ function klettergebietDetailHtml(id){
   const unlinkedHuetten = state.huts.filter(h=>!h.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   return `<div class="modal td gd fs-onroute" data-stop="1">
     <div class="modal-head">
-      <div><h2 style="color:var(--ice-deep);">⛰️ ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
+      <div><h2 style="color:var(--ice-deep);">${fsIconHtml('mountain')} ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <div style="display:flex; align-items:flex-start; gap:4px;">${favoriteToggleButtonHtml(geb.id)}${editIconButtonHtml('edit-klettergebiet', geb.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
     ${(gradeRange || altitude) ? `<div class="chips" style="margin-bottom:14px;">
-      ${gradeRange ? `<span class="hut-link-chip">🧗 ${esc(gradeRange)}</span>` : ''}
+      ${gradeRange ? `<span class="hut-link-chip">${fsIconHtml('climb')} ${esc(gradeRange)}</span>` : ''}
       ${altitude ? `<span class="hut-link-chip">${esc(altitude)}</span>` : ''}
     </div>` : ''}
     ${(() => {
@@ -5591,10 +5591,10 @@ function klettergebietDetailHtml(id){
       // relevantere Kapitel steht zuoberst, sonst identische Reihenfolge -- ein bewusst so
       // festgelegter Standard, nicht nur für diese eine Gebiets-Seite.
       const isMsl = state.tourCategoryContext==='msl';
-      const hochtourChapter = ['🏔️ Hochtour', hochtouren.length, hochtouren.length
+      const hochtourChapter = [(fsIconHtml('mountain') + ' Hochtour'), hochtouren.length, hochtouren.length
         ? `<div class="grid" style="margin-top:6px;">${hochtouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>`
         : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hochtour in diesem Gebiet. Beim Anlegen/Bearbeiten einer Hochtour lässt sie sich über das Feld "Sektor" einem Sektor dieses Gebiets zuordnen.</p>`];
-      const mslChapter = ['🧗 Mehrseillänge', mslTouren.length, mslTouren.length
+      const mslChapter = [(fsIconHtml('climb') + ' Mehrseillänge'), mslTouren.length, mslTouren.length
         ? `<div class="grid" style="margin-top:6px;">${mslTouren.map(t=>tourCardHtml(t,false,{hideWeather:true})).join('')}</div>`
         : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine MSL-Tour in diesem Gebiet.</p>`];
       // Klettergarten bleibt immer sichtbar, auch mit 0 Einträgen -- sonst gäbe es bei einem frisch
@@ -5602,8 +5602,8 @@ function klettergebietDetailHtml(id){
       // (die "+ Neuer Sektor"/Scan-Buttons stecken in diesem Kapitel).
       // Neuer Look: ohne Klettergarten heisst das Kapitel "+ Klettergarten hinzufügen" und steht
       // am Schluss (statt als leeres Kapitel "Klettergarten" mitten in der Liste).
-      const klettergartenChapter = [klettergaerten.length ? '🏕️ Klettergarten' : '➕ Klettergarten hinzufügen', klettergaerten.length || null, klettergebietKlettergartenChapterBodyHtml(geb, klettergaerten, unlinkedSektoren)];
-      const gipfelChapter = ['⛰️ Gipfel', gipfelImGebiet.length, `
+      const klettergartenChapter = [klettergaerten.length ? (fsIconHtml('tent') + ' Klettergarten') : (fsIconHtml('plus') + ' Klettergarten hinzufügen'), klettergaerten.length || null, klettergebietKlettergartenChapterBodyHtml(geb, klettergaerten, unlinkedSektoren)];
+      const gipfelChapter = [(fsIconHtml('mountain') + ' Gipfel'), gipfelImGebiet.length, `
         ${gipfelImGebiet.length ? `<div class="grid" style="margin-top:6px;">${gipfelImGebiet.map(gp=>gipfelCardHtml(gp, state.tours.filter(t=>Array.isArray(t.summitIds) && t.summitIds.includes(gp.id)))).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch kein Gipfel diesem Klettergebiet zugeordnet.</p>`}
         ${unlinkedGipfel.length ? `<div style="display:flex; gap:8px; margin-top:10px;">
           <select id="klettergebiet-add-gipfel-select" style="flex:1; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); font-size:13px;">
@@ -5612,7 +5612,7 @@ function klettergebietDetailHtml(id){
           <button type="button" class="btn secondary" style="flex:none;" data-act="assign-selected-gipfel-to-klettergebiet" data-klettergebiet-id="${geb.id}">+ Hinzufügen</button>
         </div>` : ''}
       `];
-      const huettenChapter = ['🛖 Hütten', huettenImGebiet.length, `
+      const huettenChapter = [(fsIconHtml('hut') + ' Hütten'), huettenImGebiet.length, `
         ${huettenImGebiet.length ? `<div class="grid" style="margin-top:6px;">${huettenImGebiet.map(hutCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hütte diesem Klettergebiet zugeordnet.</p>`}
         ${unlinkedHuetten.length ? `<div style="display:flex; gap:8px; margin-top:10px;">
           <select id="klettergebiet-add-hut-select" style="flex:1; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); font-size:13px;">
@@ -5635,14 +5635,14 @@ function klettergebietDetailHtml(id){
       const hasTourData = state.tours.some(t=> sektoren.some(s=>s.id===t.sektorId) && ((t.points && t.points.length) || (t.trackSimplified && t.trackSimplified.length) || (t.manualTrack && t.manualTrack.length)));
       if(!hasOwnPoints && !hasSektorData && !hasTourData) return '';
       return `<div class="detail-section">
-        <h4>🗺️ Übersichtskarte</h4>
+        <h4>${fsIconHtml('map')} Übersichtskarte</h4>
         <p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Alle Sektoren dieses Klettergebiets (und deren Touren) zusammengeführt.</p>
-        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-klettergebiet-overview-map" data-klettergebiet-id="${geb.id}" data-target="map-klettergebiet-overview-${geb.id}">🗺️ Karte anzeigen</button>
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-klettergebiet-overview-map" data-klettergebiet-id="${geb.id}" data-target="map-klettergebiet-overview-${geb.id}">${fsIconHtml('map')} Karte anzeigen</button>
         <div id="map-klettergebiet-overview-${geb.id}"></div>
       </div>`;
     })()}
     ${(geb.points && geb.points.length) ? meteoForecastWidgetHtml(geb.points[0].lat, geb.points[0].lon) : ''}
-    ${geb._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
+    ${geb._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">${fsIconHtml('alert')} nicht synchronisiert</p>` : ''}
   </div>`;
 }
 
@@ -5753,15 +5753,15 @@ function sektorDetailHtml(id){
   return `<div class="modal td gd fs-onroute" data-stop="1">
     <div class="modal-head">
       <div>
-        <h2 style="color:var(--ice-deep);">🏕️ ${esc(sek.name)}</h2>
+        <h2 style="color:var(--ice-deep);">${fsIconHtml('tent')} ${esc(sek.name)}</h2>
         ${sek.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}
         ${gebKlettergaerten.length>1 && gebIdx>=0 ? `<p style="color:var(--ink-faint); font-size:11px; margin:4px 0 0 0;">↔ ${esc(geb.name)} · Klettergarten ${gebIdx+1}/${gebKlettergaerten.length} – wischen zum Wechseln</p>` : ''}
       </div>
       <div style="display:flex; align-items:flex-start; gap:4px;">${editIconButtonHtml('edit-sektor', sek.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
-    ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : ''}
+    ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">${fsIconHtml('mountain')} Teil von: ${esc(geb.name)}</button>` : ''}
     ${!sek.klettergebietId ? `<div style="display:flex; gap:8px; flex-wrap:wrap; margin:10px 0;">
-      <button type="button" class="btn secondary" data-act="convert-sektor-to-klettergebiet" data-id="${sek.id}">⛰️ In neues Klettergebiet umwandeln</button>
+      <button type="button" class="btn secondary" data-act="convert-sektor-to-klettergebiet" data-id="${sek.id}">${fsIconHtml('mountain')} In neues Klettergebiet umwandeln</button>
     </div>` : ''}
     ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
     <div class="detail-section">
@@ -5775,7 +5775,7 @@ function sektorDetailHtml(id){
       ${(sek.material && sek.material.length) || sek.quickdrawCount ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Material:</strong> ${[...(sek.material||[]), sek.quickdrawCount ? `${sek.quickdrawCount}× Expressschlingen` : ''].filter(Boolean).map(esc).join(', ')}</p>` : ''}
       ${(sek.ropeType || sek.ropeLength) ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Seil:</strong> ${[sek.ropeType, sek.ropeLength].filter(Boolean).map(esc).join(' · ')}</p>` : ''}
       ${sek.klettergartenNotes ? `<p style="font-size:13px; margin:6px 0 0 0;"><strong>Hinweise:</strong> ${esc(sek.klettergartenNotes)}</p>` : ''}
-      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="edit-sektor-topo-routen" data-id="${sek.id}">🏕️ Klettergarten-Infos bearbeiten</button>
+      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="edit-sektor-topo-routen" data-id="${sek.id}">${fsIconHtml('tent')} Klettergarten-Infos bearbeiten</button>
       <button type="button" class="btn secondary" style="margin-top:10px; margin-left:8px;" data-act="add-msl-in-sektor" data-sektor-id="${sek.id}">+ Neue MSL-Tour hier</button>
     </div>
     ${(() => {
@@ -5784,23 +5784,23 @@ function sektorDetailHtml(id){
       if(!hasSektorPoints && !hasTourData) return '';
       const legend = sektorOverviewLegendHtml(sek.id);
       return `<div class="detail-section">
-        <h4>🗺️ Karte</h4>
+        <h4>${fsIconHtml('map')} Karte</h4>
         <p class="fs-minimap-hint" style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">Ausgangspunkt(e) &amp; Touren dieses Klettergartens, automatisch zusammengeführt. Antippen zum Vergrössern.</p>
         ${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}
         <div id="map-sektor-overview-${sek.id}" data-sektor-overview-map="${sek.id}"></div>
       </div>`;
     })()}
     ${hut && hutRoutes.length ? `<div class="detail-section">
-      <h4>🛖 Zustieg ab Hütte „${esc(hut.name)}"${hutRoutes.length>1 ? ` (${hutRoutes.length})` : ''}</h4>
+      <h4>${fsIconHtml('hut')} Zustieg ab Hütte „${esc(hut.name)}"${hutRoutes.length>1 ? ` (${hutRoutes.length})` : ''}</h4>
       ${hutRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${hutRange}</p>` : ''}
       <div class="grid">${hutRoutes.map((r,i)=>accessRouteRowHtml(r,i,hut.id)).join('')}</div>
-      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-hut" data-id="${hut.id}">🛖 Hütte öffnen &amp; Zustiege verwalten</button>
+      <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-hut" data-id="${hut.id}">${fsIconHtml('hut')} Hütte öffnen &amp; Zustiege verwalten</button>
     </div>` : ''}
     ${mergedRoute ? `
     <div class="detail-section">
       <h4>${hut && hutRoutes.length ? 'Eigener Zu-/Abstieg' : 'Zu-/Abstieg'}</h4>
       <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Zustieg und Abstieg sind identisch – nur eine Kachel.</p>
-      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify([mergedRoute]))}' data-sektor-id="${sek.id}" data-kind="access" data-target="map-sektor-access-${sek.id}">🗺️ Karte anzeigen</button>
+      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify([mergedRoute]))}' data-sektor-id="${sek.id}" data-kind="access" data-target="map-sektor-access-${sek.id}">${fsIconHtml('map')} Karte anzeigen</button>
       <div id="map-sektor-access-${sek.id}" style="margin-bottom:10px;"></div>
       <div class="grid">${sektorRouteRowHtml(mergedRoute,0,sek.id,'access')}</div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
@@ -5813,7 +5813,7 @@ function sektorDetailHtml(id){
       <h4>${hut && hutRoutes.length ? 'Eigener Zustieg' : 'Zustieg'}${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
       ${accessRoutes.length ? `
         ${accessRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${accessRange}</p>` : ''}
-        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-sektor-id="${sek.id}" data-kind="access" data-target="map-sektor-access-${sek.id}">🗺️ Karte anzeigen</button>
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-sektor-id="${sek.id}" data-kind="access" data-target="map-sektor-access-${sek.id}">${fsIconHtml('map')} Karte anzeigen</button>
         <div id="map-sektor-access-${sek.id}" style="margin-bottom:10px;"></div>
         <div class="grid">${accessRoutes.map((r,i)=>sektorRouteRowHtml(r,i,sek.id,'access')).join('')}</div>
       ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">${hut && hutRoutes.length ? 'Noch kein eigener Zustieg erfasst – nur nötig, falls der Weg ab der Hütte nochmal abweicht.' : 'Noch kein Zustieg erfasst.'}</p>`}
@@ -5823,14 +5823,14 @@ function sektorDetailHtml(id){
       <h4>Abstieg${descentRoutes.length ? ` (${descentRoutes.length})` : ''}</h4>
       ${descentRoutes.length ? `
         ${descentRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${descentRange}</p>` : ''}
-        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-sektor-id="${sek.id}" data-kind="descent" data-target="map-sektor-descent-${sek.id}">🗺️ Karte anzeigen</button>
+        <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-sektor-routes-map" data-points='${esc(JSON.stringify(sek.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-sektor-id="${sek.id}" data-kind="descent" data-target="map-sektor-descent-${sek.id}">${fsIconHtml('map')} Karte anzeigen</button>
         <div id="map-sektor-descent-${sek.id}" style="margin-bottom:10px;"></div>
         <div class="grid">${descentRoutes.map((r,i)=>sektorRouteRowHtml(r,i,sek.id,'descent')).join('')}</div>
       ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-sektor-route" data-sektor-id="${sek.id}" data-kind="descent">+ Abstieg hinzufügen</button>
     </div>
     `}
-    ${sek._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
+    ${sek._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">${fsIconHtml('alert')} nicht synchronisiert</p>` : ''}
   </div>`;
 }
 
@@ -5900,7 +5900,7 @@ function sektorRouteTitle(kind){ return kind==='descent' ? 'Abstieg' : 'Zustieg'
 
 function sektorRouteRowHtml(r, index, sektorId, kind){
   const color = accessRouteColor(r, index);
-  const icon = kind==='descent' ? '🔽' : '🚶';
+  const icon = kind==='descent' ? (fsIconHtml('chevdown')) : (fsIconHtml('walk'));
   return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="open-sektor-route" data-sektor-id="${sektorId}" data-kind="${kind}" data-route-id="${r.id}" tabindex="0" role="button">
     <div class="card-top">
       <h3 style="font-size:15px;">${icon} ${esc(r.name)}</h3>
@@ -5909,7 +5909,7 @@ function sektorRouteRowHtml(r, index, sektorId, kind){
     ${(r.elevation || r.elevationUp || r.duration) ? `<div class="stat-row">
       ${r.elevation ? `<span>${kind==='descent'?'↓':'↑'} <span class="mono">${esc(r.elevation)}</span> Hm</span>` : ''}
       ${r.elevationUp ? `<span>↑ <span class="mono">${esc(r.elevationUp)}</span> Hm Gegenanstieg</span>` : ''}
-      ${r.duration ? `<span>⏱ <span class="mono">${esc(r.duration)}</span></span>` : ''}
+      ${r.duration ? `<span>${fsIconHtml('clock')} <span class="mono">${esc(r.duration)}</span></span>` : ''}
     </div>` : ''}
     ${r.difficultyT ? `<div class="badge-row"><span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span></div>` : ''}
     ${r.description ? `<p class="excerpt">${esc(r.description)}</p>` : ''}
@@ -5918,7 +5918,7 @@ function sektorRouteRowHtml(r, index, sektorId, kind){
 
 function sektorRouteDetailHtml(sektorId, route, kind){
   const r = route;
-  const icon = kind==='descent' ? '🔽' : '🚶';
+  const icon = kind==='descent' ? (fsIconHtml('chevdown')) : (fsIconHtml('walk'));
   const title = sektorRouteTitle(kind);
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${icon} ${esc(r.name)}</h2><button class="x-btn" data-act="close-modal">×</button></div>
@@ -5933,12 +5933,12 @@ function sektorRouteDetailHtml(sektorId, route, kind){
     ${r.gpxLink ? `<div class="detail-section"><h4>GPX-Link</h4><p><a href="${esc(r.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(r.gpxLink)}</a></p></div>` : ''}
     ${(r.trackSimplified || (r.manualTrack && r.manualTrack.length)) ? `<div class="detail-section">
       <h4>Karte</h4>
-      <button type="button" class="btn secondary" data-act="show-sektor-route-map" data-track='${esc(JSON.stringify(r.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(r.manualTrack||[]))}' data-target="map-sektor-route-${r.id}">🗺️ Karte anzeigen</button>
+      <button type="button" class="btn secondary" data-act="show-sektor-route-map" data-track='${esc(JSON.stringify(r.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(r.manualTrack||[]))}' data-target="map-sektor-route-${r.id}">${fsIconHtml('map')} Karte anzeigen</button>
       <div id="map-sektor-route-${r.id}" style="margin-top:10px;"></div>
     </div>` : ''}
     <div class="form-actions">
       <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
-      <button type="button" class="btn" data-act="edit-sektor-route" data-sektor-id="${esc(sektorId)}" data-kind="${kind}" data-route-id="${esc(r.id)}">✏️ Bearbeiten</button>
+      <button type="button" class="btn" data-act="edit-sektor-route" data-sektor-id="${esc(sektorId)}" data-kind="${kind}" data-route-id="${esc(r.id)}">${fsIconHtml('edit')} Bearbeiten</button>
     </div>
   </div>`;
 }
@@ -5971,13 +5971,13 @@ function sektorRouteFormHtml(sektorId, kind, route){
         <input type="file" id="sektor-route-gpx-input" accept=".gpx,application/gpx+xml"/>
         <div class="hint">Wird automatisch für die Kartenanzeige vereinfacht und direkt in der Karte unten bearbeitbar. Die Originaldatei bleibt separat gespeichert und ist jederzeit als Volldownload abrufbar.</div>
         <p id="sektor-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
-        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="sektor-route-gpx-remove-btn" style="margin-top:6px;">🗑️ Track entfernen</button>` : ''}
+        ${r.trackSimplified ? `<button type="button" class="btn secondary" id="sektor-route-gpx-remove-btn" style="margin-top:6px;">${fsIconHtml('trash')} Track entfernen</button>` : ''}
         <input type="hidden" name="trackSimplified" id="sektor-route-track-hidden" value='${esc(r.trackSimplified ? JSON.stringify(r.trackSimplified) : "")}'/>
         <input type="hidden" name="routeIdForTrack" id="sektor-route-id-for-track" value="${esc(r.id||'')}"/>
       </div>
       <div class="field"><label>Route auf der Karte einzeichnen (falls kein GPX vorhanden)</label>
-        <button type="button" class="btn secondary" id="sektor-route-map-toggle-btn">🗺️ Karte öffnen</button>
-        <div class="hint">✏️ Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
+        <button type="button" class="btn secondary" id="sektor-route-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
+        <div class="hint">${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
         <div id="sektor-route-map" style="margin-top:10px; display:none;"></div>
         <input type="hidden" name="manualTrack" id="sektor-route-manual-track-hidden" value='${esc(JSON.stringify(r.manualTrack || []))}'/>
       </div>
@@ -6197,7 +6197,7 @@ function tourenViewHtml__fix(){
     </div>
     <div class="toolbar toolbar-row">
       <button type="button" class="btn secondary" id="tour-filter-toggle-btn">${fsIconHtml('sliders')} Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
-      <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">⭐ Nur Merkliste</button>
+      <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">${fsIconHtml('star', '#D99A1E', true)} Nur Merkliste</button>
       ${sortControlHtml('tour', TOUR_SORT_OPTIONS, state.tourSortBy, state.tourSortDir)}
     </div>
     <div id="tour-filter-panel" style="display:${state.tourFilterPanelOpen ? '' : 'none'}; margin-bottom:14px;">
@@ -6213,12 +6213,12 @@ function tourenViewHtml__fix(){
       </div>` : ''}
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips">
-          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeApproachTypeFilters.has(v)?'on':''}" style="${state.activeApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-approach-type" data-value="${v}">${APPROACH_TYPE_LABELS[v]}</button>`).join('')}
+          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeApproachTypeFilters.has(v)?'on':''}" style="${state.activeApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-approach-type" data-value="${v}">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Ausgangspunkt / Aufenthalt</label>
         <div class="chips">
-          ${Object.keys(STAY_TYPE_LABELS).map(v=>`<button class="chip ${state.activeStayTypeFilters.has(v)?'on':''}" style="${state.activeStayTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-stay-type" data-value="${v}">${STAY_TYPE_LABELS[v]}</button>`).join('')}
+          ${Object.keys(STAY_TYPE_LABELS).map(v=>`<button class="chip ${state.activeStayTypeFilters.has(v)?'on':''}" style="${state.activeStayTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-stay-type" data-value="${v}">${fsTypeLabel(STAY_TYPE_LABELS, v)}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Status</label>
@@ -6299,7 +6299,7 @@ function gipfelCardHtml(g, tours){
 function summitChipsForCardHtml(t){
   const gs = (t.summitIds||[]).map(id=>state.gipfel.find(g=>g.id===id)).filter(Boolean);
   if(!gs.length || (gs.length===1 && (gs[0].name||'').trim()===(t.name||'').trim())) return '';
-  return `<div class="summit-chips">${gs.map((g,i)=>`${i ? '<span class="summit-sep" aria-hidden="true">→</span>' : ''}<button type="button" class="summit-chip" data-act="open-gipfel-chip" data-id="${g.id}">⛰️ ${esc(g.name)}</button>`).join('')}</div>`;
+  return `<div class="summit-chips">${gs.map((g,i)=>`${i ? '<span class="summit-sep" aria-hidden="true">→</span>' : ''}<button type="button" class="summit-chip" data-act="open-gipfel-chip" data-id="${g.id}">${fsIconHtml('mountain')} ${esc(g.name)}</button>`).join('')}</div>`;
 }
 function gipfelSummitChainHtml(t){
   return (t.summitIds||[]).map(sid=>{
@@ -6316,10 +6316,10 @@ function gipfelDetailHtml(id){
   const geb = g.klettergebietId ? state.klettergebiete.find(x=>x.id===g.klettergebietId) : null;
   return `<div class="modal" data-stop="1">
     <div class="modal-head">
-      <div><h2 style="color:var(--ice-deep);">🏔️ ${esc(g.name)}</h2>${(g.altitude || g.region) ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${g.altitude ? esc(g.altitude) + ' m' : ''}${g.altitude && g.region ? ' · ' : ''}${g.region ? esc(g.region) + (g.subregion ? ' – ' + esc(g.subregion) : '') : ''}</p>` : ''}</div>
+      <div><h2 style="color:var(--ice-deep);">${fsIconHtml('mountain')} ${esc(g.name)}</h2>${(g.altitude || g.region) ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${g.altitude ? esc(g.altitude) + ' m' : ''}${g.altitude && g.region ? ' · ' : ''}${g.region ? esc(g.region) + (g.subregion ? ' – ' + esc(g.subregion) : '') : ''}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
-    ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : `<p style="font-size:12px; color:var(--ink-faint); margin:0 0 10px 0;">Keinem Klettergebiet zugeordnet – das lässt sich im Klettergebiet selbst eintragen (Abschnitt "Gipfel im Gebiet") oder hier über "✏️ Bearbeiten".</p>`}
+    ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">${fsIconHtml('mountain')} Teil von: ${esc(geb.name)}</button>` : `<p style="font-size:12px; color:var(--ink-faint); margin:0 0 10px 0;">Keinem Klettergebiet zugeordnet – das lässt sich im Klettergebiet selbst eintragen (Abschnitt "Gipfel im Gebiet") oder hier über "${fsIconHtml('edit')} Bearbeiten".</p>`}
     <div class="detail-section">
       <h4>Routen auf den Gipfel (${routen.length})</h4>
       ${routen.length ? `<div class="grid" style="margin-top:6px;">${routen.map(tourCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine eigene Route erfasst.</p>`}
@@ -6333,10 +6333,10 @@ function gipfelDetailHtml(id){
           ${t.routeName ? `<span class="hut-link-chip">${esc(t.routeName)}</span>` : ''}
         </div>`).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Keine Überschreitung über diesen Gipfel erfasst.</p>`}
     </div>
-    ${g._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">⚠ nicht synchronisiert</p>` : ''}
+    ${g._unsynced ? `<p style="font-size:12.5px; color:#B0392C;">${fsIconHtml('alert')} nicht synchronisiert</p>` : ''}
     <div class="form-actions">
       <button type="button" class="btn secondary" data-act="close-modal">Schliessen</button>
-      <button type="button" class="btn" data-act="edit-gipfel" data-id="${g.id}">✏️ Bearbeiten</button>
+      <button type="button" class="btn" data-act="edit-gipfel" data-id="${g.id}">${fsIconHtml('edit')} Bearbeiten</button>
     </div>
   </div>`;
 }
@@ -6385,7 +6385,7 @@ function mslViewHtml(){
     </div>
     <div class="toolbar toolbar-row">
       <button type="button" class="btn secondary" id="tour-filter-toggle-btn">${fsIconHtml('sliders')} Filter${activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
-      <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">⭐ Nur Merkliste</button>
+      <button type="button" class="btn secondary ${state.onlyFavorites?'on':''}" style="${state.onlyFavorites?'background:var(--ice-deep); color:#fff;':''}" data-act="toggle-only-favorites">${fsIconHtml('star', '#D99A1E', true)} Nur Merkliste</button>
       ${sortControlHtml('msl', MSL_SORT_OPTIONS, state.tourSortBy, state.tourSortDir)}
     </div>
     <div id="tour-filter-panel" style="display:${state.tourFilterPanelOpen ? '' : 'none'}; margin-bottom:14px;">
@@ -6396,12 +6396,12 @@ function mslViewHtml(){
       </div>` : ''}
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips">
-          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeApproachTypeFilters.has(v)?'on':''}" style="${state.activeApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-approach-type" data-value="${v}">${APPROACH_TYPE_LABELS[v]}</button>`).join('')}
+          ${Object.keys(APPROACH_TYPE_LABELS).map(v=>`<button class="chip ${state.activeApproachTypeFilters.has(v)?'on':''}" style="${state.activeApproachTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-approach-type" data-value="${v}">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Ausgangspunkt / Aufenthalt</label>
         <div class="chips">
-          ${Object.keys(STAY_TYPE_LABELS).map(v=>`<button class="chip ${state.activeStayTypeFilters.has(v)?'on':''}" style="${state.activeStayTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-stay-type" data-value="${v}">${STAY_TYPE_LABELS[v]}</button>`).join('')}
+          ${Object.keys(STAY_TYPE_LABELS).map(v=>`<button class="chip ${state.activeStayTypeFilters.has(v)?'on':''}" style="${state.activeStayTypeFilters.has(v)?'background:var(--ice-deep)':''}" data-act="filter-stay-type" data-value="${v}">${fsTypeLabel(STAY_TYPE_LABELS, v)}</button>`).join('')}
         </div>
       </div>
       <div class="field"><label>Status</label>
@@ -6446,12 +6446,12 @@ function mslListOrGroupedHtml(list, activeFilterCount){
     const tourCount = sekIds.reduce((sum,sid)=> sum + bySektor[sid].length, 0);
     const gradeRange = klettergebietClimbGradeRangeText(geb);
     const altitude = klettergebietAltitudeText(geb);
-    return mslGroupCardHtml({icon:'⛰️', name:geb.name, region:geb.region, act:'open-klettergebiet', id:geb.id,
+    return mslGroupCardHtml({icon:(fsIconHtml('mountain')), name:geb.name, region:geb.region, act:'open-klettergebiet', id:geb.id,
       badges: [
-        ...(gradeRange ? [`<span class="badge climb">🧗 ${esc(gradeRange)}</span>`] : []),
+        ...(gradeRange ? [`<span class="badge climb">${fsIconHtml('climb')} ${esc(gradeRange)}</span>`] : []),
         ...(altitude ? [`<span class="badge" style="background:var(--ice-deep)">${esc(altitude)}</span>`] : [])
       ],
-      lines:[`🧭 ${sekIds.length} Sektor${sekIds.length===1?'':'en'}`, `${tourCount} Tour${tourCount===1?'':'en'}`]
+      lines:[`${fsIconHtml('compass')} ${sekIds.length} Sektor${sekIds.length===1?'':'en'}`, `${tourCount} Tour${tourCount===1?'':'en'}`]
     });
   }).join('');
   const sektorCards = standaloneSektorIds.map(sekId=>{
@@ -6459,8 +6459,8 @@ function mslListOrGroupedHtml(list, activeFilterCount){
     if(!sek) return '';
     const tourCount = bySektor[sekId].length;
     const gradeRange = sektorClimbGradeRangeText(sek);
-    return mslGroupCardHtml({icon:'🧭', name:sek.name, region:sek.region, act:'open-sektor', id:sek.id,
-      badges: gradeRange ? [`<span class="badge climb">🧗 ${esc(gradeRange)}</span>`] : [],
+    return mslGroupCardHtml({icon:(fsIconHtml('compass')), name:sek.name, region:sek.region, act:'open-sektor', id:sek.id,
+      badges: gradeRange ? [`<span class="badge climb">${fsIconHtml('climb')} ${esc(gradeRange)}</span>`] : [],
       lines:[`${tourCount} Tour${tourCount===1?'':'en'}`]
     });
   }).join('');
@@ -6564,18 +6564,18 @@ function sektorenViewHtml(){
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Klettergebiet, Sektor oder Region suchen…" value="${esc(state.search)}" data-act="search"/>
       <button class="btn fs-fab" data-act="add-klettergebiet">+ Neues Klettergebiet</button>
-      <button class="btn secondary" id="klettergebiet-new-scan-btn" style="display:none;">📷 Gebiet per Foto(s) scannen</button>
+      <button class="btn secondary" id="klettergebiet-new-scan-btn" style="display:none;">${fsIconHtml('camera')} Gebiet per Foto(s) scannen</button>
       <input type="file" id="klettergebiet-new-scan-input" accept="image/*" multiple style="display:none;"/>
-      <button class="btn secondary" id="klettergebiet-new-scan-camera-btn" style="display:none;">📸 Direkt fotografieren</button>
+      <button class="btn secondary" id="klettergebiet-new-scan-camera-btn" style="display:none;">${fsIconHtml('camera')} Direkt fotografieren</button>
       <input type="file" id="klettergebiet-new-scan-camera-input" accept="image/*" capture="environment" style="display:none;"/>
     </div>
     ${gebietListControlsHtml(gebieteAll, {scan:true})}
     <p id="klettergebiet-new-scan-status" style="font-size:12.5px; color:var(--ink-soft); margin:-6px 0 10px 0;"></p>
     ${!hasAny ? emptySektoren() : `
-      ${gebieteList.length ? `<h4 style="margin:4px 0 8px;">⛰️ Klettergebiete</h4><div class="grid">${gebieteList.map(klettergebietCardHtml).join('')}</div>` : ''}
+      ${gebieteList.length ? `<h4 style="margin:4px 0 8px;">${fsIconHtml('mountain')} Klettergebiete</h4><div class="grid">${gebieteList.map(klettergebietCardHtml).join('')}</div>` : ''}
       ${standaloneList.length ? `<h4 style="margin:${gebieteList.length?'18px':'4px'} 0 8px;">${fsIconHtml('compass')} Sektoren ohne Klettergebiet</h4><div class="grid">${standaloneList.map(sektorCardHtml).join('')}</div>` : ''}
     `}
-    ${looseGipfel.length && !gebietListState().onlyFav ? `<h4 style="margin:18px 0 8px;">⛰️ Gipfel ohne Gebiet</h4><div class="grid">${looseGipfel.map(gp=>gipfelCardHtml(gp, state.tours.filter(t=>Array.isArray(t.summitIds) && t.summitIds.includes(gp.id)))).join('')}</div>` : ''}
+    ${looseGipfel.length && !gebietListState().onlyFav ? `<h4 style="margin:18px 0 8px;">${fsIconHtml('mountain')} Gipfel ohne Gebiet</h4><div class="grid">${looseGipfel.map(gp=>gipfelCardHtml(gp, state.tours.filter(t=>Array.isArray(t.summitIds) && t.summitIds.includes(gp.id)))).join('')}</div>` : ''}
   `);
 }
 
@@ -6637,7 +6637,7 @@ function klettergebietHuetten(geb){
 // Sammelt alle Topo-Bilder eines Gebiets ein -- vom Gebiet selbst, all seinen Klettergärten
 // (Sektoren mit Routen-Liste) und all seinen Touren -- jedes mit einer Quellen-Angabe (ownerLabel/
 // ownerModalType/ownerId), damit die Galerie direkt zur passenden Seite weiterspringen kann.
-// Grundlage für den "📷 Topo"-Chip auf der Gebiets-Kachel und deren Vorschaubild.
+// Grundlage für den "Topo"-Chip auf der Gebiets-Kachel und deren Vorschaubild.
 function klettergebietTopoGalleryEntries(geb){
   const entries = [];
   (geb.topoImages||[]).forEach(img=> entries.push({...img, ownerLabel: geb.name, ownerModalType:'klettergebiet-detail', ownerId:geb.id}));
@@ -6723,7 +6723,7 @@ function sektorCardHtml(sek){
 function unlinkedSektorAssignCardHtml(sek, gebId){
   return `
   <div class="card" data-act="open-sektor" data-id="${sek.id}" style="padding:10px 14px; cursor:pointer;">
-    <h3 style="color:var(--ice-deep); font-size:14px; margin:0;">🧭 ${esc(sek.name)}</h3>
+    <h3 style="color:var(--ice-deep); font-size:14px; margin:0;">${fsIconHtml('compass')} ${esc(sek.name)}</h3>
     ${sek.region ? `<p class="excerpt" style="margin:2px 0 0 0;">${esc(sek.region)}</p>` : ''}
     <button type="button" class="btn secondary" style="margin-top:8px; font-size:12.5px; padding:6px 12px;" data-act="assign-sektor-to-klettergebiet" data-sektor-id="${sek.id}" data-klettergebiet-id="${gebId}">Diesem Gebiet zuordnen</button>
   </div>`;
@@ -6801,16 +6801,16 @@ function exportModalHtml__fix(payload){
     <div class="field">
       <label>Was exportieren?</label>
       <div class="chips" id="export-filter-chips">
-        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-hochtour" data-act="toggle-export-filter">🏔️ Hochtour</button>
-        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-msl" data-act="toggle-export-filter">🧗 Klettern</button>
-        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="huts" data-act="toggle-export-filter">🛖 Hütten</button>
-        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="sektoren" data-act="toggle-export-filter">🧭 Sektoren</button>
-        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="agenda" data-act="toggle-export-filter">📅 Agenda</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-hochtour" data-act="toggle-export-filter">${fsIconHtml('mountain')} Hochtour</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="tours-msl" data-act="toggle-export-filter">${fsIconHtml('climb')} Klettern</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="huts" data-act="toggle-export-filter">${fsIconHtml('hut')} Hütten</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="sektoren" data-act="toggle-export-filter">${fsIconHtml('compass')} Sektoren</button>
+        <button type="button" class="chip on" style="background:var(--ice-deep)" data-export-key="agenda" data-act="toggle-export-filter">${fsIconHtml('calendar')} Agenda</button>
       </div>
     </div>`
     }
     <div class="form-actions" style="margin-bottom:12px;">
-      <button class="btn" data-act="download-export">📥 Als Datei herunterladen</button>
+      <button class="btn" data-act="download-export">${fsIconHtml('download')} Als Datei herunterladen</button>
       <button class="btn secondary" data-act="copy-export">In Zwischenablage kopieren</button>
     </div>
     <textarea readonly style="width:100%; min-height:180px; font-family:'Manrope'; font-size:11.5px;" id="export-text"></textarea>
@@ -6824,7 +6824,7 @@ function importModalHtml__fix(){
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>Importieren</h2><button class="x-btn" data-act="close-modal">×</button></div>
     <p style="font-size:13.5px; color:var(--ink-soft); margin:0 0 12px 0;">Wähle eine Datei, die dir jemand geschickt hat, oder füge den Text ein. Bestehende Einträge mit gleicher ID werden aktualisiert, neue werden hinzugefügt.</p>
-    <p style="font-size:13px; margin:0 0 12px 0;"><button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="open-vorlagen">📋 Ressourcen &amp; Vorlagen</button> – Bedienungsanleitung, JSON-Vorlage &amp; KI-Anleitung, zum Weitergeben an Kolleg:innen.</p>
+    <p style="font-size:13px; margin:0 0 12px 0;"><button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="open-vorlagen">${fsIconHtml('note')} Ressourcen &amp; Vorlagen</button> – Bedienungsanleitung, JSON-Vorlage &amp; KI-Anleitung, zum Weitergeben an Kolleg:innen.</p>
     <div class="field">
       <label>Datei wählen</label>
       <input type="file" id="import-file" accept="application/json,.json,.txt"/>
@@ -6881,8 +6881,8 @@ function tourFormHtml__fix(existing){
       ${fsOwnerFieldHtml(t)}
       <div class="field"><label>Tourtyp</label>
         <div class="chips">
-          <button type="button" class="chip type-chip ${(t.tourCategory||'hochtour')==='hochtour'?'on':''}" style="${(t.tourCategory||'hochtour')==='hochtour'?'background:var(--ice-deep)':''}" data-type="hochtour">🏔️ Hochtour</button>
-          <button type="button" class="chip type-chip ${t.tourCategory==='msl'?'on':''}" style="${t.tourCategory==='msl'?'background:var(--ice-deep)':''}" data-type="msl">🧗 MSL</button>
+          <button type="button" class="chip type-chip ${(t.tourCategory||'hochtour')==='hochtour'?'on':''}" style="${(t.tourCategory||'hochtour')==='hochtour'?'background:var(--ice-deep)':''}" data-type="hochtour">${fsIconHtml('mountain')} Hochtour</button>
+          <button type="button" class="chip type-chip ${t.tourCategory==='msl'?'on':''}" style="${t.tourCategory==='msl'?'background:var(--ice-deep)':''}" data-type="msl">${fsIconHtml('climb')} MSL</button>
         </div>
         <input type="hidden" name="tourCategory" id="tourcategory-hidden" value="${esc(t.tourCategory||'hochtour')}"/>
       </div>
@@ -7033,7 +7033,7 @@ function tourFormHtml__fix(existing){
         <div class="field"><label>Zeit Abstieg (h)</label><input name="descentDuration" value="${esc(t.descentDuration||'')}" placeholder="z. B. 3"/></div>
       </div>
       <div class="field"><label>Link zur Tour</label><input type="url" name="tourLink" id="tour-link-input" value="${esc(t.tourLink||'')}" placeholder="https://www.camptocamp.org/..."/>
-        <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">🔍 Auf Camptocamp.org suchen</button>
+        <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">${fsIconHtml('search')} Auf Camptocamp.org suchen</button>
         <div id="camptocamp-search-box" style="margin-top:10px; display:none;"></div>
       </div>
       <div class="field"><label>Link zu einer GPX-Datei (optional)</label><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></div>
@@ -7061,24 +7061,24 @@ function tourFormHtml__fix(existing){
       <div class="field"><label>Aufstieg</label><textarea name="ascent" placeholder="Route, Orientierungspunkte, Gefahrenstellen …">${esc(t.ascent||'')}</textarea></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('auto')?'on':''}" style="${(t.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('oev')?'on':''}" style="${(t.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">🚌 ÖV</button>
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(t.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">🚡 Seilbahn</button>
-          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('zufuss')?'on':''}" style="${(t.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('auto')?'on':''}" style="${(t.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">${fsIconHtml('car')} Auto</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('oev')?'on':''}" style="${(t.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">${fsIconHtml('bus')} ÖV</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(t.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">${fsIconHtml('cable')} Seilbahn</button>
+          <button type="button" class="chip approach-type-chip ${(t.approachTypes||[]).includes('zufuss')?'on':''}" style="${(t.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">${fsIconHtml('walk')} Zu Fuss</button>
         </div>
       </div>
       <div class="field"><label>Ausgangspunkt / Aufenthalt</label>
         <div class="chips" id="stay-type-chips">
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('tagestour')?'on':''}" style="${(t.stayTypes||[]).includes('tagestour')?'background:var(--ice-deep)':''}" data-value="tagestour">☀️ Tagestour</button>
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('huette')?'on':''}" style="${(t.stayTypes||[]).includes('huette')?'background:var(--ice-deep)':''}" data-value="huette">🛖 Hütte</button>
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('biwak')?'on':''}" style="${(t.stayTypes||[]).includes('biwak')?'background:var(--ice-deep)':''}" data-value="biwak">⛺ Biwak</button>
-          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('zelt')?'on':''}" style="${(t.stayTypes||[]).includes('zelt')?'background:var(--ice-deep)':''}" data-value="zelt">🏕️ Zelt</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('tagestour')?'on':''}" style="${(t.stayTypes||[]).includes('tagestour')?'background:var(--ice-deep)':''}" data-value="tagestour">${fsIconHtml('sun', '#C27C0E')} Tagestour</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('huette')?'on':''}" style="${(t.stayTypes||[]).includes('huette')?'background:var(--ice-deep)':''}" data-value="huette">${fsIconHtml('hut')} Hütte</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('biwak')?'on':''}" style="${(t.stayTypes||[]).includes('biwak')?'background:var(--ice-deep)':''}" data-value="biwak">${fsIconHtml('tent')} Biwak</button>
+          <button type="button" class="chip stay-type-chip ${(t.stayTypes||[]).includes('zelt')?'on':''}" style="${(t.stayTypes||[]).includes('zelt')?'background:var(--ice-deep)':''}" data-value="zelt">${fsIconHtml('tent')} Zelt</button>
         </div>
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte öffnen</button>
-        <div class="hint">📍 Punkt setzen: antippen, Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
@@ -7133,14 +7133,14 @@ function tourDetailHtml__fix(id){
   return `<div class="modal td fs-onroute" data-stop="1">
     <div class="modal-head">
       <div>
-        <div class="agenda-date-row" style="font-size:12.5px;">${isMsl ? '🧗 MSL – Mehrseillängen-Klettertour' : '🏔️ Hochtour'}</div>
+        <div class="agenda-date-row" style="font-size:12.5px;">${isMsl ? (fsIconHtml('climb') + ' MSL – Mehrseillängen-Klettertour') : (fsIconHtml('mountain') + ' Hochtour')}</div>
         <div class="detail-badge-row">
           ${isMsl ? `
             ${t.mandatoryDifficulty ? `<span class="badge climb">obligatorisch ${esc(t.mandatoryDifficulty)}</span>` : ''}
             ${t.cruxDifficulty ? `<span class="badge climb">Schlüssel ${esc(t.cruxDifficulty)}</span>` : ''}
           ` : `
             ${d ? `<span class="badge" style="background:${d.color}">${t.difficulty} · ${d.label}</span>` : `<span class="badge" style="background:var(--ink-faint)">unbewertet</span>`}
-            ${t.climbGrade ? `<span class="badge climb">🧗 ${esc(t.climbGrade)}</span>` : ''}
+            ${t.climbGrade ? `<span class="badge climb">${fsIconHtml('climb')} ${esc(t.climbGrade)}</span>` : ''}
           `}
           ${t.targetAltitude ? `<span class="fs-head-alt">${esc(t.targetAltitude)} m ü. M.</span>` : ''}
         </div>
@@ -7175,7 +7175,7 @@ function tourDetailHtml__fix(id){
       ['Material', [...(t.material||[]), t.quickdrawCount ? `${t.quickdrawCount}× Expressschlingen` : ''].filter(Boolean).join(', ')],
       ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')]
     ])}
-    ${(hut || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">🛖 Zustieg über: ${esc(hut.name)}</button>` : ''}</div>` : ''}
+    ${(hut || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">${fsIconHtml('hut')} Zustieg über: ${esc(hut.name)}</button>` : ''}</div>` : ''}
     ${hutGuess ? fsLinkHutBtnHtml(t, hutGuess) : ''}
     ${fsSuggestionsHtml(t)}
     ${fsTdBodyHtml(t.id, {
@@ -7189,9 +7189,9 @@ function tourDetailHtml__fix(id){
     <div class="detail-section" id="tour-map-section-${t.id}">
       ${fsTourOrteHtml(t)}
       ${!fsTourHasContextData(t) ? `<p class="fs-nomap-hint">Noch nichts auf der Karte – Stift gedrückt halten, um Punkte oder eine Route zu setzen.</p>` : ''}
-      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      ${(t.points && t.points.length) ? `<div class="chips" style="margin-bottom:8px;">${t.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${fsIco((MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon)} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
       ${fsRoutesListHtml(t)}
-      ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">🗺️ Karte anzeigen</button>` : ''}
+      ${(t.points && t.points.length || t.trackSimplified || (t.manualTrack && t.manualTrack.length) || (t.altTracks && t.altTracks.length)) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="show-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-track='${esc(JSON.stringify(t.trackSimplified||[]))}' data-manual-track='${esc(JSON.stringify(t.manualTrack||[]))}' data-alt-tracks='${esc(JSON.stringify(t.altTracks||[]))}' data-offline-id="${t.id}" data-target="map-tour-${t.id}">${fsIconHtml('map')} Karte anzeigen</button>` : ''}
       <div id="map-tour-${t.id}" style="margin-top:10px;"></div>
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${t.id}" data-act="quick-edit-toggle" data-id="${t.id}" data-kind="tour" title="Gedrückt halten, um die Karte zu bearbeiten">Karte bearbeiten</button>
       <div id="quick-edit-list-${t.id}"></div>
@@ -7214,21 +7214,21 @@ function tourDetailHtml__fix(id){
       const sektorCandidates = isMsl ? findSektorCandidateTours(t, state.tours, 300) : [];
       return `
       ${hut && hutRoutes.length ? `<div class="detail-section">
-        <h4>🛖 Zustieg ab Hütte „${esc(hut.name)}"${hutRoutes.length>1 ? ` (${hutRoutes.length})` : ''}</h4>
+        <h4>${fsIconHtml('hut')} Zustieg ab Hütte „${esc(hut.name)}"${hutRoutes.length>1 ? ` (${hutRoutes.length})` : ''}</h4>
         ${hutRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${hutRange}</p>` : ''}
         <div class="grid">${hutRoutes.map((r,i)=>accessRouteRowHtml(r,i,hut.id)).join('')}</div>
-        <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-hut" data-id="${hut.id}">🛖 Hütte öffnen &amp; Zustiege verwalten</button>
+        <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-hut" data-id="${hut.id}">${fsIconHtml('hut')} Hütte öffnen &amp; Zustiege verwalten</button>
       </div>` : ''}
       ${sektorCandidates.length ? `<div class="detail-section" style="background:#EAF3EC; border-left:3px solid #2F6B44;">
-        <h4>🧭 Sektor-Vorschlag</h4>
+        <h4>${fsIconHtml('compass')} Sektor-Vorschlag</h4>
         <p style="font-size:13.5px; margin:0 0 10px 0;">${sektorCandidates.length===1 ? 'Diese Tour teilt sich vermutlich einen Zustieg mit:' : 'Diese Tour teilt sich vermutlich einen Zustieg mit ' + sektorCandidates.length + ' weiteren Touren:'} ${sektorCandidates.map(c=>`„${esc(c.name)}${c.routeName?' – '+esc(c.routeName):''}"`).join(', ')}. Zu einem gemeinsamen Sektor zusammenlegen?</p>
-        <button type="button" class="btn secondary" data-act="create-sektor-from-tours" data-tour-ids='${esc(JSON.stringify([t.id, ...sektorCandidates.map(c=>c.id)]))}'>🧭 Sektor erstellen</button>
+        <button type="button" class="btn secondary" data-act="create-sektor-from-tours" data-tour-ids='${esc(JSON.stringify([t.id, ...sektorCandidates.map(c=>c.id)]))}'>${fsIconHtml('compass')} Sektor erstellen</button>
       </div>` : ''}
       <div class="detail-section">
         <h4>${hut && hutRoutes.length ? 'Eigener Zustieg' : 'Zustieg'}${accessRoutes.length ? ` (${accessRoutes.length})` : ''}</h4>
         ${accessRoutes.length ? `
           ${accessRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${accessRange}</p>` : ''}
-          <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-tour-id="${t.id}" data-kind="access" data-target="map-tour-access-${t.id}">🗺️ Karte anzeigen</button>
+          <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(accessRoutes))}' data-tour-id="${t.id}" data-kind="access" data-target="map-tour-access-${t.id}">${fsIconHtml('map')} Karte anzeigen</button>
           <div id="map-tour-access-${t.id}" style="margin-bottom:10px;"></div>
           <div class="grid">${accessRoutes.map((r,i)=>tourRouteRowHtml(r,i,t.id,'access')).join('')}</div>
         ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">${hut && hutRoutes.length ? 'Noch kein eigener Zustieg erfasst – nur nötig, falls der Weg ab der Hütte nochmal abweicht.' : 'Noch kein Zustieg erfasst.'}</p>`}
@@ -7238,7 +7238,7 @@ function tourDetailHtml__fix(id){
         <h4>Abstieg${descentRoutes.length ? ` (${descentRoutes.length})` : ''}</h4>
         ${descentRoutes.length ? `
           ${descentRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${descentRange}</p>` : ''}
-          <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-tour-id="${t.id}" data-kind="descent" data-target="map-tour-descent-${t.id}">🗺️ Karte anzeigen</button>
+          <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-tour-routes-map" data-points='${esc(JSON.stringify(t.points||[]))}' data-routes='${esc(JSON.stringify(descentRoutes))}' data-tour-id="${t.id}" data-kind="descent" data-target="map-tour-descent-${t.id}">${fsIconHtml('map')} Karte anzeigen</button>
           <div id="map-tour-descent-${t.id}" style="margin-bottom:10px;"></div>
           <div class="grid">${descentRoutes.map((r,i)=>tourRouteRowHtml(r,i,t.id,'descent')).join('')}</div>
         ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">Noch kein Abstieg erfasst.</p>`}
@@ -7256,8 +7256,8 @@ function tourDetailHtml__fix(id){
       anreise: `
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
       ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length)) ? `<div class="chips" style="margin-bottom:8px;">
-        ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}
-        ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${STAY_TYPE_LABELS[v]}</span>`).join('')}
+        ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</span>`).join('')}
+        ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(STAY_TYPE_LABELS, v)}</span>`).join('')}
       </div>` : ''}
       ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
     </div>` : ''}
@@ -7356,7 +7356,7 @@ function hutFormHtml__fix(existing){
       <div class="field"><label>Höhe (m ü. M.)</label><input name="altitude" value="${esc(h.altitude||'')}" placeholder="z. B. 2940"/></div>
       <div class="field"><label>Hütte bewartet</label>
         <div class="chips" id="staffed-months-chips">${monthChipsRowHtml('staffed-month-chip', h.staffedMonths, h.staffedMonthsPartial)}</div>
-        <div class="hint">Antippen: 🟢 ganzen Monat offen. Nochmal antippen: 🟡 nur teilweise offen. Nochmal: wieder aus.</div>
+        <div class="hint">Antippen: ${fsIconHtml('dot', '#3C8A55', true)} ganzen Monat offen. Nochmal antippen: ${fsIconHtml('dot', '#E0A91B', true)} nur teilweise offen. Nochmal: wieder aus.</div>
       </div>
       <div class="field"><label>Bewartung – Zusatzinfo</label><textarea name="staffedNote">${esc(h.staffedNote||'')}</textarea></div>
       <div class="field"><label>Winterraum / Schutzraum</label><textarea name="winterraum" placeholder="Vorhanden? Anzahl Plätze, Zugang, Ausstattung …">${esc(h.winterraum||'')}</textarea></div>
@@ -7367,16 +7367,16 @@ function hutFormHtml__fix(existing){
       <div class="field"><label>Betten / Kapazität</label><input name="capacity" value="${esc(h.capacity||'')}" placeholder="z. B. 60 Betten"/></div>
       <div class="field"><label>Art der Anfahrt</label>
         <div class="chips" id="approach-type-chips">
-          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('auto')?'on':''}" style="${(h.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">🚗 Auto</button>
-          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('oev')?'on':''}" style="${(h.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">🚌 ÖV</button>
-          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(h.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">🚡 Seilbahn</button>
-          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('zufuss')?'on':''}" style="${(h.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">🥾 Zu Fuss</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('auto')?'on':''}" style="${(h.approachTypes||[]).includes('auto')?'background:var(--ice-deep)':''}" data-value="auto">${fsIconHtml('car')} Auto</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('oev')?'on':''}" style="${(h.approachTypes||[]).includes('oev')?'background:var(--ice-deep)':''}" data-value="oev">${fsIconHtml('bus')} ÖV</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('seilbahn')?'on':''}" style="${(h.approachTypes||[]).includes('seilbahn')?'background:var(--ice-deep)':''}" data-value="seilbahn">${fsIconHtml('cable')} Seilbahn</button>
+          <button type="button" class="chip approach-type-chip ${(h.approachTypes||[]).includes('zufuss')?'on':''}" style="${(h.approachTypes||[]).includes('zufuss')?'background:var(--ice-deep)':''}" data-value="zufuss">${fsIconHtml('walk')} Zu Fuss</button>
         </div>
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV, Seilbahn …">${esc(h.approach||'')}</textarea></div>
       <div class="field"><label>Punkte auf der Karte (Hütte, Parkplatz, Haltestelle …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">🗺️ Karte zum Setzen von Punkten öffnen</button>
-        <div class="hint">📍 Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ✏️ Linie zeichnen: eigenen Zustieg einzeichnen, falls kein GPX-Track vorhanden – antippen fügt Wegpunkte hinzu.</div>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte zum Setzen von Punkten öffnen</button>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: eigenen Zustieg einzeichnen, falls kein GPX-Track vorhanden – antippen fügt Wegpunkte hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(h.points || (h.lat && h.lon ? [{label:"Hütte", lat:h.lat, lon:h.lon}] : [])))}'/>
@@ -7394,8 +7394,8 @@ function hutFormHtml__fix(existing){
       <div class="field"><label>Notizen</label><textarea name="notes" placeholder="Sonstiges …">${esc(h.notes||'')}</textarea></div>
       <div class="field"><label>Status</label>
         <select name="status">
-          <option value="entwurf" ${(!h.status || h.status==='entwurf')?'selected':''}>📝 Entwurf</option>
-          <option value="vollstaendig" ${h.status==='vollstaendig'?'selected':''}>✅ Vollständig</option>
+          <option value="entwurf" ${(!h.status || h.status==='entwurf')?'selected':''}>Entwurf</option>
+          <option value="vollstaendig" ${h.status==='vollstaendig'?'selected':''}>Vollständig</option>
         </select>
       </div>
       <div class="form-actions">
@@ -7428,10 +7428,10 @@ function hutDetailHtml__fix(id){
   const geb = h.klettergebietId ? state.klettergebiete.find(g=>g.id===h.klettergebietId) : null;
   return `<div class="modal fs-onroute" data-stop="1">
     <div class="modal-head">
-      <div><h2>🛖 ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(h.region)}</p>` : ''}</div>
+      <div><h2>${fsIconHtml('hut')} ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(h.region)}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
-    ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">⛰️ Teil von: ${esc(geb.name)}</button>` : ''}
+    ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">${fsIconHtml('mountain')} Teil von: ${esc(geb.name)}</button>` : ''}
     <p class="fs-status-line" style="font-size:13px; color:var(--ink-soft); margin:0 0 10px 0;">${hutStatusLabel(h)}</p>
     <div class="detail-stats">
       ${h.altitude ? `<div class="detail-stat"><div class="num">${esc(h.altitude)}</div><div class="lbl">m ü. M.</div></div>` : ''}
@@ -7452,15 +7452,15 @@ function hutDetailHtml__fix(id){
     ${h.hutLink ? `<div class="detail-section"><h4>Link zur Hütte</h4><p><a href="${esc(h.hutLink)}" target="_blank" rel="noopener noreferrer">${esc(h.hutLink)}</a></p></div>` : ''}
     ${((h.approachTypes && h.approachTypes.length) || h.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
-      ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${APPROACH_TYPE_LABELS[v]}</span>`).join('')}</div>` : ''}
+      ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</span>`).join('')}</div>` : ''}
       ${h.approach ? `<p>${esc(h.approach)}</p>` : ''}
     </div>` : ''}
     ${(h.points && h.points.length || (h.manualTrack && h.manualTrack.length)) ? `<div class="detail-section">
       <h4>Standort${h.points && h.points.length>1?'e':''}${(h.manualTrack && h.manualTrack.length) ? ' & Linie' : ''}</h4>
       <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Allgemeine Punkte/Linie zur Hütte (z. B. Parkplatz).</p>
-      ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${(MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
-      ${(h.manualTrack && h.manualTrack.length) ? `<span class="hint">🔴 Rot: selbst eingezeichnet</span>` : ''}
-      ${(h.manualTrack && h.manualTrack.length) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(h.manualTrack))}' data-name="${esc(h.name)}">📥 Route als GPX exportieren</button>` : ''}
+      ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${fsIco((MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon)} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
+      ${(h.manualTrack && h.manualTrack.length) ? `<span class="hint">${fsIconHtml('dot', '#C0392B', true)} Rot: selbst eingezeichnet</span>` : ''}
+      ${(h.manualTrack && h.manualTrack.length) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(h.manualTrack))}' data-name="${esc(h.name)}">${fsIconHtml('download')} Route als GPX exportieren</button>` : ''}
       <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${h.id}" data-act="quick-edit-toggle" data-id="${h.id}" data-kind="hut" title="Gedrückt halten, um die Karte zu bearbeiten">Karte bearbeiten</button>
       <div id="quick-edit-map-${h.id}" style="margin-top:10px; display:none;"></div>
       <div id="quick-edit-list-${h.id}"></div>
@@ -7473,9 +7473,9 @@ function hutDetailHtml__fix(id){
     </div>` : ''}
 
     ${hasMapData ? `<div class="detail-section">
-      <h4>🗺️ Karte</h4>
+      <h4>${fsIconHtml('map')} Karte</h4>
       <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Standorte, selbst eingezeichnete Linie und alle Zustiege zusammen auf einer Karte.</p>
-      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-hut-id="${h.id}" data-target="map-hut-${h.id}">🗺️ Karte anzeigen</button>
+      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-hut-id="${h.id}" data-target="map-hut-${h.id}">${fsIconHtml('map')} Karte anzeigen</button>
       <div id="map-hut-${h.id}" style="margin-bottom:10px;"></div>
     </div>` : ''}
 
@@ -7546,7 +7546,7 @@ function abgeschlossenViewHtml__fix(){
     const isMe = state.myName && name===state.myName;
     const total = g.tours.length + g.huts.length;
     return `<div class="detail-section" style="margin-bottom:28px;">
-      <h4>${isMe ? '⭐ Meine Liste' : esc(name)} (${total})</h4>
+      <h4>${isMe ? (fsIconHtml('star', '#D99A1E', true) + ' Meine Liste') : esc(name)} (${total})</h4>
       ${g.tours.length ? `<div class="grid" style="margin-top:6px;">${g.tours.map(tourCardHtml).join('')}</div>` : ''}
       ${g.huts.length ? `<div class="grid" style="margin-top:${g.tours.length?12:6}px;">${g.huts.map(hutCardHtml).join('')}</div>` : ''}
     </div>`;
@@ -7893,11 +7893,11 @@ function wireModalHandlers__fix(){
     const pmGpxConfig = tourTrackHidden ? { hiddenId: 'track-simplified-hidden', idHiddenId: 'tour-id-for-track', trackPathPrefix: GPX_TRACKS_PATH, statusId: 'gpx-upload-status' } : null;
     const hutSummerHidden = document.getElementById('track-simplified-summer-hidden');
     if(hutSummerHidden && hutSummerHidden.value){
-      try{ const t = JSON.parse(hutSummerHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8B93E', label:'🟡 Gelb: Sommer-Zustieg (GPX)'}); }catch(e){}
+      try{ const t = JSON.parse(hutSummerHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#E8B93E', label:'Gelb: Sommer-Zustieg (GPX)'}); }catch(e){}
     }
     const hutWinterHidden = document.getElementById('track-simplified-winter-hidden');
     if(hutWinterHidden && hutWinterHidden.value){
-      try{ const t = JSON.parse(hutWinterHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#1565C0', label:'🔵 Blau: Winter-Zustieg (GPX)'}); }catch(e){}
+      try{ const t = JSON.parse(hutWinterHidden.value); if(t && t.length) refTracks.push({coords:t, color:'#1565C0', label:'Blau: Winter-Zustieg (GPX)'}); }catch(e){}
     }
     // Zustiege/Abstiege des Elements immer mit anzeigen, damit auf jeder Karte innerhalb einer
     // Hütte/Tour/eines Sektors dasselbe zu sehen ist und nichts beim Wechsel zwischen den
@@ -8017,7 +8017,7 @@ function wireModalHandlers__fix(){
       }).catch(err=>{
         showToast('Fehler beim Herunterladen: ' + (err && err.message ? err.message : err), true);
         downloadOfflineBtn.disabled = false;
-        downloadOfflineBtn.textContent = '🔽 Für unterwegs herunterladen';
+        downloadOfflineBtn.innerHTML = (fsIconHtml('chevdown') + ' Für unterwegs herunterladen');
       });
       return;
     }
@@ -8035,7 +8035,7 @@ function wireModalHandlers__fix(){
       const offlineId = gpsToggleBtn.getAttribute('data-offline-id');
       const mapInner = (typeof fsCtxMap !== 'undefined' && fsCtxMap) || (window.__activeLeafletMaps && window.__activeLeafletMaps['map-tour-' + offlineId + '-inner']);
       if(!mapInner){
-        showToast('Bitte zuerst "🗺️ Karte anzeigen" antippen.', true);
+        showToast('Bitte zuerst "Karte anzeigen" antippen.', true);
         return;
       }
       // Standort nur auf Tipp: einmal orten und auf der Karte zeigen (kein laufender Standort)
@@ -8113,7 +8113,7 @@ function wireModalHandlers__fix(){
       state.quickEditOpenId = id;
       syncModalDirtyTracking();
       btn.style.display = 'none';
-      // Bei Touren denselben Kartenbereich wiederverwenden, den auch "🗺️ Karte anzeigen" nutzt
+      // Bei Touren denselben Kartenbereich wiederverwenden, den auch "Karte anzeigen" nutzt
       // (map-tour-<id>) – sonst würde eine zweite, redundante Karte für dieselbe Tour aufgehen.
       // Bei Hütten bleibt es beim eigenen Bereich, da "Karte anzeigen" dort etwas anderes zeigt
       // (alle Zustiege zusammen, nicht nur die eigenen Punkte/Linie der Hütte).
@@ -8128,8 +8128,8 @@ function wireModalHandlers__fix(){
       // Bei Touren wird der eigene GPX-Track jetzt direkt editierbar (gpxConfig unten) statt nur als
       // Referenz gezeigt – sonst dieselbe Redundanz wie zuvor im vollen Bearbeiten-Formular.
       if(item && kind==='hut'){
-        if(item.trackSimplifiedSummer && item.trackSimplifiedSummer.length) refTracks.push({coords:item.trackSimplifiedSummer, color:'#E8B93E', label:'🟡 Gelb: Sommer-Zustieg (GPX)'});
-        if(item.trackSimplifiedWinter && item.trackSimplifiedWinter.length) refTracks.push({coords:item.trackSimplifiedWinter, color:'#1565C0', label:'🔵 Blau: Winter-Zustieg (GPX)'});
+        if(item.trackSimplifiedSummer && item.trackSimplifiedSummer.length) refTracks.push({coords:item.trackSimplifiedSummer, color:'#E8B93E', label:'Gelb: Sommer-Zustieg (GPX)'});
+        if(item.trackSimplifiedWinter && item.trackSimplifiedWinter.length) refTracks.push({coords:item.trackSimplifiedWinter, color:'#1565C0', label:'Blau: Winter-Zustieg (GPX)'});
         migrateHutAccessRoutes(item);
       }
       const qeRefTracks = refTracks.concat(siblingRouteRefTracks(item, null));
