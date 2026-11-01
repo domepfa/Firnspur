@@ -450,7 +450,8 @@ await scenario('Konflikt andere übernehmen', async ({ db, env, saveVia }) => {
   ok('Konflikt «andere übernehmen»: andere gilt, eigene Fassung liegt unter Versionen', db.get(TP).name === 'Name von B' && vers.some(x => x.name === 'Name von mir'), JSON.stringify({ n: db.get(TP).name, v: vers.map(x => x.name) }));
 });
 await scenario('Papierkorb wiederherstellen', async ({ page, db }) => {
-  db.set(TP, { ...db.get(TP), deletedAt: '2026-10-01T00:00:00Z', deletedBy: 'Dome' });
+  // gestern gelöscht: innerhalb der 30 Tage Papierkorb (ein festes Datum läuft sonst irgendwann ab)
+  db.set(TP, { ...db.get(TP), deletedAt: new Date(Date.now() - 86400000).toISOString(), deletedBy: 'Dome' });
   await page.reload(); await page.waitForTimeout(2500);
   await page.evaluate(id => { restoreTrashItem('tour', id); }, tour0.id);
   await page.waitForTimeout(1500);
