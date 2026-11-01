@@ -3075,3 +3075,9 @@ html.fs-dark .fsm-popup .maplibregl-popup-close-button:hover{ background:var(--p
 html.fs-dark .modal-head .fs-icon-btn, html.fs-dark .modal-head .fav-toggle-btn{ background:var(--paper-2); }
 .fs-trash-actions{ flex-wrap:wrap; }
 .fs-trash-actions .btn{ flex:1 1 140px; }
+/* Planer: Start und Ziel tauschen – rechts auf der Linie zwischen Start und nächster Zeile */
+.fsp-stops.fsp-has-swap .fsp-stop{ padding-right:52px; }
+.fsp-swap{ position:absolute; right:10px; top:64px; transform:translateY(-50%); z-index:2; background:var(--paper); border:1px solid var(--line); box-shadow:var(--shadow); }
+html.fs-dark .fsp-swap{ background:var(--paper-2); }
+.fs-pt-offer-ort{ width:100%; min-height:46px; justify-content:center; margin-top:8px; background:var(--paper); color:var(--ink); border:1px solid var(--line); }
+html.fs-dark .fs-pt-offer-ort{ background:var(--paper-2); }
