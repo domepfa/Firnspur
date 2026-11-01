@@ -7824,12 +7824,6 @@ function fsPlannerOpen(from){
     });
   }
 
-  function statCardHtml(icon, value){
-    return `<div style="flex:1; background:var(--ice-light); border-radius:6px; padding:8px 6px; text-align:center;">
-      <div style="font-size:16px;">${icon}</div>
-      <div style="font-size:14px; font-weight:700; color:var(--accent-ink);">${esc(value)}</div>
-    </div>`;
-  }
 
   // Neuer Look (Schritt 3): ruhige Stationen-Liste statt Formular, Punkte direkt auf der Karte
   // antippen (erst Start, dann Ziel, danach Zwischenpunkte, siehe plannerTapOnMap), Route rechnet
@@ -9365,21 +9359,6 @@ async function removeAltTrack(tourId, altId){
   return ok1 && ok2;
 }
 
-// HTML-Liste der Alternativrouten einer Tour für die Detailansicht (Download + Entfernen je
-// Route) – geteilt zwischen Firnspur/Skitour und Fixseil/MSL, da beide dasselbe altTracks-Feld
-// und dieselben Shared-Funktionen (downloadAltGpx/removeAltTrack) nutzen.
-function altTracksListHtml(tour){
-  if(!tour.altTracks || !tour.altTracks.length) return '';
-  return `<div style="margin-top:10px;">
-    <p style="font-size:12.5px; font-weight:600; margin:0 0 6px 0;">Alternativrouten (${tour.altTracks.length})</p>
-    ${tour.altTracks.map((a,i)=>`<div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px solid var(--line);">
-      <span style="width:10px; height:10px; border-radius:50%; background:${ALT_TRACK_COLORS[i % ALT_TRACK_COLORS.length]}; flex-shrink:0;"></span>
-      <span style="flex:1; font-size:13px;">${esc(a.name || 'Alternativroute')}</span>
-      <button type="button" class="btn secondary" style="padding:4px 8px; font-size:12px;" data-act="download-alt-gpx" data-tour-id="${tour.id}" data-alt-id="${a.id}" data-name="${esc(a.name||'Alternativroute')}">📥</button>
-      <button type="button" class="btn secondary" style="padding:4px 8px; font-size:12px;" data-act="remove-alt-track" data-tour-id="${tour.id}" data-alt-id="${a.id}">🗑️</button>
-    </div>`).join('')}
-  </div>`;
-}
 
 /* ================= Routen mit Name und Typ (Firnspur) =================
    Jede Linie einer Tour (GPX-Track, gezeichnete Linie, weitere Routen in altTracks) bekommt einen
@@ -9591,28 +9570,6 @@ function renderMiniMap(containerId, lat, lon, label){
   });
 }
 
-function fetchLocationIntoForm(latInputId, lonInputId, statusId){
-  const statusEl = document.getElementById(statusId);
-  if(!navigator.geolocation){
-    if(statusEl) statusEl.textContent = 'Geolokalisierung wird von diesem Gerät/Browser nicht unterstützt.';
-    return;
-  }
-  if(statusEl) statusEl.textContent = 'Standort wird ermittelt…';
-  navigator.geolocation.getCurrentPosition(
-    (pos)=>{
-      const lat = pos.coords.latitude, lon = pos.coords.longitude;
-      const latInput = document.getElementById(latInputId);
-      const lonInput = document.getElementById(lonInputId);
-      if(latInput) latInput.value = lat;
-      if(lonInput) lonInput.value = lon;
-      if(statusEl) statusEl.textContent = '📍 Gespeichert: ' + lat.toFixed(5) + ', ' + lon.toFixed(5);
-    },
-    (err)=>{
-      if(statusEl) statusEl.textContent = 'Standort konnte nicht ermittelt werden: ' + (err && err.message ? err.message : 'Zugriff verweigert oder kein Signal.');
-    },
-    { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
-  );
-}
 
 // Nach einem GPX-Upload nur die Übersicht neu zeichnen, die Bearbeiten-Karte nicht von selbst öffnen
 let fsEdNoAuto = false;
@@ -13025,87 +12982,8 @@ document.addEventListener('click', (e)=>{
 /* ===== Wetter-Rückblick: die letzten drei Tage am Ort (Open-Meteo, Modellwerte) =====
    Für die Beurteilung vor Ort: wie viel Regen/Neuschnee in den letzten Tagen, wie warm.
    Open-Meteo rechnet mit dem Modell von MeteoSchweiz (ICON-CH), frei und ohne Schlüssel. */
-function fsPastWeatherHtml(lat, lon){
-  const key = lat.toFixed(3) + ',' + lon.toFixed(3);
-  state._pastWx = state._pastWx || {};
-  const e = state._pastWx[key];
-  if(!e){
-    state._pastWx[key] = {status:'loading'};
-    const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&daily=precipitation_sum,snowfall_sum,temperature_2m_max,temperature_2m_min&past_days=3&forecast_days=1&timezone=Europe%2FZurich';
-    fetch(u).then(r=>{ if(!r.ok) throw new Error('nicht verfügbar'); return r.json(); }).then(j=>{
-      state._pastWx[key] = {status:'ok', data:j}; fsRenderSoon();
-    }).catch(err=>{ state._pastWx[key] = {status:'error'}; fsRenderSoon(); });
-    return '';
-  }
-  if(e.status !== 'ok' || !e.data || !e.data.daily) return '';
-  const d = e.data.daily, n = (d.time || []).length;
-  if(n < 2) return '';
-  const names = ['Vor 3 Tagen', 'Vorgestern', 'Gestern', 'Heute'];
-  const off = 4 - n;
-  let rainSum = 0, snowSum = 0;
-  const cells = d.time.map((t, i)=>{
-    const pr = d.precipitation_sum[i] || 0, sn = d.snowfall_sum[i] || 0;
-    if(i < n - 1){ rainSum += pr; snowSum += sn; }
-    return `<div class="wx-day${i === n - 1 ? ' wx-today' : ''}">
-      <div class="wx-d">${names[i + off] || t}</div>
-      <div class="wx-t"><b>${Math.round(d.temperature_2m_max[i])}°</b> <span>${Math.round(d.temperature_2m_min[i])}°</span></div>
-      <div class="wx-p">${pr >= 0.1 ? pr.toFixed(1) + ' mm' : 'trocken'}</div>
-      ${sn >= 0.5 ? `<div class="wx-sn">${Math.round(sn)} cm Schnee</div>` : ''}
-    </div>`;
-  }).join('');
-  const ele = e.data.elevation != null ? Math.round(e.data.elevation) + ' m' : '';
-  return `<div class="detail-section wx-strip wx-past">
-    <h4>Wetter der letzten Tage <span class="wx-where">${ele}</span></h4>
-    <p class="wx-sum">Letzte 3 Tage: <b>${rainSum.toFixed(0)} mm</b> Niederschlag${snowSum >= 0.5 ? `, davon etwa <b>${Math.round(snowSum)} cm Neuschnee</b>` : ''}</p>
-    <div class="wx-days">${cells}</div>
-    <p class="wx-src">Open-Meteo (Modell MeteoSchweiz), gerechnet für ${ele || 'diesen Punkt'} – keine Messung. Heute: bisher und Prognose.</p>
-  </div>`;
-}
 /* ===== Schnee in der Nähe: SLF-Messstationen (gemessen, nicht gerechnet) ===== */
-function fsImisNearHtml(lat, lon){
-  const o = FSM_OVERLAYS.find(x=> x.id === 'slfstationen');
-  if(!o) return '';
-  const c = fsPtCache.slfstationen;
-  if(!c){
-    if(!state._imisLoading){ state._imisLoading = true; fsPointsFetch(o).then(()=> render()).catch(()=>{}); }
-    return '';
-  }
-  // Die zwei nächsten Stationen mit Schneemessung (bis 25 km), höhere bei gleicher Distanz bevorzugt
-  const near = (c.data.features || []).map(f=>{
-    const p = f.properties || {}; return {p, d: fsGeoDist(lat, lon, p.lat, p.lon)};
-  }).filter(x=> x.d < 25000 && x.p.hs != null).sort((a, b)=> (a.d - (a.p.ele || 0) * 2) - (b.d - (b.p.ele || 0) * 2)).slice(0, 2);
-  if(!near.length) return '';
-  return `<div class="detail-section fs-imis">
-    <h4>Schnee in der Nähe <span class="wx-where">SLF-Messstationen</span></h4>
-    ${near.map(x=> `<div class="fs-imis-card"><div class="fs-imis-head"><b>${esc(x.p.name)}</b><span>${x.p.ele ? Math.round(x.p.ele) + ' m · ' : ''}${fsFmtKm(x.d)} entfernt${fsImisTime(x.p) ? ' · ' + fsImisTime(x.p) : ''}</span></div>${fsImisRowsHtml(x.p)}</div>`).join('')}
-    <p class="wx-src">Gemessen von den IMIS-Stationen des SLF (CC BY 4.0), alle 30 Minuten aktualisiert.</p>
-  </div>`;
-}
 /* ===== Webcams in der Nähe (MeteoSchweiz) ===== */
-function fsWebcamsNearHtml(lat, lon){
-  const o = FSM_OVERLAYS.find(x=> x.id === 'webcams');
-  if(!o) return '';
-  const c = fsPtCache.webcams;
-  if(!c){
-    if(!state._camLoading){ state._camLoading = true; fsPointsFetch(o).then(()=> render()).catch(()=>{}); }
-    return '';
-  }
-  const near = (c.data.features || []).filter(f=> f.geometry && f.geometry.type === 'Point').map(f=>{
-    const [lo, la] = f.geometry.coordinates;
-    return {f, d: fsGeoDist(lat, lon, la, lo)};
-  }).filter(x=> x.d < 25000).sort((a, b)=> a.d - b.d).slice(0, 3);
-  if(!near.length) return '';
-  return `<div class="detail-section fs-cams">
-    <h4>Webcams in der Nähe</h4>
-    ${near.map(x=>{
-      const p = x.f.properties || {}, l = fsLinksOf(p), href = l.img || l.link;
-      const name = esc(p.station_name || p.name || 'Webcam');
-      return href ? `<a class="fs-cam-row" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${l.img ? `<img src="${esc(l.img)}" alt="" loading="lazy"/>` : fsIconHtml('camera')}<span><b>${name}</b><small>${fsFmtKm(x.d)} entfernt</small></span></a>`
-        : `<div class="fs-cam-row">${fsIconHtml('camera')}<span><b>${name}</b><small>${fsFmtKm(x.d)} entfernt</small></span></div>`;
-    }).join('')}
-    <p class="wx-src">MeteoSchweiz-Wetterkameras</p>
-  </div>`;
-}
 // Wieder online: fehlgeschlagene Prognosen und Bedingungen neu laden (nicht schon beim Zeichnen – sonst Schleife)
 window.addEventListener('online', ()=>{
   try{
@@ -13207,22 +13085,6 @@ function meteoCardForecastData(lat, lon){
   return cached;
 }
 
-function meteoCardForecastRowHtml(lat, lon){
-  if(!isFinite(lat) || !isFinite(lon)) return '';
-  if(state._meteoBulkStatus !== 'ok'){
-    ensureMeteoBulkData();
-    return '';
-  }
-  const result = meteoCardForecastData(lat, lon);
-  const days = result.days.slice(0, 3);
-  if(!days.length) return '';
-  return `<div class="weather-card-row" role="button" tabindex="0" data-act="open-meteo" data-lat="${lat}" data-lon="${lon}" style="display:flex; gap:5px; margin:0 0 8px; cursor:pointer;" title="Wetter bei MeteoSchweiz öffnen · nächste Tage bei ${esc(result.point.name)} (${result.distanceKm.toFixed(1)} km entfernt)" aria-label="Wetter bei MeteoSchweiz öffnen">
-    ${days.map(d=>{
-      const lbl = meteoFormatDayLabel(d.date);
-      return `<span style="font-size:12px; background:var(--ice-light); border-radius:4px; padding:3px 7px; white-space:nowrap;">${lbl.weekday} ${meteoDayIcon(d.precipMm)} ${Math.round(d.tempMax)}°</span>`;
-    }).join('')}
-  </div>`;
-}
 
 /* ================= Schnell-Bearbeitung von Punkten/Linie direkt aus der Detailansicht ================= */
 // Während «Karte bearbeiten» offen ist, darf kein Neuzeichnen (z. B. Wetter oder Orte fertig geladen)
@@ -15768,14 +15630,6 @@ async function uploadTopoImageBlob(blob, storagePath){
   return `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`;
 }
 
-async function deleteTopoImageFile(storagePath){
-  try{
-    await ensureValidAuthToken();
-    const url = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodeURIComponent(storagePath)}`;
-    const res = await fetch(url, { method:'DELETE', headers:{ 'Authorization': 'Bearer ' + authState.idToken } });
-    return res.ok;
-  }catch(e){ return false; }
-}
 
 // cropRect: {x,y,w,h,naturalW,naturalH} – x..h als Brüche 0..1 relativ zum UNROTIERTEN
 // Originalbild; das Original bleibt in Storage unverändert.
@@ -17491,9 +17345,6 @@ function offlineSectionHtml(offlineId){
    Statt rund zehn gleichwertiger Knöpfe untereinander: oben EINE Hauptaktion (für unterwegs
    laden), darunter vier Kacheln (Karte, Wetter, 3D, Mehr). Selten Gebrauchtes (GPX, Export,
    Abgeschlossen markieren …) liegt im "Mehr"-Menü. Geteilt von Firnspur und Fixseil. */
-function fsTileHtml(icon, label, attrs){
-  return `<button type="button" class="fs-tile" ${attrs}>${fsIconHtml(icon)}<span>${label}</span></button>`;
-}
 // Ein Eintrag im "Mehr"-Menü. href gesetzt = externer Link statt Knopf.
 /* ================= Anreise: Navigation, Fahrzeit und ÖV-Verbindung (fsTravel*) =================
    Pro Tour ein Block "Anreise" in der Tourenansicht:
@@ -18152,33 +18003,6 @@ function fsmOrteRefresh(){
     fsmOrteDraw(m);
   });
 }
-// Lange auf die Karte drücken (bzw. Rechtsklick): «Ort hier erfassen»
-function fsmWireOrtHold(ml){
-  if(!ml || ml._fsOrtHold) return;
-  ml._fsOrtHold = true;
-  const offer = (ll)=>{
-    if(navigator.vibrate) try{ navigator.vibrate(25); }catch(e){}
-    const wrap = document.createElement('div');
-    wrap.className = 'fsm-ort-hold';
-    wrap.innerHTML = `<button type="button">${fsIconHtml('plus')}Ort hier erfassen</button>`;
-    wrap.querySelector('button').addEventListener('click', ()=>{
-      if(ml._fsm && ml._fsm.popup) ml._fsm.popup.remove();
-      fsOpenOrtForm({id: uid('o'), name: '', kind: '', lat: +ll.lat.toFixed(6), lon: +ll.lng.toFixed(6)});
-    });
-    fsmPopup(ml, ll, wrap, 8);
-  };
-  ml.on('contextmenu', (e)=>{ if(e.originalEvent && e.originalEvent._fsmHandled) return; offer(e.lngLat); });
-  let timer = null, start = null;
-  const cancel = ()=>{ if(timer){ clearTimeout(timer); timer = null; } };
-  ml.on('touchstart', (e)=>{
-    cancel();
-    if(!e.originalEvent || e.originalEvent.touches.length !== 1) return;
-    start = e.point; const ll = e.lngLat;
-    timer = setTimeout(()=>{ timer = null; offer(ll); }, 650);
-  });
-  ml.on('touchmove', (e)=>{ if(start && Math.hypot(e.point.x - start.x, e.point.y - start.y) > 10) cancel(); });
-  ['touchend', 'touchcancel', 'movestart', 'zoomstart'].forEach(ev=> ml.on(ev, cancel));
-}
 // Knöpfe in der Tourenansicht (Capture, weil das Dialogfenster Klicks sonst stoppt)
 document.addEventListener('click', (e)=>{
   const el = e.target.closest && e.target.closest('[data-act="fs-ort-open"],[data-act="fs-ort-link"]');
@@ -18237,7 +18061,6 @@ function fsErfMake(text, date, by, photos){
 }
 // «Nachtragen» nach der Tour, mit einem Tipp (kein Gedrückthalten): gemacht (Name + Datum), Erfahrung,
 // Fotos, GPX. Alles sind Ergänzungen (neue Listeneinträge bzw. leere Linie füllen), dürfen also alle.
-function fsOpenErfForm(tourId){ fsOpenNachtragen(tourId); }
 function fsOpenNachtragen(tourId){
   const t = (state.tours || []).find(x=> x.id === tourId);
   if(!t) return;
@@ -21548,21 +21371,6 @@ function briefingAblaufExtrasHtml(a){
     ${b.anforderungen ? `<div class="bf-card"><h3 class="bf-h">Das braucht es</h3><p class="bf-text">${esc(b.anforderungen)}</p></div>` : ''}
     ${b.planB ? `<div class="bf-card bf-planb"><div class="bf-kicker">Plan B</div><p class="bf-text">${esc(b.planB)}</p></div>` : ''}`;
 }
-function briefingTabsHtml(a){
-  const tab = state._briefTab || 'ablauf';
-  const b = briefingOf(a);
-  const tabs = [['ablauf','Ablauf','clock'],['pack','Packliste','pack'],['notfall','Notfall','sos']];
-  return `<div class="bf-tabs" role="tablist">
-      ${tabs.map(t=>`<button type="button" role="tab" data-act="brief-tab" data-tab="${t[0]}" aria-selected="${tab===t[0]}" class="${tab===t[0]?'on':''}">${fsIconHtml(t[2])}${t[1]}</button>`).join('')}
-    </div>
-    <div class="bf-panel">
-      ${tab==='ablauf' ? `
-        ${briefingTimelineHtml(a)}
-        ${b.anforderungen ? `<div class="bf-card"><h3 class="bf-h">Das braucht es</h3><p class="bf-text">${esc(b.anforderungen)}</p></div>` : ''}
-        ${b.planB ? `<div class="bf-card bf-planb"><div class="bf-kicker">Plan B</div><p class="bf-text">${esc(b.planB)}</p></div>` : ''}
-      ` : tab==='pack' ? briefingPackHtml(a) : briefingNotfallHtml(a)}
-    </div>`;
-}
 
 // ---------- Bearbeiten im Termin-Formular ----------
 function briefingDraftFor(editId){
@@ -21914,17 +21722,6 @@ async function deleteAccessRoute(hutId, routeId){
   showToast('Zustieg gelöscht.');
 }
 
-function setFormBusy(formId, busy){
-  const form = document.getElementById(formId);
-  if(!form) return;
-  const btnId = formId==='tour-form' ? 'tour-save-btn' : 'hut-save-btn';
-  const btn = document.getElementById(btnId);
-  if(btn){
-    btn.disabled = busy;
-    if(busy){ btn.dataset.origText = btn.textContent; btn.textContent = 'Speichert…'; }
-    else if(btn.dataset.origText){ btn.textContent = btn.dataset.origText; }
-  }
-}
 
 function showFormError(formId, message){
   const form = document.getElementById(formId);
@@ -22021,7 +21818,6 @@ function resetHutFilters(){
   render();
 }
 
-function setSearch(v){ state.search = v; render(); }
 
 function filteredHuts(){
   let list = state.huts;
