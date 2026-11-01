@@ -5547,7 +5547,7 @@ function fs3dMlWireEdit(map, ed){
     ed.tap(e.lngLat.lat, e.lngLat.lng); draw();
   });
   // Lange drücken (Handy) bzw. Rechtsklick: Punkt setzen, danach gleich beschriften
-  const hold = (ll)=>{ if(ed.getMode() !== 'point') return; const pt = ed.hold(ll.lat, ll.lng); if(navigator.vibrate) try{ navigator.vibrate(30); }catch(e){} draw(); openForm(pt); };
+  const hold = (ll)=>{ if(ed.getMode() !== 'point') return; const pt = ed.hold(ll.lat, ll.lng); fsHaptic(30); draw(); openForm(pt); };
   map.on('contextmenu', (e)=> hold(e.lngLat));
   let timer = null, startPt = null;
   const cancel = ()=>{ if(timer){ clearTimeout(timer); timer = null; } };
@@ -5924,7 +5924,7 @@ function fs3dCesiumOpen(opts){
           const ll = pickLatLon(downAt);
           if(!ll) return;
           const pt = ed.hold(ll.lat, ll.lon);
-          if(navigator.vibrate) try{ navigator.vibrate(30); }catch(e){}
+          fsHaptic(30);
           drawEdit();
           openPtForm(pt);
         }, 600);
@@ -7398,7 +7398,7 @@ async function fsAppendPointTo(kind, id, lat, lon, label, category){
 function fsHomePointOffer(ll){
   const ml = fsHomeMap;
   if(!ml) return;
-  if(navigator.vibrate) try{ navigator.vibrate(25); }catch(e){}
+  fsHaptic(25);
   const lat = ll.lat, lon = ll.lng;
   const fix = typeof SEKTOREN_PATH !== 'undefined';
   const news = [['tour', 'Neue Tour hier', 'openAddTourWithPoint'], ['hut', 'Neue Hütte hier', 'openAddHutWithPoint']]
@@ -7551,7 +7551,7 @@ function fsPlannerOpen(from){
         active = true;
         map.dragging.disable();
         const el = marker.getElement(); if(el) el.classList.add('fsp-lifted');
-        if(navigator.vibrate) try{ navigator.vibrate(15); }catch(e){}
+        fsHaptic(15);
       }, 450);
     };
     const move = (ev)=>{
@@ -8399,7 +8399,7 @@ const FL = (function(){
       if(ev.touches.length !== 1){ cancel(); return; }
       const t = ev.touches[0]; start = {x:t.clientX, y:t.clientY};
       cancel();
-      timer = setTimeout(()=>{ timer = null; el._flLongPressAt = Date.now(); if(navigator.vibrate) try{ navigator.vibrate(12); }catch(e){} cb({clientX:start.x, clientY:start.y, preventDefault(){}, stopPropagation(){}, _flSynthetic:true}); }, 550);
+      timer = setTimeout(()=>{ timer = null; el._flLongPressAt = Date.now(); fsHaptic(12); cb({clientX:start.x, clientY:start.y, preventDefault(){}, stopPropagation(){}, _flSynthetic:true}); }, 550);
     }, {passive:true});
     add('touchmove', (ev)=>{ if(!start || !timer) return; const t = ev.touches[0]; if(ev.touches.length !== 1 || Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) cancel(); }, {passive:true});
     add('touchend', cancel); add('touchcancel', cancel);
@@ -10568,6 +10568,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       persistTrack();
     }
     function addPointAt(lat, lon){
+      fsHaptic(20);
       pushUndo();
       points.push({ label:'', lat, lon, _justAdded:true });
       map.closePopup(); // zuerst schliessen – redraw() öffnet gleich das Fenster des neuen Punkts
@@ -13960,6 +13961,29 @@ function closeTopOverlayLayer(){
   consumeHistoryEntry();
 }
 
+/* ================= Haptik: kurze Rückmeldung bei Gedrückthalten und Punkt setzen =================
+   Android: navigator.vibrate. iPhone (kein vibrate): Umschalten eines unsichtbaren Schalters
+   (<input type="checkbox" switch>) löst ab iOS 18 ein kurzes Tippen aus. */
+let fsHapticLabel = null;
+function fsHaptic(ms){
+  try{
+    if(navigator.vibrate){ navigator.vibrate(ms || 15); return; }
+    if(!fsHapticLabel){
+      fsHapticLabel = document.createElement('label');
+      fsHapticLabel.setAttribute('aria-hidden', 'true');
+      fsHapticLabel.style.cssText = 'position:fixed; left:-9999px; top:0; width:1px; height:1px; overflow:hidden; opacity:0; pointer-events:none;';
+      const inp = document.createElement('input');
+      inp.type = 'checkbox'; inp.setAttribute('switch', ''); inp.tabIndex = -1;
+      fsHapticLabel.appendChild(inp);
+      // Der Klick soll nichts anderes auslösen (Menüs schliessen, Karte usw.)
+      const stop = e=> e.stopPropagation();
+      fsHapticLabel.addEventListener('click', stop); inp.addEventListener('click', stop);
+      document.body.appendChild(fsHapticLabel);
+    }
+    fsHapticLabel.click();
+  }catch(e){}
+}
+
 /* ================= Erkunden / Bearbeiten: "Gedrückt halten zum Bearbeiten" =================
    Im Gelände (nasses Display, Handschuhe) soll ein versehentlicher Tipp nie etwas verändern.
    Darum lösen alle Knöpfe, die Daten ändern (Bearbeiten, Löschen, Status, Karte bearbeiten …),
@@ -14050,7 +14074,7 @@ document.addEventListener('pointerdown', (e)=>{
     holdArmTimer = null;
     el.classList.remove('fs-hold-arming');
     holdArmEl = null;
-    if(navigator.vibrate){ try{ navigator.vibrate(25); }catch(err){} }
+    fsHaptic(25);
     // Den gleich folgenden "echten" Klick beim Loslassen schlucken, dann einmal freigeben.
     holdSwallowClickUntil = Date.now() + 1500;
     // In einer Detailansicht (Tour, Hütte, Gebiet, Sektor, Zustieg …) öffnet das Halten den
@@ -14191,7 +14215,7 @@ function fsOpenTourCtxMenu(card){
   const t = id && typeof state !== 'undefined' ? (state.tours||[]).find(x=> String(x.id) === String(id)) : null;
   if(!t || document.getElementById('fs-ctx-overlay')) return;
   fsCtxSuppressClickUntil = Date.now() + 800;
-  if(navigator.vibrate){ try{ navigator.vibrate(15); }catch(e){} }
+  fsHaptic(15);
   const overlay = document.createElement('div');
   overlay.id = 'fs-ctx-overlay';
   overlay.className = 'fs-ctxm-overlay';
