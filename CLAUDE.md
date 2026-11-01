@@ -109,7 +109,7 @@ aus anderen Apps übernehmen.
 - Geteilte Punkte (alle Disziplinen, intern «Orte»): `orte/<id>` mit Art, Notiz, Foto, Stand-Datum. Entstehen beim
   Speichern einer Tour aus ihren Infrastruktur-Punkten (Parkplatz, Haltestelle, Wasser, Toilette, Biwak;
   `fsShareTourPoints`, abschaltbar pro Punkt mit `share: false`), die Tour selbst bleibt dabei unverändert
-  (`fromTour` am Ort). Touren zeigen geteilte Punkte im Umkreis von 5 km («In der Nähe»). Alte Verweise
+  (`fromTour` am Ort), oder einzeln über «Punkt hier» → «Als geteilten Punkt speichern» (`fsOpenOrtForm`). Touren zeigen geteilte Punkte im Umkreis von 5 km («In der Nähe»). Alte Verweise
   `orte: [id]` gelten weiter. Ohne Eigentümer, frei änderbar.
 - Erfahrungen (Logbuch): Liste `erfahrungen` in der Tour (`id, by, date, at, text, photos`), Baustein
   «Erfahrungen» in `0-shared.js` (`fsErf*`). Neue und eigene Einträge direkt, Übernehmen in die

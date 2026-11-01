@@ -7407,12 +7407,15 @@ function fsHomePointOffer(ll){
   const wrap = document.createElement('div');
   wrap.className = 'fs-pt-offer';
   wrap.innerHTML = '<b>Punkt hier</b><div class="fs-pt-offer-new"><button type="button" class="btn secondary" data-plan>' + fsIconHtml('compass') + 'Route von hier planen</button>' + '<button type="button" class="btn secondary" data-scan>' + fsIconHtml('scan') + 'Hang scannen</button>' + news.map((n, i)=> `<button type="button" class="btn" data-new="${i}">${fsIconHtml('plus')}${esc(n[1])}</button>`).join('') + '</div>'
+    + '<button type="button" class="btn secondary fs-pt-offer-ort" data-ort>' + fsIconHtml('users') + 'Als geteilten Punkt speichern</button>'
     + '<label>Oder zu bestehendem Eintrag hinzufügen</label>'
     + '<div class="fs-pt-offer-meta"><input type="text" data-f="label" placeholder="Bezeichnung, z. B. Skidepot" autocomplete="off" aria-label="Bezeichnung des Punkts">'
     + '<select data-f="cat" aria-label="Art des Punkts">' + Object.keys(MAP_POINT_CATEGORIES).map(k=> `<option value="${k}">${esc(k ? MAP_POINT_CATEGORIES[k].label : 'Art: Punkt')}</option>`).join('') + '</select></div>'
     + '<input type="text" data-f="q" placeholder="Tour oder Hütte suchen …" autocomplete="off" aria-label="Eintrag suchen"><div class="fs-pt-offer-res"></div>';
   let close = ()=>{};
   wrap.querySelectorAll('[data-new]').forEach(b=> b.addEventListener('click', ()=>{ close(); setTimeout(()=> fsFn(news[+b.dataset.new][2])(+lat.toFixed(6), +lon.toFixed(6)), 250); }));
+  // Geteilter Punkt ohne Tour (Parkplatz, Wasser …): erscheint bei allen Touren in der Nähe
+  wrap.querySelector('[data-ort]').addEventListener('click', ()=>{ close(); setTimeout(()=> fsOpenOrtForm({id: uid('o'), name: '', kind: '', lat: +lat.toFixed(6), lon: +lon.toFixed(6), note: '', createdAt: new Date().toISOString(), createdBy: state.myName || ''}), 250); });
   const inp = wrap.querySelector('[data-f="q"]'), res = wrap.querySelector('.fs-pt-offer-res');
   const lbl = wrap.querySelector('[data-f="label"]'), cat = wrap.querySelector('[data-f="cat"]');
   inp.addEventListener('input', ()=>{
@@ -7686,6 +7689,25 @@ function fsPlannerOpen(from){
     renderPlannerPanel();
   }
 
+  // Start und Ziel tauschen (Zwischenpunkte in umgekehrter Reihenfolge); steht beides, rechnet
+  // sich die Route gleich neu.
+  function swapPlannerEnds(){
+    const s0 = plannerStart, e0 = plannerEnd;
+    if(!s0 && !e0) return;
+    const relabel = (l, to)=> !l ? l : to==='start'
+      ? l.replace(/^Zielpunkt auf der Karte$/, 'Punkt auf der Karte').replace(/^Zielpunkt \(verschoben\)$/, 'Startpunkt (verschoben)')
+      : l.replace(/^Punkt auf der Karte$/, 'Zielpunkt auf der Karte').replace(/^Startpunkt \(verschoben\)$/, 'Zielpunkt (verschoben)');
+    if(plannerStartMarker){ map.removeLayer(plannerStartMarker); plannerStartMarker = null; }
+    if(plannerEndMarker){ map.removeLayer(plannerEndMarker); plannerEndMarker = null; }
+    plannerStart = null; plannerEnd = null; plannerEndEditing = false; plannerEndCandidates = null;
+    if(plannerPicking === 'start' || plannerPicking === 'end') plannerPicking = null;
+    plannerWaypoints.reverse();
+    renumberPlannerWaypointIcons();
+    if(e0) setPlannerPoint('start', e0.lat, e0.lon, relabel(e0.label, 'start'));
+    if(s0) setPlannerPoint('end', s0.lat, s0.lon, relabel(s0.label, 'end'));
+    fsHaptic(10);
+  }
+
   function removePlannerWaypoint(index){
     const wp = plannerWaypoints[index];
     if(!wp) return;
@@ -7744,7 +7766,7 @@ function fsPlannerOpen(from){
       plannerRouteLine = FL.polyline(result.coords, {color:accent, weight:6, opacity:0.95, lineCap:'round', lineJoin:'round'}).addTo(map);
       map.fitBounds(plannerRouteLine.getBounds(), {paddingTopLeft:[40,80], paddingBottomRight:[40, Math.round(plannerPanel.offsetHeight||0) + 30]});
     }catch(e){
-      showToast('Route konnte nicht berechnet werden: ' + (e && e.message ? e.message : e), true);
+      { const msg = String(e && e.message ? e.message : e); showToast(/^Route konnte nicht/.test(msg) ? msg : 'Route konnte nicht berechnet werden: ' + msg, true); }
     }
     plannerCalcBusy = false;
     // Wurde während der Berechnung ein Punkt verändert, gilt das Ergebnis nicht mehr.
@@ -7952,7 +7974,8 @@ function fsPlannerOpen(from){
         <button type="button" data-act="planner-mode" data-mode="ziel" aria-pressed="${plannerMode==='ziel'}" class="${plannerMode==='ziel'?'on':''}">Start → Ziel</button>
         <button type="button" data-act="planner-mode" data-mode="kette" aria-pressed="${plannerMode==='kette'}" class="${plannerMode==='kette'?'on':''}">Punkt für Punkt</button>
       </div>
-      <div class="fsp-stops">
+      <div class="fsp-stops${(plannerStart || plannerEnd) ? ' fsp-has-swap' : ''}">
+        ${(plannerStart || plannerEnd) ? `<button type="button" class="fsp-icon fsp-swap" data-act="planner-swap" aria-label="Start und Ziel tauschen" title="Start und Ziel tauschen">${fsIconHtml('swap')}</button>` : ''}
         ${plannerStopFieldHtml('start')}
         <div class="fsp-sugg" id="fsp-sugg-start" hidden></div>
         ${plannerWaypoints.length > 2 && !plannerWpOpen ? `
@@ -8044,6 +8067,8 @@ function fsPlannerOpen(from){
         if(e.key==='Enter'){ e.preventDefault(); const first = plannerPanel.querySelector('#fsp-sugg-' + which + ' [data-sugg-index]'); if(first) first.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true})); }
       });
     });
+    const swapBtn = plannerPanel.querySelector('[data-act="planner-swap"]');
+    if(swapBtn) swapBtn.onclick = swapPlannerEnds;
     plannerPanel.querySelectorAll('[data-act="planner-clear"]').forEach(btn=>{ btn.onclick = ()=> clearPlannerPoint(btn.getAttribute('data-which')); });
     plannerPanel.querySelectorAll('[data-act="planner-wp-toggle"]').forEach(btn=>{ btn.onclick = ()=>{ plannerWpOpen = !plannerWpOpen; renderPlannerPanel(); }; });
     const undoBtn = plannerPanel.querySelector('[data-act="planner-undo"]');
@@ -21060,6 +21085,7 @@ const FS_ICON_PATHS = {
   users: 'M9 11a3.5 3.5 0 1 0 0-7a3.5 3.5 0 1 0 0 7zM2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 6.5M18 14a6 6 0 0 1 3.5 6',
   scissors: 'M6 9a3 3 0 1 0 0-6a3 3 0 1 0 0 6zM6 21a3 3 0 1 0 0-6a3 3 0 1 0 0 6zM8.5 7.5L20 18M8.5 16.5L20 6',
   offline: 'M3 3l18 18M8.5 16.5a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 4-2.4M19 12.5a10 10 0 0 0-3-2M12 20h.01',
+  swap: 'M8 20V4M4 8l4-4 4 4M16 4v16M12 16l4 4 4-4',
   refresh: 'M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4',
   home: 'M3 11l9-7 9 7M5 10v10h14V10',
   phone: 'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2',
