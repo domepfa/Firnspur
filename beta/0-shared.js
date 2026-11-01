@@ -4792,13 +4792,13 @@ function emergencyCardHtml(){
     <div class="detail-section" style="margin-top:0;">
       <h4>Alarmierung</h4>
       <div style="display:flex; flex-direction:column; gap:8px;">
-        <a href="tel:1414" style="display:flex; justify-content:space-between; align-items:center; background:var(--danger); color:#fff; padding:12px 16px; border-radius:var(--radius); text-decoration:none; font-weight:700;">
+        <a href="tel:1414" class="fs-call-rega" style="display:flex; justify-content:space-between; align-items:center; background:var(--danger); color:#fff; padding:12px 16px; border-radius:var(--radius); text-decoration:none; font-weight:700;">
           <span>🚁 Rega (Gebirgsnotfall)</span><span class="mono">1414</span>
         </a>
         <a href="tel:112" style="display:flex; justify-content:space-between; align-items:center; background:var(--ice-deep); color:#fff; padding:12px 16px; border-radius:var(--radius); text-decoration:none; font-weight:700;">
           <span>🆘 Europäischer Notruf</span><span class="mono">112</span>
         </a>
-        <a href="tel:117" style="display:flex; justify-content:space-between; align-items:center; background:var(--ink-soft); color:#fff; padding:12px 16px; border-radius:var(--radius); text-decoration:none; font-weight:700;">
+        <a href="tel:117" class="fs-call-pol" style="display:flex; justify-content:space-between; align-items:center; background:var(--ink-soft); color:#fff; padding:12px 16px; border-radius:var(--radius); text-decoration:none; font-weight:700;">
           <span>👮 Polizei</span><span class="mono">117</span>
         </a>
       </div>
@@ -4806,13 +4806,7 @@ function emergencyCardHtml(){
 
     <div class="detail-section">
       <h4>Notruf – die 5 W</h4>
-      <p style="line-height:1.9; margin:0;">
-        <strong>Wer</strong> meldet den Unfall?<br>
-        <strong>Was</strong> ist passiert?<br>
-        <strong>Wo</strong> – Ort/Koordinaten (siehe unten)?<br>
-        <strong>Wie viele</strong> Verletzte, welcher Zustand?<br>
-        <strong>Wetter</strong> – Sicht, Wind, Wolken vor Ort?
-      </p>
+      <p style="line-height:1.9; margin:0; white-space:normal;"><strong>Wer</strong> meldet den Unfall?<br><strong>Was</strong> ist passiert?<br><strong>Wo</strong> – Ort/Koordinaten (siehe unten)?<br><strong>Wie viele</strong> Verletzte, welcher Zustand?<br><strong>Wetter</strong> – Sicht, Wind, Wolken vor Ort?</p>
       <p style="font-size:12.5px; color:var(--ink-faint); margin:8px 0 0 0;">Nicht auflegen, bis die Zentrale das Gespräch beendet.</p>
     </div>
 
@@ -15282,7 +15276,7 @@ function monthChipsRowHtml(fieldClass, fullMonths, partialMonths){
   const partial = Array.isArray(partialMonths) ? partialMonths : [];
   return MONTHS.map(m=>{
     const state = full.includes(m.key) ? 'full' : (partial.includes(m.key) ? 'partial' : 'off');
-    const style = state==='full' ? 'background:var(--ok); border-color:transparent; color:#fff;'
+    const style = state==='full' ? 'background:var(--ok); border-color:transparent; color:var(--paper);'
       : state==='partial' ? 'background:#E8B93E; border-color:transparent; color:#3D2E12;'
       : '';
     return `<button type="button" class="chip ${fieldClass}" data-month="${m.key}" data-state="${state}" style="${style}">${m.label}</button>`;
@@ -15293,13 +15287,13 @@ function monthChipsUnknownHtml(fieldClass, full, partial){
   const keys = new Set(MONTHS.map(m=> m.key));
   const seen = new Set();
   return full.map(v=> [v, 'full']).concat(partial.map(v=> [v, 'partial'])).filter(([v])=> v && !keys.has(v) && !seen.has(v) && seen.add(v)).map(([v, st])=>
-    `<button type="button" class="chip ${fieldClass}" data-month="${esc(String(v))}" data-state="${st}" style="${st === 'full' ? 'background:var(--ok); border-color:transparent; color:#fff;' : 'background:#E8B93E; border-color:transparent; color:#3D2E12;'}">${esc(String(v))}</button>`).join('');
+    `<button type="button" class="chip ${fieldClass}" data-month="${esc(String(v))}" data-state="${st}" style="${st === 'full' ? 'background:var(--ok); border-color:transparent; color:var(--paper);' : 'background:#E8B93E; border-color:transparent; color:#3D2E12;'}">${esc(String(v))}</button>`).join('');
 }
 function monthChipsReadonlyHtml(fullMonths, partialMonths, fullColorVar){
   const full = Array.isArray(fullMonths) ? fullMonths : [];
   const partial = Array.isArray(partialMonths) ? partialMonths : [];
   return MONTHS.map(m=>{
-    if(full.includes(m.key)) return `<span class="chip" style="background:${fullColorVar||'var(--ok)'}; border-color:transparent; color:#fff;">${m.label}</span>`;
+    if(full.includes(m.key)) return `<span class="chip" style="background:${fullColorVar||'var(--ok)'}; border-color:transparent; color:${(fullColorVar||'var(--ok)')==='var(--ok)' ? 'var(--paper)' : '#fff'};">${m.label}</span>`;
     if(partial.includes(m.key)) return `<span class="chip" style="background:#E8B93E; border-color:transparent; color:#3D2E12;">${m.label}</span>`;
     return `<span class="chip" style="opacity:0.45;">${m.label}</span>`;
   }).join('');
@@ -15310,7 +15304,7 @@ function wireMonthCycleChips(root, selector){
       const cur = chip.getAttribute('data-state') || 'off';
       const next = cur==='off' ? 'full' : (cur==='full' ? 'partial' : 'off');
       chip.setAttribute('data-state', next);
-      chip.style.cssText = next==='full' ? 'background:var(--ok); border-color:transparent; color:#fff;'
+      chip.style.cssText = next==='full' ? 'background:var(--ok); border-color:transparent; color:var(--paper);'
         : next==='partial' ? 'background:#E8B93E; border-color:transparent; color:#3D2E12;'
         : '';
     });
