@@ -1668,7 +1668,7 @@ async function fsmTerrainSource(map){
   const q = fs3dQuality();
   if(map.getSource('fs-terrain') && map._fsTerrainQ === q) return true;
   let spec = {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 11, attribution:'Höhen: Mapzen/AWS Terrain Tiles'};
-  if(q === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){ showToast('Genaues Gelände gerade nicht verfügbar – gröberes geladen.', true); } }
+  if(q === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){ showToast('Genaues Gelände gerade nicht verfügbar – gröberes geladen.'); } }
   if(!map._fsTerrain || q !== fs3dQuality()) return false;
   try{ map.setTerrain(null); }catch(e){}
   if(map.getSource('fs-terrain')) map.removeSource('fs-terrain');
@@ -1681,22 +1681,12 @@ async function fsmTerrainSetQuality(map, q){
   if(map._fsTerrain && await fsmTerrainSource(map)) map.setTerrain({source:'fs-terrain', exaggeration:1});
   fsmSyncPanel(map);
 }
-// 3D-Knopf gefüllt, solange 3D an ist; dann darunter «Gipfel ringsum» (Panorama der umliegenden Gipfel)
+// 3D-Knopf gefüllt, solange 3D an ist («Gipfel ringsum» steht dann im Ebenen-Fenster, damit die Knopfsäule
+// nicht unter die Suchleiste wächst)
 function fsmTerrainButtons(map){
   const on = !!map._fsTerrain;
-  map.getContainer().querySelectorAll('.fsm-3d').forEach(b=>{
-    b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
-    let pano = b.parentNode.querySelector('[data-fsm="pano"]');
-    if(!pano){
-      pano = document.createElement('button');
-      pano.type = 'button'; pano.className = 'fsm-btn'; pano.dataset.fsm = 'pano';
-      pano.setAttribute('aria-label', 'Gipfel ringsum');
-      pano.innerHTML = fsIconHtml('mountain');
-      pano.addEventListener('click', ()=>{ const c = map.getCenter(); fsOpen3d({lat: c.lat, lon: c.lng, zoom: map.getZoom(), panorama: true}); });
-      b.after(pano);
-    }
-    pano.hidden = !on;
-  });
+  map.getContainer().querySelectorAll('.fsm-3d').forEach(b=>{ b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  fsmSyncPanel(map);
 }
 // Bearbeiten im Vollbild: die Startkarte ausleihen (gleicher Ausschnitt, Ebenen, 2D/3D), die Werkzeuge des
 // Editors (Punkt, Linie, Route) hängen als FL-Hülle daran; beim Schliessen wird alles Eigene wieder entfernt
@@ -2296,6 +2286,8 @@ function fsHomeInset(){
   return {top: 24, // Glas-Leiste (--fs-glass-bottom 64 px) abzüglich Grundabstand
     bottom: Math.min(fsHomeDetentPx(fsHomeDetent), Math.round(window.innerHeight * 0.6))};
 }
+// Aktuelle Suche (für Leertexte: «Keine Tour zu … gefunden» statt «passt zu diesem Filter»)
+function fsSearchQ(){ return (typeof state !== 'undefined' && typeof state.search === 'string') ? state.search.trim() : ''; }
 function fsHomeSetDetent(d, animate){
   if(d === fsHomeDetent && document.documentElement.dataset.fsHome === d) return;
   fsHomeDetent = d;
@@ -2438,7 +2430,8 @@ function fsTopbarEnsure(glass, bar){
       }catch(e){ if(seq === fsTopbarSeq) closeRes(); } // offline: nur die Liste filtert
     }, 300);
   });
-  q.addEventListener('focus', ()=>{ if(fsHomeDetent === 'karte') fsHomeSetDetent('mitte'); });
+  // Mit Tastatur bleibt unten wenig Platz: die Liste ganz hoch, damit die Treffer sichtbar sind
+  q.addEventListener('focus', ()=>{ if(fsHomeDetent !== 'liste') fsHomeSetDetent('liste'); });
   q.addEventListener('keydown', e=>{ if(e.key === 'Escape'){ q.value = ''; q.dispatchEvent(new Event('input')); q.blur(); } if(e.key === 'Enter') q.blur(); });
   x.addEventListener('click', ()=>{ q.value = ''; q.dispatchEvent(new Event('input')); q.focus(); });
   document.addEventListener('pointerdown', e=>{ if(!e.target.closest('.fs-tb-res, .fs-topbar')) closeRes(); }, true);
@@ -3190,11 +3183,11 @@ async function loadAgendaWeather(agendaId){
             <div class="aw-day-d">${i === 0 ? 'Tourtag' : esc(dl.wd + ' ' + dl.dm)}</div>
             <div style="font-size:16px;">${dInfo.icon}</div>
             <div style="font-size:12px;">${Math.round(day.tempMin)}° / ${Math.round(day.tempMax)}°</div>
-            ${day.precipitation ? `<div style="font-size:11px; color:var(--ink-soft);">${day.precipitation} mm</div>` : ''}
+            ${day.precipitation ? `<div style="font-size:12px; color:var(--ink-soft);">${day.precipitation} mm</div>` : ''}
           </div>`;
         }).join('')}
       </div>` : ''}
-      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose: ${esc(w.source||'Open-Meteo')} – kann sich noch ändern.</p>
+      <p style="font-size:12px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose: ${esc(w.source||'Open-Meteo')} – kann sich noch ändern.</p>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <a href="${esc(meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary">🌦️ MeteoSchweiz öffnen</a>
         <button type="button" class="btn secondary" id="save-weather-snapshot-btn-${agendaId}">📥 Für unterwegs speichern</button>
@@ -3383,7 +3376,7 @@ function agendaDetailHtml(id){
       <h4>📥 Für unterwegs gespeichert${a.weatherSnapshot.locationLabel ? ' – ' + esc(a.weatherSnapshot.locationLabel) : ''}</h4>
       <p style="font-size:15px; margin:0 0 4px 0;">${a.weatherSnapshot.icon||'🌡️'} ${esc(a.weatherSnapshot.label||'')}</p>
       <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(a.weatherSnapshot.tempMin)}° / ${Math.round(a.weatherSnapshot.tempMax)}° · 💧 ${a.weatherSnapshot.precipitation} mm · 💨 ${Math.round(a.weatherSnapshot.windMax)} km/h</p>
-      <p style="font-size:11px; color:var(--ink-faint); margin:6px 0 0 0;">Stand vom ${esc(fmtDate(a.weatherSnapshot.savedAt))}${a.weatherSnapshot.source ? ' · ' + esc(a.weatherSnapshot.source) : ''} – bleibt auch ohne Netz sichtbar.</p>
+      <p style="font-size:12px; color:var(--ink-faint); margin:6px 0 0 0;">Stand vom ${esc(fmtDate(a.weatherSnapshot.savedAt))}${a.weatherSnapshot.source ? ' · ' + esc(a.weatherSnapshot.source) : ''} – bleibt auch ohne Netz sichtbar.</p>
       ${a.weatherSnapshot.meteoSwissLink ? `<a href="${esc(a.weatherSnapshot.meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block; margin-top:8px;">🌦️ MeteoSchweiz öffnen</a>` : ''}
     </div>` : ''}
     <div id="agenda-weather-${a.id}"></div>
@@ -3425,8 +3418,8 @@ function agendaDetailHtml(id){
       <button type="button" id="delete-agenda-trigger" data-id="${a.id}" style="background:none; border:none; color:var(--ink-faint); font-size:12.5px; text-decoration:underline; cursor:pointer;">Termin löschen</button>
       <div id="delete-agenda-confirm" style="display:none; margin-top:10px; font-size:13px; color:var(--danger);">
         Wirklich unwiderruflich löschen?
-        <button type="button" id="delete-agenda-yes" data-id="${a.id}" class="btn danger" style="padding:5px 12px; font-size:12.5px; margin-left:8px;">Ja, löschen</button>
-        <button type="button" id="delete-agenda-no" style="background:none; border:none; color:var(--ink-soft); font-size:12.5px; text-decoration:underline; cursor:pointer; margin-left:6px;">Abbrechen</button>
+        <button type="button" id="delete-agenda-yes" data-id="${a.id}" class="btn danger">Ja, löschen</button>
+        <button type="button" id="delete-agenda-no" class="btn secondary fs-del-keep">Behalten</button>
       </div>
     </div>
   </div>`;
@@ -3806,7 +3799,7 @@ function printTourenzettel(agendaId){
       el.innerHTML = `<p class="wx-big">Gefahrenstufe ${escHtml(b.level)}${b.region ? ` <span class="muted" style="font-weight:400;">· ${escHtml(b.region)}</span>` : ''}</p>
         ${b.ratings.length ? `<div>${b.ratings.map(r=>`<div>${escHtml(r)}</div>`).join('')}</div>` : ''}
         ${b.problems.length ? `<div style="margin-top:6px;"><b>Lawinenprobleme:</b> ${b.problems.map(escHtml).join(' · ')}</div>` : ''}
-        <p class="muted" style="margin:6px 0 0 0;font-size:11.5px;">SLF-Bulletin gültig bis ${escHtml(b.validUntil)} – <a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener">slf.ch</a></p>`;
+        <p class="muted" style="margin:6px 0 0 0;font-size:12px;">SLF-Bulletin gültig bis ${escHtml(b.validUntil)} – <a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener">slf.ch</a></p>`;
     }).catch(()=>{ const el = $('tz-avalanche'); if(el) el.innerHTML = fillIn('Bulletin gerade nicht abrufbar.'); });
   }
 
@@ -3842,7 +3835,7 @@ function printTourenzettel(agendaId){
             <div class="wx-big">${fsIconHtml('train')} ${escHtml(r.dep)} → ${escHtml(r.arr)}${r.durS ? ' · ' + escHtml(fsFmtDur(r.durS)) : ''}</div>
             <div class="muted" style="margin-bottom:4px;">${escHtml(r.from)} → ${escHtml(r.to)} · ${typeof r.transfers === 'number' ? (r.transfers === 0 ? 'direkt' : r.transfers + '× umsteigen') : ''}</div>
             ${(r.legs || []).length ? `<div class="legs">${r.legs.map(l=>`<div><b>${escHtml(l.dep)}</b> ${escHtml(l.from)}${l.platform ? ' (Gl. ' + escHtml(l.platform) + ')' : ''} · ${escHtml(l.line)} → ${escHtml(l.to)} <b>${escHtml(l.arr)}</b></div>`).join('')}</div>` : ''}
-            <div class="muted" style="font-size:11.5px;margin-top:4px;">Fahrplan-Abfrage ${time ? 'ab ' + escHtml(time) + ' ' : ''}– kurz vorher in der SBB-App prüfen.</div>
+            <div class="muted" style="font-size:12px;margin-top:4px;">Fahrplan-Abfrage ${time ? 'ab ' + escHtml(time) + ' ' : ''}– kurz vorher in der SBB-App prüfen.</div>
           </div><div class="qr" data-qr="${escHtml(gm(dest, 'transit'))}"></div></div>`);
         return null;
       }).catch(()=>{ parts.push(`<div>${fsIconHtml('train')} ÖV-Verbindung gerade nicht abrufbar. <a href="${gm(dest, 'transit')}" target="_blank" rel="noopener">ÖV-Route ↗</a></div>`); return null; }));
@@ -4939,7 +4932,7 @@ function ensureFullscreenMapOverlay(){
     overlay.id = 'fullscreen-map-overlay';
     overlay.style.cssText = 'position:fixed; inset:0; z-index:200; background:#000; display:none;';
     overlay.innerHTML = `
-      <button id="fullscreen-map-close" style="position:absolute; top:14px; right:14px; z-index:100000; background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 18px; height:46px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.5); display:flex; align-items:center; gap:6px;">✕ Schliessen</button>
+      <button id="fullscreen-map-close" style="position:absolute; top:14px; right:14px; z-index:100000; background:#fff; color:#2B2019; border:2px solid rgba(0,0,0,0.15); border-radius:24px; padding:0 18px; height:46px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:0 3px 12px rgba(0,0,0,0.5); display:flex; align-items:center; gap:6px;">Schliessen</button>
       <div id="fullscreen-map-container" style="width:100%; height:100%;"></div>
     `;
     document.body.appendChild(overlay);
@@ -4970,6 +4963,8 @@ function closeFullscreenMap(){
     try{ lastPointsEditorMapView = {center: m.getCenter(), zoom: m.getZoom()}; }catch(e){}
   }
   overlay.style.display = 'none';
+  const cb = document.getElementById('fullscreen-map-close');
+  if(cb) cb.innerHTML = fsIconHtml('x') + 'Schliessen';
   // Ausgeliehene Startkarte zurückgeben, bevor der Inhalt verschwindet
   if(m && m._onRemove){ try{ m.remove(); }catch(e){} delete window.__activeLeafletMaps['fullscreen-map-container-inner']; }
   const container = document.getElementById('fullscreen-map-container');
@@ -5272,7 +5267,7 @@ function fs3dMlOpen(opts){
     // Gelände: Hoch = genaues swisstopo-Gelände (wie map.geo.admin.ch), Spar = gröbere Höhendaten (weniger Daten)
     const setDem = async (q)=>{
       let spec = {type:'raster-dem', tiles:[FS3D_DEM], tileSize:256, encoding:'terrarium', maxzoom: 11, attribution:'Höhen: Mapzen/AWS Terrain Tiles'};
-      if(q === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){ showToast('Genaues Gelände gerade nicht verfügbar – gröberes geladen.', true); } }
+      if(q === 'hi'){ try{ spec = await fs3dSwissTerrain(); }catch(e){ showToast('Genaues Gelände gerade nicht verfügbar – gröberes geladen.'); } }
       if(fs3dMap !== map || q !== quality) return;
       try{ map.setTerrain(null); }catch(e){}
       if(map.getSource('dem')) map.removeSource('dem');
@@ -7002,7 +6997,7 @@ function fsAspectRgb(deg){
   return S[i][1].map((v, k)=> Math.round(v + (S[i + 1][1][k] - v) * f));
 }
 function fsAspectLegendHtml(){
-  return `<div class="fsm-legend-row">${FS_ASPECT_DIRS.map((d, i)=> `<span><i style="background:rgb(${fsAspectRgb(i * 45).join(',')})"></i>${d}</span>`).join('')}</div>
+  return `<div class="fsm-legend-row fsm-legend-grid">${FS_ASPECT_DIRS.map((d, i)=> `<span><i style="background:rgb(${fsAspectRgb(i * 45).join(',')})"></i>${d}</span>`).join('')}</div>
     <small>Richtung, in die der Hang abfällt. Flaches Gelände bleibt frei. Aus dem Höhenmodell (etwa 30 m), ab mittlerem Zoom.</small>`;
 }
 function fsAspectEnsureProtocol(){
@@ -7417,10 +7412,8 @@ function fsHomePointOffer(ll){
     + '<div class="fs-pt-offer-meta"><input type="text" data-f="label" placeholder="Bezeichnung, z. B. Skidepot" autocomplete="off" aria-label="Bezeichnung des Punkts">'
     + '<select data-f="cat" aria-label="Art des Punkts">' + Object.keys(MAP_POINT_CATEGORIES).map(k=> `<option value="${k}">${esc(k ? MAP_POINT_CATEGORIES[k].label : 'Art: Punkt')}</option>`).join('') + '</select></div>'
     + '<input type="text" data-f="q" placeholder="Tour oder Hütte suchen …" autocomplete="off" aria-label="Eintrag suchen"><div class="fs-pt-offer-res"></div>';
-  const close = ()=>{ if(ml._fsm && ml._fsm.popup) ml._fsm.popup.remove(); };
-  wrap.querySelector('[data-plan]').addEventListener('click', ()=>{ close(); fsPlannerOpen(ll); });
-  wrap.querySelector('[data-scan]').addEventListener('click', ()=>{ close(); fsScanAim({lat, lon, centered: true}); });
-  wrap.querySelectorAll('[data-new]').forEach(b=> b.addEventListener('click', ()=>{ close(); fsFn(news[+b.dataset.new][2])(+lat.toFixed(6), +lon.toFixed(6)); }));
+  let close = ()=>{};
+  wrap.querySelectorAll('[data-new]').forEach(b=> b.addEventListener('click', ()=>{ close(); setTimeout(()=> fsFn(news[+b.dataset.new][2])(+lat.toFixed(6), +lon.toFixed(6)), 250); }));
   const inp = wrap.querySelector('[data-f="q"]'), res = wrap.querySelector('.fs-pt-offer-res');
   const lbl = wrap.querySelector('[data-f="label"]'), cat = wrap.querySelector('[data-f="cat"]');
   inp.addEventListener('input', ()=>{
@@ -7429,21 +7422,42 @@ function fsHomePointOffer(ll){
     res.innerHTML = hits.map((t, i)=> `<button type="button" data-i="${i}">${fsIconHtml(t.icon)}<span>${esc(t.name)}</span><small>${esc(t.label)}</small></button>`).join('');
     res.querySelectorAll('[data-i]').forEach(b=> b.addEventListener('click', ()=>{ const t = hits[+b.dataset.i]; close(); fsAppendPointTo(t.kind, t.id, lat, lon, lbl.value.trim(), cat.value); }));
   });
-  // Blatt nach unten, damit die Auswahl Platz hat
+  // Blatt nach unten, damit die Stelle auf der Karte sichtbar bleibt
   if(fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
-  // Das Loslassen nach dem Gedrückthalten kommt als Tippen auf die Karte an und würde das Fenster gleich
-  // wieder schliessen: erst ein späteres Tippen schliesst es
-  const t0 = Date.now();
-  const pop = fsmPopup(ml, ll, wrap, 8, {closeOnClick: false});
-  const onClick = ()=>{ if(Date.now() - t0 > 700) pop.remove(); };
-  ml.on('click', onClick);
-  pop.on('close', ()=> ml.off('click', onClick));
+  // Als Blatt von unten (wie Filter und Ebenen) statt als Fenster an der Karte: verdeckt keine Kartenknöpfe,
+  // und mit offener Tastatur rückt es über sie (visualViewport). Ein Pin markiert die Stelle.
+  if(ml._fsPtClose) ml._fsPtClose();
+  const pin = fsmAddMarker(ml, lat, lon, fsmCategoryMarkerHtml(''), {anchor: 'bottom'});
+  const back = document.createElement('div');
+  back.className = 'fsm-panel-back';
+  const sheet = document.createElement('div');
+  sheet.className = 'fs-pt-sheet';
+  sheet.setAttribute('role', 'dialog');
+  sheet.setAttribute('aria-label', 'Punkt hier');
+  sheet.innerHTML = '<button type="button" class="x-btn fs-pt-x" aria-label="Schliessen">×</button>';
+  sheet.appendChild(wrap);
+  const vv = window.visualViewport;
+  const lift = ()=>{ if(vv) sheet.style.bottom = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) + 'px'; };
+  const closeNow = ()=>{ sheet.remove(); back.remove(); try{ pin.remove(); }catch(e){} if(vv) vv.removeEventListener('resize', lift); if(ml._fsPtClose === drop) ml._fsPtClose = null; };
+  const drop = ()=>{ const i = overlayLayers.indexOf(layer); if(i >= 0) overlayLayers.splice(i, 1); closeNow(); };
+  ml._fsPtClose = drop;
+  const layer = closeNow;
+  // Schliessen über den Verlauf (Zurück-Geste); eine gewählte Aktion startet erst danach (eigener Verlaufseintrag)
+  close = ()=>{ if(overlayLayers[overlayLayers.length - 1] === layer) closeTopOverlayLayer(); else ml._fsPtClose && ml._fsPtClose(); };
+  const after = (fn)=> (...args)=>{ close(); setTimeout(()=> fn(...args), 250); };
+  wrap.querySelector('[data-plan]').onclick = after(()=> fsPlannerOpen(ll));
+  wrap.querySelector('[data-scan]').onclick = after(()=> fsScanAim({lat, lon, centered: true}));
+  back.addEventListener('click', close);
+  sheet.querySelector('.fs-pt-x').addEventListener('click', close);
+  if(vv) vv.addEventListener('resize', lift);
+  document.body.append(back, sheet);
+  pushOverlayLayer(layer);
 }
 function fsHomeWireHold(ml){
   if(!ml || ml._fsHomeHold) return;
   ml._fsHomeHold = true;
   // Nur in der Startansicht auf freier Karte (nicht im Planer, nicht in Tour/Gebiet, nicht auf Punkten)
-  const ok = ev=> !fsCtxUsesHome && !fsPlanner && !fsScanAimSt && document.documentElement.classList.contains('fs-mapmode') && !(typeof state !== 'undefined' && state.modal)
+  const ok = ev=> !fsCtxUsesHome && !fsPlanner && !fsScanAimSt && !ml._fsPtClose && document.documentElement.classList.contains('fs-mapmode') && !(typeof state !== 'undefined' && state.modal)
     && !(ev && ev.target && ev.target.closest && ev.target.closest('.maplibregl-marker, .maplibregl-popup, .fsm-ctlbox, .fsm-search-box'));
   ml.on('contextmenu', (e)=>{ if(e.originalEvent && e.originalEvent._fsmHandled) return; if(ok(e.originalEvent)) fsHomePointOffer(e.lngLat); });
   let timer = null, start = null;
@@ -7811,9 +7825,9 @@ function fsPlannerOpen(from){
   }
 
   function statCardHtml(icon, value){
-    return `<div style="flex:1; background:#EAF3EC; border-radius:6px; padding:8px 6px; text-align:center;">
+    return `<div style="flex:1; background:var(--ice-light); border-radius:6px; padding:8px 6px; text-align:center;">
       <div style="font-size:16px;">${icon}</div>
-      <div style="font-size:14px; font-weight:700; color:#2F6B44;">${esc(value)}</div>
+      <div style="font-size:14px; font-weight:700; color:var(--accent-ink);">${esc(value)}</div>
     </div>`;
   }
 
@@ -8229,8 +8243,10 @@ function fsmSyncPanel(map){
   if(map._fsTerrain){
     const q = fs3dQuality(), row = document.createElement('div');
     row.className = 'fsm-extra';
-    row.innerHTML = `<div class="fsm-extra-label">3D-Gelände (Hoch = genaues swisstopo-Gelände)</div><div class="fsm-seg"><button type="button" data-q="hi" class="${q === 'hi' ? 'on' : ''}">Hoch</button><button type="button" data-q="lo" class="${q === 'lo' ? 'on' : ''}">Spar</button></div>`;
+    row.innerHTML = `<div class="fsm-extra-label">3D-Gelände (Hoch = genaues swisstopo-Gelände)</div><div class="fsm-seg"><button type="button" data-q="hi" class="${q === 'hi' ? 'on' : ''}">Hoch</button><button type="button" data-q="lo" class="${q === 'lo' ? 'on' : ''}">Spar</button></div>
+      <button type="button" class="btn secondary fsm-pano-btn" data-pano>${fsIconHtml('mountain')}Gipfel ringsum</button>`;
     row.querySelectorAll('[data-q]').forEach(b=> b.addEventListener('click', ()=> fsmTerrainSetQuality(map, b.dataset.q)));
+    row.querySelector('[data-pano]').addEventListener('click', ()=>{ const c = map.getCenter(); fsmClosePanel(map); fsOpen3d({lat: c.lat, lon: c.lng, zoom: map.getZoom(), panorama: true}); });
     panel.appendChild(row);
   }
   if(map._fsm.extraPanel) map._fsm.extraPanel(panel);
@@ -8267,7 +8283,7 @@ function fsmAddMarker(map, lat, lon, html, opts){
 }
 function fsmPopup(map, lngLat, content, offset, opts){
   if(map._fsm.popup) map._fsm.popup.remove();
-  const p = new maplibregl.Popup(Object.assign({maxWidth: fsmPopupMaxWidth(map), offset: offset || 8, className:'fsm-popup'}, opts)).setLngLat(lngLat);
+  const p = new maplibregl.Popup(Object.assign({maxWidth: fsmPopupMaxWidth(map), offset: offset || 8, className:'fsm-popup', focusAfterOpen:false}, opts)).setLngLat(lngLat);
   if(typeof content === 'string') p.setHTML(content); else p.setDOMContent(content);
   p.addTo(map);
   fsmPopupStopEvents(p);
@@ -8588,7 +8604,7 @@ const FL = (function(){
     fm.closePopup();
     const maxW = this.options.maxWidth ? Math.min(this.options.maxWidth, parseInt(fsmPopupMaxWidth(fm._ml), 10)) + 'px' : fsmPopupMaxWidth(fm._ml);
     const off = this.options._off != null ? this.options._off : (this.options.offset && this.options.offset[1] ? Math.abs(this.options.offset[1]) : 10);
-    this._p = new maplibregl.Popup({maxWidth:maxW, offset:off, className:'fsm-popup', closeOnClick:true}).setLngLat([this._ll.lng, this._ll.lat]);
+    this._p = new maplibregl.Popup({maxWidth:maxW, offset:off, className:'fsm-popup', closeOnClick:true, focusAfterOpen:false}).setLngLat([this._ll.lng, this._ll.lat]);
     if(typeof this._content === 'string') this._p.setHTML(this._content); else if(this._content) this._p.setDOMContent(this._content);
     this._p.addTo(fm._ml);
     fsmPopupStopEvents(this._p);
@@ -9204,7 +9220,7 @@ function buildSkitourPopupContent(featureOrList, opts){
     // schon hier vor. Nur sinnvoll, wenn es überhaupt eigene Touren gibt.
     if(!allowAttach){
       const note = document.createElement('p');
-      note.style.cssText = 'margin:8px 0 0 0; font-size:11.5px; color:#6B7682;';
+      note.style.cssText = 'margin:8px 0 0 0; font-size:12px; color:#6B7682;';
       note.textContent = 'Zu einer Tour übernehmen: auf der grossen Karte antippen.';
       wrap.appendChild(note);
     }else if(Array.isArray(state.tours) && state.tours.length){
@@ -9695,7 +9711,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     searchRow.style.cssText = 'display:flex; gap:4px; margin-bottom:8px;';
     const searchInput = document.createElement('input');
     searchInput.type = 'text';
-    searchInput.placeholder = 'Ort, Berg oder Dorf suchen …';
+    searchInput.placeholder = 'Ort suchen …';
     searchInput.style.cssText = 'flex:1; min-width:0; border:1px solid var(--line); border-radius:4px; padding:7px 9px; font-size:13px;';
     const searchBtn = document.createElement('button');
     searchBtn.type = 'button';
@@ -9750,7 +9766,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function makeModeBtn(key){
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.style.cssText = 'flex:1; border:none; background:transparent; border-radius:16px; padding:10px 4px; font-size:13px; font-weight:700; cursor:pointer; transition:background 0.15s ease, color 0.15s ease; color:var(--ink-soft);';
+      btn.style.cssText = 'flex:1; min-height:44px; border:none; background:transparent; border-radius:16px; padding:10px 4px; font-size:13px; font-weight:700; cursor:pointer; transition:background 0.15s ease, color 0.15s ease; color:var(--ink-soft);';
       btn.textContent = MODE_META[key].label;
       return btn;
     }
@@ -9775,7 +9791,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const pointHint = document.createElement('p');
     pointHint.className = 'hint';
     pointHint.style.marginBottom = '4px';
-    pointHint.textContent = 'Lange drücken, um einen Punkt zu setzen. Normal antippen zeigt Infos zur Skitouren-Ebene (falls eingeschaltet).';
+    pointHint.textContent = 'Auf die Karte tippen und «Punkt hier setzen» wählen. Punkte lassen sich verschieben und antippen zum Beschriften.';
     wrapDiv.appendChild(pointHint);
 
     if(gpxTrackFromHidden){
@@ -9846,13 +9862,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // mit Zähler, wie viele Wegpunkte schon gesetzt sind, und einem grossen, deutlich erkennbaren
     // "Route berechnen"-Knopf, der erst ab zwei Wegpunkten farbig/aktiv wird.
     const routeActionsRow = document.createElement('div');
-    routeActionsRow.style.cssText = 'display:none; margin-top:8px; padding:10px 12px; background:#EAF3EC; border-left:3px solid #2F6B44; border-radius:4px;';
+    routeActionsRow.style.cssText = 'display:none; margin-top:8px; padding:10px 12px; background:var(--ice-light); border-left:3px solid var(--ice-deep); border-radius:4px;';
     const routeHint = document.createElement('p');
     routeHint.className = 'hint';
     routeHint.style.cssText = 'margin:0 0 8px 0;';
     routeHint.textContent = 'Start, ggf. Zwischenziele und Ziel antippen – die App sucht dann einen echten Wanderweg dazwischen.';
     const routeWaypointCount = document.createElement('span');
-    routeWaypointCount.style.cssText = 'display:inline-block; margin-bottom:8px; font-size:12px; font-weight:700; color:#2F6B44; background:#fff; border:1px solid #2F6B44; border-radius:12px; padding:3px 10px;';
+    routeWaypointCount.style.cssText = 'display:inline-block; margin-bottom:8px; font-size:12px; font-weight:700; color:var(--accent-ink); background:var(--paper); border:1px solid var(--ice-deep); border-radius:12px; padding:3px 10px;';
     const routeSmallBtnsRow = document.createElement('div');
     routeSmallBtnsRow.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;';
     const routeUndoBtn = document.createElement('button');
@@ -9959,6 +9975,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const zoom = lastPointsEditorMapView ? lastPointsEditorMapView.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
     // Vollbild: dieselbe Karte wie überall (Startkarte ausgeliehen); nur die kleine Karte im Formular ist eigen
     const map = ((isFullscreen && fsEdAcquire(mapDivId)) || fsmCreateFlMap(mapDivId, isFullscreen ? {on3d: (ml)=> openEditor3d(ml)} : undefined)).setView(center, zoom);
+    // Bearbeiten: «Fertig» statt «Schliessen» – die Änderungen bleiben (gespeichert wird im Blatt bzw. Formular)
+    if(isFullscreen){ const cb = document.getElementById('fullscreen-map-close'); if(cb) cb.innerHTML = fsIconHtml('check') + 'Fertig'; }
     map._isPointsEditorMap = true;
     if(fsPeTop){
       // Kartenknöpfe (Ebenen, Standort, 3D) unter die schwebende Leiste schieben
@@ -10355,7 +10373,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           const insertBtn = document.createElement('button');
           insertBtn.type = 'button';
           insertBtn.textContent = '➕ Zwischenpunkt danach setzen';
-          insertBtn.style.cssText = 'width:100%; margin-bottom:6px; background:#2F6B44; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+          insertBtn.style.cssText = 'width:100%; margin-bottom:6px; background:var(--ice-deep); color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
           insertBtn.addEventListener('click', ()=>{
             insertAfterWaypointIndex = i;
             routeStatus.style.color = 'var(--ink-soft)';
@@ -10405,7 +10423,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       routeWaypointCount.textContent = n===0 ? 'Noch keine Wegpunkte gesetzt' : n===1 ? '1 Wegpunkt gesetzt – noch ein Ziel antippen' : n + ' Wegpunkte gesetzt';
       const ready = n >= 2;
       calcRouteBtn.disabled = !ready;
-      calcRouteBtn.style.background = ready ? '#2F6B44' : 'var(--line)';
+      calcRouteBtn.style.background = ready ? 'var(--ice-deep)' : 'var(--line)';
       calcRouteBtn.style.color = ready ? '#fff' : 'var(--ink-faint)';
       calcRouteBtn.style.boxShadow = ready ? '0 2px 8px rgba(47,107,68,0.4)' : 'none';
       calcRouteBtn.style.cursor = ready ? 'pointer' : 'default';
@@ -10644,9 +10662,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         }
         redrawRoute();
       }else{
-        // Punkt-Modus: ein normaler Klick zeigt Infos zur angetippten SAC-Route/Sperrung (falls
-        // die Ebene an ist), statt einen Punkt zu setzen (das geht per langem Drücken, s. u.).
-        await fsmHandleInfoClick(map._ml, e.latlng, {sac:{allowAttach:false}});
+        // Punkt-Modus: Tippen bietet «Punkt hier setzen» an (wie langes Drücken); ein bewusster
+        // zweiter Tipp, damit beim Verschieben der Karte nicht versehentlich Punkte entstehen
+        offerPointAt(e);
       }
     });
 
@@ -10655,16 +10673,20 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     map.on('contextmenu', (e)=>{
       if(mode!=='point') return;
       FL.DomEvent.preventDefault(e.originalEvent);
+      offerPointAt(e);
+    });
+    function offerPointAt(e){
       const wrap = document.createElement('div');
       wrap.style.minWidth = '170px';
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = '📍 Punkt hier setzen';
-      btn.style.cssText = 'width:100%; background:#4A3524; color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
+      btn.className = 'btn';
+      btn.style.cssText = 'width:100%; min-height:48px; justify-content:center;';
+      btn.innerHTML = fsIconHtml('pin') + 'Punkt hier setzen';
       btn.addEventListener('click', ()=> addPointAt(e.latlng.lat, e.latlng.lng));
       wrap.appendChild(btn);
       FL.popup().setLatLng(e.latlng).setContent(wrap).openOn(map);
-    });
+    }
 
     redraw();
     renderList();
@@ -11294,7 +11316,7 @@ function elevationProfileSvgHtml(profile){
       <polygon points="${areaPoints}" fill="var(--ice-light)" stroke="none"/>
       <polyline points="${points}" fill="none" stroke="var(--ice-deep)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
     </svg>
-    <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--ink-faint); margin-top:2px;">
+    <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--ink-faint); margin-top:2px;">
       <span>${Math.round(minEle)} m</span>
       <span>Höhenprofil</span>
       <span>${Math.round(maxEle)} m</span>
@@ -11343,15 +11365,15 @@ function renderRouteStatCards(el, r, onDelete, onEdit){
   if(!cards.length){ el.style.display = 'none'; el.innerHTML = ''; return; }
   el.style.display = 'flex';
   el.innerHTML = cards.map(c=>
-    `<div style="flex:1; min-width:80px; background:#EAF3EC; border-radius:6px; padding:8px 6px; text-align:center;">
+    `<div style="flex:1; min-width:80px; background:var(--ice-light); border-radius:6px; padding:8px 6px; text-align:center;">
       <div style="font-size:16px;">${c.icon}</div>
-      <div style="font-size:14px; font-weight:700; color:#2F6B44;">${esc(c.value)}</div>
-      <div style="font-size:10.5px; color:var(--ink-soft);">${esc(c.label)}</div>
+      <div style="font-size:14px; font-weight:700; color:var(--accent-ink);">${esc(c.value)}</div>
+      <div style="font-size:12px; color:var(--ink-soft);">${esc(c.label)}</div>
     </div>`
   ).join('')
-    + (onEdit ? '<button type="button" data-act="edit-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid #2F6B44; color:#2F6B44; border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">✏️ Route bearbeiten</button>' : '')
+    + (onEdit ? '<button type="button" data-act="edit-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid var(--ice-deep); color:var(--accent-ink); border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">✏️ Route bearbeiten</button>' : '')
     + '<button type="button" data-act="delete-calculated-route" style="width:100%; margin-top:6px; background:none; border:1px solid var(--danger); color:var(--danger); border-radius:4px; padding:8px; font-size:12.5px; font-weight:600; cursor:pointer;">🗑️ Diese Route löschen</button>'
-    + '<p style="width:100%; margin:6px 0 0 0; font-size:11.5px; color:var(--ink-faint);">Auf den Routenstrich tippen zeigt dies erneut an. Grobe Schätzung, ohne Pausen.</p>';
+    + '<p style="width:100%; margin:6px 0 0 0; font-size:12px; color:var(--ink-faint);">Auf den Routenstrich tippen zeigt dies erneut an. Grobe Schätzung, ohne Pausen.</p>';
   const editBtn = el.querySelector('[data-act="edit-calculated-route"]');
   if(editBtn && onEdit) editBtn.addEventListener('click', onEdit);
   const deleteBtn = el.querySelector('[data-act="delete-calculated-route"]');
@@ -11804,10 +11826,10 @@ const FS_WX_PARAMS = [
   {id:'regen', short:'Regen', zero:'trocken', label:'Niederschlag 24 h', unit:'mm', ms:'messwerte-niederschlag-24h', fc:'precipitation', sum24:true, scale:[[0,'#ADB5BD'],[0.5,'#A5D8FF'],[5,'#4DABF7'],[15,'#1971C2'],[30,'#5F3DC4']]},
   {id:'temp', short:'Temp.', label:'Temperatur', unit:'°', ms:'messwerte-lufttemperatur-10min', slf:'ta', fc:'temperature_2m', field:'temp', scale:[[-15,'#5B3FA8'],[-5,'#3B5BDB'],[0,'#4DABF7'],[5,'#63C5B5'],[10,'#8BC34A'],[15,'#E8C547'],[20,'#F59F00'],[25,'#F76707'],[30,'#E03131']]},
   // Flächen statt Stationswerte: jetzt Radar bzw. Satellitenbild, danach Prognose als Raster (siehe «Wetter-Flächen»)
-  {id:'niederschlag', short:'Nieder\u00adschlag', label:'Niederschlag', unit:'mm/h', field:'precip', fc:'precipitation', scale:[[0.1,'#A5D8FF'],[0.5,'#74C0FC'],[1,'#339AF0'],[2,'#1C7ED6'],[5,'#5F3DC4'],[10,'#AE3EC9'],[20,'#E03131']]},
+  {id:'niederschlag', short:'Regen', label:'Niederschlag', unit:'mm/h', field:'precip', fc:'precipitation', scale:[[0.1,'#A5D8FF'],[0.5,'#74C0FC'],[1,'#339AF0'],[2,'#1C7ED6'],[5,'#5F3DC4'],[10,'#AE3EC9'],[20,'#E03131']]},
   {id:'wolken', short:'Wolken', label:'Bewölkung', unit:'%', field:'cloud', fc:'cloud_cover', scale:[[0,'#E9EEF2'],[25,'#D3DCE3'],[50,'#B4C0CA'],[75,'#8E9BA6'],[100,'#6B7782']]},
   // Übersicht: Wettersymbole der Ortsprognosen von MeteoSchweiz (tools/wetterorte.py), je Tag oder alle 3 Stunden
-  {id:'uebersicht', short:'Über\u00adsicht', label:'Übersicht', sym:true, fc:'sym', scale:[]},
+  {id:'uebersicht', short:'Symbole', label:'Übersicht', sym:true, fc:'sym', scale:[]},
   {id:'wind', short:'Wind', zero:'windstill', label:'Windböen', unit:'km/h', ms:'messwerte-wind-boeenspitze-kmh-10min', fc:'wind_gusts_10m', field:'wind', scale:[[0,'#8BC34A'],[30,'#E8C547'],[50,'#F59F00'],[70,'#F76707'],[90,'#E03131']]}
 ];
 function fsWxColor(p, v){ let c = p.scale[0][1]; p.scale.forEach(([t, col])=>{ if(v >= t) c = col; }); return c; }
@@ -12068,7 +12090,7 @@ async function fsmWxStart(map){
   // Skala über die ganze Breite, Zahl unter jeder Stufe (letzte mit Einheit)
   const pct = (i)=> (sc.length > 1 ? i / (sc.length - 1) * 100 : 0).toFixed(1);
   const legend = !sc.length ? '' : `<div class="g" aria-hidden="true"><i style="background:linear-gradient(90deg,${sc.map((x, i)=> x[1] + ' ' + pct(i) + '%').join(',')})"></i>`
-    + `<div class="tk">${sc.map((x, i)=> `<span style="left:${pct(i)}%">${x[0]}${p.id === 'temp' ? '°' : i === sc.length - 1 ? u : ''}</span>`).join('')}</div></div>`;
+    + `<div class="tk">${sc.map((x, i)=> (sc.length > 6 && i % 2 && i !== sc.length - 1) ? '' : `<span style="left:${pct(i)}%">${x[0]}${p.id === 'temp' ? '°' : i === sc.length - 1 ? u : ''}</span>`).join('')}</div></div>`; // viele Stufen: nur jede zweite Zahl, sonst stossen sie zusammen
   let tl = '';
   if(p.fc){
     let prevDay = -1, firstPast = true;
@@ -13111,7 +13133,7 @@ function meteoForecastOnlyHtml(lat, lon){
     // nicht live verifizieren; diese Angaben helfen, eine falsche Spaltenannahme zu erkennen.
     const dbg = entry.debug;
     return `<div class="detail-section"><h4>🌤️ Wetterprognose</h4><p class="hint">Keine Prognosedaten für diesen Punkt gefunden.</p>
-      ${dbg ? `<details style="margin-top:6px; font-size:11px; color:var(--ink-faint);"><summary>Diagnose</summary>Punkt: ${esc(dbg.pointId)} / Typ ${esc(dbg.pointTypeId)}<br/>Zeilen in Prognosedatei: ${dbg.tempRowCount}, davon passend: ${dbg.tempMatches}<br/>Spalten: ${esc((dbg.tempHeader||[]).join(', '))}</details>` : ''}
+      ${dbg ? `<details style="margin-top:6px; font-size:12px; color:var(--ink-faint);"><summary>Diagnose</summary>Punkt: ${esc(dbg.pointId)} / Typ ${esc(dbg.pointTypeId)}<br/>Zeilen in Prognosedatei: ${dbg.tempRowCount}, davon passend: ${dbg.tempMatches}<br/>Spalten: ${esc((dbg.tempHeader||[]).join(', '))}</details>` : ''}
     </div>`;
   }
   // Neuer Look: ruhiger Streifen statt grosser farbiger Kacheln; antippen öffnet MeteoSchweiz.
@@ -13197,7 +13219,7 @@ function meteoCardForecastRowHtml(lat, lon){
   return `<div class="weather-card-row" role="button" tabindex="0" data-act="open-meteo" data-lat="${lat}" data-lon="${lon}" style="display:flex; gap:5px; margin:0 0 8px; cursor:pointer;" title="Wetter bei MeteoSchweiz öffnen · nächste Tage bei ${esc(result.point.name)} (${result.distanceKm.toFixed(1)} km entfernt)" aria-label="Wetter bei MeteoSchweiz öffnen">
     ${days.map(d=>{
       const lbl = meteoFormatDayLabel(d.date);
-      return `<span style="font-size:11px; background:var(--ice-light); border-radius:4px; padding:3px 7px; white-space:nowrap;">${lbl.weekday} ${meteoDayIcon(d.precipMm)} ${Math.round(d.tempMax)}°</span>`;
+      return `<span style="font-size:12px; background:var(--ice-light); border-radius:4px; padding:3px 7px; white-space:nowrap;">${lbl.weekday} ${meteoDayIcon(d.precipMm)} ${Math.round(d.tempMax)}°</span>`;
     }).join('')}
   </div>`;
 }
@@ -13918,7 +13940,7 @@ function fsTourMissingForReady(t){
 /* ================= Tour-Status: Idee / in Recherche / bereit =================
    Alte Werte werden nur anders gelesen, nicht umgeschrieben: entwurf → Idee, vollstaendig → bereit. */
 const FS_TOUR_STATUS = [
-  {key:'idee', label:'Idee', icon:'ring'},
+  {key:'idee', label:'Idee', icon:'note'},
   {key:'recherche', label:'in Recherche', icon:'search'},
   {key:'bereit', label:'bereit', icon:'checkc'}
 ];
@@ -14092,6 +14114,7 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'delete-access-route','delete-tour-route','delete-sektor-route','delete-calculated-route',
   'remove-completion','remove-alt-track',
   'quick-edit-toggle','toggle-tour-status','set-tour-status','toggle-hut-status',
+  'convert-sektor-to-klettergebiet', // ändert die Struktur: erst im Bearbeiten-Modus
   'fs-ort-link','fs-ort-edit','fs-ort-unlink','fs-ort-delete','fs-link-hut','fs-erf-new','fs-erf-apply','fs-erf-delete',
   'open-complete-tour','open-complete-hut','mark-done',
   'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
@@ -14601,6 +14624,12 @@ function fsHandleExitGuard(ev){
   const st = ev && ev.state;
   if(st && st.fsLayer) return false; // noch innerhalb unserer Einträge
   const url = fsCurrentUrl();
+  // Startkarte in 3D: Zurück macht sie zuerst wieder flach (statt «Nochmals Zurück zum Beenden»)
+  if(typeof fsHomeMap !== 'undefined' && fsHomeMap && fsHomeMap._fsTerrain && !fsCtxUsesHome){
+    try{ history.replaceState(history.state, '', url); history.pushState({fsLayer:'guard'}, '', url); }catch(e){}
+    fsmTerrainToggle(fsHomeMap, false);
+    return true;
+  }
   if(Date.now() - fsExitAskedAt < 2500){
     // Ist dies der erste Eintrag (installierte App), schliesst erst das nächste Zurück die App.
     fsExitLeaving = true;
@@ -15371,12 +15400,12 @@ function copyTextareaContent(textareaId){
 }
 
 const HIKE_SCALE = {
-  'T1': {label:'Wandern', color:'#5FA8D3', desc:'Weg gut gebahnt, keine Absturzgefahr.'},
-  'T2': {label:'Bergwandern', color:'#2E7EB0', desc:'Weg mit durchgehendem Trassee, kann steil sein.'},
-  'T3': {label:'Anspruchsvolles Bergwandern', color:'#C9A227', desc:'Weg nicht immer sichtbar, exponierte Stellen teils gesichert.'},
-  'T4': {label:'Alpinwandern', color:'#D97B3E', desc:'Weglos oder spärlich markiert, anspruchsvolles Gelände, Hände nötig.'},
-  'T5': {label:'Anspruchsvolles Alpinwandern', color:'#C2452D', desc:'Exponiert, weglos, evtl. Firn/Blockgletscher.'},
-  'T6': {label:'Schwieriges Alpinwandern', color:'#8A2E2E', desc:'Sehr exponiert, Gletscher/Firn, Kletterstellen bis II.'}
+  'T1': {label:'Wandern', color:'#3478A8', desc:'Weg gut gebahnt, keine Absturzgefahr.'},
+  'T2': {label:'Bergwandern', color:'#1F5A86', desc:'Weg mit durchgehendem Trassee, kann steil sein.'},
+  'T3': {label:'Anspruchsvolles Bergwandern', color:'#8C6A0A', desc:'Weg nicht immer sichtbar, exponierte Stellen teils gesichert.'},
+  'T4': {label:'Alpinwandern', color:'#B0561C', desc:'Weglos oder spärlich markiert, anspruchsvolles Gelände, Hände nötig.'},
+  'T5': {label:'Anspruchsvolles Alpinwandern', color:'#AE3A22', desc:'Exponiert, weglos, evtl. Firn/Blockgletscher.'},
+  'T6': {label:'Schwieriges Alpinwandern', color:'#7E2828', desc:'Sehr exponiert, Gletscher/Firn, Kletterstellen bis II.'}
 };
 const HIKE_SCALE_ORDER = ['T1','T2','T3','T4','T5','T6'];
 
@@ -15652,8 +15681,8 @@ function accessRouteRowHtml(r, index, hutId){
   const color = accessRouteColor(r, index);
   const seasonIcon = r.season==='sommer' ? '🌞' : (r.season==='winter' ? '❄️' : '📍');
   const diffBadges = [];
-  if(r.difficulty) diffBadges.push(`<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${r.difficulty}</span>`);
-  if(r.difficultyT) diffBadges.push(`<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span>`);
+  if(r.difficulty) diffBadges.push(`<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${esc(r.difficulty)}</span>`);
+  if(r.difficultyT) diffBadges.push(`<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${esc(r.difficultyT)}</span>`);
   return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="open-access-route" data-hut-id="${hutId}" data-route-id="${r.id}" tabindex="0" role="button">
     <div class="card-top">
       <h3 style="font-size:15px;">${seasonIcon} ${esc(r.name)}</h3>
@@ -15680,8 +15709,8 @@ function accessRouteDetailHtml(hutId, route){
       ${r.duration ? `<div class="detail-stat"><div class="num">${esc(r.duration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>` : ''}
     ${(r.difficulty || r.difficultyT) ? `<div style="margin:10px 0;">
-      ${r.difficulty ? `<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${r.difficulty}</span> ` : ''}
-      ${r.difficultyT ? `<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span>` : ''}
+      ${r.difficulty ? `<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${esc(r.difficulty)}</span> ` : ''}
+      ${r.difficultyT ? `<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${esc(r.difficultyT)}</span>` : ''}
     </div>` : ''}
     ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(r.description)}</p></div>` : ''}
     ${r.gpxLink ? `<div class="detail-section"><h4>GPX-Link</h4><p><a href="${esc(r.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(r.gpxLink)}</a></p></div>` : ''}
@@ -16430,9 +16459,9 @@ function kletterroutenTableHtml(routes){
   const sorted = routes.slice().sort((a,b)=> (a.nr||0) - (b.nr||0));
   return `<table style="width:100%; border-collapse:collapse; font-size:14px; margin-top:8px;">
     <thead><tr>
-      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Nr.</th>
-      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Route</th>
-      <th style="text-align:center; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 0 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
+      <th style="text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Nr.</th>
+      <th style="text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 8px 6px 0; border-bottom:1px solid var(--line);">Route</th>
+      <th style="text-align:center; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 0 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
     </tr></thead>
     <tbody>${sorted.map(r=>`
       <tr style="border-bottom:1px solid var(--line);">
@@ -16976,9 +17005,9 @@ function renderKletterroutenEditor(containerId, hiddenInputId){
     table.style.cssText = 'width:100%; border-collapse:collapse; font-size:13.5px; margin-top:14px;';
     const thead = document.createElement('thead');
     thead.innerHTML = `<tr>
-      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:38px;">Nr.</th>
-      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line);">Route</th>
-      <th style="text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
+      <th style="text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:38px;">Nr.</th>
+      <th style="text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line);">Route</th>
+      <th style="text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); padding:0 4px 6px 0; border-bottom:1px solid var(--line); width:56px;">Grad</th>
       <th style="border-bottom:1px solid var(--line); width:26px;"></th>
     </tr>`;
     table.appendChild(thead);
@@ -21137,7 +21166,7 @@ const FS_ICON_PATHS = {
   more: 'M5 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM12 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1zM19 11.5a.5.5 0 1 0 0 1a.5.5 0 1 0 0-1z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
   hut: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5',
-  climb: 'M9 3h5a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8a5 5 0 0 1 5-5zM8 8v8',
+  climb: 'M15.5 4a1.5 1.5 0 1 1-3 0a1.5 1.5 0 1 1 3 0zM13.5 7.5l-2.5 5.5M13.5 7.5l4-3M12.6 9.5l-4.6-1.5M11 13l3.5 3-1 5M11 13l-4 3.5M20.5 3v18', // Kletternde Figur an der Wand
   pin: 'M12 21s-7-6.2-7-11.5a7 7 0 1 1 14 0C19 14.8 12 21 12 21zM12 7.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z',
   mountain: 'M2.5 20l7-12.5 4 7 2.5-4 5.5 9.5zM7.3 11.5l2.2 1.8 2-1.6',
   edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
