@@ -2452,7 +2452,18 @@ function fsPrerenderDisciplines(bar){
   sc.textContent = JSON.stringify({prerender: [{source: 'list', urls, eagerness: 'immediate'}]});
   document.head.appendChild(sc);
 }
+// Icon je Disziplin in der Auswahlliste (und damit oben im Disziplin-Knopf)
+function fsDiscLinkIcons(bar){
+  if(!bar) return;
+  bar.querySelectorAll('a').forEach(a=>{
+    if(a.querySelector('.fs-i')) return;
+    const h = a.getAttribute('href') || '';
+    const name = /d=hoch/.test(h) ? 'mountain' : /d=klet/.test(h) ? 'climb' : /d=wand/.test(h) ? 'walk' : 'snow';
+    a.insertAdjacentHTML('afterbegin', fsIconHtml(name).replace(/ fs-wx-\w+/, '') + ' ');
+  });
+}
 function fsTopbarSync(tb, bar){
+  fsDiscLinkIcons(bar);
   const a = bar && bar.querySelector('a.active');
   const disc = tb.querySelector('.fs-tb-disc');
   const ic = a && a.querySelector('.fs-i');
@@ -7487,6 +7498,27 @@ function fsMapEntities(){
   return out;
 }
 let fsPlanner = null;
+// Geteilte Route aus dem Link (?plan=lat,lon~lat,lon…&pn=Start|Ziel): Planer öffnen, sobald die Startkarte steht
+function fsPlanFromUrl(){
+  const qs = new URLSearchParams(location.search);
+  const raw = qs.get('plan');
+  if(!raw) return;
+  const pts = raw.split('~').map(x=> x.split(',').map(Number)).filter(a=> a.length === 2 && isFinite(a[0]) && isFinite(a[1]) && Math.abs(a[0]) <= 90 && Math.abs(a[1]) <= 180).slice(0, 30).map(a=> ({lat: a[0], lon: a[1]}));
+  const names = (qs.get('pn') || '').split('|');
+  qs.delete('plan'); qs.delete('pn');
+  try{ history.replaceState(history.state, '', location.pathname + (qs.toString() ? '?' + qs : '') + location.hash); }catch(e){}
+  if(pts.length < 2) return;
+  const clean = v=> v.replace(/[<>"]/g, '').trim().slice(0, 120);
+  if(names[0]) pts[0].label = clean(names[0]);
+  if(names[1]) pts[pts.length - 1].label = clean(names[1]);
+  let tries = 0;
+  const go = ()=>{
+    if(fsHomeMap && fsHomeEl && !fsCtxUsesHome && fsHomeMap.loaded && fsHomeMap.loaded()){ fsPlannerOpen(null, pts); return; }
+    if(++tries < 60) setTimeout(go, 250);
+  };
+  setTimeout(go, 300);
+}
+if(typeof window !== 'undefined') window.addEventListener('load', ()=>{ try{ fsPlanFromUrl(); }catch(e){} });
 // handoff: die gespeicherte Tour öffnet gleich, ihr Fenster übernimmt den Verlaufs-Eintrag der Planung
 // (kein history.back() direkt vor dem nächsten pushState – das verwirrt die Zurück-Taste)
 function fsPlannerClose(fromBack, force, handoff){
@@ -7501,7 +7533,7 @@ function fsPlannerClose(fromBack, force, handoff){
     if(i >= 0 && i === overlayLayers.length){ if(handoff && !modalHistoryPushed) modalHistoryPushed = true; else consumeHistoryEntry(); }
   }
 }
-function fsPlannerOpen(from){
+function fsPlannerOpen(from, preset){
   if(fsPlanner || !fsHomeMap || !fsHomeEl || fsCtxUsesHome) return;
   const ml = fsHomeMap;
   const map = FL.map(ml);
@@ -7790,16 +7822,45 @@ function fsPlannerOpen(from){
   // Felder analog zu einer über das normale Formular neu angelegten Tour, damit die Anzeige
   // (Kartenübersicht, Detailansicht) ohne Sonderfälle funktioniert. In Fixseil zusätzlich mit
   // den MSL/Hochtour-spezifischen Feldern (leer/neutral), da tourCategory dort Pflicht ist.
+  // Lesbarer Name der geplanten Route (ohne echte Ortsnamen: «Neue Route <Datum>»)
+  function plannerRouteName(){
+    const generic = /auf der Karte|\(verschoben\)|^Mein Standort$/;
+    return (generic.test(plannerStart.label) && generic.test(plannerEnd.label))
+      ? 'Neue Route ' + new Date().toLocaleDateString('de-CH')
+      : (plannerStart.label + ' → ' + plannerEnd.label).slice(0, 120);
+  }
+  function plannerGpx(){
+    if(!plannerResult || !plannerResult.coords || !plannerResult.coords.length) return;
+    downloadTrackAsGpx(plannerResult.coords, plannerRouteName().replace(' → ', ' - '));
+  }
+  // Link mit Start, Zwischenpunkten und Ziel: öffnet beim Empfänger den Planer, der die Route neu rechnet
+  async function plannerShareLink(){
+    if(!plannerStart || !plannerEnd) return;
+    const f = v=> (+v).toFixed(5);
+    const pts = [plannerStart, ...plannerWaypoints, plannerEnd].map(p=> f(p.lat) + ',' + f(p.lon)).join('~');
+    const generic = /auf der Karte|\(verschoben\)|^Mein Standort$/;
+    const lbl = p=> generic.test(p.label || '') ? '' : (p.label || '');
+    const d = new URLSearchParams(location.search).get('d');
+    const qs = new URLSearchParams();
+    if(d) qs.set('d', d);
+    qs.set('plan', pts);
+    if(lbl(plannerStart) || lbl(plannerEnd)) qs.set('pn', lbl(plannerStart) + '|' + lbl(plannerEnd));
+    const url = location.origin + location.pathname + '?' + qs.toString().replace(/%2C/g, ',').replace(/%7E/g, '~');
+    const title = plannerRouteName();
+    try{
+      if(navigator.share){ await navigator.share({title, text: title, url}); return; }
+    }catch(e){ if(e && e.name === 'AbortError') return; }
+    try{ await navigator.clipboard.writeText(url); showToast('Link kopiert.'); }
+    catch(e){ prompt('Link zum Kopieren:', url); }
+  }
+
   function savePlannerRouteAsDraft(){
     if(!plannerStart || !plannerEnd) return;
     ensureName(()=>{
       const isFixseilAppNow = typeof SEKTOREN_PATH !== 'undefined';
       // Ohne echte Ortsnamen (nur auf der Karte getippt) ein lesbarer Name statt
       // "Punkt auf der Karte → Zielpunkt auf der Karte".
-      const generic = /auf der Karte|\(verschoben\)|^Mein Standort$/;
-      const name = (generic.test(plannerStart.label) && generic.test(plannerEnd.label))
-        ? 'Neue Route ' + new Date().toLocaleDateString('de-CH')
-        : (plannerStart.label + ' → ' + plannerEnd.label).slice(0, 120);
+      const name = plannerRouteName();
       const t = {
         id: uid('t'), name, routeName: '',
         difficulty: '', targetAltitude: '',
@@ -8008,6 +8069,10 @@ function fsPlannerOpen(from){
         </div>
         <div class="fsp-profile">${elevationProfileSvgHtml(plannerResult.elevationProfile)}</div>
         <p class="fsp-note">Grobe Schätzung, ohne Pausen.</p>
+        <div class="fsp-share">
+          <button type="button" class="btn secondary" data-act="planner-gpx">${fsIconHtml('download')}GPX</button>
+          <button type="button" class="btn secondary" data-act="planner-link">${fsIconHtml('link')}Link teilen</button>
+        </div>
       ` : ''}
       <div class="fsp-actions">
         ${(plannerStart || plannerEnd || plannerWaypoints.length) ? `<button type="button" class="fsp-icon fsp-icon-lg" data-act="planner-discard" aria-label="Route verwerfen" title="Verwerfen">${fsIconHtml('trash')}</button>` : ''}
@@ -8082,6 +8147,10 @@ function fsPlannerOpen(from){
     if(calcBtn) calcBtn.onclick = calculatePlannerRoute;
     const discardBtn = plannerPanel.querySelector('[data-act="planner-discard"]');
     if(discardBtn) discardBtn.onclick = discardPlannerRoute;
+    const gpxBtn = plannerPanel.querySelector('[data-act="planner-gpx"]');
+    if(gpxBtn) gpxBtn.onclick = plannerGpx;
+    const linkBtn = plannerPanel.querySelector('[data-act="planner-link"]');
+    if(linkBtn) linkBtn.onclick = plannerShareLink;
     const saveBtn = plannerPanel.querySelector('[data-act="planner-save"]');
     if(saveBtn) saveBtn.onclick = savePlannerRouteAsDraft;
   }
@@ -8102,6 +8171,14 @@ function fsPlannerOpen(from){
   // Ebenen bleiben, wie man sie gewählt hat (Wanderwege lassen sich im Ebenen-Fenster zuschalten)
   renderPlannerPanel();
   if(from) setPlannerPoint('start', from.lat, from.lng, 'Punkt auf der Karte');
+  // Geteilter Link: Start, Zwischenpunkte, Ziel setzen (die Route rechnet sich danach selbst)
+  if(preset && preset.length >= 2){
+    const a = preset[0], z = preset[preset.length - 1];
+    setPlannerPoint('start', a.lat, a.lon, a.label || 'Punkt auf der Karte');
+    preset.slice(1, -1).forEach(p=> addPlannerWaypoint(p.lat, p.lon));
+    setPlannerPoint('end', z.lat, z.lon, z.label || 'Zielpunkt auf der Karte');
+    try{ fsmFit(ml, preset.map(p=> [p.lat, p.lon]), {top: 90, bottom: Math.round(innerHeight * 0.55), left: 40, right: 40}, 14); }catch(e){}
+  }
   const layer = ()=> fsPlannerClose(true);
   fsPlanner = {
     layer,

@@ -3081,3 +3081,6 @@ html.fs-dark .modal-head .fs-icon-btn, html.fs-dark .modal-head .fav-toggle-btn{
 html.fs-dark .fsp-swap{ background:var(--paper-2); }
 .fs-pt-offer-ort{ width:100%; min-height:46px; justify-content:center; margin-top:8px; background:var(--paper); color:var(--ink); border:1px solid var(--line); }
 html.fs-dark .fs-pt-offer-ort{ background:var(--paper-2); }
+/* Planer: geplante Route als GPX oder Link weitergeben */
+.fsp-share{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0 4px; }
+.fsp-share .btn{ min-height:48px; justify-content:center; }
