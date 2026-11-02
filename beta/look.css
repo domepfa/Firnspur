@@ -3084,3 +3084,36 @@ html.fs-dark .fs-pt-offer-ort{ background:var(--paper-2); }
 /* Planer: geplante Route als GPX oder Link weitergeben */
 .fsp-share{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0 4px; }
 .fsp-share .btn{ min-height:48px; justify-content:center; }
+
+/* ===== Grosse Ansicht (ab 1024 px): Spalte links, Karte rechts daneben ===== */
+html.fs-wide{ --fs-col:440px; }
+html.fs-wide.fs-mapmode .fs-home-map{ left:var(--fs-col); }
+html.fs-wide.fs-mapmode .fs-home-slot .fsm-ctlbox{ bottom:16px; }
+/* Suchleiste oben in der Spalte, darunter ein ruhiger Grund statt des Verlaufs über der Karte */
+html.fs-wide.fs-mapmode #fs-glass::before{ right:auto; width:var(--fs-col); height:80px; background:var(--cream); }
+html.fs-wide.fs-mapmode .fs-topbar{ left:16px; right:auto; width:calc(var(--fs-col) - 32px); max-width:none; margin:0; top:12px; }
+html.fs-wide.fs-mapmode .fs-tb-res{ left:16px !important; right:auto !important; width:calc(var(--fs-col) - 32px) !important; max-width:none !important; margin:0 !important; }
+/* Liste: feste Spalte, volle Höhe, ohne Griff und Stufen */
+html.fs-wide.fs-mapmode .fs-sheet{
+  left:0; right:auto; top:0; bottom:0; width:var(--fs-col); max-width:none; height:auto !important; margin:0;
+  transform:none !important; overflow-y:auto; touch-action:auto; border-radius:0;
+  padding:80px 20px 24px; box-shadow:none; border-right:1px solid var(--line);
+}
+html.fs-wide.fs-mapmode .fs-sheet .fs-grip, html.fs-wide.fs-mapmode .fs-home-mapbtn{ display:none !important; }
+/* Tour, Gebiet, Sektor: dieselbe Spalte, über der Liste */
+html.fs-wide .overlay.fs-sheet-mode > .modal.td{
+  left:0; right:auto; top:0; bottom:0; width:var(--fs-col); max-width:none; height:auto !important; margin:0;
+  border-radius:0; box-shadow:4px 0 24px rgba(15,30,39,.10); border-right:1px solid var(--line); transition:none;
+}
+html.fs-wide .overlay.fs-sheet-mode .fs-grabber{ visibility:hidden; height:16px; }
+/* Planer: unten in der Spalte */
+html.fs-wide .fsp.fsp-home{ left:16px; right:auto; width:calc(var(--fs-col) - 32px); max-width:none; margin:0; }
+html.fs-wide .fsp.fsp-open.fsp-home{ left:16px; right:auto; bottom:16px; max-height:calc(100dvh - 112px); }
+html.fs-wide.fs-mapmode.fs-planning .fs-home-slot .fsm-ctlbox{ top:16px !important; }
+html.fs-wide.fs-mapmode body::after{ display:none; }
+/* Grosse Ansicht: offener Planer füllt die Spalte; Blätter von unten erscheinen in der Spalte */
+html.fs-wide .fsp.fsp-open.fsp-home{ top:80px; bottom:16px; max-height:none; overflow-y:auto; }
+html.fs-wide .fs-pt-sheet{ left:16px; right:auto; bottom:16px; width:calc(var(--fs-col) - 32px); max-width:none; margin:0; border-radius:22px; max-height:calc(100dvh - 112px); }
+html.fs-wide .fs-filter-sheet{ left:16px; right:auto; bottom:16px; width:calc(var(--fs-col) - 32px); max-width:none; border-radius:24px; max-height:calc(100dvh - 112px); }
+html.fs-wide .fs-cond-sheet{ align-items:flex-end; justify-content:flex-start; }
+html.fs-wide .fs-cond-sheet .in{ width:calc(var(--fs-col) - 32px); margin:0 0 16px 16px; border-radius:22px; max-height:calc(100dvh - 112px); }
