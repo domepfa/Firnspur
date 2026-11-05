@@ -17,7 +17,10 @@ import datetime as dt
 import io
 import json
 import os
+import shutil
 import sys
+import time
+import urllib.error
 import urllib.request
 
 STAC = 'https://data.geo.admin.ch/api/stac/v1'
@@ -26,9 +29,41 @@ TYPES = {'1', '3'}  # 1 Station, 3 Point of Interest (2 = Postleitzahl, zu viele
 H3 = {6, 9, 12, 15, 18, 21}  # UTC-Stunden der 3-Stunden-Ansicht (Ortszeit 7–22 Uhr)
 
 
+# MeteoSchweiz kurz nicht erreichbar (5xx, Zeitüberschreitung, Verbindung): zweimal neu versuchen
+def _transient(e):
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code >= 500 or e.code == 429
+    return isinstance(e, (urllib.error.URLError, TimeoutError, ConnectionError))
+
+
+def retry(fn, tries=3, wait=20):
+    for i in range(tries):
+        try:
+            return fn()
+        except Exception as e:
+            if i == tries - 1 or not _transient(e):
+                raise
+            print('Server nicht erreichbar (%s), neuer Versuch in %d s' % (e, wait * (i + 1)))
+            time.sleep(wait * (i + 1))
+
+
+def run_safely(main, out):
+    """Bleibt der Server ganz weg: Ausgabe verwerfen und ohne Fehler enden. Der Ablage-Schritt lädt
+    dann nichts hoch, der letzte gute Stand im Branch bleibt."""
+    try:
+        main(out)
+    except Exception as e:
+        if not _transient(e):
+            raise
+        shutil.rmtree(out, ignore_errors=True)
+        print('MeteoSchweiz nicht erreichbar (%s) - letzter Stand bleibt' % e)
+
+
 def get(url, timeout=120):
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        return r.read()
+    def once():
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.read()
+    return retry(once)
 
 
 def latest_run():
@@ -38,7 +73,9 @@ def latest_run():
     for day in (today, today - dt.timedelta(days=1)):
         try:
             item = json.loads(get(STAC + '/collections/' + COLL + '/items/' + day.strftime('%Y%m%d') + '-ch'))
-        except Exception:
+        except Exception as e:
+            if _transient(e):
+                raise  # Server weg: nicht als «kein Lauf» werten, run_safely lässt den letzten Stand stehen
             continue
         runs = {}
         for k, a in item['assets'].items():
@@ -129,4 +166,4 @@ def main(out):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1] if len(sys.argv) > 1 else 'wetterorte')
+    run_safely(main, sys.argv[1] if len(sys.argv) > 1 else 'wetterorte')
