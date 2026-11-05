@@ -39,7 +39,7 @@ jobs:
           refs = sorted(f['properties']['forecast:reference_datetime'] for f in json.load(urllib.request.urlopen(req, timeout=60))['features'])
           print(refs[-1] + ':2' if refs else '')  # :2 = Format der Wertebilder (tools/wetterbilder.py)
           PY
-          )
+          ) || neu=''  # Server nicht erreichbar: diesmal nichts tun
           echo "alt=$alt neu=$neu"
           if [ -n "$neu" ] && [ "$neu" != "$alt" ]; then echo "los=1" >> "$GITHUB_OUTPUT"; fi
       - name: Python-Pakete
@@ -52,6 +52,8 @@ jobs:
         if: steps.neu.outputs.los == '1'
         run: |
           set -euo pipefail
+          # Server nicht erreichbar: das Skript hat nichts geschrieben, der letzte Stand im Branch bleibt
+          if [ ! -s "$RUNNER_TEMP/wetterbilder/index.json" ]; then echo 'Keine neuen Daten, letzter Stand bleibt'; exit 0; fi
           cd "$RUNNER_TEMP/wetterbilder"
           git init -q -b wetterbilder
           git config user.name 'github-actions[bot]'

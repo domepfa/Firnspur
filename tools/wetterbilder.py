@@ -22,8 +22,11 @@ import concurrent.futures as cf
 import json
 import math
 import os
+import shutil
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 
 import eccodes
@@ -42,11 +45,43 @@ LIMIT = int(os.environ.get('WX_HOURS', HOURS))  # zum Testen weniger Stunden
 NODATA = 255
 
 
+# MeteoSchweiz kurz nicht erreichbar (5xx, Zeitüberschreitung, Verbindung): zweimal neu versuchen
+def _transient(e):
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code >= 500 or e.code == 429
+    return isinstance(e, (urllib.error.URLError, TimeoutError, ConnectionError))
+
+
+def retry(fn, tries=3, wait=20):
+    for i in range(tries):
+        try:
+            return fn()
+        except Exception as e:
+            if i == tries - 1 or not _transient(e):
+                raise
+            print('Server nicht erreichbar (%s), neuer Versuch in %d s' % (e, wait * (i + 1)))
+            time.sleep(wait * (i + 1))
+
+
+def run_safely(main, out):
+    """Bleibt der Server ganz weg: Ausgabe verwerfen und ohne Fehler enden. Der Ablage-Schritt lädt
+    dann nichts hoch, der letzte gute Stand im Branch bleibt."""
+    try:
+        main(out)
+    except Exception as e:
+        if not _transient(e):
+            raise
+        shutil.rmtree(out, ignore_errors=True)
+        print('MeteoSchweiz nicht erreichbar (%s) - letzter Stand bleibt' % e)
+
+
 def get_json(url, body=None):
     req = urllib.request.Request(url, data=json.dumps(body).encode() if body else None,
                                  headers={'Content-Type': 'application/json'} if body else {})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return json.load(r)
+    def once():
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.load(r)
+    return retry(once)
 
 
 def search(**props):
@@ -76,13 +111,15 @@ def urls_for(var, ref):
 
 
 def download(url, path):
-    with urllib.request.urlopen(url, timeout=300) as r, open(path, 'wb') as f:
-        while True:
-            b = r.read(1 << 20)
-            if not b:
-                break
-            f.write(b)
-    return path
+    def once():
+        with urllib.request.urlopen(url, timeout=300) as r, open(path, 'wb') as f:
+            while True:
+                b = r.read(1 << 20)
+                if not b:
+                    break
+                f.write(b)
+        return path
+    return retry(once)
 
 
 def grib_values(path, short=None):
@@ -182,4 +219,4 @@ def main(out):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1] if len(sys.argv) > 1 else 'wetterbilder')
+    run_safely(main, sys.argv[1] if len(sys.argv) > 1 else 'wetterbilder')
