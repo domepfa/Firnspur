@@ -1645,7 +1645,7 @@ async function fsmTerrainToggle(map, on){
   try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
   // Schräg auf denselben Ausschnitt; die Mitte liegt im sichtbaren Teil (über dem Blatt bzw. unter der Leiste)
   const sheet = document.documentElement.classList.contains('fs-sheet-open');
-  const ins = sheet ? {top: 0, bottom: fsSheetHeightPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent)} : (fsmIsHomeMap(map) ? fsHomeInset() : {top: 0, bottom: 0});
+  const ins = sheet ? {top: 0, bottom: fsSheetMapPadPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent)} : (fsmIsHomeMap(map) ? fsHomeInset() : {top: 0, bottom: 0});
   const top = 60 + ins.top, bottom = ins.bottom + 20, offset = [0, Math.round((top - bottom) / 2)];
   let target = {center: map.getCenter(), zoom: Math.max(map.getZoom(), 11)};
   if(sheet && map._fsCoords && map._fsCoords.length){
@@ -2259,10 +2259,33 @@ function fsHomeDetentPx(d){
   if(d === 'liste') return vh - top;
   return Math.round(vh * 0.55);
 }
+/* ===== Grosse Ansicht (Computer, Tablet quer): Liste und Blätter als feste Spalte links, Karte rechts daneben =====
+   Ab 1024 px Breite. Die Karte rückt neben die Spalte (statt darunter), darum braucht kein Ausschnitt
+   eine Umrechnung; die Stufen des Blatts gelten hier nicht. */
+const FS_WIDE_MQ = (typeof window !== 'undefined' && window.matchMedia) ? window.matchMedia('(min-width: 1024px) and (min-height: 560px)') : null;
+function fsIsWide(){ return !!(FS_WIDE_MQ && FS_WIDE_MQ.matches); }
+function fsWideApply(){
+  document.documentElement.classList.toggle('fs-wide', fsIsWide());
+  try{ fsHomeApply(false); }catch(e){}
+  setTimeout(()=>{ try{ if(fsHomeMap) fsHomeMap.resize(); }catch(e){} }, 60);
+}
+if(FS_WIDE_MQ){
+  document.documentElement.classList.toggle('fs-wide', fsIsWide());
+  try{ FS_WIDE_MQ.addEventListener('change', fsWideApply); }catch(e){ try{ FS_WIDE_MQ.addListener(fsWideApply); }catch(e2){} }
+}
+// Höhe des Tour-Blatts für Kartenausschnitte: in der grossen Ansicht liegt es neben der Karte
+function fsSheetMapPadPx(detent){ return fsIsWide() ? 0 : fsSheetHeightPx(detent); }
 function fsHomeApply(animate){
   const root = document.documentElement;
   const sheet = document.querySelector('main .fs-sheet');
   if(!sheet) return;
+  if(fsIsWide()){
+    if(root.dataset.fsHome !== 'wide') root.dataset.fsHome = 'wide';
+    if(root.style.getPropertyValue('--fs-home-vis') !== '0px') root.style.setProperty('--fs-home-vis', '0px');
+    sheet.style.transition = 'none'; sheet.style.transform = 'none';
+    fsmWxReadoutSoon();
+    return;
+  }
   const full = fsHomeDetentPx('liste'), h = fsHomeDetentPx(fsHomeDetent);
   // Nur bei Änderung schreiben: jede Variable am Dokument rechnet die ganze Seite neu (lief nach jedem Zeichnen)
   if(root.dataset.fsHome !== fsHomeDetent){
@@ -2282,13 +2305,14 @@ function fsHomeApply(animate){
 }
 // Von Glas-Leiste und Blatt verdeckter Rand der Karte (nur in der Startansicht)
 function fsHomeInset(){
-  if(!document.documentElement.classList.contains('fs-mapmode')) return {top: 0, bottom: 0};
+  if(!document.documentElement.classList.contains('fs-mapmode') || fsIsWide()) return {top: 0, bottom: 0};
   return {top: 24, // Glas-Leiste (--fs-glass-bottom 64 px) abzüglich Grundabstand
     bottom: Math.min(fsHomeDetentPx(fsHomeDetent), Math.round(window.innerHeight * 0.6))};
 }
 // Aktuelle Suche (für Leertexte: «Keine Tour zu … gefunden» statt «passt zu diesem Filter»)
 function fsSearchQ(){ return (typeof state !== 'undefined' && typeof state.search === 'string') ? state.search.trim() : ''; }
 function fsHomeSetDetent(d, animate){
+  if(fsIsWide()){ fsHomeApply(false); return; }
   if(d === fsHomeDetent && document.documentElement.dataset.fsHome === d) return;
   fsHomeDetent = d;
   fsHomeApply(animate !== false);
@@ -6494,6 +6518,7 @@ function fsmSetSat(map, v, silent){
     const ls = map.getStyle().layers, bi = ls.findIndex(l=> l.id === 'base-luftbild');
     map.addLayer({id:'fs-sat', type:'raster', source:'fs-sat', minzoom: d.minzoom, paint:{'raster-fade-duration':0}}, (bi >= 0 && ls[bi + 1]) ? ls[bi + 1].id : 'fsm-anchor-names');
     if(!silent && map.getZoom() < d.minzoom) showToast('Satellit «' + d.label + '»: erst bei näherem Zoom sichtbar.');
+    if(v === 's2') fsmS2Watch(map);
   }
   if(!silent){ const p = fsmPrefs(); p.sat = v; fsmSavePrefs(p); }
   fsmSyncPanel(map);
@@ -6524,14 +6549,35 @@ async function fsS2DateAt(lat, lon){
   fsS2DateAt.cache.set(key, out);
   return out;
 }
+// Kacheln kommen nicht (Störung bei Copernicus): Hinweis statt leerer Kacheln mit Aufnahmedatum.
+// Fehler zählen nur, wenn seither keine Kachel geladen wurde; die nächste geladene Kachel hebt ihn auf.
+function fsmS2Failing(map){ const f = map._fsm || {}; return !!f.s2errAt && f.s2errAt > (f.s2okAt || 0); }
+function fsmS2Watch(map){
+  map._fsm.s2errAt = 0; map._fsm.s2okAt = 0;
+  if(map._fsS2Watch) return;
+  map._fsS2Watch = true;
+  map.on('error', e=>{
+    if(!e || e.sourceId !== 'fs-sat' || map._fsm.sat !== 's2') return;
+    const was = fsmS2Failing(map);
+    map._fsm.s2errAt = Date.now();
+    if(!was) fsmS2DateUpdate(map);
+  });
+  map.on('data', e=>{
+    if(!e || e.sourceId !== 'fs-sat' || !e.tile || map._fsm.sat !== 's2') return;
+    const was = fsmS2Failing(map);
+    map._fsm.s2okAt = Date.now();
+    if(was) fsmS2DateUpdate(map);
+  });
+}
 function fsmS2DateUpdate(map){
   const pill = map.getContainer().querySelector(':scope > .fsm-satbar .fsm-s2date');
   if(!pill) return;
   if(map.getZoom() < FS_SAT.s2.minzoom){ pill.textContent = 'Sentinel-2 · näher zoomen'; return; }
+  if(fsmS2Failing(map)){ map._fsm.s2seq = (map._fsm.s2seq || 0) + 1; pill.textContent = 'Sentinel-2 · Bilder zurzeit nicht verfügbar'; return; }
   const c = map.getCenter(), seq = (map._fsm.s2seq = (map._fsm.s2seq || 0) + 1);
   pill.textContent = 'Sentinel-2 · Aufnahme …';
   fsS2DateAt(c.lat, c.lng).then(d=>{
-    if(seq !== map._fsm.s2seq) return;
+    if(seq !== map._fsm.s2seq || fsmS2Failing(map)) return;
     pill.textContent = d ? 'Sentinel-2 · Aufnahme vom ' + d.toLocaleDateString('de-CH', {weekday: 'short', day: 'numeric', month: 'numeric', timeZone: 'Europe/Zurich'})
       : 'Sentinel-2 · keine klare Aufnahme in 30 Tagen';
   }).catch(()=>{ if(seq === map._fsm.s2seq) pill.textContent = 'Sentinel-2 · Datum nicht verfügbar'; });
@@ -20294,7 +20340,7 @@ function fsGotoPoint(lat, lon, label){
   if(!isFinite(lat) || !isFinite(lon)) return;
   if(fsCtxMap && document.documentElement.classList.contains('fs-ctx-map')){
     fsSetSheetDetent('peek');
-    const pad = {top: 70, left: 30, right: 70, bottom: fsSheetHeightPx('peek') + 20};
+    const pad = {top: 70, left: 30, right: 70, bottom: fsSheetMapPadPx('peek') + 20};
     fsCtxMap.flyTo({center: [lon, lat], zoom: Math.max(fsCtxMap.getZoom(), 15), padding: pad, duration: 700});
     fsCtxMap.once('moveend', ()=> fsmPopup(fsCtxMap, {lng: lon, lat}, '<b>' + esc(label || 'Punkt') + '</b>', 30));
     return;
@@ -20612,7 +20658,7 @@ function fsHideContextMap(){
 }
 function fsFitContextMap(){
   if(!fsCtxMap || !fsCtxMap._fsCoords) return;
-  const bottom = fsSheetHeightPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent);
+  const bottom = fsSheetMapPadPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent);
   fsmFit(fsCtxMap, fsCtxMap._fsCoords, {top:70, left:30, right:70, bottom: bottom + 20}, 14);
 }
 // «Weitere Routen auf diesen Gipfel»: alle Routen mit diesem Gipfelziel farbig auf die Karte hinter dem Blatt
@@ -20635,7 +20681,7 @@ function fsCtxShowGipfelziel(name){
   if(!all.length) return false;
   map._fsGzKey = key;
   fsSetSheetDetent('peek');
-  fsmFit(map, all, {top: 70, left: 30, right: 70, bottom: fsSheetHeightPx('peek') + 20}, 14);
+  fsmFit(map, all, {top: 70, left: 30, right: 70, bottom: fsSheetMapPadPx('peek') + 20}, 14);
   return true;
 }
 function fsShowContextMap(t){
