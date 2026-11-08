@@ -6515,7 +6515,7 @@ function fsmSetSat(map, v, silent){
     const d = FS_SAT[v];
     map.addSource('fs-sat', {type:'raster', tiles: d.tiles(), tileSize:256, minzoom: d.minzoom, maxzoom: d.maxzoom, attribution: d.attribution});
     // Direkt über der Grundkarte, unter allen Ebenen (Hangneigung, Routen …) und den Namen
-    const ls = map.getStyle().layers, bi = ls.findIndex(l=> l.id === 'base-luftbild');
+    const ls = map.getStyle().layers, bi = ls.findIndex(l=> l.id === (map.getLayer('base-winter') ? 'base-winter' : 'base-luftbild'));
     map.addLayer({id:'fs-sat', type:'raster', source:'fs-sat', minzoom: d.minzoom, paint:{'raster-fade-duration':0}}, (bi >= 0 && ls[bi + 1]) ? ls[bi + 1].id : 'fsm-anchor-names');
     if(!silent && map.getZoom() < d.minzoom) showToast('Satellit «' + d.label + '»: erst bei näherem Zoom sichtbar.');
     if(v === 's2') fsmS2Watch(map);
@@ -6648,6 +6648,7 @@ const FSM_OVERLAYS = [
 ];
 const FSM_BASES = [
   {id:'karte', label:'Karte'},
+  {id:'winter', label:'Winter'}, // Landeskarte Winterausgabe (Schnee, Skirouten); nur online
   {id:'luftbild', label:'Luftbild'},
   {id:'hybrid', label:'Luftbild + Namen'}
 ];
@@ -6733,12 +6734,14 @@ function fsmBaseStyle(){
     sources: {
       karte: {type:'raster', tiles:['fsoff://karte/{z}/{x}/{y}'], tileSize:256, maxzoom:18, attribution:'© swisstopo'},
       luftbild: {type:'raster', tiles:[FSM_WMTS('ch.swisstopo.swissimage','jpeg')], tileSize:256, maxzoom:19, attribution:'© swisstopo'},
+      winter: {type:'raster', tiles:[FSM_WMTS('ch.swisstopo.pixelkarte-farbe-winter','jpeg')], tileSize:256, maxzoom:18, attribution:'© swisstopo'},
       'fsm-anchor': empty
     },
     layers: [
       {id:'bg', type:'background', paint:{'background-color':'#E7ECEF'}},
       {id:'base-karte', type:'raster', source:'karte'},
       {id:'base-luftbild', type:'raster', source:'luftbild', layout:{visibility:'none'}},
+      {id:'base-winter', type:'raster', source:'winter', layout:{visibility:'none'}},
       {id:'fsm-anchor-names', type:'line', source:'fsm-anchor'},
       {id:'fsm-anchor-own', type:'line', source:'fsm-anchor'}
     ]
@@ -6790,9 +6793,10 @@ function fsmApplyPrefs(map){
 function fsmSetBase(map, base, silent){
   if(!map._fsmLoaded) return;
   map._fsm.base = base;
-  const luft = base === 'luftbild' || base === 'hybrid';
-  map.setLayoutProperty('base-karte', 'visibility', luft ? 'none' : 'visible');
+  const luft = base === 'luftbild' || base === 'hybrid', winter = base === 'winter';
+  map.setLayoutProperty('base-karte', 'visibility', (luft || winter) ? 'none' : 'visible');
   map.setLayoutProperty('base-luftbild', 'visibility', luft ? 'visible' : 'none');
+  if(map.getLayer('base-winter')) map.setLayoutProperty('base-winter', 'visibility', winter ? 'visible' : 'none');
   fsmSetNames(map, base === 'hybrid');
   if(!silent){ const p = fsmPrefs(); p.base = base; fsmSavePrefs(p); }
   fsmSyncPanel(map);
@@ -6820,7 +6824,7 @@ async function fsmAddOverview(map){
       try{ map.addLayer(nl, 'base-karte'); }catch(e){}
     });
     // Landeskarte und Luftbild blenden beim Herauszoomen in die Übersicht über (beide enden kurz hinter der Grenze)
-    ['base-karte', 'base-luftbild'].forEach(id=> map.setPaintProperty(id, 'raster-opacity', ['interpolate', ['linear'], ['zoom'], 7.3, 0, 8.1, 1]));
+    ['base-karte', 'base-luftbild', 'base-winter'].forEach(id=> map.getLayer(id) && map.setPaintProperty(id, 'raster-opacity', ['interpolate', ['linear'], ['zoom'], 7.3, 0, 8.1, 1]));
   }catch(e){ fsmOverviewStyleCache = null; }
 }
 // "Luftbild + Namen": Schrift, Wege, Gewässer usw. aus dem offiziellen swisstopo-Vektorstil
