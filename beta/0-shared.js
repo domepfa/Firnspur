@@ -7118,6 +7118,40 @@ function fsSnowEnsureProtocol(){
     return cx.getImageData(0, 0, 256, 256);
   };
   const sm = (a, b, v)=>{ const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+  // Höhenkachel: einmal laden und rechnen (geglättete Höhe, Steilheit, Licht), für bis zu 64 Bildkacheln
+  const demCache = new Map();
+  const fsSnowDem = (dz, dx, dy)=>{
+    const key = dz + '/' + dx + '/' + dy;
+    if(demCache.has(key)){ const v = demCache.get(key); demCache.delete(key); demCache.set(key, v); return v; }
+    const p = (async ()=>{
+      const dem = await pixels(FS3D_DEM.replace('{z}', dz).replace('{x}', dx).replace('{y}', dy));
+      const dd = dem.data, raw = new Float32Array(65536), e = new Float32Array(65536);
+      for(let i = 0; i < 65536; i++) raw[i] = dd[i * 4] * 256 + dd[i * 4 + 1] + dd[i * 4 + 2] / 256 - 32768;
+      const R = (x, y)=> raw[(y < 0 ? 0 : y > 255 ? 255 : y) * 256 + (x < 0 ? 0 : x > 255 ? 255 : x)];
+      // Höhen leicht glätten (3×3): die Stufen des Höhenmodells gäben sonst Streifen in der Schattierung
+      for(let y = 0; y < 256; y++) for(let x = 0; x < 256; x++){
+        let sum = 0; for(let j = -1; j <= 1; j++) for(let i = -1; i <= 1; i++) sum += R(x + i, y + j);
+        e[y * 256 + x] = sum / 9;
+      }
+      const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (dy + 0.5) / Math.pow(2, dz))));
+      const dcell = 40075016.686 * Math.cos(lat) / (256 * Math.pow(2, dz));
+      const E = (x, y)=> e[(y < 0 ? 0 : y > 255 ? 255 : y) * 256 + (x < 0 ? 0 : x > 255 ? 255 : x)];
+      const SL = new Float32Array(65536), IL = new Float32Array(65536);
+      const LX = -0.5, LY = 0.5, LZ = Math.SQRT1_2; // Richtung zum Licht (Nordwest, 45° Höhe)
+      for(let y = 0; y < 256; y++) for(let x = 0; x < 256; x++){
+        const a = E(x - 1, y - 1), b = E(x, y - 1), c = E(x + 1, y - 1), d = E(x - 1, y), f = E(x + 1, y), g = E(x - 1, y + 1), h = E(x, y + 1), kk = E(x + 1, y + 1);
+        const gx = ((c + 2 * f + kk) - (a + 2 * d + g)) / (8 * dcell), gn = ((a + 2 * b + c) - (g + 2 * h + kk)) / (8 * dcell);
+        const i = y * 256 + x;
+        SL[i] = Math.atan(Math.hypot(gx, gn)) * 180 / Math.PI;
+        IL[i] = Math.max(0, Math.min(1, ((-gx * LX - gn * LY + LZ) / Math.hypot(gx, gn, 1) - 0.35) / 0.65));
+      }
+      return {e, SL, IL};
+    })();
+    p.catch(()=> demCache.delete(key)); // Fehler nicht behalten, beim nächsten Mal neu versuchen
+    demCache.set(key, p);
+    if(demCache.size > 48) demCache.delete(demCache.keys().next().value);
+    return p;
+  };
   maplibregl.addProtocol('fssnow', (params, abort)=> fsSnowTile(params, abort).catch(e=>{
     if(!(e && e.name === 'AbortError') && typeof dlog === 'function') dlog('Luftbild Winter: ' + (e && e.message ? e.message : e), 'err');
     throw e;
@@ -7128,32 +7162,24 @@ function fsSnowEnsureProtocol(){
     const z = +m[1], tx = +m[2], ty = +m[3], signal = abort && abort.signal;
     // Höhenmodell Zoom 13 (etwa 13 m je Punkt, darunter vor allem Rauschen): darüber der passende Ausschnitt
     const dz = Math.min(z, 13), k = Math.pow(2, z - dz), dx = Math.floor(tx / k), dy = Math.floor(ty / k);
-    const [img, dem] = await Promise.all([
-      pixels(FSM_WMTS('ch.swisstopo.swissimage', 'jpeg').replace('{z}', z).replace('{x}', tx).replace('{y}', ty), signal),
-      pixels(FS3D_DEM.replace('{z}', dz).replace('{x}', dx).replace('{y}', dy), signal)
-    ]);
-    const dd = dem.data, raw = new Float32Array(65536), e = new Float32Array(65536);
-    for(let i = 0; i < 65536; i++) raw[i] = dd[i * 4] * 256 + dd[i * 4 + 1] + dd[i * 4 + 2] / 256 - 32768;
-    const R = (x, y)=> raw[(y < 0 ? 0 : y > 255 ? 255 : y) * 256 + (x < 0 ? 0 : x > 255 ? 255 : x)];
-    // Höhen leicht glätten (3×3): die Stufen des Höhenmodells gäben sonst Streifen in der Schattierung
-    for(let y = 0; y < 256; y++) for(let x = 0; x < 256; x++){
-      let sum = 0; for(let j = -1; j <= 1; j++) for(let i = -1; i <= 1; i++) sum += R(x + i, y + j);
-      e[y * 256 + x] = sum / 9;
-    }
-    // Steilheit und Licht einmal je Höhenpunkt (Sobel), danach für die Bildpunkte nur noch nachschlagen
-    const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (dy + 0.5) / Math.pow(2, dz))));
-    const dcell = 40075016.686 * Math.cos(lat) / (256 * Math.pow(2, dz));
-    const E = (x, y)=> e[(y < 0 ? 0 : y > 255 ? 255 : y) * 256 + (x < 0 ? 0 : x > 255 ? 255 : x)];
-    const SL = new Float32Array(65536), IL = new Float32Array(65536);
-    const LX = -0.5, LY = 0.5, LZ = Math.SQRT1_2; // Richtung zum Licht (Nordwest, 45° Höhe)
-    for(let y = 0; y < 256; y++) for(let x = 0; x < 256; x++){
-      const a = E(x - 1, y - 1), b = E(x, y - 1), c = E(x + 1, y - 1), d = E(x - 1, y), f = E(x + 1, y), g = E(x - 1, y + 1), h = E(x, y + 1), kk = E(x + 1, y + 1);
-      const gx = ((c + 2 * f + kk) - (a + 2 * d + g)) / (8 * dcell), gn = ((a + 2 * b + c) - (g + 2 * h + kk)) / (8 * dcell);
-      const i = y * 256 + x;
-      SL[i] = Math.atan(Math.hypot(gx, gn)) * 180 / Math.PI;
-      IL[i] = Math.max(0, Math.min(1, ((-gx * LX - gn * LY + LZ) / Math.hypot(gx, gn, 1) - 0.35) / 0.65));
-    }
+    const imgRes = await fetch(FSM_WMTS('ch.swisstopo.swissimage', 'jpeg').replace('{z}', z).replace('{x}', tx).replace('{y}', ty), {signal});
+    if(!imgRes.ok) throw new Error('Luftbild ' + imgRes.status);
+    const imgBuf = await imgRes.arrayBuffer();
+    const D = await fsSnowDem(dz, dx, dy);
+    const e = D.e, SL = D.SL, IL = D.IL;
     const ox = (tx - dx * k) * 256 / k, oy = (ty - dy * k) * 256 / k, st = 1 / k;
+    // Ganz unter der Schneegrenze: Luftbild unverändert weitergeben (kein Entpacken und neu Packen)
+    let top = -1e9;
+    const x0 = Math.max(0, Math.floor(ox) - 1), x1 = Math.min(255, Math.ceil(ox + 256 * st) + 1);
+    const y0 = Math.max(0, Math.floor(oy) - 1), y1 = Math.min(255, Math.ceil(oy + 256 * st) + 1);
+    for(let y = y0; y <= y1; y++) for(let x = x0; x <= x1; x++){ const v = e[y * 256 + x]; if(v > top) top = v; }
+    if(top < FS_SNOW_LINE - 250) return {data: imgBuf};
+    const img = await (async ()=>{
+      const bmp = await createImageBitmap(new Blob([imgBuf], {type: 'image/jpeg'}));
+      const c = mk(), cx = c.getContext('2d', {willReadFrequently: true});
+      cx.drawImage(bmp, 0, 0, 256, 256);
+      return cx.getImageData(0, 0, 256, 256);
+    })();
     const B = (A, u, v)=>{ // bilinear
       u = Math.max(0, Math.min(254.999, u)); v = Math.max(0, Math.min(254.999, v));
       const x0 = u | 0, y0 = v | 0, fx = u - x0, fy = v - y0, i = y0 * 256 + x0;
@@ -7175,9 +7201,9 @@ function fsSnowEnsureProtocol(){
       const f = fe * fs * forest;
       const q = (y * 256 + x) * 4, r = o[q], g = o[q + 1], b = o[q + 2];
       const lum = 0.3 * r + 0.59 * g + 0.11 * b;
-      const sr = 190 + 65 * il, sg = 204 + 51 * il, sb = 226 + 29 * il;
-      // Bildstruktur leicht erhalten (Spuren, Felsrippen): etwas Helligkeit des Luftbilds mitnehmen
-      const t = 0.85 + 0.15 * (lum / 255);
+      const sr = 205 + 50 * il, sg = 215 + 40 * il, sb = 232 + 23 * il;
+      // Struktur des Luftbilds erhalten (Felsrippen, Spalten, Spuren): seine Helligkeit moduliert den Schnee
+      const t = Math.min(1.04, 0.5 + 0.56 * (lum / 255));
       o[q] = r * (1 - f) + sr * t * f; o[q + 1] = g * (1 - f) + sg * t * f; o[q + 2] = b * (1 - f) + sb * t * f;
     }
     const out = mk(), oc = out.getContext('2d');
@@ -7189,7 +7215,7 @@ function fsSnowEnsureProtocol(){
 function fsmSnowEnsure(map){
   fsSnowEnsureProtocol();
   if(map.getLayer('base-schnee')) return;
-  map.addSource('schnee', {type: 'raster', tiles: ['fssnow://{z}/{x}/{y}'], tileSize: 256, minzoom: 8, maxzoom: 16, attribution: '© swisstopo, Höhenmodell: Mapzen/AWS Terrain Tiles'});
+  map.addSource('schnee', {type: 'raster', tiles: ['fssnow://{z}/{x}/{y}'], tileSize: 256, minzoom: 8, maxzoom: 18, attribution: '© swisstopo, Höhenmodell: Mapzen/AWS Terrain Tiles'});
   // Gleich nach den übrigen Grundkarten, unter Satellit, Ebenen und Namen
   const ls = map.getStyle().layers, bi = ls.findIndex(l=> l.id === 'base-winter');
   map.addLayer({id: 'base-schnee', type: 'raster', source: 'schnee', layout: {visibility: 'none'},
