@@ -7105,27 +7105,29 @@ function fsAspectEnsureProtocol(){
    Eine Näherung zum Planen und für die 3D-Ansicht, keine gemessene Schneedecke. */
 const FS_SNOW_LINE = 1500; // m ü. M., Übergang ±250 m
 let fsSnowProto = false;
-function fsSnowEnsureProtocol(){
-  if(fsSnowProto || typeof maplibregl === 'undefined' || !maplibregl.addProtocol) return;
-  fsSnowProto = true;
+// Rechnung einer Schneekachel, eigenständig (keine Bezüge nach aussen): läuft in Web Workern (mehrere Kerne,
+// die Karte bleibt flüssig) oder, wo das nicht geht, direkt. env: {img, dem, snow} = Kachel-Vorlagen, Schneegrenze.
+function fsSnowEngine(env){
   const mk = ()=> typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(256, 256) : Object.assign(document.createElement('canvas'), {width: 256, height: 256});
-  const pixels = async (url, signal)=>{
-    const r = await fetch(url, {signal});
-    if(!r.ok) throw new Error('Kachel ' + r.status);
-    const bmp = await createImageBitmap(await r.blob());
+  const decode = async (blob)=>{
+    const bmp = await createImageBitmap(blob);
     const c = mk(), cx = c.getContext('2d', {willReadFrequently: true});
     cx.drawImage(bmp, 0, 0, 256, 256);
+    if(bmp.close) bmp.close();
     return cx.getImageData(0, 0, 256, 256);
   };
+  const url = (t, z, x, y)=> t.replace('{z}', z).replace('{x}', x).replace('{y}', y);
   const sm = (a, b, v)=>{ const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const SNOW = env.snow;
   // Höhenkachel: einmal laden und rechnen (geglättete Höhe, Steilheit, Licht), für bis zu 64 Bildkacheln
   const demCache = new Map();
-  const fsSnowDem = (dz, dx, dy)=>{
+  const dem = (dz, dx, dy)=>{
     const key = dz + '/' + dx + '/' + dy;
     if(demCache.has(key)){ const v = demCache.get(key); demCache.delete(key); demCache.set(key, v); return v; }
     const p = (async ()=>{
-      const dem = await pixels(FS3D_DEM.replace('{z}', dz).replace('{x}', dx).replace('{y}', dy));
-      const dd = dem.data, raw = new Float32Array(65536), e = new Float32Array(65536);
+      const r = await fetch(url(env.dem, dz, dx, dy));
+      if(!r.ok) throw new Error('Höhenkachel ' + r.status);
+      const dd = (await decode(await r.blob())).data, raw = new Float32Array(65536), e = new Float32Array(65536);
       for(let i = 0; i < 65536; i++) raw[i] = dd[i * 4] * 256 + dd[i * 4 + 1] + dd[i * 4 + 2] / 256 - 32768;
       const R = (x, y)=> raw[(y < 0 ? 0 : y > 255 ? 255 : y) * 256 + (x < 0 ? 0 : x > 255 ? 255 : x)];
       // Höhen leicht glätten (3×3): die Stufen des Höhenmodells gäben sonst Streifen in der Schattierung
@@ -7152,20 +7154,13 @@ function fsSnowEnsureProtocol(){
     if(demCache.size > 48) demCache.delete(demCache.keys().next().value);
     return p;
   };
-  maplibregl.addProtocol('fssnow', (params, abort)=> fsSnowTile(params, abort).catch(e=>{
-    if(!(e && e.name === 'AbortError') && typeof dlog === 'function') dlog('Luftbild Winter: ' + (e && e.message ? e.message : e), 'err');
-    throw e;
-  }));
-  async function fsSnowTile(params, abort){
-    const m = /fssnow:\/\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
-    if(!m) throw new Error('fssnow');
-    const z = +m[1], tx = +m[2], ty = +m[3], signal = abort && abort.signal;
+  async function tile(z, tx, ty){
     // Höhenmodell Zoom 13 (etwa 13 m je Punkt, darunter vor allem Rauschen): darüber der passende Ausschnitt
     const dz = Math.min(z, 13), k = Math.pow(2, z - dz), dx = Math.floor(tx / k), dy = Math.floor(ty / k);
-    const imgRes = await fetch(FSM_WMTS('ch.swisstopo.swissimage', 'jpeg').replace('{z}', z).replace('{x}', tx).replace('{y}', ty), {signal});
-    if(!imgRes.ok) throw new Error('Luftbild ' + imgRes.status);
-    const imgBuf = await imgRes.arrayBuffer();
-    const D = await fsSnowDem(dz, dx, dy);
+    const [imgBuf, D] = await Promise.all([
+      fetch(url(env.img, z, tx, ty)).then(r=>{ if(!r.ok) throw new Error('Luftbild ' + r.status); return r.arrayBuffer(); }),
+      dem(dz, dx, dy)
+    ]);
     const e = D.e, SL = D.SL, IL = D.IL;
     const ox = (tx - dx * k) * 256 / k, oy = (ty - dy * k) * 256 / k, st = 1 / k;
     // Ganz unter der Schneegrenze: Luftbild unverändert weitergeben (kein Entpacken und neu Packen)
@@ -7173,13 +7168,8 @@ function fsSnowEnsureProtocol(){
     const x0 = Math.max(0, Math.floor(ox) - 1), x1 = Math.min(255, Math.ceil(ox + 256 * st) + 1);
     const y0 = Math.max(0, Math.floor(oy) - 1), y1 = Math.min(255, Math.ceil(oy + 256 * st) + 1);
     for(let y = y0; y <= y1; y++) for(let x = x0; x <= x1; x++){ const v = e[y * 256 + x]; if(v > top) top = v; }
-    if(top < FS_SNOW_LINE - 250) return {data: imgBuf};
-    const img = await (async ()=>{
-      const bmp = await createImageBitmap(new Blob([imgBuf], {type: 'image/jpeg'}));
-      const c = mk(), cx = c.getContext('2d', {willReadFrequently: true});
-      cx.drawImage(bmp, 0, 0, 256, 256);
-      return cx.getImageData(0, 0, 256, 256);
-    })();
+    if(top < SNOW - 250) return imgBuf;
+    const img = await decode(new Blob([imgBuf], {type: 'image/jpeg'}));
     const B = (A, u, v)=>{ // bilinear
       u = Math.max(0, Math.min(254.999, u)); v = Math.max(0, Math.min(254.999, v));
       const x0 = u | 0, y0 = v | 0, fx = u - x0, fy = v - y0, i = y0 * 256 + x0;
@@ -7191,7 +7181,7 @@ function fsSnowEnsureProtocol(){
     for(let i = 0; i < 65536; i++){ const r = o[i * 4], g = o[i * 4 + 1], b = o[i * 4 + 2], lum = 0.3 * r + 0.59 * g + 0.11 * b; G[i] = (g - (r + b) / 2 > 6 && lum < 115) ? 1 : 0; }
     for(let y = 0; y < 256; y++) for(let x = 0; x < 256; x++){
       const u = ox + (x + 0.5) * st - 0.5, v = oy + (y + 0.5) * st - 0.5;
-      const fe = sm(FS_SNOW_LINE - 250, FS_SNOW_LINE + 250, B(e, u, v));
+      const fe = sm(SNOW - 250, SNOW + 250, B(e, u, v));
       if(fe <= 0) continue;
       const sd = B(SL, u, v), il = B(IL, u, v);
       const fs = sd < 38 ? 1 : sd > 58 ? 0.1 : 1 - 0.9 * (sd - 38) / 20;
@@ -7209,8 +7199,61 @@ function fsSnowEnsureProtocol(){
     const out = mk(), oc = out.getContext('2d');
     oc.putImageData(img, 0, 0);
     const blob = out.convertToBlob ? await out.convertToBlob({type: 'image/jpeg', quality: 0.9}) : await new Promise(res=> out.toBlob(res, 'image/jpeg', 0.9));
-    return {data: await blob.arrayBuffer()};
+    return await blob.arrayBuffer();
   }
+  return {tile};
+}
+function fsSnowEnsureProtocol(){
+  if(fsSnowProto || typeof maplibregl === 'undefined' || !maplibregl.addProtocol) return;
+  fsSnowProto = true;
+  const env = {img: FSM_WMTS('ch.swisstopo.swissimage', 'jpeg'), dem: FS3D_DEM, snow: FS_SNOW_LINE};
+  // Hintergrund-Rechner: je Höhenkachel immer derselbe (dort liegt sie schon gerechnet)
+  let workers = [];
+  try{
+    if(typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap !== 'undefined'){
+      const src = 'const E = (' + fsSnowEngine.toString() + ')(' + JSON.stringify(env) + ');\n'
+        + 'onmessage = async (ev)=>{ const d = ev.data; try{ const b = await E.tile(d.z, d.x, d.y); postMessage({id: d.id, b}, [b]); }catch(e){ postMessage({id: d.id, err: String(e && e.message || e)}); } };';
+      const url = URL.createObjectURL(new Blob([src], {type: 'text/javascript'}));
+      const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
+      for(let i = 0; i < n; i++) workers.push(new Worker(url));
+    }
+  }catch(e){ workers = []; }
+  const pending = new Map(); let seq = 0;
+  workers.forEach(w=> w.onmessage = (ev)=>{
+    const d = ev.data, p = pending.get(d.id);
+    if(!p) return;
+    pending.delete(d.id);
+    if(d.err) p.reject(new Error(d.err)); else p.resolve(d.b);
+  });
+  const local = workers.length ? null : fsSnowEngine(env);
+  const compute = (z, x, y)=>{
+    if(local) return local.tile(z, x, y);
+    const dz = Math.min(z, 13), k = Math.pow(2, z - dz), w = workers[(Math.floor(x / k) * 31 + Math.floor(y / k)) % workers.length];
+    return new Promise((resolve, reject)=>{ const id = ++seq; pending.set(id, {resolve, reject}); w.postMessage({id, z, x, y}); });
+  };
+  // Fertige Kacheln behalten: Zurückschwenken und Drehen zeigt sie sofort scharf (etwa 500 Kacheln, gut 10 MB)
+  const done = new Map(), running = new Map();
+  const get = (key, z, x, y)=>{
+    if(done.has(key)){ const b = done.get(key); done.delete(key); done.set(key, b); return Promise.resolve(b); }
+    if(running.has(key)) return running.get(key);
+    const p = compute(z, x, y).then(b=>{
+      running.delete(key);
+      done.set(key, b);
+      if(done.size > 500) done.delete(done.keys().next().value);
+      return b;
+    }, e=>{ running.delete(key); throw e; });
+    running.set(key, p);
+    return p;
+  };
+  // Abbrechen der Karte stoppt die Rechnung nicht: das Ergebnis landet im Speicher für den nächsten Blick
+  maplibregl.addProtocol('fssnow', (params)=>{
+    const m = /fssnow:\/\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
+    if(!m) return Promise.reject(new Error('fssnow'));
+    return get(m[1] + '/' + m[2] + '/' + m[3], +m[1], +m[2], +m[3]).then(b=> ({data: b.slice(0)}), e=>{
+      if(typeof dlog === 'function') dlog('Luftbild Winter: ' + (e && e.message ? e.message : e), 'err');
+      throw e;
+    });
+  });
 }
 function fsmSnowEnsure(map){
   fsSnowEnsureProtocol();
