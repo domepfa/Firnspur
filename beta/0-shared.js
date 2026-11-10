@@ -5215,13 +5215,15 @@ function fs3dSwitchQuality(q, view){
 }
 // swisstopo-Gelände (Quantized Mesh wie in Cesium) für MapLibre: die Erweiterung rechnet die Dreiecke in
 // Höhenkacheln um (bis Zoom 16, rund 1.5 m pro Bildpunkt). Einmal geladen und angemeldet.
-let fs3dSwissTerrainP = null;
+let fs3dSwissTerrainP = null, fsQmHandler = null;
 function fs3dSwissTerrain(){
   return fs3dSwissTerrainP || (fs3dSwissTerrainP = (async ()=>{
     const [qm, dec] = await Promise.all([import('https://unpkg.com/maplibre-gl-3dtiles-terrain@0.1.0/src/index.js'), import('https://unpkg.com/@here/quantized-mesh-decoder@1.2.8/src/index.js')]);
     const ds = await qm.loadQuantizedMeshDataset('https://3d.geo.admin.ch/ch.swisstopo.terrain.3d/v1/layer.json',
       {attribution: 'Gelände: © swisstopo', boundsOverride: {west: 5.6, south: 45.5, east: 11.0, north: 48.2}, maxZoom: 16});
-    return qm.registerQuantizedMeshTerrain(maplibregl, {dataset: ds, decode: dec.default, protocol: 'fsqm'}).sourceSpec;
+    // Den Kachel-Rechner auch selbst nutzen können (Skitouren-Planung, fsElevGrid): beim Anmelden mitschreiben
+    const shim = {addProtocol: (name, fn)=>{ fsQmHandler = fn; maplibregl.addProtocol(name, fn); }, removeProtocol: (name)=> maplibregl.removeProtocol(name)};
+    return qm.registerQuantizedMeshTerrain(shim, {dataset: ds, decode: dec.default, protocol: 'fsqm'}).sourceSpec;
   })().catch(e=>{ fs3dSwissTerrainP = null; throw e; }));
 }
 // Gipfelnamen mit Höhe in der 3D-Ansicht (Gipfelliste der App), höhere zuerst; MapLibre blendet Überlappende aus
@@ -7264,6 +7266,185 @@ function fsmSnowEnsure(map){
   map.addLayer({id: 'base-schnee', type: 'raster', source: 'schnee', layout: {visibility: 'none'},
     paint: {'raster-fade-duration': 0, 'raster-opacity': ['interpolate', ['linear'], ['zoom'], 7.3, 0, 8.1, 1]}}, (bi >= 0 && ls[bi + 1]) ? ls[bi + 1].id : 'fsm-anchor-names');
 }
+/* ===== Skitouren-Planung: Aufstiegsspur aus dem Gelände (weglos, mit Spitzkehren) =====
+   Rechnet auf dem Gerät aus dem Höhenmodell (swisstopo-Gelände wie 3D «Hoch», sonst FS3D_DEM), ohne Wegnetz.
+   Suche über ein Raster (A*, 16 Richtungen, Zustand = Ort + Laufrichtung): die Spur steigt höchstens etwa 14°
+   (steiler wird teuer, daraus entstehen Spitzkehren; jede Kehre kostet Zeit), Hänge ab 30° werden gemieden,
+   je steiler, desto stärker. Zeit: 4 km/h und 400 Hm/h. Ein Vorschlag aus dem Gelände – keine Beurteilung
+   von Lawinen und Verhältnissen. */
+// Höhenraster für einen Ausschnitt in globalen Bildpunkten (Zoom z): Float32Array, Zeile für Zeile
+async function fsElevGrid(z, px0, py0, w, h){
+  const tx0 = Math.floor(px0 / 256), ty0 = Math.floor(py0 / 256), tx1 = Math.floor((px0 + w - 1) / 256), ty1 = Math.floor((py0 + h - 1) / 256);
+  const cw = (tx1 - tx0 + 1) * 256, ch = (ty1 - ty0 + 1) * 256;
+  const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(cw, ch) : Object.assign(document.createElement('canvas'), {width: cw, height: ch});
+  const cx = c.getContext('2d', {willReadFrequently: true});
+  let swiss = false;
+  try{ await fs3dSwissTerrain(); swiss = !!fsQmHandler; }catch(e){}
+  const one = async (tx, ty)=>{
+    if(swiss){
+      try{ const r = await fsQmHandler({url: 'fsqm://' + z + '/' + tx + '/' + ty}, new AbortController()); if(r && r.data) return r.data; }catch(e){}
+    }
+    const r = await fetch(FS3D_DEM.replace('{z}', z).replace('{x}', tx).replace('{y}', ty));
+    if(!r.ok) throw new Error('Höhenmodell nicht erreichbar (' + r.status + ').');
+    return await createImageBitmap(await r.blob());
+  };
+  const jobs = [];
+  for(let ty = ty0; ty <= ty1; ty++) for(let tx = tx0; tx <= tx1; tx++) jobs.push(one(tx, ty).then(bmp=> cx.drawImage(bmp, (tx - tx0) * 256, (ty - ty0) * 256, 256, 256)));
+  await Promise.all(jobs);
+  const d = cx.getImageData(px0 - tx0 * 256, py0 - ty0 * 256, w, h).data, e = new Float32Array(w * h);
+  for(let i = 0; i < w * h; i++) e[i] = d[i * 4] * 256 + d[i * 4 + 1] + d[i * 4 + 2] / 256 - 32768;
+  return {e, swiss};
+}
+// Die Suche selbst, eigenständig (läuft im Web Worker)
+function fsSkiEngine(){
+  const MOVES = [[1,0],[2,1],[1,1],[1,2],[0,1],[-1,2],[-1,1],[-2,1],[-1,0],[-2,-1],[-1,-1],[-1,-2],[0,-1],[1,-2],[1,-1],[2,-1]]; // im Kreis
+  const V = 4000 / 3600, UP = 400 / 3600; // m/s waagrecht, Hm/s im Aufstieg
+  function slopePen(s){ return s < 27 ? 1 : s < 30 ? 1.2 : s < 35 ? 2.2 : s < 40 ? 5 : s < 45 ? 14 : 45; }
+  function solve(job){
+    const w = job.w, h = job.h, e = job.e, cell = job.cell, n = w * h;
+    // Steilheit (Horn) in Grad
+    const sl = new Float32Array(n);
+    // Steilheit über rund 10 m (wie die swisstopo-Karte «Hangneigung»): feinere Raster vorher glätten,
+    // sonst zählt jede kleine Geländestufe als Steilhang
+    let es = e;
+    const rad = Math.round(5 / cell);
+    if(rad >= 1){
+      const tmp = new Float32Array(n); es = new Float32Array(n);
+      for(let y = 0; y < h; y++) for(let x = 0; x < w; x++){ let sum = 0, c = 0; for(let i = -rad; i <= rad; i++){ const xx = x + i; if(xx >= 0 && xx < w){ sum += e[y * w + xx]; c++; } } tmp[y * w + x] = sum / c; }
+      for(let y = 0; y < h; y++) for(let x = 0; x < w; x++){ let sum = 0, c = 0; for(let i = -rad; i <= rad; i++){ const yy = y + i; if(yy >= 0 && yy < h){ sum += tmp[yy * w + x]; c++; } } es[y * w + x] = sum / c; }
+    }
+    const E = (x, y)=> es[(y < 0 ? 0 : y >= h ? h - 1 : y) * w + (x < 0 ? 0 : x >= w ? w - 1 : x)];
+    for(let y = 0; y < h; y++) for(let x = 0; x < w; x++){
+      const a = E(x - 1, y - 1), b = E(x, y - 1), c = E(x + 1, y - 1), d = E(x - 1, y), f = E(x + 1, y), g = E(x - 1, y + 1), hh = E(x, y + 1), k = E(x + 1, y + 1);
+      const gx = ((c + 2 * f + k) - (a + 2 * d + g)) / (8 * cell), gy = ((g + 2 * hh + k) - (a + 2 * b + c)) / (8 * cell);
+      sl[y * w + x] = Math.atan(Math.hypot(gx, gy)) * 57.29578;
+    }
+    const ML = MOVES.map(m=> Math.hypot(m[0], m[1]) * cell);
+    const start = job.sy * w + job.sx, goal = job.ty * w + job.tx, ge = e[goal], gx0 = job.tx, gy0 = job.ty;
+    const G = new Float32Array(n * 16).fill(Infinity), P = new Int32Array(n * 16).fill(-1);
+    // Binärer Haufen (Schlüssel f, Wert Zustand)
+    let cap = 1 << 16, hk = new Float64Array(cap), hv = new Int32Array(cap), hn = 0;
+    const push = (k, v)=>{
+      if(hn === cap){ cap *= 2; const a = new Float64Array(cap), b = new Int32Array(cap); a.set(hk); b.set(hv); hk = a; hv = b; }
+      let i = hn++;
+      while(i > 0){ const p = (i - 1) >> 1; if(hk[p] <= k) break; hk[i] = hk[p]; hv[i] = hv[p]; i = p; }
+      hk[i] = k; hv[i] = v;
+    };
+    const pop = ()=>{
+      const top = hv[0]; hn--;
+      if(hn > 0){
+        const k = hk[hn], v = hv[hn]; let i = 0;
+        for(;;){ let c = 2 * i + 1; if(c >= hn) break; if(c + 1 < hn && hk[c + 1] < hk[c]) c++; if(hk[c] >= k) break; hk[i] = hk[c]; hv[i] = hv[c]; i = c; }
+        hk[i] = k; hv[i] = v;
+      }
+      return top;
+    };
+    const heur = (i)=>{ const x = i % w, y = (i / w) | 0, dz = ge - e[i]; return Math.hypot(x - gx0, y - gy0) * cell / V * 0.9 + (dz > 0 ? dz / UP : 0); };
+    for(let d = 0; d < 16; d++){ G[start * 16 + d] = 0; push(heur(start), start * 16 + d); }
+    let found = -1, steps = 0;
+    while(hn > 0){
+      const kTop = hk[0], st = pop(), i = (st / 16) | 0, d = st & 15, g = G[st];
+      if(kTop > g + heur(i) + 1e-3) continue; // veraltet
+      if(i === goal){ found = st; break; }
+      if(++steps > 9e6) break;
+      const x = i % w, y = (i / w) | 0, ei = e[i], si = sl[i];
+      for(let m = 0; m < 16; m++){
+        const nx = x + MOVES[m][0], ny = y + MOVES[m][1];
+        if(nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx, L = ML[m], dz = e[j] - ei, gr = dz / L;
+        let t = dz >= 0 ? L / V + dz / UP : L / (V * 1.6);
+        let pen = slopePen(Math.max(si, sl[j]));
+        if(gr > 0.25) pen *= 1 + (gr - 0.25) * 45;      // Spur steiler als etwa 14°: rasch teuer
+        if(gr > 0.42) pen *= 6;                          // kaum mehr mit Fellen: Stapfen
+        if(gr < -0.45) pen *= 1 + (-gr - 0.45) * 8;
+        let turn = Math.abs(m - d); if(turn > 8) turn = 16 - turn;
+        const tc = g === 0 ? 0 : turn === 0 ? 0 : turn === 1 ? 1.5 : turn === 2 ? 5 : turn <= 4 ? 14 : (si > 30 ? 60 : 35); // ab etwa 110°: Spitzkehre
+        const ng = g + t * pen + tc, ns = j * 16 + m;
+        if(ng < G[ns]){ G[ns] = ng; P[ns] = st; push(ng + heur(j), ns); }
+      }
+    }
+    if(found < 0) throw new Error(steps > 9e6 ? 'Abschnitt zu lang oder zu verwinkelt. Bitte einen Zwischenpunkt setzen.' : 'Kein Weg durchs Gelände gefunden.');
+    const cells = [];
+    for(let st = found; st >= 0; st = P[st]){ cells.push((st / 16) | 0); if(((st / 16) | 0) === start) break; }
+    cells.reverse();
+    const out = new Float32Array(cells.length * 4);
+    cells.forEach((i, k)=>{ out[k * 4] = i % w; out[k * 4 + 1] = (i / w) | 0; out[k * 4 + 2] = e[i]; out[k * 4 + 3] = sl[i]; });
+    return out;
+  }
+  return {solve};
+}
+let fsSkiWorker = null, fsSkiSeq = 0;
+const fsSkiPending = new Map();
+function fsSkiSolve(job){
+  try{
+    if(!fsSkiWorker && typeof Worker !== 'undefined'){
+      const src = 'const E = (' + fsSkiEngine.toString() + ')();\nonmessage = (ev)=>{ const d = ev.data; try{ const o = E.solve(d.job); postMessage({id: d.id, o}, [o.buffer]); }catch(e){ postMessage({id: d.id, err: String(e && e.message || e)}); } };';
+      fsSkiWorker = new Worker(URL.createObjectURL(new Blob([src], {type: 'text/javascript'})));
+      fsSkiWorker.onmessage = (ev)=>{ const p = fsSkiPending.get(ev.data.id); if(!p) return; fsSkiPending.delete(ev.data.id); if(ev.data.err) p.reject(new Error(ev.data.err)); else p.resolve(ev.data.o); };
+    }
+  }catch(e){ fsSkiWorker = null; }
+  if(!fsSkiWorker) return Promise.resolve().then(()=> fsSkiEngine().solve(job));
+  return new Promise((resolve, reject)=>{ const id = ++fsSkiSeq; fsSkiPending.set(id, {resolve, reject}); fsSkiWorker.postMessage({id, job}, [job.e.buffer]); });
+}
+// Farbe und Klasse der Linie nach Steilheit des Geländes (Farbe nie allein: Legende und Zahlen im Planer)
+const FS_SKI_CLASSES = [{max: 30, color: null, label: 'unter 30°'}, {max: 35, color: '#E8910C', label: '30–35°'}, {max: 40, color: '#D9480F', label: '35–40°'}, {max: 90, color: '#7A1FA2', label: 'über 40°'}];
+function fsSkiClass(s){ return s < 30 ? 0 : s < 35 ? 1 : s < 40 ? 2 : 3; }
+// waypoints: [[lat, lon], …] → wie fetchCalculatedRoute, dazu slopes (je Punkt), über30M, maxSlope, stapfenHm, kehren
+async function fsSkiRoute(waypoints){
+  if(!waypoints || waypoints.length < 2) throw new Error('Mindestens zwei Punkte (Start und Ziel) nötig.');
+  const PX = (lon, z)=> (lon + 180) / 360 * 256 * Math.pow(2, z);
+  const PY = (lat, z)=>{ const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * Math.pow(2, z); };
+  const coords = [], eles = [], slopes = [];
+  let swissAll = true;
+  for(let k = 0; k < waypoints.length - 1; k++){
+    const a = waypoints[k], b = waypoints[k + 1];
+    const distM = fsRcHav(a, b);
+    if(distM < 15) continue;
+    const marginM = Math.max(350, distM * 0.3);
+    let z = 15, box = null;
+    for(; z >= 13; z--){
+      const mpp = 40075016.686 * Math.cos((a[0] + b[0]) / 2 * Math.PI / 180) / (256 * Math.pow(2, z)), mg = Math.ceil(marginM / mpp);
+      const x0 = Math.floor(Math.min(PX(a[1], z), PX(b[1], z))) - mg, x1 = Math.ceil(Math.max(PX(a[1], z), PX(b[1], z))) + mg;
+      const y0 = Math.floor(Math.min(PY(a[0], z), PY(b[0], z))) - mg, y1 = Math.ceil(Math.max(PY(a[0], z), PY(b[0], z))) + mg;
+      box = {x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1, mpp};
+      if(box.w <= 640 && box.h <= 640) break;
+    }
+    if(z < 13) throw new Error('Punkte liegen zu weit auseinander (höchstens etwa 6 km je Abschnitt). Bitte einen Zwischenpunkt setzen.');
+    const grid = await fsElevGrid(z, box.x0, box.y0, box.w, box.h);
+    if(!grid.swiss) swissAll = false;
+    const cl = (v, n)=> Math.max(0, Math.min(n - 1, v));
+    const job = {e: grid.e, w: box.w, h: box.h, cell: box.mpp,
+      sx: cl(Math.floor(PX(a[1], z)) - box.x0, box.w), sy: cl(Math.floor(PY(a[0], z)) - box.y0, box.h),
+      tx: cl(Math.floor(PX(b[1], z)) - box.x0, box.w), ty: cl(Math.floor(PY(b[0], z)) - box.y0, box.h)};
+    const out = await fsSkiSolve(job);
+    const N = 256 * Math.pow(2, z);
+    for(let i = 0; i < out.length / 4; i++){
+      if(coords.length && i === 0) continue; // Anschlusspunkt nicht doppelt
+      const gx = box.x0 + out[i * 4] + 0.5, gy = box.y0 + out[i * 4 + 1] + 0.5;
+      const lon = gx / N * 360 - 180, lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * gy / N))) * 180 / Math.PI;
+      coords.push([+lat.toFixed(6), +lon.toFixed(6)]); eles.push(out[i * 4 + 2]); slopes.push(out[i * 4 + 3]);
+    }
+  }
+  if(coords.length < 2) throw new Error('Start und Ziel liegen am selben Ort.');
+  // Genau bei Start und Ziel anfangen und enden
+  coords[0] = [waypoints[0][0], waypoints[0][1]]; coords[coords.length - 1] = [waypoints[waypoints.length - 1][0], waypoints[waypoints.length - 1][1]];
+  let distanceM = 0, ascentM = 0, descentM = 0, durationS = 0, over30 = 0, stapfen = 0, kehren = 0, maxSlope = 0, prevB = null;
+  const profile = [{distM: 0, eleM: eles[0]}];
+  for(let i = 1; i < coords.length; i++){
+    const L = fsRcHav(coords[i - 1], coords[i]), dz = eles[i] - eles[i - 1], s = Math.max(slopes[i - 1], slopes[i]);
+    distanceM += L;
+    if(dz > 0) ascentM += dz; else descentM -= dz;
+    durationS += dz >= 0 ? L / (4000 / 3600) + dz / (400 / 3600) : L / (4000 / 3600 * 1.6);
+    if(s >= 30) over30 += L;
+    if(dz > 0 && (dz / Math.max(L, 1) > 0.42 || s >= 40)) stapfen += dz;
+    if(s > maxSlope) maxSlope = s;
+    const br = Math.atan2((coords[i][1] - coords[i - 1][1]) * Math.cos(coords[i][0] * Math.PI / 180), coords[i][0] - coords[i - 1][0]) * 180 / Math.PI;
+    if(prevB != null){ let dd = Math.abs(br - prevB); if(dd > 180) dd = 360 - dd; if(dd > 105){ kehren++; durationS += 30; } }
+    prevB = br;
+    profile.push({distM: distanceM, eleM: eles[i]});
+  }
+  return {coords, distanceM, durationS, ascentM, descentM, elevationProfile: profile, slopes, over30M: over30, maxSlope, stapfenHm: stapfen, kehren, source: 'ski', swiss: swissAll};
+}
 /* ===== Skipisten und Lifte (OpenStreetMap) =====
    Abfrage über Overpass je Kachel (Zoom 11, wie Parkplätze), erst ab Zoom 11. Farben wie in der Schweiz:
    blau leicht, rot mittel, schwarz schwer, orange gestrichelt Skiroute/Freeride; Lifte dunkel gestrichelt. */
@@ -7778,6 +7959,10 @@ function fsPlannerOpen(from, preset){
   let plannerCalcBusy = false;
   let plannerResult = null; // {coords, distanceM, durationS, ascentM, descentM}
   let plannerStartMarker = null, plannerEndMarker = null, plannerRouteLine = null;
+  // Art der Route: 'ski' = weglos aus dem Gelände mit Spitzkehren (fsSkiRoute), 'weg' = auf Wegen. Skitour beginnt mit 'ski'.
+  let plannerProfile = (()=>{ let v = null; try{ v = localStorage.getItem('fs-planner-profile'); }catch(e){} return (v === 'ski' || v === 'weg') ? v : (fsAppKey() === 'firnspur' ? 'ski' : 'weg'); })();
+  let plannerSegLines = []; // farbige Abschnitte nach Steilheit (nur 'ski')
+  function clearPlannerSegs(){ plannerSegLines.forEach(l=>{ try{ map.removeLayer(l); }catch(e){} }); plannerSegLines = []; }
   let plannerEndEditing = false; // Ziel ist gesetzt, soll aber per Suche ersetzt werden
   let plannerMode = 'ziel'; // 'ziel' = Start → Ziel (Tipps setzen Zwischenpunkte) | 'kette' = Punkt für Punkt (jeder Tipp verlängert die Route)
   let plannerAutoCalcTimer = null;
@@ -7853,6 +8038,7 @@ function fsPlannerOpen(from, preset){
   function invalidatePlannerResult(){
     plannerResult = null;
     if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
+    clearPlannerSegs();
     scheduleAutoPlannerCalc();
   }
   // Sobald Start und Ziel stehen, rechnet sich die Route nach jeder Änderung (Punkt gesetzt,
@@ -8010,10 +8196,24 @@ function fsPlannerOpen(from, preset){
     try{
       const waypointCoords = plannerWaypoints.map(w=> [w.lat, w.lon]);
       const coords = [[plannerStart.lat, plannerStart.lon], ...waypointCoords, [plannerEnd.lat, plannerEnd.lon]];
-      const result = await fetchCalculatedRoute(coords);
+      const result = plannerProfile === 'ski' ? await fsSkiRoute(coords) : await fetchCalculatedRoute(coords);
       plannerResult = result;
       if(plannerRouteLine) map.removeLayer(plannerRouteLine);
+      clearPlannerSegs();
       const accent = (getComputedStyle(document.documentElement).getPropertyValue('--ice-deep') || '#1E6AA0').trim();
+      if(result.slopes){
+        // Weisser Rand, darüber die Abschnitte in der Farbe ihrer Steilheit
+        plannerRouteLine = FL.polyline(result.coords, {color:'#ffffff', weight:9, opacity:0.9, lineCap:'round', lineJoin:'round'}).addTo(map);
+        let from = 0;
+        for(let i = 1; i <= result.coords.length - 1; i++){
+          const c = fsSkiClass(Math.max(result.slopes[i - 1], result.slopes[i]));
+          const next = i < result.coords.length - 1 ? fsSkiClass(Math.max(result.slopes[i], result.slopes[i + 1])) : -1;
+          if(next !== c){
+            plannerSegLines.push(FL.polyline(result.coords.slice(from, i + 1), {color: FS_SKI_CLASSES[c].color || accent, weight:5, opacity:1, lineCap:'round', lineJoin:'round'}).addTo(map));
+            from = i;
+          }
+        }
+      }else
       plannerRouteLine = FL.polyline(result.coords, {color:accent, weight:6, opacity:0.95, lineCap:'round', lineJoin:'round'}).addTo(map);
       map.fitBounds(plannerRouteLine.getBounds(), {paddingTopLeft:[40,80], paddingBottomRight:[40, Math.round(plannerPanel.offsetHeight||0) + 30]});
     }catch(e){
@@ -8034,6 +8234,7 @@ function fsPlannerOpen(from, preset){
     plannerStart = null; plannerEnd = null; plannerPicking = null; plannerEndCandidates = null; plannerEndEditing = false;
     plannerResult = null;
     if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
+    clearPlannerSegs();
     renderPlannerPanel();
   }
 
@@ -8135,7 +8336,7 @@ function fsPlannerOpen(from, preset){
     if(plannerPicking==='waypoint') return 'Tippe auf die Karte für weitere Zwischenpunkte.';
     if(!plannerStart) return 'Tippe auf die Karte, um den Start zu setzen, oder nimm deinen Standort.';
     if(!plannerEnd) return plannerMode === 'kette' ? 'Tippe den nächsten Punkt auf die Karte.' : 'Tippe auf die Karte oder suche einen Ort für das Ziel.';
-    if(plannerCalcBusy) return 'Route wird berechnet …';
+    if(plannerCalcBusy) return plannerProfile === 'ski' ? 'Gelände wird geladen, Spur wird berechnet …' : 'Route wird berechnet …';
     if(plannerMode === 'kette') return 'Jeder Tipp auf die Karte verlängert die Route. Zum Verschieben einen Punkt lange drücken.';
     if(!plannerResult) return '';
     return 'Weitere Tipps auf die Karte setzen Zwischenpunkte. Zum Verschieben einen Punkt lange drücken.';
@@ -8230,7 +8431,7 @@ function fsPlannerOpen(from, preset){
   }
   function renderPlannerPanel(){
     const accent = (getComputedStyle(document.documentElement).getPropertyValue('--ice-deep') || '#1E6AA0').trim();
-    if(plannerRouteLine) plannerRouteLine.setStyle({color: accent});
+    if(plannerRouteLine && !(plannerResult && plannerResult.slopes)) plannerRouteLine.setStyle({color: accent});
     if(!plannerExpanded){
       plannerPanel.className = 'fsp fsp-collapsed fsp-home';
       plannerPanel.style.cssText = '';
@@ -8249,6 +8450,10 @@ function fsPlannerOpen(from, preset){
         <span class="fsp-grip" aria-hidden="true"></span>
         <h3>Route planen</h3>
         <span class="fsp-head-btns"><button type="button" class="fsp-x" data-act="planner-toggle" aria-label="Planung einklappen">${fsIconHtml('chevdown')}</button><button type="button" class="fsp-x" data-act="planner-close" aria-label="Planung beenden">${fsIconHtml('x')}</button></span>
+      </div>
+      <div class="fsp-mode fsp-profile-sel" role="group" aria-label="Art der Route">
+        <button type="button" data-act="planner-profile" data-profile="ski" aria-pressed="${plannerProfile==='ski'}" class="${plannerProfile==='ski'?'on':''}">${fsIconHtml('snow').replace(/ fs-wx-\w+/, '')}Skitour (weglos)</button>
+        <button type="button" data-act="planner-profile" data-profile="weg" aria-pressed="${plannerProfile==='weg'}" class="${plannerProfile==='weg'?'on':''}">${fsIconHtml('walk')}Auf Wegen</button>
       </div>
       <div class="fsp-mode" role="group" aria-label="Art der Planung">
         <button type="button" data-act="planner-mode" data-mode="ziel" aria-pressed="${plannerMode==='ziel'}" class="${plannerMode==='ziel'?'on':''}">Start → Ziel</button>
@@ -8287,7 +8492,11 @@ function fsPlannerOpen(from, preset){
           ${typeof plannerResult.durationS==='number' ? `<div><b>${Math.floor(plannerResult.durationS/3600)}:${String(Math.round(plannerResult.durationS/60)%60).padStart(2,'0')}</b><span>Std</span></div>` : ''}
         </div>
         <div class="fsp-profile">${elevationProfileSvgHtml(plannerResult.elevationProfile)}</div>
-        <p class="fsp-note">Grobe Schätzung, ohne Pausen.</p>
+        ${plannerResult.slopes ? `
+        <p class="fsp-ski-facts">Steilste Stelle ${Math.round(plannerResult.maxSlope)}° · ${plannerResult.over30M >= 10 ? Math.round(plannerResult.over30M / 10) * 10 + ' m über 30°' : 'nichts über 30°'} · ${plannerResult.kehren} Spitzkehren${plannerResult.stapfenHm >= 10 ? ' · Stapfen ca. ' + Math.round(plannerResult.stapfenHm / 10) * 10 + ' Hm' : ''}</p>
+        <div class="fsp-ski-legend" aria-label="Farben der Linie nach Steilheit">${FS_SKI_CLASSES.map(c=> `<span><i style="background:${c.color || 'var(--ice-deep)'}"></i>${c.label}</span>`).join('')}</div>
+        <p class="fsp-note">Vorschlag aus dem Gelände (${plannerResult.swiss ? 'swisstopo-Höhenmodell' : 'grobes Höhenmodell'}), Aufstieg 400 Hm/h ohne Pausen. Ersetzt keine Beurteilung von Lawinengefahr und Verhältnissen.</p>` : `
+        <p class="fsp-note">Grobe Schätzung, ohne Pausen.</p>`}
         <div class="fsp-share">
           <button type="button" class="btn secondary" data-act="planner-gpx">${fsIconHtml('download')}GPX</button>
           <button type="button" class="btn secondary" data-act="planner-link">${fsIconHtml('link')}Link teilen</button>
@@ -8339,6 +8548,15 @@ function fsPlannerOpen(from, preset){
     if(searchBtn) searchBtn.onclick = ()=> searchAndSetEnd(plannerEndQuery);
     const searchForm = plannerPanel.querySelector('[data-act="planner-search-form"]');
     if(searchForm) searchForm.onsubmit = (e)=>{ e.preventDefault(); searchAndSetEnd(plannerEndQuery); };
+    plannerPanel.querySelectorAll('[data-act="planner-profile"]').forEach(btn=>{
+      btn.onclick = ()=>{
+        const v = btn.getAttribute('data-profile');
+        if(v === plannerProfile) return;
+        plannerProfile = v;
+        try{ localStorage.setItem('fs-planner-profile', v); }catch(e){}
+        invalidatePlannerResult(); renderPlannerPanel();
+      };
+    });
     plannerPanel.querySelectorAll('[data-act="planner-mode"]').forEach(btn=>{
       btn.onclick = ()=>{ plannerMode = btn.getAttribute('data-mode'); plannerPicking = null; renderPlannerPanel(); };
     });
