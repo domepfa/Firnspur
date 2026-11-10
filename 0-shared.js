@@ -6515,7 +6515,7 @@ function fsmSetSat(map, v, silent){
     const d = FS_SAT[v];
     map.addSource('fs-sat', {type:'raster', tiles: d.tiles(), tileSize:256, minzoom: d.minzoom, maxzoom: d.maxzoom, attribution: d.attribution});
     // Direkt über der Grundkarte, unter allen Ebenen (Hangneigung, Routen …) und den Namen
-    const ls = map.getStyle().layers, bi = ls.findIndex(l=> l.id === 'base-luftbild');
+    const ls = map.getStyle().layers, bi = ls.findIndex(l=> l.id === (map.getLayer('base-winter') ? 'base-winter' : 'base-luftbild'));
     map.addLayer({id:'fs-sat', type:'raster', source:'fs-sat', minzoom: d.minzoom, paint:{'raster-fade-duration':0}}, (bi >= 0 && ls[bi + 1]) ? ls[bi + 1].id : 'fsm-anchor-names');
     if(!silent && map.getZoom() < d.minzoom) showToast('Satellit «' + d.label + '»: erst bei näherem Zoom sichtbar.');
     if(v === 's2') fsmS2Watch(map);
@@ -6648,8 +6648,10 @@ const FSM_OVERLAYS = [
 ];
 const FSM_BASES = [
   {id:'karte', label:'Karte'},
+  {id:'winter', label:'Winter'}, // Landeskarte Winterausgabe (Schnee, Skirouten); nur online
   {id:'luftbild', label:'Luftbild'},
-  {id:'hybrid', label:'Luftbild + Namen'}
+  {id:'hybrid', label:'Luftbild + Namen'},
+  {id:'schnee', label:'Luftbild Winter'} // Luftbild mit Schnee, auf dem Gerät gerechnet (fssnow://); nur online
 ];
 let fsmLoadPromise = null;
 function fsmEnsureLoaded(){
@@ -6733,12 +6735,14 @@ function fsmBaseStyle(){
     sources: {
       karte: {type:'raster', tiles:['fsoff://karte/{z}/{x}/{y}'], tileSize:256, maxzoom:18, attribution:'© swisstopo'},
       luftbild: {type:'raster', tiles:[FSM_WMTS('ch.swisstopo.swissimage','jpeg')], tileSize:256, maxzoom:19, attribution:'© swisstopo'},
+      winter: {type:'raster', tiles:[FSM_WMTS('ch.swisstopo.pixelkarte-farbe-winter','jpeg')], tileSize:256, maxzoom:18, attribution:'© swisstopo'},
       'fsm-anchor': empty
     },
     layers: [
       {id:'bg', type:'background', paint:{'background-color':'#E7ECEF'}},
       {id:'base-karte', type:'raster', source:'karte'},
       {id:'base-luftbild', type:'raster', source:'luftbild', layout:{visibility:'none'}},
+      {id:'base-winter', type:'raster', source:'winter', layout:{visibility:'none'}},
       {id:'fsm-anchor-names', type:'line', source:'fsm-anchor'},
       {id:'fsm-anchor-own', type:'line', source:'fsm-anchor'}
     ]
@@ -6790,10 +6794,13 @@ function fsmApplyPrefs(map){
 function fsmSetBase(map, base, silent){
   if(!map._fsmLoaded) return;
   map._fsm.base = base;
-  const luft = base === 'luftbild' || base === 'hybrid';
-  map.setLayoutProperty('base-karte', 'visibility', luft ? 'none' : 'visible');
+  const luft = base === 'luftbild' || base === 'hybrid', winter = base === 'winter', schnee = base === 'schnee';
+  if(schnee) fsmSnowEnsure(map);
+  map.setLayoutProperty('base-karte', 'visibility', (luft || winter || schnee) ? 'none' : 'visible');
   map.setLayoutProperty('base-luftbild', 'visibility', luft ? 'visible' : 'none');
-  fsmSetNames(map, base === 'hybrid');
+  if(map.getLayer('base-winter')) map.setLayoutProperty('base-winter', 'visibility', winter ? 'visible' : 'none');
+  if(map.getLayer('base-schnee')) map.setLayoutProperty('base-schnee', 'visibility', schnee ? 'visible' : 'none');
+  fsmSetNames(map, base === 'hybrid' || schnee);
   if(!silent){ const p = fsmPrefs(); p.base = base; fsmSavePrefs(p); }
   fsmSyncPanel(map);
 }
@@ -6820,7 +6827,7 @@ async function fsmAddOverview(map){
       try{ map.addLayer(nl, 'base-karte'); }catch(e){}
     });
     // Landeskarte und Luftbild blenden beim Herauszoomen in die Übersicht über (beide enden kurz hinter der Grenze)
-    ['base-karte', 'base-luftbild'].forEach(id=> map.setPaintProperty(id, 'raster-opacity', ['interpolate', ['linear'], ['zoom'], 7.3, 0, 8.1, 1]));
+    ['base-karte', 'base-luftbild', 'base-winter'].forEach(id=> map.getLayer(id) && map.setPaintProperty(id, 'raster-opacity', ['interpolate', ['linear'], ['zoom'], 7.3, 0, 8.1, 1]));
   }catch(e){ fsmOverviewStyleCache = null; }
 }
 // "Luftbild + Namen": Schrift, Wege, Gewässer usw. aus dem offiziellen swisstopo-Vektorstil
@@ -7090,6 +7097,172 @@ function fsAspectEnsureProtocol(){
     const blob = out.convertToBlob ? await out.convertToBlob({type: 'image/png'}) : await new Promise(res=> out.toBlob(res, 'image/png'));
     return {data: await blob.arrayBuffer()};
   });
+}
+/* ===== Luftbild Winter: Luftbild mit Schnee, auf dem Gerät gerechnet =====
+   Kacheln über das Protokoll fssnow://. Je Kachel Luftbild (swisstopo SWISSIMAGE) und Höhenmodell (FS3D_DEM):
+   oberhalb der Schneegrenze werden Flächen weiss getönt, je flacher, desto mehr; steile Felswände bleiben frei,
+   Wald scheint durch. Schattierung aus dem Gelände (Licht von Nordwesten), Schatten leicht bläulich.
+   Eine Näherung zum Planen und für die 3D-Ansicht, keine gemessene Schneedecke. */
+const FS_SNOW_LINE = 1500; // m ü. M., Übergang ±250 m
+let fsSnowProto = false;
+// Rechnung einer Schneekachel, eigenständig (keine Bezüge nach aussen): läuft in Web Workern (mehrere Kerne,
+// die Karte bleibt flüssig) oder, wo das nicht geht, direkt. env: {img, dem, snow} = Kachel-Vorlagen, Schneegrenze.
+function fsSnowEngine(env){
+  const mk = ()=> typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(256, 256) : Object.assign(document.createElement('canvas'), {width: 256, height: 256});
+  const decode = async (blob)=>{
+    const bmp = await createImageBitmap(blob);
+    const c = mk(), cx = c.getContext('2d', {willReadFrequently: true});
+    cx.drawImage(bmp, 0, 0, 256, 256);
+    if(bmp.close) bmp.close();
+    return cx.getImageData(0, 0, 256, 256);
+  };
+  const url = (t, z, x, y)=> t.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+  const sm = (a, b, v)=>{ const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const SNOW = env.snow;
+  // Höhenkachel: einmal laden und rechnen (geglättete Höhe, Steilheit, Licht), für bis zu 64 Bildkacheln
+  const demCache = new Map();
+  const dem = (dz, dx, dy)=>{
+    const key = dz + '/' + dx + '/' + dy;
+    if(demCache.has(key)){ const v = demCache.get(key); demCache.delete(key); demCache.set(key, v); return v; }
+    const p = (async ()=>{
+      const r = await fetch(url(env.dem, dz, dx, dy));
+      if(!r.ok) throw new Error('Höhenkachel ' + r.status);
+      const dd = (await decode(await r.blob())).data, raw = new Float32Array(65536), e = new Float32Array(65536);
+      for(let i = 0; i < 65536; i++) raw[i] = dd[i * 4] * 256 + dd[i * 4 + 1] + dd[i * 4 + 2] / 256 - 32768;
+      const R = (x, y)=> raw[(y < 0 ? 0 : y > 255 ? 255 : y) * 256 + (x < 0 ? 0 : x > 255 ? 255 : x)];
+      // Höhen leicht glätten (3×3): die Stufen des Höhenmodells gäben sonst Streifen in der Schattierung
+      for(let y = 0; y < 256; y++) for(let x = 0; x < 256; x++){
+        let sum = 0; for(let j = -1; j <= 1; j++) for(let i = -1; i <= 1; i++) sum += R(x + i, y + j);
+        e[y * 256 + x] = sum / 9;
+      }
+      const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (dy + 0.5) / Math.pow(2, dz))));
+      const dcell = 40075016.686 * Math.cos(lat) / (256 * Math.pow(2, dz));
+      const E = (x, y)=> e[(y < 0 ? 0 : y > 255 ? 255 : y) * 256 + (x < 0 ? 0 : x > 255 ? 255 : x)];
+      const SL = new Float32Array(65536), IL = new Float32Array(65536);
+      const LX = -0.5, LY = 0.5, LZ = Math.SQRT1_2; // Richtung zum Licht (Nordwest, 45° Höhe)
+      for(let y = 0; y < 256; y++) for(let x = 0; x < 256; x++){
+        const a = E(x - 1, y - 1), b = E(x, y - 1), c = E(x + 1, y - 1), d = E(x - 1, y), f = E(x + 1, y), g = E(x - 1, y + 1), h = E(x, y + 1), kk = E(x + 1, y + 1);
+        const gx = ((c + 2 * f + kk) - (a + 2 * d + g)) / (8 * dcell), gn = ((a + 2 * b + c) - (g + 2 * h + kk)) / (8 * dcell);
+        const i = y * 256 + x;
+        SL[i] = Math.atan(Math.hypot(gx, gn)) * 180 / Math.PI;
+        IL[i] = Math.max(0, Math.min(1, ((-gx * LX - gn * LY + LZ) / Math.hypot(gx, gn, 1) - 0.35) / 0.65));
+      }
+      return {e, SL, IL};
+    })();
+    p.catch(()=> demCache.delete(key)); // Fehler nicht behalten, beim nächsten Mal neu versuchen
+    demCache.set(key, p);
+    if(demCache.size > 48) demCache.delete(demCache.keys().next().value);
+    return p;
+  };
+  async function tile(z, tx, ty){
+    // Höhenmodell Zoom 13 (etwa 13 m je Punkt, darunter vor allem Rauschen): darüber der passende Ausschnitt
+    const dz = Math.min(z, 13), k = Math.pow(2, z - dz), dx = Math.floor(tx / k), dy = Math.floor(ty / k);
+    const [imgBuf, D] = await Promise.all([
+      fetch(url(env.img, z, tx, ty)).then(r=>{ if(!r.ok) throw new Error('Luftbild ' + r.status); return r.arrayBuffer(); }),
+      dem(dz, dx, dy)
+    ]);
+    const e = D.e, SL = D.SL, IL = D.IL;
+    const ox = (tx - dx * k) * 256 / k, oy = (ty - dy * k) * 256 / k, st = 1 / k;
+    // Ganz unter der Schneegrenze: Luftbild unverändert weitergeben (kein Entpacken und neu Packen)
+    let top = -1e9;
+    const x0 = Math.max(0, Math.floor(ox) - 1), x1 = Math.min(255, Math.ceil(ox + 256 * st) + 1);
+    const y0 = Math.max(0, Math.floor(oy) - 1), y1 = Math.min(255, Math.ceil(oy + 256 * st) + 1);
+    for(let y = y0; y <= y1; y++) for(let x = x0; x <= x1; x++){ const v = e[y * 256 + x]; if(v > top) top = v; }
+    if(top < SNOW - 250) return imgBuf;
+    const img = await decode(new Blob([imgBuf], {type: 'image/jpeg'}));
+    const B = (A, u, v)=>{ // bilinear
+      u = Math.max(0, Math.min(254.999, u)); v = Math.max(0, Math.min(254.999, v));
+      const x0 = u | 0, y0 = v | 0, fx = u - x0, fy = v - y0, i = y0 * 256 + x0;
+      return (A[i] * (1 - fx) + A[i + 1] * fx) * (1 - fy) + (A[i + 256] * (1 - fx) + A[i + 257] * fx) * fy;
+    };
+    const o = img.data;
+    // Wald: dunkles Grün, über 3×3 Bildpunkte gemittelt (sonst fleckige Grenzen)
+    const G = new Float32Array(65536);
+    for(let i = 0; i < 65536; i++){ const r = o[i * 4], g = o[i * 4 + 1], b = o[i * 4 + 2], lum = 0.3 * r + 0.59 * g + 0.11 * b; G[i] = (g - (r + b) / 2 > 6 && lum < 115) ? 1 : 0; }
+    for(let y = 0; y < 256; y++) for(let x = 0; x < 256; x++){
+      const u = ox + (x + 0.5) * st - 0.5, v = oy + (y + 0.5) * st - 0.5;
+      const fe = sm(SNOW - 250, SNOW + 250, B(e, u, v));
+      if(fe <= 0) continue;
+      const sd = B(SL, u, v), il = B(IL, u, v);
+      const fs = sd < 38 ? 1 : sd > 58 ? 0.1 : 1 - 0.9 * (sd - 38) / 20;
+      let wood = 0, n = 0;
+      for(let j = -1; j <= 1; j++) for(let i = -1; i <= 1; i++){ const xx = x + i, yy = y + j; if(xx >= 0 && xx < 256 && yy >= 0 && yy < 256){ wood += G[yy * 256 + xx]; n++; } }
+      const forest = 1 - 0.65 * (wood / n); // Wald scheint durch
+      const f = fe * fs * forest;
+      const q = (y * 256 + x) * 4, r = o[q], g = o[q + 1], b = o[q + 2];
+      const lum = 0.3 * r + 0.59 * g + 0.11 * b;
+      const sr = 205 + 50 * il, sg = 215 + 40 * il, sb = 232 + 23 * il;
+      // Struktur des Luftbilds erhalten (Felsrippen, Spalten, Spuren): seine Helligkeit moduliert den Schnee
+      const t = Math.min(1.04, 0.5 + 0.56 * (lum / 255));
+      o[q] = r * (1 - f) + sr * t * f; o[q + 1] = g * (1 - f) + sg * t * f; o[q + 2] = b * (1 - f) + sb * t * f;
+    }
+    const out = mk(), oc = out.getContext('2d');
+    oc.putImageData(img, 0, 0);
+    const blob = out.convertToBlob ? await out.convertToBlob({type: 'image/jpeg', quality: 0.9}) : await new Promise(res=> out.toBlob(res, 'image/jpeg', 0.9));
+    return await blob.arrayBuffer();
+  }
+  return {tile};
+}
+function fsSnowEnsureProtocol(){
+  if(fsSnowProto || typeof maplibregl === 'undefined' || !maplibregl.addProtocol) return;
+  fsSnowProto = true;
+  const env = {img: FSM_WMTS('ch.swisstopo.swissimage', 'jpeg'), dem: FS3D_DEM, snow: FS_SNOW_LINE};
+  // Hintergrund-Rechner: je Höhenkachel immer derselbe (dort liegt sie schon gerechnet)
+  let workers = [];
+  try{
+    if(typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap !== 'undefined'){
+      const src = 'const E = (' + fsSnowEngine.toString() + ')(' + JSON.stringify(env) + ');\n'
+        + 'onmessage = async (ev)=>{ const d = ev.data; try{ const b = await E.tile(d.z, d.x, d.y); postMessage({id: d.id, b}, [b]); }catch(e){ postMessage({id: d.id, err: String(e && e.message || e)}); } };';
+      const url = URL.createObjectURL(new Blob([src], {type: 'text/javascript'}));
+      const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
+      for(let i = 0; i < n; i++) workers.push(new Worker(url));
+    }
+  }catch(e){ workers = []; }
+  const pending = new Map(); let seq = 0;
+  workers.forEach(w=> w.onmessage = (ev)=>{
+    const d = ev.data, p = pending.get(d.id);
+    if(!p) return;
+    pending.delete(d.id);
+    if(d.err) p.reject(new Error(d.err)); else p.resolve(d.b);
+  });
+  const local = workers.length ? null : fsSnowEngine(env);
+  const compute = (z, x, y)=>{
+    if(local) return local.tile(z, x, y);
+    const dz = Math.min(z, 13), k = Math.pow(2, z - dz), w = workers[(Math.floor(x / k) * 31 + Math.floor(y / k)) % workers.length];
+    return new Promise((resolve, reject)=>{ const id = ++seq; pending.set(id, {resolve, reject}); w.postMessage({id, z, x, y}); });
+  };
+  // Fertige Kacheln behalten: Zurückschwenken und Drehen zeigt sie sofort scharf (etwa 500 Kacheln, gut 10 MB)
+  const done = new Map(), running = new Map();
+  const get = (key, z, x, y)=>{
+    if(done.has(key)){ const b = done.get(key); done.delete(key); done.set(key, b); return Promise.resolve(b); }
+    if(running.has(key)) return running.get(key);
+    const p = compute(z, x, y).then(b=>{
+      running.delete(key);
+      done.set(key, b);
+      if(done.size > 500) done.delete(done.keys().next().value);
+      return b;
+    }, e=>{ running.delete(key); throw e; });
+    running.set(key, p);
+    return p;
+  };
+  // Abbrechen der Karte stoppt die Rechnung nicht: das Ergebnis landet im Speicher für den nächsten Blick
+  maplibregl.addProtocol('fssnow', (params)=>{
+    const m = /fssnow:\/\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
+    if(!m) return Promise.reject(new Error('fssnow'));
+    return get(m[1] + '/' + m[2] + '/' + m[3], +m[1], +m[2], +m[3]).then(b=> ({data: b.slice(0)}), e=>{
+      if(typeof dlog === 'function') dlog('Luftbild Winter: ' + (e && e.message ? e.message : e), 'err');
+      throw e;
+    });
+  });
+}
+function fsmSnowEnsure(map){
+  fsSnowEnsureProtocol();
+  if(map.getLayer('base-schnee')) return;
+  map.addSource('schnee', {type: 'raster', tiles: ['fssnow://{z}/{x}/{y}'], tileSize: 256, minzoom: 8, maxzoom: 18, attribution: '© swisstopo, Höhenmodell: Mapzen/AWS Terrain Tiles'});
+  // Gleich nach den übrigen Grundkarten, unter Satellit, Ebenen und Namen
+  const ls = map.getStyle().layers, bi = ls.findIndex(l=> l.id === 'base-winter');
+  map.addLayer({id: 'base-schnee', type: 'raster', source: 'schnee', layout: {visibility: 'none'},
+    paint: {'raster-fade-duration': 0, 'raster-opacity': ['interpolate', ['linear'], ['zoom'], 7.3, 0, 8.1, 1]}}, (bi >= 0 && ls[bi + 1]) ? ls[bi + 1].id : 'fsm-anchor-names');
 }
 /* ===== Skipisten und Lifte (OpenStreetMap) =====
    Abfrage über Overpass je Kachel (Zoom 11, wie Parkplätze), erst ab Zoom 11. Farben wie in der Schweiz:
@@ -8371,7 +8544,7 @@ function fsmSyncPanel(map){
   const satRow = `<div class="fsm-sat"><span>Satellit</span><div class="fsm-seg">${[['off', 'Aus']].concat(Object.keys(FS_SAT).map(k=> [k, FS_SAT[k].label])).map(([k, l])=> `<button type="button" data-sat="${k}" class="${sat === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`
     + (sat === 'nasa' ? `<div class="fsm-seg fsm-days">${[1, 2, 3].map(n=> `<button type="button" data-day="${n}" class="${fsNasaDay === n ? 'on' : ''}">${dayLbl(n)}</button>`).join('')}</div>` : '');
   panel.innerHTML = `${panel.classList.contains('fsm-panel-sheet') ? `<div class="fsm-sheet-head"><b>Kartenebenen</b><button type="button" class="fsm-sheet-done" data-fsm-done>Fertig</button></div>` : ''}
-    <div class="fsm-seg">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
+    <div class="fsm-seg fsm-seg-bases">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
     ${satRow}
     ${FSM_OVERLAY_GROUPS.map(([g, label])=>{ const list = ovs.filter(o=> (o.group || 'unterwegs') === g); return list.length ? `<div class="fsm-group">${label}</div>${list.map(row).join('')}` : ''; }).join('')}`;
   const done = panel.querySelector('[data-fsm-done]');
