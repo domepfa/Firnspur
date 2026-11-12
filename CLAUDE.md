@@ -55,6 +55,9 @@ aus anderen Apps übernehmen.
   rechnet auf dem Gerät eine Aufstiegsspur mit Spitzkehren aus dem Höhenmodell (`fsSkiRoute`: Raster über `fsElevGrid` aus dem
   swisstopo-Gelände, Suche `fsSkiEngine` im Web Worker; Spur höchstens etwa 14° steil, Hänge ab 30° gemieden; Linie nach
   Steilheit gefärbt, `FS_SKI_CLASSES`). Ein Vorschlag aus dem Gelände, keine Lawinenbeurteilung – so steht es auch im Planer.
+- Auf- und Abstieg einer Tourlinie (`fsUpDownSplit`): Routen der Art Aufstieg bzw. Auf- & Abfahrt, die auch wieder hinunterführen,
+  zeichnet die Tour-Karte zweiteilig (Abstieg/Abfahrt gestrichelt in der Farbe dieser Routenart, Zeichen am höchsten Punkt). Höhen vom
+  swisstopo-Höhendienst, nur auf dem Gerät gemerkt (`fs-updown`); an der Tour ändert sich nichts.
 - Hang-Scan (`fsScan*` in `0-shared.js`): Zielen mit festem Rahmen auf der Startkarte (Menü oder Gedrückthalten),
   Rechnung auf dem Gerät, eigene 3D-Ansicht mit den Ebenen Steilheit, Lawine, Klippen, Sonne (Zeitraffer).
   Neigung ab 30° aus der swisstopo-Karte «Hangneigung über 30°» (wie der Routen-Check `fsRc*`), sonst
