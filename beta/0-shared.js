@@ -1293,6 +1293,10 @@ function trashItemCardHtml(item, kind){
     </div>
   </div>`;
 }
+// Wie esc, dazu werden Internetadressen im Text antippbar (öffnen in neuem Fenster)
+function escL(s){
+  return esc(s).replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)\]]/g, u=> `<a class="fs-txt-link" href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+}
 function esc(s){
   if(s===undefined||s===null) return '';
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -3241,7 +3245,7 @@ async function loadAgendaWeather(agendaId){
   }else if(w.status==='past'){
     el.innerHTML = '';
   }else{
-    el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">${esc(w.message||'Wetterdaten nicht verfügbar.')}</p></div>`;
+    el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">${escL(w.message||'Wetterdaten nicht verfügbar.')}</p></div>`;
   }
 }
 // Friert die zuletzt geladene Wetterprognose auf dem Agenda-Eintrag ein (Offline-Snapshot) – nützlich,
@@ -3420,7 +3424,7 @@ function agendaDetailHtml(id){
       ${a.weatherSnapshot.meteoSwissLink ? `<a href="${esc(a.weatherSnapshot.meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block; margin-top:8px;">${fsIconHtml('partly')} MeteoSchweiz öffnen</a>` : ''}
     </div>` : ''}
     <div id="agenda-weather-${a.id}"></div>
-    ${a.meetingPoint ? `<div class="detail-section"><h4>Treffpunkt</h4><p>${esc(a.meetingPoint)}</p></div>` : ''}
+    ${a.meetingPoint ? `<div class="detail-section"><h4>Treffpunkt</h4><p>${escL(a.meetingPoint)}</p></div>` : ''}
     ${a.days && a.days.length ? agendaDayPlanDetailHtml(a) : `
     ${(chosenAccess || chosenDescent) ? `<div class="detail-section">
       <h4>Route</h4>
@@ -3441,7 +3445,7 @@ function agendaDetailHtml(id){
       <p style="margin:0;">${a.endOption==='huette' ? (fsIconHtml('hut') + ' Hütte') : (fsIconHtml('home') + ' Heimweg')}${a.endNote ? ' – ' + esc(a.endNote) : ''}</p>
     </div>` : ''}
     `}
-    ${a.note ? `<div class="detail-section"><h4>Notiz</h4><p>${esc(a.note)}</p></div>` : ''}
+    ${a.note ? `<div class="detail-section"><h4>Notiz</h4><p>${escL(a.note)}</p></div>` : ''}
     `}
     <div class="detail-section">
       <h4>Teilnehmer (${(a.participants||[]).length})</h4>
@@ -16136,7 +16140,7 @@ function accessRouteDetailHtml(hutId, route){
       ${r.difficulty ? `<span class="badge" style="background:${(DIFF[r.difficulty]||DIFF.L).color}">SAC ${esc(r.difficulty)}</span> ` : ''}
       ${r.difficultyT ? `<span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${esc(r.difficultyT)}</span>` : ''}
     </div>` : ''}
-    ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(r.description)}</p></div>` : ''}
+    ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${escL(r.description)}</p></div>` : ''}
     ${r.gpxLink ? `<div class="detail-section"><h4>GPX-Link</h4><p><a href="${esc(r.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(r.gpxLink)}</a></p></div>` : ''}
     ${(r.trackSimplified || (r.manualTrack && r.manualTrack.length)) ? `<div class="detail-section">
       <h4>Karte</h4>
@@ -18402,7 +18406,7 @@ function fsOpenOrt(id, tourId){
     <h3 class="fs-td-h">${esc(o.name)}</h3>
     ${o.stand ? `<p class="fs-ort-stand">Stand ${esc(fmtDateOnly(o.stand))}${o.updatedBy ? ' · ' + esc(o.updatedBy) : ''}</p>` : ''}
     ${o.photo && o.photo.url ? `<img class="fs-ort-photo" src="${esc(o.photo.url)}" alt="">` : ''}
-    ${o.note ? `<p class="fs-ort-note">${esc(o.note)}</p>` : ''}
+    ${o.note ? `<p class="fs-ort-note">${escL(o.note)}</p>` : ''}
     <div class="fs-ort-btns">
       ${isFinite(o.lat) ? `<a class="btn secondary" href="https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lon}" target="_blank" rel="noopener noreferrer">${fsIconHtml('car')}Navigieren</a>` : ''}
       ${isFinite(o.lat) ? `<button type="button" class="btn secondary" data-ort-cond>${fsIconHtml('partly')}Bedingungen</button>` : ''}
@@ -18593,7 +18597,7 @@ function fsErfEntryHtml(t, e){
   const photos = Array.isArray(e.photos) ? e.photos.filter(p=> p && p.url) : [];
   return `<article class="fs-erf">
     <header><b>${esc(e.by || '?')}</b><span>${esc(fmtDateOnly(e.date) || '')}</span></header>
-    <p>${esc(e.text || '')}</p>
+    <p>${escL(e.text || '')}</p>
     ${photos.length ? topoImagesGalleryHtml(photos) : ''}
     <div class="fs-erf-acts">
       <button type="button" class="btn secondary" data-act="fs-erf-apply" data-id="${esc(t.id)}" data-erf="${esc(e.id)}" aria-label="In die Beschreibung übernehmen">In Text übernehmen</button>
@@ -22465,7 +22469,7 @@ function nameModalHtml(){
     <div class="field"><label>Name</label><input type="text" id="name-input" value="${esc((state.myName||''))}" placeholder="z. B. Simone" autofocus/></div>
     <div class="field"><label>Passwort</label><input type="password" id="name-pin-input" placeholder="frei wählbar"/></div>
     <p style="font-size:12px; color:var(--ink-faint); margin:0 0 14px 0;">Schützt deinen Namen vor Verwechslungen: Beim ersten Mal legst du hier ein Passwort für diesen Namen fest – danach brauchst du es, um wieder als «dieser Name» zu gelten (auch auf einem anderen Gerät).</p>
-    ${errorMsg ? `<p style="color:var(--danger); font-size:13px; margin:0 0 14px 0;">${esc(errorMsg)}</p>` : ''}
+    ${errorMsg ? `<p style="color:var(--danger); font-size:13px; margin:0 0 14px 0;">${escL(errorMsg)}</p>` : ''}
     <div class="form-actions">
       <button class="btn secondary" data-act="close-modal">Abbrechen</button>
       <button class="btn" data-act="submit-name">Weiter</button>
