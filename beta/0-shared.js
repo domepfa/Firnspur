@@ -7270,6 +7270,72 @@ function fsmSnowEnsure(map){
   map.addLayer({id: 'base-schnee', type: 'raster', source: 'schnee', layout: {visibility: 'none'},
     paint: {'raster-fade-duration': 0, 'raster-opacity': ['interpolate', ['linear'], ['zoom'], 7.3, 0, 8.1, 1]}}, (bi >= 0 && ls[bi + 1]) ? ls[bi + 1].id : 'fsm-anchor-names');
 }
+/* ===== Auf- und Abstieg einer Linie unterscheiden =====
+   Die gespeicherte Linie hat keine Höhen: einmal vom swisstopo-Höhendienst holen (fsrElevation) und auf dem
+   Gerät merken (höchstens 150 Linien). Richtungswechsel erst ab 40 Hm Gegenanstieg, sonst wird die Linie
+   fleckig. Nur wenn es beides gibt (je mindestens 50 Hm); sonst bleibt die Linie einfarbig. */
+const FS_UPDOWN_DOWN = '#D9730D'; // wie die Routenart «Abfahrt» / «Abstieg»
+function fsUpDownCache(){ try{ return JSON.parse(localStorage.getItem('fs-updown') || '{}') || {}; }catch(e){ return {}; } }
+async function fsUpDownEles(tour, coords){
+  const key = fsRcKey(tour, coords), cache = fsUpDownCache();
+  if(cache[key] && cache[key].e && cache[key].e.length === coords.length) return cache[key].e;
+  const prof = (await fsrElevation(coords)).profile;
+  if(!prof || prof.length < 2) return null;
+  // Höhe je Linienpunkt: nach Anteil der Strecke im Profil nachschlagen
+  const cum = [0];
+  for(let i = 1; i < coords.length; i++) cum.push(cum[i - 1] + fsRcHav(coords[i - 1], coords[i]));
+  const total = cum[cum.length - 1] || 1, pTotal = prof[prof.length - 1].distM || 1;
+  let j = 0;
+  const eles = cum.map(d=>{
+    const want = d / total * pTotal;
+    while(j < prof.length - 2 && prof[j + 1].distM < want) j++;
+    const a = prof[j], b = prof[j + 1], span = (b.distM - a.distM) || 1, f = Math.max(0, Math.min(1, (want - a.distM) / span));
+    return Math.round(a.eleM + (b.eleM - a.eleM) * f);
+  });
+  try{
+    cache[key] = {e: eles, at: Date.now()};
+    const keys = Object.keys(cache);
+    if(keys.length > 150) keys.sort((x, y)=> (cache[x].at || 0) - (cache[y].at || 0)).slice(0, keys.length - 150).forEach(k=> delete cache[k]);
+    localStorage.setItem('fs-updown', JSON.stringify(cache));
+  }catch(e){}
+  return eles;
+}
+// → [{up: true|false, coords}], dazu .top = höchster Punkt; null, wenn die Linie nur steigt oder nur fällt
+function fsUpDownParts(coords, eles){
+  const H = 40, cuts = [];  // Wendepunkte (Index, danach Richtung)
+  let dir = 0, ext = 0;     // Richtung und Index des letzten Extrems
+  for(let i = 1; i < eles.length; i++){
+    if(dir >= 0 && eles[i] > eles[ext]) ext = i;
+    if(dir <= 0 && eles[i] < eles[ext]) ext = i;
+    if(dir === 0){
+      if(eles[i] - eles[0] >= H){ dir = 1; ext = i; }
+      else if(eles[0] - eles[i] >= H){ dir = -1; ext = i; }
+      else if(dir === 0 && Math.abs(eles[i] - eles[0]) < H) ext = Math.abs(eles[i] - eles[0]) > Math.abs(eles[ext] - eles[0]) ? i : ext;
+      if(dir !== 0) cuts.push({i: 0, dir});
+      continue;
+    }
+    if(dir > 0 && eles[ext] - eles[i] >= H){ dir = -1; cuts.push({i: ext, dir}); ext = i; }
+    else if(dir < 0 && eles[i] - eles[ext] >= H){ dir = 1; cuts.push({i: ext, dir}); ext = i; }
+  }
+  if(cuts.length < 2) return null;
+  const parts = []; let up = 0, down = 0;
+  cuts.forEach((c, k)=>{
+    const end = k + 1 < cuts.length ? cuts[k + 1].i : coords.length - 1;
+    if(end <= c.i) return;
+    const dz = eles[end] - eles[c.i];
+    if(dz > 0) up += dz; else down -= dz;
+    parts.push({up: c.dir > 0, coords: coords.slice(c.i, end + 1)});
+  });
+  if(up < 50 || down < 50 || parts.length > 12) return null;
+  let ti = 0; eles.forEach((e, i)=>{ if(e > eles[ti]) ti = i; });
+  parts.top = {lat: coords[ti][0], lon: coords[ti][1], ele: eles[ti]};
+  return parts;
+}
+async function fsUpDownSplit(tour, coords){
+  if(!coords || coords.length < 4) return null;
+  const eles = await fsUpDownEles(tour, coords);
+  return eles ? fsUpDownParts(coords, eles) : null;
+}
 /* ===== Skitouren-Planung: Aufstiegsspur aus dem Gelände (weglos, mit Spitzkehren) =====
    Rechnet auf dem Gerät aus dem Höhenmodell (swisstopo-Gelände wie 3D «Hoch», sonst FS3D_DEM), ohne Wegnetz.
    Suche über ein Raster (A*, 16 Richtungen, Zustand = Ort + Laufrichtung): die Spur steigt höchstens etwa 14°
@@ -8794,7 +8860,7 @@ function fsmAddLine(map, coords, opts){
   const id = 'own-' + (++map._fsm.lines);
   map.addSource(id, {type:'geojson', data:{type:'Feature', properties:{label: opts.label || ''}, geometry:{type:'LineString', coordinates: coords.map(c=>[c[1], c[0]])}}});
   map.addLayer({id: id + '-case', type:'line', source:id, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#ffffff', 'line-width':(opts.width || 4) + 3, 'line-opacity':0.7}});
-  map.addLayer({id, type:'line', source:id, layout:{'line-cap': opts.dash ? 'butt' : 'round', 'line-join':'round'}, paint:Object.assign({'line-color':opts.color || '#E8384F', 'line-width':opts.width || 4}, opts.dash ? {'line-dasharray':[1.8, 1.5]} : {})});
+  map.addLayer({id, type:'line', source:id, layout:{'line-cap': opts.dash ? 'butt' : 'round', 'line-join':'round'}, paint:Object.assign({'line-color':opts.color || '#E8384F', 'line-width':opts.width || 4}, opts.dash ? {'line-dasharray':[1.8, 1.5]} : {}, opts.offset ? {'line-offset': opts.offset} : {})});
   if(opts.label){
     map.on('click', id, (e)=>{ e.originalEvent && (e.originalEvent._fsmHandled = true); fsmPopup(map, e.lngLat, esc(opts.label)); });
     map.on('mouseenter', id, ()=> map.getCanvas().style.cursor = 'pointer');
@@ -21122,6 +21188,28 @@ function fsShowContextMap(t){
         if(!opts.group.on) l.setVisible(false);
         coords.forEach(c=> all.push(c));
       }
+      // Auf- und Abstieg unterscheiden: die eben gezeichnete Linie wird ersetzt, sobald die Höhen da sind
+      function upDown(tour, coords, color, g, label){
+        const base = g.items[g.items.length - 1];
+        fsUpDownSplit(tour, coords).then(parts=>{
+          if(!parts || fsCtxMap !== map || !map.getStyle()) return;
+          const down = fsAppKey() === 'firnspur' ? 'Abfahrt' : 'Abstieg';
+          base.setVisible(false);
+          const idx = g.items.indexOf(base); if(idx >= 0) g.items.splice(idx, 1);
+          parts.forEach(p=>{
+            const l = p.up ? fsmAddLine(map, p.coords, {color, label: label + ' · Aufstieg'})
+              : fsmAddLine(map, p.coords, {color: FS_UPDOWN_DOWN, dash: true, offset: 4, label: label + ' · ' + down});
+            g.items.push(l);
+            if(!g.on) l.setVisible(false);
+          });
+          const top = parts.top;
+          if(top){
+            const m = fsmAddMarker(map, top.lat, top.lon, '<div class="fs-top-marker">' + fsIconHtml('mountain') + '</div>', {popup: 'Höchster Punkt · ' + Math.round(top.ele) + ' m', anchor: 'center'});
+            const it = {setVisible:(v)=>{ m.getElement().style.display = v ? '' : 'none'; }};
+            g.items.push(it); if(!g.on) it.setVisible(false);
+          }
+        }).catch(()=>{});
+      }
       function marker(lat, lon, html, popup, anchor, g){
         const m = fsmAddMarker(map, lat, lon, html, {popup, anchor});
         g.items.push({setVisible:(v)=>{ m.getElement().style.display = v ? '' : 'none'; }});
@@ -21137,12 +21225,17 @@ function fsShowContextMap(t){
           if(!byType[k]) return;
           const st = fsRouteStyle(byType[k][0]);
           const g = group(fsRouteLabel(k), st.color, true, st.dash);
-          byType[k].forEach(r=>{ const rs = fsRouteStyle(r); line(r.coords, rs.color, {group:g, dash:rs.dash, label: r.name ? r.name + ' (' + fsRouteLabel(r.type) + ')' : fsRouteLabel(r.type)}); });
+          byType[k].forEach(r=>{
+            const rs = fsRouteStyle(r);
+            line(r.coords, rs.color, {group:g, dash:rs.dash, label: r.name ? r.name + ' (' + fsRouteLabel(r.type) + ')' : fsRouteLabel(r.type)});
+            // Eine Linie für die ganze Tour (hinauf und wieder hinunter): Abstieg bzw. Abfahrt absetzen
+            if(r.type === 'aufstieg' || r.type === 'aufab') upDown(t, r.coords, rs.color, g, r.name || 'Route');
+          });
         });
       }else{
         const g = group('Tour', FS_CTX_COLORS.track, true);
-        if(t.trackSimplified && t.trackSimplified.length) line(t.trackSimplified, FS_CTX_COLORS.track, {group:g, label:'GPX-Track'});
-        if(t.manualTrack && t.manualTrack.length) line(t.manualTrack, FS_CTX_COLORS.manual, {group:g, label:'Geplante Linie'});
+        if(t.trackSimplified && t.trackSimplified.length){ line(t.trackSimplified, FS_CTX_COLORS.track, {group:g, label:'GPX-Track'}); upDown(t, t.trackSimplified, FS_CTX_COLORS.track, g, 'GPX-Track'); }
+        if(t.manualTrack && t.manualTrack.length){ line(t.manualTrack, FS_CTX_COLORS.manual, {group:g, label:'Geplante Linie'}); upDown(t, t.manualTrack, FS_CTX_COLORS.manual, g, 'Geplante Linie'); }
         const alts = (t.altTracks||[]).filter(a=> a.trackSimplified && a.trackSimplified.length);
         if(alts.length){
           const ag = group('Varianten', ALT_TRACK_COLORS[0], true, true);

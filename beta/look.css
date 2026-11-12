@@ -3127,3 +3127,5 @@ html.fs-wide .fs-cond-sheet .in{ width:calc(var(--fs-col) - 32px); margin:0 0 16
 .fsp-ski-legend span{ display:inline-flex; align-items:center; gap:5px; }
 .fsp-ski-legend i{ width:18px; height:5px; border-radius:3px; display:inline-block; }
 .fs-txt-link{ overflow-wrap:anywhere; text-decoration:underline; text-underline-offset:2px; }
+.fs-top-marker{ width:26px; height:26px; border-radius:50%; background:var(--paper); color:var(--ink); border:2px solid var(--ink); display:flex; align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(15,30,39,.3); }
+.fs-top-marker .fs-i{ width:15px; height:15px; }
