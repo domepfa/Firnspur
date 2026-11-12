@@ -1590,7 +1590,7 @@ function fsHomeStartView(){
 function fsHomeCreateMap(){
   // 3D ist dieselbe Karte, nur geneigt mit Gelände: Ausschnitt, Ebenen, Gedrückthalten, Planer und Hang-Scan bleiben
   fsHomeMap = fsmCreateMap('fs-home-map-inner', Object.assign({zoom: 7, ctlTop: 52, full: true}, fsHomeStartView(), {on3d: (m)=> fsmTerrainToggle(m)}));
-  fsmWireInfoClicks(fsHomeMap, {sac:{allowAttach:false}});
+  fsmWireInfoClicks(fsHomeMap, {sac:{}}); // Startkarte: SAC-/Wanderrouten als neue Tour oder zu einer bestehenden übernehmen
   fsHomeWireHold(fsHomeMap);
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
   fsHomeMap.setMaxBounds(FSM_HOME_BOUNDS);
@@ -9643,8 +9643,12 @@ function buildWanderroutePopupContent(list, opts){
     const dl = document.createElement('button'); dl.type = 'button'; dl.className = 'fs-sac-sec'; dl.textContent = 'GPX herunterladen';
     dl.addEventListener('click', ()=> downloadTrackAsGpx(coords, a.title));
     wrap.appendChild(dl);
-    if(opts.allowAttach === false){
-      const note = document.createElement('p'); note.className = 'fs-wr-label'; note.textContent = 'Zu einer Tour übernehmen: auf der grossen Karte antippen.';
+    if(opts.onTake){
+      const tb = document.createElement('button'); tb.type = 'button'; tb.className = 'fs-sac-main'; tb.textContent = 'Als Linie dieser Tour übernehmen';
+      tb.addEventListener('click', ()=> opts.onTake(coords, a.title));
+      wrap.appendChild(tb);
+    }else if(opts.allowAttach === false){
+      const note = document.createElement('p'); note.className = 'fs-wr-label'; note.textContent = 'Zu einer Tour übernehmen: auf der Startkarte antippen.';
       wrap.appendChild(note);
     }else{
       const newTour = (fsAppKey() === 'wandern') ? ()=> openAddTourFromWanderroute(a, coords) : null; // nur Wandern: Formular kennt die GPX-Vorbefüllung
@@ -9820,10 +9824,17 @@ function buildSkitourPopupContent(featureOrList, opts){
     // Direkt einer bestehenden Tour zuweisen, statt den Umweg über Herunterladen und
     // anschliessendes manuelles Hochladen im Formular zu gehen – die Koordinaten liegen ja
     // schon hier vor. Nur sinnvoll, wenn es überhaupt eigene Touren gibt.
-    if(!allowAttach){
+    if(opts && opts.onTake){
+      // Bearbeiten-Karte: genau diese eine Tour bekommt die Linie
+      const tb = document.createElement('button');
+      tb.type = 'button'; tb.className = 'fs-sac-main';
+      tb.textContent = 'Als Linie dieser Tour übernehmen';
+      tb.addEventListener('click', ()=> opts.onTake(coords, name + (info.route ? ' – ' + info.route : '')));
+      wrap.appendChild(tb);
+    }else if(!allowAttach){
       const note = document.createElement('p');
       note.style.cssText = 'margin:8px 0 0 0; font-size:12px; color:#6B7682;';
-      note.textContent = 'Zu einer Tour übernehmen: auf der grossen Karte antippen.';
+      note.textContent = 'Zu einer Tour übernehmen: auf der Startkarte antippen.';
       wrap.appendChild(note);
     }else if(Array.isArray(state.tours) && state.tours.length){
       const attachWrap = document.createElement('div');
@@ -10452,6 +10463,18 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     routeStatus.style.cssText = 'margin:8px 0 0 0; font-size:12.5px;';
     routeActionsRow.appendChild(routeHint);
     routeActionsRow.appendChild(routeWaypointCount);
+    // Art der Rechnung wie im Planer der Startkarte (gleiche Einstellung): weglos mit Spitzkehren oder auf Wegen
+    let routeProfile = (()=>{ let v = null; try{ v = localStorage.getItem('fs-planner-profile'); }catch(e){} return (v === 'ski' || v === 'weg') ? v : (fsAppKey() === 'firnspur' ? 'ski' : 'weg'); })();
+    const routeProfileRow = document.createElement('div');
+    routeProfileRow.className = 'fsp-mode fsp-profile-sel';
+    routeProfileRow.setAttribute('role', 'group'); routeProfileRow.setAttribute('aria-label', 'Art der Route');
+    const paintRouteProfile = ()=>{
+      routeProfileRow.innerHTML = `<button type="button" data-profile="ski" aria-pressed="${routeProfile==='ski'}" class="${routeProfile==='ski'?'on':''}">${fsIconHtml('snow').replace(/ fs-wx-\w+/, '')}Skitour (weglos)</button>`
+        + `<button type="button" data-profile="weg" aria-pressed="${routeProfile==='weg'}" class="${routeProfile==='weg'?'on':''}">${fsIconHtml('walk')}Auf Wegen</button>`;
+      routeProfileRow.querySelectorAll('button').forEach(b=> b.addEventListener('click', ()=>{ routeProfile = b.getAttribute('data-profile'); try{ localStorage.setItem('fs-planner-profile', routeProfile); }catch(e){} paintRouteProfile(); }));
+    };
+    paintRouteProfile();
+    routeActionsRow.appendChild(routeProfileRow);
     routeActionsRow.appendChild(routeSmallBtnsRow);
     routeActionsRow.appendChild(calcRouteBtn);
     routeActionsRow.appendChild(routeStatus);
@@ -11110,10 +11133,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     calcRouteBtn.addEventListener('click', async ()=>{
       if(routeWaypoints.length < 2) return;
       routeStatus.style.color = 'var(--ink-soft)';
-      routeStatus.textContent = 'Route wird berechnet…';
+      routeStatus.textContent = routeProfile === 'ski' ? 'Gelände wird geladen, Spur wird berechnet …' : 'Route wird berechnet…';
       calcRouteBtn.disabled = true;
       try{
-        const calculated = await fetchCalculatedRoute(routeWaypoints);
+        const calculated = routeProfile === 'ski' ? await fsSkiRoute(routeWaypoints) : await fetchCalculatedRoute(routeWaypoints);
+        if(calculated.slopes) showToast('Vorschlag aus dem Gelände – ersetzt keine Beurteilung von Lawinengefahr und Verhältnissen.');
         // Die Wegpunkte selbst mit ablegen (nicht nur die berechnete Linie) – damit "Route
         // bearbeiten" sie später wieder laden kann, um gezielt umzuleiten statt neu zu zeichnen.
         calculated.waypoints = routeWaypoints.map(wp=> [wp[0], wp[1]]);
@@ -11211,7 +11235,43 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       });
     }
 
+    // SAC-Skitour oder Wanderroute (Ebene eingeschaltet) angetippt: als Linie dieser Tour übernehmen.
+    // Gibt true zurück, wenn ein Fenster zur Route gezeigt wurde (dann setzt der Tipp nichts).
+    async function offerLayerRoute(e){
+      const ml = map._ml;
+      if(!ml || usingGpxTrack || typeof fsmOverlayOn !== 'function') return false;
+      const ski = fsmOverlayOn(ml, 'skitouren'), wr = fsmOverlayOn(ml, 'wanderrouten');
+      if(!ski && !wr) return false;
+      const ll = {lat: e.latlng.lat, lng: e.latlng.lng};
+      let pop = null;
+      const onTake = (coords, name)=>{
+        if(!coords || coords.length < 2) return;
+        if(manualTrack.length > 1 && !confirm('Die gezeichnete Linie dieser Tour durch «' + name + '» ersetzen?')) return;
+        let line = coords;
+        try{ line = simplifyTrackForStorage(coords.map(c=> ({lat: c[0], lon: c[1]})), 200).map(p=> [Math.round(p.lat * 1e6) / 1e6, Math.round(p.lon * 1e6) / 1e6]); }catch(err){}
+        pushUndo();
+        manualTrack = line;
+        setLastRouteStats(null);
+        routeStatsEl.style.display = 'none'; routeStatsEl.innerHTML = '';
+        redrawLine();
+        persistTrack();
+        try{ if(pop) pop.remove(); }catch(err){}
+        showToast('Linie übernommen: ' + name + '. Mit «Speichern» im Formular wird sie gesichert.');
+      };
+      try{
+        if(ski){
+          const res = await identifySkitourAt(null, ll, fsmIdentifyView(ml));
+          if(res){ pop = fsmPopup(ml, ll, document.createElement('div')); pop.setDOMContent(buildSkitourPopupContent(res, {popup: pop, allowAttach: false, onTake})); return true; }
+        }
+        if(wr){
+          const list = await identifyWanderrouteAt(ll, fsmIdentifyView(ml));
+          if(list){ pop = fsmPopup(ml, ll, document.createElement('div')); pop.setDOMContent(buildWanderroutePopupContent(list, {popup: pop, allowAttach: false, onTake})); return true; }
+        }
+      }catch(err){}
+      return false;
+    }
     map.on('click', async (e)=>{
+      if(await offerLayerRoute(e)) return;
       if(mode==='line'){
         addLineAt(e.latlng.lat, e.latlng.lng);
       }else if(mode==='route'){
