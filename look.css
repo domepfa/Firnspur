@@ -3118,3 +3118,17 @@ html.fs-wide .fs-filter-sheet{ left:16px; right:auto; bottom:16px; width:calc(va
 html.fs-wide .fs-cond-sheet{ align-items:flex-end; justify-content:flex-start; }
 html.fs-wide .fs-cond-sheet .in{ width:calc(var(--fs-col) - 32px); margin:0 0 16px 16px; border-radius:22px; max-height:calc(100dvh - 112px); }
 .fsm-seg.fsm-seg-bases{ display:grid; grid-template-columns:repeat(3, 1fr); gap:3px; }
+/* Planer: Art der Route (Skitour weglos / auf Wegen) und Angaben zur Skitouren-Spur */
+.fsp-profile-sel{ margin-bottom:8px; }
+.fsp-profile-sel button{ display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+.fsp-profile-sel button .fs-i{ width:16px; height:16px; }
+.fsp-ski-facts{ margin:8px 2px 6px; font-size:13.5px; font-weight:700; color:var(--ink); }
+.fsp-ski-legend{ display:flex; flex-wrap:wrap; gap:4px 12px; margin:0 2px 6px; font-size:12px; color:var(--ink-soft); }
+.fsp-ski-legend span{ display:inline-flex; align-items:center; gap:5px; }
+.fsp-ski-legend i{ width:18px; height:5px; border-radius:3px; display:inline-block; }
+.fs-txt-link{ overflow-wrap:anywhere; text-decoration:underline; text-underline-offset:2px; }
+.fs-top-marker{ width:26px; height:26px; border-radius:50%; background:var(--paper); color:var(--ink); border:2px solid var(--ink); display:flex; align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(15,30,39,.3); }
+.fs-top-marker .fs-i{ width:15px; height:15px; }
+/* Grosse Ansicht: im Vollbild füllt die Karte die ganze Breite (die Spalte ist dann ausgeblendet) */
+html.fs-wide.fs-mapfull.fs-mapmode .fs-home-map{ left:0; }
+html.fs-wide.fs-mapmode .fs-home-map.in-edit{ left:0; } /* Karte bearbeiten: ebenfalls ganze Breite */
