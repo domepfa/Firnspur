@@ -1752,10 +1752,10 @@ function gebietDetailHtmlSki(id){
   const hasMapData = (geb.points && geb.points.length) || huetten.some(h=>h.points && h.points.length) || touren.some(t=> (t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length));
   return `<div class="modal td gd" data-stop="1">
     <div class="modal-head">
-      <div><h2 style="color:var(--ice-deep);">${fsIconHtml('mountain')} ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
+      <div><h2 style="color:var(--ice-deep);">${fsIconHtml('mountain')} ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${escL(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <div style="display:flex; align-items:flex-start; gap:4px;">${favoriteToggleButtonHtml(geb.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
-    ${geb.description ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 10px 0;">${esc(geb.description)}</p>` : ''}
+    ${geb.description ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 10px 0;">${escL(geb.description)}</p>` : ''}
     ${hasMapData ? `<div class="detail-section fs-area-mapsec">
       <h4>${fsIconHtml('map')} Übersichtskarte</h4>
       <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gebiet-overview-map" data-gebiet-id="${geb.id}" data-target="map-gebiet-${geb.id}">${fsIconHtml('map')} Karte anzeigen</button>
@@ -1784,10 +1784,10 @@ function gebietDetailHtmlWand(id){
   const hasMapData = (geb.points && geb.points.length) || huetten.some(h=>h.points && h.points.length) || touren.some(t=> (t.points && t.points.length) || t.trackSimplified || (t.manualTrack && t.manualTrack.length));
   return `<div class="modal td gd" data-stop="1">
     <div class="modal-head">
-      <div><h2 style="color:var(--ice-deep);">${fsIconHtml('mountain')} ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
+      <div><h2 style="color:var(--ice-deep);">${fsIconHtml('mountain')} ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${escL(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <div style="display:flex; align-items:flex-start; gap:4px;">${favoriteToggleButtonHtml(geb.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
-    ${geb.description ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 10px 0;">${esc(geb.description)}</p>` : ''}
+    ${geb.description ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 10px 0;">${escL(geb.description)}</p>` : ''}
     ${hasMapData ? `<div class="detail-section fs-area-mapsec">
       <h4>${fsIconHtml('map')} Übersichtskarte</h4>
       <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-gebiet-overview-map" data-gebiet-id="${geb.id}" data-target="map-gebiet-${geb.id}">${fsIconHtml('map')} Karte anzeigen</button>
@@ -2144,7 +2144,7 @@ function tourDetailHtmlSki(id){
     </div>
     ${fsTdImagesHtml(t)}
     ${t.routeName ? `<h2 style="margin:0 0 6px 0; color:var(--ink-soft);">${esc(t.routeName)}</h2>` : ''}
-    ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
+    ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${escL(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${fsTourStatusHtml(t)}
     <div class="detail-stats">
       <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
@@ -2167,9 +2167,9 @@ function tourDetailHtmlSki(id){
     ${fsSuggestionsHtml(t)}
     ${fsTdBodyHtml(t.id, {
       beschreibung: `
-    ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
-    ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
-    ${t.descent ? `<div class="detail-section"><h4>Abfahrt</h4><p>${esc(t.descent)}</p></div>` : ''}
+    ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${escL(t.special)}</p></div>` : ''}
+    ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${escL(t.ascent)}</p></div>` : ''}
+    ${t.descent ? `<div class="detail-section"><h4>Abfahrt</h4><p>${escL(t.descent)}</p></div>` : ''}
 `,
       erfahrungen: fsTourErfSection(t),
       orte: `
@@ -2204,7 +2204,7 @@ function tourDetailHtmlSki(id){
         ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</span>`).join('')}
         ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(STAY_TYPE_LABELS, v)}</span>`).join('')}
       </div>` : ''}
-      ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
+      ${t.approach ? `<p>${escL(t.approach)}</p>` : ''}
     </div>` : ''}
     ${fsTravelHtml(t)}
 `,
@@ -2272,7 +2272,7 @@ function tourDetailHtmlWand(id){
     </div>
     ${fsTdImagesHtml(t)}
     ${t.routeName ? `<h2 style="margin:0 0 6px 0; color:var(--ink-soft);">${esc(t.routeName)}</h2>` : ''}
-    ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
+    ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${escL(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${fsTourStatusHtml(t)}
     <div class="detail-stats">
       ${t.distance ? `<div class="detail-stat"><div class="num">${esc(t.distance)} km</div><div class="lbl">Distanz</div></div>` : ''}
@@ -2295,9 +2295,9 @@ function tourDetailHtmlWand(id){
     ${fsSuggestionsHtml(t)}
     ${fsTdBodyHtml(t.id, {
       beschreibung: `
-    ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
-    ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
-    ${t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
+    ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${escL(t.special)}</p></div>` : ''}
+    ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${escL(t.ascent)}</p></div>` : ''}
+    ${t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${escL(t.descent)}</p></div>` : ''}
 `,
       erfahrungen: fsTourErfSection(t),
       orte: `
@@ -2332,7 +2332,7 @@ function tourDetailHtmlWand(id){
         ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</span>`).join('')}
         ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(STAY_TYPE_LABELS, v)}</span>`).join('')}
       </div>` : ''}
-      ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
+      ${t.approach ? `<p>${escL(t.approach)}</p>` : ''}
     </div>` : ''}
     ${fsTravelHtml(t)}
 `,
@@ -4828,7 +4828,7 @@ function tourRouteDetailHtml(tourId, route, kind){
       ${r.duration ? `<div class="detail-stat"><div class="num">${esc(r.duration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>` : ''}
     ${r.difficultyT ? `<div style="margin:10px 0;"><span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span></div>` : ''}
-    ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(r.description)}</p></div>` : ''}
+    ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${escL(r.description)}</p></div>` : ''}
     ${r.gpxLink ? `<div class="detail-section"><h4>GPX-Link</h4><p><a href="${esc(r.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(r.gpxLink)}</a></p></div>` : ''}
     ${(r.trackSimplified || (r.manualTrack && r.manualTrack.length)) ? `<div class="detail-section">
       <h4>Karte</h4>
@@ -5568,7 +5568,7 @@ function klettergebietDetailHtml(id){
   const unlinkedHuetten = state.huts.filter(h=>!h.klettergebietId).sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
   return `<div class="modal td gd fs-onroute" data-stop="1">
     <div class="modal-head">
-      <div><h2 style="color:var(--ice-deep);">${fsIconHtml('mountain')} ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
+      <div><h2 style="color:var(--ice-deep);">${fsIconHtml('mountain')} ${esc(geb.name)}</h2>${geb.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${escL(geb.region)}${geb.subregion ? ' – ' + esc(geb.subregion) : ''}</p>` : ''}</div>
       <div style="display:flex; align-items:flex-start; gap:4px;">${favoriteToggleButtonHtml(geb.id)}${editIconButtonHtml('edit-klettergebiet', geb.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
     ${(gradeRange || altitude) ? `<div class="chips" style="margin-bottom:14px;">
@@ -5585,7 +5585,7 @@ function klettergebietDetailHtml(id){
       if(!topoToShow) return '';
       return `<div class="detail-section"><h4>Topo / Übersicht${fallbackOwner ? ' – ' + esc(fallbackOwner.name) : ''}</h4>${topoImagesGalleryHtml(topoToShow)}</div>`;
     })()}
-    ${geb.description ? `<div class="detail-section"><h4>Beschreibung / Material</h4><p>${esc(geb.description)}</p></div>` : ''}
+    ${geb.description ? `<div class="detail-section"><h4>Beschreibung / Material</h4><p>${escL(geb.description)}</p></div>` : ''}
     ${(() => {
       // Reihenfolge richtet sich nach dem aktuellen Bereich (Hochtour/Klettern): das jeweils
       // relevantere Kapitel steht zuoberst, sonst identische Reihenfolge -- ein bewusst so
@@ -5754,7 +5754,7 @@ function sektorDetailHtml(id){
     <div class="modal-head">
       <div>
         <h2 style="color:var(--ice-deep);">${fsIconHtml('tent')} ${esc(sek.name)}</h2>
-        ${sek.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}
+        ${sek.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${escL(sek.region)}${sek.subregion ? ' – ' + esc(sek.subregion) : ''}</p>` : ''}
         ${gebKlettergaerten.length>1 && gebIdx>=0 ? `<p style="color:var(--ink-faint); font-size:11px; margin:4px 0 0 0;">↔ ${esc(geb.name)} · Klettergarten ${gebIdx+1}/${gebKlettergaerten.length} – wischen zum Wechseln</p>` : ''}
       </div>
       <div style="display:flex; align-items:flex-start; gap:4px;">${editIconButtonHtml('edit-sektor', sek.id)}<button class="x-btn" data-act="close-modal">×</button></div>
@@ -5763,7 +5763,7 @@ function sektorDetailHtml(id){
     ${!sek.klettergebietId ? `<div style="display:flex; gap:8px; flex-wrap:wrap; margin:10px 0;">
       <button type="button" class="btn secondary" data-act="convert-sektor-to-klettergebiet" data-id="${sek.id}">${fsIconHtml('mountain')} In neues Klettergebiet umwandeln</button>
     </div>` : ''}
-    ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(sek.description)}</p></div>` : ''}
+    ${sek.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${escL(sek.description)}</p></div>` : ''}
     <div class="detail-section">
       <h4>Topo &amp; Routen${sek.kletterrouten && sek.kletterrouten.length ? ` (${sek.kletterrouten.length})` : ''}</h4>
       ${((sek.topoImages && sek.topoImages.length) || (sek.kletterrouten && sek.kletterrouten.length)) ? `
@@ -5929,7 +5929,7 @@ function sektorRouteDetailHtml(sektorId, route, kind){
       ${r.duration ? `<div class="detail-stat"><div class="num">${esc(r.duration)}</div><div class="lbl">Zeitbedarf</div></div>` : ''}
     </div>` : ''}
     ${r.difficultyT ? `<div style="margin:10px 0;"><span class="badge" style="background:${(HIKE_SCALE[r.difficultyT]||HIKE_SCALE.T1).color}">${r.difficultyT}</span></div>` : ''}
-    ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${esc(r.description)}</p></div>` : ''}
+    ${r.description ? `<div class="detail-section"><h4>Beschreibung</h4><p>${escL(r.description)}</p></div>` : ''}
     ${r.gpxLink ? `<div class="detail-section"><h4>GPX-Link</h4><p><a href="${esc(r.gpxLink)}" target="_blank" rel="noopener noreferrer">${esc(r.gpxLink)}</a></p></div>` : ''}
     ${(r.trackSimplified || (r.manualTrack && r.manualTrack.length)) ? `<div class="detail-section">
       <h4>Karte</h4>
@@ -6724,7 +6724,7 @@ function unlinkedSektorAssignCardHtml(sek, gebId){
   return `
   <div class="card" data-act="open-sektor" data-id="${sek.id}" style="padding:10px 14px; cursor:pointer;">
     <h3 style="color:var(--ice-deep); font-size:14px; margin:0;">${fsIconHtml('compass')} ${esc(sek.name)}</h3>
-    ${sek.region ? `<p class="excerpt" style="margin:2px 0 0 0;">${esc(sek.region)}</p>` : ''}
+    ${sek.region ? `<p class="excerpt" style="margin:2px 0 0 0;">${escL(sek.region)}</p>` : ''}
     <button type="button" class="btn secondary" style="margin-top:8px; font-size:12.5px; padding:6px 12px;" data-act="assign-sektor-to-klettergebiet" data-sektor-id="${sek.id}" data-klettergebiet-id="${gebId}">Diesem Gebiet zuordnen</button>
   </div>`;
 }
@@ -7154,7 +7154,7 @@ function tourDetailHtml__fix(id){
     </div>
     ${fsTdImagesHtml(t)}
     ${t.routeName ? `<h2 style="margin:0 0 6px 0; color:var(--ink-soft);">${esc(t.routeName)}</h2>` : ''}
-    ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${esc(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
+    ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${escL(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${(sektorForPager && sektorTouren.length>1) ? `<p style="color:var(--ink-faint); font-size:11px; margin:0 0 6px 0;">↔ ${esc(sektorForPager.name)} · Tour ${sektorTourIdx+1}/${sektorTouren.length} – wischen zum Wechseln</p>` : ''}
     ${fsTourStatusHtml(t)}
     <div class="detail-stats">
@@ -7180,9 +7180,9 @@ function tourDetailHtml__fix(id){
     ${fsSuggestionsHtml(t)}
     ${fsTdBodyHtml(t.id, {
       beschreibung: `
-    ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${esc(t.special)}</p></div>` : ''}
-    ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${esc(t.ascent)}</p></div>` : ''}
-    ${!isMsl && t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${esc(t.descent)}</p></div>` : ''}
+    ${t.special ? `<div class="detail-section"><h4>Spezielles</h4><p>${escL(t.special)}</p></div>` : ''}
+    ${t.ascent ? `<div class="detail-section"><h4>Aufstieg</h4><p>${escL(t.ascent)}</p></div>` : ''}
+    ${!isMsl && t.descent ? `<div class="detail-section"><h4>Abstieg</h4><p>${escL(t.descent)}</p></div>` : ''}
 `,
       erfahrungen: fsTourErfSection(t),
       orte: `
@@ -7259,7 +7259,7 @@ function tourDetailHtml__fix(id){
         ${(t.approachTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</span>`).join('')}
         ${(t.stayTypes||[]).map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(STAY_TYPE_LABELS, v)}</span>`).join('')}
       </div>` : ''}
-      ${t.approach ? `<p>${esc(t.approach)}</p>` : ''}
+      ${t.approach ? `<p>${escL(t.approach)}</p>` : ''}
     </div>` : ''}
     ${fsTravelHtml(t)}
 `,
@@ -7428,7 +7428,7 @@ function hutDetailHtml__fix(id){
   const geb = h.klettergebietId ? state.klettergebiete.find(g=>g.id===h.klettergebietId) : null;
   return `<div class="modal fs-onroute" data-stop="1">
     <div class="modal-head">
-      <div><h2>${fsIconHtml('hut')} ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(h.region)}</p>` : ''}</div>
+      <div><h2>${fsIconHtml('hut')} ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${escL(h.region)}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     ${geb ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-klettergebiet" data-id="${geb.id}">${fsIconHtml('mountain')} Teil von: ${esc(geb.name)}</button>` : ''}
@@ -7441,19 +7441,19 @@ function hutDetailHtml__fix(id){
       <h4>Bewartung</h4>
       <div class="chips">${monthChipsReadonlyHtml(h.staffedMonths, h.staffedMonthsPartial, 'var(--ok)')}</div>
       ${!(h.staffedMonths && h.staffedMonths.length) ? `<p style="margin-top:6px;">Unbewartet</p>` : ''}
-      ${h.staffedNote ? `<p style="margin-top:8px;">${esc(h.staffedNote)}</p>` : ''}
+      ${h.staffedNote ? `<p style="margin-top:8px;">${escL(h.staffedNote)}</p>` : ''}
     </div>
     <div class="detail-section">
       <h4>Winterraum / Schutzraum</h4>
       <div class="chips">${monthChipsReadonlyHtml(h.winterraumMonths, h.winterraumMonthsPartial, 'var(--ice-deep)')}</div>
-      ${h.winterraum ? `<p style="margin-top:8px;">${esc(h.winterraum)}</p>` : ''}
-      ${h.winterraumNote ? `<p style="margin-top:8px;">${esc(h.winterraumNote)}</p>` : ''}
+      ${h.winterraum ? `<p style="margin-top:8px;">${escL(h.winterraum)}</p>` : ''}
+      ${h.winterraumNote ? `<p style="margin-top:8px;">${escL(h.winterraumNote)}</p>` : ''}
     </div>
     ${h.hutLink ? `<div class="detail-section"><h4>Link zur Hütte</h4><p><a href="${esc(h.hutLink)}" target="_blank" rel="noopener noreferrer">${esc(h.hutLink)}</a></p></div>` : ''}
     ${((h.approachTypes && h.approachTypes.length) || h.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
       ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</span>`).join('')}</div>` : ''}
-      ${h.approach ? `<p>${esc(h.approach)}</p>` : ''}
+      ${h.approach ? `<p>${escL(h.approach)}</p>` : ''}
     </div>` : ''}
     ${(h.points && h.points.length || (h.manualTrack && h.manualTrack.length)) ? `<div class="detail-section">
       <h4>Standort${h.points && h.points.length>1?'e':''}${(h.manualTrack && h.manualTrack.length) ? ' & Linie' : ''}</h4>
@@ -7489,8 +7489,8 @@ function hutDetailHtml__fix(id){
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-access-route" data-hut-id="${h.id}">+ Zustieg hinzufügen</button>
     </div>
 
-    ${h.contact ? `<div class="detail-section"><h4>Kontakt</h4><p>${esc(h.contact)}</p></div>` : ''}
-    ${h.notes ? `<div class="detail-section"><h4>Notizen</h4><p>${esc(h.notes)}</p></div>` : ''}
+    ${h.contact ? `<div class="detail-section"><h4>Kontakt</h4><p>${escL(h.contact)}</p></div>` : ''}
+    ${h.notes ? `<div class="detail-section"><h4>Notizen</h4><p>${escL(h.notes)}</p></div>` : ''}
 
     <div class="detail-section">
       <h4>Touren ab dieser Hütte (${linked.length})</h4>

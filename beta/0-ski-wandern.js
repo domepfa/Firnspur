@@ -461,7 +461,7 @@ function completeFormHtml(kind, id){
   const today = new Date().toISOString().slice(0,10);
   return `<div class="modal" data-stop="1">
     <div class="modal-head"><h2>${title}</h2><button class="x-btn" data-act="close-modal">×</button></div>
-    ${item ? `<p style="font-size:14px; color:var(--ink-soft); margin:0 0 14px 0;">${esc(item.name)}</p>` : ''}
+    ${item ? `<p style="font-size:14px; color:var(--ink-soft); margin:0 0 14px 0;">${escL(item.name)}</p>` : ''}
     <div class="field"><label>Name</label><input type="text" id="complete-name-input" value="${esc(state.myName||'')}" placeholder="z. B. Simone" autofocus/></div>
     <div class="field"><label>Datum</label><input type="date" id="complete-date-input" value="${today}"/></div>
     ${kind==='tour' ? fsCompletionNoteFieldHtml() : ''}
@@ -639,7 +639,7 @@ function hutDetailHtml__sw(id){
   const hasMapData = (h.points && h.points.length) || (h.manualTrack && h.manualTrack.length) || routes.length;
   return `<div class="modal fs-onroute" data-stop="1">
     <div class="modal-head">
-      <div><h2>${fsIconHtml('hut')} ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${esc(h.region)}</p>` : ''}</div>
+      <div><h2>${fsIconHtml('hut')} ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${escL(h.region)}</p>` : ''}</div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
     <p class="fs-status-line" style="font-size:13px; color:var(--ink-soft); margin:0 0 10px 0;">${hutStatusLabel(h)}</p>
@@ -652,19 +652,19 @@ function hutDetailHtml__sw(id){
       <h4>Bewartung</h4>
       <div class="chips">${monthChipsReadonlyHtml(h.staffedMonths, h.staffedMonthsPartial, 'var(--ok)')}</div>
       ${!(h.staffedMonths && h.staffedMonths.length) ? `<p style="margin-top:6px;">Unbewartet</p>` : ''}
-      ${h.staffedNote ? `<p style="margin-top:8px;">${esc(h.staffedNote)}</p>` : ''}
+      ${h.staffedNote ? `<p style="margin-top:8px;">${escL(h.staffedNote)}</p>` : ''}
     </div>
     <div class="detail-section">
       <h4>Winterraum / Schutzraum</h4>
       <div class="chips">${monthChipsReadonlyHtml(h.winterraumMonths, h.winterraumMonthsPartial, 'var(--ice-deep)')}</div>
-      ${h.winterraum ? `<p style="margin-top:8px;">${esc(h.winterraum)}</p>` : ''}
-      ${h.winterraumNote ? `<p style="margin-top:8px;">${esc(h.winterraumNote)}</p>` : ''}
+      ${h.winterraum ? `<p style="margin-top:8px;">${escL(h.winterraum)}</p>` : ''}
+      ${h.winterraumNote ? `<p style="margin-top:8px;">${escL(h.winterraumNote)}</p>` : ''}
     </div>
     ${h.hutLink ? `<div class="detail-section"><h4>Link zur Hütte</h4><p><a href="${esc(h.hutLink)}" target="_blank" rel="noopener noreferrer">${esc(h.hutLink)}</a></p></div>` : ''}
     ${((h.approachTypes && h.approachTypes.length) || h.approach) ? `<div class="detail-section">
       <h4>Anfahrt</h4>
       ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</span>`).join('')}</div>` : ''}
-      ${h.approach ? `<p>${esc(h.approach)}</p>` : ''}
+      ${h.approach ? `<p>${escL(h.approach)}</p>` : ''}
     </div>` : ''}
     ${(h.points && h.points.length || (h.manualTrack && h.manualTrack.length)) ? `<div class="detail-section">
       <h4>Standort${h.points && h.points.length>1?'e':''}${(h.manualTrack && h.manualTrack.length) ? ' & Linie' : ''}</h4>
@@ -700,8 +700,8 @@ function hutDetailHtml__sw(id){
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-access-route" data-hut-id="${h.id}">+ Zustieg hinzufügen</button>
     </div>
 
-    ${h.contact ? `<div class="detail-section"><h4>Kontakt</h4><p>${esc(h.contact)}</p></div>` : ''}
-    ${h.notes ? `<div class="detail-section"><h4>Notizen</h4><p>${esc(h.notes)}</p></div>` : ''}
+    ${h.contact ? `<div class="detail-section"><h4>Kontakt</h4><p>${escL(h.contact)}</p></div>` : ''}
+    ${h.notes ? `<div class="detail-section"><h4>Notizen</h4><p>${escL(h.notes)}</p></div>` : ''}
 
     <div class="detail-section">
       <h4>Touren ab dieser Hütte (${linked.length})</h4>
