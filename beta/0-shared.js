@@ -6920,6 +6920,26 @@ function fsmSetOverlay(map, id, on, silent){
     fsmSavePrefs(p);
   }
   fsmSyncPanel(map);
+  if(fsmIsHomeMap(map)) fsHomeChipsSync(map);
+}
+// Eingeschaltete Ebenen als Leiste unter der Suche (Startkarte): sieht man, was die Karte gerade zeigt,
+// und schaltet eine Ebene mit einem Tipp aus. Ebenen, die zur Startkarte gehören (Routen, Hütten), fehlen.
+function fsHomeChipsSync(map){
+  let bar = document.getElementById('fs-ov-chips');
+  const on = fsmOverlaysForApp(map).filter(o=> !o.homeOnly && fsmOverlayOn(map, o.id));
+  if(!on.length){ if(bar) bar.hidden = true; return; }
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'fs-ov-chips';
+    bar.setAttribute('aria-label', 'Eingeschaltete Kartenebenen');
+    bar.addEventListener('click', (e)=>{
+      const b = e.target.closest && e.target.closest('[data-ov-off]');
+      if(b && fsHomeMap) fsmSetOverlay(fsHomeMap, b.getAttribute('data-ov-off'), false);
+    });
+    document.body.appendChild(bar);
+  }
+  bar.hidden = false;
+  bar.innerHTML = on.map(o=> `<button type="button" class="fs-ov-chip" data-ov-off="${o.id}" aria-label="${esc(o.label)} ausschalten">${fsIconHtml(o.icon)}<span>${esc(o.label.replace(/\s*\(.*\)$/, ''))}</span>${fsIconHtml('x')}</button>`).join('');
 }
 // MeteoSchweiz-Punkte (Webcams, Temperatur, Niederschlag) laden, kurz zwischenspeichern
 const fsPtCache = {};
@@ -6981,7 +7001,10 @@ function fsPointPopupHtml(o, p){
   }
   if(o.kind === 'webcam'){
     const l = fsLinksOf(p);
-    return `<div class="fs-cam-pop"><b>${name || 'Webcam'}</b>${p.altitude ? `<span>${esc(String(p.altitude))} m ü. M.</span>` : ''}
+    // MeteoSchweiz: Livebild und Stationsseite stecken im Beschreibungstext (HTML)
+    if(!l.img && p.description){ const m = /<img[^>]+src="(https:[^"]+)"/.exec(p.description); if(m) l.img = m[1]; }
+    if(!l.link && p.description){ const m = /href="(https:[^"]+)"/.exec(p.description); if(m) l.link = m[1].replace(/&amp;/g, '&'); }
+    return `<div class="fs-cam-pop"><b>${name || 'Webcam'}</b>${p.altitude ? `<span>${esc(String(p.altitude).replace(/\s*\(.*$/, '').replace(/(\d+)\.\d+\s*m?$/, '$1'))} m ü. M. · Livebild</span>` : ''}
       ${l.img ? `<a href="${esc(l.img)}" target="_blank" rel="noopener noreferrer"><img src="${esc(l.img)}" alt="Webcam ${name}" loading="lazy"/></a>` : ''}
       ${l.link ? `<a class="fs-cam-link" href="${esc(l.link)}" target="_blank" rel="noopener noreferrer">Webcam öffnen ↗</a>` : ''}
       ${!l.img && !l.link ? `<a class="fs-cam-link" href="https://www.meteoschweiz.admin.ch" target="_blank" rel="noopener noreferrer">Bei MeteoSchweiz ansehen ↗</a>` : ''}</div>`;
@@ -7048,7 +7071,8 @@ async function fsmWindyCams(map, o){
       const img = w.images && w.images.current && (w.images.current.preview || w.images.current.thumbnail);
       const href = (w.urls && (w.urls.detail || w.urls.provider)) || 'https://www.windy.com/webcams/' + id;
       const name = esc(w.title || 'Webcam');
-      const pop = `<div class="fs-cam-pop"><b>${name}</b>${loc.city ? `<span>${esc(loc.city)}</span>` : ''}
+      const age = fsCamAge(w.lastUpdatedOn);
+      const pop = `<div class="fs-cam-pop"><b>${name}</b>${loc.city || age ? `<span>${esc([loc.city, age].filter(Boolean).join(' · '))}</span>` : ''}
         ${img ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"><img src="${esc(img)}" alt="Webcam ${name}" loading="lazy"/></a>` : ''}
         <a class="fs-cam-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">Bei Windy.com ansehen ↗</a></div>`;
       const m = fsmAddMarker(map, loc.latitude, loc.longitude, `<div class="fsm-cam">${fsIconHtml('camera')}</div>`, {popup: pop});
@@ -7056,6 +7080,16 @@ async function fsmWindyCams(map, o){
       (map._fsm.pt[o.id] = map._fsm.pt[o.id] || []).push(m);
     });
   }catch(e){}
+}
+// Alter eines Webcam-Bilds als kurzer Text («Bild vor 12 Min.», «Bild vom 3.11.»)
+function fsCamAge(iso){
+  const t = iso ? Date.parse(iso) : NaN;
+  if(!isFinite(t)) return '';
+  const min = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if(min < 60) return 'Bild vor ' + Math.max(1, min) + ' Min.';
+  if(min < 24 * 60) return 'Bild vor ' + Math.round(min / 60) + ' Std.';
+  const d = new Date(t);
+  return 'Bild vom ' + d.getDate() + '.' + (d.getMonth() + 1) + '. (veraltet)';
 }
 // Webcam-Bild antippen: im Vollbild öffnen (Zoomen mit zwei Fingern oder Doppeltippen) statt zur Webseite
 document.addEventListener('click', e=>{
