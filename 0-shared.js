@@ -16694,7 +16694,7 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   if(!images || !images.length) return;
   let idx = startIndex || 0;
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; touch-action:pan-y;';
+  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; touch-action:none; overscroll-behavior:contain;';
 
   const IMG_CSS = 'max-width:100%; max-height:100%; object-fit:contain; border-radius:4px; touch-action:none; transform-origin:center center;';
   const imgEl = document.createElement('img');
@@ -16734,8 +16734,8 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   function closeLightbox(){ overlay.remove(); }
 
   const closeBtn = document.createElement('button');
-  closeBtn.type = 'button'; closeBtn.textContent = '×';
-  closeBtn.style.cssText = 'position:absolute; top:16px; right:16px; background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:40px; height:40px; font-size:22px; line-height:1;';
+  closeBtn.type = 'button'; closeBtn.innerHTML = fsIconHtml('x'); closeBtn.setAttribute('aria-label', 'Schliessen');
+  closeBtn.style.cssText = 'position:absolute; top:calc(12px + env(safe-area-inset-top, 0px)); right:12px; background:rgba(255,255,255,0.18); color:#fff; border:none; border-radius:50%; width:52px; height:52px; font-size:24px; display:flex; align-items:center; justify-content:center; padding:0; z-index:2;';
   closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); closeTopOverlayLayer(); });
   overlay.appendChild(closeBtn);
 
@@ -16743,7 +16743,7 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   // ganze Originalbild (z. B. um im Gelände den Rest des Topos anzuschauen).
   const cropToggleBtn = document.createElement('button');
   cropToggleBtn.type = 'button';
-  cropToggleBtn.style.cssText = 'position:absolute; top:16px; left:16px; background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:20px; padding:0 14px; height:40px; font-size:13px; font-weight:600; display:none;';
+  cropToggleBtn.style.cssText = 'position:absolute; top:calc(18px + env(safe-area-inset-top, 0px)); left:16px; background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:20px; padding:0 14px; height:40px; font-size:13px; font-weight:600; display:none;';
   cropToggleBtn.addEventListener('click', (e)=>{ e.stopPropagation(); showCrop = !showCrop; resetZoom(false); updateImage(); });
   overlay.appendChild(cropToggleBtn);
 
@@ -16752,11 +16752,11 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   if(images.length > 1){
     const prevBtn = document.createElement('button');
     prevBtn.type = 'button'; prevBtn.textContent = '‹';
-    prevBtn.style.cssText = 'position:absolute; left:10px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:44px; height:44px; font-size:24px;';
+    prevBtn.style.cssText = 'position:absolute; left:10px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:52px; height:52px; font-size:28px;';
     prevBtn.addEventListener('click', (e)=>{ e.stopPropagation(); goTo(idx-1); });
     const nextBtn = document.createElement('button');
     nextBtn.type = 'button'; nextBtn.textContent = '›';
-    nextBtn.style.cssText = 'position:absolute; right:10px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:44px; height:44px; font-size:24px;';
+    nextBtn.style.cssText = 'position:absolute; right:10px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:50%; width:52px; height:52px; font-size:28px;';
     nextBtn.addEventListener('click', (e)=>{ e.stopPropagation(); goTo(idx+1); });
     counterEl = document.createElement('div');
     counterEl.style.cssText = 'position:absolute; bottom:16px; left:50%; transform:translateX(-50%); color:#fff; font-size:13px; background:rgba(0,0,0,0.5); padding:4px 12px; border-radius:12px;';
