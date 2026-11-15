@@ -6621,9 +6621,9 @@ function fsmSatBar(map){
 }
 const FS_SENTINEL_ID = 'd8e7cc2d-6b1a-4f13-8b93-65cd0819c139'; // Copernicus Data Space, Konfiguration «firnspur» (Gratiskontingent)
 const FSM_OVERLAYS = [
-  {id:'wanderwege', group:'wege', label:'Wanderwege', icon:'walk', tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
+  {id:'wanderwege', group:'wege', label:'Wanderwege', icon:'walk', minzoom: 11, tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
   {id:'wanderrouten', group:'wege', label:'Wanderrouten (SchweizMobil)', icon:'walk', tiles:[FSM_WMTS('ch.astra.wanderland','png')]},
-  {id:'skitouren', group:'wege', label:'SAC-Skitouren', icon:'snow', tiles:[FSM_WMTS('ch.swisstopo-karto.skitouren','png')]},
+  {id:'skitouren', group:'wege', label:'SAC-Skitouren', icon:'snow', minzoom: 11, tiles:[FSM_WMTS('ch.swisstopo-karto.skitouren','png')]},
   // Skipisten und Lifte aus OpenStreetMap (Overpass), ab mittlerem Zoom; siehe fsmPisten
   {id:'pisten', group:'wege', label:'Skipisten und Lifte', icon:'cable', pisten:true, legend:()=> fsPistenLegendHtml()},
   {id:'hangneigung', group:'gefahr', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
@@ -6882,12 +6882,12 @@ function fsmSetOverlay(map, id, on, silent){
     const cfg = FS_OSM_CFG[o.osm];
     map._fsm.overlays[id] = !!on;
     if(on){ if(map._fsm[cfg.key]) map._fsm[cfg.key].hinted = false; fsmOsmPoints(map, o, cfg); }
-    ((map._fsm[cfg.key] && map._fsm[cfg.key].list) || []).forEach(m=>{ m.getElement().style.display = on ? '' : 'none'; });
+    fsmClSet(map, id, on);
   }else if(o.points){
     // Punkte als HTML-Marker (Messwerte, Webcams)
     map._fsm.pt = map._fsm.pt || {};
     if(on && !map._fsm.pt[id]) fsmLoadPoints(map, o);
-    (map._fsm.pt[id] || []).forEach(m=>{ m.getElement().style.display = on ? '' : 'none'; });
+    fsmClSet(map, id, on);
   }else if(on && !map.getLayer(lid)){
     if(o.geojson){
       map.addSource(lid, {type:'geojson', data:{type:'FeatureCollection', features:[]}});
@@ -7009,7 +7009,7 @@ async function fsmLoadPoints(map, o){
         : (v > 0 ? `<div class="fsm-val" style="--c:#1971C2">${v.toFixed(1)}</div>` : `<div class="fsm-val fsm-val-0"></div>`);
     }
     const m = fsmAddMarker(map, lat, lon, html, {popup: fsPointPopupHtml(o, p)});
-    m.getElement().style.display = fsmOverlayOn(map, o.id) ? '' : 'none';
+    fsmClAdd(map, o.id, m, lat, lon);
     list.push(m);
   });
   map._fsm.pt[o.id] = list;
@@ -7041,7 +7041,7 @@ async function fsmWindyCams(map, o){
         ${img ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"><img src="${esc(img)}" alt="Webcam ${name}" loading="lazy"/></a>` : ''}
         <a class="fs-cam-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">Bei Windy.com ansehen ↗</a></div>`;
       const m = fsmAddMarker(map, loc.latitude, loc.longitude, `<div class="fsm-cam">${fsIconHtml('camera')}</div>`, {popup: pop});
-      m.getElement().style.display = fsmOverlayOn(map, o.id) ? '' : 'none';
+      fsmClAdd(map, o.id, m, loc.latitude, loc.longitude);
       (map._fsm.pt[o.id] = map._fsm.pt[o.id] || []).push(m);
     });
   }catch(e){}
@@ -7641,7 +7641,7 @@ async function fsmOsmPoints(map, o, cfg){
       elm.style.cursor = 'pointer';
       elm.setAttribute('aria-label', p.name || cfg.label);
       elm.addEventListener('click', (ev)=>{ ev.stopPropagation(); fsmPopup(map, {lng: lon, lat}, cfg.popup(p), 14); });
-      elm.style.display = fsmOverlayOn(map, o.id) ? '' : 'none';
+      fsmClAdd(map, o.id, m, lat, lon);
       st.list.push(m);
     });
   }catch(e){
@@ -8869,6 +8869,65 @@ function fsmAddLine(map, coords, opts){
   return {ids:[id + '-case', id], setVisible:(v)=> [id + '-case', id].forEach(l=> map.setLayoutProperty(l, 'visibility', v ? 'visible' : 'none'))};
 }
 // HTML-Marker. html: Inhalt; opts: {anchor:'bottom'|'center', popup: html-String oder DOM}
+/* ===== Punkte bündeln (Webcams, Messstationen, Parkplätze, Wasser, geteilte Punkte) =====
+   Jede Ebene ist eine Gruppe. Auf der Karte hängen nur Punkte im Ausschnitt; nahe beieinander liegende
+   werden zu einem Kreis mit Symbol und Anzahl zusammengefasst (antippen zoomt hinein). Ab Zoom 15 einzeln.
+   Hält die Karte ruhig, auch wenn beim Verschieben laufend Punkte dazukommen (Windy-Webcams, OpenStreetMap). */
+const FSM_CL_PX = 64, FSM_CL_MAXZ = 15;
+function fsmClGroup(map, g){ const c = map._fsm.cl = map._fsm.cl || {}; return c[g] = c[g] || {items: [], on: false}; }
+function fsmClAdd(map, g, m, lat, lon){
+  m.remove();
+  const i = map._fsm.markers.indexOf(m);
+  if(i >= 0) map._fsm.markers.splice(i, 1); // gehört der Ebene, nicht der gerade gezeigten Tour
+  fsmClGroup(map, g).items.push({m, lat: +lat, lon: +lon});
+  fsmClSchedule(map);
+}
+function fsmClClear(map, g){ const G = fsmClGroup(map, g); G.items.forEach(it=> it.m.remove()); G.items = []; fsmClSchedule(map); }
+function fsmClSet(map, g, on){ fsmClGroup(map, g).on = !!on; fsmClSchedule(map); }
+function fsmClSchedule(map){
+  if(!map || !map._fsm) return;
+  if(!map._fsClWired){ map._fsClWired = true; map.on('moveend', ()=> fsmClSchedule(map)); }
+  clearTimeout(map._fsClTm);
+  map._fsClTm = setTimeout(()=> fsmClRun(map), 60);
+}
+function fsmClRun(map){
+  if(!map._fsm || !map.getStyle || !map.getStyle()) return;
+  (map._fsm.clBubbles || []).forEach(m=> m.remove());
+  map._fsm.clBubbles = [];
+  const c = map.getContainer(), W = c.clientWidth, H = c.clientHeight, pad = 60, one = map.getZoom() >= FSM_CL_MAXZ;
+  Object.entries(map._fsm.cl || {}).forEach(([g, G])=>{
+    const groups = [];
+    G.items.forEach(it=>{
+      let keep = false;
+      if(G.on){
+        const p = map.project([it.lon, it.lat]);
+        if(p.x > -pad && p.y > -pad && p.x < W + pad && p.y < H + pad){
+          const hit = one ? null : groups.find(gr=> Math.abs(gr.x - p.x) < FSM_CL_PX && Math.abs(gr.y - p.y) < FSM_CL_PX);
+          if(hit) hit.its.push(it); else groups.push({x: p.x, y: p.y, its: [it]});
+          keep = true;
+        }
+      }
+      if(!keep && it.m._map) it.m.remove();
+    });
+    const ov = FSM_OVERLAYS.find(o=> o.id === g);
+    groups.forEach(gr=>{
+      if(gr.its.length === 1){ if(!gr.its[0].m._map) gr.its[0].m.addTo(map); return; }
+      gr.its.forEach(it=>{ if(it.m._map) it.m.remove(); });
+      let w = 180, e = -180, s = 90, n = -90, la = 0, lo = 0;
+      gr.its.forEach(it=>{ w = Math.min(w, it.lon); e = Math.max(e, it.lon); s = Math.min(s, it.lat); n = Math.max(n, it.lat); la += it.lat; lo += it.lon; });
+      const el = document.createElement('button');
+      el.type = 'button'; el.className = 'fsm-cluster';
+      el.setAttribute('aria-label', gr.its.length + ' ' + (ov ? ov.label : 'Punkte') + ', hineinzoomen');
+      el.innerHTML = fsIconHtml((ov && ov.icon) || 'pin') + '<b>' + gr.its.length + '</b>';
+      el.addEventListener('click', (ev)=>{
+        ev.stopPropagation();
+        if(e - w < 1e-5 && n - s < 1e-5) map.easeTo({center: [lo / gr.its.length, la / gr.its.length], zoom: FSM_CL_MAXZ, duration: 400});
+        else map.fitBounds([[w, s], [e, n]], {padding: 70, maxZoom: FSM_CL_MAXZ, duration: 400});
+      });
+      map._fsm.clBubbles.push(new maplibregl.Marker({element: el}).setLngLat([lo / gr.its.length, la / gr.its.length]).addTo(map));
+    });
+  });
+}
 function fsmAddMarker(map, lat, lon, html, opts){
   opts = opts || {};
   const el = document.createElement('div');
@@ -18667,8 +18726,8 @@ function fsOpenOrtForm(o, onSaved){
 const fsmOrteMaps = new Set();
 function fsmOrteDraw(map){
   if(!map || !map._fsm || !window.maplibregl) return;
-  (map._fsm.orteMk || []).forEach(m=> m.remove());
-  map._fsm.orteMk = [];
+  fsmClClear(map, 'orte');
+  fsmClSet(map, 'orte', true);
   // Ebene an: alle Orte; sonst nur die Orte der gezeigten Tour (map._fsm.orteIds)
   const only = fsmOverlayOn(map, 'orte') ? null : (map._fsm.orteIds || []);
   if(only && !only.length) return;
@@ -18686,7 +18745,7 @@ function fsmOrteDraw(map){
     el.setAttribute('aria-label', k.label + ': ' + o.name);
     el.innerHTML = fsIconHtml(k.icon) + `<span>${esc(o.name)}</span>`;
     el.addEventListener('click', (e)=>{ e.stopPropagation(); fsOpenOrt(o.id); });
-    map._fsm.orteMk.push(new maplibregl.Marker({element: el, anchor: 'left', offset: [-13, 0]}).setLngLat([+o.lon, +o.lat]).addTo(map));
+    fsmClAdd(map, 'orte', new maplibregl.Marker({element: el, anchor: 'left', offset: [-13, 0]}).setLngLat([+o.lon, +o.lat]), o.lat, o.lon);
   });
 }
 function fsmOrteRefresh(){
