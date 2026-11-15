@@ -1698,6 +1698,8 @@ html.fs-filter-open body{ overflow:hidden; }
 .fsm-val-0{ min-width:0; width:10px; height:10px; padding:0; background:#ADB5BD; }
 .fsm-cam{ width:30px; height:30px; border-radius:50%; background:#fff; color:#0E5072; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(15,30,39,.35); cursor:pointer; }
 .fsm-cam .fs-i{ width:17px; height:17px; }
+/* Beim Bearbeiten einer Tour gehört jeder Tipp dem Editor: Punkte der Ebenen nicht antippbar */
+.in-edit :is(.fsm-ovpt, .fsm-cluster){ pointer-events:none; }
 /* Gebündelte Punkte: Symbol der Ebene + Anzahl, antippen zoomt hinein */
 .fsm-cluster{ display:flex; align-items:center; gap:4px; height:38px; min-width:38px; padding:0 11px 0 9px; border-radius:19px; border:2px solid #fff;
   background:var(--accent-ink); color:#fff; font:700 14px/1 var(--font-ui); box-shadow:0 2px 8px rgba(15,30,39,.35); cursor:pointer; min-height:0; }
