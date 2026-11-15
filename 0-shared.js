@@ -1317,9 +1317,20 @@ function fsTourSummitPoint(t){
       .filter(Boolean);
     if(gs.length) return gs.reduce((a, b2)=> b2.alt > a.alt ? b2 : a);
   }
-  const line = (t.trackSimplified && t.trackSimplified.length > 1) ? t.trackSimplified : ((t.manualTrack && t.manualTrack.length > 1) ? t.manualTrack : null);
-  if(!line) return null;
-  const ll = line.map(q=> Array.isArray(q) ? {lat:+q[0], lon:+q[1], ele: q[2] != null ? +q[2] : NaN} : {lat:+q.lat, lon:+(q.lon != null ? q.lon : q.lng), ele: q.ele != null ? +q.ele : NaN}).filter(q=> isFinite(q.lat) && isFinite(q.lon));
+  // Alle Linien der Tour (GPS-Track, gezeichnete Linie, Varianten). Höhen aus der Linie selbst, sonst aus dem
+  // Gerätespeicher (fsUpDownEles, gefüllt beim Anzeigen der Tour); ohne Höhen der Punkt am weitesten vom Start.
+  const cache = fsUpDownCache(), ll = [];
+  fsTourRoutes(t).forEach(r=>{
+    const c = r.coords || [];
+    if(c.length < 2) return;
+    let ce = null;
+    try{ const k = fsRcKey(t, c), e = cache[k] && cache[k].e; if(e && e.length === c.length) ce = e; }catch(e){}
+    c.forEach((q, i)=>{
+      const p = Array.isArray(q) ? {lat:+q[0], lon:+q[1], ele: q[2] != null ? +q[2] : NaN} : {lat:+q.lat, lon:+(q.lon != null ? q.lon : q.lng), ele: q.ele != null ? +q.ele : NaN};
+      if(!isFinite(p.ele) && ce) p.ele = +ce[i];
+      if(isFinite(p.lat) && isFinite(p.lon)) ll.push(p);
+    });
+  });
   if(ll.length < 2) return null;
   const withEle = ll.filter(q=> isFinite(q.ele));
   if(withEle.length > ll.length / 2) return withEle.reduce((a, b)=> b.ele > a.ele ? b : a);
@@ -1940,7 +1951,7 @@ function fsHomeExtrasSync(){
   if(!map._fsExtraWired){
     map._fsExtraWired = true; // Handler hängen an der Ebenen-Kennung und bleiben bei neuem Kartenstil
     map.on('click', 'fs-home-extra', (e)=>{
-      if(fsPlanner || (e.originalEvent && e.originalEvent._fsmHandled)) return;
+      if(fsPlanner || (e.originalEvent && e.originalEvent._fsmHandled) || (map._fsInfoBlock && map._fsInfoBlock())) return;
       const f = e.features && e.features[0];
       if(!f) return;
       if(e.originalEvent) e.originalEvent._fsmHandled = true;
@@ -8877,6 +8888,7 @@ const FSM_CL_PX = 64, FSM_CL_MAXZ = 15;
 function fsmClGroup(map, g){ const c = map._fsm.cl = map._fsm.cl || {}; return c[g] = c[g] || {items: [], on: false}; }
 function fsmClAdd(map, g, m, lat, lon){
   m.remove();
+  m.getElement().classList.add('fsm-ovpt'); // beim Bearbeiten nicht antippbar (look.css)
   const i = map._fsm.markers.indexOf(m);
   if(i >= 0) map._fsm.markers.splice(i, 1); // gehört der Ebene, nicht der gerade gezeigten Tour
   fsmClGroup(map, g).items.push({m, lat: +lat, lon: +lon});
