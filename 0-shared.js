@@ -6640,6 +6640,7 @@ const FSM_OVERLAYS = [
   {id:'hangneigung', group:'gefahr', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
   // Hangexposition: rechnet das Gerät aus dem Höhenmodell (fsAspect*), Legende im Ebenen-Fenster
   {id:'exposition', group:'gefahr', label:'Hangexposition', icon:'compass', aspect:true, tiles:['fsaspect://{z}/{x}/{y}'], minzoom: 11, maxzoom: 14, opacity:0.6, attribution:'Höhen: Mapzen/AWS Terrain Tiles', legend:()=> fsAspectLegendHtml()},
+  {id:'triebschnee', group:'gefahr', label:'Triebschnee (Modell)', icon:'wind', skitourOnly:true, drift:true, minzoom: 12, maxzoom: 14, opacity:0.8, attribution:'Wind: Open-Meteo · Höhen: Mapzen/AWS Terrain Tiles', legend:()=> fsDriftLegendHtml()},
   {id:'slf', group:'gefahr', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
   {id:'sperrungen', group:'gefahr', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // ÖV-Haltestellen (BAV); antippen zeigt Name, Fahrplan und «als Ort übernehmen»
@@ -6906,13 +6907,15 @@ function fsmSetOverlay(map, id, on, silent){
       fsmLoadSlf(map, lid);
     }else{
       if(o.aspect) fsAspectEnsureProtocol();
-      map.addSource(lid, Object.assign({type:'raster', tiles: o.tiles, tileSize:256, maxzoom: o.maxzoom || 18}, o.attribution ? {attribution: o.attribution} : {}));
+      if(o.drift) fsDriftEnsureProtocol();
+      map.addSource(lid, Object.assign({type:'raster', tiles: o.drift ? [fsDriftTilesUrl()] : o.tiles, tileSize:256, maxzoom: o.maxzoom || 18}, o.attribution ? {attribution: o.attribution} : {}));
       map.addLayer(Object.assign({id:lid, type:'raster', source:lid, paint:{'raster-opacity': o.opacity || 1}}, o.minzoom ? {minzoom: o.minzoom} : {}), 'fsm-anchor-names');
       if(o.minzoom && map.getZoom() < o.minzoom) showToast(o.label + ': erst ab näherem Zoom sichtbar.');
     }
   }
   if(map.getLayer(lid)) map.setLayoutProperty(lid, 'visibility', on ? 'visible' : 'none');
   map._fsm.overlays[id] = !!on;
+  if(o.drift && on) fsDriftStart(map);
   if(!silent){
     const p = fsmPrefs();
     p.on = p.on.filter(x=> x !== id);
@@ -7148,6 +7151,159 @@ function fsAspectEnsureProtocol(){
     const blob = out.convertToBlob ? await out.convertToBlob({type: 'image/png'}) : await new Promise(res=> out.toBlob(res, 'image/png'));
     return {data: await blob.arrayBuffer()};
   });
+}
+/* ===== Triebschnee (Modell, Ebene) =====
+   Wo der Wind der letzten 72 Stunden Schnee abgelagert haben dürfte, gerechnet auf dem Gerät.
+   Wind: Open-Meteo (Modell auf etwa 3000 m, 700 hPa; sonst 10 m) für die Kartenmitte, neu ab 25 km Verschiebung.
+   Nur Stunden ab 20 km/h zählen, stärkerer Wind mehr; daraus Hauptwindrichtung und Stärke. Ohne Neuschnee
+   (unter 2 cm in 72 h) oder mit kaum Wind bleibt die Ebene leer.
+   Gelände: Windschatten-Mass nach Winstral (grösster Winkel zum Gelände gegen den Wind, bis 300 m): positiv =
+   geschützt (Rinnen, Mulden, hinter Kämmen) → Ablagerung violett; negativ = angeblasen → abgeblasen hellblau.
+   Höhen: FS3D_DEM (Terrarium, etwa 30 m). Kacheln über das Protokoll fsdrift://. Keine Lawinenbeurteilung. */
+const FS_DRIFT = {k: 0, from: 0, info: null, key: '0', at: null, busy: false, err: ''};
+const FS_DRIFT_DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
+let fsDriftProto = false;
+const fsDriftDem = new Map(); // Höhenkacheln (Float32Array), zuletzt gebrauchte zuletzt
+async function fsDriftWind(map){
+  const c = map.getCenter();
+  if(FS_DRIFT.busy || (FS_DRIFT.at && fsGeoDist(c.lat, c.lng, FS_DRIFT.at.lat, FS_DRIFT.at.lng) < 25000)) return;
+  FS_DRIFT.busy = true;
+  try{
+    const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + c.lat.toFixed(3) + '&longitude=' + c.lng.toFixed(3)
+      + '&hourly=wind_speed_700hPa,wind_direction_700hPa,wind_speed_10m,wind_direction_10m,snowfall&past_days=3&forecast_days=1&wind_speed_unit=ms&timeformat=unixtime');
+    if(!r.ok) throw new Error('Wind ' + r.status);
+    const h = (await r.json()).hourly || {};
+    const now = Date.now() / 1000, from = now - 72 * 3600;
+    let sx = 0, sy = 0, wsum = 0, hours = 0, vmax = 0, snow = 0;
+    (h.time || []).forEach((t, i)=>{
+      if(t < from || t > now) return;
+      const up = h.wind_speed_700hPa && h.wind_speed_700hPa[i] != null;
+      const v = up ? h.wind_speed_700hPa[i] : (h.wind_speed_10m[i] || 0) * 1.4;
+      const d = up ? h.wind_direction_700hPa[i] : h.wind_direction_10m[i];
+      snow += (h.snowfall && h.snowfall[i]) || 0;
+      if(v > vmax) vmax = v;
+      if(v < 5.5 || d == null) return; // unter 20 km/h kaum Transport
+      const w = Math.pow(v - 5.5, 1.5);
+      sx += w * Math.sin(d * Math.PI / 180); sy += w * Math.cos(d * Math.PI / 180); wsum += w; hours++;
+    });
+    const dir = (Math.atan2(sx, sy) * 180 / Math.PI + 360) % 360, steady = wsum ? Math.hypot(sx, sy) / wsum : 0;
+    const k = snow < 2 || hours < 3 ? 0 : Math.min(1, snow / 20) * Math.min(1, wsum / 150) * (0.4 + 0.6 * steady);
+    FS_DRIFT.k = k < 0.05 ? 0 : k;
+    FS_DRIFT.from = dir;
+    FS_DRIFT.info = {dir: FS_DRIFT_DIRS[Math.round(dir / 45) % 8], hours, vmax: Math.round(vmax * 3.6), snow: Math.round(snow), steady};
+    FS_DRIFT.at = c;
+    FS_DRIFT.err = '';
+    FS_DRIFT.key = String(Date.now());
+  }catch(e){ FS_DRIFT.err = 'Winddaten gerade nicht verfügbar.'; }
+  finally{ FS_DRIFT.busy = false; }
+  if(map.getSource('ov-triebschnee')) map.getSource('ov-triebschnee').setTiles([fsDriftTilesUrl()]);
+  fsmSyncPanel(map);
+}
+function fsDriftTilesUrl(){ return 'fsdrift://{z}/{x}/{y}?v=' + FS_DRIFT.key; }
+function fsDriftStart(map){
+  fsDriftEnsureProtocol();
+  if(!map._fsDriftWired){
+    map._fsDriftWired = true;
+    map.on('moveend', ()=>{ if(fsmOverlayOn(map, 'triebschnee')) fsDriftWind(map); });
+  }
+  fsDriftWind(map);
+}
+function fsDriftLegendHtml(){
+  const i = FS_DRIFT.info;
+  let head;
+  if(FS_DRIFT.err) head = FS_DRIFT.err;
+  else if(!i) head = 'Winddaten werden geladen …';
+  else if(!FS_DRIFT.k) head = `Kaum Verfrachtung in den letzten 72 h: ${i.snow < 2 ? 'wenig Neuschnee (' + i.snow + ' cm)' : 'schwacher Wind'}. Älterer Schnee kann trotzdem verfrachtet sein.`;
+  else head = `Wind aus <b>${i.dir}</b>${i.steady < 0.6 ? ' (wechselnd)' : ''}, ${i.hours} Stunden über 20 km/h, Spitze ${i.vmax} km/h. Neuschnee ${i.snow} cm (72 h). Stärke: <b>${FS_DRIFT.k > 0.6 ? 'stark' : FS_DRIFT.k > 0.3 ? 'mässig' : 'gering'}</b>.`;
+  return `<div class="fsm-legend-row"><span><i style="background:rgb(112,72,232)"></i>Ablagerung (Windschatten)</span><span><i style="background:rgb(116,192,252)"></i>Abgeblasen</span></div>
+    <small>${head} Wind aus dem Wettermodell (etwa 3000 m) für die Kartenmitte, Gelände aus dem Höhenmodell (etwa 30 m), ab mittlerem Zoom. Abschätzung aus Wind und Gelände, keine Lawinenbeurteilung.</small>`;
+}
+async function fsDriftDemTile(z, x, y, signal){
+  const key = z + '/' + x + '/' + y;
+  if(fsDriftDem.has(key)){ const v = fsDriftDem.get(key); fsDriftDem.delete(key); fsDriftDem.set(key, v); return v; }
+  const n = 1 << z;
+  const r = await fetch(FS3D_DEM.replace('{z}', z).replace('{x}', ((x % n) + n) % n).replace('{y}', Math.max(0, Math.min(n - 1, y))), {signal});
+  if(!r.ok) throw new Error('Höhenkachel ' + r.status);
+  const bmp = await createImageBitmap(await r.blob());
+  const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(256, 256) : Object.assign(document.createElement('canvas'), {width: 256, height: 256});
+  const cx = c.getContext('2d', {willReadFrequently: true});
+  cx.drawImage(bmp, 0, 0);
+  const d = cx.getImageData(0, 0, 256, 256).data, e = new Float32Array(65536);
+  for(let i = 0; i < 65536; i++) e[i] = d[i * 4] * 256 + d[i * 4 + 1] + d[i * 4 + 2] / 256 - 32768;
+  fsDriftDem.set(key, e);
+  if(fsDriftDem.size > 60) fsDriftDem.delete(fsDriftDem.keys().next().value);
+  return e;
+}
+function fsDriftEnsureProtocol(){
+  if(fsDriftProto || typeof maplibregl === 'undefined' || !maplibregl.addProtocol) return;
+  fsDriftProto = true;
+  maplibregl.addProtocol('fsdrift', async (params, abort)=>{
+    const m = /fsdrift:\/\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
+    if(!m) throw new Error('fsdrift');
+    const z = +m[1], tx = +m[2], ty = +m[3], k = FS_DRIFT.k;
+    const mk = ()=> typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(256, 256) : Object.assign(document.createElement('canvas'), {width: 256, height: 256});
+    const out = mk(), ox = out.getContext('2d');
+    if(k > 0){
+      const signal = abort && abort.signal;
+      // 3 × 3 Kacheln, damit die Suche gegen den Wind über den Rand hinaus reicht
+      const tiles = await Promise.all([-1, 0, 1].flatMap(dy=> [-1, 0, 1].map(dx=> fsDriftDemTile(z, tx + dx, ty + dy, signal))));
+      const E = (x, y)=>{
+        const ix = x < 0 ? 0 : x >= 256 ? 2 : 1, iy = y < 0 ? 0 : y >= 256 ? 2 : 1;
+        const lx = x - (ix - 1) * 256, ly = y - (iy - 1) * 256;
+        return tiles[iy * 3 + ix][(ly < 0 ? 0 : ly > 255 ? 255 : ly) * 256 + (lx < 0 ? 0 : lx > 255 ? 255 : lx)];
+      };
+      const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 0.5) / Math.pow(2, z)))), cell = 40075016.686 * Math.cos(lat) / (256 * Math.pow(2, z));
+      const steps = Math.max(4, Math.min(48, Math.round(300 / cell)));
+      // Richtung, aus der der Wind kommt (Bildpunkte: x nach Osten, y nach Süden)
+      const a = FS_DRIFT.from * Math.PI / 180, ux = Math.sin(a), uy = -Math.cos(a);
+      const im = ox.createImageData(256, 256), o = im.data, SL = FS_SNOW_LINE - 250;
+      for(let y = 0; y < 256; y++) for(let x = 0; x < 256; x++){
+        const z0 = E(x, y);
+        if(z0 < SL) continue;
+        // Gegen den Wind: grösster Winkel zum Gelände (Sx) und wo das Gelände am höchsten ist (Kamm)
+        let sx = -90, zmax = z0, smax = 0;
+        for(let s = 1; s <= steps; s++){
+          const zz = E(Math.round(x + ux * s), Math.round(y + uy * s));
+          const ang = Math.atan((zz - z0) / (s * cell)) * 180 / Math.PI;
+          if(ang > sx) sx = ang;
+          if(zz > zmax){ zmax = zz; smax = s; }
+        }
+        const gx = (E(x + 1, y) - E(x - 1, y)) / (2 * cell), gy = (E(x, y + 1) - E(x, y - 1)) / (2 * cell);
+        const slope = Math.atan(Math.hypot(gx, gy)) * 180 / Math.PI;
+        if(slope > 50) continue; // Felswände: dort bleibt kaum Schnee liegen
+        const flat = Math.min(1, Math.max(0.3, slope / 20));
+        const snowT = Math.min(1, (z0 - SL) / 500), q = (y * 256 + x) * 4;
+        if(sx > 4){
+          // Ablagerung vor allem knapp unter dem Kamm (Kamm innerhalb der Suchstrecke, bis etwa 150 Hm darüber)
+          // und in Mulden/Rinnen; weiter unten im Hang deutlich schwächer
+          const crest = smax > 0 && smax < steps ? Math.max(0, 1 - (smax * cell) / 250) * Math.max(0, 1 - (zmax - z0) / 180) : 0;
+          const r = 3, ring = (E(x - r, y) + E(x + r, y) + E(x, y - r) + E(x, y + r)) / 4, concave = Math.max(0, Math.min(1, (ring - z0) / (r * cell * 0.15)));
+          const f = Math.min(1, (sx - 4) / 16) * Math.min(1, 0.15 + 0.85 * Math.max(crest, concave * 0.8));
+          if(f < 0.08) continue;
+          o[q] = 112; o[q + 1] = 72; o[q + 2] = 232; o[q + 3] = Math.round(235 * f * (0.35 + 0.65 * k) * flat * snowT);
+        }else if(sx < -6){
+          const f = Math.min(1, (-6 - sx) / 14);
+          o[q] = 116; o[q + 1] = 192; o[q + 2] = 252; o[q + 3] = Math.round(150 * f * (0.35 + 0.65 * k) * snowT);
+        }
+      }
+      ox.putImageData(im, 0, 0);
+    }
+    const blob = out.convertToBlob ? await out.convertToBlob({type: 'image/png'}) : await new Promise(res=> out.toBlob(res, 'image/png'));
+    return {data: await blob.arrayBuffer()};
+  });
+}
+// Gipfelbuch hat keine offene Schnittstelle: Websuche nach Verhältnisberichten des letzten Monats zum Gipfel
+function fsGipfelbuchHtml(t){
+  if(!t) return '';
+  let name = '';
+  if(Array.isArray(t.summitIds) && t.summitIds.length && Array.isArray(state.gipfel)){
+    const g = state.gipfel.find(x=> x && x.id === t.summitIds[0]); if(g && g.name) name = g.name;
+  }
+  if(!name) name = String(t.name || '').split(/[–,(\/]| - | via | über /)[0].trim();
+  if(!name) return '';
+  const href = 'https://www.google.com/search?tbs=qdr:m&q=' + encodeURIComponent('site:gipfelbuch.ch/verhaeltnisse "' + name + '"');
+  return `<div class="detail-section fs-gb"><h4>Berichte anderer</h4><a class="fs-cam-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">Gipfelbuch: Verhältnisse «${esc(name)}» im letzten Monat ↗</a>
+    <p class="wx-src">Websuche auf gipfelbuch.ch, neueste Berichte zuerst prüfen.</p></div>`;
 }
 /* ===== Luftbild Winter: Luftbild mit Schnee, auf dem Gerät gerechnet =====
    Kacheln über das Protokoll fssnow://. Je Kachel Luftbild (swisstopo SWISSIMAGE) und Höhenmodell (FS3D_DEM):
@@ -13625,7 +13781,7 @@ function fsOpenConditions(lat, lon, ele, name){
 function meteoForecastWidgetHtml(lat, lon, alt, tour){
   if(!isFinite(lat) || !isFinite(lon)) return '';
   // Prognose zuerst (wichtigste Frage am Tag X), dann Rückblick, gemessen, Webcams
-  const parts = [tour ? fsBergwetterHtml(tour) : '', meteoForecastOnlyHtml(lat, lon), fsConditionsHtml(lat, lon, alt)];
+  const parts = [tour ? fsBergwetterHtml(tour) : '', meteoForecastOnlyHtml(lat, lon), fsConditionsHtml(lat, lon, alt), tour ? fsGipfelbuchHtml(tour) : ''];
   if(navigator.onLine !== false) return parts.join('');
   // Offline: statt drei Leer-Meldungen untereinander nur eine Zeile; Teile mit gespeicherten Daten bleiben
   const isEmptyOffline = (h)=>{ const txt = String(h || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(); return /Offline – /.test(txt) && txt.length < 160; };
