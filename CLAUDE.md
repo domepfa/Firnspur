@@ -54,6 +54,9 @@ aus anderen Apps übernehmen.
   Punkt-Ebenen (Webcams, Messstationen, Parkplätze, Wasser, geteilte Punkte) laufen über `fsmClAdd`/`fsmClSet`: nur Punkte
   im Ausschnitt hängen an der Karte, nahe werden zu einem Kreis mit Anzahl gebündelt (ab Zoom 15 einzeln). SAC-Skitouren
   und Wanderwege erst ab Zoom 11.
+  Triebschnee (Modell, `fsDrift*`, Protokoll `fsdrift://`): Wind der letzten 72 h aus Open-Meteo (700 hPa) für die Kartenmitte,
+  Windschatten aus dem Höhenmodell (Winstral-Sx bis 300 m, stärker knapp unter Kämmen und in Mulden); leer ohne Neuschnee.
+  Keine Lawinenbeurteilung – so steht es in der Legende. Tour: «Berichte anderer» als Websuche auf gipfelbuch.ch (`fsGipfelbuchHtml`).
 - Planer (`fsPlannerOpen`): «Auf Wegen» rechnet über das swisstopo-Wegnetz (`fsrRoute`, sonst openrouteservice); «Skitour (weglos)»
   rechnet auf dem Gerät eine Aufstiegsspur mit Spitzkehren aus dem Höhenmodell (`fsSkiRoute`: Raster über `fsElevGrid` aus dem
   swisstopo-Gelände, Suche `fsSkiEngine` im Web Worker; Spur höchstens etwa 14° steil, Hänge ab 30° gemieden; Linie nach
