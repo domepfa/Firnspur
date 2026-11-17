@@ -1334,9 +1334,71 @@ function fsTourSummitPoint(t){
   if(ll.length < 2) return null;
   const withEle = ll.filter(q=> isFinite(q.ele));
   if(withEle.length > ll.length / 2) return withEle.reduce((a, b)=> b.ele > a.ele ? b : a);
+  // Höchster Punkt aus dem Höhenmodell (auf dem Gerät gemerkt); bis er da ist, der Punkt am weitesten vom Start
+  const key = fsSummitKey(t);
+  const hit = fsSummitCache()[key];
+  if(hit && isFinite(hit.lat)) return {lat: hit.lat, lon: hit.lon, ele: hit.ele};
+  fsSummitQueue(t, key, ll);
   const s0 = ll[0];
   const d = q=> (q.lat - s0.lat) ** 2 + ((q.lon - s0.lon) * Math.cos(s0.lat * Math.PI / 180)) ** 2;
   return ll.reduce((a, b)=> d(b) > d(a) ? b : a);
+}
+// Gipfel einer Tour ohne Höhen in den Linien: Linienpunkte im Höhenmodell (FS3D_DEM, Zoom 12, etwa 25 m)
+// nachschlagen, höchsten merken (localStorage «fs-summit», höchstens 300 Touren) und den Punkt auf der Startkarte versetzen.
+function fsSummitKey(t){ return t.id + ':' + fsTourRoutes(t).map(r=>{ const c = r.coords || []; return c.length ? c.length + ',' + [].concat(c[0]).slice(0, 2).join(',') + ',' + [].concat(c[c.length - 1]).slice(0, 2).join(',') : ''; }).join('|'); }
+function fsSummitCache(){ try{ return fsSummitCache._c || (fsSummitCache._c = JSON.parse(localStorage.getItem('fs-summit') || '{}') || {}); }catch(e){ return (fsSummitCache._c = {}); } }
+const fsSummitJobs = new Map();
+let fsSummitBusy = false;
+function fsSummitQueue(t, key, ll){
+  if(fsSummitJobs.has(key) || navigator.onLine === false) return;
+  fsSummitJobs.set(key, {id: t.id, ll});
+  if(!fsSummitBusy) setTimeout(fsSummitRun, 300);
+}
+async function fsSummitRun(){
+  if(fsSummitBusy) return;
+  fsSummitBusy = true;
+  const done = [];
+  try{
+    for(const [key, job] of fsSummitJobs){
+      if(job.done) continue;
+      job.done = true;
+      const z = 12, n = 1 << z, step = Math.max(1, Math.floor(job.ll.length / 400));
+      let best = null;
+      try{
+        for(let i = 0; i < job.ll.length; i += step){
+          const q = job.ll[i];
+          const fx = (q.lon + 180) / 360 * n, la = q.lat * Math.PI / 180;
+          const fy = (1 - Math.log(Math.tan(la) + 1 / Math.cos(la)) / Math.PI) / 2 * n;
+          const tx = Math.floor(fx), ty = Math.floor(fy);
+          const e = await fsDriftDemTile(z, tx, ty);
+          const ele = e[Math.min(255, Math.floor((fy - ty) * 256)) * 256 + Math.min(255, Math.floor((fx - tx) * 256))];
+          if(!best || ele > best.ele) best = {lat: q.lat, lon: q.lon, ele: Math.round(ele)};
+        }
+      }catch(e){ fsSummitJobs.delete(key); continue; } // offline o. ä.: später nochmals
+      if(!best) continue;
+      const c = fsSummitCache();
+      c[key] = Object.assign(best, {at: Date.now()});
+      done.push(job.id);
+    }
+    if(done.length){
+      const c = fsSummitCache(), keys = Object.keys(c);
+      if(keys.length > 300) keys.sort((x, y)=> (c[x].at || 0) - (c[y].at || 0)).slice(0, keys.length - 300).forEach(k=> delete c[k]);
+      try{ localStorage.setItem('fs-summit', JSON.stringify(c)); }catch(e){}
+      // Startkarte: Punkte der Touren an den Gipfel setzen
+      if(fsHomePts && Array.isArray(state.tours)){
+        let moved = false;
+        fsHomePts.points.forEach(p=>{
+          if(done.indexOf(p.id) < 0) return;
+          const t = state.tours.find(x=> x && x.id === p.id), g = t && fsTourSummitPoint(t);
+          if(g && (g.lat !== p.lat || g.lon !== p.lon)){ p.lat = g.lat; p.lon = g.lon; moved = true; }
+        });
+        if(moved) fsHomeSync();
+      }
+    }
+  }finally{
+    fsSummitBusy = false;
+    if([...fsSummitJobs.values()].some(j=> !j.done)) setTimeout(fsSummitRun, 300);
+  }
 }
 // Hütte aus dem Text erkennen («ab Wiwannihütte»), wenn die Tour keine verknüpft hat
 function fsHutKey(n){ return String(n || '').toLowerCase().replace(/hütte|huette|cabane|capanna|rifugio|refuge|hut/g, '').replace(/[^a-zäöüéèà0-9]/g, ''); }
