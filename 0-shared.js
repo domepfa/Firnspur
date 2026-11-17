@@ -3845,7 +3845,7 @@ function printTourenzettel(agendaId){
       <div style="margin-bottom:8px;">Gefahrenstufe: <span class="lv">1</span><span class="lv">2</span><span class="lv">3</span><span class="lv">4</span><span class="lv">5</span></div>
       <div style="margin-bottom:8px;">Kernzone (Höhe / Exposition): <span class="fill"></span></div>
       <div style="margin-bottom:8px;">Lawinenproblem: <span class="fill"></span></div>
-      <div>Bulletin vom: <span class="fill" style="min-width:90px;"></span> <a class="no-print" href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener">slf.ch ↗</a></div>`;
+      <div>Bulletin vom: <span class="fill" style="min-width:90px;"></span> <a class="no-print" href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener">whiterisk.ch ↗</a></div>`;
     const t = target || (points[0] || null);
     (t ? fsSlfBulletinAt(parseFloat(t.lat), parseFloat(t.lon), a.startDate) : Promise.resolve(null)).then(b=>{
       const el = $('tz-avalanche');
@@ -3854,7 +3854,7 @@ function printTourenzettel(agendaId){
       el.innerHTML = `<p class="wx-big">Gefahrenstufe ${escHtml(b.level)}${b.region ? ` <span class="muted" style="font-weight:400;">· ${escHtml(b.region)}</span>` : ''}</p>
         ${b.ratings.length ? `<div>${b.ratings.map(r=>`<div>${escHtml(r)}</div>`).join('')}</div>` : ''}
         ${b.problems.length ? `<div style="margin-top:6px;"><b>Lawinenprobleme:</b> ${b.problems.map(escHtml).join(' · ')}</div>` : ''}
-        <p class="muted" style="margin:6px 0 0 0;font-size:12px;">SLF-Bulletin gültig bis ${escHtml(b.validUntil)} – <a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener">slf.ch</a></p>`;
+        <p class="muted" style="margin:6px 0 0 0;font-size:12px;">SLF-Bulletin gültig bis ${escHtml(b.validUntil)} – <a href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener">whiterisk.ch</a></p>`;
     }).catch(()=>{ const el = $('tz-avalanche'); if(el) el.innerHTML = fillIn('Bulletin gerade nicht abrufbar.'); });
   }
 
@@ -4105,7 +4105,7 @@ function fsSlfBoxHtml(lat, lon){
     ${bul.ratings.map(r=> `<div class="fs-slf-lvl"><span class="fs-slf-dot" style="--lvl:${r.color}; color:${r.level >= 3 ? '#fff' : '#0F1E27'}">${r.level}</span><div>${esc(r.label)}${r.elev || r.later ? `<small>${esc([r.elev, r.later ? 'im Tagesverlauf' : ''].filter(Boolean).join(' · '))}</small>` : ''}</div></div>`).join('')}
     ${bul.problems.length ? `<ul class="fs-slf-prob">${bul.problems.map(pr=> `<li><span>${esc(pr.type)}</span><em>${esc(prob(pr))}</em></li>`).join('')}</ul>` : ''}
     ${hits.length ? `<div class="fs-slf-hit"><b>Deine Tour: Exposition ${esc(expoTxt)}${t.targetAltitude ? ' · Gipfel ' + esc(String(t.targetAltitude)) + ' m' : ''}</b>Liegt laut Exposition und Gipfelhöhe im Bereich: ${esc(hits.map(h=> h.type).join(', '))}.</div>` : ''}
-    <a class="fs-slf-link" href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener noreferrer">Ganzes Bulletin beim SLF</a>
+    <a class="fs-slf-link" href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk</a>
     <p class="fs-slf-src">${esc([bul.region ? 'Region ' + bul.region : '', bul.pub ? 'Stand ' + fsSlfFmt(bul.pub) : ''].filter(Boolean).join(' · '))}</p>
   </div>`;
 }
@@ -9234,7 +9234,7 @@ async function fsmHandleInfoClick(map, ll, opts){
   }
   if(fsmOverlayOn(map, 'slf')){
     const hit = map.queryRenderedFeatures(map.project([ll.lng, ll.lat]), {layers:['ov-slf']})[0];
-    if(hit){ fsmPopup(map, lngLat, `<b>Lawinengefahr: Stufe ${esc(hit.properties.label)}</b><br/><a href="https://www.slf.ch/de/lawinenbulletin-und-schneesituation/" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`); return true; }
+    if(hit){ fsmPopup(map, lngLat, `<b>Lawinengefahr: Stufe ${esc(hit.properties.label)}</b><br/><a href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`); return true; }
   }
   return false;
 }
