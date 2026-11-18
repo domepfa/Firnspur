@@ -16544,6 +16544,46 @@ const MONTHS = [
   {key:'jul', label:'Juli'}, {key:'aug', label:'Aug.'}, {key:'sep', label:'Sept.'},
   {key:'okt', label:'Okt.'}, {key:'nov', label:'Nov.'}, {key:'dez', label:'Dez.'}
 ];
+/* ===== Beste Zeit im Jahr =====
+   Eingetragene beste Monate (bestMonths) gehen vor; sonst die Monate früherer Begehungen (completions) und Erfahrungen,
+   je einen Monat davor und danach dazu (eine Begehung im März heisst: Februar bis April passt wohl auch). */
+function fsTourSeasonMonths(t){
+  if(!t) return null;
+  if(Array.isArray(t.bestMonths) && t.bestMonths.length){
+    const idx = t.bestMonths.map(k=> MONTHS.findIndex(m=> m.key === k)).filter(i=> i >= 0);
+    return idx.length ? {months: new Set(idx), src: 'eingetragen', n: 0} : null;
+  }
+  const dates = [].concat((t.completions || []).map(c=> c && c.date), (Array.isArray(t.erfahrungen) ? t.erfahrungen : []).map(e=> e && e.date)).filter(Boolean);
+  const seen = dates.map(d=> /^\d{4}-(\d{2})/.exec(String(d))).filter(Boolean).map(m=> +m[1] - 1).filter(i=> i >= 0 && i < 12);
+  if(!seen.length) return null;
+  const months = new Set();
+  seen.forEach(i=>{ months.add(i); months.add((i + 11) % 12); months.add((i + 1) % 12); });
+  return {months, core: new Set(seen), src: 'begangen', n: seen.length};
+}
+// passt die Tour in diesen Monat? true/false, null = unbekannt
+function fsTourSeasonFits(t){
+  const s = fsTourSeasonMonths(t);
+  if(!s) return null;
+  return s.months.has(new Date().getMonth());
+}
+// Monate als kurze Spannen («Feb.–Apr.», über den Jahreswechsel «Dez.–Feb.»)
+function fsMonthRanges(set){
+  const on = i=> set.has((i + 12) % 12);
+  if(set.size >= 12) return 'ganzes Jahr';
+  let start = 0; while(on(start)) start++; // bei einer Lücke beginnen
+  const out = [];
+  for(let k = 1; k <= 12; k++){
+    const i = (start + k) % 12;
+    if(on(i) && !on(i - 1)){ let j = i; while(on(j + 1) && (j + 1) % 12 !== i) j++; out.push(i === j % 12 ? MONTHS[i].label : MONTHS[i].label + '–' + MONTHS[j % 12].label); }
+  }
+  return out.join(', ');
+}
+function fsTourSeasonText(t){
+  const s = fsTourSeasonMonths(t);
+  if(!s) return '';
+  if(s.src === 'eingetragen') return fsMonthRanges(s.months);
+  return 'meist ' + fsMonthRanges(s.core) + ' (aus ' + s.n + (s.n === 1 ? ' Begehung' : ' Begehungen') + ')';
+}
 function monthChipsRowHtml(fieldClass, fullMonths, partialMonths){
   const full = Array.isArray(fullMonths) ? fullMonths : [];
   const partial = Array.isArray(partialMonths) ? partialMonths : [];
