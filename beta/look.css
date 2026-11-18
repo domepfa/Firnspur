@@ -3162,3 +3162,16 @@ html.fs-mapmode #fs-ov-chips:not([hidden]){ display:flex; gap:8px; position:fixe
 .fs-ov-chip .fs-i:last-child{ color:var(--ink-faint); }
 html.fs-wide.fs-mapmode #fs-ov-chips:not([hidden]){ top:76px; left:16px; right:auto; max-width:calc(var(--fs-col) - 32px); }
 html:is(.fs-mapfull, .fs-scanning) #fs-ov-chips{ display:none !important; }
+
+/* ===== Webcams offen in der Tour (eigene Touren) ===== */
+.fs-tcams{ display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x mandatory; margin:4px -18px 0; padding:2px 18px 4px; scrollbar-width:none; }
+.fs-tcams::-webkit-scrollbar{ display:none; }
+.fs-tcam{ flex:none; width:82%; margin:0; scroll-snap-align:start; border-radius:14px; overflow:hidden; background:var(--line-soft); position:relative; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+.fs-tcams .fs-tcam:only-child{ width:100%; }
+.fs-tcam img{ display:block; width:100%; aspect-ratio:16/9; object-fit:cover; cursor:zoom-in; -webkit-user-drag:none; }
+.fs-tcam figcaption{ display:flex; align-items:baseline; gap:6px; padding:7px 10px 8px; font-size:13px; color:var(--ink); min-width:0; }
+.fs-tcam figcaption b{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.fs-tcam figcaption span{ color:var(--ink-faint); font-size:12px; white-space:nowrap; margin-left:auto; }
+.fs-tcam figcaption .fs-i{ width:14px; height:14px; color:var(--ice-deep); align-self:center; flex:none; }
+.fs-tcam.is-pin{ box-shadow:inset 0 0 0 2px var(--ice-deep); }
+.fs-tcams-hint{ margin:2px 0 12px; font-size:11.5px; color:var(--ink-faint); }

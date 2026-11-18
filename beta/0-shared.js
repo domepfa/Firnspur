@@ -7188,7 +7188,7 @@ function fsCamAge(iso){
 }
 // Webcam-Bild antippen: im Vollbild öffnen (Zoomen mit zwei Fingern oder Doppeltippen) statt zur Webseite
 document.addEventListener('click', e=>{
-  const img = e.target.closest && e.target.closest('.fs-cam-pop img, .fs-cond-cams img, .fs-cam-row img');
+  const img = e.target.closest && e.target.closest('.fs-cam-pop img, .fs-cond-cams img, .fs-cam-row img, .fs-tcam img');
   if(!img || !img.src) return;
   e.preventDefault(); e.stopPropagation();
   showTopoImageLightbox([{url: img.src}], 0);
@@ -12989,7 +12989,8 @@ async function fsWebcamsNear(lat, lon){
       const r = await fetch('https://api.windy.com/webcams/api/v3/webcams?nearby=' + lat.toFixed(4) + ',' + lon.toFixed(4) + ',30&include=images,location,urls&limit=8', {headers:{'x-windy-api-key': WINDY_API_KEY}});
       if(r.ok){
         const j = await r.json();
-        const list = (j.webcams || []).map(w=>({name: w.title || 'Webcam', img: w.images && w.images.current && (w.images.current.preview || w.images.current.thumbnail), href: (w.urls && (w.urls.detail || w.urls.provider)) || 'https://www.windy.com/webcams/' + w.webcamId, src:'Webcams von Windy.com'}));
+        const list = (j.webcams || []).map(w=>({id: 'w' + (w.webcamId || w.id), name: w.title || 'Webcam', img: w.images && w.images.current && (w.images.current.preview || w.images.current.thumbnail), href: (w.urls && (w.urls.detail || w.urls.provider)) || 'https://www.windy.com/webcams/' + w.webcamId, src:'Webcams von Windy.com',
+          age: w.lastUpdatedOn || '', d: w.location && isFinite(w.location.latitude) ? fsGeoDist(lat, lon, w.location.latitude, w.location.longitude) : null})).sort((a, b)=> (a.d == null ? 1e9 : a.d) - (b.d == null ? 1e9 : b.d));
         fsWindyStatus = list.length ? 'ok' : 'keine Webcam im Umkreis von 30 km';
         if(list.length) return list;
       }else{
@@ -13003,10 +13004,63 @@ async function fsWebcamsNear(lat, lon){
     const j = await fsPointsFetch(o);
     return (j.features || []).filter(f=> f.geometry && f.geometry.type === 'Point').map(f=>{
       const p = f.properties || {}, l = fsLinksOf(p);
-      return {d: fsGeoDist(lat, lon, f.geometry.coordinates[1], f.geometry.coordinates[0]), name: p.station_name || 'Webcam', img: l.img, href: l.img || l.link || 'https://www.meteoschweiz.admin.ch', src:'MeteoSchweiz-Wetterkameras'};
-    }).filter(x=> x.d < 25000).sort((a, b)=> a.d - b.d).slice(0, 4);
+      if(!l.img && p.description){ const m = /<img[^>]+src="(https:[^"]+)"/.exec(p.description); if(m) l.img = m[1]; }
+      return {id: 'm' + (p.station_name || ''), d: fsGeoDist(lat, lon, f.geometry.coordinates[1], f.geometry.coordinates[0]), name: p.station_name || 'Webcam', img: l.img, href: l.img || l.link || 'https://www.meteoschweiz.admin.ch', src:'MeteoSchweiz-Wetterkameras', live: true};
+    }).filter(x=> x.d < 40000).sort((a, b)=> a.d - b.d).slice(0, 4);
   }catch(e){ return []; }
 }
+
+/* ===== Webcams offen in der Tour =====
+   Bei eigenen Touren (Eigentümer) gleich unter den Kennzahlen ein Streifen mit drei Webcams zum Wischen: zuerst die
+   festgelegte (webcamPin an der Tour: {id, name}), dann die nächsten. Antippen: Bild im Vollbild; Gedrückthalten: diese
+   Webcam zuerst zeigen bzw. nicht mehr. Ein/aus im Profil-Menü («Webcams in meinen Touren», auf dem Gerät). */
+const fsTourCamCache = new Map();
+function fsCamsOpenOn(){ return fsThemePrefs().cams !== false; }
+function fsTourCamsHtml(t){
+  if(!t || !fsCamsOpenOn() || !state.myName || fsNameKey(fsOwnerOf(t)) !== fsNameKey(state.myName)) return '';
+  const p = fsTourSummitPoint(t) || tourMapPoint(t);
+  if(!p || !isFinite(p.lat) || !isFinite(p.lon)) return '';
+  const key = (+p.lat).toFixed(2) + ',' + (+p.lon).toFixed(2);
+  let c = fsTourCamCache.get(key);
+  if(!c || (c.status === 'ok' && Date.now() - c.at > 10 * 60000)){
+    if(!c) fsTourCamCache.set(key, c = {status: 'loading'});
+    if(navigator.onLine !== false) fsWebcamsNear(+p.lat, +p.lon).then(list=> fsTourCamCache.set(key, {status: 'ok', list, at: Date.now()}), ()=> fsTourCamCache.set(key, {status: 'err', at: Date.now()})).then(()=> fsRenderSoon());
+  }
+  if(!c.list || !c.list.length) return '';
+  const pin = t.webcamPin && t.webcamPin.id;
+  const list = c.list.slice().sort((a, b)=> (b.id === pin) - (a.id === pin)).filter(w=> w.img).slice(0, 3);
+  if(!list.length) return '';
+  const km = d=> d == null ? '' : d < 1000 ? Math.round(d / 10) * 10 + ' m' : (d / 1000).toFixed(d < 10000 ? 1 : 0) + ' km';
+  return `<div class="fs-tcams" data-tour="${esc(t.id)}" aria-label="Webcams in der Nähe">${list.map(w=>{
+    const meta = [w.id === pin ? 'festgelegt' : '', km(w.d), w.live ? 'Livebild' : fsCamAge(w.age).replace(/ \(veraltet\)$/, ' – veraltet')].filter(Boolean).join(' · ');
+    return `<figure class="fs-tcam${w.id === pin ? ' is-pin' : ''}" data-cam="${esc(w.id)}" data-name="${esc(w.name)}"><img src="${esc(w.img)}" alt="Webcam ${esc(w.name)}" loading="lazy"/>
+      <figcaption>${w.id === pin ? fsIconHtml('pin') : ''}<b>${esc(w.name)}</b><span>${esc(meta)}</span></figcaption></figure>`;
+  }).join('')}</div><p class="fs-tcams-hint">Gedrückt halten: diese Webcam zuerst zeigen. ${esc(list[0].src)}.</p>`;
+}
+// Gedrückthalten auf einer Webcam: festlegen bzw. lösen (speichert an der Tour)
+(function(){
+  let tm = null, startX = 0, startY = 0, held = false;
+  const cancel = ()=>{ clearTimeout(tm); tm = null; };
+  document.addEventListener('pointerdown', (e)=>{
+    const f = e.target.closest && e.target.closest('.fs-tcam');
+    if(!f) return;
+    held = false; startX = e.clientX; startY = e.clientY; cancel();
+    tm = setTimeout(async ()=>{
+      tm = null; held = true;
+      const box = f.closest('.fs-tcams'), t = (state.tours || []).find(x=> x.id === box.getAttribute('data-tour'));
+      if(!t) return;
+      const id = f.getAttribute('data-cam'), name = f.getAttribute('data-name'), isPin = t.webcamPin && t.webcamPin.id === id;
+      if(!confirm(isPin ? 'Webcam «' + name + '» nicht mehr zuerst zeigen?' : 'Webcam «' + name + '» bei dieser Tour immer zuerst zeigen?')) return;
+      t.webcamPin = isPin ? '' : {id, name};
+      await fsErfSaveTour(t, isPin ? 'Webcam gelöst.' : 'Webcam festgelegt.');
+    }, 550);
+  }, true);
+  document.addEventListener('pointermove', (e)=>{ if(tm && Math.hypot(e.clientX - startX, e.clientY - startY) > 10) cancel(); }, true);
+  ['pointerup', 'pointercancel', 'scroll'].forEach(k=> document.addEventListener(k, cancel, true));
+  document.addEventListener('contextmenu', (e)=>{ if(e.target.closest && e.target.closest('.fs-tcam')) e.preventDefault(); }, true);
+  // Nach dem Gedrückthalten kein Vollbild öffnen
+  document.addEventListener('click', (e)=>{ if(held && e.target.closest && e.target.closest('.fs-tcam')){ e.stopPropagation(); e.preventDefault(); held = false; } }, true);
+})();
 
 /* ===== Wetter auf der Karte (B): ruhige Farbflächen, ein Fadenkreuz mit dem Wert, Zeitleiste =====
    Bedienung unten in der Daumenzone (wie Windy, MeteoSchweiz): Wetterart als Chips, darunter eine
@@ -21651,6 +21705,20 @@ function fsEnsureThemeToggles(){
       });
       row.appendChild(b);
     });
+    // Webcams offen in eigenen Touren (Standard: an)
+    const c = document.createElement('button');
+    c.type = 'button'; c.className = 'fs-theme-toggle'; c.setAttribute('role', 'switch');
+    c.setAttribute('aria-checked', fsCamsOpenOn() ? 'true' : 'false');
+    c.innerHTML = '<span>Webcams in meinen Touren</span><span class="fs-switch" aria-hidden="true"><span></span></span>';
+    c.addEventListener('click', (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      const prefs = fsThemePrefs();
+      prefs.cams = !fsCamsOpenOn();
+      try{ localStorage.setItem('fs-theme', JSON.stringify(prefs)); }catch(err){}
+      c.setAttribute('aria-checked', prefs.cams ? 'true' : 'false');
+      if(typeof render === 'function') render();
+    });
+    row.appendChild(c);
   });
 }
 
