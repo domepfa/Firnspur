@@ -65,6 +65,9 @@ aus anderen Apps übernehmen.
 - Auf- und Abstieg einer Tourlinie (`fsUpDownSplit`): Routen der Art Aufstieg bzw. Auf- & Abfahrt, die auch wieder hinunterführen,
   zeichnet die Tour-Karte zweiteilig (Abstieg/Abfahrt gestrichelt in der Farbe dieser Routenart, Zeichen am höchsten Punkt). Höhen vom
   swisstopo-Höhendienst, nur auf dem Gerät gemerkt (`fs-updown`); an der Tour ändert sich nichts.
+- Lawinen in der Liste (`fsCardSlfHtml`, `fsTourSlfHit`): Stufe der Region und «Problem», wenn steile Stellen der Route (Routen-Check,
+  im Hintergrund gerechnet, Kurzfassung auf dem Gerät `fs-rc-sum`) in Exposition und Höhe eines Lawinenproblems liegen; sonst nach
+  Exposition/Gipfelhöhe. Zusatzfilter «Am Tag X» (`fsExtraFilterHtml`): Problembereich ausblenden, passt zur Jahreszeit.
 - Hang-Scan (`fsScan*` in `0-shared.js`): Zielen mit festem Rahmen auf der Startkarte (Menü oder Gedrückthalten),
   Rechnung auf dem Gerät, eigene 3D-Ansicht mit den Ebenen Steilheit, Lawine, Klippen, Sonne (Zeitraffer).
   Neigung ab 30° aus der swisstopo-Karte «Hangneigung über 30°» (wie der Routen-Check `fsRc*`), sonst

@@ -1342,7 +1342,7 @@ function resetTourFiltersSki(){
   state.activeApproachTypeFilters.clear();
   state.activeStayTypeFilters.clear();
   state.activeStatusFilters.clear();
-  state.activeDoneFilter = '';
+  state.activeDoneFilter = ''; state.activeSlfFilter = false; state.activeSeasonFilter = false;
   state.activeGlacierFilter = '';
   render();
 }
@@ -1352,7 +1352,7 @@ function resetTourFiltersWand(){
   state.activeApproachTypeFilters.clear();
   state.activeStayTypeFilters.clear();
   state.activeStatusFilters.clear();
-  state.activeDoneFilter = '';
+  state.activeDoneFilter = ''; state.activeSlfFilter = false; state.activeSeasonFilter = false;
   state.activeDogFilter = false;
   state.activeDurationFilters.clear();
   render();
@@ -1469,7 +1469,7 @@ function filteredToursWand(){
 function tourenViewHtml__sw(...a){ return (DISC === 'wand' ? tourenViewHtmlWand : tourenViewHtmlSki).apply(this, a); }
 function tourenViewHtmlSki(){
   const list = filteredTours();
-  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeGlacierFilter ? 1 : 0) + (state.activeDoneFilter ? 1 : 0);
+  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeGlacierFilter ? 1 : 0) + (state.activeDoneFilter ? 1 : 0) + fsExtraFilterCount();
   const usedRegions = Array.from(new Set(state.tours.map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   return stageLayoutHtml(mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.map(t=>{ const p = fsTourSummitPoint(t) || tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
@@ -1521,7 +1521,7 @@ function tourenViewHtmlSki(){
 }
 function tourenViewHtmlWand(){
   const list = filteredTours();
-  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeDogFilter ? 1 : 0) + state.activeDurationFilters.size + (state.activeDoneFilter ? 1 : 0);
+  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeDogFilter ? 1 : 0) + state.activeDurationFilters.size + (state.activeDoneFilter ? 1 : 0) + fsExtraFilterCount();
   const usedRegions = Array.from(new Set(state.tours.map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   return stageLayoutHtml(mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.map(t=>{ const p = fsTourSummitPoint(t) || tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
@@ -3480,7 +3480,7 @@ function fsSwitchDisc(d){
     state.tours = []; state.gebiete = []; state.trashedTours = []; state.trashedGebiete = []; state.otherAppTours = [];
     state.search = '';
     ['activeDiffFilters', 'activeRegionFilters', 'activeApproachTypeFilters', 'activeStayTypeFilters', 'activeStatusFilters', 'activeDurationFilters'].forEach(k=>{ if(state[k] && state[k].clear) state[k].clear(); });
-    state.activeDoneFilter = ''; state.activeGlacierFilter = ''; state.activeDogFilter = false;
+    state.activeDoneFilter = ''; state.activeSlfFilter = false; state.activeSeasonFilter = false; state.activeGlacierFilter = ''; state.activeDogFilter = false;
     if(['agenda', 'papierkorb', 'abgeschlossen'].includes(state.view)) state.view = 'touren';
   }
   if(!state.myName && prevName) state.myName = prevName; // Name gilt für alle Disziplinen
@@ -6068,7 +6068,7 @@ function resetTourFilters__fix(){
   state.activeApproachTypeFilters.clear();
   state.activeStayTypeFilters.clear();
   state.activeStatusFilters.clear();
-  state.activeDoneFilter = '';
+  state.activeDoneFilter = ''; state.activeSlfFilter = false; state.activeSeasonFilter = false;
   state.activeGlacierFilter = '';
   render();
 }
@@ -6188,7 +6188,7 @@ function filteredTours__fix(){
 
 function tourenViewHtml__fix(){
   const list = filteredTours();
-  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeGlacierFilter ? 1 : 0) + (state.activeDoneFilter ? 1 : 0);
+  const activeFilterCount = state.activeDiffFilters.size + state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeGlacierFilter ? 1 : 0) + (state.activeDoneFilter ? 1 : 0) + fsExtraFilterCount();
   const usedRegions = Array.from(new Set(state.tours.filter(t=>(t.tourCategory||'hochtour')==='hochtour').map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
   return stageLayoutHtml(mapStripHtml({label:'Tourenziele auf der Karte', kind:'tour', points: list.map(t=>{ const p = fsTourSummitPoint(t) || tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
@@ -6377,7 +6377,7 @@ function filteredMslTours(){
 function mslViewHtml(){
   const list = filteredMslTours();
   const usedRegions = Array.from(new Set(state.tours.filter(t=>t.tourCategory==='msl').map(t=>t.region).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'de'));
-  const activeFilterCount = state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeDoneFilter ? 1 : 0);
+  const activeFilterCount = state.activeRegionFilters.size + state.activeApproachTypeFilters.size + state.activeStayTypeFilters.size + state.activeStatusFilters.size + (state.activeDoneFilter ? 1 : 0) + fsExtraFilterCount();
   return stageLayoutHtml(mapStripHtml({label:'Touren auf der Karte', kind:'msl', points: list.map(t=>{ const p = fsTourSummitPoint(t) || tourMapPoint(t); return p ? {id:t.id, lat:p.lat, lon:p.lon, label:t.name} : null; }).filter(Boolean), emptyText:'Noch keine Tour mit Kartenpunkt oder GPS-Track erfasst.', openPinId: state._mapStripOpenPinId}), `
     <div class="toolbar">
       <input class="search-input" type="text" placeholder="Suchen: Name, Region, Text, Orte …" value="${esc(state.search)}" data-act="search"/>

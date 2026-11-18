@@ -14670,7 +14670,7 @@ function fsTourLastDoneDate(t){
 // Filter «Gemacht»: '' = alle, 'ja' = schon gemacht, 'nein' = noch nicht
 function fsApplyDoneFilter(list){
   const v = state.activeDoneFilter;
-  return v ? list.filter(t=> fsTourDone(t) === (v === 'ja')) : list;
+  return fsApplyExtraFilters(v ? list.filter(t=> fsTourDone(t) === (v === 'ja')) : list);
 }
 function toggleDoneFilter(v){
   state.activeDoneFilter = (state.activeDoneFilter === v) ? '' : v;
@@ -14678,7 +14678,7 @@ function toggleDoneFilter(v){
 }
 function fsDoneFilterHtml(){
   const chip = (v, label)=> `<button class="chip ${state.activeDoneFilter===v?'on':''}" style="${state.activeDoneFilter===v?'background:var(--ice-deep)':''}" data-act="filter-done" data-value="${v}">${label}</button>`;
-  return `<div class="field"><label>Gemacht</label><div class="chips">${chip('ja', 'schon gemacht')}${chip('nein', 'noch nicht gemacht')}</div></div>`;
+  return `<div class="field"><label>Gemacht</label><div class="chips">${chip('ja', 'schon gemacht')}${chip('nein', 'noch nicht gemacht')}</div></div>` + fsExtraFilterHtml();
 }
 // Wetter der nächsten 3 Tage im Listeneintrag (MeteoSchweiz, alle Punkte mit 2 Anfragen; siehe
 // meteoCardForecastData). Nach einem Fehler (offline) erst nach einer Minute wieder versuchen.
@@ -14716,15 +14716,53 @@ function fsCardSlfHtml(t){
   const bul = c.status === 'ok' && c.r ? c.r.cur : null;
   if(!bul || !bul.ratings.length) return '';
   const top = bul.ratings[0];
-  // Genau: Routen-Check dieser Tour schon gerechnet?
-  let hit = null;
-  const line = fsRcLine(t);
-  const rc = line ? fsRcCache.get(fsRcKey(t, line)) : null;
-  if(rc && rc.pts){ const probs = fsRcSlfProblems(bul); hit = probs.length ? probs.some(pr=> rc.pts.some(q=> fsRcInProblem(q, pr))) : false; }
-  else{ const h = fsSlfTourHits(t, bul); hit = (Array.isArray(t.exposition) && t.exposition.length) ? h.length > 0 : null; }
-  const lbl = 'Lawinengefahr ' + top.level + ', ' + top.label + (hit ? ', Tour im Problembereich' : '');
-  return `<span class="fs-card-slf${hit ? ' is-hit' : ''}" role="img" aria-label="${esc(lbl)}" title="${esc(lbl)}"><i style="--lvl:${top.color}">${top.level}</i>${hit ? fsIconHtml('alert') : ''}</span>`;
+  const hit = fsTourSlfHit(t, bul);
+  const lbl = 'Lawinengefahr ' + top.level + ', ' + top.label + (hit ? ', steile Stellen der Route im Problembereich des Bulletins' : hit === false ? ', Route nicht im Problembereich' : '');
+  return `<span class="fs-card-slf${hit ? ' is-hit' : ''}" role="img" aria-label="${esc(lbl)}" title="${esc(lbl)}"><i style="--lvl:${top.color}">${top.level}</i>${hit ? fsIconHtml('alert') + '<b>Problem</b>' : ''}</span>`;
 }
+// Liegt die Tour im Problembereich des Bulletins? true/false, null = unbekannt. Genau mit dem Routen-Check (steile
+// Stellen ab 30° mit Exposition und Höhe; aus dieser Sitzung oder gemerkt), sonst nach Exposition und Gipfelhöhe.
+function fsTourSlfHit(t, bul){
+  if(!bul) return null;
+  const probs = fsRcSlfProblems(bul);
+  const line = fsRcLine(t);
+  if(line){
+    const key = fsRcKey(t, line), rc = fsRcCache.get(key);
+    const pts = rc && rc.pts ? rc.pts : fsRcSumPts(key);
+    if(pts) return probs.length ? probs.some(pr=> pts.some(q=> fsRcInProblem(q, pr))) : false;
+    if(!rc) fsRcBg(key, t);
+  }
+  if(Array.isArray(t.exposition) && t.exposition.length) return fsSlfTourHits(t, bul).length > 0;
+  return null;
+}
+// Bulletin (jetzt gültig) für eine Tour aus dem gemeinsamen Abruf; undefined, solange er läuft
+function fsTourSlfBul(t){
+  const p = fsTourSummitPoint(t) || tourMapPoint(t);
+  if(!p || !isFinite(p.lat)) return null;
+  const c = fsCardSlf.get(p.lat.toFixed(2) + ',' + p.lon.toFixed(2));
+  return c && c.status === 'ok' && c.r ? c.r.cur : null;
+}
+/* ===== Zusatzfilter (Skitour/Hochtour): Problembereich ausblenden, «passt jetzt» (Jahreszeit) ===== */
+function fsExtraFilterCount(){ return (state.activeSlfFilter ? 1 : 0) + (state.activeSeasonFilter ? 1 : 0); }
+function fsApplyExtraFilters(list){
+  if(state.activeSlfFilter) list = list.filter(t=> fsTourSlfHit(t, fsTourSlfBul(t)) !== true);
+  if(state.activeSeasonFilter && typeof fsTourSeasonFits === 'function') list = list.filter(t=> fsTourSeasonFits(t) !== false);
+  return list;
+}
+function fsExtraFilterHtml(){
+  const chip = (k, label)=> `<button class="chip ${state[k] ? 'on' : ''}" style="${state[k] ? 'background:var(--ice-deep)' : ''}" data-act="fs-extra-filter" data-key="${k}">${label}</button>`;
+  const slf = typeof fsRcWithBulletin === 'function' && fsRcWithBulletin();
+  return `<div class="field"><label>Am Tag X</label><div class="chips">${slf ? chip('activeSlfFilter', 'Lawinen-Problembereich ausblenden') : ''}${typeof fsTourSeasonFits === 'function' ? chip('activeSeasonFilter', 'passt zur Jahreszeit') : ''}</div>
+    ${slf ? '<p class="hint">Problembereich: steile Stellen der Route (ab 30°) in Exposition und Höhe der Lawinenprobleme im heutigen Bulletin. Ein Abgleich, keine Lawinenbeurteilung.</p>' : ''}</div>`;
+}
+document.addEventListener('click', (e)=>{
+  const b = e.target.closest && e.target.closest('[data-act="fs-extra-filter"]');
+  if(!b) return;
+  e.stopPropagation();
+  const k = b.getAttribute('data-key');
+  state[k] = !state[k];
+  render();
+}, true);
 // Listeneintrag einer Tour, für alle Disziplinen dasselbe feste Raster:
 // Bild | Name | Schwierigkeit (oben rechts) · Route · Region · Kennzahlen · Lawinen, Wetter … Zeichen und Status.
 // Jede Zeile behält ihre Höhe, auch wenn sie leer ist. Das Bild ist immer gleich gross: Foto/Topo, sonst
@@ -20371,7 +20409,38 @@ async function fsRcRun(key, t){
   }
   fsRcRunning.delete(key);
   fsRcCache.set(key, res);
+  if(!res.error && res.pts) fsRcSumSave(key, res.pts);
   fsRcPaint(key);
+}
+/* Kurzfassung des Routen-Checks auf dem Gerät (localStorage «fs-rc-sum», höchstens 300 Linien): nur die steilen
+   Stellen (ab 30°) mit Exposition und Höhe – reicht für den Bulletin-Abgleich in der Liste, ohne neu zu rechnen. */
+function fsRcSumAll(){ try{ return fsRcSumAll._c || (fsRcSumAll._c = JSON.parse(localStorage.getItem('fs-rc-sum') || '{}') || {}); }catch(e){ return (fsRcSumAll._c = {}); } }
+function fsRcSumSave(key, pts){
+  const seen = new Set(), p = [];
+  pts.forEach(q=>{ if(q.k >= 1 && q.ai != null){ const e = q.ele != null ? Math.round(q.ele / 10) * 10 : null, id = q.ai + ':' + e + ':' + q.k; if(!seen.has(id)){ seen.add(id); p.push([q.ai, e, q.k]); } } });
+  const all = fsRcSumAll();
+  all[key] = {p, at: Date.now()};
+  const keys = Object.keys(all);
+  if(keys.length > 300) keys.sort((a, b)=> (all[a].at || 0) - (all[b].at || 0)).slice(0, keys.length - 300).forEach(k=> delete all[k]);
+  try{ localStorage.setItem('fs-rc-sum', JSON.stringify(all)); }catch(e){}
+}
+function fsRcSumPts(key){ const e = fsRcSumAll()[key]; return e ? e.p.map(a=> ({ai: a[0], ele: a[1], k: a[2]})) : null; }
+// Routen-Check im Hintergrund für Touren der Liste (eine nach der anderen, nur online)
+const fsRcBgQueue = [];
+let fsRcBgBusy = false;
+function fsRcBg(key, t){
+  if(navigator.onLine === false || fsRcRunning.has(key) || fsRcBgQueue.some(x=> x.key === key)) return;
+  fsRcBgQueue.push({key, t});
+  if(!fsRcBgBusy) fsRcBgNext();
+}
+async function fsRcBgNext(){
+  const job = fsRcBgQueue.shift();
+  if(!job){ fsRcBgBusy = false; return; }
+  fsRcBgBusy = true;
+  try{ await fsRcRun(job.key, job.t); }catch(e){}
+  clearTimeout(fsCardSlfTimer);
+  fsCardSlfTimer = setTimeout(()=>{ if(typeof render === 'function' && !state.modal) render(); }, 400);
+  setTimeout(fsRcBgNext, 150);
 }
 document.addEventListener('click', (ev)=>{
   const box = ev.target.closest && ev.target.closest('.fs-rc');
