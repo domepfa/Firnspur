@@ -4167,9 +4167,39 @@ function fsSlfBoxHtml(lat, lon){
     ${bul.ratings.map(r=> `<div class="fs-slf-lvl"><span class="fs-slf-dot" style="--lvl:${r.color}; color:${r.level >= 3 ? '#fff' : '#0F1E27'}">${r.level}</span><div>${esc(r.label)}${r.elev || r.later ? `<small>${esc([r.elev, r.later ? 'im Tagesverlauf' : ''].filter(Boolean).join(' · '))}</small>` : ''}</div></div>`).join('')}
     ${bul.problems.length ? `<ul class="fs-slf-prob">${bul.problems.map(pr=> `<li><span>${esc(pr.type)}</span><em>${esc(prob(pr))}</em></li>`).join('')}</ul>` : ''}
     ${hits.length ? `<div class="fs-slf-hit"><b>Deine Tour: Exposition ${esc(expoTxt)}${t.targetAltitude ? ' · Gipfel ' + esc(String(t.targetAltitude)) + ' m' : ''}</b>Liegt laut Exposition und Gipfelhöhe im Bereich: ${esc(hits.map(h=> h.type).join(', '))}.</div>` : ''}
+    ${fsReductionHtml(t, bul)}
     <a class="fs-slf-link" href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk</a>
     <p class="fs-slf-src">${esc([bul.region ? 'Region ' + bul.region : '', bul.pub ? 'Stand ' + fsSlfFmt(bul.pub) : ''].filter(Boolean).join(' · '))}</p>
   </div>`;
+}
+// Faustregel nach Munter (elementare Reduktionsmethode) zur höchsten Stufe, abgeglichen mit den steilen Stellen der
+// Route (Routen-Check: Klassen 30–35/35–40/40–45° …; aus dieser Sitzung oder gemerkt)
+const FS_RED_RULES = {
+  1: {txt: 'Gering: keine Einschränkung nach der Faustregel; extrem steile Hänge einzeln befahren.', k: 0},
+  2: {txt: 'Mässig: Hänge steiler als 40° meiden.', k: 3, deg: 40},
+  3: {txt: 'Erheblich: Hänge steiler als 35° meiden.', k: 2, deg: 35},
+  4: {txt: 'Gross: Hänge steiler als 30° meiden, auch Auslaufbereiche.', k: 1, deg: 30},
+  5: {txt: 'Sehr gross: auf Touren im freien Gelände verzichten.', k: 1, deg: 30}
+};
+function fsReductionHtml(t, bul){
+  if(!bul || !bul.ratings.length) return '';
+  const lvl = bul.ratings[0].level, rule = FS_RED_RULES[lvl];
+  if(!rule) return '';
+  let route = '';
+  const line = t && fsRcLine(t);
+  if(line && rule.k){
+    const key = fsRcKey(t, line), rc = fsRcCache.get(key), pts = rc && rc.pts ? rc.pts : fsRcSumPts(key);
+    if(pts){
+      const over = pts.filter(q=> q.k >= rule.k), probs = fsRcSlfProblems(bul);
+      const inProb = over.filter(q=> probs.some(pr=> fsRcInProblem(q, pr)));
+      route = !over.length ? `Die Route bleibt unter ${rule.deg}°.`
+        : inProb.length ? `Die Route hat Stellen steiler als ${rule.deg}°, auch im Problembereich des Bulletins.`
+        : `Die Route hat Stellen steiler als ${rule.deg}°, aber nicht in Exposition und Höhe der Lawinenprobleme.`;
+      if(over.length) route = `<b>${route}</b>`;
+    }else if(!rc) fsRcBg(key, t);
+  }
+  return `<div class="fs-slf-red"><span class="fs-slf-red-h">Faustregel (Reduktionsmethode)</span>${esc(rule.txt)}${route ? ' ' + route : ''}
+    <small>Nach Werner Munter, für die höchste Stufe der Region. Grober Rahmen für die Planung, ersetzt keine Beurteilung vor Ort.</small></div>`;
 }
 document.addEventListener('click', (e)=>{
   const b = e.target && e.target.closest && e.target.closest('[data-slf-day]');
@@ -13894,6 +13924,13 @@ function fsOpenConditions(lat, lon, ele, name){
   const iv = setInterval(()=>{ if(!document.body.contains(ov) || ++tries > 20){ clearInterval(iv); return; } if(ov.textContent.includes('Lädt')) draw(); else clearInterval(iv); }, 1000);
   ov.addEventListener('click', e=>{ if(e.target === ov) closeTopOverlayLayer(); });
   pushOverlayLayer(()=>{ clearInterval(iv); ov.remove(); window.__fsCondRedraw = prevRender || null; });
+}
+// Wetter, Bedingungen, Bulletin einer Tour: am Gipfel (Gipfelpunkt, sonst höchster Punkt der Linie), sonst am ersten Punkt.
+// Auch für Touren nur mit Linie (bisher fehlte dort der ganze Abschnitt).
+function fsTourWxHtml(t){
+  const p = fsTourSummitPoint(t) || tourMapPoint(t);
+  if(!p || !isFinite(p.lat) || !isFinite(p.lon)) return '';
+  return `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(+p.lat, +p.lon, t.targetAltitude, t)}</div>`;
 }
 function meteoForecastWidgetHtml(lat, lon, alt, tour){
   if(!isFinite(lat) || !isFinite(lon)) return '';
