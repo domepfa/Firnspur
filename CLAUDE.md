@@ -47,7 +47,8 @@ aus anderen Apps übernehmen.
   swisstopo-Gelände, Spar = Terrarium, Wahl im Ebenen-Fenster; Zurück macht sie flach). Eigene Ansichten nur noch
   für Überflug/«Bearbeiten in 3D» (`fs3dMlOpen`), «Gipfel ringsum» (Cesium) und Hang-Scan.
 - Grundkarten (`FSM_BASES`): Karte, Winter (Landeskarte Winterausgabe), Luftbild, Luftbild + Namen, Luftbild Winter
-  (Luftbild mit Schnee, auf dem Gerät aus Höhenmodell und Luftbild gerechnet: Protokoll `fssnow://`, Schneegrenze `FS_SNOW_LINE`).
+  (Luftbild mit Schnee, auf dem Gerät aus Höhenmodell und Luftbild gerechnet: Protokoll `fssnow://`, Schneegrenze `FS_SNOW_LINE`: aktuell aus den SLF-Stationen
+  um die Kartenmitte geschätzt, `fsSnowLineUpdate`; ohne Schnee an den Stationen Winterbild mit 1500 m).
 - Kartenebenen (`FSM_OVERLAYS`): Hangexposition rechnet das Gerät aus dem Höhenmodell (Protokoll `fsaspect://`);
   Skipisten/Lifte (`fsmPisten`), Parkplätze und Wasser/Unterstände (`fsmOsmPoints`, `FS_OSM_CFG`) kommen aus
   OpenStreetMap über Overpass, je Kachel ab Zoom 11. Legenden stehen im Ebenen-Fenster (`legend`).
