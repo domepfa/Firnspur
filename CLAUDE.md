@@ -68,6 +68,10 @@ aus anderen Apps übernehmen.
 - Lawinen in der Liste (`fsCardSlfHtml`, `fsTourSlfHit`): Stufe der Region und «Problem», wenn steile Stellen der Route (Routen-Check,
   im Hintergrund gerechnet, Kurzfassung auf dem Gerät `fs-rc-sum`) in Exposition und Höhe eines Lawinenproblems liegen; sonst nach
   Exposition/Gipfelhöhe. Zusatzfilter «Am Tag X» (`fsExtraFilterHtml`): Problembereich ausblenden, passt zur Jahreszeit.
+- In der Tour zusätzlich: Faustregel nach Munter im Bulletin (`fsReductionHtml`), «Sonne auf der Abfahrt» (Skitour, `fsFirnHtml`:
+  Sonnenstand + Schatten der Berge aus dem Höhenmodell), «Beste Zeit» (`bestMonths`, sonst aus Begehungen, `fsTourSeasonText`),
+  Zeit nach SAC-Formel für Touren ohne Zeitbedarf (`fsTourTimeEstimate`, Höhenmeter sonst aus dem Höhenmodell, `fs-time`).
+  Wetter/Bedingungen/Bulletin gelten am Gipfel (`fsTourWxHtml`), auch für Touren nur mit Linie.
 - Hang-Scan (`fsScan*` in `0-shared.js`): Zielen mit festem Rahmen auf der Startkarte (Menü oder Gedrückthalten),
   Rechnung auf dem Gerät, eigene 3D-Ansicht mit den Ebenen Steilheit, Lawine, Klippen, Sonne (Zeitraffer).
   Neigung ab 30° aus der swisstopo-Karte «Hangneigung über 30°» (wie der Routen-Check `fsRc*`), sonst

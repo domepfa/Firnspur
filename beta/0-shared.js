@@ -13925,6 +13925,69 @@ function fsOpenConditions(lat, lon, ele, name){
   ov.addEventListener('click', e=>{ if(e.target === ov) closeTopOverlayLayer(); });
   pushOverlayLayer(()=>{ clearInterval(iv); ov.remove(); window.__fsCondRedraw = prevRender || null; });
 }
+/* ===== Zeit berechnen (SAC-Formel), für Touren ohne Zeitbedarf =====
+   Leistungskilometer: Distanz in km + Aufstieg / 100 Hm + Abstieg / 150 Hm, 4 Leistungskilometer pro Stunde.
+   Skitour: nur der Aufstieg (Zeitbedarf im Skitourenführer), Distanz bis zum höchsten Punkt. Höhenmeter aus der Tour,
+   sonst aus dem Höhenmodell entlang der Route (auf dem Gerät gemerkt, «fs-time»). Ein Richtwert ohne Pausen. */
+const fsTimeRun = new Set();
+function fsTimeCache(){ try{ return fsTimeCache._c || (fsTimeCache._c = JSON.parse(localStorage.getItem('fs-time') || '{}') || {}); }catch(e){ return (fsTimeCache._c = {}); } }
+async function fsTimeProfile(key, c){
+  const cum = [0];
+  for(let i = 1; i < c.length; i++) cum.push(cum[i - 1] + fsRcHav(c[i - 1], c[i]));
+  const total = cum[cum.length - 1], N = Math.max(10, Math.min(80, Math.round(total / 100))), pts = [];
+  for(let k = 0, j = 0; k <= N; k++){
+    const d = total * k / N;
+    while(j < c.length - 2 && cum[j + 1] < d) j++;
+    const f = cum[j + 1] > cum[j] ? (d - cum[j]) / (cum[j + 1] - cum[j]) : 0;
+    pts.push([c[j][0] + (c[j + 1][0] - c[j][0]) * f, c[j][1] + (c[j + 1][1] - c[j][1]) * f, d]);
+  }
+  const e = await Promise.all(pts.map(p=> fsFirnEle(12, p[0], p[1])));
+  // Auf und Ab mit 10 m Toleranz (Rauschen im Höhenmodell)
+  let up = 0, down = 0, ref = e[0], top = 0;
+  e.forEach((v, i)=>{ if(v - ref > 10){ up += v - ref; ref = v; } else if(ref - v > 10){ down += ref - v; ref = v; } if(v > e[top]) top = i; });
+  const all = fsTimeCache();
+  all[key] = {up: Math.round(up), down: Math.round(down), km: +(total / 1000).toFixed(2), kmTop: +(pts[top][2] / 1000).toFixed(2), at: Date.now()};
+  const keys = Object.keys(all);
+  if(keys.length > 300) keys.sort((a, b)=> (all[a].at || 0) - (all[b].at || 0)).slice(0, keys.length - 300).forEach(k=> delete all[k]);
+  try{ localStorage.setItem('fs-time', JSON.stringify(all)); }catch(err){}
+}
+function fsTourTimeEstimate(t){
+  if(!t || t.duration) return null;
+  const num = v=>{ const n = parseFloat(String(v == null ? '' : v).replace(/['’\s]/g, '').replace(',', '.')); return isFinite(n) && n > 0 ? n : null; };
+  const line = fsRcLine(t);
+  let prof = null;
+  if(line){
+    const key = fsRcKey(t, line);
+    prof = fsTimeCache()[key] || null;
+    if(!prof && !fsTimeRun.has(key) && navigator.onLine !== false){
+      fsTimeRun.add(key);
+      fsTimeProfile(key, line).then(()=> fsRenderSoon(), ()=>{}).finally(()=> fsTimeRun.delete(key));
+    }
+  }
+  const ski = fsAppKey() === 'firnspur';
+  const up = num(t.elevationGain) || (prof && prof.up);
+  if(!up) return null;
+  const down = num(t.elevationLoss) || (prof && prof.down) || up;
+  let km = num(t.distance) || (prof && prof.km) || null;
+  if(ski) km = prof ? prof.kmTop : (km ? km / 2 : null);
+  if(km == null) km = up / 1000 * 3; // ohne Linie: grob 3 km pro 1000 Hm
+  const lkm = km + up / 100 + (ski ? 0 : down / 150);
+  const h = Math.max(0.5, Math.round(lkm / 4 * 2) / 2);
+  return {h, ski, txt: (h % 1 ? Math.floor(h) + '½' : String(h)).replace(/^0½$/, '½'), basis: (prof && !num(t.elevationGain) ? 'Höhenmeter aus dem Höhenmodell' : 'Höhenmeter der Tour')};
+}
+// Höhenmeter Aufstieg aus dem Höhenmodell, wenn die Tour keine hat («≈ 1350»), sonst «–»
+function fsTourHmEstimate(t){
+  const line = fsRcLine(t), prof = line ? fsTimeCache()[fsRcKey(t, line)] : null;
+  if(!prof){ fsTourTimeEstimate(Object.assign({}, t, {duration: ''})); return '–'; }
+  return '≈ ' + fsRcFmtE(Math.round(prof.up / 10) * 10);
+}
+function fsTourTimeShort(t){ const e = fsTourTimeEstimate(t); return e ? '≈' + e.txt : ''; }
+function fsTourTimeStatHtml(t){
+  const e = fsTourTimeEstimate(t);
+  if(!e) return '';
+  const tip = 'Berechnet nach SAC-Formel (' + e.basis + (e.ski ? ', nur Aufstieg' : '') + '), ohne Pausen';
+  return `<div class="detail-stat" title="${esc(tip)}"><div class="num">≈ ${esc(e.txt)} h</div><div class="lbl">${e.ski ? 'Aufstieg berechnet' : 'Zeit berechnet'}</div></div>`;
+}
 /* ===== Sonne auf der Abfahrt (Skitour) =====
    Wann die Sonne auf die Abfahrt kommt: Abfahrtslinie (Routen der Art Abfahrt/Abstieg, sonst ab dem höchsten Punkt
    der Hauptroute hinunter), etwa 14 Stellen von oben nach unten. Je Stelle Sonnenstand alle 10 Minuten (fsSunPos),

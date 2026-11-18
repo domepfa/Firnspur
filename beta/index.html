@@ -1599,14 +1599,14 @@ function tourCardHtmlSki(t){
   const d = t.difficulty ? DIFF[t.difficulty] : null;
   return fsTourCardHtml(t, {
     grades: [d && {text: t.difficulty, bg: d.color, title: d.label}],
-    stats: [[FS_TC_UP, t.elevationGain, 'Hm'], [fsIconHtml('clock'), t.duration, 'h'], [fsIconHtml('mountain'), t.targetAltitude, 'm'], [FS_TC_DN, t.elevationLoss, 'Hm']]
+    stats: [[FS_TC_UP, t.elevationGain, 'Hm'], [fsIconHtml('clock'), t.duration || fsTourTimeShort(t), 'h'], [fsIconHtml('mountain'), t.targetAltitude, 'm'], [FS_TC_DN, t.elevationLoss, 'Hm']]
   });
 }
 function tourCardHtmlWand(t){
   const d = t.difficulty ? HIKE_SCALE[t.difficulty] : null;
   return fsTourCardHtml(t, {
     grades: [d && {text: t.difficulty, bg: d.color, title: d.label}],
-    stats: [[fsIconHtml('ruler'), t.distance, 'km'], [FS_TC_UP, t.elevationGain, 'Hm'], [fsIconHtml('clock'), t.duration, 'h'], [fsIconHtml('mountain'), t.targetAltitude, 'm']]
+    stats: [[fsIconHtml('ruler'), t.distance, 'km'], [FS_TC_UP, t.elevationGain, 'Hm'], [fsIconHtml('clock'), t.duration || fsTourTimeShort(t), 'h'], [fsIconHtml('mountain'), t.targetAltitude, 'm']]
   });
 }
 
@@ -2147,9 +2147,9 @@ function tourDetailHtmlSki(id){
     ${t.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:0 0 6px 0;">${escL(t.region)}${t.subregion ? ' – ' + esc(t.subregion) : ''}</p>` : ''}
     ${fsTourStatusHtml(t)}
     <div class="detail-stats">
-      <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
+      <div class="detail-stat"><div class="num">${t.elevationGain ? esc(t.elevationGain) : fsTourHmEstimate(t)}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abfahrt</div></div>` : ''}
-      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : fsTourTimeStatHtml(t)}
     </div>
     ${tourGlanceHtml(t.crux, [
       ['Gefahren', (t.gefahren||[]).join(', ')],
@@ -2277,9 +2277,9 @@ function tourDetailHtmlWand(id){
     ${fsTourStatusHtml(t)}
     <div class="detail-stats">
       ${t.distance ? `<div class="detail-stat"><div class="num">${esc(t.distance)} km</div><div class="lbl">Distanz</div></div>` : ''}
-      <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
+      <div class="detail-stat"><div class="num">${t.elevationGain ? esc(t.elevationGain) : fsTourHmEstimate(t)}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
-      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : ''}
+      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : fsTourTimeStatHtml(t)}
     </div>
     ${tourGlanceHtml(t.crux, [
       ['Gefahren', (t.gefahren||[]).join(', ')],
@@ -6495,7 +6495,7 @@ function emptyMsl(){
 function tourCardHtml__fix(t, draggable, opts){
   const isMsl = t.tourCategory==='msl';
   const d = t.difficulty ? DIFF[t.difficulty] : null;
-  const dur = [t.duration, t.descentDuration].filter(Boolean).join(' + ');
+  const dur = [t.duration || fsTourTimeShort(t), t.descentDuration].filter(Boolean).join(' + ');
   return fsTourCardHtml(t, {
     cls: draggable ? 'drag-card' : '', attrs: draggable ? `data-drag-tour-id="${t.id}"` : '',
     hideWeather: opts && opts.hideWeather,
@@ -7159,9 +7159,9 @@ function tourDetailHtml__fix(id){
     ${(sektorForPager && sektorTouren.length>1) ? `<p style="color:var(--ink-faint); font-size:11px; margin:0 0 6px 0;">↔ ${esc(sektorForPager.name)} · Tour ${sektorTourIdx+1}/${sektorTouren.length} – wischen zum Wechseln</p>` : ''}
     ${fsTourStatusHtml(t)}
     <div class="detail-stats">
-      <div class="detail-stat"><div class="num">${esc(t.elevationGain||'–')}</div><div class="lbl">Hm Aufstieg</div></div>
+      <div class="detail-stat"><div class="num">${t.elevationGain ? esc(t.elevationGain) : fsTourHmEstimate(t)}</div><div class="lbl">Hm Aufstieg</div></div>
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
-      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">${t.descentDuration ? 'Zeit Aufstieg' : 'Zeitbedarf'}</div></div>` : ''}
+      ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">${t.descentDuration ? 'Zeit Aufstieg' : 'Zeitbedarf'}</div></div>` : fsTourTimeStatHtml(t)}
       ${t.descentDuration ? `<div class="detail-stat"><div class="num">${esc(t.descentDuration)} h</div><div class="lbl">Zeit Abstieg</div></div>` : ''}
       ${t.pitchCount ? `<div class="detail-stat"><div class="num">${esc(t.pitchCount)}</div><div class="lbl">Seillängen</div></div>` : ''}
       ${t.longestPitch ? `<div class="detail-stat"><div class="num">${esc(t.longestPitch)}</div><div class="lbl">Längste SL</div></div>` : ''}
