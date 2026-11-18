@@ -2196,7 +2196,7 @@ function tourDetailHtmlSki(id){
     </div>` : ''}
 `,
       bedingungen: `
-    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon, t.targetAltitude, t)}</div>` : ''}
+    ${fsTourWxHtml(t)}
 `,
       anreise: `
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
@@ -2324,7 +2324,7 @@ function tourDetailHtmlWand(id){
     </div>` : ''}
 `,
       bedingungen: `
-    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon, t.targetAltitude, t)}</div>` : ''}
+    ${fsTourWxHtml(t)}
 `,
       anreise: `
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
@@ -7251,7 +7251,7 @@ function tourDetailHtml__fix(id){
     </div>` : ''}
 `,
       bedingungen: `
-    ${(t.points && t.points.length) ? `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(t.points[0].lat, t.points[0].lon, t.targetAltitude, t)}</div>` : ''}
+    ${fsTourWxHtml(t)}
 `,
       anreise: `
     ${((t.approachTypes && t.approachTypes.length) || (t.stayTypes && t.stayTypes.length) || t.approach) ? `<div class="detail-section">
