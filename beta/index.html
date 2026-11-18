@@ -2156,7 +2156,8 @@ function tourDetailHtmlSki(id){
       ['Exposition', (t.exposition||[]).join(', ')],
       ['Gletscher', t.glacier==='ja' ? 'Ja' : ''],
       ['Material', (t.material||[]).join(', ')],
-      ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')]
+      ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')],
+      ['Beste Zeit', fsTourSeasonText(t)]
     ])}
     ${(hut || gebiet || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">
       ${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}
@@ -2284,7 +2285,7 @@ function tourDetailHtmlWand(id){
       ['Gefahren', (t.gefahren||[]).join(', ')],
       ['Tourenform', TOUR_SHAPES[t.tourShape] || ''],
       ['Mit Hund', DOG_LABELS[t.dog] || ''],
-      ['Beste Monate', MONTHS.filter(m=>(t.bestMonths||[]).includes(m.key)).map(m=>m.label).join(', ')]
+      ['Beste Zeit', fsTourSeasonText(t)]
     ])}
     ${(hut || gebiet || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">
       ${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}
@@ -7173,7 +7174,8 @@ function tourDetailHtml__fix(id){
       ['Absicherung', (isMsl && protectionInfo) ? protectionInfo.label + ' – ' + protectionInfo.desc : ''],
       ['Abstiegsart', t.descentType || ''],
       ['Material', [...(t.material||[]), t.quickdrawCount ? `${t.quickdrawCount}× Expressschlingen` : ''].filter(Boolean).join(', ')],
-      ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')]
+      ['Seil', [t.ropeType, t.ropeLength].filter(Boolean).join(' · ')],
+      ['Beste Zeit', fsTourSeasonText(t)]
     ])}
     ${(hut || t.tourLink || fsMoreLinksList(t).length) ? `<div class="fs-links">${fsTourLinkChipHtml(t.tourLink)}${fsMoreLinksChipsHtml(t)}${hut ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-hut" data-id="${hut.id}">${fsIconHtml('hut')} Zustieg über: ${esc(hut.name)}</button>` : ''}</div>` : ''}
     ${hutGuess ? fsLinkHutBtnHtml(t, hutGuess) : ''}
