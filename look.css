@@ -1698,6 +1698,12 @@ html.fs-filter-open body{ overflow:hidden; }
 .fsm-val-0{ min-width:0; width:10px; height:10px; padding:0; background:#ADB5BD; }
 .fsm-cam{ width:30px; height:30px; border-radius:50%; background:#fff; color:#0E5072; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(15,30,39,.35); cursor:pointer; }
 .fsm-cam .fs-i{ width:17px; height:17px; }
+/* Trefferfläche mindestens 44 px (Handschuhe), Aussehen unverändert */
+.fsm-cam{ position:relative; }
+.fsm-cam::before{ content:''; position:absolute; inset:-8px; border-radius:50%; }
+.fsm-park::before{ inset:-9px; border-radius:12px; }
+.fsm-cluster{ position:relative; }
+.fsm-cluster::before{ content:''; position:absolute; inset:-4px; border-radius:24px; }
 /* Beim Bearbeiten einer Tour gehört jeder Tipp dem Editor: Punkte der Ebenen nicht antippbar */
 .in-edit :is(.fsm-ovpt, .fsm-cluster){ pointer-events:none; }
 /* Gebündelte Punkte: Symbol der Ebene + Anzahl, antippen zoomt hinein */
@@ -1816,7 +1822,7 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxp .l, html.fs-dark .fsm-wxp .t, h
 .fs-home-pin{ display:flex; align-items:center; gap:5px; padding:0; border:none; background:none; font:inherit; cursor:pointer; }
 /* Trefferfläche 44 px um den Punkt (mit Handschuhen antippbar) */
 .fs-home-pin{ position:relative; }
-.fs-home-pin::before{ content:''; position:absolute; left:-15px; top:50%; width:44px; height:44px; margin-top:-22px; border-radius:50%; }
+.fs-home-pin::before{ content:''; position:absolute; left:-15px; right:-6px; top:50%; height:44px; margin-top:-22px; border-radius:10px; } /* Trefferfläche über Punkt und Namen, auch mit Handschuhen */
 .fs-home-pin i{ display:block; width:14px; height:14px; border-radius:50%; background:var(--ice-deep); border:2.5px solid #fff; box-shadow:0 1px 4px rgba(15,30,39,.45); flex:none; }
 .fs-home-pin span{ display:none; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.94); color:var(--ink); font-size:12px; font-weight:800; box-shadow:0 1px 4px rgba(15,30,39,.25); }
 .fs-home-map.labels .fs-home-pin span{ display:block; }
@@ -2068,6 +2074,10 @@ html.fs-dark .fs-3d-search-res, html.fs-dark .fs-3d-chips.fs-3d-layerpanel, html
 .fs-slf-prob{ margin:10px 0 0; padding:0; list-style:none; font-size:14px; }
 .fs-slf-prob li{ padding:7px 0; border-top:1px solid var(--line-soft); display:flex; justify-content:space-between; gap:10px; }
 .fs-slf-prob em{ font-style:normal; color:var(--ink-soft); text-align:right; }
+.fs-slf-red{ margin:10px 0 4px; padding:10px 12px; border-radius:12px; background:var(--line-soft); color:var(--ink); font-size:13.5px; line-height:1.45; }
+.fs-slf-red-h{ display:block; font-size:11.5px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft); margin-bottom:3px; }
+.fs-slf-red b{ font-weight:700; }
+.fs-slf-red small{ display:block; margin-top:4px; font-size:11.5px; color:var(--ink-faint); }
 .fs-slf-hit{ margin-top:12px; background:#FBF0DC; color:#5B3B00; border-radius:12px; padding:10px 12px; font-size:13.5px; line-height:1.35; }
 .fs-slf-hit b{ display:block; margin-bottom:2px; }
 html.fs-dark .fs-slf-hit{ background:#3A2C12; color:#F2CF8A; }
@@ -2232,6 +2242,8 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-card-slf{ display:inline-flex; align-items:center; gap:5px; padding:2px 8px 2px 3px; border-radius:999px; background:var(--line-soft); color:var(--ink); font-size:12px; font-weight:800; }
 .fs-card-slf i{ display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--lvl); color:#0F1E27; font-style:normal; font-size:12px; font-weight:800; box-shadow:inset 0 0 0 1px rgba(15,30,39,.25); }
 .fs-card-slf .fs-i{ width:14px; height:14px; color:var(--signal-deep); }
+.fs-card-slf.is-hit{ color:var(--signal-deep); }
+.fs-card-slf b{ font-weight:800; }
 .fs-rc-seg{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
 .fs-rc-seg button{ min-height:44px; border-radius:12px; border:1px solid var(--line); background:var(--paper); font:inherit; font-size:13.5px; font-weight:800; color:var(--ink-soft); cursor:pointer; }
 .fs-rc-seg button[aria-pressed="true"]{ background:var(--ink); border-color:var(--ink); color:var(--paper); }
@@ -3150,3 +3162,16 @@ html.fs-mapmode #fs-ov-chips:not([hidden]){ display:flex; gap:8px; position:fixe
 .fs-ov-chip .fs-i:last-child{ color:var(--ink-faint); }
 html.fs-wide.fs-mapmode #fs-ov-chips:not([hidden]){ top:76px; left:16px; right:auto; max-width:calc(var(--fs-col) - 32px); }
 html:is(.fs-mapfull, .fs-scanning) #fs-ov-chips{ display:none !important; }
+
+/* ===== Webcams offen in der Tour (eigene Touren) ===== */
+.fs-tcams{ display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x mandatory; margin:4px -18px 0; padding:2px 18px 4px; scrollbar-width:none; }
+.fs-tcams::-webkit-scrollbar{ display:none; }
+.fs-tcam{ flex:none; width:82%; margin:0; scroll-snap-align:start; border-radius:14px; overflow:hidden; background:var(--line-soft); position:relative; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+.fs-tcams .fs-tcam:only-child{ width:100%; }
+.fs-tcam img{ display:block; width:100%; aspect-ratio:16/9; object-fit:cover; cursor:zoom-in; -webkit-user-drag:none; }
+.fs-tcam figcaption{ display:flex; align-items:baseline; gap:6px; padding:7px 10px 8px; font-size:13px; color:var(--ink); min-width:0; }
+.fs-tcam figcaption b{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.fs-tcam figcaption span{ color:var(--ink-faint); font-size:12px; white-space:nowrap; margin-left:auto; }
+.fs-tcam figcaption .fs-i{ width:14px; height:14px; color:var(--ice-deep); align-self:center; flex:none; }
+.fs-tcam.is-pin{ box-shadow:inset 0 0 0 2px var(--ice-deep); }
+.fs-tcams-hint{ margin:2px 0 12px; font-size:11.5px; color:var(--ink-faint); }
