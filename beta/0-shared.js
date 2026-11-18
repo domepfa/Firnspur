@@ -258,7 +258,7 @@ function fsResolveConflicts(result, conflicts, cur){
 // Notbremse: Was ginge beim Speichern gegenüber dem aktuellen Stand verloren? Erfasst grössere
 // Verluste (ausgefülltes Feld wird leer, Linie fällt weg oder schrumpft stark, mehrere Listeneinträge
 // auf einmal, langer Text stark gekürzt). Einzelne entfernte Listeneinträge gelten als bewusst.
-const FS_LOSS_IGNORE = new Set(['updatedAt', 'updatedBy', 'deletedAt', 'deletedBy', 'status', 'conditions', 'summitIdsParked',
+const FS_LOSS_IGNORE = new Set(['updatedAt', 'updatedBy', 'clearedFields', 'deletedAt', 'deletedBy', 'status', 'conditions', 'summitIdsParked',
   'hutId', 'gebietId', 'sektorId', 'klettergebietId', 'createdAt', 'createdBy']);
 const FS_LOSS_STRICT = new Set(['points', 'altTracks', 'topoImages', 'erfahrungen', 'accessRoutes', 'descentRoutes', 'kletterrouten', 'orte', 'moreLinks']);
 function fsDetectLosses(cur, res){
@@ -564,6 +564,17 @@ async function fsSafeSet(path, value, v){
         const title = cur.name || cur.tourName || cur.title || 'Dieser Eintrag';
         const go = window.confirm(`«${title}»: Beim Speichern würde Folgendes entfernt:\n\n– ${losses.map(l=> l.text).join('\n– ')}\n\nOK: so speichern (die bisherige Fassung bleibt unter «Frühere Versionen»)\nAbbrechen: deine Änderungen speichern, diese Angaben aber behalten`);
         if(!go){ losses.forEach(l=>{ result[l.key] = l.restore; }); dlog('Notbremse: Verlust verhindert (' + losses.map(l=> l.key).join(', ') + '): ' + path); }
+      }
+      // Bewusst geleerte Felder (Linie, Punkte, Fotos, Routen …) mit Datum vermerken: andere Geräte mit älterer Kopie
+      // bieten sie dann nicht als «mehr Daten» an (fsBetterCollect). Wieder gefüllt: Vermerk weg.
+      if(typeof FS_BETTER_LABELS !== 'undefined'){
+        const cl = Object.assign({}, (cur.clearedFields && typeof cur.clearedFields === 'object') ? cur.clearedFields : {});
+        let ch = false;
+        Object.keys(FS_BETTER_LABELS).forEach(f=>{
+          if(!fsImportIsEmpty(cur[f]) && fsImportIsEmpty(result[f]) && f in result){ cl[f] = new Date().toISOString(); ch = true; }
+          else if(cl[f] && !fsImportIsEmpty(result[f])){ delete cl[f]; ch = true; }
+        });
+        if(ch) result.clearedFields = Object.keys(cl).length ? cl : '';
       }
       if(!fsEq(cur, result)) await fsSaveVersion(v, cur, 'vor dem Speichern');
     }
@@ -1137,12 +1148,16 @@ function fsGpxRepairOffer(appKey, lineTours, altFix, orphanData){
 /* Bessere Fassung vom Gerät: Gibt es einen Eintrag in der Datenbank, hat dieses Gerät aber in
    Feldern Daten, die dort leer sind (z. B. Linie, Punkte, Fotos, Routen), wird das beiseitegelegt
    (fs-better-<app>) und angeboten. Übernommen werden nur die leeren Felder – nichts wird ersetzt. */
+// Vom Nutzer abgelehnte Angebote (Gerät): Eintrag + Feld + Grösse der Daten – erst bei anderen Daten wieder fragen
+function fsBetterSkipSet(appKey){ try{ return new Set(JSON.parse(localStorage.getItem('fs-better-skip-' + appKey) || '[]')); }catch(e){ return new Set(); } }
+function fsBetterSkipKey(id, f, val){ return id + ':' + f + ':' + JSON.stringify(val).length; }
 const FS_BETTER_LABELS = {trackSimplified:'GPX-Linie', manualTrack:'gezeichnete Linie', points:'Punkte', altTracks:'weitere Routen',
   topoImages:'Fotos/Topos', accessRoutes:'Zustiege', descentRoutes:'Abstiege', kletterrouten:'Kletterrouten', completions:'Begehungen'};
 function fsBetterCollect(appKey, cacheKeys){
   const key = 'fs-better-' + appKey;
   let store = {};
   try{ store = JSON.parse(localStorage.getItem(key) || '{}') || {}; }catch(e){ store = {}; }
+  const skip = fsBetterSkipSet(appKey);
   Object.keys(FS_RESCUE_COLLS).forEach(coll=>{
     if(!Array.isArray(state[coll]) || !fsFn(FS_RESCUE_COLLS[coll][1])) return;
     const cloud = new Map([...(state[coll] || []), ...(state['trashed' + fsRescueCap(coll)] || [])].map(x=> [x && x.id, x]));
@@ -1154,19 +1169,24 @@ function fsBetterCollect(appKey, cacheKeys){
       [...(c[coll] || []), ...(c['trashed' + fsRescueCap(coll)] || [])].forEach(x=>{
         const cur = x && cloud.get(x.id);
         if(!cur) return;
-        const fields = {};
-        Object.keys(FS_BETTER_LABELS).forEach(f=>{ if(fsImportIsEmpty(cur[f]) && !fsImportIsEmpty(x[f])) fields[f] = x[f]; });
+        const fields = {}, cleared = (cur.clearedFields && typeof cur.clearedFields === 'object') ? cur.clearedFields : {}, at = x.updatedAt || x.createdAt || '';
+        Object.keys(FS_BETTER_LABELS).forEach(f=>{
+          if(!fsImportIsEmpty(cur[f]) || fsImportIsEmpty(x[f])) return;
+          if(cleared[f] && at <= cleared[f]) return; // dort bewusst gelöscht, nach dem Stand dieses Geräts
+          if(skip.has(fsBetterSkipKey(x.id, f, x[f]))) return; // hier schon abgelehnt
+          fields[f] = x[f];
+        });
         if(!Object.keys(fields).length) return;
         const prev = found.get(x.id);
-        found.set(x.id, {id: x.id, name: x.name || cur.name || x.id, fields: Object.assign({}, prev ? prev.fields : {}, fields)});
+        found.set(x.id, {id: x.id, name: x.name || cur.name || x.id, at: prev && prev.at > at ? prev.at : at, fields: Object.assign({}, prev ? prev.fields : {}, fields)});
       });
     });
     // Was inzwischen in der Datenbank wieder gefüllt ist, fällt raus
     const left = [...found.values()].map(b=>{
       const cur = cloud.get(b.id);
       if(!cur) return null;
-      const f = {};
-      Object.keys(b.fields).forEach(k=>{ if(fsImportIsEmpty(cur[k])) f[k] = b.fields[k]; });
+      const f = {}, cleared = (cur.clearedFields && typeof cur.clearedFields === 'object') ? cur.clearedFields : {};
+      Object.keys(b.fields).forEach(k=>{ if(fsImportIsEmpty(cur[k]) && !(cleared[k] && (b.at || '') <= cleared[k]) && !skip.has(fsBetterSkipKey(b.id, k, b.fields[k]))) f[k] = b.fields[k]; });
       return Object.keys(f).length ? Object.assign({}, b, {fields: f}) : null;
     }).filter(Boolean);
     if(left.length) store[coll] = left; else delete store[coll];
@@ -1186,17 +1206,34 @@ function fsBetterOffer(appKey){
   box.className = 'fs-rescue';
   box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true">
     <h3>${fsIconHtml('download')} Dieses Gerät hat mehr Daten</h3>
-    <p>Bei ${total} Einträgen sind hier Daten gespeichert, die in der Datenbank fehlen. Übernommen werden nur die fehlenden Teile, nichts wird ersetzt:</p>
-    <div class="fs-rescue-list">${colls.map(c=> store[c].map((b, i)=> `<label class="fs-gpx-orphan"><input type="checkbox" data-b="${c}:${i}" checked/> <span><b>${esc(b.name)}</b> <span class="fs-rescue-muted">${Object.keys(b.fields).map(f=> esc(FS_BETTER_LABELS[f] || f)).join(', ')}</span></span></label>`).join('')).join('')}</div>
+    <p>Bei ${total} Einträgen sind hier Daten gespeichert, die in der Datenbank fehlen – verloren gegangen oder auf einem anderen Gerät gelöscht. Übernommen werden nur die fehlenden Teile, nichts wird ersetzt:</p>
+    <div class="fs-rescue-list">${colls.map(c=> store[c].map((b, i)=> `<label class="fs-gpx-orphan"><input type="checkbox" data-b="${c}:${i}" checked/> <span><b>${esc(b.name)}</b> <span class="fs-rescue-muted">${Object.keys(b.fields).map(f=> esc(FS_BETTER_LABELS[f] || f)).join(', ')}${b.at ? ' · Stand dieses Geräts ' + esc(fmtDateOnly(b.at.slice(0, 10))) : ''}</span></span></label>`).join('')).join('')}</div>
     <div class="fs-rescue-actions">
-      <button type="button" class="btn" data-r="go">Übernehmen</button>
+      <button type="button" class="btn" data-r="go">Angehakte übernehmen</button>
+      <button type="button" class="btn secondary" data-r="no">Nicht wiederherstellen</button>
       <button type="button" class="btn secondary" data-r="later">Später</button>
     </div>
-    <p class="fs-rescue-muted">Nicht angehakte Einträge werden nicht mehr angeboten. Die bisherige Fassung bleibt unter «Frühere Versionen» erhalten.</p>
+    <p class="fs-rescue-muted">Absichtlich gelöscht? Dann «Nicht wiederherstellen» oder das Häkchen wegnehmen – danach wird nicht mehr gefragt. Die bisherige Fassung bleibt unter «Frühere Versionen» erhalten.</p>
   </div>`;
   document.body.appendChild(box);
   box.querySelector('[data-r="later"]').onclick = ()=> box.remove();
+  // Abgelehnt: auf diesem Gerät merken (gleiche Daten nicht mehr anbieten)
+  const remember = (all)=>{
+    const sk = fsBetterSkipSet(appKey);
+    colls.forEach(c=> store[c].forEach((b, i)=>{
+      const cb = box.querySelector(`[data-b="${c}:${i}"]`);
+      if(all || !cb || !cb.checked) Object.keys(b.fields).forEach(f=> sk.add(fsBetterSkipKey(b.id, f, b.fields[f])));
+    }));
+    try{ localStorage.setItem('fs-better-skip-' + appKey, JSON.stringify([...sk].slice(-500))); }catch(e){}
+  };
+  box.querySelector('[data-r="no"]').onclick = ()=>{
+    remember(true);
+    try{ localStorage.removeItem('fs-better-' + appKey); }catch(e){}
+    box.remove();
+    showToast('Nicht wiederhergestellt – wird nicht mehr angeboten.');
+  };
   box.querySelector('[data-r="go"]').onclick = async ()=>{
+    remember(false);
     const btn = box.querySelector('[data-r="go"]');
     btn.disabled = true; btn.textContent = 'Wird übernommen …';
     let ok = 0;

@@ -117,6 +117,9 @@ aus anderen Apps übernehmen.
 
 ## Daten
 - Offline nutzbar: lokale Kopie pro Gerät, Rettung fehlender Einträge beim Laden.
+  «Dieses Gerät hat mehr Daten» (`fsBetterCollect`): bietet Felder an, die in der Datenbank leer sind, ausser sie wurden dort
+  bewusst geleert (Vermerk `clearedFields` {Feld: Datum}, setzt `fsSafeSet`) nach dem Stand dieses Geräts, oder hier abgelehnt
+  («Nicht wiederherstellen», `fs-better-skip-<app>`).
 - Gespeichert wird über `fbSet` → `fsSafeSet`: Ausgangsstand (beim Laden) + eigene Fassung + aktueller
   Stand werden zusammengeführt, nur eigene Änderungen kommen dazu. Fehlt ein Feld ganz, gilt es als
   unverändert; bewusstes Leeren setzt `''` bzw. `[]`. Nie direkt an `fbSet` vorbei schreiben.
