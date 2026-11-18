@@ -2238,6 +2238,8 @@ html.fs-dark .fs-bw-grid .c .p{ color:#74C0FC; }
 .fs-card-slf{ display:inline-flex; align-items:center; gap:5px; padding:2px 8px 2px 3px; border-radius:999px; background:var(--line-soft); color:var(--ink); font-size:12px; font-weight:800; }
 .fs-card-slf i{ display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--lvl); color:#0F1E27; font-style:normal; font-size:12px; font-weight:800; box-shadow:inset 0 0 0 1px rgba(15,30,39,.25); }
 .fs-card-slf .fs-i{ width:14px; height:14px; color:var(--signal-deep); }
+.fs-card-slf.is-hit{ color:var(--signal-deep); }
+.fs-card-slf b{ font-weight:800; }
 .fs-rc-seg{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
 .fs-rc-seg button{ min-height:44px; border-radius:12px; border:1px solid var(--line); background:var(--paper); font:inherit; font-size:13.5px; font-weight:800; color:var(--ink-soft); cursor:pointer; }
 .fs-rc-seg button[aria-pressed="true"]{ background:var(--ink); border-color:var(--ink); color:var(--paper); }
