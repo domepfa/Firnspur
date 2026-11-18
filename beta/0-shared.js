@@ -7396,7 +7396,7 @@ function fsGipfelbuchHtml(t){
   if(!name) name = String(t.name || '').split(/[–,(\/]| - | via | über /)[0].trim();
   if(!name) return '';
   const href = 'https://www.google.com/search?tbs=qdr:m&q=' + encodeURIComponent('site:gipfelbuch.ch/verhaeltnisse "' + name + '"');
-  return `<div class="detail-section fs-gb"><h4>Berichte anderer</h4><a class="fs-cam-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">Gipfelbuch: Verhältnisse «${esc(name)}» im letzten Monat ↗</a>
+  return `<div class="detail-section fs-cond fs-gb"><h4>Berichte anderer</h4><a class="fs-cam-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">Gipfelbuch: Verhältnisse «${esc(name)}» im letzten Monat ↗</a>
     <p class="wx-src">Websuche auf gipfelbuch.ch, neueste Berichte zuerst prüfen.</p></div>`;
 }
 /* ===== Luftbild Winter: Luftbild mit Schnee, auf dem Gerät gerechnet =====
@@ -13925,6 +13925,128 @@ function fsOpenConditions(lat, lon, ele, name){
   ov.addEventListener('click', e=>{ if(e.target === ov) closeTopOverlayLayer(); });
   pushOverlayLayer(()=>{ clearInterval(iv); ov.remove(); window.__fsCondRedraw = prevRender || null; });
 }
+/* ===== Sonne auf der Abfahrt (Skitour) =====
+   Wann die Sonne auf die Abfahrt kommt: Abfahrtslinie (Routen der Art Abfahrt/Abstieg, sonst ab dem höchsten Punkt
+   der Hauptroute hinunter), etwa 14 Stellen von oben nach unten. Je Stelle Sonnenstand alle 10 Minuten (fsSunPos),
+   besonnt, wenn der Hang zur Sonne geneigt ist und kein Gelände bis 8 km davor steht (Höhenmodell FS3D_DEM, Zoom 12,
+   etwa 25 m). Heute, ab 13 Uhr für morgen. Nur gerechnet, nichts gespeichert. */
+const fsFirnCache = new Map();
+async function fsFirnEle(z, lat, lon){
+  const n = 1 << z, fx = (lon + 180) / 360 * n * 256, la = lat * Math.PI / 180;
+  const fy = (1 - Math.log(Math.tan(la) + 1 / Math.cos(la)) / Math.PI) / 2 * n * 256;
+  const x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
+  const px = async (x, y)=>{ const e = await fsDriftDemTile(z, Math.floor(x / 256), Math.floor(y / 256)); return e[(y & 255) * 256 + (x & 255)]; };
+  const [a, b, c, d] = await Promise.all([px(x0, y0), px(x0 + 1, y0), px(x0, y0 + 1), px(x0 + 1, y0 + 1)]);
+  return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+}
+function fsFirnLine(t){
+  const toLL = q=> Array.isArray(q) ? [+q[0], +q[1]] : [+q.lat, +(q.lon != null ? q.lon : q.lng)];
+  const rs = fsTourRoutes(t).map(r=> Object.assign({}, r, {c: (r.coords || []).map(toLL).filter(p=> isFinite(p[0]) && isFinite(p[1]))})).filter(r=> r.c.length > 1);
+  const down = rs.filter(r=> r.type === 'abfahrt' || r.type === 'abstieg');
+  if(down.length) return {c: down[0].c, own: true};
+  const main = rs.find(r=> r.type === 'aufab') || rs.find(r=> r.type === 'aufstieg') || rs[0];
+  return main ? {c: main.c, own: false} : null;
+}
+async function fsFirnCompute(t, day){
+  const L = fsFirnLine(t);
+  if(!L) return null;
+  // Linie gleichmässig abtasten
+  let c = L.c;
+  const cum = [0];
+  for(let i = 1; i < c.length; i++) cum.push(cum[i - 1] + fsRcHav(c[i - 1], c[i]));
+  const total = cum[cum.length - 1];
+  if(total < 200) return null;
+  const N = 40, pts = [];
+  for(let k = 0, j = 0; k <= N; k++){
+    const d = total * k / N;
+    while(j < c.length - 2 && cum[j + 1] < d) j++;
+    const f = cum[j + 1] > cum[j] ? (d - cum[j]) / (cum[j + 1] - cum[j]) : 0;
+    pts.push([c[j][0] + (c[j + 1][0] - c[j][0]) * f, c[j][1] + (c[j + 1][1] - c[j][1]) * f]);
+  }
+  const eles = await Promise.all(pts.map(p=> fsFirnEle(12, p[0], p[1])));
+  // Abfahrt: ab dem höchsten Punkt; führt die Linie danach kaum hinunter, dieselbe Linie zurück zum Start
+  let top = 0; eles.forEach((e, i)=>{ if(e > eles[top]) top = i; });
+  let idx = [];
+  if(L.own) idx = eles[0] >= eles[eles.length - 1] ? pts.map((_, i)=> i) : pts.map((_, i)=> pts.length - 1 - i);
+  else if(eles[top] - eles[eles.length - 1] > 200) for(let i = top; i < pts.length; i++) idx.push(i);
+  else for(let i = top; i >= 0; i--) idx.push(i);
+  if(idx.length < 3) return null;
+  // etwa 14 Stellen von oben nach unten
+  const pick = [];
+  for(let k = 0; k < 14; k++) pick.push(idx[Math.round(k * (idx.length - 1) / 13)]);
+  const lat0 = pts[pick[0]][0], lon0 = pts[pick[0]][1];
+  // Sonnenstände des Tages (Schweizer Zeit) alle 10 Minuten
+  const zDay = d=> d.toLocaleDateString('de-CH', {timeZone: 'Europe/Zurich'});
+  const target = zDay(new Date(Date.now() + day * 86400000)), pos = [];
+  const t0 = Math.floor((Date.now() + day * 86400000 - 86400000) / 600000) * 600000;
+  for(let tt = t0; tt < t0 + 2 * 86400000; tt += 600000){
+    const dt = new Date(tt);
+    if(zDay(dt) !== target) continue;
+    const sp = fsSunPos(dt, lat0, lon0);
+    if(sp.el > 0.02) pos.push({t: dt, tan: Math.tan(sp.el), sx: Math.sin(sp.az), sy: Math.cos(sp.az), v: [Math.cos(sp.el) * Math.sin(sp.az), Math.cos(sp.el) * Math.cos(sp.az), Math.sin(sp.el)]});
+  }
+  if(!pos.length) return null;
+  const steps = []; for(let d = 60; d <= 8000; d *= 1.15) steps.push(d);
+  const mLat = 111320, out = [];
+  for(const i of pick){
+    const [la, lo] = pts[i], mLon = 111320 * Math.cos(la * Math.PI / 180), h0 = eles[i], r = 30;
+    // Hangneigung aus vier Nachbarn (30 m)
+    const [eN, eS, eE, eW] = await Promise.all([fsFirnEle(12, la + r / mLat, lo), fsFirnEle(12, la - r / mLat, lo), fsFirnEle(12, la, lo + r / mLon), fsFirnEle(12, la, lo - r / mLon)]);
+    const gx = (eE - eW) / (2 * r), gy = (eN - eS) / (2 * r), nz = 1 / Math.hypot(gx, gy, 1);
+    const nrm = [-gx * nz, -gy * nz, nz];
+    // Horizont je Sonnenrichtung nur einmal rechnen (Richtungen auf 2° gerundet)
+    const hz = new Map();
+    let first = null, last = null;
+    for(const p of pos){
+      if(nrm[0] * p.v[0] + nrm[1] * p.v[1] + nrm[2] * p.v[2] <= 0.03) continue;
+      const key = Math.round(Math.atan2(p.sx, p.sy) * 90 / Math.PI);
+      let hor = hz.get(key);
+      if(hor == null){
+        hor = 0;
+        for(const d of steps){
+          const h = await fsFirnEle(12, la + p.sy * d / mLat, lo + p.sx * d / mLon);
+          const a = (h - h0 - 5) / d;
+          if(a > hor) hor = a;
+        }
+        hz.set(key, hor);
+      }
+      if(p.tan > hor){ if(!first) first = p.t; last = p.t; }
+    }
+    out.push({ele: Math.round(h0), first, last});
+  }
+  return {pts: out, own: L.own, day};
+}
+function fsFirnHtml(t){
+  if(!t || fsAppKey() !== 'firnspur' || !fsFirnLine(t)) return '';
+  const hour = +new Date().toLocaleTimeString('de-CH', {hour: '2-digit', hour12: false, timeZone: 'Europe/Zurich'}).slice(0, 2);
+  const day = hour >= 13 ? 1 : 0, key = fsRcKey(t, fsFirnLine(t).c) + ':' + day + ':' + fsToday();
+  const c = fsFirnCache.get(key);
+  if(!c){
+    fsFirnCache.set(key, {status: 'loading'});
+    if(navigator.onLine !== false) fsFirnCompute(t, day).then(r=> fsFirnCache.set(key, {status: r ? 'ok' : 'none', r}), ()=> fsFirnCache.set(key, {status: 'err'})).then(()=> fsRenderSoon());
+    return '';
+  }
+  if(c.status !== 'ok') return '';
+  const r = c.r, fmt = d=> d.toLocaleTimeString('de-CH', {hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Zurich'});
+  const third = Math.max(1, Math.round(r.pts.length / 3));
+  const part = (list)=>{
+    const lit = list.filter(p=> p.first);
+    if(!lit.length) return 'ganztags im Schatten';
+    const f = lit.map(p=> p.first.getTime()).sort((a, b)=> a - b), med = new Date(f[Math.floor(f.length / 2)]);
+    return 'ab etwa ' + fmt(med) + (lit.length < list.length ? ' (teils im Schatten)' : '');
+  };
+  const top = r.pts.slice(0, third), bot = r.pts.slice(-third);
+  const all = r.pts.filter(p=> p.first), shadeAll = !all.length;
+  const full = all.length === r.pts.length ? new Date(Math.max(...all.map(p=> p.first.getTime()))) : null;
+  const lastSun = all.length ? new Date(Math.min(...all.map(p=> p.last.getTime()))) : null;
+  const rows = shadeAll ? `<p>Die Abfahrt liegt ${r.day ? 'morgen' : 'heute'} ganztags im Schatten.</p>` : `
+    <div class="fs-cond-row"><span>Oben (${fsRcFmtE(top[0].ele)} m)</span><b>${part(top)}</b></div>
+    <div class="fs-cond-row"><span>Unten (${fsRcFmtE(bot[bot.length - 1].ele)} m)</span><b>${part(bot)}</b></div>
+    ${full ? `<div class="fs-cond-row"><span>Ganze Abfahrt besonnt</span><b>ab ${fmt(full)}</b></div>` : ''}
+    ${lastSun ? `<div class="fs-cond-row"><span>Erste Stellen wieder im Schatten</span><b>ab ${fmt(lastSun)}</b></div>` : ''}`;
+  return `<div class="detail-section fs-cond fs-firn"><h4>Sonne auf der Abfahrt · ${r.day ? 'morgen' : 'heute'}</h4>${rows}
+    <p class="wx-src">${r.own ? 'Abfahrtsroute' : 'Ab dem höchsten Punkt der Route hinunter'}, Schatten der Berge aus dem Höhenmodell (etwa 25 m), ohne Wolken. Faustregel: Firn wird meist ein bis zwei Stunden nach der ersten Sonne weich, nach klarer Nacht.</p></div>`;
+}
 // Wetter, Bedingungen, Bulletin einer Tour: am Gipfel (Gipfelpunkt, sonst höchster Punkt der Linie), sonst am ersten Punkt.
 // Auch für Touren nur mit Linie (bisher fehlte dort der ganze Abschnitt).
 function fsTourWxHtml(t){
@@ -13935,7 +14057,7 @@ function fsTourWxHtml(t){
 function meteoForecastWidgetHtml(lat, lon, alt, tour){
   if(!isFinite(lat) || !isFinite(lon)) return '';
   // Prognose zuerst (wichtigste Frage am Tag X), dann Rückblick, gemessen, Webcams
-  const parts = [tour ? fsBergwetterHtml(tour) : '', meteoForecastOnlyHtml(lat, lon), fsConditionsHtml(lat, lon, alt), tour ? fsGipfelbuchHtml(tour) : ''];
+  const parts = [tour ? fsBergwetterHtml(tour) : '', meteoForecastOnlyHtml(lat, lon), fsConditionsHtml(lat, lon, alt), tour ? fsFirnHtml(tour) : '', tour ? fsGipfelbuchHtml(tour) : ''];
   if(navigator.onLine !== false) return parts.join('');
   // Offline: statt drei Leer-Meldungen untereinander nur eine Zeile; Teile mit gespeicherten Daten bleiben
   const isEmptyOffline = (h)=>{ const txt = String(h || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(); return /Offline – /.test(txt) && txt.length < 160; };
