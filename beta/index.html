@@ -2151,6 +2151,7 @@ function tourDetailHtmlSki(id){
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abfahrt</div></div>` : ''}
       ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : fsTourTimeStatHtml(t)}
     </div>
+    ${fsTourCamsHtml(t)}
     ${tourGlanceHtml(t.crux, [
       ['Gefahren', (t.gefahren||[]).join(', ')],
       ['Exposition', (t.exposition||[]).join(', ')],
@@ -2281,6 +2282,7 @@ function tourDetailHtmlWand(id){
       ${t.elevationLoss ? `<div class="detail-stat"><div class="num">${esc(t.elevationLoss)}</div><div class="lbl">Hm Abstieg</div></div>` : ''}
       ${t.duration ? `<div class="detail-stat"><div class="num">${esc(t.duration)} h</div><div class="lbl">Zeitbedarf</div></div>` : fsTourTimeStatHtml(t)}
     </div>
+    ${fsTourCamsHtml(t)}
     ${tourGlanceHtml(t.crux, [
       ['Gefahren', (t.gefahren||[]).join(', ')],
       ['Tourenform', TOUR_SHAPES[t.tourShape] || ''],
@@ -7167,6 +7169,7 @@ function tourDetailHtml__fix(id){
       ${t.longestPitch ? `<div class="detail-stat"><div class="num">${esc(t.longestPitch)}</div><div class="lbl">Längste SL</div></div>` : ''}
     </div>
     ${summitChipsForCardHtml(t)}
+    ${fsTourCamsHtml(t)}
     ${tourGlanceHtml(t.crux, [
       ['Gefahren', (t.gefahren||[]).join(', ')],
       ['Exposition', (t.exposition||[]).join(', ')],
