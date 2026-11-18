@@ -6875,7 +6875,7 @@ function fsmSetBase(map, base, silent){
   if(!map._fsmLoaded) return;
   map._fsm.base = base;
   const luft = base === 'luftbild' || base === 'hybrid', winter = base === 'winter', schnee = base === 'schnee';
-  if(schnee) fsmSnowEnsure(map);
+  if(schnee){ fsmSnowEnsure(map); fsSnowLineWire(map); fsSnowLineUpdate(map).then(()=>{ if(!silent && fsSnowLineInfo) showToast(fsSnowLineText()); }); }
   map.setLayoutProperty('base-karte', 'visibility', (luft || winter || schnee) ? 'none' : 'visible');
   map.setLayoutProperty('base-luftbild', 'visibility', luft ? 'visible' : 'none');
   if(map.getLayer('base-winter')) map.setLayoutProperty('base-winter', 'visibility', winter ? 'visible' : 'none');
@@ -7264,6 +7264,8 @@ async function fsDriftWind(map){
 function fsDriftTilesUrl(){ return 'fsdrift://{z}/{x}/{y}?v=' + FS_DRIFT.key; }
 function fsDriftStart(map){
   fsDriftEnsureProtocol();
+  fsSnowLineWire(map);
+  fsSnowLineUpdate(map);
   if(!map._fsDriftWired){
     map._fsDriftWired = true;
     map.on('moveend', ()=>{ if(fsmOverlayOn(map, 'triebschnee')) fsDriftWind(map); });
@@ -7278,7 +7280,7 @@ function fsDriftLegendHtml(){
   else if(!FS_DRIFT.k) head = `Kaum Verfrachtung in den letzten 72 h: ${i.snow < 2 ? 'wenig Neuschnee (' + i.snow + ' cm)' : 'schwacher Wind'}. Älterer Schnee kann trotzdem verfrachtet sein.`;
   else head = `Wind aus <b>${i.dir}</b>${i.steady < 0.6 ? ' (wechselnd)' : ''}, ${i.hours} Stunden über 20 km/h, Spitze ${i.vmax} km/h. Neuschnee ${i.snow} cm (72 h). Stärke: <b>${FS_DRIFT.k > 0.6 ? 'stark' : FS_DRIFT.k > 0.3 ? 'mässig' : 'gering'}</b>.`;
   return `<div class="fsm-legend-row"><span><i style="background:rgb(112,72,232)"></i>Ablagerung (Windschatten)</span><span><i style="background:rgb(116,192,252)"></i>Abgeblasen</span></div>
-    <small>${head} Wind aus dem Wettermodell (etwa 3000 m) für die Kartenmitte, Gelände aus dem Höhenmodell (etwa 30 m), ab mittlerem Zoom. Abschätzung aus Wind und Gelände, keine Lawinenbeurteilung.</small>`;
+    <small>${head} ${fsSnowLineInfo && !fsSnowLineInfo.winter ? fsSnowLineText() + ' ' : ''}Wind aus dem Wettermodell (etwa 3000 m) für die Kartenmitte, Gelände aus dem Höhenmodell (etwa 30 m), ab mittlerem Zoom. Abschätzung aus Wind und Gelände, keine Lawinenbeurteilung.</small>`;
 }
 async function fsDriftDemTile(z, x, y, signal){
   const key = z + '/' + x + '/' + y;
@@ -7372,7 +7374,58 @@ function fsGipfelbuchHtml(t){
    oberhalb der Schneegrenze werden Flächen weiss getönt, je flacher, desto mehr; steile Felswände bleiben frei,
    Wald scheint durch. Schattierung aus dem Gelände (Licht von Nordwesten), Schatten leicht bläulich.
    Eine Näherung zum Planen und für die 3D-Ansicht, keine gemessene Schneedecke. */
-const FS_SNOW_LINE = 1500; // m ü. M., Übergang ±250 m
+const FS_SNOW_LINE_WINTER = 1500; // Vorgabe ohne aktuelle Schneedecke (Winterbild zum Planen), m ü. M., Übergang ±250 m
+let FS_SNOW_LINE = FS_SNOW_LINE_WINTER;
+/* ===== Aktuelle Schneegrenze aus den SLF-Messstationen =====
+   Für die Kartenmitte (Stationen im Umkreis von 60 km, sonst 120 km): die Höhe, die Stationen mit Schnee (ab 15 cm) und
+   ohne (unter 5 cm) am besten trennt. Gilt für «Luftbild Winter» und Triebschnee; neu ab 30 km Verschiebung.
+   Liegt nirgends Schnee (Sommer), bleibt das Winterbild bei 1500 m. */
+let fsSnowLineInfo = null; // {m, n, at:{lat,lng}, winter}
+function fsSnowLineEstimate(stations, lat, lon){
+  const withHs = (stations || []).filter(s=> s && s.hs != null && isFinite(s.ele) && isFinite(s.lat));
+  let near = [];
+  for(const r of [60000, 120000, 250000]){
+    near = withHs.filter(s=> fsGeoDist(lat, lon, s.lat, s.lon) < r);
+    if(near.length >= 8) break;
+  }
+  if(!near.some(s=> s.hs >= 15)) return null;
+  let best = [], err = Infinity;
+  for(let t = 600; t <= 3600; t += 50){
+    let e = 0;
+    near.forEach(s=>{ if(s.ele >= t && s.hs < 5) e++; else if(s.ele < t && s.hs >= 15) e++; });
+    if(e < err){ err = e; best = [t]; } else if(e === err) best.push(t);
+  }
+  const m = Math.round((best[0] + best[best.length - 1]) / 2 / 50) * 50;
+  return {m, n: near.length};
+}
+async function fsSnowLineUpdate(map){
+  const c = map.getCenter();
+  if(fsSnowLineInfo && fsSnowLineInfo.at && fsGeoDist(c.lat, c.lng, fsSnowLineInfo.at.lat, fsSnowLineInfo.at.lng) < 30000) return;
+  const o = FSM_OVERLAYS.find(x=> x.id === 'slfstationen');
+  let j;
+  try{ j = await fsPointsFetch(o); }catch(e){ return; }
+  const st = (j.features || []).map(f=> Object.assign({lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0]}, f.properties));
+  const est = fsSnowLineEstimate(st, c.lat, c.lng);
+  fsSnowLineInfo = {m: est ? est.m : FS_SNOW_LINE_WINTER, n: est ? est.n : 0, at: c, winter: !est};
+  const m = Math.max(600, Math.min(3600, fsSnowLineInfo.m));
+  if(m === FS_SNOW_LINE) return;
+  FS_SNOW_LINE = m;
+  // Kacheln neu (die Adresse enthält die Schneegrenze, darum kein alter Zwischenspeicher)
+  if(map.getSource('schnee')) map.getSource('schnee').setTiles([fsSnowTilesUrl()]);
+  if(map.getSource('ov-triebschnee')){ FS_DRIFT.key = String(Date.now()); map.getSource('ov-triebschnee').setTiles([fsDriftTilesUrl()]); }
+  fsmSyncPanel(map);
+}
+function fsSnowLineWire(map){
+  if(map._fsSnowWired) return;
+  map._fsSnowWired = true;
+  map.on('moveend', ()=>{ if(map._fsm && (map._fsm.base === 'schnee' || fsmOverlayOn(map, 'triebschnee'))) fsSnowLineUpdate(map); });
+}
+function fsSnowTilesUrl(){ return 'fssnow://{z}/{x}/{y}?s=' + FS_SNOW_LINE; }
+function fsSnowLineText(){
+  const i = fsSnowLineInfo;
+  if(!i) return '';
+  return i.winter ? 'Gerade kaum Schnee an den SLF-Stationen: Winterbild mit Schneegrenze 1500 m.' : 'Schneegrenze heute etwa ' + FS_SNOW_LINE + ' m (geschätzt aus ' + i.n + ' SLF-Stationen in der Nähe).';
+}
 let fsSnowProto = false;
 // Rechnung einer Schneekachel, eigenständig (keine Bezüge nach aussen): läuft in Web Workern (mehrere Kerne,
 // die Karte bleibt flüssig) oder, wo das nicht geht, direkt. env: {img, dem, snow} = Kachel-Vorlagen, Schneegrenze.
@@ -7387,7 +7440,7 @@ function fsSnowEngine(env){
   };
   const url = (t, z, x, y)=> t.replace('{z}', z).replace('{x}', x).replace('{y}', y);
   const sm = (a, b, v)=>{ const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
-  const SNOW = env.snow;
+  const SNOW0 = env.snow;
   // Höhenkachel: einmal laden und rechnen (geglättete Höhe, Steilheit, Licht), für bis zu 64 Bildkacheln
   const demCache = new Map();
   const dem = (dz, dx, dy)=>{
@@ -7423,7 +7476,8 @@ function fsSnowEngine(env){
     if(demCache.size > 48) demCache.delete(demCache.keys().next().value);
     return p;
   };
-  async function tile(z, tx, ty){
+  async function tile(z, tx, ty, snowLine){
+    const SNOW = snowLine || SNOW0;
     // Höhenmodell Zoom 13 (etwa 13 m je Punkt, darunter vor allem Rauschen): darüber der passende Ausschnitt
     const dz = Math.min(z, 13), k = Math.pow(2, z - dz), dx = Math.floor(tx / k), dy = Math.floor(ty / k);
     const [imgBuf, D] = await Promise.all([
@@ -7481,7 +7535,7 @@ function fsSnowEnsureProtocol(){
   try{
     if(typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap !== 'undefined'){
       const src = 'const E = (' + fsSnowEngine.toString() + ')(' + JSON.stringify(env) + ');\n'
-        + 'onmessage = async (ev)=>{ const d = ev.data; try{ const b = await E.tile(d.z, d.x, d.y); postMessage({id: d.id, b}, [b]); }catch(e){ postMessage({id: d.id, err: String(e && e.message || e)}); } };';
+        + 'onmessage = async (ev)=>{ const d = ev.data; try{ const b = await E.tile(d.z, d.x, d.y, d.s); postMessage({id: d.id, b}, [b]); }catch(e){ postMessage({id: d.id, err: String(e && e.message || e)}); } };';
       const url = URL.createObjectURL(new Blob([src], {type: 'text/javascript'}));
       const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
       for(let i = 0; i < n; i++) workers.push(new Worker(url));
@@ -7495,17 +7549,17 @@ function fsSnowEnsureProtocol(){
     if(d.err) p.reject(new Error(d.err)); else p.resolve(d.b);
   });
   const local = workers.length ? null : fsSnowEngine(env);
-  const compute = (z, x, y)=>{
-    if(local) return local.tile(z, x, y);
+  const compute = (z, x, y, s)=>{
+    if(local) return local.tile(z, x, y, s);
     const dz = Math.min(z, 13), k = Math.pow(2, z - dz), w = workers[(Math.floor(x / k) * 31 + Math.floor(y / k)) % workers.length];
-    return new Promise((resolve, reject)=>{ const id = ++seq; pending.set(id, {resolve, reject}); w.postMessage({id, z, x, y}); });
+    return new Promise((resolve, reject)=>{ const id = ++seq; pending.set(id, {resolve, reject}); w.postMessage({id, z, x, y, s}); });
   };
   // Fertige Kacheln behalten: Zurückschwenken und Drehen zeigt sie sofort scharf (etwa 500 Kacheln, gut 10 MB)
   const done = new Map(), running = new Map();
-  const get = (key, z, x, y)=>{
+  const get = (key, z, x, y, s)=>{
     if(done.has(key)){ const b = done.get(key); done.delete(key); done.set(key, b); return Promise.resolve(b); }
     if(running.has(key)) return running.get(key);
-    const p = compute(z, x, y).then(b=>{
+    const p = compute(z, x, y, s).then(b=>{
       running.delete(key);
       done.set(key, b);
       if(done.size > 500) done.delete(done.keys().next().value);
@@ -7516,9 +7570,10 @@ function fsSnowEnsureProtocol(){
   };
   // Abbrechen der Karte stoppt die Rechnung nicht: das Ergebnis landet im Speicher für den nächsten Blick
   maplibregl.addProtocol('fssnow', (params)=>{
-    const m = /fssnow:\/\/(\d+)\/(\d+)\/(\d+)/.exec(params.url);
+    const m = /fssnow:\/\/(\d+)\/(\d+)\/(\d+)(?:\?s=(\d+))?/.exec(params.url);
     if(!m) return Promise.reject(new Error('fssnow'));
-    return get(m[1] + '/' + m[2] + '/' + m[3], +m[1], +m[2], +m[3]).then(b=> ({data: b.slice(0)}), e=>{
+    const s = +m[4] || FS_SNOW_LINE;
+    return get(m[1] + '/' + m[2] + '/' + m[3] + '/' + s, +m[1], +m[2], +m[3], s).then(b=> ({data: b.slice(0)}), e=>{
       if(typeof dlog === 'function') dlog('Luftbild Winter: ' + (e && e.message ? e.message : e), 'err');
       throw e;
     });
@@ -7527,7 +7582,7 @@ function fsSnowEnsureProtocol(){
 function fsmSnowEnsure(map){
   fsSnowEnsureProtocol();
   if(map.getLayer('base-schnee')) return;
-  map.addSource('schnee', {type: 'raster', tiles: ['fssnow://{z}/{x}/{y}'], tileSize: 256, minzoom: 8, maxzoom: 18, attribution: '© swisstopo, Höhenmodell: Mapzen/AWS Terrain Tiles'});
+  map.addSource('schnee', {type: 'raster', tiles: [fsSnowTilesUrl()], tileSize: 256, minzoom: 8, maxzoom: 18, attribution: '© swisstopo, Höhenmodell: Mapzen/AWS Terrain Tiles'});
   // Gleich nach den übrigen Grundkarten, unter Satellit, Ebenen und Namen
   const ls = map.getStyle().layers, bi = ls.findIndex(l=> l.id === 'base-winter');
   map.addLayer({id: 'base-schnee', type: 'raster', source: 'schnee', layout: {visibility: 'none'},
