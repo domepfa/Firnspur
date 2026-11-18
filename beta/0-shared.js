@@ -17463,7 +17463,7 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   if(!images || !images.length) return;
   let idx = startIndex || 0;
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; touch-action:none; overscroll-behavior:contain;';
+  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:5000; display:flex; align-items:center; justify-content:center; padding:20px; touch-action:none; overscroll-behavior:contain;';
 
   const IMG_CSS = 'max-width:100%; max-height:100%; object-fit:contain; border-radius:4px; touch-action:none; transform-origin:center center;';
   const imgEl = document.createElement('img');
