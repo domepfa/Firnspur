@@ -1553,7 +1553,7 @@ function mapStripBackgroundSvg(){
   const svg = `<svg class="map-strip-bg" viewBox="0 0 ${vb.w} ${vb.h}" preserveAspectRatio="xMidYMid meet">
     <defs><clipPath id="${clipId}">${cantonPaths}</clipPath></defs>
     <g class="map-strip-land">${cantonPaths}</g>
-    <image class="map-strip-relief" href="${'../' + hs.srcFirnspur}" x="${hs.x}" y="${hs.y}" width="${hs.w}" height="${hs.h}" preserveAspectRatio="none" clip-path="url(#${clipId})"></image>
+    <image class="map-strip-relief" href="${'./' + hs.srcFirnspur}" x="${hs.x}" y="${hs.y}" width="${hs.w}" height="${hs.h}" preserveAspectRatio="none" clip-path="url(#${clipId})"></image>
     <g class="map-strip-lakes">${lakePaths}</g>
     <g class="map-strip-cantons">${cantonPaths}</g>
   </svg>`;
@@ -3018,7 +3018,7 @@ const FS_TYPE_ICONS = { auto:'car', oev:'bus', seilbahn:'cable', zufuss:'walk', 
 // Anreise-/Übernachtungsart als Icon + Text (HTML)
 function fsTypeLabel(labels, v){ return (FS_TYPE_ICONS[v] ? fsIconHtml(FS_TYPE_ICONS[v]) + ' ' : '') + esc(labels[v] || v); }
 // Icon aus Namen oder (alte Daten) aus einem Emoji, als HTML
-function fsIco(v){ if(!v) return ''; if(FS_ICON_PATHS[v]) return fsIconHtml(v); return fsNoEmojiHtml(esc(v)); }
+function fsIco(v){ if(!v) return ''; if(FS_ICON_PATHS[v] || /^wx-/.test(v)) return fsIconHtml(v); return fsNoEmojiHtml(esc(v)); }
 const MAP_POINT_CATEGORIES = {
   '': {icon:'pin', label:'Punkt', color:'#4A3524'},
   'gipfel': {icon:'mountain', label:'Gipfel', color:'#7A3E9E'},
@@ -3209,16 +3209,16 @@ function buildSbbLink(destination, dateStr, origin){
 // WMO-Wettercodes (Open-Meteo) grob zusammengefasst auf Icon + verständliches Label.
 function weatherCodeInfo(code){
   const table = {
-    0:['sun','Klar'], 1:['partly','Überwiegend klar'], 2:['partly','Teilweise bewölkt'], 3:['cloud','Bedeckt'],
-    45:['fog','Nebel'], 48:['fog','Nebel mit Reifablagerung'],
-    51:['partly','Leichter Nieselregen'], 53:['partly','Nieselregen'], 55:['partly','Starker Nieselregen'],
-    56:['rain','Gefrierender Nieselregen'], 57:['rain','Starker gefrierender Nieselregen'],
-    61:['rain','Leichter Regen'], 63:['rain','Regen'], 65:['rain','Starker Regen'],
-    66:['rain','Gefrierender Regen'], 67:['rain','Starker gefrierender Regen'],
-    71:['snow','Leichter Schneefall'], 73:['snow','Schneefall'], 75:['snow','Starker Schneefall'], 77:['snow','Schneegriesel'],
-    80:['partly','Leichte Regenschauer'], 81:['partly','Regenschauer'], 82:['partly','Heftige Regenschauer'],
-    85:['snowcloud','Leichte Schneeschauer'], 86:['snowcloud','Starke Schneeschauer'],
-    95:['storm','Gewitter'], 96:['storm','Gewitter mit Hagel'], 99:['storm','Starkes Gewitter mit Hagel']
+    0:['wx-sun','Klar'], 1:['wx-mostlysun','Überwiegend klar'], 2:['wx-partly','Teilweise bewölkt'], 3:['wx-overcast','Bedeckt'],
+    45:['wx-fog','Nebel'], 48:['wx-fog','Nebel mit Reifablagerung'],
+    51:['wx-lightrain','Leichter Nieselregen'], 53:['wx-lightrain','Nieselregen'], 55:['wx-rain','Starker Nieselregen'],
+    56:['wx-sleet','Gefrierender Nieselregen'], 57:['wx-sleet','Starker gefrierender Nieselregen'],
+    61:['wx-lightrain','Leichter Regen'], 63:['wx-rain','Regen'], 65:['wx-heavyrain','Starker Regen'],
+    66:['wx-sleet','Gefrierender Regen'], 67:['wx-sleet','Starker gefrierender Regen'],
+    71:['wx-snow','Leichter Schneefall'], 73:['wx-snow','Schneefall'], 75:['wx-snow','Starker Schneefall'], 77:['wx-snow','Schneegriesel'],
+    80:['wx-showers','Leichte Regenschauer'], 81:['wx-showers','Regenschauer'], 82:['wx-heavyrain','Heftige Regenschauer'],
+    85:['wx-snowshowers','Leichte Schneeschauer'], 86:['wx-snowshowers','Starke Schneeschauer'],
+    95:['wx-storm','Gewitter'], 96:['wx-storm','Gewitter mit Hagel'], 99:['wx-storm','Starkes Gewitter mit Hagel']
   };
   const entry = table[code];
   return entry ? {icon: entry[0], label: entry[1]} : {icon:'therm', label:'Unbekannt'};
@@ -3834,7 +3834,7 @@ function printTourenzettel(agendaId){
 </div>
 </body></html>`;
 
-  win.document.write(fsNoEmojiHtml(html.replace('</style>', '  .fs-i{width:1.1em;height:1.1em;vertical-align:-.18em;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;margin-right:2px;}\n  .fs-i-fill{fill:currentColor;stroke:none;}\n</style>')));
+  win.document.write(fsNoEmojiHtml(html.replace('</style>', '  .fs-i{width:1.1em;height:1.1em;vertical-align:-.18em;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;margin-right:2px;}\n  .fs-i-fill{fill:currentColor;stroke:none;}\n' + FS_WXI_PRINT_CSS + '\n</style>')));
   win.document.close();
   win.focus();
   // Später nachgeladene Teile (Wetter, Lawinen, Anfahrt) ebenfalls ohne Emojis
@@ -13149,7 +13149,7 @@ const FS_WX_CELL = 56; // Breite einer Zelle der Zeitleiste in px
 // Gewählte Prognosezeit und eingeklappt/offen gelten für alle Karten (2D, Tour, 3D)
 const fsWxShared = {ts: null, folded: false};
 const FS_WX_DAYS = ['So','Mo','Di','Mi','Do','Fr','Sa'];
-function fsWxCodeIcon(c){ return c >= 95 ? 'storm' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? 'snow' : c >= 51 ? 'rain' : c >= 45 ? 'fog' : c === 3 ? 'cloud' : c >= 1 ? 'partly' : 'sun'; }
+function fsWxCodeIcon(c){ return weatherCodeInfo(c).icon; }
 function fsWxHourLabel(ts){ const d = new Date(ts); const today = new Date(); const dd = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 864e5); return (dd === 0 ? 'Heute' : dd === 1 ? 'Morgen' : FS_WX_DAYS[d.getDay()]) + ' ' + d.getHours() + ' Uhr'; }
 async function fsmWxStart(map){
   const st = map._fsm.wx = map._fsm.wx || {mk: new Map(), pts:[], fc:{}};
@@ -13922,19 +13922,17 @@ async function fsmWxSymOpenDay(map, day){
   fsmWxStart(map);
 }
 const FS_WX_SYM = [
-  [[1], 'sun', 'sonnig'], [[2, 26], 'partly', 'ziemlich sonnig'], [[3], 'partly', 'wechselnd bewölkt'],
-  [[4], 'cloud', 'stark bewölkt'], [[5, 35], 'cloud', 'bedeckt'], [[27, 28], 'fog', 'Nebel oder Hochnebel'],
-  [[6, 9, 29], 'rain', 'Regenschauer'], [[14], 'rain', 'leichter Regen'], [[17], 'rain', 'Regen'], [[20], 'rain', 'starker Regen'],
-  [[7, 10, 15, 18, 21], 'sleet', 'Schneeregen'], [[8, 11, 16, 19, 22, 30], 'snowfall', 'Schneefall'],
+  [[1], 'sun', 'sonnig'], [[2, 26], 'mostlysun', 'ziemlich sonnig'], [[3], 'partly', 'wechselnd bewölkt'],
+  [[4], 'mostcloud', 'stark bewölkt'], [[5, 35], 'overcast', 'bedeckt'], [[27, 28], 'fog', 'Nebel oder Hochnebel'],
+  [[6, 9, 29], 'showers', 'Regenschauer'], [[14], 'lightrain', 'leichter Regen'], [[17], 'rain', 'Regen'], [[20], 'heavyrain', 'starker Regen'],
+  [[7, 10, 15, 18, 21], 'sleet', 'Schneeregen'], [[8, 11], 'snowshowers', 'Schneeschauer'], [[16, 19, 22, 30], 'snow', 'Schneefall'],
   [[12, 13, 23, 24, 25], 'storm', 'Gewitter']];
 function fsWxSym(code){
   if(code == null) return null;
   const night = code > 100, c = code % 100;
-  const hit = FS_WX_SYM.find(x=> x[0].includes(c)) || [[], 'cloud', 'bewölkt'];
-  let icon = hit[1];
-  if(night && icon === 'sun') icon = 'moon';
-  if(night && icon === 'partly') icon = 'moonpart';
-  return {icon, txt: night && c === 1 ? 'klar' : hit[2]};
+  const hit = FS_WX_SYM.find(x=> x[0].includes(c)) || [[], 'mostcloud', 'bewölkt'];
+  const k = hit[1];
+  return {icon: 'wx-' + (night && FS_WX_ICONS['n-' + k] ? 'n-' + k : k), txt: night && c === 1 ? 'klar' : hit[2]};
 }
 function fsmWxSymPlace(map){
   const st = map._fsm.wx, o = fsWxOrteData;
@@ -14376,13 +14374,13 @@ function meteoForecastOnlyHtml(lat, lon){
   }
   // Neuer Look: ruhiger Streifen statt grosser farbiger Kacheln; antippen öffnet MeteoSchweiz.
   return `<div class="detail-section wx-strip">
-    <h4>${fsIconHtml('partly')} Wetter <span class="wx-where">${esc(entry.point.name)} · ${entry.distanceKm.toFixed(1)} km</span></h4>
+    <h4>${fsIconHtml('wx-partly')} Wetter <span class="wx-where">${esc(entry.point.name)} · ${entry.distanceKm.toFixed(1)} km</span></h4>
     <div class="wx-days" role="button" tabindex="0" data-act="open-meteo" data-lat="${lat}" data-lon="${lon}" aria-label="Wetter bei MeteoSchweiz öffnen">
       ${entry.days.map(d=>{
         const lbl = meteoFormatDayLabel(d.date);
         return `<div class="wx-day">
           <div class="wx-d">${lbl.weekday}</div>
-          <div class="wx-i">${meteoDayIcon(d.precipMm)}</div>
+          <div class="wx-i">${meteoDayIcon(d.precipMm, d.tempMax, fsWxOrteDayCode(lat, lon, d.date))}</div>
           <div class="wx-t"><b>${Math.round(d.tempMax)}°</b> <span>${Math.round(d.tempMin)}°</span></div>
           ${d.precipMm>=0.1 ? `<div class="wx-p">${d.precipMm.toFixed(1)} mm</div>` : ''}
         </div>`;
@@ -14416,8 +14414,30 @@ function ensureMeteoBulkData(){
   });
 }
 
-function meteoDayIcon(precipMm){
-  return fsIconHtml(precipMm >= 3 ? 'rain' : precipMm >= 0.3 ? 'partly' : 'sun');
+// Tagessymbol: echtes Symbol der nächsten MeteoSchweiz-Ortsprognose (code), sonst grob aus Niederschlag und Temperatur
+function meteoDayIcon(precipMm, tempMax, code){
+  if(code != null){ const sy = fsWxSym(code); if(sy) return fsIconHtml(sy.icon); }
+  const cold = tempMax != null && tempMax <= 1, mixed = tempMax != null && tempMax <= 3;
+  return fsIconHtml(precipMm >= 3 ? (cold ? 'wx-snow' : mixed ? 'wx-sleet' : 'wx-rain') : precipMm >= 0.3 ? (cold ? 'wx-snowshowers' : 'wx-showers') : 'wx-mostlysun');
+}
+// Symbolnummer der nächsten Ortsprognose (bis 15 km) für einen Tag (YYYY-MM-DD); null, solange nicht geladen
+const fsWxOrteNear = new Map();
+let fsWxOrteTried = 0;
+function fsWxOrteDayCode(lat, lon, dateStr){
+  if(!fsWxOrteData){
+    if(Date.now() - fsWxOrteTried > 60000){ fsWxOrteTried = Date.now(); fsWxOrteLoad().then(()=> fsRenderSoon(), ()=>{}); }
+    return null;
+  }
+  const key = (+lat).toFixed(2) + ',' + (+lon).toFixed(2);
+  if(!fsWxOrteNear.has(key)){
+    let best = null, bd = 15000;
+    fsWxOrteData.pts.forEach(q=>{ const d = fsGeoDist(lat, lon, q[1], q[2]); if(d < bd){ bd = d; best = q; } });
+    fsWxOrteNear.set(key, best);
+  }
+  const q = fsWxOrteNear.get(key);
+  if(!q || !dateStr) return null;
+  const i = Math.round((new Date(dateStr + 'T12:00:00').getTime() - fsWxOrteData.todayFrom * 1000 - 12 * 3600e3) / 864e5);
+  return i >= 0 && i < q[4].length ? q[4][i] : null;
 }
 
 // Kompakte 3-Tages-Zeile fürs Kärtchen -- eigene Zeile unterhalb der Schwierigkeits-/Höhen-Chips,
@@ -15007,7 +15027,7 @@ function fsCardWeatherHtml(t){
   const days = meteoCardForecastData(p.lat, p.lon).days.slice(0, 3);
   if(!days.length) return '';
   return `<span class="fs-card-wx" aria-label="Wetter der nächsten Tage">${days.map(d=>
-    `<span>${meteoFormatDayLabel(d.date).weekday}${meteoDayIcon(d.precipMm)}${Math.round(d.tempMax)}°</span>`).join('')}</span>`;
+    `<span>${meteoFormatDayLabel(d.date).weekday}${meteoDayIcon(d.precipMm, d.tempMax, fsWxOrteDayCode(p.lat, p.lon, d.date))}${Math.round(d.tempMax)}°</span>`).join('')}</span>`;
 }
 // Lawinen im Listeneintrag (Skitour, Hochtour; nur wenn ein SLF-Bulletin gilt): höchste Stufe der Region
 // und ob die Tour in einem Problembereich liegt – genau, wenn der Routen-Check gerechnet hat, sonst nach
@@ -18543,7 +18563,7 @@ function openImageCropDialog(file){
 }
 
 /* ================= Offline-Download für unterwegs (Kartenkacheln + Bilder, 7 Tage) ================= */
-const OFFLINE_DB_NAME = 'bergtourenbeta-offline';
+const OFFLINE_DB_NAME = 'bergtouren-offline';
 const OFFLINE_DAYS = 7;
 const OFFLINE_ZOOMS = [13, 14, 15, 16];
 const OFFLINE_MAX_TILES = 500;
@@ -22663,7 +22683,36 @@ document.addEventListener('pointerdown', e=>{
   document.addEventListener('click', stop, {capture: true, once: true});
   setTimeout(()=> document.removeEventListener('click', stop, {capture: true}), 400);
 }, true);
-function fsIconHtml(name, color, filled){ return `<svg class="fs-i${filled ? ' fs-i-fill' : ''}${/^(sun|partly|cloud|fog|rain|storm|snow|snowcloud)$/.test(name) ? ' fs-wx-' + name : ''}" viewBox="0 0 24 24" aria-hidden="true"${color ? ` style="color:${color}"` : ''}><path d="${FS_ICON_PATHS[name]}"/></svg>`; }
+// Farben der Wettersymbole für eigene Fenster ohne look.css (Tourenzettel)
+const FS_WXI_PRINT_CSS = 'svg.fs-wxi{fill:none;stroke:none;} .fs-wxi .ws{fill:#F2B705;stroke:#C98A00;stroke-width:1.4} .fs-wxi .wr{stroke:#C98A00;stroke-width:1.6;stroke-linecap:round} .fs-wxi .wm{fill:#E9EEF7;stroke:#6E7FA6;stroke-width:1.5} .fs-wxi .wc,.fs-wxi .wc2,.fs-wxi .wc3{fill:#fff;stroke:#5E6E78;stroke-linejoin:round} .fs-wxi .wc2{fill:#C9D2D8} .fs-wxi .wc3{fill:#AEB9C1} .fs-wxi .wd{stroke:#2B7BD6;stroke-width:2.2;stroke-linecap:round} .fs-wxi .wf{stroke:#4C6EDB;stroke-width:1.75;stroke-linecap:round} .fs-wxi .wg{stroke:#8A979F;stroke-width:1.9;stroke-linecap:round} .fs-wxi .wb{fill:#F2B705;stroke:#9A6B00;stroke-width:1.2}';
+/* Wettersymbole mehrfarbig (Sonne gelb, Wolken weiss/grau, Regen blau, Schnee als Sterne, Blitz gelb); Farben über
+   Variablen in look.css (--wxi-*), auch im Dunkelmodus. fsIconHtml('wx-…'), Nacht: 'wx-n-…' (Mond statt Sonne). */
+const FS_WX_ICONS = {
+  'sun': '<circle class="ws" cx="12" cy="12" r="4.2"/><path class="wr" d="M18.0 12.0L19.8 12.0M16.2 16.2L17.5 17.5M12.0 18.0L12.0 19.8M7.8 16.2L6.5 17.5M6.0 12.0L4.2 12.0M7.8 7.8L6.5 6.5M12.0 6.0L12.0 4.2M16.2 7.8L17.5 6.5"/>',
+  'mostlysun': '<circle class="ws" cx="10" cy="9.5" r="4"/><path class="wr" d="M15.8 9.5L17.6 9.5M14.1 13.6L15.4 14.9M10.0 15.3L10.0 17.1M5.9 13.6L4.6 14.9M4.2 9.5L2.4 9.5M5.9 5.4L4.6 4.1M10.0 3.7L10.0 1.9M14.1 5.4L15.4 4.1"/><path class="wc" transform="translate(7 6.5) scale(0.62)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="2.58"/>',
+  'partly': '<circle class="ws" cx="8.5" cy="8" r="3.4"/><path class="wr" d="M13.7 8.0L15.5 8.0M12.2 11.7L13.4 12.9M8.5 13.2L8.5 15.0M4.8 11.7L3.6 12.9M3.3 8.0L1.5 8.0M4.8 4.3L3.6 3.1M8.5 2.8L8.5 1.0M12.2 4.3L13.4 3.1"/><path class="wc" transform="translate(1 1.5) scale(0.92)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.74"/>',
+  'mostcloud': '<circle class="ws" cx="7" cy="6.5" r="2.6"/><path class="wc2" transform="translate(0 0) scale(1)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.60"/>',
+  'overcast': '<path class="wc3" transform="translate(-3 -3.5) scale(0.85)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.88"/><path class="wc2" transform="translate(1 1) scale(0.95)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.68"/>',
+  'fog': '<path class="wc" transform="translate(0 -3) scale(1)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.60"/><path class="wg" d="M4 18.5h16M6 21.5h12"/>',
+  'showers': '<circle class="ws" cx="8" cy="6" r="2.8"/><path class="wr" d="M12.6 6.0L14.4 6.0M11.3 9.3L12.5 10.5M8.0 10.6L8.0 12.4M4.7 9.3L3.5 10.5M3.4 6.0L1.6 6.0M4.7 2.7L3.5 1.5M8.0 1.4L8.0 -0.4M11.3 2.7L12.5 1.5"/><path class="wc" transform="translate(1 -3) scale(0.92)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.74"/><path class="wd" d="M10 19l-1 2.6M14.5 19l-1 2.6"/>',
+  'lightrain': '<path class="wc" transform="translate(0 -4) scale(1)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.60"/><path class="wd" d="M12 19l-1 2.6"/>',
+  'rain': '<path class="wc" transform="translate(0 -4) scale(1)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.60"/><path class="wd" d="M8.5 19l-1 2.6M12.5 19l-1 2.6M16.5 19l-1 2.6"/>',
+  'heavyrain': '<path class="wc2" transform="translate(0 -4) scale(1)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.60"/><path class="wd" d="M7 18l-1 4M10.5 18l-1 4M14 18l-1 4M17.5 18l-1 4"/>',
+  'sleet': '<path class="wc" transform="translate(0 -4) scale(1)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.60"/><path class="wd" d="M8.5 18.5l-1 3"/><path class="wf" d="M15.5 18.3V22.7M13.59 19.40L17.41 21.60M13.59 21.60L17.41 19.40"/>',
+  'snowshowers': '<circle class="ws" cx="8" cy="6" r="2.8"/><path class="wr" d="M12.6 6.0L14.4 6.0M11.3 9.3L12.5 10.5M8.0 10.6L8.0 12.4M4.7 9.3L3.5 10.5M3.4 6.0L1.6 6.0M4.7 2.7L3.5 1.5M8.0 1.4L8.0 -0.4M11.3 2.7L12.5 1.5"/><path class="wc" transform="translate(1 -3) scale(0.92)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.74"/><path class="wf" d="M9.5 17.9V22.1M7.67 18.95L11.33 21.05M7.67 21.05L11.33 18.95"/><path class="wf" d="M15.5 17.9V22.1M13.67 18.95L17.33 21.05M13.67 21.05L17.33 18.95"/>',
+  'snow': '<path class="wc" transform="translate(0 -4) scale(1)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.60"/><path class="wf" d="M7.5 17.5V21.5M5.76 18.50L9.24 20.50M5.76 20.50L9.24 18.50"/><path class="wf" d="M12.5 19V23M10.76 20.00L14.24 22.00M10.76 22.00L14.24 20.00"/><path class="wf" d="M17.5 17.5V21.5M15.76 18.50L19.24 20.50M15.76 20.50L19.24 18.50"/>',
+  'storm': '<path class="wc3" transform="translate(0 -4) scale(1)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.60"/><path class="wb" d="M13 13.5l-3 5h3.5l-2 4.5 5-6.5h-3.5l1.5-3z"/>',
+  'n-sun': '<path class="wm" transform="translate(-0.60 -0.60) scale(1.05)" d="M19 14.5A7.5 7.5 0 1 1 9.5 5a6 6 0 0 0 9.5 9.5z"/>',
+  'n-mostlysun': '<path class="wm" transform="translate(-0.86 -1.36) scale(0.9047619047619047)" d="M19 14.5A7.5 7.5 0 1 1 9.5 5a6 6 0 0 0 9.5 9.5z"/><path class="wc" transform="translate(7 6.5) scale(0.62)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="2.58"/>',
+  'n-partly': '<path class="wm" transform="translate(-0.73 -1.23) scale(0.7690476190476189)" d="M19 14.5A7.5 7.5 0 1 1 9.5 5a6 6 0 0 0 9.5 9.5z"/><path class="wc" transform="translate(1 1.5) scale(0.92)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.74"/>',
+  'n-mostcloud': '<path class="wm" transform="translate(-0.20 -0.70) scale(0.6)" d="M19 14.5A7.5 7.5 0 1 1 9.5 5a6 6 0 0 0 9.5 9.5z"/><path class="wc2" transform="translate(0 0) scale(1)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.60"/>',
+  'n-showers': '<path class="wm" transform="translate(0.40 -1.60) scale(0.6333333333333333)" d="M19 14.5A7.5 7.5 0 1 1 9.5 5a6 6 0 0 0 9.5 9.5z"/><path class="wc" transform="translate(1 -3) scale(0.92)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.74"/><path class="wd" d="M10 19l-1 2.6M14.5 19l-1 2.6"/>',
+  'n-snowshowers': '<path class="wm" transform="translate(0.40 -1.60) scale(0.6333333333333333)" d="M19 14.5A7.5 7.5 0 1 1 9.5 5a6 6 0 0 0 9.5 9.5z"/><path class="wc" transform="translate(1 -3) scale(0.92)" d="M7 18a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 10.5a3.5 3.5 0 0 1-1 7.5z" stroke-width="1.74"/><path class="wf" d="M9.5 17.9V22.1M7.67 18.95L11.33 21.05M7.67 21.05L11.33 18.95"/><path class="wf" d="M15.5 17.9V22.1M13.67 18.95L17.33 21.05M13.67 21.05L17.33 18.95"/>',
+};
+function fsIconHtml(name, color, filled){
+  if(name && name.indexOf('wx-') === 0){ const k = name.slice(3), inner = FS_WX_ICONS[k] || FS_WX_ICONS[k.replace(/^n-/, '')]; if(inner) return `<svg class="fs-i fs-wxi" viewBox="0 0 24 24" aria-hidden="true">${inner}</svg>`; }
+  return `<svg class="fs-i${filled ? ' fs-i-fill' : ''}${/^(sun|partly|cloud|fog|rain|storm|snow|snowcloud)$/.test(name) ? ' fs-wx-' + name : ''}" viewBox="0 0 24 24" aria-hidden="true"${color ? ` style="color:${color}"` : ''}><path d="${FS_ICON_PATHS[name]}"/></svg>`;
+}
 const FS_SKIP_TAGS = new Set(['SCRIPT','STYLE','TEXTAREA','INPUT','SELECT','svg','title']);
 function fsReplaceEmojiInTextNode(node){
   const txt = node.nodeValue;
