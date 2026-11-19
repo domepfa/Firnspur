@@ -2335,7 +2335,7 @@ function fsHomeFilter(){
     // Alle Touren sichtbar: trotzdem der Knopf «Webcams» über der Liste
     if(oneGrid && grid && (fsHomePts.kind === 'tour' || fsHomePts.kind === 'msl')){
       let el = grid.querySelector(':scope > .fs-home-sep.cams');
-      if(!el){ el = document.createElement('div'); el.className = 'fs-home-sep cams'; el.style.order = '-2'; el.innerHTML = `<span>${total} ${word}</span><button type="button" class="fs-home-cams">${fsIconHtml('camera')}Webcams</button>`; grid.appendChild(el); }
+      if(!el){ el = document.createElement('div'); el.className = 'fs-home-sep cams'; el.style.order = '-2'; el.innerHTML = `<span>${total} ${word}</span><span class="fs-home-sep-btns"><button type="button" class="fs-home-cams" data-view="wx">${fsIconHtml('wx-partly')}Wetter</button><button type="button" class="fs-home-cams" data-view="cams">${fsIconHtml('camera')}Webcams</button></span>`; grid.appendChild(el); }
     }
     return;
   }
@@ -2345,7 +2345,7 @@ function fsHomeFilter(){
     if(!el){ el = document.createElement('div'); el.className = 'fs-home-sep ' + cls; el.style.order = order; grid.appendChild(el); }
     if(el.dataset.h !== html){ el.dataset.h = html; el.innerHTML = html; const b = el.querySelector('.fs-home-all'); if(b) b.onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); }; }
   };
-  const camsBtn = (fsHomePts.kind === 'tour' || fsHomePts.kind === 'msl') ? `<button type="button" class="fs-home-cams">${fsIconHtml('camera')}Webcams</button>` : '';
+  const camsBtn = (fsHomePts.kind === 'tour' || fsHomePts.kind === 'msl') ? `<button type="button" class="fs-home-cams" data-view="wx">${fsIconHtml('wx-partly')}Wetter</button><button type="button" class="fs-home-cams" data-view="cams">${fsIconHtml('camera')}Webcams</button>` : '';
   sep('top', '-2', `<span>Im Kartenausschnitt · ${shown}</span><span class="fs-home-sep-btns">${camsBtn}<button type="button" class="fs-home-all">Alle auf der Karte</button></span>`);
   sep('rest', '1', `<span>Weitere ${word} · ${total - shown}</span>`);
 }
@@ -13556,7 +13556,7 @@ function fsWxWallDraw(ov, tours){
       ${foot ? `<p class="fs-wxw-f">${esc(foot)}</p>` : ''}</div>`;
   }).join('') + `<p class="fs-camw-more">Open-Meteo (Modelle MeteoSchweiz), gerechnet auf Gipfelhöhe; Symbole aus der nächsten MeteoSchweiz-Ortsprognose.</p>`;
 }
-document.addEventListener('click', (e)=>{ if(e.target.closest && e.target.closest('.fs-home-cams')){ e.stopPropagation(); fsOpenCamWall(); } }, true);
+document.addEventListener('click', (e)=>{ const b = e.target.closest && e.target.closest('.fs-home-cams'); if(b){ e.stopPropagation(); fsOpenCamWall(b.getAttribute('data-view') || 'cams'); } }, true);
 
 /* ===== Wetter auf der Karte (B): ruhige Farbflächen, ein Fadenkreuz mit dem Wert, Zeitleiste =====
    Bedienung unten in der Daumenzone (wie Windy, MeteoSchweiz): Wetterart als Chips, darunter eine
