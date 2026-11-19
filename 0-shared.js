@@ -11469,7 +11469,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
             });
           }
         }
-        if(usingGpxTrack && mode==='line'){
+        // Ziehpunkte: eigener GPX-Track und gezeichnete Linie (nicht eine berechnete Route mit hunderten Punkten)
+        if(mode==='line' && (usingGpxTrack || !lastRouteStats) && manualTrack.length <= 400){
           // Nur beim (max. 200 Punkte grossen, siehe simplifyTrackForStorage) eigenen GPX-Track UND
           // nur im Linie-Modus: jeder Punkt einzeln verschiebbar/entfernbar, wie zuvor in der
           // separaten GPX-Karte (renderGpxTrackEditorMap, jetzt entfernt). Ausserhalb des Linie-
@@ -11498,6 +11499,35 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // Weitere Routen der Tour (Routenliste im Formular) gestrichelt mitzeigen, und für die aktuelle
     // Linie Name/Art sowie "Als weitere Route ablegen" anbieten – so lassen sich Zustieg, Aufstieg,
     // Abstieg nacheinander berechnen oder zeichnen, jede mit eigenem Namen.
+    // Abgelegte Route antippen: «Diese Route bearbeiten» – sie wird zur aktiven Linie, die bisherige wird abgelegt
+    function altRouteMenu(i, a){
+      const wrap = document.createElement('div');
+      wrap.className = 'fs-gpx-menu';
+      const h = document.createElement('p');
+      h.textContent = (a.name || fsRouteLabel(a.type)) + ' (' + fsRouteLabel(a.type) + ')';
+      wrap.appendChild(h);
+      if(!usingGpxTrack) wrap.appendChild(gpxBtn('Diese Route bearbeiten', 'secondary', ()=>{
+        const altEl = document.getElementById('route-alt-tracks'), nameEl = document.getElementById('route-manual-name'), typeEl = document.getElementById('route-manual-type');
+        if(!altEl || !nameEl || !typeEl) return;
+        pushUndo();
+        let alts = []; try{ alts = JSON.parse(altEl.value || '[]'); }catch(err){}
+        const pick = alts.splice(i, 1)[0];
+        if(!pick) return;
+        if(manualTrack.length > 1) alts.push({id: 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7), name: nameEl.value.trim(), type: FS_ROUTE_TYPES[typeEl.value] ? typeEl.value : 'variante', trackSimplified: manualTrack.map(c=> [Math.round(c[0]*1e6)/1e6, Math.round(c[1]*1e6)/1e6])});
+        altEl.value = JSON.stringify(alts);
+        nameEl.value = pick.name || ''; typeEl.value = pick.type || '';
+        manualTrack = pick.trackSimplified.map(c=> [+c[0], +c[1]]);
+        setLastRouteStats(null);
+        routeStatsEl.style.display = 'none'; routeStatsEl.innerHTML = '';
+        if(mode !== 'line' && typeof setMode === 'function') setMode('line');
+        map.closePopup();
+        markModalDirty();
+        if(typeof fsRoutesEditorRender === 'function') fsRoutesEditorRender();
+        redrawLine(); persistTrack();
+        showToast('«' + (pick.name || fsRouteLabel(pick.type)) + '» ist jetzt die aktive Linie – Punkte ziehen oder antippen.');
+      }));
+      return wrap;
+    }
     function renderRouteMeta(){
       const altEl = document.getElementById('route-alt-tracks');
       otherRoutesLayer.clearLayers();
@@ -11507,7 +11537,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         if(!a.trackSimplified || a.trackSimplified.length < 2) return;
         const st = fsRouteStyle({type: FS_ROUTE_TYPES[a.type] ? a.type : 'variante', src:'alt', idx:i});
         FL.polyline(a.trackSimplified, {color:'#ffffff', weight:6, opacity:0.6, interactive:false}).addTo(otherRoutesLayer);
-        FL.polyline(a.trackSimplified, {color: st.color, weight:3.5, opacity:0.85, dashArray:'7,6'}).addTo(otherRoutesLayer).bindPopup(esc((a.name || fsRouteLabel(a.type)) + ' (' + fsRouteLabel(a.type) + ')'));
+        FL.polyline(a.trackSimplified, {color:'#000', weight:22, opacity:0}).addTo(otherRoutesLayer).on('click', (e)=>{ FL.DomEvent.stopPropagation(e); FL.popup().setLatLng(e.latlng).setContent(altRouteMenu(i, a)).openOn(map); });
+        FL.polyline(a.trackSimplified, {color: st.color, weight:3.5, opacity:0.85, dashArray:'7,6', interactive:false}).addTo(otherRoutesLayer);
       });
       if(!manualTrack.length){
         routeMetaEl.style.display = alts.length ? 'block' : 'none';
