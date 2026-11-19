@@ -2123,8 +2123,11 @@ function fsHomeRoutesSync(){
     map.addSource('fs-home-routes', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map._fsHomeSelKey = null; // neue Ebenen: Auswahl wieder setzen
     const color = fsHomeAccent();
+    // Kräftig mit weissem Rand: auf Luftbild und Schnee gut sichtbar
+    map.addLayer({id:'fs-home-routes-case', type:'line', source:'fs-home-routes', minzoom: FS_HOME_ROUTE_MINZOOM,
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 5, 15, 8], 'line-opacity': 0.85}});
     map.addLayer({id:'fs-home-routes', type:'line', source:'fs-home-routes', minzoom: FS_HOME_ROUTE_MINZOOM,
-      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color': color, 'line-width': 3, 'line-opacity': 0.65}});
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color': color, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 15, 5], 'line-opacity': 0.95}});
     map.addLayer({id:'fs-home-route-sel', type:'line', source:'fs-home-routes', filter:['==', ['get', 'id'], ''],
       layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color': color, 'line-width': 5, 'line-opacity': 1}});
   }
@@ -2163,7 +2166,8 @@ function fsHomeRoutesSync(){
   if(map._fsHomeSelKey === selKey) return;
   map._fsHomeSelKey = selKey;
   map.setFilter('fs-home-route-sel', ['==', ['get', 'id'], sel]);
-  map.setPaintProperty('fs-home-routes', 'line-opacity', sel ? 0.3 : 0.65);
+  map.setPaintProperty('fs-home-routes', 'line-opacity', sel ? 0.45 : 0.95);
+  if(map.getLayer('fs-home-routes-case')) map.setPaintProperty('fs-home-routes-case', 'line-opacity', sel ? 0.4 : 0.85);
   // Punkte nur der gewählten Tour
   fsHomeSelMarkers.forEach(m=> m.remove()); fsHomeSelMarkers = [];
   if(t) (t.points || []).forEach(pt=>{
@@ -10839,6 +10843,26 @@ function ownPointRefPoints(entity, label, color){
   if(!entity || !entity.points || !entity.points.length) return [];
   return entity.points.map(p=> ({lat:p.lat, lon:p.lon, label: label + (p.label ? ' – ' + p.label : ''), color: color||'#4A3524'}));
 }
+// Linie vereinfachen (Douglas-Peucker, Toleranz in Metern): [[lat, lon], …] → wichtige Punkte
+function fsSimplifyLine(c, tolM){
+  if(!c || c.length < 3) return c ? c.slice() : [];
+  const k = Math.cos(c[0][0] * Math.PI / 180), mx = q=> q[1] * 111320 * k, my = q=> q[0] * 110540;
+  const keep = new Uint8Array(c.length); keep[0] = keep[c.length - 1] = 1;
+  const stack = [[0, c.length - 1]];
+  while(stack.length){
+    const [a, b] = stack.pop();
+    const ax = mx(c[a]), ay = my(c[a]), bx = mx(c[b]), by = my(c[b]), dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+    let best = -1, bd = tolM;
+    for(let i = a + 1; i < b; i++){
+      const px = mx(c[i]) - ax, py = my(c[i]) - ay;
+      const t = L ? Math.max(0, Math.min(1, (px * dx + py * dy) / L)) : 0;
+      const d = Math.hypot(px - t * dx, py - t * dy);
+      if(d > bd){ bd = d; best = i; }
+    }
+    if(best > 0){ keep[best] = 1; stack.push([a, best], [best, b]); }
+  }
+  return c.filter((_, i)=> keep[i]).map(q=> [+q[0], +q[1]]);
+}
 function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig){
   // autofillFields (optional): {ascent, descent, duration} – Formularfelder (DOM-Elemente), die nach
   // "Route berechnen" automatisch mit den berechneten Werten befüllt werden.
@@ -11470,7 +11494,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           }
         }
         // Ziehpunkte: eigener GPX-Track und gezeichnete Linie (nicht eine berechnete Route mit hunderten Punkten)
-        if(mode==='line' && (usingGpxTrack || !lastRouteStats) && manualTrack.length <= 400){
+        if(mode==='line' && manualTrack.length <= 400){
           // Nur beim (max. 200 Punkte grossen, siehe simplifyTrackForStorage) eigenen GPX-Track UND
           // nur im Linie-Modus: jeder Punkt einzeln verschiebbar/entfernbar, wie zuvor in der
           // separaten GPX-Karte (renderGpxTrackEditorMap, jetzt entfernt). Ausserhalb des Linie-
@@ -11654,6 +11678,17 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function setMode(newMode){
       if(newMode !== 'line' && usingGpxTrack){ exitGpxEdit(); updateGpxReplaceBtn(); }
       mode = newMode;
+      // Alle Linien gleich bearbeitbar: eine berechnete oder sehr lange Linie beim Wechsel zu «Linie» auf die wichtigen
+      // Punkte vereinfachen (etwa 8 m genau); danach Ziehpunkte wie jede Linie. Rückgängig mit ↶.
+      if(mode === 'line' && !usingGpxTrack && manualTrack.length > 2 && (lastRouteStats || manualTrack.length > 400)){
+        pushUndo();
+        const before = manualTrack.length;
+        manualTrack = fsSimplifyLine(manualTrack, 8);
+        setLastRouteStats(null);
+        routeStatsEl.style.display = 'none'; routeStatsEl.innerHTML = '';
+        persistTrack();
+        showToast('Linie auf ' + manualTrack.length + ' Punkte vereinfacht (vorher ' + before + ') – jetzt Punkte ziehen oder antippen. Rückgängig mit ↶.');
+      }
       [['point',pointModeBtn],['line',lineModeBtn],['route',routeModeBtn]].forEach(([key,btn])=>{
         const active = mode===key;
         btn.style.background = active ? MODE_META[key].color : 'transparent';
@@ -13320,15 +13355,23 @@ function fsCamWallCardHtml(t){
   if(!cams || !cams.length) return '';
   const w = cams[0];
   if(fsCamWallOpts.fresh && !fsCamFresh(w)) return '';
-  const age = w.live ? 'Livebild' : fsCamAge(w.age);
+  const ageOf = c=> c.live ? 'Livebild' : fsCamAge(c.age).replace(/^Bild /, '');
+  const show = cams.slice(0, 12);
+  // Mehrere Webcams: direkt im Bild seitlich wischen (Punkte unten), antippen öffnet das Vollbild
   return `<div class="fs-camw-card" data-tour="${esc(t.id)}">
-    <div class="fs-camw-pic"><img class="fs-camw-img" src="${esc(w.img)}" alt="Webcam ${esc(w.name)}" loading="lazy"/>${age ? `<span class="fs-camw-age">${esc(age.replace(/^Bild /, ''))}</span>` : ''}${cams.length > 1 ? `<span class="fs-camw-n">${cams.length} Webcams ›</span>` : ''}</div>
-    <div class="fs-camw-row"><div class="fs-camw-t"><b>${esc(t.name || '')}</b>${t.difficulty ? `<em>${esc(t.difficulty)}</em>` : ''}<span>${esc(w.name)}</span><span class="fs-camw-x">${fsCardSlfHtml(t)}</span></div>
+    <div class="fs-camw-pic"><div class="fs-camw-track">${show.map((c, i)=> `<div class="fs-camw-slide" data-i="${i}" data-name="${esc(c.name)}"><img class="fs-camw-img" src="${esc(c.img)}" alt="Webcam ${esc(c.name)}" loading="lazy"/>${ageOf(c) ? `<span class="fs-camw-age">${esc(ageOf(c))}</span>` : ''}${show.length > 1 ? `<span class="fs-camw-n">${i + 1} / ${show.length}</span>` : ''}</div>`).join('')}</div>
+      ${show.length > 1 ? `<div class="fs-camw-dots">${show.map((_, i)=> `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}</div>
+    <div class="fs-camw-row"><div class="fs-camw-t"><b>${esc(t.name || '')}</b>${t.difficulty ? `<em>${esc(t.difficulty)}</em>` : ''}<span class="fs-camw-cn">${esc(w.name)}</span><span class="fs-camw-x">${fsCardSlfHtml(t)}</span></div>
       <button type="button" class="fs-camw-go" data-go="${esc(t.id)}">Zur Tour →</button></div></div>`;
 }
 function fsCamWallDraw(ov){
   const tours = fsCamWallTours();
   const chip = (k, label)=> `<button type="button" class="chip ${fsCamWallOpts[k] ? 'on' : ''}" data-opt="${k}" aria-pressed="${!!fsCamWallOpts[k]}">${label}</button>`;
+  const wx = fsCamWallOpts.view === 'wx';
+  ov.querySelectorAll('[data-view]').forEach(b=>{ const on = b.getAttribute('data-view') === (wx ? 'wx' : 'cams'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+  ov.querySelector('.fs-camw-h').textContent = wx ? 'Wetter' : 'Webcams';
+  ov.querySelector('.fs-camw-sub').textContent = wx ? 'Prognose am Gipfel, die nächsten 5 Tage. Tag antippen: nach dem besten Wetter an diesem Tag sortieren.' : 'Eine Webcam pro Tour – die festgelegte, sonst die nächste. Seitlich wischen: weitere Webcams.';
+  if(wx){ ov.querySelector('.fs-camw-chips').innerHTML = chip('all', 'Alle Touren'); fsWxWallDraw(ov, tours); return; }
   ov.querySelector('.fs-camw-chips').innerHTML = chip('all', 'Alle Touren') + chip('fresh', 'Nur frische Bilder');
   const cards = tours.map(fsCamWallCardHtml).filter(Boolean);
   const pending = tours.filter(t=>{ const c = fsTourCamCache.get(fsCamWallKey(t)); return !c || c.status === 'loading'; }).length;
@@ -13350,14 +13393,28 @@ async function fsCamWallLoad(ov){
   }
   if(document.body.contains(ov)) fsCamWallDraw(ov);
 }
-function fsOpenCamWall(){
+function fsOpenCamWall(view){
+  if(view) fsCamWallOpts.view = view;
   const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
-    <h3 class="fs-camw-h">Webcams</h3><p class="fs-camw-sub">Eine Webcam pro Tour – die festgelegte, sonst die nächste. Bild antippen: alle Webcams der Tour.</p>
+    <div class="fs-camw-seg" role="tablist"><button type="button" data-view="cams">Webcams</button><button type="button" data-view="wx">Wetter</button></div>
+    <h3 class="fs-camw-h">Webcams</h3><p class="fs-camw-sub"></p>
     <div class="fs-camw-chips chips"></div><div class="fs-camw-list"></div>`);
   ov.classList.add('fs-camw-sheet');
+  // Punkte unter dem Bild beim Wischen mitführen
+  ov.addEventListener('scroll', (e)=>{
+    const tr = e.target;
+    if(!tr.classList || !tr.classList.contains('fs-camw-track')) return;
+    const i = Math.round(tr.scrollLeft / Math.max(1, tr.clientWidth)), card = tr.closest('.fs-camw-card');
+    card.querySelectorAll('.fs-camw-dots i').forEach((d, k)=> d.classList.toggle('on', k === i));
+    const sl = tr.children[i]; if(sl){ const cn = card.querySelector('.fs-camw-cn'); if(cn) cn.textContent = sl.getAttribute('data-name'); }
+  }, true);
   ov.addEventListener('click', (e)=>{
+    const v = e.target.closest('[data-view]');
+    if(v){ fsCamWallOpts.view = v.getAttribute('data-view'); fsCamWallDraw(ov); if(fsCamWallOpts.view === 'wx') fsWxWallLoad(ov); return; }
+    const sd = e.target.closest('[data-sortday]');
+    if(sd){ const d = +sd.getAttribute('data-sortday'); fsCamWallOpts.sortDay = fsCamWallOpts.sortDay === d ? null : d; fsCamWallDraw(ov); return; }
     const o = e.target.closest('[data-opt]');
-    if(o){ const k = o.getAttribute('data-opt'); fsCamWallOpts[k] = !fsCamWallOpts[k]; fsCamWallDraw(ov); if(k === 'all') fsCamWallLoad(ov); return; }
+    if(o){ const k = o.getAttribute('data-opt'); fsCamWallOpts[k] = !fsCamWallOpts[k]; fsCamWallDraw(ov); if(k === 'all'){ fsCamWallLoad(ov); if(fsCamWallOpts.view === 'wx') fsWxWallLoad(ov); } return; }
     const go = e.target.closest('[data-go]');
     if(go){
       const id = go.getAttribute('data-go');
@@ -13377,7 +13434,72 @@ function fsOpenCamWall(){
     }
   });
   fsCamWallDraw(ov);
-  fsCamWallLoad(ov);
+  if(fsCamWallOpts.view === 'wx') fsWxWallLoad(ov); else fsCamWallLoad(ov);
+}
+/* Wetter der Touren: Open-Meteo am Gipfel (Höhe der Tour), ein Abruf für alle Touren; Symbol der nächsten MeteoSchweiz-
+   Ortsprognose (bis 15 km), sonst aus dem Wettercode. Nullgradgrenze mittags. Sortieren nach bestem Wetter an einem Tag. */
+const fsWxWall = {key: '', at: 0, data: null, busy: false};
+function fsWxWallEle(t){
+  const a = parseFloat(String(t.targetAltitude || '').replace(/['’\s]/g, ''));
+  if(isFinite(a) && a > 300) return a;
+  const p = fsTourPlace(t);
+  return p && isFinite(p.ele) && p.ele > 300 ? p.ele : null;
+}
+async function fsWxWallLoad(ov){
+  const tours = fsCamWallTours().slice(0, 60);
+  const key = tours.map(t=> t.id).join(',');
+  if(fsWxWall.busy || (fsWxWall.key === key && Date.now() - fsWxWall.at < 30 * 60e3)) return;
+  fsWxWall.busy = true;
+  try{
+    const ps = tours.map(t=> fsTourPlace(t)), ele = tours.map(t=> fsWxWallEle(t));
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + ps.map(p=> (+p.lat).toFixed(4)).join(',') + '&longitude=' + ps.map(p=> (+p.lon).toFixed(4)).join(',')
+      + (ele.every(e=> e) ? '&elevation=' + ele.map(e=> Math.round(e)).join(',') : '')
+      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum,wind_speed_10m_max&hourly=freezing_level_height&forecast_days=5&timezone=Europe%2FZurich';
+    const r = await fetch(url);
+    if(!r.ok) throw new Error(r.status);
+    let j = await r.json();
+    if(!Array.isArray(j)) j = [j];
+    const data = {};
+    tours.forEach((t, i)=>{ const d = j[i]; if(d && d.daily) data[t.id] = {d: d.daily, h: d.hourly, ele: ele[i]}; });
+    Object.assign(fsWxWall, {key, at: Date.now(), data, err: ''});
+  }catch(e){ fsWxWall.err = navigator.onLine === false ? 'Offline – das Wetter braucht Internet.' : 'Wetter gerade nicht verfügbar.'; }
+  finally{ fsWxWall.busy = false; }
+  if(!fsWxOrteData) await fsWxOrteLoad().catch(()=>{});
+  if(document.body.contains(ov) && fsCamWallOpts.view === 'wx') fsCamWallDraw(ov);
+}
+// Wertung «schönes Wetter» an einem Tag: Symbol, Niederschlag, Wind (kleiner = besser)
+const FS_WX_RANK = {'sun': 0, 'mostlysun': 1, 'partly': 2, 'mostcloud': 4, 'fog': 5, 'overcast': 5, 'showers': 6, 'snowshowers': 6, 'lightrain': 7, 'sleet': 8, 'rain': 8, 'snow': 8, 'heavyrain': 9, 'storm': 10};
+function fsWxWallDay(t, i){
+  const w = fsWxWall.data && fsWxWall.data[t.id];
+  if(!w) return null;
+  const d = w.d, date = d.time[i], p = fsTourPlace(t);
+  const code = fsWxOrteDayCode(p.lat, p.lon, date);
+  const icon = code != null ? fsWxSym(code).icon : weatherCodeInfo(d.weather_code[i]).icon;
+  let fz = null;
+  if(w.h && w.h.time){ const k = w.h.time.indexOf(date + 'T12:00'); if(k >= 0) fz = w.h.freezing_level_height[k]; }
+  return {date, icon, tmax: d.temperature_2m_max[i], tmin: d.temperature_2m_min[i], pr: d.precipitation_sum[i] || 0, sn: d.snowfall_sum[i] || 0, wind: d.wind_speed_10m_max[i] || 0, fz,
+    rank: (FS_WX_RANK[icon.replace(/^wx-(n-)?/, '')] ?? 5) * 10 + Math.min(20, (d.precipitation_sum[i] || 0) * 2) + Math.max(0, (d.wind_speed_10m_max[i] || 0) - 30) / 3};
+}
+function fsWxWallDraw(ov, tours){
+  const list = ov.querySelector('.fs-camw-list');
+  if(!fsWxWall.data){ list.innerHTML = `<p class="fs-camw-more">${fsWxWall.err || 'Wetter wird geladen …'}</p>`; return; }
+  const first = tours.find(t=> fsWxWall.data[t.id]);
+  const days = first ? fsWxWall.data[first.id].d.time : [];
+  const wd = date=> date === fsToday() ? 'Heute' : new Date(date + 'T12:00:00').toLocaleDateString('de-CH', {weekday: 'short'}).replace('.', '');
+  const sd = fsCamWallOpts.sortDay;
+  ov.querySelector('.fs-camw-chips').innerHTML += `<span class="fs-wxw-sortlbl">Bestes Wetter:</span>` + days.map((d, i)=> `<button type="button" class="chip ${sd === i ? 'on' : ''}" data-sortday="${i}" aria-pressed="${sd === i}">${wd(d)}</button>`).join('');
+  let ts = tours.filter(t=> fsWxWall.data[t.id]);
+  if(sd != null) ts = ts.slice().sort((a, b)=> (fsWxWallDay(a, sd) || {rank: 99}).rank - (fsWxWallDay(b, sd) || {rank: 99}).rank);
+  const r0 = v=> Math.round(v);
+  list.innerHTML = ts.map(t=>{
+    const w = fsWxWall.data[t.id], ds = days.map((_, i)=> fsWxWallDay(t, i));
+    const wmax = ds.reduce((m, x, i)=> x && x.wind > (m ? m.wind : -1) ? Object.assign({i}, x) : m, null);
+    const fz = sd != null && ds[sd] && ds[sd].fz != null ? ds[sd] : ds.find(x=> x && x.fz != null);
+    const foot = [w.ele ? 'Gipfel ' + fsRcFmtE(w.ele) + ' m' : '', wmax && wmax.wind >= 20 ? 'Wind ' + wd(wmax.date) + ' ' + r0(wmax.wind) + ' km/h' : '', fz ? 'Nullgrad ' + wd(fz.date) + ' ' + fsRcFmtE(Math.round(fz.fz / 100) * 100) + ' m' : ''].filter(Boolean).join(' · ');
+    return `<div class="fs-wxw-card" data-tour="${esc(t.id)}"><div class="fs-wxw-h"><b>${esc(t.name || '')}</b>${t.difficulty ? `<em>${esc(t.difficulty)}</em>` : ''}${fsCardSlfHtml(t)}<button type="button" class="fs-camw-go" data-go="${esc(t.id)}">Zur Tour →</button></div>
+      <div class="fs-wxw-days">${ds.map((x, i)=> x ? `<div class="fs-wxw-d${sd === i ? ' on' : ''}"><span>${wd(x.date)}</span>${fsIconHtml(x.icon)}<b>${r0(x.tmax)}°</b><i>${r0(x.tmin)}°</i><em>${x.sn >= 1 ? r0(x.sn) + ' cm' : x.pr >= 0.5 ? x.pr.toFixed(x.pr < 10 ? 1 : 0) + ' mm' : ''}</em></div>` : '<div class="fs-wxw-d"></div>').join('')}</div>
+      ${foot ? `<p class="fs-wxw-f">${esc(foot)}</p>` : ''}</div>`;
+  }).join('') + `<p class="fs-camw-more">Open-Meteo (Modelle MeteoSchweiz), gerechnet auf Gipfelhöhe; Symbole aus der nächsten MeteoSchweiz-Ortsprognose.</p>`;
 }
 document.addEventListener('click', (e)=>{ if(e.target.closest && e.target.closest('.fs-home-cams')){ e.stopPropagation(); fsOpenCamWall(); } }, true);
 
@@ -22084,7 +22206,7 @@ function fsEnsureThemeToggles(){
     row.appendChild(c);
     const w = document.createElement('button');
     w.type = 'button'; w.className = 'fs-theme-toggle';
-    w.innerHTML = '<span>Webcams meiner Touren</span>' + fsIconHtml('camera');
+    w.innerHTML = '<span>Webcams und Wetter meiner Touren</span>' + fsIconHtml('camera');
     w.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); const m = w.closest('details'); if(m) m.open = false; fsOpenCamWall(); });
     row.appendChild(w);
   });
