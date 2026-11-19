@@ -3175,3 +3175,20 @@ html:is(.fs-mapfull, .fs-scanning) #fs-ov-chips{ display:none !important; }
 .fs-tcam figcaption .fs-i{ width:14px; height:14px; color:var(--ice-deep); align-self:center; flex:none; }
 .fs-tcam.is-pin{ box-shadow:inset 0 0 0 2px var(--ice-deep); }
 .fs-tcams-hint{ margin:2px 0 12px; font-size:11.5px; color:var(--ink-faint); }
+
+/* ===== Wettersymbole mehrfarbig (FS_WX_ICONS) ===== */
+:root{ --wxi-sun:#F2B705; --wxi-sun-s:#C98A00; --wxi-cloud:#FFFFFF; --wxi-cloud2:#C9D2D8; --wxi-cloud3:#AEB9C1; --wxi-cloud-s:#5E6E78;
+  --wxi-rain:#2B7BD6; --wxi-snow:#4C6EDB; --wxi-fog:#8A979F; --wxi-moon:#E9EEF7; --wxi-moon-s:#6E7FA6; --wxi-bolt:#F2B705; --wxi-bolt-s:#9A6B00; }
+html.fs-dark{ --wxi-cloud:#E4E9ED; --wxi-cloud2:#AEB9C1; --wxi-cloud3:#8E9AA4; --wxi-cloud-s:#2F3C45; --wxi-rain:#5AA2F0; --wxi-snow:#93ABF7; --wxi-fog:#9AA6AE; --wxi-moon:#DCE3F2; }
+svg.fs-wxi{ fill:none; stroke:none; }
+.fs-wxi .ws{ fill:var(--wxi-sun); stroke:var(--wxi-sun-s); stroke-width:1.4; }
+.fs-wxi .wr{ fill:none; stroke:var(--wxi-sun-s); stroke-width:1.6; stroke-linecap:round; }
+.fs-wxi .wm{ fill:var(--wxi-moon); stroke:var(--wxi-moon-s); stroke-width:1.5; stroke-linejoin:round; }
+.fs-wxi .wc, .fs-wxi .wc2, .fs-wxi .wc3{ fill:var(--wxi-cloud); stroke:var(--wxi-cloud-s); stroke-linejoin:round; }
+.fs-wxi .wc2{ fill:var(--wxi-cloud2); }
+.fs-wxi .wc3{ fill:var(--wxi-cloud3); }
+.fs-wxi .wd{ fill:none; stroke:var(--wxi-rain); stroke-width:2.2; stroke-linecap:round; }
+.fs-wxi .wf{ fill:none; stroke:var(--wxi-snow); stroke-width:1.75; stroke-linecap:round; }
+.fs-wxi .wg{ fill:none; stroke:var(--wxi-fog); stroke-width:1.9; stroke-linecap:round; }
+.fs-wxi .wb{ fill:var(--wxi-bolt); stroke:var(--wxi-bolt-s); stroke-width:1.2; stroke-linejoin:round; }
+.fs-card-wx svg.fs-wxi{ width:19px; height:19px; margin:-2px 0; } /* klein noch lesbar */
