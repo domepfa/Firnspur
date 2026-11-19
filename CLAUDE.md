@@ -133,6 +133,9 @@ aus anderen Apps übernehmen.
   «Dieses Gerät hat mehr Daten» (`fsBetterCollect`): bietet Felder an, die in der Datenbank leer sind, ausser sie wurden dort
   bewusst geleert (Vermerk `clearedFields` {Feld: Datum}, setzt `fsSafeSet`) nach dem Stand dieses Geräts, oder hier abgelehnt
   («Nicht wiederherstellen», `fs-better-skip-<app>`).
+  «GPX-Dateien gefunden» (`fsGpxRepairCheck`): bietet Linien/Routen aus noch gespeicherten GPX-Dateien an, ausser bewusst gelöscht
+  (`clearedFields.trackSimplified`, entfernte weitere Routen in `clearedAlts` {id: Datum}, setzt `fsSafeSet`) oder hier abgelehnt
+  («Nicht wiederherstellen», `fs-gpx-ignore-<app>`).
 - Gespeichert wird über `fbSet` → `fsSafeSet`: Ausgangsstand (beim Laden) + eigene Fassung + aktueller
   Stand werden zusammengeführt, nur eigene Änderungen kommen dazu. Fehlt ein Feld ganz, gilt es als
   unverändert; bewusstes Leeren setzt `''` bzw. `[]`. Nie direkt an `fbSet` vorbei schreiben.
