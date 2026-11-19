@@ -1471,6 +1471,16 @@ function fsChipOptions(list, selected){
   (Array.isArray(selected) ? selected : []).forEach(v=>{ if(v != null && String(v).trim() && base.indexOf(v) < 0) base.push(v); });
   return base;
 }
+// Ort für Wetter und Lawinen: Gipfel, sonst erster Punkt/Linie, sonst verknüpfte Hütte, sonst Gebiet
+function fsTourPlace(t){
+  const p = fsTourSummitPoint(t) || tourMapPoint(t);
+  if(p && isFinite(p.lat) && isFinite(p.lon)) return p;
+  const st = typeof state !== 'undefined' ? state : {};
+  const pick = x=>{ const q = x && ((x.points || []).find(y=> y && isFinite(y.lat) && isFinite(y.lon)) || (isFinite(x.lat) && isFinite(x.lon) && x.lat !== '' ? x : null)); return q ? {lat: +q.lat, lon: +q.lon} : null; };
+  const hut = t && t.hutId && (st.huts || []).find(h=> h && h.id === t.hutId);
+  const geb = t && t.gebietId && (st.gebiete || []).find(g=> g && g.id === t.gebietId);
+  return pick(hut) || pick(geb) || null;
+}
 function tourMapPoint(t){
   if(t.points && t.points.length) return {lat: t.points[0].lat, lon: t.points[0].lon};
   if(t.trackSimplified && t.trackSimplified.length) return {lat: t.trackSimplified[0][0], lon: t.trackSimplified[0][1]};
@@ -3944,7 +3954,7 @@ function printTourenzettel(agendaId){
       <div style="margin-bottom:8px;">Gefahrenstufe: <span class="lv">1</span><span class="lv">2</span><span class="lv">3</span><span class="lv">4</span><span class="lv">5</span></div>
       <div style="margin-bottom:8px;">Kernzone (Höhe / Exposition): <span class="fill"></span></div>
       <div style="margin-bottom:8px;">Lawinenproblem: <span class="fill"></span></div>
-      <div>Bulletin vom: <span class="fill" style="min-width:90px;"></span> <a class="no-print" href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener">whiterisk.ch ↗</a></div>`;
+      <div>Bulletin vom: <span class="fill" style="min-width:90px;"></span> <a class="no-print" href="https://whiterisk.ch/de/conditions/bulletin" target="_blank" rel="noopener">whiterisk.ch ↗</a></div>`;
     const t = target || (points[0] || null);
     (t ? fsSlfBulletinAt(parseFloat(t.lat), parseFloat(t.lon), a.startDate) : Promise.resolve(null)).then(b=>{
       const el = $('tz-avalanche');
@@ -3953,7 +3963,7 @@ function printTourenzettel(agendaId){
       el.innerHTML = `<p class="wx-big">Gefahrenstufe ${escHtml(b.level)}${b.region ? ` <span class="muted" style="font-weight:400;">· ${escHtml(b.region)}</span>` : ''}</p>
         ${b.ratings.length ? `<div>${b.ratings.map(r=>`<div>${escHtml(r)}</div>`).join('')}</div>` : ''}
         ${b.problems.length ? `<div style="margin-top:6px;"><b>Lawinenprobleme:</b> ${b.problems.map(escHtml).join(' · ')}</div>` : ''}
-        <p class="muted" style="margin:6px 0 0 0;font-size:12px;">SLF-Bulletin gültig bis ${escHtml(b.validUntil)} – <a href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener">whiterisk.ch</a></p>`;
+        <p class="muted" style="margin:6px 0 0 0;font-size:12px;">SLF-Bulletin gültig bis ${escHtml(b.validUntil)} – <a href="https://whiterisk.ch/de/conditions/bulletin" target="_blank" rel="noopener">whiterisk.ch</a></p>`;
     }).catch(()=>{ const el = $('tz-avalanche'); if(el) el.innerHTML = fillIn('Bulletin gerade nicht abrufbar.'); });
   }
 
@@ -4205,7 +4215,7 @@ function fsSlfBoxHtml(lat, lon){
     ${bul.problems.length ? `<ul class="fs-slf-prob">${bul.problems.map(pr=> `<li>${FS_SLF_PROB_ICON[pr.raw] ? fsIconHtml(FS_SLF_PROB_ICON[pr.raw]) : ''}<span>${esc(pr.type)}</span><em>${esc(prob(pr))}</em>${pr.aspects.length && FS_SLF_PROB_ICON[pr.raw] ? fsSlfRoseSvg(pr.aspects, 26) : ''}</li>`).join('')}</ul>` : ''}
     ${hits.length ? `<div class="fs-slf-hit"><b>Deine Tour: Exposition ${esc(expoTxt)}${t.targetAltitude ? ' · Gipfel ' + esc(String(t.targetAltitude)) + ' m' : ''}</b>Liegt laut Exposition und Gipfelhöhe im Bereich: ${esc(hits.map(h=> h.type).join(', '))}.</div>` : ''}
     ${fsReductionHtml(t, bul)}
-    <a class="fs-slf-link" href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk</a>
+    <a class="fs-slf-link" href="https://whiterisk.ch/de/conditions/bulletin" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk</a>
     <p class="fs-slf-src">${esc([bul.region ? 'Region ' + bul.region : '', bul.pub ? 'Stand ' + fsSlfFmt(bul.pub) : ''].filter(Boolean).join(' · '))}</p>
   </div>`;
 }
@@ -8238,7 +8248,7 @@ function fsSlfRegionPopupHtml(d){
     <div class="fs-slf-pop-lvl"><i style="--lvl:${d.color}; color:${d.level >= 4 ? '#fff' : '#0F1E27'}">${fsSlfLevelTxt(d.level, d.sub)}</i>${esc(d.label.replace(/^\d\s*–\s*/, ''))}${esc(sub)}</div>
     ${d.problems.map(pr=> `<div class="fs-slf-pop-pr">${fsIconHtml(FS_SLF_PROB_ICON[pr.type] || 'alert')}<span><b>${esc(FS_SLF_PROBLEMS[pr.type])}</b><small>${esc((pr.aspects.length >= 8 ? 'alle Expositionen' : pr.aspects.map(a=> FS_SLF_ASPECTS[a] || a).join(' / ')) + ' · ' + fsSlfElevTxt(pr) + (pr.later ? ' · im Tagesverlauf' : ''))}</small></span>${fsSlfRoseSvg(pr.aspects, 26)}</div>`).join('')}
     ${desc ? `<p>${esc(desc.length > 420 ? desc.slice(0, 420) + ' …' : desc)}</p>` : ''}
-    <a href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk ↗</a></div>`;
+    <a href="https://whiterisk.ch/de/conditions/bulletin" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk ↗</a></div>`;
 }
 // Knöpfe oben rechts: Ebenen, Kompass (nur wenn gedreht/gekippt), 3D
 // Standort nur auf Tipp: einmal orten, hinfliegen, blauen Punkt setzen – kein laufender Standort (Akku)
@@ -9521,7 +9531,7 @@ async function fsmHandleInfoClick(map, ll, opts){
     const hit = map.queryRenderedFeatures(map.project([ll.lng, ll.lat]), {layers:['ov-slf']})[0];
     const d = hit && map._fsm.slfInfo && map._fsm.slfInfo[hit.properties.rid];
     if(d){ fsmPopup(map, lngLat, fsSlfRegionPopupHtml(d)); return true; }
-    if(hit){ fsmPopup(map, lngLat, `<b>Lawinengefahr: Stufe ${esc(hit.properties.label)}</b><br/><a href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`); return true; }
+    if(hit){ fsmPopup(map, lngLat, `<b>Lawinengefahr: Stufe ${esc(hit.properties.label)}</b><br/><a href="https://whiterisk.ch/de/conditions/bulletin" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`); return true; }
   }
   return false;
 }
@@ -14305,7 +14315,7 @@ function fsFirnHtml(t){
 // Wetter, Bedingungen, Bulletin einer Tour: am Gipfel (Gipfelpunkt, sonst höchster Punkt der Linie), sonst am ersten Punkt.
 // Auch für Touren nur mit Linie (bisher fehlte dort der ganze Abschnitt).
 function fsTourWxHtml(t){
-  const p = fsTourSummitPoint(t) || tourMapPoint(t);
+  const p = fsTourPlace(t);
   if(!p || !isFinite(p.lat) || !isFinite(p.lon)) return '';
   return `<div id="tour-meteo-${t.id}">${meteoForecastWidgetHtml(+p.lat, +p.lon, t.targetAltitude, t)}</div>`;
 }
@@ -14498,15 +14508,20 @@ function meteoForecastOnlyHtml(lat, lon){
 // Bulk-CSVs (alle ~6000 Punkte auf einmal) wie die Detail-Prognose -- für die ganze Liste sind
 // dadurch nur 2 Netzwerk-Anfragen nötig, nicht eine pro Tour.
 let _meteoBulkPromise = null;
+// Einmal geladen gelten die Daten für alle Disziplinen (jede hat ihren eigenen state; vorher blieb die Disziplin ohne
+// Wetter, in die man nach dem Laden wechselte)
+let fsMeteoBulkShared = null;
 function ensureMeteoBulkData(){
-  if(_meteoBulkPromise) return;
+  if(fsMeteoBulkShared){ state._meteoBulk = fsMeteoBulkShared; state._meteoBulkStatus = 'ok'; return; }
+  if(_meteoBulkPromise){ if(state._meteoBulkStatus !== 'loading'){ state._meteoBulkStatus = 'loading'; _meteoBulkPromise.then(()=>{ if(fsMeteoBulkShared){ state._meteoBulk = fsMeteoBulkShared; state._meteoBulkStatus = 'ok'; render(); } }, ()=>{}); } return; }
   state._meteoBulkStatus = 'loading';
   _meteoBulkPromise = Promise.all([
     meteoLoadPointList(),
     meteoLoadHourlyParam('tre200h0'),
     meteoLoadHourlyParam('rre150h0')
   ]).then(([points, tempRows, precipRows])=>{
-    state._meteoBulk = { points, tempRows, precipRows };
+    fsMeteoBulkShared = { points, tempRows, precipRows };
+    state._meteoBulk = fsMeteoBulkShared;
     state._meteoBulkStatus = 'ok';
     render();
   }).catch(err=>{
@@ -14514,6 +14529,7 @@ function ensureMeteoBulkData(){
     state._meteoBulkErrAt = Date.now();
     _meteoBulkPromise = null;
     console.warn('Wetter-Bulkdaten konnten nicht geladen werden:', err);
+    setTimeout(()=>{ if(!fsMeteoBulkShared && !_meteoBulkPromise){ ensureMeteoBulkData(); } }, 60000); // später selbst nochmals
   });
 }
 
@@ -15119,13 +15135,14 @@ function fsDoneFilterHtml(){
 // Wetter der nächsten 3 Tage im Listeneintrag (MeteoSchweiz, alle Punkte mit 2 Anfragen; siehe
 // meteoCardForecastData). Nach einem Fehler (offline) erst nach einer Minute wieder versuchen.
 function fsCardWeatherHtml(t){
-  const p = fsTourSummitPoint(t) || tourMapPoint(t);
+  const p = fsTourPlace(t);
   if(!p || !isFinite(p.lat) || !isFinite(p.lon)) return '';
   if(state._meteoBulkStatus !== 'ok'){
-    if(state._meteoBulkStatus === 'error' && Date.now() - (state._meteoBulkErrAt || 0) < 60000) return '';
+    // Schon geladen (z. B. in einer anderen Disziplin): sofort nutzen statt bis zum nächsten Neuzeichnen leer zu bleiben
+    if(state._meteoBulkStatus === 'error' && !fsMeteoBulkShared && Date.now() - (state._meteoBulkErrAt || 0) < 60000) return '';
     if(state._meteoBulkStatus === 'error') state._meteoBulkErrAt = Date.now();
     ensureMeteoBulkData();
-    return '';
+    if(state._meteoBulkStatus !== 'ok') return '';
   }
   const days = meteoCardForecastData(p.lat, p.lon).days.slice(0, 3);
   if(!days.length) return '';
@@ -15139,7 +15156,7 @@ const fsCardSlf = new Map();
 let fsCardSlfTimer = null;
 function fsCardSlfHtml(t){
   if(typeof fsRcWithBulletin !== 'function' || !fsRcWithBulletin() || t.tourCategory === 'msl') return '';
-  const p = fsTourSummitPoint(t) || tourMapPoint(t);
+  const p = fsTourPlace(t);
   if(!p || !isFinite(p.lat) || !isFinite(p.lon) || p.lat < 45.8 || p.lat > 47.9 || p.lon < 5.9 || p.lon > 10.6) return '';
   const key = p.lat.toFixed(2) + ',' + p.lon.toFixed(2);
   const c = fsCardSlf.get(key);
@@ -15173,7 +15190,7 @@ function fsTourSlfHit(t, bul){
 }
 // Bulletin (jetzt gültig) für eine Tour aus dem gemeinsamen Abruf; undefined, solange er läuft
 function fsTourSlfBul(t){
-  const p = fsTourSummitPoint(t) || tourMapPoint(t);
+  const p = fsTourPlace(t);
   if(!p || !isFinite(p.lat)) return null;
   const c = fsCardSlf.get(p.lat.toFixed(2) + ',' + p.lon.toFixed(2));
   return c && c.status === 'ok' && c.r ? c.r.cur : null;
