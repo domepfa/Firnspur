@@ -258,7 +258,7 @@ function fsResolveConflicts(result, conflicts, cur){
 // Notbremse: Was ginge beim Speichern gegenüber dem aktuellen Stand verloren? Erfasst grössere
 // Verluste (ausgefülltes Feld wird leer, Linie fällt weg oder schrumpft stark, mehrere Listeneinträge
 // auf einmal, langer Text stark gekürzt). Einzelne entfernte Listeneinträge gelten als bewusst.
-const FS_LOSS_IGNORE = new Set(['updatedAt', 'updatedBy', 'clearedFields', 'deletedAt', 'deletedBy', 'status', 'conditions', 'summitIdsParked',
+const FS_LOSS_IGNORE = new Set(['updatedAt', 'updatedBy', 'clearedFields', 'clearedAlts', 'deletedAt', 'deletedBy', 'status', 'conditions', 'summitIdsParked',
   'hutId', 'gebietId', 'sektorId', 'klettergebietId', 'createdAt', 'createdBy']);
 const FS_LOSS_STRICT = new Set(['points', 'altTracks', 'topoImages', 'erfahrungen', 'accessRoutes', 'descentRoutes', 'kletterrouten', 'orte', 'moreLinks']);
 function fsDetectLosses(cur, res){
@@ -575,6 +575,12 @@ async function fsSafeSet(path, value, v){
           else if(cl[f] && !fsImportIsEmpty(result[f])){ delete cl[f]; ch = true; }
         });
         if(ch) result.clearedFields = Object.keys(cl).length ? cl : '';
+        // Entfernte weitere Routen (altTracks) mit Datum: die GPX-Prüfung bietet ihre Dateien dann nicht wieder an
+        if('altTracks' in result && Array.isArray(cur.altTracks)){
+          const keep = new Set((Array.isArray(result.altTracks) ? result.altTracks : []).map(a=> a && a.id));
+          const gone = cur.altTracks.filter(a=> a && a.id && !keep.has(a.id));
+          if(gone.length){ const ca = Object.assign({}, (cur.clearedAlts && typeof cur.clearedAlts === 'object') ? cur.clearedAlts : {}); gone.forEach(a=>{ ca[a.id] = new Date().toISOString(); }); result.clearedAlts = ca; }
+        }
       }
       if(!fsEq(cur, result)) await fsSaveVersion(v, cur, 'vor dem Speichern');
     }
@@ -1068,12 +1074,14 @@ async function fsGpxRepairCheck(appKey){
     const all = [...state.tours, ...(state.trashedTours || [])];
     const byId = new Map(all.map(t=> [t.id, t]));
     const [mainKeys, altTourKeys] = await Promise.all([fsShallowKeys(GPX_TRACKS_PATH), fsShallowKeys(GPX_TRACKS_PATH + 'Alt')]);
-    const lineFix = mainKeys.filter(id=> byId.has(id) && !(byId.get(id).trackSimplified || []).length);
+    // Bewusst gelöschte Linien (clearedFields) und Routen (clearedAlts) sowie hier abgelehnte nicht wieder anbieten
+    const lineFix = mainKeys.filter(id=> byId.has(id) && !(byId.get(id).trackSimplified || []).length && !(byId.get(id).clearedFields || {}).trackSimplified && !ignore.has('line:' + id));
     const orphans = mainKeys.filter(id=> !byId.has(id) && !ignore.has(id));
     const altFix = [];
     for(const tid of altTourKeys.filter(id=> byId.has(id))){
       const have = new Set((byId.get(tid).altTracks || []).map(a=> a.id));
-      (await fsShallowKeys(GPX_TRACKS_PATH + 'Alt/' + tid)).forEach(aid=>{ if(!have.has(aid)) altFix.push([tid, aid]); });
+      const gone = byId.get(tid).clearedAlts || {};
+      (await fsShallowKeys(GPX_TRACKS_PATH + 'Alt/' + tid)).forEach(aid=>{ if(!have.has(aid) && !gone[aid] && !ignore.has('alt:' + tid + ':' + aid)) altFix.push([tid, aid]); });
     }
     if(!lineFix.length && !orphans.length && !altFix.length) return;
     // Namen der verwaisten Dateien holen (nur dafür die Datei laden)
@@ -1100,12 +1108,24 @@ function fsGpxRepairOffer(appKey, lineTours, altFix, orphanData){
       <div class="fs-rescue-list">${orphanData.map((o, i)=> `<label class="fs-gpx-orphan"><input type="checkbox" data-o="${i}" checked/> ${esc(o.name)} <span class="fs-rescue-muted">${o.d.uploadedAt ? '· ' + esc(new Date(o.d.uploadedAt).toLocaleDateString('de-CH')) : ''}</span></label>`).join('')}</div>` : ''}
     <div class="fs-rescue-actions">
       <button type="button" class="btn" data-g="go">Wiederherstellen</button>
+      ${lineTours.length || altFix.length ? '<button type="button" class="btn secondary" data-g="no">Nicht wiederherstellen</button>' : ''}
       <button type="button" class="btn secondary" data-g="later">Später</button>
     </div>
+    ${lineTours.length || altFix.length ? '<p class="fs-rescue-muted">Absichtlich gelöscht? «Nicht wiederherstellen» – danach wird hier nicht mehr gefragt.</p>' : ''}
     ${orphanData.length ? `<p class="fs-rescue-muted">Nicht angehakte Dateien werden nicht mehr angeboten (sie bleiben in der Datenbank).</p>` : ''}
   </div>`;
   document.body.appendChild(box);
   box.querySelector('[data-g="later"]').onclick = ()=> box.remove();
+  const noBtn = box.querySelector('[data-g="no"]');
+  if(noBtn) noBtn.onclick = ()=>{
+    const ig = new Set(JSON.parse(localStorage.getItem('fs-gpx-ignore-' + appKey) || '[]'));
+    lineTours.forEach(t=> ig.add('line:' + t.id));
+    altFix.forEach(([tid, aid])=> ig.add('alt:' + tid + ':' + aid));
+    orphanData.forEach(o=> ig.add(o.id));
+    try{ localStorage.setItem('fs-gpx-ignore-' + appKey, JSON.stringify([...ig])); }catch(e){}
+    box.remove();
+    showToast('Nicht wiederhergestellt – wird nicht mehr angeboten.');
+  };
   box.querySelector('[data-g="go"]').onclick = async ()=>{
     const btn = box.querySelector('[data-g="go"]');
     btn.disabled = true; btn.textContent = 'Wird wiederhergestellt …';
@@ -10702,7 +10722,7 @@ function fsRoutesEditorRender(){
       ${fsRouteSwatchHtml(r)}
       <input type="text" class="fs-route-name" value="${esc(r.name)}" placeholder="${esc(r.src === 'track' ? 'GPX-Track' : r.src === 'manual' ? 'Gezeichnete Linie' : 'Name')}" aria-label="Name der Route"/>
       <select class="fs-route-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k===r.type?'selected':''}>${fsRouteLabel(k)}</option>`).join('')}</select>
-      ${r.src === 'alt' || r.src === 'track' ? `<button type="button" class="fs-icon-btn fs-route-del" aria-label="Route entfernen">${fsIconHtml('trash')}</button>` : ''}
+      <button type="button" class="fs-icon-btn fs-route-del" aria-label="Route entfernen">${fsIconHtml('trash')}</button>
     </div>`).join('') : '<p class="hint" style="margin:0 0 8px;">Noch keine Route – GPX hochladen oder auf der Karte zeichnen.</p>';
   box.querySelectorAll('.fs-route-edit').forEach(row=>{
     const key = row.getAttribute('data-key');
@@ -10731,6 +10751,13 @@ function fsRoutesEditorRender(){
         return;
       }
       if(!confirm('Diese Route entfernen? (Wird erst mit „Speichern“ übernommen.)')) return;
+      if(key === 'manual'){
+        const mt = document.getElementById('manual-track-hidden'); if(mt) mt.value = '[]';
+        ['route-manual-name', 'route-manual-type'].forEach(id=>{ const el = document.getElementById(id); if(el) el.value = ''; });
+        markModalDirty();
+        fsRoutesEditorRender();
+        return;
+      }
       const alts = parse('route-alt-tracks', []).filter(x=> 'alt:' + x.id !== key);
       document.getElementById('route-alt-tracks').value = JSON.stringify(alts);
       markModalDirty();
