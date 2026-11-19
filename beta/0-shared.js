@@ -4139,7 +4139,7 @@ function fsSlfParse(b, rid){
     const info = SLF_DANGER_LEVELS[r.mainValue];
     if(!info) return null;
     const e = r.elevation || {};
-    return {level: info.level, label: info.label.replace(/^\d\s*–\s*/, ''), color: info.color,
+    return {level: info.level, sub: ((r.customData || {}).CH || {}).subdivision || '', label: info.label.replace(/^\d\s*–\s*/, ''), color: info.color,
       elev: e.lowerBound ? 'über ' + e.lowerBound + ' m' : e.upperBound ? 'unter ' + e.upperBound + ' m' : '', later: r.validTimePeriod === 'later'};
   }).filter(Boolean).sort((x, y)=> y.level - x.level);
   const problems = (b.avalancheProblems || []).map(pr=>{
@@ -4201,8 +4201,8 @@ function fsSlfBoxHtml(lat, lon){
   return `<div class="fs-slf">
     <div class="fs-slf-head"><b>Lawinenbulletin SLF</b><span>gültig bis ${esc(fsSlfFmt(bul.end))}</span></div>
     ${seg}
-    ${bul.ratings.map(r=> `<div class="fs-slf-lvl"><span class="fs-slf-dot" style="--lvl:${r.color}; color:${r.level >= 3 ? '#fff' : '#0F1E27'}">${r.level}</span><div>${esc(r.label)}${r.elev || r.later ? `<small>${esc([r.elev, r.later ? 'im Tagesverlauf' : ''].filter(Boolean).join(' · '))}</small>` : ''}</div></div>`).join('')}
-    ${bul.problems.length ? `<ul class="fs-slf-prob">${bul.problems.map(pr=> `<li><span>${esc(pr.type)}</span><em>${esc(prob(pr))}</em></li>`).join('')}</ul>` : ''}
+    ${bul.ratings.map(r=> `<div class="fs-slf-lvl"><span class="fs-slf-dot" style="--lvl:${r.color}; color:${r.level >= 3 ? '#fff' : '#0F1E27'}">${fsSlfLevelTxt(r.level, r.sub)}</span><div>${esc(r.label)}${r.elev || r.later ? `<small>${esc([r.elev, r.later ? 'im Tagesverlauf' : ''].filter(Boolean).join(' · '))}</small>` : ''}</div></div>`).join('')}
+    ${bul.problems.length ? `<ul class="fs-slf-prob">${bul.problems.map(pr=> `<li>${FS_SLF_PROB_ICON[pr.raw] ? fsIconHtml(FS_SLF_PROB_ICON[pr.raw]) : ''}<span>${esc(pr.type)}</span><em>${esc(prob(pr))}</em>${pr.aspects.length && FS_SLF_PROB_ICON[pr.raw] ? fsSlfRoseSvg(pr.aspects, 26) : ''}</li>`).join('')}</ul>` : ''}
     ${hits.length ? `<div class="fs-slf-hit"><b>Deine Tour: Exposition ${esc(expoTxt)}${t.targetAltitude ? ' · Gipfel ' + esc(String(t.targetAltitude)) + ' m' : ''}</b>Liegt laut Exposition und Gipfelhöhe im Bereich: ${esc(hits.map(h=> h.type).join(', '))}.</div>` : ''}
     ${fsReductionHtml(t, bul)}
     <a class="fs-slf-link" href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk</a>
@@ -6616,9 +6616,13 @@ async function fetchSlfDangerRegions(){
       if(info && (!maxInfo || info.level > maxInfo.level)) maxInfo = info;
     });
     if(!maxInfo) return;
+    const top = ratings.filter(r=> SLF_DANGER_LEVELS[r.mainValue] === maxInfo)[0] || {};
+    const sub = ((top.customData || {}).CH || {}).subdivision || '';
+    const problems = (Array.isArray(b.avalancheProblems) ? b.avalancheProblems : []).filter(pr=> pr && FS_SLF_PROBLEMS[pr.problemType] && pr.problemType !== 'favourable_situation' && pr.problemType !== 'no_distinct_avalanche_problem')
+      .map(pr=> ({type: pr.problemType, aspects: pr.aspects || [], lower: parseFloat((pr.elevation || {}).lowerBound) || 0, upper: parseFloat((pr.elevation || {}).upperBound) || 0, later: pr.validTimePeriod === 'later', comment: pr.comment || '', core: ((pr.customData || {}).CH || {}).coreZoneText || ''}));
     (Array.isArray(b.regions) ? b.regions : []).forEach(rr=>{
       const rid = rr.regionID || rr.id;
-      if(rid) dangerByRegion[rid] = maxInfo;
+      if(rid) dangerByRegion[rid] = Object.assign({}, maxInfo, {sub, problems, name: rr.name || '', until: b.validTime && b.validTime.endTime});
     });
   });
   return { features, dangerByRegion, bulletinCount: bulletins.length };
@@ -7043,7 +7047,9 @@ function fsmSetOverlay(map, id, on, silent){
     }
   }
   if(map.getLayer(lid)) map.setLayoutProperty(lid, 'visibility', on ? 'visible' : 'none');
+  if(map.getLayer(lid + '-hatch')) map.setLayoutProperty(lid + '-hatch', 'visibility', on ? 'visible' : 'none');
   map._fsm.overlays[id] = !!on;
+  if(o.geojson && map._fsm.slfCards) fsmSlfCardsPlace(map);
   if(o.drift && on) fsDriftStart(map);
   if(!silent){
     const p = fsmPrefs();
@@ -8131,13 +8137,108 @@ async function fsmLoadSlf(map, lid){
     features.forEach(f=>{
       const rid = slfRegionId(f);
       const info = rid ? dangerByRegion[rid] : null;
-      if(info) out.push(Object.assign({}, f, {properties: Object.assign({}, f.properties, {color: info.color, label: info.label})}));
+      if(info) out.push(Object.assign({}, f, {properties: Object.assign({}, f.properties, {color: info.color, label: info.label, level: info.level, sub: info.sub || '', rid})}));
     });
+    map._fsm.slfInfo = dangerByRegion;
     if(map.getSource(lid)) map.getSource(lid).setData({type:'FeatureCollection', features: out});
+    fsmSlfHatch(map, lid);
+    fsmSlfCards(map, out, dangerByRegion);
     if(!out.length) showToast(bulletinCount === 0 ? 'Aktuell kein Lawinenbulletin veröffentlicht (ausserhalb der Wintersaison meist normal).' : 'Lawinen-Gefahrenstufen aktuell nicht zuordenbar.', true);
   }catch(e){
     showToast('Lawinendaten aktuell nicht verfügbar: ' + (e && e.message ? e.message : e), true);
   }
+}
+/* Lawinenbulletin auf der Karte wie beim SLF: «+» schraffiert in der Farbe der nächsthöheren Stufe, ab mittlerem Zoom
+   je Region ein Kärtchen mit Stufe (+/=/−), Windrose der kritischen Expositionen, Höhe und Problem-Zeichen; antippen
+   zeigt den Text. Überlappende Kärtchen werden ausgeblendet (höhere Stufe zuerst). */
+const FS_SLF_SUB = {plus: '+', minus: '−', neutral: '='};
+const FS_SLF_PROB_ICON = {new_snow: 'av-new', wind_slab: 'av-wind', persistent_weak_layers: 'av-old', wet_snow: 'av-wet', gliding_snow: 'av-glide'};
+const FS_SLF_LEVEL_COLORS = ['#ccff66', '#ffff00', '#ff9900', '#ff0000', '#800000'];
+function fsSlfLevelTxt(level, sub){ return level + (FS_SLF_SUB[sub] || ''); }
+// Windrose: 8 Felder, kritische dunkel; size in px
+function fsSlfRoseSvg(aspects, size){
+  const A = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'], on = new Set(aspects || []), c = 12, r = 10.5;
+  const seg = A.map((a, i)=>{
+    const a0 = (i * 45 - 22.5 - 90) * Math.PI / 180, a1 = (i * 45 + 22.5 - 90) * Math.PI / 180;
+    return `<path d="M${c} ${c}L${(c + r * Math.cos(a0)).toFixed(2)} ${(c + r * Math.sin(a0)).toFixed(2)}A${r} ${r} 0 0 1 ${(c + r * Math.cos(a1)).toFixed(2)} ${(c + r * Math.sin(a1)).toFixed(2)}z" class="${on.has(a) ? 'on' : ''}"/>`;
+  }).join('');
+  return `<svg class="fs-slf-rose" viewBox="0 0 24 24" width="${size || 22}" height="${size || 22}" role="img" aria-label="Kritische Expositionen: ${esc([...on].map(a=> FS_SLF_ASPECTS[a] || a).join(', ') || 'keine')}">${seg}<text x="12" y="4.6" text-anchor="middle">N</text></svg>`;
+}
+function fsSlfElevTxt(pr){ return pr.lower ? 'über ' + pr.lower + ' m' : pr.upper ? 'unter ' + pr.upper + ' m' : 'alle Höhen'; }
+function fsmSlfHatch(map, lid){
+  if(map.getLayer(lid + '-hatch')) return;
+  for(let lv = 1; lv <= 4; lv++){
+    const id = 'slf-hatch-' + lv;
+    if(map.hasImage(id)) continue;
+    const n = 16, cv = document.createElement('canvas'); cv.width = cv.height = n;
+    const g = cv.getContext('2d');
+    g.strokeStyle = FS_SLF_LEVEL_COLORS[lv]; g.lineWidth = 3.2; g.lineCap = 'square';
+    [[-n, n * 2], [0, n], [n, 0]].forEach(([x0])=>{ g.beginPath(); g.moveTo(x0, n); g.lineTo(x0 + n, 0); g.stroke(); });
+    g.beginPath(); g.moveTo(-4, 4); g.lineTo(4, -4); g.stroke(); g.beginPath(); g.moveTo(n - 4, n + 4); g.lineTo(n + 4, n - 4); g.stroke();
+    map.addImage(id, g.getImageData(0, 0, n, n), {pixelRatio: 2});
+  }
+  map.addLayer({id: lid + '-hatch', type: 'fill', source: lid, filter: ['all', ['==', ['get', 'sub'], 'plus'], ['<', ['get', 'level'], 5]],
+    paint: {'fill-pattern': ['concat', 'slf-hatch-', ['to-string', ['get', 'level']]], 'fill-opacity': 0.75}}, 'fsm-anchor-names');
+  if(!fsmOverlayOn(map, 'slf')) map.setLayoutProperty(lid + '-hatch', 'visibility', 'none');
+}
+// Punkt im Innern eines Polygons fürs Kärtchen: Mitte der grössten Fläche, sonst ein Punkt auf einer waagrechten Linie
+function fsSlfLabelPoint(geom){
+  const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.type === 'MultiPolygon' ? geom.coordinates : [];
+  let best = null, bestA = 0;
+  polys.forEach(p=>{ const ring = p[0]; let a = 0; for(let i = 0, j = ring.length - 1; i < ring.length; j = i++) a += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]); a = Math.abs(a); if(a > bestA){ bestA = a; best = ring; } });
+  if(!best) return null;
+  let minY = 90, maxY = -90; best.forEach(q=>{ minY = Math.min(minY, q[1]); maxY = Math.max(maxY, q[1]); });
+  const y = (minY + maxY) / 2, xs = [];
+  for(let i = 0, j = best.length - 1; i < best.length; j = i++){ const a = best[j], b = best[i]; if((a[1] > y) !== (b[1] > y)) xs.push(a[0] + (y - a[1]) / (b[1] - a[1]) * (b[0] - a[0])); }
+  xs.sort((a, b)=> a - b);
+  let x = null, w = 0;
+  for(let k = 0; k + 1 < xs.length; k += 2) if(xs[k + 1] - xs[k] > w){ w = xs[k + 1] - xs[k]; x = (xs[k] + xs[k + 1]) / 2; }
+  return x == null ? null : [x, y];
+}
+function fsmSlfCards(map, feats, info){
+  (map._fsm.slfCards || []).forEach(c=> c.m.remove());
+  map._fsm.slfCards = [];
+  feats.forEach(f=>{
+    const d = info[f.properties.rid], pt = d && fsSlfLabelPoint(f.geometry);
+    if(!pt) return;
+    const asp = new Set(), probs = [];
+    let low = null;
+    d.problems.forEach(pr=>{ pr.aspects.forEach(a=> asp.add(a)); if(pr.lower && (low == null || pr.lower < low)) low = pr.lower; if(!probs.includes(pr.type)) probs.push(pr.type); });
+    const el = document.createElement('button');
+    el.type = 'button'; el.className = 'fs-slfc';
+    el.setAttribute('aria-label', 'Lawinengefahr ' + fsSlfLevelTxt(d.level, d.sub) + ', ' + (d.name || 'Region') + ' – Bulletin anzeigen');
+    el.innerHTML = `<span class="fs-slfc-h"><i style="--lvl:${d.color}; color:${d.level >= 4 ? '#fff' : '#0F1E27'}">${fsSlfLevelTxt(d.level, d.sub)}</i><b>${esc(d.name || '')}</b></span>`
+      + (d.problems.length ? `<span class="fs-slfc-b">${fsSlfRoseSvg([...asp], 22)}${low ? `<span class="fs-slfc-e">${fsIconHtml('mountain')}${low}</span>` : ''}${probs.map(t=> `<span class="fs-slfc-p" title="${esc(FS_SLF_PROBLEMS[t])}">${fsIconHtml(FS_SLF_PROB_ICON[t] || 'alert')}</span>`).join('')}</span>` : '');
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); fsmPopup(map, {lng: pt[0], lat: pt[1]}, fsSlfRegionPopupHtml(d), 8); });
+    const m = new maplibregl.Marker({element: el}).setLngLat(pt);
+    map._fsm.slfCards.push({m, el, level: d.level + (d.sub === 'plus' ? 0.5 : 0), on: false});
+  });
+  if(!map._fsSlfCardWired){ map._fsSlfCardWired = true; map.on('moveend', ()=> fsmSlfCardsPlace(map)); }
+  fsmSlfCardsPlace(map);
+}
+function fsmSlfCardsPlace(map){
+  const list = map._fsm.slfCards || [];
+  const show = fsmOverlayOn(map, 'slf') && map.getZoom() >= 8.3;
+  const W = map.getContainer().clientWidth, H = map.getContainer().clientHeight, placed = [];
+  list.slice().sort((a, b)=> b.level - a.level).forEach(c=>{
+    let ok = false;
+    if(show){
+      const p = map.project(c.m.getLngLat()), w = 150, h = 58, r = {x0: p.x - w / 2, y0: p.y - h / 2, x1: p.x + w / 2, y1: p.y + h / 2};
+      ok = r.x0 > 4 && r.y0 > 4 && r.x1 < W - 4 && r.y1 < H - 4 && !placed.some(q=> r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0);
+      if(ok) placed.push(r);
+    }
+    if(ok && !c.on){ c.m.addTo(map); c.on = true; }
+    else if(!ok && c.on){ c.m.remove(); c.on = false; }
+  });
+}
+function fsSlfRegionPopupHtml(d){
+  const sub = {plus: ' (oberer Bereich der Stufe)', minus: ' (unterer Bereich der Stufe)', neutral: ' (mittlerer Bereich der Stufe)'}[d.sub] || '';
+  const desc = d.problems.length && d.problems[0].comment ? String(d.problems[0].comment).replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '').trim() : '';
+  return `<div class="fs-slf-pop"><b>${esc(d.name || 'Region')}</b>
+    <div class="fs-slf-pop-lvl"><i style="--lvl:${d.color}; color:${d.level >= 4 ? '#fff' : '#0F1E27'}">${fsSlfLevelTxt(d.level, d.sub)}</i>${esc(d.label.replace(/^\d\s*–\s*/, ''))}${esc(sub)}</div>
+    ${d.problems.map(pr=> `<div class="fs-slf-pop-pr">${fsIconHtml(FS_SLF_PROB_ICON[pr.type] || 'alert')}<span><b>${esc(FS_SLF_PROBLEMS[pr.type])}</b><small>${esc((pr.aspects.length >= 8 ? 'alle Expositionen' : pr.aspects.map(a=> FS_SLF_ASPECTS[a] || a).join(' / ')) + ' · ' + fsSlfElevTxt(pr) + (pr.later ? ' · im Tagesverlauf' : ''))}</small></span>${fsSlfRoseSvg(pr.aspects, 26)}</div>`).join('')}
+    ${desc ? `<p>${esc(desc.length > 420 ? desc.slice(0, 420) + ' …' : desc)}</p>` : ''}
+    <a href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk ↗</a></div>`;
 }
 // Knöpfe oben rechts: Ebenen, Kompass (nur wenn gedreht/gekippt), 3D
 // Standort nur auf Tipp: einmal orten, hinfliegen, blauen Punkt setzen – kein laufender Standort (Akku)
@@ -9418,6 +9519,8 @@ async function fsmHandleInfoClick(map, ll, opts){
   }
   if(fsmOverlayOn(map, 'slf')){
     const hit = map.queryRenderedFeatures(map.project([ll.lng, ll.lat]), {layers:['ov-slf']})[0];
+    const d = hit && map._fsm.slfInfo && map._fsm.slfInfo[hit.properties.rid];
+    if(d){ fsmPopup(map, lngLat, fsSlfRegionPopupHtml(d)); return true; }
     if(hit){ fsmPopup(map, lngLat, `<b>Lawinengefahr: Stufe ${esc(hit.properties.label)}</b><br/><a href="https://whiterisk.ch/de/conditions" target="_blank" rel="noopener noreferrer">Bulletin öffnen</a>`); return true; }
   }
   return false;
@@ -22584,6 +22687,12 @@ const FS_ICON_PATHS = {
   snowcloud: 'M7 15a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 8.5a3.5 3.5 0 0 1-1 6.5M8 18.5v.5M12 18.5v.5M16 18.5v.5M10 21v.5M14 21v.5',
   therm: 'M10 14V5a2 2 0 1 1 4 0v9a4 4 0 1 1-4 0zM12 9v7',
   wind: 'M3 9h11a3 3 0 1 0-3-3M3 13h15a3 3 0 1 1-3 3M3 17h7',
+  // Lawinenprobleme: Hang (Linie unten links → oben rechts) mit Zeichen
+  'av-new': 'M3 21L21 10M9 3v8M5.5 5l7 4M5.5 9l7-4',
+  'av-wind': 'M3 21L21 10M3 6h8a2 2 0 1 0-2-2M3 10h11a2 2 0 1 1-2 2',
+  'av-old': 'M3 21L21 10M3 16L21 5M4.5 18.6l2-1.2M9 15.8l2-1.2M13.5 13l2-1.2M18 10.3l2-1.2',
+  'av-wet': 'M3 21L21 10M10 3.5s-3.5 4-3.5 6.3a3.5 3.5 0 0 0 7 0C13.5 7.5 10 3.5 10 3.5z',
+  'av-glide': 'M3 21L21 10M10 6l2.5 3-2 2 2.5 3',
   drop: 'M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z',
   undo: 'M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
   user: 'M12 11a4 4 0 1 0 0-8a4 4 0 1 0 0 8zM4 21a8 8 0 0 1 16 0',
