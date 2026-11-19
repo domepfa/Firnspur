@@ -3264,3 +3264,19 @@ svg.fs-wxi{ fill:none; stroke:none; }
 .fs-wxw-f{ margin:8px 2px 0; font-size:12px; color:var(--ink-faint); }
 .fs-camw-chips .chip.on{ background:var(--ice-deep); color:#fff; border-color:transparent; }
 .fs-camw-t span.fs-camw-x{ flex-basis:auto; }
+
+/* ===== Hütte: Zustiege (Linie übernehmen, Jahreszeit) ===== */
+/* Linien-Modus im Karten-Editor: Punkte nicht antippbar, damit der Tipp einen Linienpunkt setzt (Ziehpunkte bleiben) */
+.fs-ed-mode-line .maplibregl-marker:not(:has(.fs-gpx-v)){ pointer-events:none; }
+.fs-ar-season{ display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--ink-soft); white-space:nowrap; }
+.fs-ar-season::before{ content:''; width:10px; height:10px; border-radius:50%; background:var(--c); }
+.fs-hut-line-hint{ display:grid; grid-template-columns:auto 1fr; gap:8px 10px; align-items:center; margin-top:10px; padding:12px; border:1.5px dashed var(--line); border-radius:12px; font-size:13.5px; color:var(--ink); }
+.fs-hut-line-hint .fs-icon, .fs-hut-line-hint svg{ width:20px; height:20px; color:var(--ink-soft); }
+.fs-hut-line-hint .btn{ grid-column:1 / -1; }
+.fs-season-h{ margin:0 40px 6px 0; }
+.fs-season-p{ margin:0 0 14px; color:var(--ink-soft); font-size:14px; }
+.fs-season-btns{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.fs-season-btns .btn{ min-height:56px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:16px; }
+.fs-season-later{ width:100%; margin-top:10px; }
+label.btn input[type=file]{ display:none; }
+.field label.fs-file-btn, label.fs-file-btn{ display:inline-flex; align-items:center; gap:8px; width:auto; min-height:48px; margin:0; text-transform:none; letter-spacing:0; font-size:15px; font-weight:600; color:var(--ink); cursor:pointer; }
