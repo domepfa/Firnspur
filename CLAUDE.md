@@ -79,7 +79,7 @@ aus anderen Apps übernehmen.
   {id, name}, per Gedrückthalten); Schalter «Webcams in meinen Touren» im Profil-Menü (Gerät, `fs-theme`.cams).
   Webcam-Vollbild: seitlich durch alle Webcams derselben Stelle wischen (Streifen, Bedingungen, Karte im Ausschnitt), Beschriftung
   und «Diese Webcam zuerst zeigen» (eigene Touren). «Webcams meiner Touren» (`fsOpenCamWall`): Knopf «Webcams» über der Touren-Liste
-  und im Profil-Menü; je Tour die Webcams zum Wischen, «Zur Tour →», nach dem Schliessen der Tour wieder die Liste. Umschalter
+  und im Profil-Menü (daneben Knopf «Wetter»: öffnet dieselbe Ansicht im Wetter); je Tour die Webcams zum Wischen, «Zur Tour →», nach dem Schliessen der Tour wieder die Liste. Umschalter
   «Wetter» (`fsWxWallLoad`/`fsWxWallDraw`): 5 Tage am Gipfel (Open-Meteo, ein Abruf für alle Touren, Symbole der Ortsprognose),
   Wind, Nullgrad, sortieren nach bestem Wetter an einem Tag.
   Karten-Editor: alle Linien gleich bearbeitbar (Ziehpunkte); berechnete/lange Linien werden beim Wechsel zu «Linie» vereinfacht

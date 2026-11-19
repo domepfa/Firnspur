@@ -3219,7 +3219,7 @@ svg.fs-wxi{ fill:none; stroke:none; }
 /* ===== Webcams meiner Touren ===== */
 .fs-home-sep-btns{ display:inline-flex; align-items:center; gap:10px; }
 .fs-home-cams{ display:inline-flex; align-items:center; gap:5px; min-height:44px; padding:0 4px; border:none; background:none; font:inherit; font-size:12.5px; font-weight:800; letter-spacing:0; text-transform:none; color:var(--ice-deep); cursor:pointer; }
-.fs-home-cams .fs-i{ width:16px; height:16px; }
+.fs-home-cams .fs-i, .fs-home-cams svg.fs-wxi{ width:18px; height:18px; }
 .fs-camw-sheet .in{ max-height:92vh; background:var(--cream); }
 .fs-camw-h{ margin:0; font:400 28px/1.1 var(--font-display); }
 .fs-camw-sub{ margin:4px 44px 10px 0; color:var(--ink-faint); font-size:12.5px; }
