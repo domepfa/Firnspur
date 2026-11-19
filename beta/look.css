@@ -3215,3 +3215,26 @@ svg.fs-wxi{ fill:none; stroke:none; }
 .fs-slf-prob li{ display:flex; align-items:center; gap:6px; }
 .fs-slf-prob li > .fs-i{ width:20px; height:20px; flex:none; }
 .fs-slf-prob li .fs-slf-rose{ margin-left:auto; flex:none; }
+
+/* ===== Webcams meiner Touren ===== */
+.fs-home-sep-btns{ display:inline-flex; align-items:center; gap:10px; }
+.fs-home-cams{ display:inline-flex; align-items:center; gap:5px; min-height:44px; padding:0 4px; border:none; background:none; font:inherit; font-size:12.5px; font-weight:800; letter-spacing:0; text-transform:none; color:var(--ice-deep); cursor:pointer; }
+.fs-home-cams .fs-i{ width:16px; height:16px; }
+.fs-camw-sheet .in{ max-height:92vh; background:var(--cream); }
+.fs-camw-h{ margin:0; font:400 28px/1.1 var(--font-display); }
+.fs-camw-sub{ margin:4px 44px 10px 0; color:var(--ink-faint); font-size:12.5px; }
+.fs-camw-chips{ margin-bottom:12px; }
+.fs-camw-list{ display:flex; flex-direction:column; gap:12px; }
+.fs-camw-card{ background:var(--paper); border-radius:16px; overflow:hidden; box-shadow:var(--shadow); }
+.fs-camw-pic{ position:relative; background:var(--line-soft); }
+.fs-camw-img{ display:block; width:100%; aspect-ratio:16/9; object-fit:cover; cursor:zoom-in; }
+.fs-camw-age, .fs-camw-n{ position:absolute; top:10px; padding:4px 9px; border-radius:9px; background:rgba(15,30,39,.62); color:#fff; font-size:12px; font-weight:700; pointer-events:none; }
+.fs-camw-age{ left:10px; } .fs-camw-n{ right:10px; }
+.fs-camw-row{ display:flex; align-items:center; gap:10px; padding:10px 12px; }
+.fs-camw-t{ flex:1; min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; }
+.fs-camw-t b{ font:400 21px/1.15 var(--font-display); }
+.fs-camw-t em{ font-style:normal; font-size:11.5px; font-weight:800; color:#fff; background:var(--ice-deep); border-radius:6px; padding:2px 6px; }
+.fs-camw-t span{ flex-basis:100%; color:var(--ink-faint); font-size:12.5px; }
+.fs-camw-x:empty{ display:none; }
+.fs-camw-go{ flex:none; height:44px; padding:0 16px; border:none; border-radius:22px; background:var(--ice-deep); color:#fff; font:800 13.5px var(--font-ui); cursor:pointer; }
+.fs-camw-more{ text-align:center; color:var(--ink-faint); font-size:13px; margin:6px 0; }
