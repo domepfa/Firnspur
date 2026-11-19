@@ -269,6 +269,7 @@ function fsDetectLosses(cur, res){
     if(fsCanon(c) === null) return;
     if(fsIsCoordList(c)){
       const n = Array.isArray(r) ? r.length : 0;
+      if(fsLineMovedTo(c, res)) return; // in einen Zustieg / eine Route verschoben
       if(n < c.length * 0.5) out.push({key:k, restore:c, text: n ? `${label}: von ${c.length} auf ${n} Punkte gekürzt` : `${label} (${c.length} Punkte)`});
       return;
     }
@@ -1861,6 +1862,7 @@ function fsEdRelease(fm){
   fm._released = true;
   const ml = fm._ml;
   fm.detach();
+  try{ ml.getContainer().classList.remove('fs-ed-mode-line'); }catch(e){}
   ml._fsInfoBlock = null;
   if(fsEdFl === fm) fsEdFl = null;
   const reg = window.__activeLeafletMaps;
@@ -11232,7 +11234,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(!usingGpxTrack) return;
       gpxTrack = manualTrack; manualTrack = savedManual || []; savedManual = null; usingGpxTrack = false;
     }
-    let mode = 'point';
+    let mode = containerId === 'access-route-map' || (manualTrackHiddenId && /access-route/.test(manualTrackHiddenId)) ? 'line' : 'point'; // Zustieg: gleich zeichnen
 
     const firstRefTrack = refTracks.length ? refTracks[0].coords : null;
     const firstRefPoint = refPoints.length ? [refPoints[0].lat, refPoints[0].lon] : null;
@@ -11733,6 +11735,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function setMode(newMode){
       if(newMode !== 'line' && usingGpxTrack){ exitGpxEdit(); updateGpxReplaceBtn(); }
       mode = newMode;
+      try{ map.getContainer().classList.toggle('fs-ed-mode-line', mode === 'line'); }catch(e){}
       // Alle Linien gleich bearbeitbar: eine berechnete oder sehr lange Linie beim Wechsel zu «Linie» auf die wichtigen
       // Punkte vereinfachen (etwa 8 m genau); danach Ziehpunkte wie jede Linie. Rückgängig mit ↶.
       if(mode === 'line' && !usingGpxTrack && manualTrack.length > 2 && (lastRouteStats || manualTrack.length > 400)){
@@ -11756,7 +11759,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       // Zeigt/versteckt die ziehbaren Punkte des eigenen GPX-Tracks je nach Modus (siehe redrawLine).
       if(typeof redrawLine === 'function') redrawLine();
     }
-    setMode('point');
+    setMode(mode); // Zustieg startet in «Linie», sonst «Punkt»
     updateRoutePanelState();
     pointModeBtn.addEventListener('click', ()=> setMode('point'));
     lineModeBtn.addEventListener('click', ()=> setMode('line'));
@@ -15003,7 +15006,7 @@ async function quickSaveMapEdits(kind, id, pointsHiddenId, manualTrackHiddenId, 
   const ok = await saveFn(item).catch(()=>false);
   item._unsynced = !ok;
   if(typeof state !== 'undefined' && state.modal && state.modal.payload === id) render();
-  if(ok) offerUndoAfterSave('Karte gespeichert · wieder gesperrt.', list, undoPrev, saveFn);
+  if(ok) offerUndoAfterSave('Karte gespeichert.', list, undoPrev, saveFn);
   else showToast('Lokal gespeichert, aber nicht synchronisiert.', true);
 }
 /* ================= Login (Firebase Authentication, einmalig pro Gerät) ================= */
@@ -15884,7 +15887,7 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'remove-completion','remove-alt-track',
   'quick-edit-toggle','toggle-tour-status','set-tour-status','toggle-hut-status',
   'convert-sektor-to-klettergebiet', // ändert die Struktur: erst im Bearbeiten-Modus
-  'fs-ort-link','fs-ort-edit','fs-ort-unlink','fs-ort-delete','fs-link-hut','fs-erf-new','fs-erf-apply','fs-erf-delete',
+  'fs-ort-link','fs-ort-edit','fs-ort-unlink','fs-ort-delete','fs-link-hut','fs-erf-new','fs-erf-apply','fs-erf-delete','fs-hut-adopt',
   'open-complete-tour','open-complete-hut','mark-done',
   'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
   'convert-msl-to-klettergarten'
@@ -16050,7 +16053,7 @@ function fsLeaveEditMode(){
   resetModalDirty();
   fsEditingKey = null;
   if(typeof render === 'function') render();
-  showToast('Fertig – wieder gesperrt.');
+  showToast('Fertig.');
 }
 function fsApplyEditMode(){
   if(typeof state === 'undefined') return;
@@ -17279,6 +17282,68 @@ function accessRouteColor(r, index){
   return ACCESS_ROUTE_COLORS[index % ACCESS_ROUTE_COLORS.length];
 }
 
+/* ===== Hütte: gezeichnete Linie wird ein Zustieg =====
+   Eine im Hüttenformular gezeichnete Linie (manualTrack) erschien bisher nirgends als Zustieg. Beim Speichern wird sie
+   jetzt ein Zustieg (Jahreszeit offen, danach gefragt); liegt sie schon unverändert in einem Zustieg (alte Übernahme),
+   wird sie an der Hütte nur entfernt. Ältere Hütten zeigen unter «Zustiege» einen Hinweis zum Übernehmen. */
+// Steckt die Linie unverändert in einem Zustieg oder einer weiteren Route von «obj»? (dann ist sie nicht verloren)
+function fsLineMovedTo(line, obj){
+  const ck = JSON.stringify(line);
+  return [].concat(obj && Array.isArray(obj.accessRoutes) ? obj.accessRoutes : [], obj && Array.isArray(obj.altTracks) ? obj.altTracks : [])
+    .some(x=> x && (JSON.stringify(x.manualTrack || null) === ck || JSON.stringify(x.trackSimplified || null) === ck));
+}
+function fsHutAdoptLine(h){
+  const line = Array.isArray(h.manualTrack) ? h.manualTrack.filter(q=> Array.isArray(q) && q.length >= 2) : [];
+  if(line.length < 2) return null;
+  if(!Array.isArray(h.accessRoutes)) h.accessRoutes = [];
+  const key = JSON.stringify(line);
+  const dup = h.accessRoutes.find(r=> r && JSON.stringify(r.manualTrack || []) === key);
+  h.manualTrack = [];
+  if(dup) return null;
+  const r = {id: uid('ar'), name: 'Zustieg', season: '', elevation: '', duration: '', difficulty: '', difficultyT: '', description: '', gpxLink: '', trackSimplified: null, manualTrack: line};
+  h.accessRoutes.push(r);
+  return r;
+}
+function fsLineKm(c){ let L = 0; for(let i = 1; i < (c || []).length; i++) L += fsRcHav(c[i - 1], c[i]); return L / 1000; }
+// Nach dem Speichern: Jahreszeit des neuen Zustiegs erfragen (ohne Antwort bleibt sie offen)
+function fsHutAskSeason(hutId, routeId){
+  const h = (state.huts || []).find(x=> x.id === hutId), r = h && (h.accessRoutes || []).find(x=> x.id === routeId);
+  if(!r) return;
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-season-h">Neuer Zustieg aus deiner Linie</h3>
+    <p class="fs-season-p">${fsLineKm(r.manualTrack).toFixed(1)} km · Für welche Jahreszeit gilt er?</p>
+    <div class="fs-season-btns"><button type="button" class="btn" data-season="sommer">${fsIconHtml('sun')}Sommer</button><button type="button" class="btn" data-season="winter">${fsIconHtml('snow')}Winter</button></div>
+    <button type="button" class="btn secondary fs-season-later" data-close>Später festlegen</button>`);
+  ov.querySelectorAll('[data-season]').forEach(b=> b.addEventListener('click', async ()=>{
+    const s = b.getAttribute('data-season');
+    r.season = s;
+    if(!r.name || r.name === 'Zustieg') r.name = 'Zustieg ' + (s === 'sommer' ? 'Sommer' : 'Winter');
+    closeTopOverlayLayer();
+    const save = fsFn('saveHutCloud');
+    if(save) await save(h).catch(()=> false);
+    if(typeof render === 'function') render();
+    showToast('Zustieg «' + r.name + '» gespeichert.');
+  }));
+}
+// Zustiege-Abschnitt der Hütte: Liste oder Leertext, dazu ein Hinweis auf eine noch nicht übernommene Linie
+function fsHutRoutesBodyHtml(h, routes, rangeText, legend){
+  const line = Array.isArray(h.manualTrack) && h.manualTrack.length > 1 ? h.manualTrack : null;
+  const hint = line ? `<div class="fs-hut-line-hint">${fsIconHtml('edit')}<span>Eingezeichnete Linie (${fsLineKm(line).toFixed(1)} km) – noch kein Zustieg.</span><button type="button" class="btn secondary" data-act="fs-hut-adopt" data-hut-id="${esc(h.id)}">Als Zustieg übernehmen</button></div>` : '';
+  if(!routes.length) return hint + (line ? '' : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`);
+  return `${rangeText ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${rangeText}</p>` : ''}${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}<div class="grid">${routes.map((r, i)=> accessRouteRowHtml(r, i, h.id)).join('')}</div>${hint}`;
+}
+document.addEventListener('click', async (e)=>{
+  const b = e.target.closest && e.target.closest('[data-act="fs-hut-adopt"]');
+  if(!b) return; // Halten/Bearbeiten-Modus prüft der Klick-Wächter (HOLD_TO_EDIT_ACTS) vorher
+  e.stopPropagation();
+  const h = (state.huts || []).find(x=> x.id === b.getAttribute('data-hut-id'));
+  if(!h) return;
+  const r = fsHutAdoptLine(h);
+  const save = fsFn('saveHutCloud');
+  if(save) await save(h).catch(()=> false);
+  if(typeof render === 'function') render();
+  if(r) setTimeout(()=> fsHutAskSeason(h.id, r.id), 250);
+}, true); // Capture: das Fenster stoppt Klicks (data-stop); der Halten-Wächter läuft vorher
 function migrateHutAccessRoutes(h){
   if(Array.isArray(h.accessRoutes)) return h;
   h.accessRoutes = [];
@@ -17464,7 +17529,7 @@ function accessRouteFormHtml(hutId, route){
       <div class="field"><label>Beschreibung</label><textarea name="description">${esc(r.description||'')}</textarea></div>
       <div class="field"><label>Link zu einer GPX-Datei</label><input type="url" name="gpxLink" value="${esc(r.gpxLink||'')}"/></div>
       <div class="field"><label>Eigenen GPX-Track hochladen</label>
-        <input type="file" id="access-route-gpx-input" accept=".gpx,application/gpx+xml"/>
+        <label class="btn secondary fs-file-btn">${fsIconHtml('upload')}GPX-Datei wählen<input type="file" id="access-route-gpx-input" accept=".gpx,application/gpx+xml" hidden/></label>
         <div class="hint">Wird automatisch für die Kartenanzeige vereinfacht und direkt in der Karte unten bearbeitbar. Die Originaldatei bleibt separat gespeichert und ist jederzeit als Volldownload abrufbar.</div>
         <p id="access-route-gpx-status" style="font-size:12.5px; color:var(--ink-soft); margin-top:6px;">${r.trackSimplified ? '✓ GPX-Track bereits hochgeladen.' : 'Noch kein Track hochgeladen.'}</p>
         ${r.trackSimplified ? `<button type="button" class="btn secondary" id="access-route-gpx-remove-btn" style="margin-top:6px;">${fsIconHtml('trash')} Track entfernen</button>` : ''}
@@ -17495,12 +17560,17 @@ function accessRouteRowHtml(r, index, hutId){
   return `<div class="card" style="border-left-color:${color}; cursor:pointer; padding:14px;" data-act="open-access-route" data-hut-id="${hutId}" data-route-id="${r.id}" tabindex="0" role="button">
     <div class="card-top">
       <h3 style="font-size:15px;">${seasonIcon} ${esc(r.name)}</h3>
-      <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; margin-top:4px;"></span>
+      <span class="fs-ar-season" style="--c:${color}">${r.season === 'sommer' ? 'Sommer' : r.season === 'winter' ? 'Winter' : 'Jahreszeit offen'}</span>
     </div>
-    ${(r.elevation || r.duration) ? `<div class="stat-row">
-      ${r.elevation ? `<span>↑ <span class="mono">${esc(r.elevation)}</span> Hm</span>` : ''}
-      ${r.duration ? `<span>${fsIconHtml('clock')} <span class="mono">${esc(r.duration)}</span></span>` : ''}
-    </div>` : ''}
+    ${(()=>{ const line = (r.trackSimplified && r.trackSimplified.length > 1) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length > 1 ? r.manualTrack : null);
+      const est = (!r.elevation || !r.duration) && line ? fsTourTimeEstimate({id: 'ar_' + r.id, manualTrack: line.map(q=> Array.isArray(q) ? [+q[0], +q[1]] : [+q.lat, +(q.lon != null ? q.lon : q.lng)]), elevationGain: r.elevation || ''}) : null;
+      const hmEst = !r.elevation && line ? fsTourHmEstimate({id: 'ar_' + r.id, manualTrack: line.map(q=> Array.isArray(q) ? [+q[0], +q[1]] : [+q.lat, +(q.lon != null ? q.lon : q.lng)])}) : '';
+      const km = line ? fsLineKm(line.map(q=> Array.isArray(q) ? q : [q.lat, q.lon != null ? q.lon : q.lng])) : 0;
+      const parts = [];
+      if(km) parts.push(`<span>${fsIconHtml('ruler')} <span class="mono">${km.toFixed(1)}</span> km</span>`);
+      if(r.elevation) parts.push(`<span>↑ <span class="mono">${esc(r.elevation)}</span> Hm</span>`); else if(hmEst && hmEst !== '–' && parseFloat(hmEst.replace(/[^\d]/g, '')) >= 30) parts.push(`<span>↑ <span class="mono">${hmEst}</span> Hm</span>`);
+      if(r.duration) parts.push(`<span>${fsIconHtml('clock')} <span class="mono">${esc(r.duration)}</span></span>`); else if(est) parts.push(`<span>${fsIconHtml('clock')} <span class="mono">≈ ${esc(est.txt)}</span> h</span>`);
+      return parts.length ? `<div class="stat-row">${parts.join('')}</div>` : ''; })()}
     ${diffBadges.length ? `<div class="badge-row">${diffBadges.join(' ')}</div>` : ''}
     ${r.description ? `<p class="excerpt">${esc(r.description)}</p>` : ''}
   </div>`;
@@ -20233,6 +20303,7 @@ function fsCheckLosses(older, newer){
     if(fsCanon(b) === null) return;
     if(fsIsCoordList(b)){
       const n = Array.isArray(c) ? c.length : 0;
+      if(fsLineMovedTo(b, newer)) return; // Hütten-Linie wurde ein Zustieg
       if(n < b.length * 0.5) out.push({field:k, type:'line', value:b, label:(FS_FIELD_LABELS[k] || k) + (n ? ': von ' + b.length + ' auf ' + n + ' Punkte gekürzt' : ' fehlt (' + b.length + ' Punkte)'), safe: !n});
       return;
     }
