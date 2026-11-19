@@ -2306,14 +2306,23 @@ function fsHomeFilter(){
   cards.forEach(c=>{ c.card.style.order = !oneGrid ? '' : c.pick ? '-1' : (!groups || c.on) ? '0' : '2'; c.card.classList.toggle('fs-home-pick', c.pick); });
   // Überschriften der Gruppen (nur anlegen/ändern, wenn nötig: der Beobachter des Blatts zählt das nicht)
   const word = fsHomePts.kind === 'hut' ? 'Hütten' : (fsHomePts.kind === 'gebiet' || fsHomePts.kind === 'klettergebiet') ? 'Gebiete' : 'Touren';
-  sheet.querySelectorAll('.fs-home-sep').forEach(x=>{ if(!groups || x.parentElement !== grid) x.remove(); });
-  if(!groups) return;
+  sheet.querySelectorAll('.fs-home-sep').forEach(x=>{ if(x.parentElement !== grid || (!groups && !x.classList.contains('cams'))) x.remove(); });
+  if(!groups){
+    // Alle Touren sichtbar: trotzdem der Knopf «Webcams» über der Liste
+    if(oneGrid && grid && (fsHomePts.kind === 'tour' || fsHomePts.kind === 'msl')){
+      let el = grid.querySelector(':scope > .fs-home-sep.cams');
+      if(!el){ el = document.createElement('div'); el.className = 'fs-home-sep cams'; el.style.order = '-2'; el.innerHTML = `<span>${total} ${word}</span><button type="button" class="fs-home-cams">${fsIconHtml('camera')}Webcams</button>`; grid.appendChild(el); }
+    }
+    return;
+  }
+  sheet.querySelectorAll('.fs-home-sep.cams').forEach(x=> x.remove());
   const sep = (cls, order, html)=>{
     let el = grid.querySelector(':scope > .fs-home-sep.' + cls);
     if(!el){ el = document.createElement('div'); el.className = 'fs-home-sep ' + cls; el.style.order = order; grid.appendChild(el); }
     if(el.dataset.h !== html){ el.dataset.h = html; el.innerHTML = html; const b = el.querySelector('.fs-home-all'); if(b) b.onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); }; }
   };
-  sep('top', '-2', `<span>Im Kartenausschnitt · ${shown}</span><button type="button" class="fs-home-all">Alle auf der Karte</button>`);
+  const camsBtn = (fsHomePts.kind === 'tour' || fsHomePts.kind === 'msl') ? `<button type="button" class="fs-home-cams">${fsIconHtml('camera')}Webcams</button>` : '';
+  sep('top', '-2', `<span>Im Kartenausschnitt · ${shown}</span><span class="fs-home-sep-btns">${camsBtn}<button type="button" class="fs-home-all">Alle auf der Karte</button></span>`);
   sep('rest', '1', `<span>Weitere ${word} · ${total - shown}</span>`);
 }
 // Suchfeld in den Listen immer sichtbar, in derselben Zeile wie «Filter» (nur Klassen setzen: das Feld
@@ -7191,6 +7200,7 @@ async function fsmLoadPoints(map, o){
         : (v > 0 ? `<div class="fsm-val" style="--c:#1971C2">${v.toFixed(1)}</div>` : `<div class="fsm-val fsm-val-0"></div>`);
     }
     const m = fsmAddMarker(map, lat, lon, html, {popup: fsPointPopupHtml(o, p)});
+    if(o.kind === 'webcam'){ const l = fsLinksOf(p); if(!l.img && p.description){ const mm = /<img[^>]+src="(https:[^"]+)"/.exec(p.description); if(mm) l.img = mm[1]; } if(l.img){ const el = m.getElement(); el.dataset.img = l.img; el.dataset.name = p.station_name || 'Webcam'; el.dataset.sub = 'Livebild · MeteoSchweiz'; } }
     fsmClAdd(map, o.id, m, lat, lon);
     list.push(m);
   });
@@ -7224,6 +7234,7 @@ async function fsmWindyCams(map, o){
         ${img ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"><img src="${esc(img)}" alt="Webcam ${name}" loading="lazy"/></a>` : ''}
         <a class="fs-cam-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">Bei Windy.com ansehen ↗</a></div>`;
       const m = fsmAddMarker(map, loc.latitude, loc.longitude, `<div class="fsm-cam">${fsIconHtml('camera')}</div>`, {popup: pop});
+      if(img){ const el = m.getElement(); el.dataset.img = img; el.dataset.name = w.title || 'Webcam'; el.dataset.sub = [loc.city, age].filter(Boolean).join(' · '); }
       fsmClAdd(map, o.id, m, loc.latitude, loc.longitude);
       (map._fsm.pt[o.id] = map._fsm.pt[o.id] || []).push(m);
     });
@@ -7241,11 +7252,45 @@ function fsCamAge(iso){
 }
 // Webcam-Bild antippen: im Vollbild öffnen (Zoomen mit zwei Fingern oder Doppeltippen) statt zur Webseite
 document.addEventListener('click', e=>{
-  const img = e.target.closest && e.target.closest('.fs-cam-pop img, .fs-cond-cams img, .fs-cam-row img, .fs-tcam img');
+  const img = e.target.closest && e.target.closest('.fs-cam-pop img, .fs-cond-cams img, .fs-cam-row img, .fs-tcam img, .fs-camw-img');
   if(!img || !img.src) return;
   e.preventDefault(); e.stopPropagation();
-  showTopoImageLightbox([{url: img.src}], 0);
+  // Seitlich wischen durch alle Webcams derselben Stelle (Streifen der Tour, Bedingungen, Webcams der Karte im Ausschnitt)
+  let list = null;
+  const strip = img.closest('.fs-tcams, .fs-cond-cams, .fs-camw-card');
+  if(strip && strip.classList.contains('fs-camw-card')) list = fsCamWallImages(strip);
+  else if(strip) list = [...strip.querySelectorAll('img')].map(im=>{ const f = im.closest('[data-name]'), a = im.closest('a'); return {url: im.src, caption: (f && f.getAttribute('data-name')) || (a && a.textContent.trim()) || '', sub: (f && f.getAttribute('data-sub')) || '', camId: f && f.getAttribute('data-cam'), tourId: f && f.closest('[data-tour]') && f.closest('[data-tour]').getAttribute('data-tour')}; });
+  else if(img.closest('.fs-cam-pop')) list = fsMapCamImages(img);
+  if(!list || !list.length) list = [{url: img.src}];
+  list.forEach(it=>{ if(it.tourId && it.camId) fsCamPinAction(it); });
+  const i = Math.max(0, list.findIndex(x=> x.url === img.src));
+  showTopoImageLightbox(list, i);
 }, true);
+// Knopf «Diese Webcam zuerst zeigen» im Vollbild (nur eigene Touren)
+function fsCamPinAction(it){
+  const t = (state.tours || []).find(x=> x.id === it.tourId);
+  if(!t || !state.myName || fsNameKey(fsOwnerOf(t)) !== fsNameKey(state.myName)) return;
+  const label = ()=> (t.webcamPin && t.webcamPin.id === it.camId) ? 'Festgelegt – nicht mehr zuerst zeigen' : 'Diese Webcam zuerst zeigen';
+  it.actionLabel = label();
+  it.action = async (item, refresh)=>{
+    const isPin = t.webcamPin && t.webcamPin.id === item.camId;
+    t.webcamPin = isPin ? '' : {id: item.camId, name: item.caption};
+    await fsErfSaveTour(t, isPin ? 'Webcam gelöst.' : 'Webcam festgelegt.');
+    item.actionLabel = label(); refresh();
+  };
+}
+// Webcams der Karte rund um die angetippte (sichtbar im Ausschnitt, die nächsten zuerst, höchstens 12)
+function fsMapCamImages(img){
+  const map = fsHomeMap;
+  const G = map && map._fsm && map._fsm.cl && map._fsm.cl.webcams;
+  if(!G) return null;
+  const b = map.getBounds(), c = map.getCenter();
+  const items = G.items.filter(it=> b.contains([it.lon, it.lat]) && it.m.getElement().dataset.img).map(it=> ({d: fsGeoDist(c.lat, c.lng, it.lat, it.lon), el: it.m.getElement()}));
+  items.sort((x, y)=> x.d - y.d);
+  const list = items.slice(0, 12).map(x=> ({url: x.el.dataset.img, caption: x.el.dataset.name || 'Webcam', sub: x.el.dataset.sub || ''}));
+  if(!list.some(x=> x.url === img.src)) list.unshift({url: img.src, caption: '', sub: ''});
+  return list;
+}
 /* ===== Hangexposition (Ebene) =====
    Wohin ein Hang schaut, gerechnet auf dem Gerät aus dem Höhenmodell (Terrarium wie 3D «Spar», etwa 30 m genau):
    Nordhänge blau, Südhänge orange; flaches Gelände (unter etwa 10°) bleibt frei. Kacheln über das Protokoll fsaspect://. */
@@ -13183,7 +13228,7 @@ function fsTourCamsHtml(t){
   const km = d=> d == null ? '' : d < 1000 ? Math.round(d / 10) * 10 + ' m' : (d / 1000).toFixed(d < 10000 ? 1 : 0) + ' km';
   return `<div class="fs-tcams" data-tour="${esc(t.id)}" aria-label="Webcams in der Nähe">${list.map(w=>{
     const meta = [w.id === pin ? 'festgelegt' : '', km(w.d), w.live ? 'Livebild' : fsCamAge(w.age).replace(/ \(veraltet\)$/, ' – veraltet')].filter(Boolean).join(' · ');
-    return `<figure class="fs-tcam${w.id === pin ? ' is-pin' : ''}" data-cam="${esc(w.id)}" data-name="${esc(w.name)}"><img src="${esc(w.img)}" alt="Webcam ${esc(w.name)}" loading="lazy"/>
+    return `<figure class="fs-tcam${w.id === pin ? ' is-pin' : ''}" data-cam="${esc(w.id)}" data-name="${esc(w.name)}" data-sub="${esc(meta)}"><img src="${esc(w.img)}" alt="Webcam ${esc(w.name)}" loading="lazy"/>
       <figcaption>${w.id === pin ? fsIconHtml('pin') : ''}<b>${esc(w.name)}</b><span>${esc(meta)}</span></figcaption></figure>`;
   }).join('')}</div><p class="fs-tcams-hint">Gedrückt halten: diese Webcam zuerst zeigen. ${esc(list[0].src)}.</p>`;
 }
@@ -13211,6 +13256,99 @@ function fsTourCamsHtml(t){
   // Nach dem Gedrückthalten kein Vollbild öffnen
   document.addEventListener('click', (e)=>{ if(held && e.target.closest && e.target.closest('.fs-tcam')){ e.stopPropagation(); e.preventDefault(); held = false; } }, true);
 })();
+
+/* ===== Webcams meiner Touren (Blatt über der Karte) =====
+   Je Tour eine Webcam (festgelegte, sonst die nächste mit Bild), zum Durchscrollen am Morgen. Bild antippen: Vollbild,
+   seitlich durch alle Webcams der Tour wischen. «Zur Tour →» öffnet die Tour; schliesst man sie, kommt die Liste wieder.
+   Touren im Kartenausschnitt zuerst. Webcams werden nacheinander geladen (fsWebcamsNear, gemerkt in fsTourCamCache). */
+const fsCamWallOpts = {all: false, fresh: false};
+let fsCamWallBackTimer = null;
+function fsCamWallTours(){
+  const me = fsNameKey(state.myName);
+  const list = (state.tours || []).filter(t=> t && !t.deletedAt && (fsCamWallOpts.all || (me && fsNameKey(fsOwnerOf(t)) === me)) && fsTourPlace(t));
+  const b = fsHomeMap && fsHomeMap.getBounds ? fsHomeMap.getBounds() : null;
+  const inView = t=>{ const p = fsTourPlace(t); return b && b.contains([p.lon, p.lat]) ? 0 : 1; };
+  return list.sort((x, y)=> inView(x) - inView(y) || String(x.name || '').localeCompare(String(y.name || ''), 'de'));
+}
+function fsCamWallKey(t){ const p = fsTourPlace(t); return (+p.lat).toFixed(2) + ',' + (+p.lon).toFixed(2); }
+function fsCamWallCams(t){
+  const c = fsTourCamCache.get(fsCamWallKey(t));
+  if(!c || !c.list) return null;
+  const pin = t.webcamPin && t.webcamPin.id;
+  return c.list.filter(w=> w.img).sort((a, b)=> (b.id === pin) - (a.id === pin));
+}
+function fsCamFresh(w){ if(w.live) return true; const t = w.age ? Date.parse(w.age) : NaN; return isFinite(t) && Date.now() - t < 2 * 3600e3; }
+function fsCamWallImages(card){
+  const t = (state.tours || []).find(x=> x.id === card.getAttribute('data-tour'));
+  const cams = t ? fsCamWallCams(t) || [] : [];
+  const km = d=> d == null ? '' : d < 1000 ? Math.round(d / 10) * 10 + ' m' : (d / 1000).toFixed(d < 10000 ? 1 : 0) + ' km';
+  return cams.map((w, i)=> ({url: w.img, caption: w.name, sub: [t.name, w.live ? 'Livebild' : fsCamAge(w.age), km(w.d), (i + 1) + ' von ' + cams.length].filter(Boolean).join(' · '), camId: w.id, tourId: t.id}));
+}
+function fsCamWallCardHtml(t){
+  const cams = fsCamWallCams(t);
+  if(!cams || !cams.length) return '';
+  const w = cams[0];
+  if(fsCamWallOpts.fresh && !fsCamFresh(w)) return '';
+  const age = w.live ? 'Livebild' : fsCamAge(w.age);
+  return `<div class="fs-camw-card" data-tour="${esc(t.id)}">
+    <div class="fs-camw-pic"><img class="fs-camw-img" src="${esc(w.img)}" alt="Webcam ${esc(w.name)}" loading="lazy"/>${age ? `<span class="fs-camw-age">${esc(age.replace(/^Bild /, ''))}</span>` : ''}${cams.length > 1 ? `<span class="fs-camw-n">${cams.length} Webcams ›</span>` : ''}</div>
+    <div class="fs-camw-row"><div class="fs-camw-t"><b>${esc(t.name || '')}</b>${t.difficulty ? `<em>${esc(t.difficulty)}</em>` : ''}<span>${esc(w.name)}</span><span class="fs-camw-x">${fsCardSlfHtml(t)}</span></div>
+      <button type="button" class="fs-camw-go" data-go="${esc(t.id)}">Zur Tour →</button></div></div>`;
+}
+function fsCamWallDraw(ov){
+  const tours = fsCamWallTours();
+  const chip = (k, label)=> `<button type="button" class="chip ${fsCamWallOpts[k] ? 'on' : ''}" data-opt="${k}" aria-pressed="${!!fsCamWallOpts[k]}">${label}</button>`;
+  ov.querySelector('.fs-camw-chips').innerHTML = chip('all', 'Alle Touren') + chip('fresh', 'Nur frische Bilder');
+  const cards = tours.map(fsCamWallCardHtml).filter(Boolean);
+  const pending = tours.filter(t=>{ const c = fsTourCamCache.get(fsCamWallKey(t)); return !c || c.status === 'loading'; }).length;
+  ov.querySelector('.fs-camw-list').innerHTML = cards.join('')
+    + (pending ? `<p class="fs-camw-more">Webcams werden geladen … (${pending})</p>` : '')
+    + (!cards.length && !pending ? `<p class="fs-camw-more">${tours.length ? (fsCamWallOpts.fresh ? 'Keine frischen Bilder (jünger als 2 Stunden).' : 'Keine Webcams mit Bild in der Nähe deiner Touren.') : (fsCamWallOpts.all ? 'Keine Touren mit Ort.' : 'Du hast noch keine eigenen Touren mit Ort – «Alle Touren» zeigt alle.')}</p>` : '');
+}
+async function fsCamWallLoad(ov){
+  for(const t of fsCamWallTours()){
+    if(!document.body.contains(ov)) return;
+    const key = fsCamWallKey(t), c = fsTourCamCache.get(key);
+    if(c && c.status === 'ok' && Date.now() - c.at < 10 * 60000) continue;
+    if(navigator.onLine === false) break;
+    const p = fsTourPlace(t);
+    fsTourCamCache.set(key, {status: 'loading'});
+    try{ const list = await fsWebcamsNear(+p.lat, +p.lon); fsTourCamCache.set(key, {status: 'ok', list, at: Date.now()}); }
+    catch(e){ fsTourCamCache.set(key, {status: 'err', at: Date.now()}); }
+    if(document.body.contains(ov)) fsCamWallDraw(ov);
+  }
+  if(document.body.contains(ov)) fsCamWallDraw(ov);
+}
+function fsOpenCamWall(){
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-camw-h">Webcams</h3><p class="fs-camw-sub">Eine Webcam pro Tour – die festgelegte, sonst die nächste. Bild antippen: alle Webcams der Tour.</p>
+    <div class="fs-camw-chips chips"></div><div class="fs-camw-list"></div>`);
+  ov.classList.add('fs-camw-sheet');
+  ov.addEventListener('click', (e)=>{
+    const o = e.target.closest('[data-opt]');
+    if(o){ const k = o.getAttribute('data-opt'); fsCamWallOpts[k] = !fsCamWallOpts[k]; fsCamWallDraw(ov); if(k === 'all') fsCamWallLoad(ov); return; }
+    const go = e.target.closest('[data-go]');
+    if(go){
+      const id = go.getAttribute('data-go');
+      closeTopOverlayLayer();
+      navigateToModal({type: 'tour-detail', payload: id});
+      // Tour wieder geschlossen: Liste erneut öffnen
+      clearInterval(fsCamWallBackTimer);
+      let seen = false;
+      fsCamWallBackTimer = setInterval(()=>{
+        const open = !!(state.modal && state.modal.type === 'tour-detail');
+        if(open){ seen = true; return; }
+        if(!seen) return;
+        clearInterval(fsCamWallBackTimer);
+        if(!state.modal && !document.querySelector('.fs-cond-sheet, .overlay')) fsOpenCamWall();
+      }, 400);
+      setTimeout(()=>{ if(!seen) clearInterval(fsCamWallBackTimer); }, 5000);
+    }
+  });
+  fsCamWallDraw(ov);
+  fsCamWallLoad(ov);
+}
+document.addEventListener('click', (e)=>{ if(e.target.closest && e.target.closest('.fs-home-cams')){ e.stopPropagation(); fsOpenCamWall(); } }, true);
 
 /* ===== Wetter auf der Karte (B): ruhige Farbflächen, ein Fadenkreuz mit dem Wert, Zeitleiste =====
    Bedienung unten in der Daumenzone (wie Windy, MeteoSchweiz): Wetterart als Chips, darunter eine
@@ -17678,6 +17816,20 @@ function showTopoImageLightbox(images, startIndex, offlineId){
   // jedes Bild kann eine Quelle tragen (ownerLabel/ownerModalType/ownerId) -- ein Tap auf den
   // Button springt direkt zur zugehörigen Seite. Bei normalen Einzel-Galerien (kein ownerLabel
   // gesetzt) bleibt der Button einfach weg.
+  // Webcams: Beschriftung (Name · Alter · Entfernung) und ein Knopf je Bild (z. B. «Diese Webcam zuerst zeigen»)
+  let capEl = null, actBtn = null;
+  if(images.some(im=> im.caption)){
+    capEl = document.createElement('div');
+    capEl.style.cssText = 'position:absolute; left:16px; right:16px; bottom:calc(' + (images.length > 1 ? '86px' : '96px') + ' + env(safe-area-inset-bottom, 0px)); color:#fff; font-size:13px; line-height:1.35; text-align:center; pointer-events:none;';
+    overlay.appendChild(capEl);
+  }
+  if(images.some(im=> im.actionLabel)){
+    actBtn = document.createElement('button');
+    actBtn.type = 'button';
+    actBtn.style.cssText = 'position:absolute; left:16px; right:16px; bottom:calc(16px + env(safe-area-inset-bottom, 0px)); height:52px; border:none; border-radius:26px; background:#fff; color:#0F1E27; font-weight:800; font-size:15px; cursor:pointer;';
+    actBtn.addEventListener('click', (e)=>{ e.stopPropagation(); const it = images[idx]; if(it.action) it.action(it, ()=> updateImage()); });
+    overlay.appendChild(actBtn);
+  }
   let ownerBtn = null;
   if(images.some(im=>im.ownerLabel)){
     ownerBtn = document.createElement('button');
@@ -17729,6 +17881,9 @@ function showTopoImageLightbox(images, startIndex, offlineId){
     // Zweifel (z. B. hängender IndexedDB-Zugriff) trotzdem etwas erscheint.
     imgEl.src = item.url;
     if(counterEl) counterEl.textContent = `${idx+1} / ${images.length}`;
+    if(capEl) capEl.innerHTML = item.caption ? `<b style="font-size:16px">${esc(item.caption)}</b>${item.sub ? `<br><span style="color:#C3CDD4">${esc(item.sub)}</span>` : ''}` : '';
+    if(actBtn){ actBtn.style.display = item.actionLabel ? '' : 'none'; actBtn.textContent = item.actionLabel || ''; }
+    if(counterEl && capEl) counterEl.style.display = 'none'; // steht in der Beschriftung («2 von 3»)
     if(ownerBtn) ownerBtn.style.display = item.ownerLabel ? '' : 'none';
     if(ownerBtn && item.ownerLabel) ownerBtn.textContent = '→ ' + item.ownerLabel + ' öffnen';
     if(offlineId && item.id){
@@ -21896,6 +22051,11 @@ function fsEnsureThemeToggles(){
       if(typeof render === 'function') render();
     });
     row.appendChild(c);
+    const w = document.createElement('button');
+    w.type = 'button'; w.className = 'fs-theme-toggle';
+    w.innerHTML = '<span>Webcams meiner Touren</span>' + fsIconHtml('camera');
+    w.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); const m = w.closest('details'); if(m) m.open = false; fsOpenCamWall(); });
+    row.appendChild(w);
   });
 }
 

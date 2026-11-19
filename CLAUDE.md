@@ -77,6 +77,9 @@ aus anderen Apps übernehmen.
   Wetter/Bedingungen/Bulletin gelten am Gipfel (`fsTourWxHtml`), auch für Touren nur mit Linie.
   Eigene Touren: Webcam-Streifen unter den Kennzahlen (`fsTourCamsHtml`, drei Webcams, festgelegte zuerst: Feld `webcamPin`
   {id, name}, per Gedrückthalten); Schalter «Webcams in meinen Touren» im Profil-Menü (Gerät, `fs-theme`.cams).
+  Webcam-Vollbild: seitlich durch alle Webcams derselben Stelle wischen (Streifen, Bedingungen, Karte im Ausschnitt), Beschriftung
+  und «Diese Webcam zuerst zeigen» (eigene Touren). «Webcams meiner Touren» (`fsOpenCamWall`): Knopf «Webcams» über der Touren-Liste
+  und im Profil-Menü; je Tour eine Webcam, «Zur Tour →», nach dem Schliessen der Tour wieder die Liste.
 - Hang-Scan (`fsScan*` in `0-shared.js`): Zielen mit festem Rahmen auf der Startkarte (Menü oder Gedrückthalten),
   Rechnung auf dem Gerät, eigene 3D-Ansicht mit den Ebenen Steilheit, Lawine, Klippen, Sonne (Zeitraffer).
   Neigung ab 30° aus der swisstopo-Karte «Hangneigung über 30°» (wie der Routen-Check `fsRc*`), sonst
