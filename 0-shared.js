@@ -7788,9 +7788,10 @@ async function fsUpDownSplit(tour, coords){
 }
 /* ===== Skitouren-Planung: Aufstiegsspur aus dem Gelände (weglos, mit Spitzkehren) =====
    Rechnet auf dem Gerät aus dem Höhenmodell (swisstopo-Gelände wie 3D «Hoch», sonst FS3D_DEM), ohne Wegnetz.
-   Suche über ein Raster (A*, 16 Richtungen, Zustand = Ort + Laufrichtung): die Spur steigt höchstens etwa 14°
-   (steiler wird teuer, daraus entstehen Spitzkehren; jede Kehre kostet Zeit), Hänge ab 30° werden gemieden,
-   je steiler, desto stärker. Zeit: 4 km/h und 400 Hm/h. Ein Vorschlag aus dem Gelände – keine Beurteilung
+   Suche über ein Raster (A*, 16 Richtungen, Zustand = Ort + Laufrichtung): die Spur steigt höchstens etwa 17°
+   (steiler wird teuer, daraus entstehen Spitzkehren; jede Kehre kostet Zeit, kleine Richtungswechsel etwas, damit die
+   Spur ruhig bleibt). Hänge bis 30° normal, 30–35° leicht, ab 35° stark gemieden. Die fertige Linie wird geglättet
+   (vereinfachen auf 4 m, zweimal Chaikin); Kennzahlen aus der ungeglätteten Spur. Zeit: 4 km/h und 400 Hm/h. Ein Vorschlag aus dem Gelände – keine Beurteilung
    von Lawinen und Verhältnissen. */
 // Höhenraster für einen Ausschnitt in globalen Bildpunkten (Zoom z): Float32Array, Zeile für Zeile
 async function fsElevGrid(z, px0, py0, w, h){
@@ -7819,7 +7820,7 @@ async function fsElevGrid(z, px0, py0, w, h){
 function fsSkiEngine(){
   const MOVES = [[1,0],[2,1],[1,1],[1,2],[0,1],[-1,2],[-1,1],[-2,1],[-1,0],[-2,-1],[-1,-1],[-1,-2],[0,-1],[1,-2],[1,-1],[2,-1]]; // im Kreis
   const V = 4000 / 3600, UP = 400 / 3600; // m/s waagrecht, Hm/s im Aufstieg
-  function slopePen(s){ return s < 27 ? 1 : s < 30 ? 1.2 : s < 35 ? 2.2 : s < 40 ? 5 : s < 45 ? 14 : 45; }
+  function slopePen(s){ return s < 30 ? 1 : s < 35 ? 1.3 : s < 40 ? 3 : s < 45 ? 10 : 40; } // bis 30° normal begehbar
   function solve(job){
     const w = job.w, h = job.h, e = job.e, cell = job.cell, n = w * h;
     // Steilheit (Horn) in Grad
@@ -7874,11 +7875,11 @@ function fsSkiEngine(){
         const j = ny * w + nx, L = ML[m], dz = e[j] - ei, gr = dz / L;
         let t = dz >= 0 ? L / V + dz / UP : L / (V * 1.6);
         let pen = slopePen(Math.max(si, sl[j]));
-        if(gr > 0.25) pen *= 1 + (gr - 0.25) * 45;      // Spur steiler als etwa 14°: rasch teuer
+        if(gr > 0.31) pen *= 1 + (gr - 0.31) * 45;      // Spur steiler als etwa 17°: rasch teuer
         if(gr > 0.42) pen *= 6;                          // kaum mehr mit Fellen: Stapfen
         if(gr < -0.45) pen *= 1 + (-gr - 0.45) * 8;
         let turn = Math.abs(m - d); if(turn > 8) turn = 16 - turn;
-        const tc = g === 0 ? 0 : turn === 0 ? 0 : turn === 1 ? 1.5 : turn === 2 ? 5 : turn <= 4 ? 14 : (si > 30 ? 60 : 35); // ab etwa 110°: Spitzkehre
+        const tc = g === 0 ? 0 : turn === 0 ? 0 : turn === 1 ? 4 : turn === 2 ? 12 : turn <= 4 ? 20 : (si > 30 ? 60 : 35); // kleine Wechsel kosten etwas (ruhige Spur); ab etwa 110°: Spitzkehre
         const ng = g + t * pen + tc, ns = j * 16 + m;
         if(ng < G[ns]){ G[ns] = ng; P[ns] = st; push(ng + heur(j), ns); }
       }
@@ -7963,7 +7964,34 @@ async function fsSkiRoute(waypoints){
     prevB = br;
     profile.push({distM: distanceM, eleM: eles[i]});
   }
-  return {coords, distanceM, durationS, ascentM, descentM, elevationProfile: profile, slopes, over30M: over30, maxSlope, stapfenHm: stapfen, kehren, source: 'ski', swiss: swissAll};
+  const sm = fsSmoothTrack(coords, slopes);
+  return {coords: sm.coords, distanceM, durationS, ascentM, descentM, elevationProfile: profile, slopes: sm.slopes, over30M: over30, maxSlope, stapfenHm: stapfen, kehren, source: 'ski', swiss: swissAll};
+}
+// Spur glätten: Rasterstufen weg (vereinfachen auf tol m), dann Ecken runden (Chaikin); Steilheit je Punkt mitführen
+function fsSmoothTrack(coords, slopes, tol){
+  if(!coords || coords.length < 3) return {coords, slopes};
+  const k = Math.cos(coords[0][0] * Math.PI / 180), X = q=> q[1] * 111320 * k, Y = q=> q[0] * 110540;
+  const keep = new Uint8Array(coords.length); keep[0] = keep[coords.length - 1] = 1;
+  const stack = [[0, coords.length - 1]];
+  while(stack.length){
+    const [a, b] = stack.pop(), ax = X(coords[a]), ay = Y(coords[a]), dx = X(coords[b]) - ax, dy = Y(coords[b]) - ay, L = dx * dx + dy * dy;
+    let best = -1, bd = tol || 4;
+    for(let i = a + 1; i < b; i++){ const px = X(coords[i]) - ax, py = Y(coords[i]) - ay, t = L ? Math.max(0, Math.min(1, (px * dx + py * dy) / L)) : 0, d = Math.hypot(px - t * dx, py - t * dy); if(d > bd){ bd = d; best = i; } }
+    if(best > 0){ keep[best] = 1; stack.push([a, best], [best, b]); }
+  }
+  // Steilheit eines behaltenen Punkts: die grösste seit dem vorigen behaltenen (nichts Steiles geht verloren)
+  let c = [], sl = [], mx = 0;
+  coords.forEach((q, i)=>{ mx = Math.max(mx, slopes[i] || 0); if(keep[i]){ c.push(q); sl.push(mx); mx = 0; } });
+  for(let r = 0; r < 2; r++){
+    const nc = [c[0]], ns = [sl[0]];
+    for(let i = 0; i < c.length - 1; i++){
+      const a = c[i], b = c[i + 1], s = Math.max(sl[i], sl[i + 1]);
+      nc.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]); ns.push(s, s);
+    }
+    nc.push(c[c.length - 1]); ns.push(sl[sl.length - 1]);
+    c = nc; sl = ns;
+  }
+  return {coords: c.map(q=> [+q[0].toFixed(6), +q[1].toFixed(6)]), slopes: sl};
 }
 /* ===== Skipisten und Lifte (OpenStreetMap) =====
    Abfrage über Overpass je Kachel (Zoom 11, wie Parkplätze), erst ab Zoom 11. Farben wie in der Schweiz:
