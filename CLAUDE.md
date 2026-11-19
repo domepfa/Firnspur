@@ -107,6 +107,9 @@ aus anderen Apps übernehmen.
   Tourenzettel, noch in Texten an die Nutzer (Chat, PR-Beschreibungen, Commits).
   - Symbole als Strich-Icons: `fsIconHtml('name')` mit Pfaden aus `FS_ICON_PATHS`
     (`0-shared.js`). Fehlt eines, einen neuen Pfad im selben Stil ergänzen (24×24, nur Linien).
+  - Wettersymbole mehrfarbig: `fsIconHtml('wx-…')` aus `FS_WX_ICONS` (Nacht `wx-n-…`), Farben über `--wxi-*` in `look.css`;
+    Zuordnung MeteoSchweiz-Nummern `FS_WX_SYM`/`fsWxSym`, Open-Meteo `weatherCodeInfo`. Tagessymbole in Liste und Tour aus der
+    nächsten Ortsprognose (`fsWxOrteDayCode`).
   - Die automatische Umwandlung (`FS_EMOJI_ICONS`) ist nur ein Sicherheitsnetz für alte Stellen.
     Eigene Fenster wie der Tourenzettel laufen über `fsNoEmojiHtml()`.
   - Erlaubt sind typografische Zeichen wie → ↑ ↓ · – ✓ ☐.
