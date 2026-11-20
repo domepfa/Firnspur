@@ -3280,3 +3280,21 @@ svg.fs-wxi{ fill:none; stroke:none; }
 .fs-season-later{ width:100%; margin-top:10px; }
 label.btn input[type=file]{ display:none; }
 .field label.fs-file-btn, label.fs-file-btn{ display:inline-flex; align-items:center; gap:8px; width:auto; min-height:48px; margin:0; text-transform:none; letter-spacing:0; font-size:15px; font-weight:600; color:var(--ink); cursor:pointer; }
+
+/* ===== Routenliste im Formular (Touren und Hütten) ===== */
+.fs-har-add{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:8px 0 6px; }
+.fs-har-add > .btn, .fs-har-add > label.fs-file-btn{ width:100%; min-height:48px; justify-content:center; display:inline-flex; align-items:center; gap:8px; margin:0; }
+.fs-har-row{ border:1px solid var(--line); border-radius:12px; padding:10px; margin-bottom:10px; background:var(--paper); }
+.fs-har-row .fs-route-edit{ margin:0; }
+.fs-har-sub{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px; font-size:13px; color:var(--ink-soft); }
+.fs-har-sub .btn{ min-height:44px; display:inline-flex; align-items:center; gap:6px; font-size:14px; }
+.fs-har-more{ margin-top:8px; }
+.fs-har-more > summary{ cursor:pointer; min-height:44px; display:flex; align-items:center; font-size:13.5px; font-weight:600; color:var(--ink-soft); }
+.fs-har-more .field{ margin-bottom:10px; }
+.fs-har-sub .fs-route-type{ flex:1 1 0; min-width:0; width:auto; max-width:none; min-height:44px; }
+.fs-har-sub .btn{ flex:none; white-space:nowrap; }
+.fs-har-sub .fs-har-km{ flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fs-har-more > summary{ list-style:none; gap:8px; }
+.fs-har-more > summary::-webkit-details-marker{ display:none; }
+.fs-har-more > summary::before{ content:'+'; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; border:1.5px solid var(--line); font-weight:700; color:var(--ink-soft); flex:none; }
+.fs-har-more[open] > summary::before{ content:'–'; }
