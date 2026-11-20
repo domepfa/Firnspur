@@ -2602,7 +2602,7 @@ function wireModalHandlers__sw(){
       descent: tourFormForAutofill.querySelector('[name="elevationLoss"]'),
       duration: tourFormForAutofill.querySelector('[name="duration"]')
     } : null;
-    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', pmRefTracks, undefined, pmAutofillFields, pmGpxConfig);
+    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', (state.modal && state.modal.type==='edit-hut') ? null : 'manual-track-hidden', pmRefTracks, undefined, pmAutofillFields, pmGpxConfig); // Hütte: Linien über «Zustiege»
     { const ob = document.getElementById('points-map-open'); if(ob && !fsEdNoAuto) ob.click(); } // gleich die Bearbeiten-Karte (Startkarte im Vollbild)
   });
   // Direkter Sprung von der Übersichtskarte ins Bearbeiten (siehe openTourEditFromMap &Co. in
@@ -2629,6 +2629,7 @@ function wireModalHandlers__sw(){
     if(pointsMapDiv && pointsMapDiv.style.display !== 'none' && pointsMapToggleBtn) { fsEdNoAuto = true; pointsMapToggleBtn.click(); fsEdNoAuto = false; }
   }
   if(root.querySelector('#fs-routes-edit')) fsWireRoutesEditor();
+  if(root.querySelector('#fs-har-list')){ fsWireHutRoutes(state._harOpts); state._harOpts = null; }
   const gpxFileInput = root.querySelector('#gpx-file-input');
   if(gpxFileInput) gpxFileInput.addEventListener('change', ()=>{
     handleGpxFileUpload(gpxFileInput, GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status', refreshPointsMapIfOpen);
@@ -3384,8 +3385,7 @@ function wireModalHandlers__sw(){
   root.querySelectorAll('[data-act="open-tour"]').forEach(el=> el.onclick = ()=>openTourDetail(el.getAttribute('data-id')));
 
   root.querySelectorAll('[data-act="add-access-route"]').forEach(el=> el.onclick = ()=>{
-    navigateToModal({type:'edit-access-route', payload:{hutId: el.getAttribute('data-hut-id'), route:null}});
-    render();
+    fsOpenHutRoutes(el.getAttribute('data-hut-id'), {draw: true}); // Hüttenformular, gleich «Route zeichnen»
   });
   root.querySelectorAll('[data-act="open-access-route"]').forEach(el=> el.onclick = ()=>{
     const hutId = el.getAttribute('data-hut-id');
@@ -3402,8 +3402,7 @@ function wireModalHandlers__sw(){
     const hut = state.huts.find(h=>h.id===hutId);
     const route = hut && hut.accessRoutes ? hut.accessRoutes.find(r=>r.id===routeId) : null;
     if(!route) return;
-    navigateToModal({type:'edit-access-route', payload:{hutId, route}});
-    render();
+    fsOpenHutRoutes(hutId, {open: routeId}); // Hüttenformular, dieser Zustieg aufgeklappt
   });
   root.querySelectorAll('[data-act="show-access-route-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -4761,6 +4760,7 @@ async function submitHutForm__fix(form, existing){
   h.approachTypes = Array.isArray(form.approachTypes) ? form.approachTypes : [];
   try{ h.points = form.points ? JSON.parse(form.points) : []; }catch(e){ h.points = []; }
   try{ h.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ h.manualTrack = []; }
+  if(form.accessRoutes != null){ try{ const ar = JSON.parse(form.accessRoutes || '[]'); if(Array.isArray(ar)) h.accessRoutes = ar; }catch(e){} } // Routenliste im Formular
   migrateHutAccessRoutes(h);
   const newAr = fsHutAdoptLine(h); // gezeichnete Linie wird ein Zustieg
   h.contact = form.contact;
@@ -7383,18 +7383,15 @@ function hutFormHtml__fix(existing){
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV, Seilbahn …">${esc(h.approach||'')}</textarea></div>
       <div class="field"><label>Punkte auf der Karte (Hütte, Parkplatz, Haltestelle …)</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Auf der Karte bearbeiten</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu. Beim Speichern wird die Linie ein Zustieg (danach Sommer oder Winter wählen).</div>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. Zustiege zeichnest du unten unter «Zustiege».</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(h.points || (h.lat && h.lon ? [{label:"Hütte", lat:h.lat, lon:h.lon}] : [])))}'/>
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(h.manualTrack || []))}'/>
       </div>
       <input type="hidden" name="hutIdForTrack" id="hut-id-for-track" value="${esc(h.id||'')}"/>
+      ${fsHutRoutesFieldHtml(h)}
 
-      <div class="field" style="background:var(--ice-light); border-radius:var(--radius); padding:12px;">
-        <label style="margin-bottom:4px;">Zustiege (Sommer/Winter, beliebig viele)</label>
-        <p style="font-size:13px; color:var(--ink-soft); margin:0;">${isEditing ? 'Zustiege werden in der Detailansicht der Hütte verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege hinzufügen.'}</p>
-      </div>
 
       <div class="field" style="margin-top:16px;"><label>Link zur Hütte</label><input type="url" name="hutLink" value="${esc(h.hutLink||'')}"/></div>
       <div class="field"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, Sektion …"/></div>
@@ -7916,7 +7913,7 @@ function wireModalHandlers__fix(){
       descent: tourFormForAutofill.querySelector('[name="elevationLoss"]'),
       duration: tourFormForAutofill.querySelector('[name="duration"]')
     } : null;
-    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', 'manual-track-hidden', pmRefTracks, undefined, pmAutofillFields, pmGpxConfig);
+    renderPointsEditorMap('points-map', 'points-hidden', 'points-list', (state.modal && state.modal.type==='edit-hut') ? null : 'manual-track-hidden', pmRefTracks, undefined, pmAutofillFields, pmGpxConfig); // Hütte: Linien über «Zustiege»
     { const ob = document.getElementById('points-map-open'); if(ob && !fsEdNoAuto) ob.click(); } // gleich die Bearbeiten-Karte (Startkarte im Vollbild)
   });
   // Direkter Sprung von der Übersichtskarte ins Bearbeiten (siehe openTourEditFromMap &Co. in
@@ -7943,6 +7940,7 @@ function wireModalHandlers__fix(){
     if(pointsMapDiv && pointsMapDiv.style.display !== 'none' && pointsMapToggleBtn) { fsEdNoAuto = true; pointsMapToggleBtn.click(); fsEdNoAuto = false; }
   }
   if(root.querySelector('#fs-routes-edit')) fsWireRoutesEditor();
+  if(root.querySelector('#fs-har-list')){ fsWireHutRoutes(state._harOpts); state._harOpts = null; }
   const gpxFileInput = root.querySelector('#gpx-file-input');
   if(gpxFileInput) gpxFileInput.addEventListener('change', ()=>{
     handleGpxFileUpload(gpxFileInput, GPX_TRACKS_PATH, 'tour-id-for-track', 'track-simplified-hidden', 'gpx-upload-status', refreshPointsMapIfOpen);
@@ -8920,8 +8918,7 @@ function wireModalHandlers__fix(){
   });
 
   root.querySelectorAll('[data-act="add-access-route"]').forEach(el=> el.onclick = ()=>{
-    navigateToModal({type:'edit-access-route', payload:{hutId: el.getAttribute('data-hut-id'), route:null}});
-    render();
+    fsOpenHutRoutes(el.getAttribute('data-hut-id'), {draw: true}); // Hüttenformular, gleich «Route zeichnen»
   });
   root.querySelectorAll('[data-act="open-access-route"]').forEach(el=> el.onclick = ()=>{
     const hutId = el.getAttribute('data-hut-id');
@@ -8938,8 +8935,7 @@ function wireModalHandlers__fix(){
     const hut = state.huts.find(h=>h.id===hutId);
     const route = hut && hut.accessRoutes ? hut.accessRoutes.find(r=>r.id===routeId) : null;
     if(!route) return;
-    navigateToModal({type:'edit-access-route', payload:{hutId, route}});
-    render();
+    fsOpenHutRoutes(hutId, {open: routeId}); // Hüttenformular, dieser Zustieg aufgeklappt
   });
   root.querySelectorAll('[data-act="show-access-route-map"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{

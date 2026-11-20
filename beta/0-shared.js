@@ -1836,6 +1836,7 @@ function fsmTerrainButtons(map){
 // Bearbeiten im Vollbild: die Startkarte ausleihen (gleicher Ausschnitt, Ebenen, 2D/3D), die Werkzeuge des
 // Editors (Punkt, Linie, Route) hängen als FL-Hülle daran; beim Schliessen wird alles Eigene wieder entfernt
 let fsEdFl = null;
+let fsEdNext = {}; // fürs nächste Öffnen des Editors: {line: true} startet in «Linie», {noPoints: true} ohne Punkt-Modus
 function fsEdAcquire(innerId){
   if(fsEdFl) fsEdRelease(fsEdFl);
   // Tour hinter dem Blatt: deren Karte zuerst zurückgeben (wird beim Zurückkehren neu aufgebaut)
@@ -10698,10 +10699,13 @@ function fsRoutesEditorHtml(t){
   // Ein Knopf für alles: der erste Track wird zur Hauptroute, jeder weitere kommt dazu –
   // es wird nie etwas überschrieben. Darunter alle Routen mit Name, Art und Löschen.
   return `<div id="fs-routes-field">
-    <button type="button" class="btn secondary fs-route-add" id="alt-gpx-btn">+ Track hinzufügen</button>
+    <div class="fs-har-add">
+      <button type="button" class="btn secondary" id="fs-route-draw">${fsIconHtml('edit')}Route zeichnen</button>
+      <button type="button" class="btn secondary fs-route-add" id="alt-gpx-btn">${fsIconHtml('upload')}GPX-Datei</button>
+    </div>
     <input type="file" id="alt-gpx-input" accept=".gpx,application/gpx+xml" hidden/>
     <div id="fs-routes-edit"></div>
-    <div class="hint">Jeder Track wird hinzugefügt, nichts wird überschrieben. Name und Art je Route; eine Linie lässt sich auch auf der Karte zeichnen.</div>
+    <div class="hint">Jede Route kommt dazu, nichts wird überschrieben. Beim Zeichnen zuerst die Art wählen.</div>
     <input type="hidden" name="trackName" id="route-track-name" value="${esc(t.trackName||'')}"/>
     <input type="hidden" name="trackType" id="route-track-type" value="${esc(t.trackType||'')}"/>
     <input type="hidden" name="manualTrackName" id="route-manual-name" value="${esc(t.manualTrackName||'')}"/>
@@ -10769,6 +10773,8 @@ function fsRoutesEditorRender(){
 }
 function fsWireRoutesEditor(){
   fsRoutesEditorRender();
+  const drawBtn = document.getElementById('fs-route-draw');
+  if(drawBtn) drawBtn.addEventListener('click', fsTourDrawRoute);
   const inp = document.getElementById('alt-gpx-input');
   if(!inp) return;
   const btn = document.getElementById('alt-gpx-btn');
@@ -10938,7 +10944,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
   if(containerId !== 'fullscreen-map-container'){
     fsEdCompact(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, gpxConfig && gpxConfig.hiddenId, ()=> openFullscreenMap(
       (id)=> renderPointsEditorMap(id, hiddenInputId, null, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig),
-      ()=> renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig)));
+      ()=>{ renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, refTracks, refPoints, autofillFields, gpxConfig); if(typeof fsRoutesEditorRender === 'function') fsRoutesEditorRender(); }));
     return;
   }
   const el = document.getElementById(containerId);
@@ -10954,6 +10960,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       try{ const parsed = JSON.parse(gpxHiddenInput.value); if(Array.isArray(parsed) && parsed.length) gpxTrackFromHidden = parsed; }catch(e){}
     }
     if(!el2 || !hiddenInput) return;
+    const edNext = fsEdNext; fsEdNext = {}; // einmalige Vorgaben fürs Öffnen (Routenliste: gleich «Linie», ohne Punkte)
     const mapDivId = containerId + '-inner';
     destroyExistingMap(mapDivId);
     el2.innerHTML = '';
@@ -11037,6 +11044,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     modeRow.appendChild(lineModeBtn);
     modeRow.appendChild(routeModeBtn);
     wrapDiv.appendChild(modeRow);
+    if(edNext.noPoints) pointModeBtn.style.display = 'none'; // Route aus der Routenliste: nur Linie/Route
+    if(!manualTrackHidden && !gpxHiddenInput){ lineModeBtn.style.display = 'none'; routeModeBtn.style.display = 'none'; modeRow.style.display = 'none'; } // nur Punkte (Hütte: Linien über «Zustiege»)
 
     // Mehrstufiges Rückgängig für alle drei Modi (Punkt/Linie/Route) – immer sichtbar, nicht an
     // einen Modus gebunden, damit z. B. ein versehentlich gelöschter Punkt oder eine ganze
@@ -11234,7 +11243,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(!usingGpxTrack) return;
       gpxTrack = manualTrack; manualTrack = savedManual || []; savedManual = null; usingGpxTrack = false;
     }
-    let mode = containerId === 'access-route-map' || (manualTrackHiddenId && /access-route/.test(manualTrackHiddenId)) ? 'line' : 'point'; // Zustieg: gleich zeichnen
+    let mode = edNext.line || containerId === 'access-route-map' || (manualTrackHiddenId && /access-route/.test(manualTrackHiddenId)) ? 'line' : 'point'; // Zustieg/neue Route: gleich zeichnen
 
     const firstRefTrack = refTracks.length ? refTracks[0].coords : null;
     const firstRefPoint = refPoints.length ? [refPoints[0].lat, refPoints[0].lon] : null;
@@ -11248,7 +11257,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // Vollbild: dieselbe Karte wie überall (Startkarte ausgeliehen); nur die kleine Karte im Formular ist eigen
     const map = ((isFullscreen && fsEdAcquire(mapDivId)) || fsmCreateFlMap(mapDivId, isFullscreen ? {on3d: (ml)=> openEditor3d(ml)} : undefined)).setView(center, zoom);
     // Bearbeiten: «Fertig» statt «Schliessen» – die Änderungen bleiben (gespeichert wird im Blatt bzw. Formular)
-    if(isFullscreen){ const cb = document.getElementById('fullscreen-map-close'); if(cb) cb.innerHTML = fsIconHtml('check') + 'Fertig'; }
+    if(isFullscreen){ const cb = document.getElementById('fullscreen-map-close'); if(cb) cb.innerHTML = fsIconHtml('check') + 'Übernehmen'; finishBtn.style.display = 'none'; } // ein Knopf: «Übernehmen» schliesst und übernimmt
     map._isPointsEditorMap = true;
     if(fsPeTop){
       // Kartenknöpfe (Ebenen, Standort, 3D) unter die schwebende Leiste schieben
@@ -17280,6 +17289,185 @@ function accessRouteColor(r, index){
   if(r && r.season==='sommer') return '#E8B93E';
   if(r && r.season==='winter') return '#1565C0';
   return ACCESS_ROUTE_COLORS[index % ACCESS_ROUTE_COLORS.length];
+}
+
+/* ===== Routenliste im Formular: Art wählen, zeichnen, übernehmen =====
+   Touren und Hütten gleich: im Formular eine Liste der Routen, darunter «Route zeichnen» und «GPX-Datei».
+   Beim Zeichnen zuerst die Art wählen, dann öffnet die Karte im Vollbild direkt in «Linie»; «Übernehmen»
+   führt zurück ins Formular. Gespeichert wird einmal, unten im Formular (Verlassen ohne Speichern fragt). */
+// Blatt mit grossen Knöpfen für die Art; cb(wert) oder nichts bei Abbruch
+function fsAskRouteKind(title, opts, cb){
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-season-h">${esc(title)}</h3>
+    <div class="fs-season-btns${opts.length > 2 ? ' many' : ''}">${opts.map(o=> `<button type="button" class="btn" data-kind="${esc(o.value)}">${o.icon ? fsIconHtml(o.icon) : ''}${esc(o.label)}</button>`).join('')}</div>
+    <button type="button" class="btn secondary fs-season-later" data-close>Abbrechen</button>`);
+  ov.querySelectorAll('[data-kind]').forEach(b=> b.addEventListener('click', ()=>{ closeTopOverlayLayer(); cb(b.getAttribute('data-kind')); }));
+}
+const FS_HAR_SEASONS = [{value: 'sommer', label: 'Sommer', icon: 'sun'}, {value: 'winter', label: 'Winter', icon: 'snow'}];
+function fsHarSeasonName(s){ return s === 'sommer' ? 'Zustieg Sommer' : s === 'winter' ? 'Zustieg Winter' : 'Zustieg'; }
+// Feld «Zustiege» im Hüttenformular
+function fsHutRoutesFieldHtml(h){
+  const routes = h && Array.isArray(h.accessRoutes) ? h.accessRoutes : [];
+  return `<div class="field" id="fs-har-field"><label>Zustiege</label>
+    <div id="fs-har-list"></div>
+    <div class="fs-har-add">
+      <button type="button" class="btn secondary" id="fs-har-draw">${fsIconHtml('edit')}Route zeichnen</button>
+      <label class="btn secondary fs-file-btn">${fsIconHtml('upload')}GPX-Datei<input type="file" id="fs-har-gpx" accept=".gpx,application/gpx+xml" hidden/></label>
+    </div>
+    <p id="fs-har-status" class="fs-gpx-status"></p>
+    <input type="hidden" name="accessRoutes" id="fs-har-hidden" value='${esc(JSON.stringify(routes))}'/>
+    <input type="hidden" id="fs-har-line" value="[]"/><input type="hidden" id="fs-har-trk" value=""/><input type="hidden" id="fs-har-trkid" value=""/><input type="hidden" id="fs-har-pts" value="[]"/>
+  </div>`;
+}
+function fsHarRead(){ try{ const a = JSON.parse((document.getElementById('fs-har-hidden') || {}).value || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+function fsHarWrite(a){ const el = document.getElementById('fs-har-hidden'); if(el){ el.value = JSON.stringify(a); markModalDirty(); } }
+function fsHarRender(openId){
+  const box = document.getElementById('fs-har-list');
+  if(!box) return;
+  const routes = fsHarRead();
+  const opt = (list, cur)=> list.map(c=> `<option value="${c}" ${cur === c ? 'selected' : ''}>${c}</option>`).join('');
+  box.innerHTML = routes.length ? routes.map((r, i)=>{
+    const line = (r.trackSimplified && r.trackSimplified.length > 1) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length > 1 ? r.manualTrack : null);
+    const km = line ? fsLineKm(line.map(q=> Array.isArray(q) ? q : [q.lat, q.lon != null ? q.lon : q.lng])) : 0;
+    return `<div class="fs-har-row" data-id="${esc(r.id)}">
+      <div class="fs-route-edit">
+        <span class="fs-route-sw" style="--c:${accessRouteColor(r, i)}"></span>
+        <input type="text" class="fs-route-name" data-f="name" value="${esc(r.name || '')}" placeholder="Name, z. B. ab Randa" aria-label="Name des Zustiegs"/>
+        <button type="button" class="fs-icon-btn fs-har-del" aria-label="Zustieg entfernen">${fsIconHtml('trash')}</button>
+      </div>
+      <div class="fs-har-sub">
+        <select class="fs-route-type" data-f="season" aria-label="Jahreszeit"><option value="sommer" ${r.season === 'sommer' ? 'selected' : ''}>Sommer</option><option value="winter" ${r.season === 'winter' ? 'selected' : ''}>Winter</option><option value="" ${!r.season ? 'selected' : ''}>Jahreszeit offen</option></select>
+        <button type="button" class="btn secondary fs-har-line">${fsIconHtml('map')}${line ? `Linie · ${km.toFixed(1)} km${r.trackSimplified && r.trackSimplified.length > 1 ? ' GPX' : ''}` : 'Linie zeichnen'}</button>
+      </div>
+      <details class="fs-har-more"${openId === r.id ? ' open' : ''}><summary>Höhenmeter, Zeit, Schwierigkeit, Beschreibung</summary>
+        <div class="row2">
+          <div class="field"><label>Höhenmeter (Hm)</label><input data-f="elevation" value="${esc(r.elevation || '')}" inputmode="numeric"/></div>
+          <div class="field"><label>Zeitbedarf</label><input data-f="duration" value="${esc(r.duration || '')}" placeholder="z. B. 2–3 h"/></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Schwierigkeit (SAC)</label><select data-f="difficulty"><option value="">–</option>${opt(DIFF_ORDER, r.difficulty)}</select></div>
+          <div class="field"><label>Wanderskala (T)</label><select data-f="difficultyT"><option value="">–</option>${opt(HIKE_SCALE_ORDER, r.difficultyT)}</select></div>
+        </div>
+        <div class="field"><label>Beschreibung</label><textarea data-f="description">${esc(r.description || '')}</textarea></div>
+        <div class="field"><label>Link zu einer GPX-Datei</label><input type="url" data-f="gpxLink" value="${esc(r.gpxLink || '')}"/></div>
+      </details>
+    </div>`; }).join('') : '<p class="hint" style="margin:0 0 8px;">Noch kein Zustieg – Route zeichnen oder GPX-Datei wählen.</p>';
+  box.querySelectorAll('.fs-har-row').forEach(row=>{
+    const id = row.getAttribute('data-id');
+    const upd = (fn)=>{ const a = fsHarRead(), r = a.find(x=> x.id === id); if(!r) return; fn(r); fsHarWrite(a); };
+    row.querySelectorAll('[data-f]').forEach(inp=> inp.addEventListener(inp.tagName === 'SELECT' ? 'change' : 'input', ()=> upd(r=>{
+      const f = inp.getAttribute('data-f'), v = inp.value;
+      if(f === 'season' && (!r.name || /^Zustieg( Sommer| Winter)?$/.test(r.name))){ r.name = fsHarSeasonName(v); row.querySelector('[data-f="name"]').value = r.name; }
+      r[f] = f === 'name' ? v.trim() : v;
+      if(f === 'season') setTimeout(()=> fsHarRender(), 0); // Farbe
+    })));
+    row.querySelector('.fs-har-del').addEventListener('click', ()=>{
+      const a = fsHarRead(), r = a.find(x=> x.id === id);
+      if(!r || !confirm('Zustieg «' + (r.name || 'ohne Namen') + '» entfernen? Wird erst mit «Speichern» übernommen.')) return;
+      fsHarWrite(a.filter(x=> x.id !== id));
+      fsHarRender();
+    });
+    row.querySelector('.fs-har-line').addEventListener('click', ()=> fsHarEditLine(id, false));
+  });
+}
+// Linie eines Zustiegs im Vollbild bearbeiten (die Hütte und die übrigen Zustiege als Bezug)
+function fsHarEditLine(id, isNew){
+  const a = fsHarRead(), r = a.find(x=> x.id === id);
+  if(!r) return;
+  const set = (elId, v)=>{ const el = document.getElementById(elId); if(el) el.value = v; };
+  set('fs-har-line', JSON.stringify(r.manualTrack || []));
+  set('fs-har-trk', r.trackSimplified && r.trackSimplified.length ? JSON.stringify(r.trackSimplified) : '');
+  set('fs-har-trkid', r.id);
+  let pts = []; try{ pts = JSON.parse((document.getElementById('points-hidden') || {}).value || '[]'); }catch(e){}
+  const hutName = ((document.querySelector('#modal-root .modal form [name="name"]') || {}).value || 'Hütte').trim();
+  const refPoints = ownPointRefPoints({points: pts}, hutName, '#8A5A2E');
+  const refTracks = siblingRouteRefTracks({accessRoutes: a}, id);
+  const gpx = r.trackSimplified && r.trackSimplified.length ? {hiddenId: 'fs-har-trk', idHiddenId: 'fs-har-trkid', trackPathPrefix: ACCESS_ROUTE_GPX_PATH, statusId: 'fs-har-status'} : null;
+  fsEdNext = {line: true, noPoints: true};
+  openFullscreenMap((cid)=> renderPointsEditorMap(cid, 'fs-har-pts', null, 'fs-har-line', refTracks, refPoints, null, gpx), ()=>{
+    const b = fsHarRead(), x = b.find(q=> q.id === id);
+    if(!x) return;
+    let line = [], trk = null;
+    try{ line = JSON.parse(document.getElementById('fs-har-line').value || '[]'); }catch(e){}
+    try{ const v = document.getElementById('fs-har-trk').value; trk = v ? JSON.parse(v) : null; }catch(e){}
+    x.manualTrack = Array.isArray(line) ? line : [];
+    if(gpx) x.trackSimplified = trk && trk.length > 1 ? trk : null;
+    const empty = x.manualTrack.length < 2 && !(x.trackSimplified && x.trackSimplified.length > 1);
+    const out = isNew && empty ? b.filter(q=> q.id !== id) : b; // neu und nichts gezeichnet: wieder weg
+    fsHarWrite(out);
+    fsHarRender();
+    if(isNew && !empty) showToast('Zustieg übernommen – mit «Speichern» sichern.');
+  });
+}
+function fsHarNew(season, extra){
+  const r = Object.assign({id: uid('ar'), name: fsHarSeasonName(season), season: season || '', elevation: '', duration: '', difficulty: '', difficultyT: '', description: '', gpxLink: '', trackSimplified: null, manualTrack: []}, extra || {});
+  const a = fsHarRead(); a.push(r); fsHarWrite(a);
+  return r;
+}
+function fsHarDraw(){
+  fsAskRouteKind('Welcher Zustieg?', FS_HAR_SEASONS, (season)=>{
+    const r = fsHarNew(season);
+    fsHarRender();
+    fsHarEditLine(r.id, true);
+  });
+}
+function fsWireHutRoutes(opts){
+  if(!document.getElementById('fs-har-list')) return;
+  opts = opts || {};
+  fsHarRender(opts.open);
+  const draw = document.getElementById('fs-har-draw');
+  if(draw) draw.addEventListener('click', fsHarDraw);
+  const inp = document.getElementById('fs-har-gpx');
+  if(inp) inp.addEventListener('change', ()=>{
+    const f = inp.files && inp.files[0];
+    if(!f) return;
+    const r = fsHarNew('', {name: f.name.replace(/\.gpx$/i, '')});
+    document.getElementById('fs-har-trk').value = '';
+    document.getElementById('fs-har-trkid').value = r.id;
+    handleGpxFileUpload(inp, ACCESS_ROUTE_GPX_PATH, 'fs-har-trkid', 'fs-har-trk', 'fs-har-status', ()=>{
+      let trk = null; try{ trk = JSON.parse(document.getElementById('fs-har-trk').value || 'null'); }catch(e){}
+      const a = fsHarRead(), x = a.find(q=> q.id === r.id);
+      if(x) x.trackSimplified = trk;
+      fsHarWrite(a); fsHarRender();
+      inp.value = '';
+      fsAskRouteKind('Für welche Jahreszeit gilt der Zustieg?', FS_HAR_SEASONS, (season)=>{
+        const b = fsHarRead(), y = b.find(q=> q.id === r.id);
+        if(y){ y.season = season; if(!y.name) y.name = fsHarSeasonName(season); fsHarWrite(b); fsHarRender(); }
+      });
+    });
+  });
+  const field = document.getElementById('fs-har-field');
+  if(opts.open && field) setTimeout(()=>{ const row = field.querySelector('.fs-har-row[data-id="' + opts.open + '"]'); (row || field).scrollIntoView({block: 'center'}); }, 300);
+  if(opts.draw){ if(field) field.scrollIntoView({block: 'center'}); setTimeout(fsHarDraw, 300); }
+}
+// Aus der Hüttenansicht: «+ Zustieg» und «Zustieg bearbeiten» öffnen das Hüttenformular an dieser Stelle
+function fsOpenHutRoutes(hutId, opts){
+  const h = (state.huts || []).find(x=> x.id === hutId);
+  if(!h) return;
+  migrateHutAccessRoutes(h);
+  state._harOpts = opts || {};
+  navigateToModal({type: 'edit-hut', payload: h});
+  render();
+}
+// Formular-Routen der Tour: «Route zeichnen» fragt zuerst nach der Art
+function fsTourDrawRoute(){
+  fsAskRouteKind('Welche Route?', FS_ROUTE_TYPE_ORDER.map(k=> ({value: k, label: fsRouteLabel(k)})), (type)=>{
+    const mt = document.getElementById('manual-track-hidden'), nm = document.getElementById('route-manual-name'), ty = document.getElementById('route-manual-type'), altEl = document.getElementById('route-alt-tracks');
+    if(!mt || !ty) return;
+    let cur = []; try{ cur = JSON.parse(mt.value || '[]'); }catch(e){}
+    if(cur.length > 1 && altEl){ // bisherige gezeichnete Linie als weitere Route ablegen, nichts überschreiben
+      let alts = []; try{ alts = JSON.parse(altEl.value || '[]'); }catch(e){}
+      alts.push({id: 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), name: nm ? nm.value.trim() : '', type: FS_ROUTE_TYPES[ty.value] ? ty.value : 'aufstieg', trackSimplified: cur.map(c=> [Math.round(c[0] * 1e6) / 1e6, Math.round(c[1] * 1e6) / 1e6])});
+      altEl.value = JSON.stringify(alts);
+    }
+    mt.value = '[]'; ty.value = type; if(nm) nm.value = '';
+    markModalDirty();
+    fsRoutesEditorRender();
+    fsEdNext = {line: true};
+    const open = document.getElementById('points-map-open'), tog = document.getElementById('points-map-toggle-btn');
+    if(open && open.offsetParent !== null) open.click(); else if(tog) tog.click();
+    else fsEdNext = {};
+  });
 }
 
 /* ===== Hütte: gezeichnete Linie wird ein Zustieg =====

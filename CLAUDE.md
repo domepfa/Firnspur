@@ -82,6 +82,10 @@ aus anderen Apps übernehmen.
   und im Profil-Menü (daneben Knopf «Wetter»: öffnet dieselbe Ansicht im Wetter); je Tour die Webcams zum Wischen, «Zur Tour →», nach dem Schliessen der Tour wieder die Liste. Umschalter
   «Wetter» (`fsWxWallLoad`/`fsWxWallDraw`): 5 Tage am Gipfel (Open-Meteo, ein Abruf für alle Touren, Symbole der Ortsprognose),
   Wind, Nullgrad, sortieren nach bestem Wetter an einem Tag.
+  Routen im Formular (Touren und Hütten gleich): Liste der Routen, «Route zeichnen» fragt zuerst die Art (`fsAskRouteKind`), öffnet die
+  Karte im Vollbild in «Linie» (`fsEdNext`), «Übernehmen» führt zurück; gespeichert wird einmal im Formular. Hütten: Feld «Zustiege»
+  (`fsHutRoutesFieldHtml`/`fsWireHutRoutes`, Sommer/Winter, Angaben aufklappbar), kein eigenes Zustiegs-Formular mehr; eine alte
+  Linie der Hütte (`manualTrack`) wird beim Speichern ein Zustieg (`fsHutAdoptLine`). Tour: `fsTourDrawRoute`.
   Karten-Editor: alle Linien gleich bearbeitbar (Ziehpunkte); berechnete/lange Linien werden beim Wechsel zu «Linie» vereinfacht
   (`fsSimplifyLine`, 8 m). Tour-Routen auf der Startkarte kräftig mit weissem Rand (`fs-home-routes-case`).
 - Hang-Scan (`fsScan*` in `0-shared.js`): Zielen mit festem Rahmen auf der Startkarte (Menü oder Gedrückthalten),
