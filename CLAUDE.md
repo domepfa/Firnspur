@@ -83,8 +83,9 @@ aus anderen Apps übernehmen.
   «Wetter» (`fsWxWallLoad`/`fsWxWallDraw`): 5 Tage am Gipfel (Open-Meteo, ein Abruf für alle Touren, Symbole der Ortsprognose),
   Wind, Nullgrad, sortieren nach bestem Wetter an einem Tag.
   Routen im Formular (Touren und Hütten gleich): Liste der Routen, «Route zeichnen» fragt zuerst die Art (`fsAskRouteKind`), öffnet die
-  Karte im Vollbild in «Linie» (`fsEdNext`), «Übernehmen» führt zurück; gespeichert wird einmal im Formular. Hütten: Feld «Zustiege»
-  (`fsHutRoutesFieldHtml`/`fsWireHutRoutes`, Sommer/Winter, Angaben aufklappbar), kein eigenes Zustiegs-Formular mehr; eine alte
+  Karte im Vollbild in «Linie» (`fsEdNext`), «Übernehmen» führt zurück; gespeichert wird einmal im Formular. Zustiege/Abstiege als Liste im Formular
+  (`fsRlFieldHtml`/`fsRlWire`, `fsRlCfg`: Hütte Sommer/Winter, Hochtour-Tour und Sektor Zustieg/Abstieg, Angaben aufklappbar), keine eigenen
+  Zustiegs-/Abstiegs-Formulare mehr; Stift halten öffnet direkt das Formular (kein Bearbeiten-Modus); Hütten- und Tourformular in Abschnitten; eine alte
   Linie der Hütte (`manualTrack`) wird beim Speichern ein Zustieg (`fsHutAdoptLine`). Tour: `fsTourDrawRoute`.
   Karten-Editor: alle Linien gleich bearbeitbar (Ziehpunkte); berechnete/lange Linien werden beim Wechsel zu «Linie» vereinfacht
   (`fsSimplifyLine`, 8 m). Tour-Routen auf der Startkarte kräftig mit weissem Rand (`fs-home-routes-case`).
