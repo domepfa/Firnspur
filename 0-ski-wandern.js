@@ -155,6 +155,7 @@ async function submitHutForm__sw(form, existing){
   h.approachTypes = Array.isArray(form.approachTypes) ? form.approachTypes : [];
   try{ h.points = form.points ? JSON.parse(form.points) : []; }catch(e){ h.points = []; }
   try{ h.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ h.manualTrack = []; }
+  if(form.accessRoutes != null){ try{ const ar = JSON.parse(form.accessRoutes || '[]'); if(Array.isArray(ar)) h.accessRoutes = ar; }catch(e){} } // Routenliste im Formular
   h.gebietId = form.gebietId || '';
   migrateHutAccessRoutes(h);
   const newAr = fsHutAdoptLine(h); // gezeichnete Linie wird ein Zustieg
@@ -589,18 +590,15 @@ function hutFormHtml__sw(existing){
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(h.approach||'')}</textarea></div>
       <div class="field"><label>Punkte auf der Karte (Hütte, Parkplatz, Haltestelle …)</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Auf der Karte bearbeiten</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu. Beim Speichern wird die Linie ein Zustieg (danach Sommer oder Winter wählen).</div>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. Zustiege zeichnest du unten unter «Zustiege».</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(h.points || (h.lat && h.lon ? [{label:"Hütte", lat:h.lat, lon:h.lon}] : [])))}'/>
         <input type="hidden" name="manualTrack" id="manual-track-hidden" value='${esc(JSON.stringify(h.manualTrack || []))}'/>
       </div>
       <input type="hidden" name="hutIdForTrack" id="hut-id-for-track" value="${esc(h.id||'')}"/>
+      ${fsHutRoutesFieldHtml(h)}
 
-      <div class="field" style="background:var(--ice-light); border-radius:var(--radius); padding:12px;">
-        <label style="margin-bottom:4px;">Zustiege (Sommer/Winter, beliebig viele)</label>
-        <p style="font-size:13px; color:var(--ink-soft); margin:0;">${isEditing ? 'Zustiege werden in der Detailansicht der Hütte verwaltet (nach dem Speichern über "✓ Speichern" erreichbar).' : 'Nach dem Anlegen kannst du in der Detailansicht beliebig viele Zustiege hinzufügen.'}</p>
-      </div>
 
       <div class="field" style="margin-top:16px;"><label>Link zur Hütte</label><input type="url" name="hutLink" value="${esc(h.hutLink||'')}"/></div>
       <div class="field"><label>Kontakt / Reservation</label><input name="contact" value="${esc(h.contact||'')}" placeholder="Telefon, Website, SAC-Sektion …"/></div>
