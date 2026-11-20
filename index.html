@@ -1670,7 +1670,7 @@ function gebietFormHtmlSki(existing){
       <div class="field"><label>Beschreibung</label><textarea name="description" placeholder="Charakter des Gebiets, grobe Übersicht …">${esc(g.description||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(g.points || []))}'/>
@@ -1718,7 +1718,7 @@ function gebietFormHtmlWand(existing){
       <div class="field"><label>Beschreibung</label><textarea name="description" placeholder="Charakter des Gebiets, grobe Übersicht …">${esc(g.description||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(g.points || []))}'/>
@@ -1933,7 +1933,7 @@ function tourFormHtmlSki(existing){
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
@@ -2072,7 +2072,7 @@ function tourFormHtmlWand(existing){
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
@@ -4762,6 +4762,7 @@ async function submitHutForm__fix(form, existing){
   try{ h.points = form.points ? JSON.parse(form.points) : []; }catch(e){ h.points = []; }
   try{ h.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ h.manualTrack = []; }
   migrateHutAccessRoutes(h);
+  const newAr = fsHutAdoptLine(h); // gezeichnete Linie wird ein Zustieg
   h.contact = form.contact;
   h.notes = form.notes;
   if(form.klettergebietId !== undefined) h.klettergebietId = form.klettergebietId || ''; // Feld fehlt, wenn die Liste leer ist: dann bleibt die Verknüpfung
@@ -4784,6 +4785,7 @@ async function submitHutForm__fix(form, existing){
     offerUndoAfterSave('Hütte gespeichert.', state.huts, undoPrev, saveHutCloud);
   }
   render();
+  if(newAr) setTimeout(()=> fsHutAskSeason(h.id, newAr.id), 300); // Jahreszeit des neuen Zustiegs
 }
 
 
@@ -5124,7 +5126,7 @@ function sektorFormHtml(existing){
       </div>`}
       <div class="field"><label>Gemeinsamer Ausgangspunkt – Punkte &amp; Linie auf der Karte</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(s.points || []))}'/>
@@ -5349,7 +5351,7 @@ function klettergebietFormHtml(existing){
       <div class="field"><label>Beschreibung / Material</label><textarea name="description" placeholder="Charakter des Gebiets, grobe Zustiegs-Übersicht, übliches Material …">${esc(g.description||'')}</textarea></div>
       <div class="field"><label>Zustieg / Lage – Punkte &amp; Linie auf der Karte</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(g.points || []))}'/>
@@ -7081,7 +7083,7 @@ function tourFormHtml__fix(existing){
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
       <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
         <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte zur blauen Linie hinzu.</div>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
@@ -7380,8 +7382,8 @@ function hutFormHtml__fix(existing){
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV, Seilbahn …">${esc(h.approach||'')}</textarea></div>
       <div class="field"><label>Punkte auf der Karte (Hütte, Parkplatz, Haltestelle …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte zum Setzen von Punkten öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: eigenen Zustieg einzeichnen, falls kein GPX-Track vorhanden – antippen fügt Wegpunkte hinzu.</div>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Auf der Karte bearbeiten</button>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu. Beim Speichern wird die Linie ein Zustieg (danach Sommer oder Winter wählen).</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(h.points || (h.lat && h.lon ? [{label:"Hütte", lat:h.lat, lon:h.lon}] : [])))}'/>
@@ -7486,11 +7488,7 @@ function hutDetailHtml__fix(id){
 
     <div class="detail-section">
       <h4>Zustiege${routes.length ? ` (${routes.length})` : ''}</h4>
-      ${routes.length ? `
-        ${rangeText ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${rangeText}</p>` : ''}
-        ${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}
-        <div class="grid">${routes.map((r,i)=>accessRouteRowHtml(r,i,h.id)).join('')}</div>
-      ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
+      ${fsHutRoutesBodyHtml(h, routes, rangeText, legend)}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-access-route" data-hut-id="${h.id}">+ Zustieg hinzufügen</button>
     </div>
 

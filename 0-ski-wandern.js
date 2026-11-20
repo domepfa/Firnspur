@@ -157,6 +157,7 @@ async function submitHutForm__sw(form, existing){
   try{ h.manualTrack = form.manualTrack ? JSON.parse(form.manualTrack) : []; }catch(e){ h.manualTrack = []; }
   h.gebietId = form.gebietId || '';
   migrateHutAccessRoutes(h);
+  const newAr = fsHutAdoptLine(h); // gezeichnete Linie wird ein Zustieg
   h.contact = form.contact;
   h.notes = form.notes;
   if(form.status==='entwurf' || form.status==='vollstaendig') h.status = form.status;
@@ -178,6 +179,7 @@ async function submitHutForm__sw(form, existing){
     offerUndoAfterSave('Hütte gespeichert.', state.huts, undoPrev, saveHutCloud);
   }
   render();
+  if(newAr) setTimeout(()=> fsHutAskSeason(h.id, newAr.id), 300); // Jahreszeit des neuen Zustiegs
 }
 
 async function submitGebietForm(form, existing){
@@ -586,8 +588,8 @@ function hutFormHtml__sw(existing){
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(h.approach||'')}</textarea></div>
       <div class="field"><label>Punkte auf der Karte (Hütte, Parkplatz, Haltestelle …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte zum Setzen von Punkten öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: eigenen Zustieg einzeichnen, falls kein GPX-Track vorhanden – antippen fügt Wegpunkte hinzu.</div>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Auf der Karte bearbeiten</button>
+        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Kategorie &amp; Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu. Beim Speichern wird die Linie ein Zustieg (danach Sommer oder Winter wählen).</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(h.points || (h.lat && h.lon ? [{label:"Hütte", lat:h.lat, lon:h.lon}] : [])))}'/>
@@ -692,11 +694,7 @@ function hutDetailHtml__sw(id){
 
     <div class="detail-section">
       <h4>Zustiege${routes.length ? ` (${routes.length})` : ''}</h4>
-      ${routes.length ? `
-        ${rangeText ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${rangeText}</p>` : ''}
-        ${legend ? `<div style="margin-bottom:8px;">${legend}</div>` : ''}
-        <div class="grid">${routes.map((r,i)=>accessRouteRowHtml(r,i,h.id)).join('')}</div>
-      ` : `<p class="fs-empty" style="font-size:13px; color:var(--ink-soft);">Noch kein Zustieg erfasst.</p>`}
+      ${fsHutRoutesBodyHtml(h, routes, rangeText, legend)}
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="add-access-route" data-hut-id="${h.id}">+ Zustieg hinzufügen</button>
     </div>
 
