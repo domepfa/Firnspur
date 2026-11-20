@@ -17432,8 +17432,9 @@ function fsWireHutRoutes(opts){
     });
   });
   const field = document.getElementById('fs-har-field');
-  if(opts.open && field) setTimeout(()=>{ const row = field.querySelector('.fs-har-row[data-id="' + opts.open + '"]'); (row || field).scrollIntoView({block: 'center'}); }, 300);
-  if(opts.draw){ if(field) field.scrollIntoView({block: 'center'}); setTimeout(fsHarDraw, 300); }
+  const showField = ()=>{ const d = field && field.closest('details'); if(d) d.open = true; }; // Abschnitt «Karte & Zustiege» aufklappen
+  if(opts.open && field) setTimeout(()=>{ showField(); const row = field.querySelector('.fs-har-row[data-id="' + opts.open + '"]'); (row || field).scrollIntoView({block: 'center'}); }, 300);
+  if(opts.draw) setTimeout(()=>{ showField(); if(field) field.scrollIntoView({block: 'center'}); fsHarDraw(); }, 300);
 }
 // Aus der Hüttenansicht: «+ Zustieg» und «Zustieg bearbeiten» öffnen das Hüttenformular an dieser Stelle
 function fsOpenHutRoutes(hutId, opts){
@@ -21059,6 +21060,17 @@ function fsTourFormSections(climb){
     {key:'link', title:'Verknüpfungen & Rechte', sel:[n('hutId'), n('gebietId'), '#sektor-field', n('ownerOpen')]}
   ];
 }
+// Abschnitte des Hüttenformulars (beide Teile)
+function fsHutFormSections(){
+  const n = x=> '[name="' + x + '"]';
+  return [
+    {key:'grund', title:'Grunddaten', sel:[n('name'), '#region-chips', '#subregion-field', n('gebietId'), n('klettergebietId'), n('altitude'), n('capacity')]},
+    {key:'bewartung', title:'Bewartung & Winterraum', sel:['#staffed-months-chips', n('staffedNote'), n('winterraum'), '#winterraum-months-chips', n('winterraumNote')]},
+    {key:'anreise', title:'Anreise', sel:['#approach-type-chips', n('approach')]},
+    {key:'karte', title:'Karte & Zustiege', sel:[n('points'), '#fs-har-field']},
+    {key:'kontakt', title:'Kontakt, Notizen & Status', sel:[n('hutLink'), n('contact'), n('notes'), n('status')]}
+  ];
+}
 function fsFormSectionize(form, sections){
   if(!form || form.dataset.fsSec || !Array.isArray(sections) || !sections.length) return;
   form.dataset.fsSec = '1';
@@ -21089,9 +21101,10 @@ function fsFormSectionize(form, sections){
     const man = json('[name="manualTrack"]'); if(Array.isArray(man) && man.length > 1) parts.push('Linie');
     const trk = json('[name="trackSimplified"]'); if(Array.isArray(trk) && trk.length) parts.push('GPX');
     const topo = json('[name="topoImages"]'); if(Array.isArray(topo) && topo.length) parts.push(topo.length === 1 ? '1 Topo' : topo.length + ' Topos');
+    const ars = json('[name="accessRoutes"]'); if(Array.isArray(ars) && ars.length) parts.push(ars.length === 1 ? '1 Zustieg' : ars.length + ' Zustiege');
     let n = 0;
     body.querySelectorAll('input, textarea, select').forEach(el=>{
-      if(!el.name || el.type === 'file' || /^(points|manualTrack|trackSimplified|topoImages|tourIdForTrack)$/.test(el.name)) return;
+      if(!el.name || el.type === 'file' || /^(points|manualTrack|trackSimplified|topoImages|tourIdForTrack|accessRoutes|hutIdForTrack)$/.test(el.name)) return;
       if(el.closest('[style*="display:none"], [style*="display: none"]')) return;
       const v = (el.type === 'checkbox' || el.type === 'radio') ? (el.checked ? '1' : '') : String(el.value || '').trim();
       if(v && v !== '[]' && v !== 'nein') n++;
