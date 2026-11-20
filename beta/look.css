@@ -1957,7 +1957,6 @@ html.fs-dark .fsm-wx-head, html.fs-dark .fsm-wxp .l, html.fs-dark .fsm-wxp .t, h
 .fs-erf header b{ color:var(--ink); font-size:14px; }
 .fs-erf p{ margin:0; font-size:15px; line-height:1.45; white-space:pre-wrap; }
 .fs-erf-acts{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:8px; margin-top:10px; }
-.modal.fs-detail:not(.fs-editing) .fs-erf-acts{ display:none; }
 .fs-erf-acts .btn{ min-height:44px; font-size:13.5px; }
 .fs-erf-acts .btn.danger{ color:var(--danger); }
 .fs-erf-thumbs{ display:flex; gap:6px; }

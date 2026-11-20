@@ -15902,6 +15902,9 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'convert-msl-to-klettergarten'
 ]);
 const HOLD_TO_EDIT_MS = 650;
+// Angaben, die nur noch im Formular geändert werden (Status, Karte): im Blatt nicht zeigen. Alle übrigen
+// Knöpfe (erledigt, Erfahrung, geteilte Punkte, Zustieg hinzufügen …) bleiben sichtbar und lösen nach Halten aus.
+const FS_SHEET_HIDDEN_ACTS = ['quick-edit-toggle','toggle-tour-status','set-tour-status','toggle-hut-status'];
 // Stifte, die einen Eintrag öffnen (bleiben im Lesemodus sichtbar; siehe Lesen/Bearbeiten weiter unten)
 const FS_ENTRY_EDIT_ACTS = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-klettergebiet','edit-gipfel','edit-agenda','edit-access-route','edit-tour-route','edit-sektor-route','edit-sektor-topo-routen','edit-from-map'];
 // Optik aus derselben Liste erzeugt (kein zweiter Ort, der auseinanderlaufen kann):
@@ -15928,7 +15931,7 @@ const FS_ENTRY_EDIT_ACTS = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','
   box-shadow:0 8px 24px rgba(0,0,0,.25); opacity:0; pointer-events:none; transition:opacity .18s, transform .18s; white-space:nowrap; }
 .fs-hold-hint.on{ opacity:1; transform:translate(-50%, 0); }
 .fs-undo-toast{ display:flex; align-items:center; gap:10px; }
-.modal.fs-detail:not(.fs-editing) :is(${Array.from(HOLD_TO_EDIT_ACTS).filter(a=> FS_ENTRY_EDIT_ACTS.indexOf(a) === -1).map(a=>`[data-act="${a}"]`).join(',')}){ display:none !important; }
+.modal.fs-detail :is(${FS_SHEET_HIDDEN_ACTS.map(a=>`[data-act="${a}"]`).join(',')}){ display:none !important; }
 .fs-undo-toast button{ background:none; border:none; color:#8AB8F2; font-weight:800; font-size:14px; padding:8px 4px; min-height:40px; cursor:pointer; }
 `;
   document.head.appendChild(style);
@@ -15973,13 +15976,7 @@ document.addEventListener('pointerdown', (e)=>{
     fsHaptic(25);
     // Den gleich folgenden "echten" Klick beim Loslassen schlucken, dann einmal freigeben.
     holdSwallowClickUntil = Date.now() + 1500;
-    // In einer Detailansicht (Tour, Hütte, Gebiet, Sektor, Zustieg …) öffnet das Halten den
-    // Bearbeiten-Modus dieses Eintrags, statt direkt eine Aktion auszulösen.
-    const detailModal = el.closest('#modal-root .overlay > .modal');
-    if(detailModal && fsIsDetailModal() && !fsEditingActive() && fsHasHiddenEditActions(detailModal)){
-      fsEnterEditMode();
-      return;
-    }
+    // Kein eigener Bearbeiten-Modus mehr: das Halten löst den Knopf selbst aus (Stift → Formular)
     el._fsHoldOk = true;
     try{ el.click(); }finally{ el._fsHoldOk = false; }
   }, HOLD_TO_EDIT_MS);
@@ -16029,12 +16026,10 @@ function returnAfterRouteChange(detailType, routeId, freshPayload, fallback){
 }
 
 /* ================= Lesen / Bearbeiten pro Eintrag =================
-   Lesen (Standard): man sieht nur, was erfasst ist – keine Hinzufügen-/Löschen-/Status-Knöpfe,
-   keine leeren "Noch kein …"-Abschnitte. Bearbeiten: Stift 1 s halten → derselbe Eintrag
-   zeigt oben eine magentafarbene Leiste "Bearbeiten · Fertig", und erst jetzt erscheinen alle
-   Möglichkeiten (wirken dann sofort, ohne Halten). "Fertig" oder ganz schliessen = wieder Lesen.
-   Unterseiten (z. B. Zustieg-Formular) unterbrechen den Modus nicht: zurück im Eintrag ist man
-   weiter im Bearbeiten-Modus. */
+   Das Blatt ist zum Anschauen: leere "Noch kein …"-Abschnitte bleiben weg, Status und Karte ändert man im
+   Formular. Stift halten → Formular; Handlungen (erledigt, Erfahrung, Punkte …) lösen nach Halten am Knopf
+   selbst aus. Die frühere magentafarbene Leiste «Bearbeiten · Angaben · Fertig» gibt es nicht mehr
+   (fsEnterEditMode bleibt nur für einen Entwurf von «Karte bearbeiten»). */
 let fsEditingKey = null;
 function fsModalKey(){
   if(typeof state === 'undefined' || !state.modal) return null;
