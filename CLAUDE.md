@@ -40,7 +40,7 @@ aus anderen Apps übernehmen.
   Gerätespeicher, Versionen, GPX, Agenda, Notfallkarte, Karten (MapLibre `fsm*`, Leaflet-Ersatz
   `FL`, Routen `fsr*`, 3D), Login, Bearbeiten/Gedrückthalten, Topo-Bilder, Offline-Download,
   Anreise `fsTravel*`, Dunkelmodus, Icons (`FS_ICON_PATHS`), Tourenbriefing/Tourenzettel.
-- **Eine Karte für alles:** die Startkarte `fsHomeMap`. Tour, Gebiet, Klettergebiet und Sektor zeigen sie hinter
+- **Eine Karte für alles:** die Startkarte `fsHomeMap`. Tour, Hütte (`fsHutArea`), Gebiet, Klettergebiet und Sektor zeigen sie hinter
   dem Blatt (`fsCtxAcquire`/`fsCtxRelease`, Inhalte über `fsAreaForMap`). «Karte bearbeiten» leiht sie im Vollbild
   aus (`fsEdAcquire`/`fsEdRelease`, Werkzeuge als FL-Hülle aus `renderPointsEditorMap`); Formular und Blatt zeigen
   nur eine Übersicht (`fsEdCompact`). 3D ist dieselbe Karte, geneigt mit Gelände (`fsmTerrainToggle`; Hoch =
