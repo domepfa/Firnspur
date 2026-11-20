@@ -3175,6 +3175,7 @@ function wireModalHandlers__sw(){
   root.querySelectorAll('[data-act="open-gebiet"]').forEach(el=> el.onclick = ()=>openGebietDetail(el.getAttribute('data-id')));
 
   const hutForm = document.getElementById('hut-form');
+  if(hutForm) fsFormSectionize(hutForm, fsHutFormSections());
   if(hutForm){
     const hutSaveBtn = document.getElementById('hut-save-btn');
     if(hutSaveBtn){
@@ -8702,6 +8703,7 @@ function wireModalHandlers__fix(){
   });
 
   const hutForm = document.getElementById('hut-form');
+  if(hutForm) fsFormSectionize(hutForm, fsHutFormSections());
   if(hutForm){
     const hutSaveBtn = document.getElementById('hut-save-btn');
     if(hutSaveBtn){
