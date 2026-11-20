@@ -22939,8 +22939,16 @@ function fsShowContextMap(t){
 /* ===== Gebiet als Blatt über der Karte: alle Touren und Hütten des Gebiets =====
    area: {key, name, tours:[Tour], huts:[Hütte], spots:[{lat, lon, label, open:()=>{}}], points:[Punkte des Gebiets]}
    Jede Tour hat eine eigene Farbe; ihr Schild auf der Karte antippen öffnet die Tour. */
+// Hütte: dieselbe Karte hinter dem Blatt wie bei Gebiet/Tour (Hütte, ihre Punkte, Zustiege, Touren ab der Hütte)
+function fsHutArea(h){
+  if(!h) return null;
+  if(typeof migrateHutAccessRoutes === 'function') migrateHutAccessRoutes(h);
+  const routes = (h.accessRoutes || []).map((r, i)=> ({coords: fsRouteCoords(r), color: accessRouteColor(r, i), label: r.name || 'Zustieg'})).filter(r=> r.coords && r.coords.length > 1);
+  const extraPoints = (h.points || []).slice(1).filter(p=> p && isFinite(p.lat) && isFinite(p.lon)).map(p=> ({lat:+p.lat, lon:+p.lon, category:p.category || '', label:p.label || '', owner:h.name}));
+  return {key: 'hut-' + h.id, name: h.name, tours: (state.tours || []).filter(t=> t.hutId === h.id), huts: [h], points: [], extraPoints, routes, routesLabel: 'Zustiege', stampExtra: h.updatedAt || ''};
+}
 function fsAreaHasData(a){
-  return (a.points||[]).length || (a.spots||[]).length || (a.huts||[]).some(h=> h.points && h.points.length) || (a.tours||[]).some(t=> tourMapPoint(t) || fsTourRoutes(t).length);
+  return (a.points||[]).length || (a.routes||[]).length || (a.spots||[]).length || (a.huts||[]).some(h=> h.points && h.points.length) || (a.tours||[]).some(t=> tourMapPoint(t) || fsTourRoutes(t).length);
 }
 function fsShowAreaContextMap(a){
   if(fsCtxOwner === 'edit') return;
@@ -22979,7 +22987,11 @@ function fsShowAreaContextMap(a){
       const all = [], groups = [];
       const group = (label, color, dash)=>{ const g = {label, color, dash, on:true, items:[]}; groups.push(g); return g; };
       const markerItem = (m)=> ({setVisible:(v)=>{ m.getElement().style.display = v ? '' : 'none'; }});
-      const tg = group('Touren', ACCESS_ROUTE_COLORS[0]);
+      if((a.routes||[]).length){
+        const rg = group(a.routesLabel || 'Routen', a.routes[0].color);
+        a.routes.forEach(r=>{ rg.items.push(fsmAddLine(map, r.coords, {color: r.color, label: r.label})); r.coords.forEach(c=> all.push(c)); });
+      }
+      const tg = (a.tours||[]).length ? group('Touren', ACCESS_ROUTE_COLORS[0]) : {items:[]};
       (a.tours||[]).forEach((t,i)=>{
         const col = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
         fsTourRoutes(t).forEach(r=>{

@@ -852,6 +852,7 @@ main{ padding-top:6px; }
 .td .modal-head .agenda-date-row{ order:0; font-family:var(--font-ui) !important; font-size:12px !important; font-weight:800; letter-spacing:.14em; color:var(--ice-deep); margin:0; }
 .td .modal-head h2{ order:1; color:var(--ink) !important; font-size:38px; line-height:1.02; overflow-wrap:anywhere; }
 .td .modal-head .detail-badge-row{ order:2; margin:0; gap:6px; }
+.td .modal-head > div:first-child > p{ order:3; }
 .td > h2{
   font-family:var(--font-ui) !important; font-size:15.5px !important; font-weight:700 !important;
   line-height:1.4; color:var(--ink-soft) !important; margin:-6px 0 4px !important; letter-spacing:0;
