@@ -279,6 +279,7 @@ function gebietTouren(geb){ return state.tours.filter(t=>t.gebietId===geb.id); }
 
 // Gebiet als Blatt über der Karte: Inhalte für die Karte dahinter (siehe fsShowAreaContextMap)
 function fsAreaForMap__sw(modal){
+  if(modal && modal.type === 'hut-detail') return fsHutArea(state.huts.find(x=> x.id === modal.payload));
   if(!modal || modal.type !== 'gebiet-detail') return null;
   const geb = state.gebiete.find(x=>x.id===modal.payload);
   if(!geb) return null;
@@ -637,10 +638,10 @@ function hutDetailHtml__sw(id){
   const rangeText = accessRouteDifficultyRangeHtml(routes);
   const legend = accessRouteLegendHtml(routes);
   const hasMapData = (h.points && h.points.length) || (h.manualTrack && h.manualTrack.length) || routes.length;
-  return `<div class="modal fs-onroute" data-stop="1">
+  return `<div class="modal td gd fs-onroute fs-hut-sheet" data-stop="1">
     <div class="modal-head">
       <div><h2>${fsIconHtml('hut')} ${esc(h.name)}</h2>${h.region ? `<p style="color:var(--ink-soft); font-size:14px; margin:4px 0 0 0;">${escL(h.region)}</p>` : ''}</div>
-      <button class="x-btn" data-act="close-modal">×</button>
+      <div style="display:flex; align-items:flex-start; gap:4px;">${editIconButtonHtml('edit-hut', h.id)}<button class="x-btn" data-act="close-modal">×</button></div>
     </div>
     <p class="fs-status-line" style="font-size:13px; color:var(--ink-soft); margin:0 0 10px 0;">${hutStatusLabel(h)}</p>
     ${gebiet ? `<button class="hut-link-chip" style="border:none; cursor:pointer;" data-act="open-gebiet" data-id="${gebiet.id}">${fsIconHtml('mountain')} Zum Gebiet: ${esc(gebiet.name)}</button>` : ''}
@@ -666,29 +667,11 @@ function hutDetailHtml__sw(id){
       ${(h.approachTypes && h.approachTypes.length) ? `<div class="chips" style="margin-bottom:8px;">${h.approachTypes.map(v=>`<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsTypeLabel(APPROACH_TYPE_LABELS, v)}</span>`).join('')}</div>` : ''}
       ${h.approach ? `<p>${escL(h.approach)}</p>` : ''}
     </div>` : ''}
-    ${(h.points && h.points.length || (h.manualTrack && h.manualTrack.length)) ? `<div class="detail-section">
-      <h4>Standort${h.points && h.points.length>1?'e':''}${(h.manualTrack && h.manualTrack.length) ? ' & Linie' : ''}</h4>
-      <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Allgemeine Punkte/Linie zur Hütte (z. B. Parkplatz).</p>
-      ${(h.points && h.points.length) ? `<div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="background:var(--ice-light); border-color:transparent; cursor:pointer;">${fsIco((MAP_POINT_CATEGORIES[p.category||'']||MAP_POINT_CATEGORIES['']).icon)} ${esc(p.label||'Punkt')}</span>`).join('')}</div>` : ''}
-      ${(h.manualTrack && h.manualTrack.length) ? `<span class="hint">${fsIconHtml('dot', '#C0392B', true)} Rot: selbst eingezeichnet</span>` : ''}
-      ${(h.manualTrack && h.manualTrack.length) ? `<button type="button" class="btn secondary" style="margin-top:8px;" data-act="download-manual-gpx" data-track='${esc(JSON.stringify(h.manualTrack))}' data-name="${esc(h.name)}">${fsIconHtml('download')} Route als GPX exportieren</button>` : ''}
-      <button type="button" class="btn secondary" style="margin-top:8px;" id="quick-edit-toggle-${h.id}" data-act="quick-edit-toggle" data-id="${h.id}" data-kind="hut" title="Gedrückt halten, um die Karte zu bearbeiten">Karte bearbeiten</button>
-      <div id="quick-edit-map-${h.id}" style="margin-top:10px; display:none;"></div>
-      <div id="quick-edit-list-${h.id}"></div>
-      <input type="hidden" id="quick-points-hidden-${h.id}" value='${esc(JSON.stringify(h.points||[]))}'/>
-      <input type="hidden" id="quick-manual-track-hidden-${h.id}" value='${esc(JSON.stringify(h.manualTrack||[]))}'/>
-      <div class="fs-quick-bar" style="display:none;" id="quick-save-btn-${h.id}">
-        <button type="button" class="btn secondary" data-act="quick-discard" data-id="${h.id}">Verwerfen</button>
-        <button type="button" class="btn" data-act="quick-save" data-id="${h.id}" data-kind="hut">Speichern</button>
-      </div>
+    ${(h.points && h.points.length) ? `<div class="detail-section">
+      <h4>Standort${h.points.length>1?'e':''}</h4>
+      <div class="chips" style="margin-bottom:8px;">${h.points.map(p=>`<span class="chip" data-act="fs-point-goto" data-lat="${p.lat}" data-lon="${p.lon}" data-label="${esc(p.label||'Punkt')}" role="button" tabindex="0" style="cursor:pointer;">${fsIco((MAP_POINT_CATEGORIES[p.category || ''] || {}).icon || 'pin')} ${esc(p.label||'Punkt')}</span>`).join('')}</div>
     </div>` : ''}
 
-    ${hasMapData ? `<div class="detail-section">
-      <h4>${fsIconHtml('map')} Karte</h4>
-      <p style="font-size:12.5px; color:var(--ink-soft); margin:0 0 8px 0;">Standorte, selbst eingezeichnete Linie und alle Zustiege zusammen auf einer Karte.</p>
-      <button type="button" class="btn secondary" style="margin-bottom:10px;" data-act="show-access-routes-map" data-points='${esc(JSON.stringify(h.points||[]))}' data-routes='${esc(JSON.stringify(routes))}' data-manual-track='${esc(JSON.stringify(h.manualTrack||[]))}' data-hut-id="${h.id}" data-target="map-hut-${h.id}">${fsIconHtml('map')} Karte anzeigen</button>
-      <div id="map-hut-${h.id}" style="margin-bottom:10px;"></div>
-    </div>` : ''}
 
     <div class="detail-section">
       <h4>Zustiege${routes.length ? ` (${routes.length})` : ''}</h4>
@@ -718,7 +701,6 @@ function hutDetailHtml__sw(id){
 
     <div class="detail-actions">
       <button class="btn secondary" data-act="open-complete-hut" data-id="${h.id}">✓ Als abgeschlossen markieren</button>
-      <button class="btn secondary" data-act="edit-hut" data-id="${h.id}">Bearbeiten</button>
     </div>
   </div>`;
 }

@@ -15902,6 +15902,9 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'convert-msl-to-klettergarten'
 ]);
 const HOLD_TO_EDIT_MS = 650;
+// Angaben, die nur noch im Formular geändert werden (Status, Karte): im Blatt nicht zeigen. Alle übrigen
+// Knöpfe (erledigt, Erfahrung, geteilte Punkte, Zustieg hinzufügen …) bleiben sichtbar und lösen nach Halten aus.
+const FS_SHEET_HIDDEN_ACTS = ['quick-edit-toggle','toggle-tour-status','set-tour-status','toggle-hut-status'];
 // Stifte, die einen Eintrag öffnen (bleiben im Lesemodus sichtbar; siehe Lesen/Bearbeiten weiter unten)
 const FS_ENTRY_EDIT_ACTS = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','edit-klettergebiet','edit-gipfel','edit-agenda','edit-access-route','edit-tour-route','edit-sektor-route','edit-sektor-topo-routen','edit-from-map'];
 // Optik aus derselben Liste erzeugt (kein zweiter Ort, der auseinanderlaufen kann):
@@ -15928,7 +15931,7 @@ const FS_ENTRY_EDIT_ACTS = ['edit-tour','edit-hut','edit-gebiet','edit-sektor','
   box-shadow:0 8px 24px rgba(0,0,0,.25); opacity:0; pointer-events:none; transition:opacity .18s, transform .18s; white-space:nowrap; }
 .fs-hold-hint.on{ opacity:1; transform:translate(-50%, 0); }
 .fs-undo-toast{ display:flex; align-items:center; gap:10px; }
-.modal.fs-detail:not(.fs-editing) :is(${Array.from(HOLD_TO_EDIT_ACTS).filter(a=> FS_ENTRY_EDIT_ACTS.indexOf(a) === -1).map(a=>`[data-act="${a}"]`).join(',')}){ display:none !important; }
+.modal.fs-detail :is(${FS_SHEET_HIDDEN_ACTS.map(a=>`[data-act="${a}"]`).join(',')}){ display:none !important; }
 .fs-undo-toast button{ background:none; border:none; color:#8AB8F2; font-weight:800; font-size:14px; padding:8px 4px; min-height:40px; cursor:pointer; }
 `;
   document.head.appendChild(style);
@@ -15973,13 +15976,7 @@ document.addEventListener('pointerdown', (e)=>{
     fsHaptic(25);
     // Den gleich folgenden "echten" Klick beim Loslassen schlucken, dann einmal freigeben.
     holdSwallowClickUntil = Date.now() + 1500;
-    // In einer Detailansicht (Tour, Hütte, Gebiet, Sektor, Zustieg …) öffnet das Halten den
-    // Bearbeiten-Modus dieses Eintrags, statt direkt eine Aktion auszulösen.
-    const detailModal = el.closest('#modal-root .overlay > .modal');
-    if(detailModal && fsIsDetailModal() && !fsEditingActive() && fsHasHiddenEditActions(detailModal)){
-      fsEnterEditMode();
-      return;
-    }
+    // Kein eigener Bearbeiten-Modus mehr: das Halten löst den Knopf selbst aus (Stift → Formular)
     el._fsHoldOk = true;
     try{ el.click(); }finally{ el._fsHoldOk = false; }
   }, HOLD_TO_EDIT_MS);
@@ -16029,12 +16026,10 @@ function returnAfterRouteChange(detailType, routeId, freshPayload, fallback){
 }
 
 /* ================= Lesen / Bearbeiten pro Eintrag =================
-   Lesen (Standard): man sieht nur, was erfasst ist – keine Hinzufügen-/Löschen-/Status-Knöpfe,
-   keine leeren "Noch kein …"-Abschnitte. Bearbeiten: Stift 1 s halten → derselbe Eintrag
-   zeigt oben eine magentafarbene Leiste "Bearbeiten · Fertig", und erst jetzt erscheinen alle
-   Möglichkeiten (wirken dann sofort, ohne Halten). "Fertig" oder ganz schliessen = wieder Lesen.
-   Unterseiten (z. B. Zustieg-Formular) unterbrechen den Modus nicht: zurück im Eintrag ist man
-   weiter im Bearbeiten-Modus. */
+   Das Blatt ist zum Anschauen: leere "Noch kein …"-Abschnitte bleiben weg, Status und Karte ändert man im
+   Formular. Stift halten → Formular; Handlungen (erledigt, Erfahrung, Punkte …) lösen nach Halten am Knopf
+   selbst aus. Die frühere magentafarbene Leiste «Bearbeiten · Angaben · Fertig» gibt es nicht mehr
+   (fsEnterEditMode bleibt nur für einen Entwurf von «Karte bearbeiten»). */
 let fsEditingKey = null;
 function fsModalKey(){
   if(typeof state === 'undefined' || !state.modal) return null;
@@ -17305,150 +17300,205 @@ function fsAskRouteKind(title, opts, cb){
 }
 const FS_HAR_SEASONS = [{value: 'sommer', label: 'Sommer', icon: 'sun'}, {value: 'winter', label: 'Winter', icon: 'snow'}];
 function fsHarSeasonName(s){ return s === 'sommer' ? 'Zustieg Sommer' : s === 'winter' ? 'Zustieg Winter' : 'Zustieg'; }
-// Feld «Zustiege» im Hüttenformular
-function fsHutRoutesFieldHtml(h){
-  const routes = h && Array.isArray(h.accessRoutes) ? h.accessRoutes : [];
-  return `<div class="field" id="fs-har-field"><label>Zustiege</label>
-    <div id="fs-har-list"></div>
+/* Eine Routenliste im Formular für Zustiege/Abstiege (Hütte, Hochtour-Tour, Sektor). Je Eintrag Name, Art,
+   Linie (zeichnen/bearbeiten) und aufklappbare Angaben; gespeichert über versteckte Felder mit dem Namen der
+   Liste (accessRoutes, descentRoutes). Eine Liste pro Formular (fsRlCur). */
+let fsRlCur = null;
+function fsRlCfg(type){
+  if(type === 'hut') return {type, title: 'Zustiege', ask: 'Welcher Zustieg?', empty: 'Noch kein Zustieg – Route zeichnen oder GPX-Datei wählen.',
+    fields: ['accessRoutes'], idPrefix: 'ar', gpxPath: ()=> ACCESS_ROUTE_GPX_PATH,
+    kinds: [{v: 'sommer', label: 'Sommer', icon: 'sun', field: 'accessRoutes'}, {v: 'winter', label: 'Winter', icon: 'snow', field: 'accessRoutes'}],
+    openKind: {v: '', label: 'Jahreszeit offen'}, kindOf: (r)=> r.season || '', nameFor: (v)=> fsHarSeasonName(v), autoName: /^Zustieg( Sommer| Winter)?$/,
+    apply: (r, v)=>{ r.season = v; }, sac: true};
+  const isSek = type === 'sektor';
+  const path = (k)=>{ try{ return isSek ? sektorRouteGpxPath(k) : tourRouteGpxPath(k); }catch(e){ return ACCESS_ROUTE_GPX_PATH; } };
+  return {type, title: 'Zustieg & Abstieg', ask: 'Welche Route?', empty: 'Noch kein Zustieg oder Abstieg – Route zeichnen oder GPX-Datei wählen.',
+    fields: ['accessRoutes', 'descentRoutes'], idPrefix: isSek ? 'sr' : 'tr', gpxPath: (k)=> path(k),
+    kinds: [{v: 'access', label: 'Zustieg', field: 'accessRoutes'}, {v: 'descent', label: 'Abstieg', field: 'descentRoutes'}],
+    kindOf: (r, field)=> field === 'descentRoutes' ? 'descent' : 'access', nameFor: (v)=> v === 'descent' ? 'Abstieg' : 'Zustieg', autoName: /^(Zustieg|Abstieg)$/,
+    apply: ()=>{}, sac: false};
+}
+function fsRlFieldHtml(type, e){
+  const cfg = fsRlCfg(type);
+  return `<div class="field" id="fs-rl-field" data-rl="${type}"><label>${esc(cfg.title)}</label>
+    <div id="fs-rl-list"></div>
     <div class="fs-har-add">
-      <button type="button" class="btn secondary" id="fs-har-draw">${fsIconHtml('edit')}Route zeichnen</button>
-      <label class="btn secondary fs-file-btn">${fsIconHtml('upload')}GPX-Datei<input type="file" id="fs-har-gpx" accept=".gpx,application/gpx+xml" hidden/></label>
+      <button type="button" class="btn secondary" id="fs-rl-draw">${fsIconHtml('edit')}Route zeichnen</button>
+      <label class="btn secondary fs-file-btn">${fsIconHtml('upload')}GPX-Datei<input type="file" id="fs-rl-gpx" accept=".gpx,application/gpx+xml" hidden/></label>
     </div>
-    <p id="fs-har-status" class="fs-gpx-status"></p>
-    <input type="hidden" name="accessRoutes" id="fs-har-hidden" value='${esc(JSON.stringify(routes))}'/>
-    <input type="hidden" id="fs-har-line" value="[]"/><input type="hidden" id="fs-har-trk" value=""/><input type="hidden" id="fs-har-trkid" value=""/><input type="hidden" id="fs-har-pts" value="[]"/>
+    <p id="fs-rl-status" class="fs-gpx-status"></p>
+    ${cfg.fields.map(f=> `<input type="hidden" name="${f}" id="fs-rl-h-${f}" value='${esc(JSON.stringify(e && Array.isArray(e[f]) ? e[f] : []))}'/>`).join('')}
+    <input type="hidden" id="fs-rl-line" value="[]"/><input type="hidden" id="fs-rl-trk" value=""/><input type="hidden" id="fs-rl-trkid" value=""/><input type="hidden" id="fs-rl-pts" value="[]"/>
   </div>`;
 }
-function fsHarRead(){ try{ const a = JSON.parse((document.getElementById('fs-har-hidden') || {}).value || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
-function fsHarWrite(a){ const el = document.getElementById('fs-har-hidden'); if(el){ el.value = JSON.stringify(a); markModalDirty(); } }
-function fsHarRender(openId){
-  const box = document.getElementById('fs-har-list');
-  if(!box) return;
-  const routes = fsHarRead();
+function fsHutRoutesFieldHtml(h){ return fsRlFieldHtml('hut', h); }
+function fsRlArr(f){ try{ const a = JSON.parse((document.getElementById('fs-rl-h-' + f) || {}).value || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+function fsRlSet(f, a){ const el = document.getElementById('fs-rl-h-' + f); if(el){ el.value = JSON.stringify(a); markModalDirty(); } }
+// Alle Einträge mit ihrer Liste: [{r, field}]
+function fsRlAll(){ return fsRlCur ? [].concat(...fsRlCur.fields.map(f=> fsRlArr(f).map(r=> ({r, field: f})))) : []; }
+function fsRlFind(id){ return fsRlAll().find(x=> x.r.id === id) || null; }
+// Eintrag ändern (fn bekommt den Eintrag; gibt fn ein anderes Feld zurück, wandert er in diese Liste)
+function fsRlUpdate(id, fn){
+  const hit = fsRlFind(id);
+  if(!hit) return;
+  const a = fsRlArr(hit.field), idx = a.findIndex(x=> x.id === id);
+  const to = fn(a[idx]) || hit.field;
+  if(to !== hit.field){ const r = a.splice(idx, 1)[0]; fsRlSet(hit.field, a); const b = fsRlArr(to); b.push(r); fsRlSet(to, b); }
+  else fsRlSet(hit.field, a);
+}
+function fsRlRemove(id){ const hit = fsRlFind(id); if(hit) fsRlSet(hit.field, fsRlArr(hit.field).filter(x=> x.id !== id)); }
+function fsRlColor(r, i, field){ return field === 'descentRoutes' ? (FS_CTX_COLORS.descent || '#D9730D') : accessRouteColor(r, i); }
+function fsRlRender(openId){
+  const box = document.getElementById('fs-rl-list');
+  if(!box || !fsRlCur) return;
+  const cfg = fsRlCur, all = fsRlAll();
   const opt = (list, cur)=> list.map(c=> `<option value="${c}" ${cur === c ? 'selected' : ''}>${c}</option>`).join('');
-  box.innerHTML = routes.length ? routes.map((r, i)=>{
+  box.innerHTML = all.length ? all.map(({r, field}, i)=>{
     const line = (r.trackSimplified && r.trackSimplified.length > 1) ? r.trackSimplified : (r.manualTrack && r.manualTrack.length > 1 ? r.manualTrack : null);
     const km = line ? fsLineKm(line.map(q=> Array.isArray(q) ? q : [q.lat, q.lon != null ? q.lon : q.lng])) : 0;
+    const kind = cfg.kindOf(r, field);
+    const kinds = cfg.kinds.concat(cfg.openKind && (!kind || true) ? [cfg.openKind] : []);
     return `<div class="fs-har-row" data-id="${esc(r.id)}">
       <div class="fs-route-edit">
-        <span class="fs-route-sw" style="--c:${accessRouteColor(r, i)}"></span>
-        <input type="text" class="fs-route-name" data-f="name" value="${esc(r.name || '')}" placeholder="Name, z. B. ab Randa" aria-label="Name des Zustiegs"/>
-        <button type="button" class="fs-icon-btn fs-har-del" aria-label="Zustieg entfernen">${fsIconHtml('trash')}</button>
+        <span class="fs-route-sw" style="--c:${fsRlColor(r, i, field)}"></span>
+        <input type="text" class="fs-route-name" data-f="name" value="${esc(r.name || '')}" placeholder="Name, z. B. ab Randa" aria-label="Name"/>
+        <button type="button" class="fs-icon-btn fs-har-del" aria-label="Entfernen">${fsIconHtml('trash')}</button>
       </div>
       <div class="fs-har-sub">
-        <select class="fs-route-type" data-f="season" aria-label="Jahreszeit"><option value="sommer" ${r.season === 'sommer' ? 'selected' : ''}>Sommer</option><option value="winter" ${r.season === 'winter' ? 'selected' : ''}>Winter</option><option value="" ${!r.season ? 'selected' : ''}>Jahreszeit offen</option></select>
+        <select class="fs-route-type" data-f="kind" aria-label="Art">${kinds.map(k=> `<option value="${k.v}" ${kind === k.v ? 'selected' : ''}>${esc(k.label)}</option>`).join('')}</select>
         <button type="button" class="btn secondary fs-har-line">${fsIconHtml('map')}${line ? `Linie · ${km.toFixed(1)} km${r.trackSimplified && r.trackSimplified.length > 1 ? ' GPX' : ''}` : 'Linie zeichnen'}</button>
       </div>
       <details class="fs-har-more"${openId === r.id ? ' open' : ''}><summary>Höhenmeter, Zeit, Schwierigkeit, Beschreibung</summary>
         <div class="row2">
-          <div class="field"><label>Höhenmeter (Hm)</label><input data-f="elevation" value="${esc(r.elevation || '')}" inputmode="numeric"/></div>
+          <div class="field"><label>${field === 'descentRoutes' ? 'Höhenmeter abwärts' : 'Höhenmeter (Hm)'}</label><input data-f="elevation" value="${esc(r.elevation || '')}" inputmode="numeric"/></div>
           <div class="field"><label>Zeitbedarf</label><input data-f="duration" value="${esc(r.duration || '')}" placeholder="z. B. 2–3 h"/></div>
         </div>
+        ${field === 'descentRoutes' ? `<div class="field"><label>Gegenanstieg (Hm, falls nötig)</label><input data-f="elevationUp" value="${esc(r.elevationUp || '')}" inputmode="numeric"/></div>` : ''}
         <div class="row2">
-          <div class="field"><label>Schwierigkeit (SAC)</label><select data-f="difficulty"><option value="">–</option>${opt(DIFF_ORDER, r.difficulty)}</select></div>
+          ${cfg.sac ? `<div class="field"><label>Schwierigkeit (SAC)</label><select data-f="difficulty"><option value="">–</option>${opt(DIFF_ORDER, r.difficulty)}</select></div>` : ''}
           <div class="field"><label>Wanderskala (T)</label><select data-f="difficultyT"><option value="">–</option>${opt(HIKE_SCALE_ORDER, r.difficultyT)}</select></div>
         </div>
         <div class="field"><label>Beschreibung</label><textarea data-f="description">${esc(r.description || '')}</textarea></div>
         <div class="field"><label>Link zu einer GPX-Datei</label><input type="url" data-f="gpxLink" value="${esc(r.gpxLink || '')}"/></div>
       </details>
-    </div>`; }).join('') : '<p class="hint" style="margin:0 0 8px;">Noch kein Zustieg – Route zeichnen oder GPX-Datei wählen.</p>';
+    </div>`; }).join('') : `<p class="hint" style="margin:0 0 8px;">${esc(cfg.empty)}</p>`;
   box.querySelectorAll('.fs-har-row').forEach(row=>{
     const id = row.getAttribute('data-id');
-    const upd = (fn)=>{ const a = fsHarRead(), r = a.find(x=> x.id === id); if(!r) return; fn(r); fsHarWrite(a); };
-    row.querySelectorAll('[data-f]').forEach(inp=> inp.addEventListener(inp.tagName === 'SELECT' ? 'change' : 'input', ()=> upd(r=>{
+    row.querySelectorAll('[data-f]').forEach(inp=> inp.addEventListener(inp.tagName === 'SELECT' ? 'change' : 'input', ()=>{
       const f = inp.getAttribute('data-f'), v = inp.value;
-      if(f === 'season' && (!r.name || /^Zustieg( Sommer| Winter)?$/.test(r.name))){ r.name = fsHarSeasonName(v); row.querySelector('[data-f="name"]').value = r.name; }
-      r[f] = f === 'name' ? v.trim() : v;
-      if(f === 'season') setTimeout(()=> fsHarRender(), 0); // Farbe
-    })));
+      fsRlUpdate(id, (r)=>{
+        if(f !== 'kind'){ r[f] = f === 'name' ? v.trim() : v; return; }
+        if(!r.name || cfg.autoName.test(r.name)){ r.name = cfg.nameFor(v); row.querySelector('[data-f="name"]').value = r.name; }
+        cfg.apply(r, v);
+        const k = cfg.kinds.find(x=> x.v === v);
+        return k ? k.field : null;
+      });
+      if(f === 'kind') setTimeout(()=> fsRlRender(), 0); // Farbe, Felder
+    }));
     row.querySelector('.fs-har-del').addEventListener('click', ()=>{
-      const a = fsHarRead(), r = a.find(x=> x.id === id);
-      if(!r || !confirm('Zustieg «' + (r.name || 'ohne Namen') + '» entfernen? Wird erst mit «Speichern» übernommen.')) return;
-      fsHarWrite(a.filter(x=> x.id !== id));
-      fsHarRender();
+      const hit = fsRlFind(id);
+      if(!hit || !confirm('«' + (hit.r.name || 'ohne Namen') + '» entfernen? Wird erst mit «Speichern» übernommen.')) return;
+      fsRlRemove(id); fsRlRender();
     });
-    row.querySelector('.fs-har-line').addEventListener('click', ()=> fsHarEditLine(id, false));
+    row.querySelector('.fs-har-line').addEventListener('click', ()=> fsRlEditLine(id, false));
   });
 }
-// Linie eines Zustiegs im Vollbild bearbeiten (die Hütte und die übrigen Zustiege als Bezug)
-function fsHarEditLine(id, isNew){
-  const a = fsHarRead(), r = a.find(x=> x.id === id);
-  if(!r) return;
+// Linie eines Eintrags im Vollbild bearbeiten (Punkte und die übrigen Routen des Formulars als Bezug)
+function fsRlEditLine(id, isNew){
+  const hit = fsRlFind(id);
+  if(!hit || !fsRlCur) return;
+  const r = hit.r, cfg = fsRlCur;
   const set = (elId, v)=>{ const el = document.getElementById(elId); if(el) el.value = v; };
-  set('fs-har-line', JSON.stringify(r.manualTrack || []));
-  set('fs-har-trk', r.trackSimplified && r.trackSimplified.length ? JSON.stringify(r.trackSimplified) : '');
-  set('fs-har-trkid', r.id);
+  set('fs-rl-line', JSON.stringify(r.manualTrack || []));
+  set('fs-rl-trk', r.trackSimplified && r.trackSimplified.length ? JSON.stringify(r.trackSimplified) : '');
+  set('fs-rl-trkid', r.id);
   let pts = []; try{ pts = JSON.parse((document.getElementById('points-hidden') || {}).value || '[]'); }catch(e){}
-  const hutName = ((document.querySelector('#modal-root .modal form [name="name"]') || {}).value || 'Hütte').trim();
-  const refPoints = ownPointRefPoints({points: pts}, hutName, '#8A5A2E');
-  const refTracks = siblingRouteRefTracks({accessRoutes: a}, id);
-  const gpx = r.trackSimplified && r.trackSimplified.length ? {hiddenId: 'fs-har-trk', idHiddenId: 'fs-har-trkid', trackPathPrefix: ACCESS_ROUTE_GPX_PATH, statusId: 'fs-har-status'} : null;
+  const ownName = ((document.querySelector('#modal-root .modal form [name="name"]') || {}).value || '').trim();
+  const refPoints = ownPointRefPoints({points: pts}, ownName || 'Punkt', '#8A5A2E');
+  const refTracks = siblingRouteRefTracks({accessRoutes: fsRlArr('accessRoutes'), descentRoutes: fsRlArr('descentRoutes')}, id);
+  ['track-simplified-hidden', 'manual-track-hidden'].forEach(hid=>{ try{ const c = JSON.parse((document.getElementById(hid) || {}).value || 'null'); if(Array.isArray(c) && c.length > 1) refTracks.push({coords: c, color: '#E8384F', label: 'Route der Tour'}); }catch(e){} });
+  const kind = cfg.kindOf(r, hit.field);
+  const gpx = r.trackSimplified && r.trackSimplified.length ? {hiddenId: 'fs-rl-trk', idHiddenId: 'fs-rl-trkid', trackPathPrefix: cfg.gpxPath(kind), statusId: 'fs-rl-status'} : null;
   fsEdNext = {line: true, noPoints: true};
-  openFullscreenMap((cid)=> renderPointsEditorMap(cid, 'fs-har-pts', null, 'fs-har-line', refTracks, refPoints, null, gpx), ()=>{
-    const b = fsHarRead(), x = b.find(q=> q.id === id);
-    if(!x) return;
+  openFullscreenMap((cid)=> renderPointsEditorMap(cid, 'fs-rl-pts', null, 'fs-rl-line', refTracks, refPoints, null, gpx), ()=>{
     let line = [], trk = null;
-    try{ line = JSON.parse(document.getElementById('fs-har-line').value || '[]'); }catch(e){}
-    try{ const v = document.getElementById('fs-har-trk').value; trk = v ? JSON.parse(v) : null; }catch(e){}
-    x.manualTrack = Array.isArray(line) ? line : [];
-    if(gpx) x.trackSimplified = trk && trk.length > 1 ? trk : null;
-    const empty = x.manualTrack.length < 2 && !(x.trackSimplified && x.trackSimplified.length > 1);
-    const out = isNew && empty ? b.filter(q=> q.id !== id) : b; // neu und nichts gezeichnet: wieder weg
-    fsHarWrite(out);
-    fsHarRender();
-    if(isNew && !empty) showToast('Zustieg übernommen – mit «Speichern» sichern.');
+    try{ line = JSON.parse(document.getElementById('fs-rl-line').value || '[]'); }catch(e){}
+    try{ const v = document.getElementById('fs-rl-trk').value; trk = v ? JSON.parse(v) : null; }catch(e){}
+    let empty = false;
+    fsRlUpdate(id, (x)=>{
+      x.manualTrack = Array.isArray(line) ? line : [];
+      if(gpx) x.trackSimplified = trk && trk.length > 1 ? trk : null;
+      empty = x.manualTrack.length < 2 && !(x.trackSimplified && x.trackSimplified.length > 1);
+    });
+    if(isNew && empty) fsRlRemove(id); // neu und nichts gezeichnet: wieder weg
+    fsRlRender();
+    if(isNew && !empty) showToast('Route übernommen – mit «Speichern» sichern.');
   });
 }
-function fsHarNew(season, extra){
-  const r = Object.assign({id: uid('ar'), name: fsHarSeasonName(season), season: season || '', elevation: '', duration: '', difficulty: '', difficultyT: '', description: '', gpxLink: '', trackSimplified: null, manualTrack: []}, extra || {});
-  const a = fsHarRead(); a.push(r); fsHarWrite(a);
+function fsRlNew(kindV, extra){
+  const cfg = fsRlCur, k = cfg.kinds.find(x=> x.v === kindV) || cfg.kinds[0];
+  const r = Object.assign({id: uid(cfg.idPrefix), name: kindV ? cfg.nameFor(kindV) : '', elevation: '', duration: '', difficultyT: '', description: '', gpxLink: '', trackSimplified: null, manualTrack: []}, cfg.sac ? {difficulty: ''} : {}, extra || {});
+  if(kindV) cfg.apply(r, kindV); else if(cfg.type === 'hut') r.season = '';
+  const a = fsRlArr(k.field); a.push(r); fsRlSet(k.field, a);
   return r;
 }
-function fsHarDraw(){
-  fsAskRouteKind('Welcher Zustieg?', FS_HAR_SEASONS, (season)=>{
-    const r = fsHarNew(season);
-    fsHarRender();
-    fsHarEditLine(r.id, true);
+function fsRlDraw(){
+  const cfg = fsRlCur;
+  fsAskRouteKind(cfg.ask, cfg.kinds.map(k=> ({value: k.v, label: k.label, icon: k.icon})), (v)=>{
+    const r = fsRlNew(v);
+    fsRlRender();
+    fsRlEditLine(r.id, true);
   });
 }
-function fsWireHutRoutes(opts){
-  if(!document.getElementById('fs-har-list')) return;
+function fsRlWire(opts){
+  const field = document.getElementById('fs-rl-field');
+  if(!field) return;
+  fsRlCur = fsRlCfg(field.getAttribute('data-rl'));
   opts = opts || {};
-  fsHarRender(opts.open);
-  const draw = document.getElementById('fs-har-draw');
-  if(draw) draw.addEventListener('click', fsHarDraw);
-  const inp = document.getElementById('fs-har-gpx');
+  fsRlRender(opts.open);
+  const draw = document.getElementById('fs-rl-draw');
+  if(draw) draw.addEventListener('click', fsRlDraw);
+  const inp = document.getElementById('fs-rl-gpx');
   if(inp) inp.addEventListener('change', ()=>{
     const f = inp.files && inp.files[0];
     if(!f) return;
-    const r = fsHarNew('', {name: f.name.replace(/\.gpx$/i, '')});
-    document.getElementById('fs-har-trk').value = '';
-    document.getElementById('fs-har-trkid').value = r.id;
-    handleGpxFileUpload(inp, ACCESS_ROUTE_GPX_PATH, 'fs-har-trkid', 'fs-har-trk', 'fs-har-status', ()=>{
-      let trk = null; try{ trk = JSON.parse(document.getElementById('fs-har-trk').value || 'null'); }catch(e){}
-      const a = fsHarRead(), x = a.find(q=> q.id === r.id);
-      if(x) x.trackSimplified = trk;
-      fsHarWrite(a); fsHarRender();
-      inp.value = '';
-      fsAskRouteKind('Für welche Jahreszeit gilt der Zustieg?', FS_HAR_SEASONS, (season)=>{
-        const b = fsHarRead(), y = b.find(q=> q.id === r.id);
-        if(y){ y.season = season; if(!y.name) y.name = fsHarSeasonName(season); fsHarWrite(b); fsHarRender(); }
+    const cfg = fsRlCur;
+    // Art zuerst, dann Datei lesen (der Ablageort der Originaldatei hängt bei Touren an der Art)
+    fsAskRouteKind(cfg.type === 'hut' ? 'Für welche Jahreszeit gilt der Zustieg?' : cfg.ask, cfg.kinds.map(k=> ({value: k.v, label: k.label, icon: k.icon})), (v)=>{
+      const r = fsRlNew(v, {name: f.name.replace(/\.gpx$/i, '')});
+      document.getElementById('fs-rl-trk').value = '';
+      document.getElementById('fs-rl-trkid').value = r.id;
+      handleGpxFileUpload(inp, cfg.gpxPath(v), 'fs-rl-trkid', 'fs-rl-trk', 'fs-rl-status', ()=>{
+        let trk = null; try{ trk = JSON.parse(document.getElementById('fs-rl-trk').value || 'null'); }catch(e){}
+        fsRlUpdate(r.id, (x)=>{ x.trackSimplified = trk; });
+        fsRlRender();
+        inp.value = '';
       });
     });
   });
-  const field = document.getElementById('fs-har-field');
-  if(opts.open && field) setTimeout(()=>{ const row = field.querySelector('.fs-har-row[data-id="' + opts.open + '"]'); (row || field).scrollIntoView({block: 'center'}); }, 300);
-  if(opts.draw){ if(field) field.scrollIntoView({block: 'center'}); setTimeout(fsHarDraw, 300); }
+  const showField = ()=>{ const d = field.closest('details'); if(d) d.open = true; }; // Abschnitt aufklappen
+  if(opts.open) setTimeout(()=>{ showField(); const row = field.querySelector('.fs-har-row[data-id="' + opts.open + '"]'); (row || field).scrollIntoView({block: 'center'}); }, 300);
+  if(opts.draw) setTimeout(()=>{
+    showField(); field.scrollIntoView({block: 'center'});
+    if(opts.kind && fsRlCur.kinds.some(k=> k.v === opts.kind)){ const r = fsRlNew(opts.kind); fsRlRender(); fsRlEditLine(r.id, true); } // Art schon bekannt
+    else fsRlDraw();
+  }, 300);
 }
-// Aus der Hüttenansicht: «+ Zustieg» und «Zustieg bearbeiten» öffnen das Hüttenformular an dieser Stelle
+function fsWireHutRoutes(opts){ fsRlWire(opts); }
+// Aus einer Ansicht: «+ Zustieg/Abstieg» und «… bearbeiten» öffnen das Formular an dieser Stelle
+function fsOpenFormRoutes(type, entity, opts){
+  if(!entity) return;
+  state._harOpts = opts || {};
+  navigateToModal({type, payload: entity});
+  render();
+}
 function fsOpenHutRoutes(hutId, opts){
   const h = (state.huts || []).find(x=> x.id === hutId);
   if(!h) return;
   migrateHutAccessRoutes(h);
-  state._harOpts = opts || {};
-  navigateToModal({type: 'edit-hut', payload: h});
-  render();
+  fsOpenFormRoutes('edit-hut', h, opts);
 }
+
 // Formular-Routen der Tour: «Route zeichnen» fragt zuerst nach der Art
 function fsTourDrawRoute(){
   fsAskRouteKind('Welche Route?', FS_ROUTE_TYPE_ORDER.map(k=> ({value: k, label: fsRouteLabel(k)})), (type)=>{
@@ -21058,10 +21108,21 @@ function fsTourFormSections(climb){
     {key:'grund', title:'Grunddaten', sel:[n('name'), n('routeName'), n('status'), n('tourCategory'), '#region-chips', '#subregion-field', '#summit-field', '.fs-owner-note']},
     {key:'zahlen', title:'Kennzahlen', sel:[n('targetAltitude'), n('elevationGain'), n('elevationLoss'), n('duration'), n('descentDuration'), n('distance'), '#pitchcount-field']},
     {key:'gelaende', title: climb ? 'Schwierigkeit & Material' : 'Gelände & Material', sel:['#hochtour-safety-fields', '#msl-safety-fields', n('glacier'), '.exposition-chip', '.gefahren-chip', '.material-chip', n('ropeType'), n('ropeLength'), n('quickdrawCount'), n('dog'), n('tourShape'), '.month-chip']},
-    {key:'karte', title: climb ? 'Karte, Route & Topo' : 'Karte & Route', sel:['#fs-tracks-field', n('gpxLink'), n('points'), n('topoImages')]},
+    {key:'karte', title: climb ? 'Karte, Route & Topo' : 'Karte & Route', sel:['#fs-tracks-field', '#fs-rl-field', n('gpxLink'), n('points'), n('topoImages')]},
     {key:'text', title:'Beschreibung', sel:[n('crux'), n('special'), n('ascent'), n('descent'), n('tourLink'), '.fs-more-links', '#descent-freetext-field']},
     {key:'anreise', title:'Anreise', sel:['#approach-type-chips', '#stay-type-chips', n('approach')]},
     {key:'link', title:'Verknüpfungen & Rechte', sel:[n('hutId'), n('gebietId'), '#sektor-field', n('ownerOpen')]}
+  ];
+}
+// Abschnitte des Hüttenformulars (beide Teile)
+function fsHutFormSections(){
+  const n = x=> '[name="' + x + '"]';
+  return [
+    {key:'grund', title:'Grunddaten', sel:[n('name'), '#region-chips', '#subregion-field', n('gebietId'), n('klettergebietId'), n('altitude'), n('capacity')]},
+    {key:'bewartung', title:'Bewartung & Winterraum', sel:['#staffed-months-chips', n('staffedNote'), n('winterraum'), '#winterraum-months-chips', n('winterraumNote')]},
+    {key:'anreise', title:'Anreise', sel:['#approach-type-chips', n('approach')]},
+    {key:'karte', title:'Karte & Zustiege', sel:[n('points'), '#fs-rl-field']},
+    {key:'kontakt', title:'Kontakt, Notizen & Status', sel:[n('hutLink'), n('contact'), n('notes'), n('status')]}
   ];
 }
 function fsFormSectionize(form, sections){
@@ -21094,9 +21155,12 @@ function fsFormSectionize(form, sections){
     const man = json('[name="manualTrack"]'); if(Array.isArray(man) && man.length > 1) parts.push('Linie');
     const trk = json('[name="trackSimplified"]'); if(Array.isArray(trk) && trk.length) parts.push('GPX');
     const topo = json('[name="topoImages"]'); if(Array.isArray(topo) && topo.length) parts.push(topo.length === 1 ? '1 Topo' : topo.length + ' Topos');
+    const ars = json('[name="accessRoutes"]'), drs = json('[name="descentRoutes"]');
+    if(Array.isArray(ars) && ars.length) parts.push(ars.length === 1 ? '1 Zustieg' : ars.length + ' Zustiege');
+    if(Array.isArray(drs) && drs.length) parts.push(drs.length === 1 ? '1 Abstieg' : drs.length + ' Abstiege');
     let n = 0;
     body.querySelectorAll('input, textarea, select').forEach(el=>{
-      if(!el.name || el.type === 'file' || /^(points|manualTrack|trackSimplified|topoImages|tourIdForTrack)$/.test(el.name)) return;
+      if(!el.name || el.type === 'file' || /^(points|manualTrack|trackSimplified|topoImages|tourIdForTrack|accessRoutes|descentRoutes|hutIdForTrack)$/.test(el.name)) return;
       if(el.closest('[style*="display:none"], [style*="display: none"]')) return;
       const v = (el.type === 'checkbox' || el.type === 'radio') ? (el.checked ? '1' : '') : String(el.value || '').trim();
       if(v && v !== '[]' && v !== 'nein') n++;
@@ -22944,8 +23008,16 @@ function fsShowContextMap(t){
 /* ===== Gebiet als Blatt über der Karte: alle Touren und Hütten des Gebiets =====
    area: {key, name, tours:[Tour], huts:[Hütte], spots:[{lat, lon, label, open:()=>{}}], points:[Punkte des Gebiets]}
    Jede Tour hat eine eigene Farbe; ihr Schild auf der Karte antippen öffnet die Tour. */
+// Hütte: dieselbe Karte hinter dem Blatt wie bei Gebiet/Tour (Hütte, ihre Punkte, Zustiege, Touren ab der Hütte)
+function fsHutArea(h){
+  if(!h) return null;
+  if(typeof migrateHutAccessRoutes === 'function') migrateHutAccessRoutes(h);
+  const routes = (h.accessRoutes || []).map((r, i)=> ({coords: fsRouteCoords(r), color: accessRouteColor(r, i), label: r.name || 'Zustieg'})).filter(r=> r.coords && r.coords.length > 1);
+  const extraPoints = (h.points || []).slice(1).filter(p=> p && isFinite(p.lat) && isFinite(p.lon)).map(p=> ({lat:+p.lat, lon:+p.lon, category:p.category || '', label:p.label || '', owner:h.name}));
+  return {key: 'hut-' + h.id, name: h.name, tours: (state.tours || []).filter(t=> t.hutId === h.id), huts: [h], points: [], extraPoints, routes, routesLabel: 'Zustiege', stampExtra: h.updatedAt || ''};
+}
 function fsAreaHasData(a){
-  return (a.points||[]).length || (a.spots||[]).length || (a.huts||[]).some(h=> h.points && h.points.length) || (a.tours||[]).some(t=> tourMapPoint(t) || fsTourRoutes(t).length);
+  return (a.points||[]).length || (a.routes||[]).length || (a.spots||[]).length || (a.huts||[]).some(h=> h.points && h.points.length) || (a.tours||[]).some(t=> tourMapPoint(t) || fsTourRoutes(t).length);
 }
 function fsShowAreaContextMap(a){
   if(fsCtxOwner === 'edit') return;
@@ -22984,7 +23056,11 @@ function fsShowAreaContextMap(a){
       const all = [], groups = [];
       const group = (label, color, dash)=>{ const g = {label, color, dash, on:true, items:[]}; groups.push(g); return g; };
       const markerItem = (m)=> ({setVisible:(v)=>{ m.getElement().style.display = v ? '' : 'none'; }});
-      const tg = group('Touren', ACCESS_ROUTE_COLORS[0]);
+      if((a.routes||[]).length){
+        const rg = group(a.routesLabel || 'Routen', a.routes[0].color);
+        a.routes.forEach(r=>{ rg.items.push(fsmAddLine(map, r.coords, {color: r.color, label: r.label})); r.coords.forEach(c=> all.push(c)); });
+      }
+      const tg = (a.tours||[]).length ? group('Touren', ACCESS_ROUTE_COLORS[0]) : {items:[]};
       (a.tours||[]).forEach((t,i)=>{
         const col = ACCESS_ROUTE_COLORS[i % ACCESS_ROUTE_COLORS.length];
         fsTourRoutes(t).forEach(r=>{
