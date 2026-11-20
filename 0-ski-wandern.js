@@ -447,7 +447,7 @@ function importModalHtml__sw(){
     <p style="font-size:13px; margin:0 0 12px 0;"><button type="button" class="btn secondary" style="font-size:12.5px; padding:6px 12px;" data-act="open-vorlagen">${fsIconHtml('note')} Ressourcen &amp; Vorlagen</button> – Bedienungsanleitung, JSON-Vorlage &amp; KI-Anleitung, zum Weitergeben an Kolleg:innen.</p>
     <div class="field">
       <label>Datei wählen</label>
-      <input type="file" id="import-file" accept="application/json,.json,.txt"/>
+      <label class="btn secondary fs-file-btn">${fsIconHtml('upload')}Datei wählen<input type="file" id="import-file" accept="application/json,.json,.txt" hidden/></label><span class="fs-file-picked"></span>
     </div>
     <p style="font-size:12.5px; color:var(--ink-soft); margin:10px 0 6px 0;">– oder Text einfügen –</p>
     <textarea placeholder="{ &quot;tours&quot;: [...], &quot;huts&quot;: [...] }" style="width:100%; min-height:160px; font-family:'Manrope'; font-size:11.5px;" id="import-text"></textarea>

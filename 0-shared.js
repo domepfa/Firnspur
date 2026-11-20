@@ -17318,6 +17318,15 @@ function fsRlCfg(type){
     kindOf: (r, field)=> field === 'descentRoutes' ? 'descent' : 'access', nameFor: (v)=> v === 'descent' ? 'Abstieg' : 'Zustieg', autoName: /^(Zustieg|Abstieg)$/,
     apply: ()=>{}, sac: false};
 }
+// Datei-Knöpfe (label.fs-file-btn): gewählte Datei(en) darunter nennen
+document.addEventListener('change', (e)=>{
+  const inp = e.target;
+  if(!inp || inp.type !== 'file' || !inp.closest || !inp.closest('label.fs-file-btn')) return;
+  const out = inp.closest('label.fs-file-btn').nextElementSibling;
+  if(!out || !out.classList.contains('fs-file-picked')) return;
+  const n = inp.files ? inp.files.length : 0;
+  out.textContent = !n ? '' : n === 1 ? inp.files[0].name : n + ' Dateien gewählt';
+}, true);
 function fsRlFieldHtml(type, e){
   const cfg = fsRlCfg(type);
   return `<div class="field" id="fs-rl-field" data-rl="${type}"><label>${esc(cfg.title)}</label>

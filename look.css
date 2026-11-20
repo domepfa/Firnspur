@@ -3298,3 +3298,5 @@ label.btn input[type=file]{ display:none; }
 .fs-har-more > summary::-webkit-details-marker{ display:none; }
 .fs-har-more > summary::before{ content:'+'; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; border:1.5px solid var(--line); font-weight:700; color:var(--ink-soft); flex:none; }
 .fs-har-more[open] > summary::before{ content:'–'; }
+.fs-file-picked{ display:block; margin-top:6px; font-size:13px; color:var(--ink-soft); }
+.fs-file-picked:empty{ display:none; }
