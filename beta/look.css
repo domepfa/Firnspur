@@ -3341,3 +3341,4 @@ label.btn input[type=file]{ display:none; }
 .fs-route-meta.fs-route-meta-fs{ display:none !important; }
 .fs-draw-segmenu{ min-width:250px; }
 .fs-draw-segmenu .fs-draw-seg{ margin:6px 0 8px; }
+.fs-rc-actions .fs-rc-scan{ grid-column:1 / -1; }
