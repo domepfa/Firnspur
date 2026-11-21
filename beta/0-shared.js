@@ -4195,8 +4195,13 @@ function fsSlfParse(b, rid){
       later: pr.validTimePeriod === 'later'};
   }).filter(pr=> pr.type);
   const reg = (b.regions || []).find(r=> (r.regionID || r.id) === rid);
+  // Ausblick (CAAML «tendency»): Richtung, Text, bis wann – fehlt er, bleibt die Karte wie bisher
+  const tdl = Array.isArray(b.tendency) ? b.tendency : (b.tendency ? [b.tendency] : []);
+  const plain = h=>{ if(!h) return ''; try{ return (new DOMParser().parseFromString(String(h), 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim(); }catch(e){ return String(h).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); } };
+  const tendency = tdl.map(x=> x && ({type: x.tendencyType || '', text: plain(x.highlights || x.comment || ''), end: x.validTime && x.validTime.endTime ? new Date(x.validTime.endTime) : null}))
+    .find(x=> x && (x.type || x.text)) || null;
   return {start: new Date(b.validTime.startTime), end: new Date(b.validTime.endTime), pub: b.publicationTime ? new Date(b.publicationTime) : null,
-    ratings, problems, region: reg && reg.name ? reg.name : '', id: b.bulletinID || ''};
+    ratings, problems, tendency, region: reg && reg.name ? reg.name : '', id: b.bulletinID || ''};
 }
 // Bulletins für einen Ort: das jetzt gültige und (falls schon da) das nächste
 async function fsSlfForPoint(lat, lon){
@@ -4225,6 +4230,13 @@ function fsSlfTourHits(t, bul){
     return asp && high;
   });
 }
+// Ausblick des Bulletins: Pfeil und Wort für die Richtung (nicht Farbe allein), dazu der Text des SLF
+function fsSlfTendencyHtml(td){
+  if(!td) return '';
+  const k = {increasing: ['↑', 'Gefahr steigt'], steady: ['→', 'Gefahr bleibt etwa gleich'], decreasing: ['↓', 'Gefahr nimmt ab']}[td.type] || null;
+  const until = td.end && !isNaN(td.end) ? ' bis ' + td.end.toLocaleDateString('de-CH', {weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'Europe/Zurich'}) : '';
+  return `<div class="fs-slf-tend fs-slf-tend-${esc(td.type || 'x')}"><div class="fs-slf-tend-h"><b>Ausblick${esc(until)}</b>${k ? `<span><i aria-hidden="true">${k[0]}</i>${k[1]}</span>` : ''}</div>${td.text ? `<p>${esc(td.text)}</p>` : ''}</div>`;
+}
 function fsSlfBoxHtml(lat, lon){
   state._slf = state._slf || {};
   const key = lat.toFixed(2) + ',' + lon.toFixed(2);
@@ -4251,6 +4263,7 @@ function fsSlfBoxHtml(lat, lon){
     ${bul.ratings.map(r=> `<div class="fs-slf-lvl"><span class="fs-slf-dot" style="--lvl:${r.color}; color:${r.level >= 3 ? '#fff' : '#0F1E27'}">${fsSlfLevelTxt(r.level, r.sub)}</span><div>${esc(r.label)}${r.elev || r.later ? `<small>${esc([r.elev, r.later ? 'im Tagesverlauf' : ''].filter(Boolean).join(' · '))}</small>` : ''}</div></div>`).join('')}
     ${bul.problems.length ? `<ul class="fs-slf-prob">${bul.problems.map(pr=> `<li>${FS_SLF_PROB_ICON[pr.raw] ? fsIconHtml(FS_SLF_PROB_ICON[pr.raw]) : ''}<span>${esc(pr.type)}</span><em>${esc(prob(pr))}</em>${pr.aspects.length && FS_SLF_PROB_ICON[pr.raw] ? fsSlfRoseSvg(pr.aspects, 26) : ''}</li>`).join('')}</ul>` : ''}
     ${hits.length ? `<div class="fs-slf-hit"><b>Deine Tour: Exposition ${esc(expoTxt)}${t.targetAltitude ? ' · Gipfel ' + esc(String(t.targetAltitude)) + ' m' : ''}</b>Liegt laut Exposition und Gipfelhöhe im Bereich: ${esc(hits.map(h=> h.type).join(', '))}.</div>` : ''}
+    ${fsSlfTendencyHtml(bul.tendency)}
     ${fsReductionHtml(t, bul)}
     <a class="fs-slf-link" href="https://whiterisk.ch/de/conditions/bulletin" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk</a>
     <p class="fs-slf-src">${esc([bul.region ? 'Region ' + bul.region : '', bul.pub ? 'Stand ' + fsSlfFmt(bul.pub) : ''].filter(Boolean).join(' · '))}</p>

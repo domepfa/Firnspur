@@ -70,7 +70,8 @@ aus anderen Apps übernehmen.
   swisstopo-Höhendienst, nur auf dem Gerät gemerkt (`fs-updown`); an der Tour ändert sich nichts.
 - Ebene «Lawinengefahr (SLF)» wie die SLF-Karte: Stufe mit Zusatz (+/=/−, `customData.CH.subdivision`), «+» schraffiert in der Farbe
   der nächsthöheren Stufe (`fsmSlfHatch`), ab Zoom 8.3 Kärtchen je Region mit Windrose, Höhe, Problem-Zeichen `av-*` (`fsmSlfCards`,
-  ohne Überlappung), antippen: Text (`fsSlfRegionPopupHtml`).
+  ohne Überlappung), antippen: Text (`fsSlfRegionPopupHtml`). In der Tour zusätzlich der Ausblick des Bulletins (CAAML `tendency`,
+  `fsSlfTendencyHtml`: Pfeil + Wort, Text, bis wann; fehlt er, bleibt die Karte wie bisher).
 - Lawinen in der Liste (`fsCardSlfHtml`, `fsTourSlfHit`): Stufe der Region und «Problem», wenn steile Stellen der Route (Routen-Check,
   im Hintergrund gerechnet, Kurzfassung auf dem Gerät `fs-rc-sum`) in Exposition und Höhe eines Lawinenproblems liegen; sonst nach
   Exposition/Gipfelhöhe. Zusatzfilter «Am Tag X» (`fsExtraFilterHtml`): Problembereich ausblenden, passt zur Jahreszeit.

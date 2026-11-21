@@ -3370,3 +3370,10 @@ html.fs-sheet-open #fs-ov-chips{ display:none !important; }
 .fs-area-recalc{ width:100%; margin-top:8px; min-height:46px; display:flex; align-items:center; justify-content:center; gap:8px; }
 .fs-area-note{ width:100%; min-height:40px; margin:4px 0 8px; border:1px solid var(--line); border-radius:10px; padding:0 10px; font:inherit; font-size:14px; }
 .fs-pe-bottom > .fs-area-row{ background:var(--paper); padding:10px; }
+/* Bulletin: Ausblick */
+.fs-slf-tend{ margin:10px 0; padding:10px 12px; border-radius:12px; background:var(--ice-light); }
+.fs-slf-tend-h{ display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:14px; }
+.fs-slf-tend-h span{ display:inline-flex; align-items:center; gap:6px; font-weight:700; font-size:13.5px; color:var(--ink-soft); }
+.fs-slf-tend-h i{ font-style:normal; font-weight:800; font-size:17px; }
+.fs-slf-tend-increasing .fs-slf-tend-h span{ color:var(--danger, #C92A2A); }
+.fs-slf-tend p{ margin:6px 0 0; font-size:14px; line-height:1.45; }
