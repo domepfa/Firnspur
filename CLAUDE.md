@@ -88,7 +88,10 @@ aus anderen Apps übernehmen.
   (`fsRlFieldHtml`/`fsRlWire`, `fsRlCfg`: Hütte Sommer/Winter, Hochtour-Tour und Sektor Zustieg/Abstieg, Angaben aufklappbar), keine eigenen
   Zustiegs-/Abstiegs-Formulare mehr; Stift halten öffnet direkt das Formular (kein Bearbeiten-Modus); Hütten- und Tourformular in Abschnitten; eine alte
   Linie der Hütte (`manualTrack`) wird beim Speichern ein Zustieg (`fsHutAdoptLine`). Tour: `fsTourDrawRoute`.
-  Karten-Editor: alle Linien gleich bearbeitbar (Ziehpunkte); berechnete/lange Linien werden beim Wechsel zu «Linie» vereinfacht
+  Karten-Editor: Reiter «Zeichnen» und «Punkte» (Route ist in Zeichnen aufgegangen). Zeichnen verbindet je Abschnitt als Skispur
+  (`fsSkiRoute`), Wanderweg (`fetchCalculatedRoute`) oder Gerade («Verbinden als», `drawConnect`, Gerät `fs-draw-connect`); Abschnitte
+  `drawSegs` (Sitzung, am Formularfeld `_drawSegs`), Ziehpunkte nur an Ankern, Kreis in der Mitte ziehen = Zwischenpunkt (`drawSplit`).
+  Alle Linien gleich bearbeitbar (Ziehpunkte); berechnete/lange Linien werden beim Wechsel zu «Linie» vereinfacht
   (`fsSimplifyLine`, 8 m). Tour-Routen auf der Startkarte kräftig mit weissem Rand (`fs-home-routes-case`).
 - Hang-Scan (`fsScan*` in `0-shared.js`): Zielen mit festem Rahmen auf der Startkarte (Menü oder Gedrückthalten),
   Rechnung auf dem Gerät, eigene 3D-Ansicht mit den Ebenen Steilheit, Lawine, Klippen, Sonne (Zeitraffer).

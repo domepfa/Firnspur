@@ -3267,7 +3267,7 @@ svg.fs-wxi{ fill:none; stroke:none; }
 
 /* ===== Hütte: Zustiege (Linie übernehmen, Jahreszeit) ===== */
 /* Linien-Modus im Karten-Editor: Punkte nicht antippbar, damit der Tipp einen Linienpunkt setzt (Ziehpunkte bleiben) */
-.fs-ed-mode-line .maplibregl-marker:not(:has(.fs-gpx-v)){ pointer-events:none; }
+.fs-ed-mode-line .maplibregl-marker:not(:has(.fs-gpx-v, .fs-draw-mid)){ pointer-events:none; }
 .fs-ar-season{ display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--ink-soft); white-space:nowrap; }
 .fs-ar-season::before{ content:''; width:10px; height:10px; border-radius:50%; background:var(--c); }
 .fs-hut-line-hint{ display:grid; grid-template-columns:auto 1fr; gap:8px 10px; align-items:center; margin-top:10px; padding:12px; border:1.5px dashed var(--line); border-radius:12px; font-size:13.5px; color:var(--ink); }
@@ -3325,3 +3325,17 @@ label.btn input[type=file]{ display:none; }
 .fsm-tile-badge{ position:absolute; top:-7px; right:-7px; width:24px; height:24px; border-radius:50%; background:var(--ink); color:var(--paper);
   font-style:normal; font-weight:800; font-size:16px; line-height:24px; text-align:center; }
 .fsm-legend-t{ display:block; font-size:12.5px; margin-bottom:4px; }
+
+/* ===== Zeichnen: Verbinden als, Kreis in der Mitte eines Abschnitts ===== */
+.fs-draw-connect{ flex:1 1 100%; }
+.fs-draw-connect-l{ font-size:11.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); margin:0 0 6px; }
+.fs-draw-seg{ display:grid; grid-template-columns:repeat(3, 1fr); gap:4px; padding:4px; border-radius:14px; background:var(--ice-light); }
+.fs-draw-seg button{ display:flex; flex-direction:column; align-items:center; gap:3px; min-height:52px; border:none; border-radius:10px; background:transparent;
+  color:var(--ink-soft); font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+.fs-draw-seg button .fs-i{ width:20px; height:20px; }
+.fs-draw-seg button.on{ background:var(--paper); color:var(--ice-deep); box-shadow:0 1px 4px rgba(0,0,0,.15); }
+.fs-draw-hint{ margin:6px 0 2px; font-size:12.5px; color:var(--ink-soft); }
+.fs-draw-mid{ width:40px; height:40px; display:flex; align-items:center; justify-content:center; cursor:grab; touch-action:none; }
+.fs-draw-mid i{ display:block; width:12px; height:12px; border-radius:50%; background:#fff; border:2.5px solid #1565C0; box-shadow:0 1px 3px rgba(0,0,0,.4); opacity:.9; }
+.fs-gpx-drag .fs-draw-mid i{ transform:scale(1.6); }
+.fs-route-meta.fs-route-meta-fs{ display:none !important; }
