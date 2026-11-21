@@ -1286,7 +1286,7 @@ function fsRescueOffer(appKey){
   box.id = 'fs-rescue';
   box.className = 'fs-rescue';
   box.innerHTML = `<div class="fs-rescue-card" role="dialog" aria-modal="true">
-    <h3>${fsIconHtml('alert')} ${total} Einträge fehlen in der Datenbank</h3>
+    <h3>${fsIconHtml('alert')} ${total} ${total === 1 ? 'Eintrag fehlt' : 'Einträge fehlen'} in der Datenbank</h3>
     <p>Sie sind auf diesem Gerät noch gespeichert und können zurückgeholt werden:</p>
     <div class="fs-rescue-list">${colls.map(c=> `<div><b>${esc(FS_RESCUE_COLLS[c][0])} (${store[c].length})</b><br/>${store[c].map(x=> esc(x.name || x.id) + (x.deletedAt ? ' <span class="fs-rescue-muted">(Papierkorb)</span>' : '')).join(' · ')}</div>`).join('')}</div>
     <div class="fs-rescue-actions">
@@ -2332,7 +2332,7 @@ function fsHomeFilter(){
   const groups = !!(vis && oneGrid && grid && shown < total);
   cards.forEach(c=>{ c.card.style.order = !oneGrid ? '' : c.pick ? '-1' : (!groups || c.on) ? '0' : '2'; c.card.classList.toggle('fs-home-pick', c.pick); });
   // Überschriften der Gruppen (nur anlegen/ändern, wenn nötig: der Beobachter des Blatts zählt das nicht)
-  const word = fsHomePts.kind === 'hut' ? 'Hütten' : (fsHomePts.kind === 'gebiet' || fsHomePts.kind === 'klettergebiet') ? 'Gebiete' : 'Touren';
+  const word = fsHomePts.kind === 'hut' ? (total === 1 ? 'Hütte' : 'Hütten') : (fsHomePts.kind === 'gebiet' || fsHomePts.kind === 'klettergebiet') ? (total === 1 ? 'Gebiet' : 'Gebiete') : (total === 1 ? 'Tour' : 'Touren');
   sheet.querySelectorAll('.fs-home-sep').forEach(x=>{ if(x.parentElement !== grid || (!groups && !x.classList.contains('cams'))) x.remove(); });
   if(!groups){
     // Alle Touren sichtbar: trotzdem der Knopf «Webcams» über der Liste
@@ -13640,8 +13640,9 @@ function fsConditionsHtml(lat, lon, alt){
   // Gemessen
   const rows = [];
   if(hsNear){ const p = hsNear.props || {}; rows.push([`${esc(hsNear.name)} <small>SLF · ${hsNear.ele ? Math.round(hsNear.ele) + ' m · ' : ''}${fsFmtKm(hsNear.d)}</small>`, `${Math.round(hsNear.v)} cm${p.dhs24 != null ? ` <em>${p.dhs24 >= 0 ? '+' : ''}${Math.round(p.dhs24)} in 24 h</em>` : ''}`]); }
-  if(msNs && msNs.v > 0) rows.push([`${esc(msNs.name)} <small>MeteoSchweiz · ${fsFmtKm(msNs.d)}</small>`, `${Math.round(msNs.v)} cm Neuschnee 24 h`]);
-  if(rainNear) rows.push([`${esc(rainNear.name)} <small>${rainNear.src} · ${fsFmtKm(rainNear.d)}</small>`, `${rainNear.v.toFixed(1)} mm in 24 h`]);
+  const sameSt = msNs && msNs.v > 0 && rainNear && rainNear.name === msNs.name; // dieselbe Station: eine Zeile
+  if(msNs && msNs.v > 0) rows.push([`${esc(msNs.name)} <small>MeteoSchweiz · ${fsFmtKm(msNs.d)}</small>`, `${Math.round(msNs.v)} cm Neuschnee${sameSt ? ' · ' + rainNear.v.toFixed(1) + ' mm' : ''} in 24 h`]);
+  if(rainNear && !sameSt) rows.push([`${esc(rainNear.name)} <small>${rainNear.src} · ${fsFmtKm(rainNear.d)}</small>`, `${rainNear.v.toFixed(1)} mm in 24 h`]);
   if(rows.length) parts.push(`<p class="fs-cond-h">Gemessen in der Nähe</p>` + rows.map(r=> `<div class="fs-cond-row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join(''));
   // Webcams
   if(c.cams && c.cams.length) parts.push(`<p class="fs-cond-h">Webcams</p><div class="fs-cond-cams">${c.cams.map(w=> `<a href="${esc(w.href)}" target="_blank" rel="noopener noreferrer">${w.img ? `<img src="${esc(w.img)}" alt="" loading="lazy"/>` : `<span class="noimg">${fsIconHtml('camera')}</span>`}<span>${esc(w.name)}</span></a>`).join('')}</div><p class="wx-src">${c.cams[0].src}</p>`);
@@ -21747,11 +21748,77 @@ function fsRcRoseSvg(m){
 function fsRcErrorHtml(res){
   return `<p class="fs-rc-note">${esc(res.error)}</p>${res.retry ? '<button type="button" class="btn secondary" data-rc-retry>Nochmals versuchen</button>' : ''}`;
 }
+/* ===== Über der Spur: steile Hänge oberhalb der Route =====
+   Aus dem Hang-Scan um die Route (auf Tipp gerechnet, Ergebnis auf dem Gerät «fs-rc-above»): Zellen ab 35° bis 250 m neben
+   der Spur, mindestens 30 m höher als der nächste Routenpunkt und zur Spur hin abfallend (±60°). Gelände, keine Beurteilung. */
+// Bild lädt nicht (offline, Webcam weg): leere Fläche statt Fehlerbild mit Alternativtext
+document.addEventListener('error', (e)=>{ const t = e.target; if(t && t.tagName === 'IMG') t.classList.add('fs-img-err'); }, true);
+function fsRcAboveAll(){ try{ return JSON.parse(localStorage.getItem('fs-rc-above') || '{}') || {}; }catch(e){ return {}; } }
+function fsRcAboveSave(key, v){ const all = fsRcAboveAll(); all[key] = Object.assign({at: Date.now()}, v); const ks = Object.keys(all); if(ks.length > 150) ks.sort((a, b)=> all[a].at - all[b].at).slice(0, ks.length - 150).forEach(k=> delete all[k]); try{ localStorage.setItem('fs-rc-above', JSON.stringify(all)); }catch(e){} }
+const fsRcAboveRunning = new Set();
+function fsRcAboveAnalyse(res, line){
+  const z = res.z, mpp = fsScanMpp(res.s.lat, z), rad = Math.round(250 / mpp);
+  // Route alle ~25 m, mit Höhe aus dem Raster
+  const pts = [];
+  for(let i = 0; i < line.length; i++){
+    const a = line[i], b = line[i + 1] || a, d = fsRcHav(a, b), n = Math.max(1, Math.round(d / 25));
+    for(let j = 0; j < (i < line.length - 1 ? n : 1); j++){
+      const la = a[0] + (b[0] - a[0]) * j / n, lo = a[1] + (b[1] - a[1]) * j / n;
+      const [px, py] = fsRcPx(la, lo, z), x = Math.floor(px) - res.x0, y = Math.floor(py) - res.y0;
+      if(x < 0 || y < 0 || x >= res.W || y >= res.H) continue;
+      const e = res.ele[y * res.W + x];
+      if(!isNaN(e)) pts.push({x, y, e});
+    }
+  }
+  if(!pts.length) return {n: 0};
+  const hit = new Uint8Array(res.W * res.H), ptHit = new Uint8Array(pts.length);
+  pts.forEach((p, k)=>{
+    for(let y = Math.max(0, p.y - rad); y <= Math.min(res.H - 1, p.y + rad); y++) for(let x = Math.max(0, p.x - rad); x <= Math.min(res.W - 1, p.x + rad); x++){
+      const i = y * res.W + x, sl = res.slope[i];
+      if(!(sl >= 35) || !(res.ele[i] >= p.e + 30)) continue;
+      const dx = p.x - x, dy = p.y - y, dist = Math.hypot(dx, dy);
+      if(dist > rad || dist < 1) continue;
+      const toward = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360, a = res.asp[i];
+      if(isNaN(a)) continue;
+      let diff = Math.abs(toward - a); if(diff > 180) diff = 360 - diff;
+      if(diff > 60) continue;
+      hit[i] = 1; ptHit[k] = 1;
+    }
+  });
+  let n = 0, top = -Infinity; const byA = new Array(8).fill(0);
+  for(let i = 0; i < hit.length; i++) if(hit[i]){ n++; top = Math.max(top, res.ele[i]); byA[Math.round(res.asp[i] / 45) % 8]++; }
+  const area = n * mpp * mpp, along = ptHit.reduce((a, v)=> a + v, 0) * 25;
+  const ai = byA.indexOf(Math.max(...byA));
+  return {n, area: Math.round(area), along: Math.round(along), top: isFinite(top) ? Math.round(top) : null, asp: n ? FS_RC_ASP[ai] : null};
+}
+async function fsRcAboveRun(key){
+  if(fsRcAboveRunning.has(key)) return;
+  const t = (state.tours || []).find(x=> key.indexOf(x.id + ':') === 0), line = t && fsRcLine(t), sc = fsScanForRoute(line);
+  if(!sc) return;
+  if(sc.length > 12000){ showToast('Die Route ist dafür zu lang (über 12 km).', true); return; }
+  fsRcAboveRunning.add(key); fsRcPaint(key);
+  let v;
+  try{ const res = await fsScanCompute(sc); v = res.error ? {error: res.error} : fsRcAboveAnalyse(res, line); }catch(e){ v = {error: 'Konnte nicht gerechnet werden.'}; }
+  fsRcAboveRunning.delete(key);
+  if(!v.error) fsRcAboveSave(key, v); else showToast(v.error, true);
+  fsRcPaint(key);
+}
+function fsRcAboveHtml(key){
+  if(!key) return '';
+  const v = fsRcAboveAll()[key];
+  if(fsRcAboveRunning.has(key)) return `<div class="fs-rc-above"><p>${fsIconHtml('scan')}<span>Hänge über der Spur werden gerechnet …</span></p></div>`;
+  if(!v) return `<div class="fs-rc-above"><button type="button" class="btn secondary" data-rc-above>${fsIconHtml('scan')}Hänge über der Spur prüfen</button></div>`;
+  const ha = v.area >= 10000 ? (v.area / 10000).toFixed(1).replace('.', ',') + ' ha' : fsRcFmtM(Math.sqrt(v.area)) + ' × ' + fsRcFmtM(Math.sqrt(v.area));
+  return `<div class="fs-rc-above${v.n ? ' warn' : ''}"><p>${fsIconHtml(v.n ? 'alert' : 'check')}<span>${v.n
+    ? `<b>Über der Spur</b> liegen steile Hänge über 35° (zusammen etwa ${v.area >= 10000 ? ha : Math.round(v.area / 100) * 100 + ' m²'}), auf ${fsRcFmtM(v.along)} der Route, bis ${fsRcFmtE(v.top)} m, vor allem ${FS_RC_ASP_LONG[v.asp]}.`
+    : '<b>Über der Spur</b> liegen keine Hänge über 35°, die zur Route hin abfallen (250 m Umkreis).'}</span></p></div>`;
+}
 // In der Tour: Aussage, kleines Profil, «Gross ansehen» und «Vorbeiflug»
 function fsRcBodyHtml(res, withBulletin){
   if(res.error) return fsRcErrorHtml(res);
   const m = fsRcModel(res, withBulletin);
   return `${fsRcSummaryHtml(m)}
+    ${fsRcAboveHtml(res.key)}
     ${fsRcProfileSvg(m, false)}
     <div class="fs-rc-actions">
       <button type="button" class="btn fs-rc-open" data-rc-open>${fsIconHtml('expand')}Gross ansehen</button>
@@ -21981,6 +22048,7 @@ document.addEventListener('click', (ev)=>{
     if(t) fsFlyOpen(t);
     return;
   }
+  if(ev.target.closest('[data-rc-above]')){ fsRcAboveRun(key); return; }
   if(ev.target.closest('[data-rc-scan]')){
     const t = (state.tours || []).find(x=> key.indexOf(x.id + ':') === 0);
     if(t) fsScanTour(t);
@@ -23210,7 +23278,7 @@ function fsHideContextMap(){
 function fsFitContextMap(){
   if(!fsCtxMap || !fsCtxMap._fsCoords) return;
   const bottom = fsSheetMapPadPx(fsSheetDetent === 'full' ? 'half' : fsSheetDetent);
-  fsmFit(fsCtxMap, fsCtxMap._fsCoords, {top:70, left:30, right:70, bottom: bottom + 20}, 14);
+  fsmFit(fsCtxMap, fsCtxMap._fsCoords, {top:70, left:30, right:120, bottom: bottom + 20}, 14);
 }
 // «Weitere Routen auf diesen Gipfel»: alle Routen mit diesem Gipfelziel farbig auf die Karte hinter dem Blatt
 // (gleiche Farben wie die Legende), Blatt klein. Die Linien verschwinden mit der Tour (own-…).
@@ -23475,7 +23543,7 @@ function fsShowAreaContextMap(a){
       }
       const huts = (a.huts||[]).filter(h=> h.points && h.points.length);
       if(huts.length){
-        const hg = group('Hütten', FS_CTX_COLORS.hutRoute);
+        const hg = String(a.key).indexOf('hut-') === 0 ? {items: []} : group('Hütten', FS_CTX_COLORS.hutRoute); // Hütte selbst: kein Schalter für sie
         huts.forEach(h=>{
           const p = h.points[0];
           const m = fsmAddMarker(map, p.lat, p.lon, `<button type="button" class="fs-area-pin fs-area-hut">${fsIconHtml('hut')}${esc(h.name)}</button>`, {anchor:'bottom'});
