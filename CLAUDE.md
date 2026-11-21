@@ -91,7 +91,9 @@ aus anderen Apps übernehmen.
   Karten-Editor: Reiter «Zeichnen» und «Punkte» (Route ist in Zeichnen aufgegangen). Zeichnen verbindet je Abschnitt als Skispur
   (`fsSkiRoute`), Wanderweg (`fetchCalculatedRoute`) oder Gerade («Verbinden als», `drawConnect`, Gerät `fs-draw-connect`); Abschnitte
   `drawSegs` (Sitzung, am Formularfeld `_drawSegs`), Ziehpunkte nur an Ankern, Kreis in der Mitte ziehen = Zwischenpunkt (`drawSplit`); Abschnitt antippen = nur diesen anders verbinden (`drawSegMenu`),
-  Aussehen je Art `FS_DRAW_STYLE` (Skispur durchgezogen, Wanderweg gepunktet grün, Gerade gestrichelt).
+  Aussehen je Art `FS_DRAW_STYLE` (Skispur durchgezogen, Wanderweg gepunktet grün, Gerade gestrichelt, übernommen violett).
+  Route anhängen: Tipp nahe einer vorhandenen Route rastet ein (`drawSnapFind`: weitere Routen, Zustiege, GPX, andere Touren
+  bis 25 km), dann «Ab hier folgen bis zum Ende/Anfang» bzw. beim ersten Punkt «Vom Anfang/Ende bis hier übernehmen» (Art `folgen`).
   Alle Linien gleich bearbeitbar (Ziehpunkte); berechnete/lange Linien werden beim Wechsel zu «Linie» vereinfacht
   (`fsSimplifyLine`, 8 m). Tour-Routen auf der Startkarte kräftig mit weissem Rand (`fs-home-routes-case`).
 - Hang-Scan (`fsScan*` in `0-shared.js`): Zielen mit festem Rahmen auf der Startkarte (Menü oder Gedrückthalten),
