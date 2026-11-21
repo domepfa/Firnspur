@@ -10742,7 +10742,7 @@ const FS_ROUTE_TYPES = {
   abstieg:  {label:'Abstieg', color:'#D9730D'}
 };
 // Zeichnen: Aussehen eines Abschnitts nach Art (Skispur, Wanderweg, Gerade) – Farbe und Strichart, nicht Farbe allein
-const FS_DRAW_STYLE = {ski: {color: '#1565C0'}, weg: {color: '#2F7D4A', dash: '1,7'}, gerade: {color: '#1565C0', dash: '8,6'}};
+const FS_DRAW_STYLE = {ski: {color: '#1565C0'}, weg: {color: '#2F7D4A', dash: '1,7'}, gerade: {color: '#1565C0', dash: '8,6'}, folgen: {color: '#7A3E9E'}};
 const FS_ROUTE_TYPE_ORDER = ['aufstieg','aufab','abfahrt','abstieg','variante','zustieg'];
 function fsRouteTypesOn(){ return true; } // alle Apps (Skitour, Hochtour/Klettern, Wandern)
 // Bezeichnung einer Routenart – abgefahren wird nur in der Skitour-App, sonst geht man ab
@@ -11586,7 +11586,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function drawAnchorIdx(){ if(!manualTrack.length) return []; const idx = [0]; let k = 0; drawSegs.forEach(sg=>{ k += sg.coords.length - 1; idx.push(k); }); return idx; }
     function drawHasCalc(){ drawSync(); return drawSegs.some(sg=> sg.mode !== 'gerade'); }
     async function drawCompute(m, a, b){
-      if(m === 'gerade') return [a, b];
+      if(m === 'gerade' || m === 'folgen') return [a, b];
       const r = m === 'ski' ? await fsSkiRoute([a, b]) : await fetchCalculatedRoute([a, b]);
       const c = ((r && r.coords) || []).map(q=> [+q[0], +q[1]]).filter(q=> isFinite(q[0]) && isFinite(q[1]));
       if(c.length < 2) throw new Error('keine Route');
@@ -11612,13 +11612,64 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs;
       gpxTrackChanged();
     }
+    /* Route anhängen: ein Tipp nahe einer vorhandenen Route rastet dort ein; danach «Ab hier folgen»
+       (bis zum Ende oder zum Anfang) bzw. beim ersten Punkt «Vom Anfang bis hier übernehmen». Ziele: weitere
+       Routen dieser Tour, Zustiege/Bezugslinien, der GPX-Track und Routen anderer Touren in der Nähe. */
+    function drawSnapTargets(){
+      const out = [];
+      const add = (c, label)=>{ const cc = (c || []).map(q=> Array.isArray(q) ? [+q[0], +q[1]] : [+q.lat, +(q.lon != null ? q.lon : q.lng)]).filter(q=> isFinite(q[0]) && isFinite(q[1])); if(cc.length > 1) out.push({coords: cc, label}); };
+      refTracks.forEach(rt=> add(rt.coords, rt.label || 'Route'));
+      try{ JSON.parse((document.getElementById('route-alt-tracks') || {}).value || '[]').forEach(a=> add(a.trackSimplified, a.name || fsRouteLabel(a.type))); }catch(e){}
+      if(!usingGpxTrack && gpxTrack) add(gpxTrack, 'GPX-Track');
+      const ownId = (document.getElementById('tour-id-for-track') || {}).value || '';
+      let c = null; try{ const m = map.getCenter(); c = [m.lat, m.lng]; }catch(e){}
+      if(c && typeof state !== 'undefined') (state.tours || []).forEach(t=>{
+        if(!t || t.id === ownId) return;
+        fsTourRoutes(t).forEach(r=>{ const f = r.coords && r.coords[0]; if(f && fsGeoDist(c[0], c[1], +f[0], +f[1]) < 25000) add(r.coords, t.name + (r.name ? ' · ' + r.name : '')); });
+      });
+      return out;
+    }
+    function drawSnapFind(lat, lon){
+      let z = 14; try{ z = map.getZoom(); }catch(e){}
+      const tol = 24 * 156543 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z); // etwa 24 Bildpunkte
+      let best = null;
+      drawSnapTargets().forEach(L=> L.coords.forEach((q, j)=>{ const d = fsGeoDist(lat, lon, q[0], q[1]); if(d < tol && (!best || d < best.d)) best = {L, j, d}; }));
+      return best;
+    }
+    function drawFollowAsk(hit, first){
+      const L = hit.L, j = hit.j, p = L.coords[j];
+      const wrap = document.createElement('div');
+      wrap.className = 'fs-gpx-menu';
+      const h = document.createElement('p');
+      h.textContent = 'Auf «' + L.label + '» eingerastet';
+      wrap.appendChild(h);
+      const take = (coords, label)=>{
+        pushUndo(); map.closePopup(); drawSync();
+        if(!manualTrack.length) manualTrack = [coords[0]];
+        drawSegs.push({mode: 'folgen', label: L.label, coords: coords});
+        manualTrack = drawJoin(drawSegs);
+        if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs;
+        gpxTrackChanged();
+        showToast(label);
+      };
+      if(first){
+        if(j > 0) wrap.appendChild(gpxBtn('Vom Anfang dieser Route bis hier übernehmen', 'secondary', ()=>{ manualTrack = []; drawSegs = []; take(L.coords.slice(0, j + 1), 'Anfang übernommen – jetzt weiterzeichnen.'); }));
+        if(j < L.coords.length - 1) wrap.appendChild(gpxBtn('Vom Ende dieser Route bis hier übernehmen', 'secondary', ()=>{ manualTrack = []; drawSegs = []; take(L.coords.slice(j).reverse(), 'Übernommen – jetzt weiterzeichnen.'); }));
+      }else{
+        if(j < L.coords.length - 1) wrap.appendChild(gpxBtn('Ab hier folgen bis zum Ende', 'secondary', ()=> take(L.coords.slice(j), 'Der Route bis zum Ende gefolgt.')));
+        if(j > 0) wrap.appendChild(gpxBtn('Ab hier folgen bis zum Anfang', 'secondary', ()=> take(L.coords.slice(0, j + 1).reverse(), 'Der Route bis zum Anfang gefolgt.')));
+      }
+      wrap.appendChild(gpxBtn('Nur hier anschliessen', 'secondary', ()=> map.closePopup()));
+      FL.popup().setLatLng(p).setContent(wrap).openOn(map);
+    }
     function drawLabelUnused(m){ return m === 'ski' ? 'Skispur' : m === 'weg' ? 'Wanderweg' : 'Gerade'; }
     // Anker k verschieben: angrenzende Abschnitte neu
     function drawMoveAnchor(k, ll){
       drawSync();
       const p = [ll.lat, ll.lng], list = [];
-      if(k > 0){ const sg = drawSegs[k - 1]; sg.coords = [sg.coords[0], p]; list.push(k - 1); }
-      if(k < drawSegs.length){ const sg = drawSegs[k]; sg.coords = [p, sg.coords[sg.coords.length - 1]]; list.push(k); }
+      const unfollow = sg=>{ if(sg.mode === 'folgen') sg.mode = drawConnect; }; // eine übernommene Route verlässt man beim Verschieben
+      if(k > 0){ const sg = drawSegs[k - 1]; unfollow(sg); sg.coords = [sg.coords[0], p]; list.push(k - 1); }
+      if(k < drawSegs.length){ const sg = drawSegs[k]; unfollow(sg); sg.coords = [p, sg.coords[sg.coords.length - 1]]; list.push(k); }
       if(!drawSegs.length){ manualTrack = [p]; gpxTrackChanged(); return; }
       drawRecompute(list);
     }
@@ -11638,8 +11689,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // Mitte von Abschnitt k gezogen: dort Zwischenpunkt, beide Teile neu
     function drawSplit(k, ll){
       drawSync();
-      const sg = drawSegs[k], p = [ll.lat, ll.lng];
-      drawSegs.splice(k, 1, {mode: sg.mode, coords: [sg.coords[0], p]}, {mode: sg.mode, coords: [p, sg.coords[sg.coords.length - 1]]});
+      const sg = drawSegs[k], p = [ll.lat, ll.lng], m = sg.mode === 'folgen' ? drawConnect : sg.mode;
+      drawSegs.splice(k, 1, {mode: m, coords: [sg.coords[0], p]}, {mode: m, coords: [p, sg.coords[sg.coords.length - 1]]});
       drawRecompute([k, k + 1]);
     }
     function gpxBtn(label, cls, fn){
@@ -11839,7 +11890,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       const wrap = document.createElement('div');
       wrap.className = 'fs-gpx-menu fs-draw-segmenu';
       const h = document.createElement('p');
-      h.textContent = 'Abschnitt ' + (k + 1) + ' von ' + drawSegs.length + ' · ' + fsLineKm(sg.coords).toFixed(1) + ' km';
+      h.textContent = 'Abschnitt ' + (k + 1) + ' von ' + drawSegs.length + ' · ' + fsLineKm(sg.coords).toFixed(1) + ' km' + (sg.mode === 'folgen' ? ' · folgt ' + (sg.label || 'einer Route') : '');
       wrap.appendChild(h);
       const seg = document.createElement('div');
       seg.className = 'fs-draw-seg';
@@ -12203,6 +12254,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       // Beim Bearbeiten des GPX-Tracks nie Punkte anhängen
       if(usingGpxTrack){ showToast('Zuerst «GPX-Track fertig bearbeitet», dann eine neue Linie zeichnen.', true); return; }
       if(drawBusy){ showToast('Einen Moment – der letzte Abschnitt wird noch gerechnet.'); return; }
+      const snap = drawSnapFind(lat, lon);
+      if(snap){ lat = snap.L.coords[snap.j][0]; lon = snap.L.coords[snap.j][1]; }
+      if(snap) setTimeout(()=> drawFollowAsk(snap, !manualTrack.length), drawConnect === 'gerade' || !manualTrack.length ? 50 : 50);
       pushUndo();
       drawSync();
       if(manualTrack.length && drawConnect !== 'gerade'){
