@@ -103,6 +103,11 @@ aus anderen Apps übernehmen.
   nicht auf der Tour-Karte. Die Skispur-Rechnung gewichtet je Rasterzelle (`fsAreaMul`: meiden ×12, bevorzugen ×0.55);
   «Skispur neu rechnen» (`drawAreasRecalc`). Ziehen von Kartenpunkten mit eigener Zeigerverfolgung (FL-Marker, Pointer Capture).
   Tour-Routen auf der Startkarte kräftig mit weissem Rand (`fs-home-routes-case`).
+- Gebiete schnell anlegen (`fsGeb*` in `0-ski-wandern.js`): «+ Neues Gebiet» = auf der Startkarte mit einem Finger umfahren
+  (zwei Finger verschieben), danach Blatt mit Namensvorschlag (häufigstes Teilgebiet) und Liste der Touren/Hütten darin (mit Gebiet
+  zuerst abgewählt; Pins auf der Karte antippen = an/ab); «Ohne Karte anlegen» öffnet das alte Formular. Unter «Gebiete» Vorschläge
+  (`fsGebSuggestions`: Touren/Hütten ohne Gebiet, Kette bis 6 km, ab 3), «Ausblenden» merkt das Gerät (`fs-geb-sug-hide-<disc>`).
+  Zuordnung über `gebietId`, je Eintrag über `saveTourCloud`/`saveHutCloud` gespeichert.
 - Hang-Scan (`fsScan*` in `0-shared.js`): Zielen mit festem Rahmen auf der Startkarte (Menü oder Gedrückthalten),
   Rechnung auf dem Gerät, eigene 3D-Ansicht mit den Ebenen Steilheit, Lawine, Klippen, Sonne (Zeitraffer).
   Neigung ab 30° aus der swisstopo-Karte «Hangneigung über 30°» (wie der Routen-Check `fsRc*`), sonst

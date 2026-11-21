@@ -3407,3 +3407,28 @@ html.fs-sheet-open #fs-ov-chips{ display:none !important; }
 .fs-card-slf .fs-cev.prev{ opacity:.55; transform:scale(.88); }
 .fs-card-slf .fs-cev.next{ outline:1.5px dashed var(--lvl); outline-offset:1px; }
 .fs-card-slf em{ font-style:normal; color:var(--ink-soft); font-weight:800; }
+
+/* ===== Gebiete schnell anlegen ===== */
+.fs-geb-draft{ position:fixed; inset:0; width:100vw; height:100vh; z-index:65; pointer-events:none; }
+.fs-geb-draft path{ fill:color-mix(in srgb, var(--ice-deep) 14%, transparent); stroke:var(--ice-deep); stroke-width:3; stroke-dasharray:8 6; stroke-linejoin:round; stroke-linecap:round; }
+.fs-geb-panel{ max-height:62vh; }
+.fs-geb-name{ display:grid; gap:4px; }
+.fs-geb-name span{ font-size:12px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); }
+.fs-geb-name input{ min-height:48px; font-size:16px; border:1.5px solid var(--line); border-radius:12px; padding:0 12px; background:var(--paper); color:var(--ink); font-family:inherit; }
+.fs-geb-list{ overflow:auto; max-height:30vh; display:grid; }
+.fs-geb-it{ display:flex; align-items:center; gap:12px; min-height:48px; border-bottom:1px solid var(--line); font-size:15px; cursor:pointer; }
+.fs-geb-it input{ width:22px; height:22px; flex:none; margin:0; accent-color:var(--ice-deep); }
+.fs-geb-it span{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fs-geb-it small{ color:var(--ink-soft); font-size:13px; white-space:nowrap; }
+.fs-geb-pin{ display:flex; align-items:center; gap:5px; min-height:32px; padding:4px 10px 4px 7px; border:2px solid var(--ice-deep); border-radius:999px;
+  background:var(--paper); color:var(--ink); font:800 12.5px Manrope, sans-serif; box-shadow:0 2px 6px rgba(0,0,0,.3); cursor:pointer; }
+.fs-geb-pin .fs-i{ width:15px; height:15px; color:var(--ice-deep); }
+.fs-geb-pin.off{ border-color:var(--line); opacity:.6; text-decoration:line-through; }
+.fs-geb-pin.off .fs-i{ color:var(--ink-soft); }
+.fs-geb-sug{ display:grid; gap:10px; margin:4px 0 12px; }
+.fs-geb-sug-lbl{ font-size:12px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); margin-top:6px; }
+.fs-geb-sug-card{ border:1.5px dashed var(--line); background:var(--cream); border-radius:16px; padding:12px 14px; display:grid; gap:4px; }
+.fs-geb-sug-card b{ font-size:16px; }
+.fs-geb-sug-card p{ margin:0 0 6px; color:var(--ink-soft); font-size:13.5px; }
+.fs-geb-sug-btns{ display:grid; grid-template-columns:1fr 1.4fr; gap:8px; }
+.fs-geb-sug-btns .btn{ min-height:46px; justify-content:center; }

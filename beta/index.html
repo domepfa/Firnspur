@@ -2426,7 +2426,9 @@ function wireGlobalHandlers__sw(){
     else if(act==='import-data') el.onclick = openImport;
     else if(act==='add-tour') el.onclick = openAddTour;
     else if(act==='add-hut') el.onclick = openAddHut;
-    else if(act==='add-gebiet') el.onclick = openAddGebiet;
+    else if(act==='add-gebiet') el.onclick = ()=> fsGebStart();
+    else if(act==='geb-sug-make') el.onclick = ()=> fsGebSugMake(+el.getAttribute('data-i'));
+    else if(act==='geb-sug-hide') el.onclick = ()=> fsGebSugHide(+el.getAttribute('data-i'));
     else if(act==='open-gebiet') { el.onclick = ()=>openGebietDetail(el.getAttribute('data-id')); el.onkeydown=(e)=>{if(e.key==='Enter')openGebietDetail(el.getAttribute('data-id'));}; }
     else if(act==='open-standalone-map') el.onclick = openStandaloneMap;
     else if(act==='map-strip-toggle') el.onclick = ()=>{
