@@ -6812,35 +6812,35 @@ function fsmSatBar(map){
 const FS_SENTINEL_ID = 'd8e7cc2d-6b1a-4f13-8b93-65cd0819c139'; // Copernicus Data Space, Konfiguration «firnspur» (Gratiskontingent)
 const FSM_OVERLAYS = [
   {id:'wanderwege', group:'wege', label:'Wanderwege', icon:'walk', minzoom: 11, tiles:[FSM_WMTS('ch.swisstopo.swisstlm3d-wanderwege','png')]},
-  {id:'wanderrouten', group:'wege', label:'Wanderrouten (SchweizMobil)', icon:'walk', tiles:[FSM_WMTS('ch.astra.wanderland','png')]},
-  {id:'skitouren', group:'wege', label:'SAC-Skitouren', icon:'snow', minzoom: 11, tiles:[FSM_WMTS('ch.swisstopo-karto.skitouren','png')]},
+  {id:'wanderrouten', group:'wege', label:'Wanderrouten (SchweizMobil)', short:'Wanderrouten', icon:'walk', tiles:[FSM_WMTS('ch.astra.wanderland','png')]},
+  {id:'skitouren', group:'wege', label:'SAC-Skitouren', icon:'snow', skitourOnly:true, minzoom: 11, tiles:[FSM_WMTS('ch.swisstopo-karto.skitouren','png')]},
   // Skipisten und Lifte aus OpenStreetMap (Overpass), ab mittlerem Zoom; siehe fsmPisten
-  {id:'pisten', group:'wege', label:'Skipisten und Lifte', icon:'cable', pisten:true, legend:()=> fsPistenLegendHtml()},
-  {id:'hangneigung', group:'gefahr', label:'Hangneigung ab 30°', icon:'alert', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
+  {id:'pisten', group:'wege', label:'Skipisten und Lifte', short:'Pisten & Lifte', icon:'cable', skitourOnly:true, pisten:true, legend:()=> fsPistenLegendHtml()},
+  {id:'hangneigung', group:'gefahr', label:'Hangneigung ab 30°', short:'Hang ab 30°', icon:'slope', tiles:[FSM_WMTS('ch.swisstopo.hangneigung-ueber_30','png')], opacity:0.6},
   // Hangexposition: rechnet das Gerät aus dem Höhenmodell (fsAspect*), Legende im Ebenen-Fenster
-  {id:'exposition', group:'gefahr', label:'Hangexposition', icon:'compass', aspect:true, tiles:['fsaspect://{z}/{x}/{y}'], minzoom: 11, maxzoom: 14, opacity:0.6, attribution:'Höhen: Mapzen/AWS Terrain Tiles', legend:()=> fsAspectLegendHtml()},
-  {id:'triebschnee', group:'gefahr', label:'Triebschnee (Modell)', icon:'wind', skitourOnly:true, drift:true, minzoom: 12, maxzoom: 14, opacity:0.8, attribution:'Wind: Open-Meteo · Höhen: Mapzen/AWS Terrain Tiles', legend:()=> fsDriftLegendHtml()},
-  {id:'slf', group:'gefahr', label:'Lawinengefahr (SLF)', icon:'alert', skitourOnly:true, geojson:true},
-  {id:'sperrungen', group:'gefahr', label:'Wegsperrungen', icon:'alert', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
+  {id:'exposition', group:'gefahr', label:'Hangexposition', short:'Exposition', icon:'compass', aspect:true, tiles:['fsaspect://{z}/{x}/{y}'], minzoom: 11, maxzoom: 14, opacity:0.6, attribution:'Höhen: Mapzen/AWS Terrain Tiles', legend:()=> fsAspectLegendHtml()},
+  {id:'triebschnee', group:'gefahr', label:'Triebschnee (Modell)', short:'Triebschnee', icon:'wind', skitourOnly:true, drift:true, minzoom: 12, maxzoom: 14, opacity:0.8, attribution:'Wind: Open-Meteo · Höhen: Mapzen/AWS Terrain Tiles', legend:()=> fsDriftLegendHtml()},
+  {id:'slf', group:'gefahr', label:'Lawinengefahr (SLF)', short:'Lawinen (SLF)', icon:'avalanche', skitourOnly:true, geojson:true},
+  {id:'sperrungen', group:'gefahr', label:'Wegsperrungen', short:'Sperrungen', icon:'barrier', tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.astra.wanderland-sperrungen_umleitungen&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // ÖV-Haltestellen (BAV); antippen zeigt Name, Fahrplan und «als Ort übernehmen»
-  {id:'oev', group:'unterwegs', label:'ÖV-Haltestellen', icon:'bus', tiles:[FSM_WMTS('ch.bav.haltestellen-oev','png')]},
+  {id:'oev', group:'unterwegs', label:'ÖV-Haltestellen', short:'ÖV', icon:'bus', tiles:[FSM_WMTS('ch.bav.haltestellen-oev','png')]},
   // Wildruhezonen und eidg. Wildschutzgebiete (BAFU); antippen zeigt Name und Bestimmungen
-  {id:'wildschutz', group:'gefahr', label:'Wildschutz (Wildruhezonen)', icon:'alert', opacity:0.75, tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.bafu.wrz-wildruhezonen_portal,ch.bafu.bundesinventare-jagdbanngebiete&STYLES=,&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
+  {id:'wildschutz', group:'gefahr', label:'Wildschutz (Wildruhezonen)', short:'Wildruhezonen', icon:'shield', opacity:0.75, tiles:['https://wms.geo.admin.ch/?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=ch.bafu.wrz-wildruhezonen_portal,ch.bafu.bundesinventare-jagdbanngebiete&STYLES=,&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}']},
   // MeteoSchweiz liefert diese als Punkte (GeoJSON), nicht als Kacheln – siehe fsmLoadPoints
   // SLF-Messstationen (IMIS): von der GitHub-Action alle 30 Min. in den Branch «daten» gelegt; Daten für «Wetter-Messwerte»
-  {id:'slfstationen', group:'unterwegs', label:'Schnee-Messstationen (SLF)', icon:'snow', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
+  {id:'slfstationen', group:'unterwegs', label:'Schnee-Messstationen (SLF)', short:'Messstationen', icon:'station', points:'https://raw.githubusercontent.com/domepfa/Firnspur/daten/slf-stationen.json', kind:'imis', maxAge:15*60e3, hidden:true},
   // Messwerte von MeteoSchweiz und SLF: eine Grösse auf einmal, wenige lesbare Werte (fsmWxStart)
   {id:'wetter', group:'unterwegs', label:'Wetter', icon:'therm', wetter:true},
   // Nur Startkarte: Linien der Touren im Ausschnitt (ab mittlerem Zoom), siehe fsHomeRoutesSync
-  {id:'tourrouten', group:'wege', label:'Routen der Touren', icon:'map', homeOnly:true},
+  {id:'tourrouten', group:'wege', label:'Routen der Touren', short:'Tour-Routen', icon:'map', homeOnly:true},
   // Nur Startkarte: Hütten, Sektoren, Klettergebiete und Zustiege, die die Liste nicht zeigt (fsHomeExtrasSync)
-  {id:'eigene', group:'wege', label:'Hütten und Zustiege', icon:'hut', homeOnly:true},
+  {id:'eigene', group:'wege', label:'Hütten und Zustiege', short:'Hütten', icon:'hut', homeOnly:true},
   // Gemeinsame Orte (Parkplatz, Maut, Biwak …), siehe Baustein «Orte»
   {id:'orte', group:'unterwegs', label:'Geteilte Punkte', icon:'pin', orte:true},
   // Parkplätze aus OpenStreetMap (Overpass), ab mittlerem Zoom nur im Ausschnitt; siehe fsmParking
   {id:'parkplaetze', group:'unterwegs', label:'Parkplätze', icon:'parking', osm:'park'},
   // Trinkwasser, Quellen, Biwaks und Unterstände aus OpenStreetMap (Overpass), wie Parkplätze; siehe FS_OSM_WATER
-  {id:'wasser', group:'unterwegs', label:'Wasser und Unterstände', icon:'drop', osm:'water'},
+  {id:'wasser', group:'unterwegs', label:'Wasser und Unterstände', short:'Wasser', icon:'drop', osm:'water'},
   {id:'webcams', group:'unterwegs', label:'Webcams', icon:'camera', points:'https://data.geo.admin.ch/ch.meteoschweiz.messnetz-webcams/ch.meteoschweiz.messnetz-webcams_de.json', kind:'webcam', maxAge:12*3600e3}
 ];
 const FSM_BASES = [
@@ -9415,6 +9415,80 @@ function fsmAddControls(map){
   map.on('click', ()=> fsmClosePanel(map));
   map.on('remove', ()=> fsmClosePanel(map));
 }
+/* ===== Ebenen-Fenster: Grundkarten als Vorschaubild, Ebenen als Kacheln, «Meine Ebenen» =====
+   «Meine Ebenen» stehen oben in eigener Reihenfolge (Gerät, je App): «Anpassen» nimmt Ebenen auf oder entfernt
+   sie, Halten und Ziehen ordnet sie. Die übrigen Ebenen stehen darunter in ihren Gruppen. */
+const FSM_FAV_DEFAULT = {firnspur: ['slf', 'hangneigung', 'skitouren', 'tourrouten'], wandern: ['wanderwege', 'tourrouten', 'oev', 'sperrungen']};
+function fsmFavKey(){ return 'fs-layer-favs-' + fsAppKey(); }
+function fsmFavs(ovs){
+  let ids = null;
+  try{ ids = JSON.parse(localStorage.getItem(fsmFavKey()) || 'null'); }catch(e){}
+  if(!Array.isArray(ids)) ids = FSM_FAV_DEFAULT[fsAppKey()] || ['hangneigung', 'tourrouten', 'eigene', 'wetter'];
+  return ids.map(id=> ovs.find(o=> o.id === id)).filter(Boolean);
+}
+function fsmFavsSave(ids){ try{ localStorage.setItem(fsmFavKey(), JSON.stringify(ids)); }catch(e){} }
+// Vorschaubild einer Grundkarte: eine Kachel um die Kartenmitte (Zoom 12)
+function fsmBaseThumb(map, id){
+  let lat = 46.6, lon = 8.0;
+  try{ const c = map.getCenter(); lat = c.lat; lon = c.lng; }catch(e){}
+  const z = 12, n = 1 << z, r = lat * Math.PI / 180;
+  const x = Math.floor((lon + 180) / 360 * n), y = Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n);
+  const layer = id === 'winter' ? ['ch.swisstopo.pixelkarte-farbe-winter', 'jpeg'] : (id === 'karte' ? ['ch.swisstopo.pixelkarte-farbe', 'jpeg'] : ['ch.swisstopo.swissimage', 'jpeg']);
+  return FSM_WMTS(layer[0], layer[1]).replace('{z}', z).replace('{x}', x).replace('{y}', y);
+}
+// Reihenfolge von «Meine Ebenen»: Kachel halten (0.4 s), dann ziehen
+function fsmFavDrag(map, panel, ovs){
+  const box = panel.querySelector('.fsm-favs');
+  if(!box) return;
+  let tm = null, drag = null;
+  const stop = ()=>{ clearTimeout(tm); tm = null; };
+  box.querySelectorAll('.fsm-tile').forEach(t=>{
+    t.addEventListener('pointerdown', (e)=>{
+      if(e.button) return;
+      const x0 = e.clientX, y0 = e.clientY;
+      stop();
+      tm = setTimeout(()=>{
+        tm = null;
+        drag = {t, x0, y0};
+        t.classList.add('dragging');
+        try{ t.setPointerCapture(e.pointerId); }catch(err){}
+        if(navigator.vibrate) try{ navigator.vibrate(15); }catch(err){}
+      }, 400);
+      const mv = (ev)=>{ if(tm && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8) stop(); };
+      t.addEventListener('pointermove', mv);
+      t.addEventListener('pointerup', ()=> t.removeEventListener('pointermove', mv), {once: true});
+    });
+    t.addEventListener('pointermove', (e)=>{
+      if(!drag || drag.t !== t) return;
+      t.style.transform = `translate(${e.clientX - drag.x0}px, ${e.clientY - drag.y0}px)`;
+      t.style.pointerEvents = 'none';
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      t.style.pointerEvents = '';
+      const over = under && under.closest && under.closest('.fsm-favs .fsm-tile');
+      box.querySelectorAll('.fsm-tile').forEach(x=> x.classList.toggle('drop', x === over && x !== t));
+      drag.over = over && over !== t ? over : null;
+    });
+    const end = ()=>{
+      stop();
+      if(!drag || drag.t !== t) return;
+      const ids = Array.from(box.querySelectorAll('.fsm-tile')).map(x=> x.getAttribute('data-ov'));
+      const from = ids.indexOf(t.getAttribute('data-ov'));
+      if(drag.over){
+        const to = ids.indexOf(drag.over.getAttribute('data-ov'));
+        ids.splice(to, 0, ids.splice(from, 1)[0]);
+        fsmFavsSave(ids.concat(fsmFavs(ovs).map(o=> o.id).filter(id=> ids.indexOf(id) === -1)));
+      }
+      t._fsDragged = true;
+      drag = null;
+      setTimeout(()=> fsmSyncPanel(map), 0);
+    };
+    t.addEventListener('pointerup', end);
+    t.addEventListener('pointercancel', end);
+    t.addEventListener('contextmenu', (e)=> e.preventDefault());
+  });
+  // Während des Ziehens nicht das Fenster scrollen
+  if(!panel._fsDragWired){ panel._fsDragWired = true; panel.addEventListener('touchmove', (e)=>{ if(panel.querySelector('.fsm-tile.dragging')) e.preventDefault(); }, {passive: false}); }
+}
 function fsmSyncPanel(map){
   const panel = map._fsm && map._fsm.panel;
   if(!panel || panel.hidden) return;
@@ -9422,19 +9496,35 @@ function fsmSyncPanel(map){
   const base = map._fsm.base || p.base;
   const ovs = fsmOverlaysForApp(map);
   const dayLbl = fsSatDayLabel;
-  const row = o=> `<label class="fsm-row"><span>${fsIconHtml(o.icon)}${o.label}</span><input type="checkbox" class="fsm-switch" data-ov="${o.id}" ${fsmOverlayOn(map, o.id)?'checked':''}/></label>`
-    + (o.legend && fsmOverlayOn(map, o.id) ? `<div class="fsm-legend">${o.legend()}</div>` : '');
   const sat = map._fsm.sat || 'off';
   const satRow = `<div class="fsm-sat"><span>Satellit</span><div class="fsm-seg">${[['off', 'Aus']].concat(Object.keys(FS_SAT).map(k=> [k, FS_SAT[k].label])).map(([k, l])=> `<button type="button" data-sat="${k}" class="${sat === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`
     + (sat === 'nasa' ? `<div class="fsm-seg fsm-days">${[1, 2, 3].map(n=> `<button type="button" data-day="${n}" class="${fsNasaDay === n ? 'on' : ''}">${dayLbl(n)}</button>`).join('')}</div>` : '');
+  const favs = fsmFavs(ovs), edit = !!map._fsm.favEdit;
+  const tile = (o, inFav)=> `<button type="button" class="fsm-tile${fsmOverlayOn(map, o.id) ? ' on' : ''}${inFav ? ' fav' : ''}" data-ov="${o.id}" aria-pressed="${fsmOverlayOn(map, o.id)}" title="${esc(o.label)}">${fsIconHtml(o.icon)}<span>${esc(o.short || o.label)}</span>${edit ? `<i class="fsm-tile-badge">${inFav ? '−' : '+'}</i>` : ''}</button>`;
+  const legends = ovs.filter(o=> o.legend && fsmOverlayOn(map, o.id));
   panel.innerHTML = `${panel.classList.contains('fsm-panel-sheet') ? `<div class="fsm-sheet-head"><b>Kartenebenen</b><button type="button" class="fsm-sheet-done" data-fsm-done>Fertig</button></div>` : ''}
-    <div class="fsm-seg fsm-seg-bases">${FSM_BASES.map(b=>`<button type="button" data-base="${b.id}" class="${base===b.id?'on':''}">${b.label}</button>`).join('')}</div>
+    <div class="fsm-bases">${FSM_BASES.map(b=> `<button type="button" data-base="${b.id}" class="fsm-base${base === b.id ? ' on' : ''}" aria-pressed="${base === b.id}"><i class="fsm-base-img fsm-base-${b.id}" style="background-image:url('${fsmBaseThumb(map, b.id)}')"></i><span>${b.label}</span></button>`).join('')}</div>
     ${satRow}
-    ${FSM_OVERLAY_GROUPS.map(([g, label])=>{ const list = ovs.filter(o=> (o.group || 'unterwegs') === g); return list.length ? `<div class="fsm-group">${label}</div>${list.map(row).join('')}` : ''; }).join('')}`;
+    <div class="fsm-group fsm-group-fav">Meine Ebenen<button type="button" class="fsm-fav-edit" data-fav-edit>${edit ? 'Fertig' : 'Anpassen'}</button></div>
+    ${favs.length ? `<div class="fsm-tiles fsm-favs">${favs.map(o=> tile(o, true)).join('')}</div>` : ''}
+    ${edit ? `<p class="fsm-fav-hint">Mit + aufnehmen, mit − entfernen. Reihenfolge: Kachel halten und ziehen.</p>` : (favs.length ? '' : `<p class="fsm-fav-hint">Mit «Anpassen» die Ebenen wählen, die du oft brauchst.</p>`)}
+    ${FSM_OVERLAY_GROUPS.map(([g, label])=>{ const list = ovs.filter(o=> (o.group || 'unterwegs') === g && favs.indexOf(o) === -1); return list.length ? `<div class="fsm-group">${label}</div><div class="fsm-tiles">${list.map(o=> tile(o, false)).join('')}</div>` : ''; }).join('')}
+    ${legends.map(o=> `<div class="fsm-legend"><b class="fsm-legend-t">${esc(o.label)}</b>${o.legend()}</div>`).join('')}`;
   const done = panel.querySelector('[data-fsm-done]');
   if(done) done.addEventListener('click', ()=> fsmClosePanel(map));
   panel.querySelectorAll('[data-base]').forEach(b=> b.addEventListener('click', ()=> fsmSetBase(map, b.getAttribute('data-base'))));
-  panel.querySelectorAll('[data-ov]').forEach(i=> i.addEventListener('change', ()=> fsmSetOverlay(map, i.getAttribute('data-ov'), i.checked)));
+  panel.querySelector('[data-fav-edit]').addEventListener('click', ()=>{ map._fsm.favEdit = !edit; fsmSyncPanel(map); });
+  panel.querySelectorAll('.fsm-tile').forEach(t=> t.addEventListener('click', ()=>{
+    if(t._fsDragged){ t._fsDragged = false; return; }
+    const id = t.getAttribute('data-ov');
+    if(map._fsm.favEdit){ // Anpassen: aufnehmen/entfernen statt ein-/ausschalten
+      const ids = fsmFavs(ovs).map(o=> o.id), i = ids.indexOf(id);
+      if(i >= 0) ids.splice(i, 1); else ids.push(id);
+      fsmFavsSave(ids); fsmSyncPanel(map); return;
+    }
+    fsmSetOverlay(map, id, !fsmOverlayOn(map, id));
+  }));
+  fsmFavDrag(map, panel, ovs);
   panel.querySelectorAll('[data-sat]').forEach(b=> b.addEventListener('click', ()=> fsmSetSat(map, b.dataset.sat)));
   // Tag des täglichen Satellitenbilds
   panel.querySelectorAll('[data-day]').forEach(b=> b.addEventListener('click', ()=> fsmSetNasaDay(map, +b.dataset.day)));
@@ -23446,6 +23536,9 @@ const FS_ICON_PATHS = {
   printer: 'M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z',
   heli: 'M3 5h14M10 5v3M6 8h8a4 4 0 0 1 4 4v1a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3zM18 12h3M9 16l-1 3M15 16l1 3M6 19h12',
   shield: 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z',
+  slope: 'M3 20h18L3 7zM15 20A6 6 0 0 0 16.1 16.5',
+  avalanche: 'M3 20h18V7zM9 17h.01M13 15h.01M16 17h.01M17 12h.01',
+  station: 'M12 21V4M8 21h8M12 6l5 2M12 10l-4-2',
   sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 5v4M8 15v4',
   gps: 'M19 12a7 7 0 1 1-14 0a7 7 0 1 1 14 0zM14.5 12a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0zM12 2v3M12 19v3M2 12h3M19 12h3', // Standort: Fadenkreuz (kein Navi-Pfeil)
   scan: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 16l3.5-5 2.5 3 1.5-2 2.5 4z',
