@@ -9856,16 +9856,41 @@ const FL = (function(){
   };
   Marker.prototype._onAdd = function(fm){
     const el = this._el = this._buildEl();
-    el.addEventListener('click', (ev)=>{ if(ev._fsmHandled && ev._flStopped && el._flLongPressAt) return; ev._fsmHandled = true; ev.stopPropagation(); this.fire('click', {latlng:this._ll, originalEvent:ev}); });
+    el.addEventListener('click', (ev)=>{ if(ev._fsmHandled && ev._flStopped && el._flLongPressAt) return; ev._fsmHandled = true; ev.stopPropagation(); if(el._flDragEndAt && Date.now() - el._flDragEndAt < 400) return; this.fire('click', {latlng:this._ll, originalEvent:ev}); });
     const ctx = (ev)=>{ if(ev._flDup) return; if(!this.listens('contextmenu')) return; ev.preventDefault && ev.preventDefault(); ev.stopPropagation && ev.stopPropagation(); this.fire('contextmenu', {latlng:this._ll, originalEvent:ev}); };
     el.addEventListener('contextmenu', ctx);
     longPress(el, ctx);
-    this._mk = new maplibregl.Marker({element: el, offset: this._offset, draggable: !!this.options.draggable}).setLngLat([this._ll.lng, this._ll.lat]).addTo(fm._ml);
-    if(this.options.draggable){
-      this._mk.on('dragstart', ()=> this.fire('dragstart', {latlng:this._ll}));
-      this._mk.on('drag', ()=>{ const p = this._mk.getLngLat(); this._ll = {lat:p.lat, lng:p.lng}; this.fire('drag', {latlng:this._ll}); });
-      this._mk.on('dragend', ()=>{ const p = this._mk.getLngLat(); this._ll = {lat:p.lat, lng:p.lng}; this.fire('dragend', {latlng:this._ll}); });
-    }
+    this._mk = new maplibregl.Marker({element: el, offset: this._offset}).setLngLat([this._ll.lng, this._ll.lat]).addTo(fm._ml);
+    // Ziehen mit eigener Zeigerverfolgung (Pointer Capture): das Loslassen kommt immer an, auch über Kartenknöpfen oder
+    // ausserhalb der Karte – mit dem Ziehen von MapLibre blieb ein Punkt sonst «hängen» und lief beim nächsten Ziehen mit.
+    const ml = fm._ml;
+    el.style.touchAction = 'none';
+    ['mousedown', 'touchstart'].forEach(t=> el.addEventListener(t, (ev)=>{ if(this.options.draggable) ev.stopPropagation(); }, {passive: true}));
+    el.addEventListener('pointerdown', (ev)=>{
+      if(!this.options.draggable || (ev.button !== undefined && ev.button !== 0)) return;
+      ev.stopPropagation();
+      const id = ev.pointerId, sx = ev.clientX, sy = ev.clientY, rect = ml.getCanvas().getBoundingClientRect();
+      const m0 = ml.project([this._ll.lng, this._ll.lat]), dx = sx - rect.left - m0.x, dy = sy - rect.top - m0.y;
+      let moved = false;
+      try{ el.setPointerCapture(id); }catch(e){}
+      const mv = (e)=>{
+        if(e.pointerId !== id) return;
+        if(!moved && Math.hypot(e.clientX - sx, e.clientY - sy) < 5) return;
+        if(!moved){ moved = true; el.classList.add('fl-dragging'); this.fire('dragstart', {latlng:this._ll}); }
+        const p = ml.unproject([e.clientX - rect.left - dx, e.clientY - rect.top - dy]);
+        this._ll = {lat:p.lat, lng:p.lng};
+        if(this._mk) this._mk.setLngLat([p.lng, p.lat]);
+        this.fire('drag', {latlng:this._ll});
+      };
+      const up = (e)=>{
+        if(e.pointerId !== id) return;
+        el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+        try{ el.releasePointerCapture(id); }catch(err){}
+        el.classList.remove('fl-dragging');
+        if(moved){ el._flDragEndAt = Date.now(); this.fire('dragend', {latlng:this._ll}); }
+      };
+      el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    });
     if(this.options.zIndexOffset) el.style.zIndex = String(1000 + this.options.zIndexOffset);
     this._applyTooltip();
   };
@@ -9895,7 +9920,7 @@ const FL = (function(){
     const sz = ic.iconSize || [12,12], anc = ic.iconAnchor || [sz[0]/2, sz[1]/2];
     return Math.max(6, anc[1]);
   };
-  Object.defineProperty(Marker.prototype, 'dragging', {get(){ const self = this; return {enable(){ self.options.draggable = true; if(self._mk) self._mk.setDraggable(true); }, disable(){ self.options.draggable = false; if(self._mk) self._mk.setDraggable(false); }}; }});
+  Object.defineProperty(Marker.prototype, 'dragging', {get(){ const self = this; return {enable(){ self.options.draggable = true; }, disable(){ self.options.draggable = false; if(self._mk) self._mk.setDraggable(false); }}; }});
 
   // ----- Kreis-Marker (Punkt mit Rand), als HTML -----
   function CircleMarker(ll, opts){
@@ -11595,19 +11620,20 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(far(c[c.length - 1], b)) c.push(b); else c[c.length - 1] = b;
       return c;
     }
-    let drawBusy = false;
+    let drawBusy = false, drawBusyN = 0;
     async function drawRecompute(list){
-      drawBusy = true;
+      drawBusyN++; drawBusy = true;
       const calc = list.filter(i=> drawSegs[i] && drawSegs[i].mode !== 'gerade');
       if(calc.length) showToast(drawSegs[calc[0]].mode === 'ski' ? 'Skispur wird aus dem Gelände gerechnet …' : 'Weg wird gesucht …');
       for(const i of list){
         const sg = drawSegs[i];
         if(!sg) continue;
-        const a = sg.coords[0], b = sg.coords[sg.coords.length - 1];
-        try{ sg.coords = await drawCompute(sg.mode, a, b); }
-        catch(e){ sg.mode = 'gerade'; sg.coords = [a, b]; showToast('Konnte nicht gerechnet werden (offline?) – als gerade Linie gezeichnet.', true); }
+        const a = sg.coords[0], b = sg.coords[sg.coords.length - 1], g = sg._gen = (sg._gen || 0) + 1;
+        if(sg.mode !== 'gerade' && sg.mode !== 'folgen'){ sg.coords = [a, b]; manualTrack = drawJoin(drawSegs); redrawLine(); } // sofort gerade zeigen, Spur folgt
+        try{ const c = await drawCompute(sg.mode, a, b); if(sg._gen === g) sg.coords = c; } // nur das Neueste übernehmen
+        catch(e){ if(sg._gen === g){ sg.mode = 'gerade'; sg.coords = [a, b]; showToast('Konnte nicht gerechnet werden (offline?) – als gerade Linie gezeichnet.', true); } }
       }
-      drawBusy = false;
+      drawBusyN--; drawBusy = drawBusyN > 0;
       manualTrack = drawJoin(drawSegs);
       if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs;
       gpxTrackChanged();
@@ -15246,9 +15272,9 @@ function fsPrecipKind(code, tmax, tmin){
 }
 function fsPrecipHtml(mm, kind){
   if(!(mm >= 0.1)) return '';
-  if(kind === 'snow') return `<div class="wx-p wx-p-snow">${fsIconHtml('snow')}<span>≈ ${Math.max(1, Math.round(mm))} cm</span><small>Schnee</small></div>`;
-  if(kind === 'mix') return `<div class="wx-p wx-p-mix">${fsIconHtml('drop')}<span>${mm.toFixed(1)} mm</span><small>Schnee/Regen</small></div>`;
-  return `<div class="wx-p wx-p-rain">${fsIconHtml('drop')}<span>${mm.toFixed(1)} mm</span><small>Regen</small></div>`;
+  if(kind === 'snow') return `<div class="wx-p wx-p-snow">${fsIconHtml('snow')}<span>≈ ${Math.max(1, Math.round(mm))} cm</span></div>`;
+  if(kind === 'mix') return `<div class="wx-p wx-p-mix">${fsIconHtml('sleet')}<span>${mm.toFixed(1)} mm</span></div>`;
+  return `<div class="wx-p wx-p-rain">${fsIconHtml('drop')}<span>${mm.toFixed(1)} mm</span></div>`;
 }
 function meteoDayIcon(precipMm, tempMax, code){
   if(code != null){ const sy = fsWxSym(code); if(sy) return fsIconHtml(sy.icon); }
