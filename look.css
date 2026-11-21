@@ -3401,3 +3401,9 @@ html.fs-sheet-open #fs-ov-chips{ display:none !important; }
 .fs-slf-temp line.z{ stroke:var(--line); stroke-dasharray:3 3; }
 .fs-slf-temp span{ font-size:12px; color:var(--ink-soft); }
 .fs-slf-wx-r em{ display:inline-flex; align-items:center; justify-content:flex-end; gap:4px; } .fs-slf-wx-r em .fs-i{ width:14px; height:14px; }
+/* Liste: Kurzkalender Lawinengefahr (gestern, heute, Ausblick) */
+.fs-card-slf.has-evo i{ width:auto; min-width:22px; height:20px; padding:0 4px; border-radius:6px; }
+.fs-card-slf .fs-cev{ background:var(--lvl); }
+.fs-card-slf .fs-cev.prev{ opacity:.55; transform:scale(.88); }
+.fs-card-slf .fs-cev.next{ outline:1.5px dashed var(--lvl); outline-offset:1px; }
+.fs-card-slf em{ font-style:normal; color:var(--ink-soft); font-weight:800; }
