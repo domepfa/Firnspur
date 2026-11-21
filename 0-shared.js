@@ -11114,8 +11114,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // Farbe jedes Modus entspricht genau der Farbe, die er auf der Karte zeichnet (Blau =
     // Linie, Grün = Route), damit auf einen Blick klar ist, was gerade aktiv ist.
     const MODE_META = {
-      point: { label: 'Punkt', color: 'var(--ice-deep)' },
-      line: { label: 'Linie', color: '#1565C0' },
+      point: { label: 'Punkte', color: 'var(--ice-deep)' },
+      line: { label: 'Zeichnen', color: '#1565C0' },
       route: { label: 'Route', color: '#2F6B44' }
     };
     const modeRow = document.createElement('div');
@@ -11130,9 +11130,10 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const pointModeBtn = makeModeBtn('point');
     const lineModeBtn = makeModeBtn('line');
     const routeModeBtn = makeModeBtn('route');
+    modeRow.appendChild(lineModeBtn); // «Zeichnen» zuerst; «Route» ist darin aufgegangen (Verbinden als …)
     modeRow.appendChild(pointModeBtn);
-    modeRow.appendChild(lineModeBtn);
     modeRow.appendChild(routeModeBtn);
+    routeModeBtn.style.display = 'none';
     wrapDiv.appendChild(modeRow);
     if(edNext.noPoints) pointModeBtn.style.display = 'none'; // Route aus der Routenliste: nur Linie/Route
     if(!manualTrackHidden && !gpxHiddenInput){ lineModeBtn.style.display = 'none'; routeModeBtn.style.display = 'none'; modeRow.style.display = 'none'; } // nur Punkte (Hütte: Linien über «Zustiege»)
@@ -11188,13 +11189,26 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     lineActionsRow.style.cssText = 'display:none; gap:8px; margin-top:8px; flex-wrap:wrap;';
     const undoBtn = document.createElement('button');
     undoBtn.type = 'button'; undoBtn.className = 'btn secondary'; undoBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
-    undoBtn.textContent = '↺ Letzten Punkt entfernen';
+    undoBtn.textContent = '↺ Letzter Punkt';
     const clearLineBtn = document.createElement('button');
     clearLineBtn.type = 'button'; clearLineBtn.className = 'btn secondary'; clearLineBtn.style.cssText = 'font-size:12.5px; padding:6px 12px; color:#B0392C;';
-    clearLineBtn.innerHTML = (fsIconHtml('trash') + ' Linie löschen');
+    clearLineBtn.innerHTML = (fsIconHtml('trash') + ' Löschen');
     const finishBtn = document.createElement('button');
     finishBtn.type = 'button'; finishBtn.className = 'btn secondary'; finishBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
     finishBtn.textContent = '✓ Linie fertig';
+    // Verbinden als: Skispur / Wanderweg / Gerade (gilt für neue Abschnitte)
+    let drawConnect = (()=>{ let v = null; try{ v = localStorage.getItem('fs-draw-connect'); }catch(e){} return ['ski', 'weg', 'gerade'].indexOf(v) >= 0 ? v : (fsAppKey() === 'wandern' ? 'weg' : 'ski'); })();
+    let drawSegs = (manualTrackHidden && manualTrackHidden._drawSegs) || null;
+    const connectRow = document.createElement('div');
+    connectRow.className = 'fs-draw-connect';
+    const paintConnect = ()=>{
+      connectRow.innerHTML = '<div class="fs-draw-connect-l">Verbinden als</div><div class="fs-draw-seg" role="group" aria-label="Verbinden als">'
+        + [['ski', 'snow', 'Skispur'], ['weg', 'walk', 'Wanderweg'], ['gerade', 'ruler', 'Gerade']].map(([k, ic, l])=> `<button type="button" data-connect="${k}" aria-pressed="${drawConnect === k}" class="${drawConnect === k ? 'on' : ''}">${fsIconHtml(ic)}${l}</button>`).join('') + '</div>'
+        + '<div class="fs-draw-hint">Tippen: nächster Punkt · Kreis in der Mitte ziehen: umlenken</div>';
+      connectRow.querySelectorAll('[data-connect]').forEach(b=> b.addEventListener('click', ()=>{ drawConnect = b.getAttribute('data-connect'); try{ localStorage.setItem('fs-draw-connect', drawConnect); }catch(e){} paintConnect(); }));
+    };
+    paintConnect();
+    lineActionsRow.appendChild(connectRow);
     lineActionsRow.appendChild(undoBtn);
     lineActionsRow.appendChild(clearLineBtn);
     lineActionsRow.appendChild(finishBtn);
@@ -11271,7 +11285,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     wrapDiv.appendChild(routeStatsEl);
     // Name/Art der aktuellen Linie und "weitere Route" (nur im Tour-Formular mit Routenliste)
     const routeMetaEl = document.createElement('div');
-    routeMetaEl.className = 'fs-route-meta';
+    routeMetaEl.className = 'fs-route-meta' + (isFullscreen ? ' fs-route-meta-fs' : ''); // Vollbild: Name/Art stehen in der Routenliste des Formulars
     routeMetaEl.style.display = 'none';
     wrapDiv.appendChild(routeMetaEl);
 
@@ -11398,7 +11412,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     let undoStack = (manualTrackHidden && manualTrackHidden._undoStack) || [];
     function pushUndo(){
       const rv = (id)=>{ const el = document.getElementById(id); return el ? el.value : null; };
-      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats, usingGpxTrack, gpxTrack, savedManual,
+      undoStack.push(JSON.stringify({points, manualTrack, routeWaypoints, lastRouteStats, usingGpxTrack, gpxTrack, savedManual, drawSegs,
         routes: {alt: rv('route-alt-tracks'), mn: rv('route-manual-name'), mt: rv('route-manual-type'), tn: rv('route-track-name'), tt: rv('route-track-type')}}));
       if(undoStack.length > 25) undoStack.shift();
       if(manualTrackHidden) manualTrackHidden._undoStack = undoStack;
@@ -11423,6 +11437,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       points = snap.points;
       manualTrack = snap.manualTrack;
       routeWaypoints = snap.routeWaypoints;
+      drawSegs = snap.drawSegs || null;
       usingGpxTrack = !!snap.usingGpxTrack;
       if('gpxTrack' in snap){ gpxTrack = snap.gpxTrack; savedManual = snap.savedManual; }
       { const g = usingGpxTrack ? manualTrack : gpxTrack; if(gpxHiddenInput && g && g.length) gpxHiddenInput.value = JSON.stringify(g); }
@@ -11555,6 +11570,76 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       redrawLine();
       persistTrack();
     }
+    /* ===== Zeichnen: Abschnitte zwischen Ankerpunkten =====
+       Jeder Abschnitt wird als «Skispur» (aus dem Gelände gerechnet), «Wanderweg» (Wegnetz) oder «Gerade» verbunden.
+       Ziehpunkte nur an den Ankern; der Kreis in der Mitte eines Abschnitts lässt sich ziehen und setzt dort einen
+       Zwischenpunkt (der Abschnitt wird neu gerechnet). Die Abschnitte gelten für diese Sitzung (am Formularfeld);
+       eine geladene Linie besteht aus geraden Abschnitten zwischen ihren Knicken. */
+    function drawJoin(segs){ const out = []; segs.forEach((sg, i)=> sg.coords.forEach((c, j)=>{ if(i && !j) return; out.push(c); })); return out; }
+    function drawSync(){
+      const ok = drawSegs && drawSegs.length && JSON.stringify(drawJoin(drawSegs)) === JSON.stringify(manualTrack);
+      if(!ok) drawSegs = manualTrack.length > 1 ? manualTrack.slice(1).map((c, i)=> ({mode: 'gerade', coords: [manualTrack[i], c]})) : [];
+      if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs;
+    }
+    function drawAnchorIdx(){ if(!manualTrack.length) return []; const idx = [0]; let k = 0; drawSegs.forEach(sg=>{ k += sg.coords.length - 1; idx.push(k); }); return idx; }
+    function drawHasCalc(){ drawSync(); return drawSegs.some(sg=> sg.mode !== 'gerade'); }
+    async function drawCompute(m, a, b){
+      if(m === 'gerade') return [a, b];
+      const r = m === 'ski' ? await fsSkiRoute([a, b]) : await fetchCalculatedRoute([a, b]);
+      const c = ((r && r.coords) || []).map(q=> [+q[0], +q[1]]).filter(q=> isFinite(q[0]) && isFinite(q[1]));
+      if(c.length < 2) throw new Error('keine Route');
+      const far = (p, q)=> fsGeoDist(p[0], p[1], q[0], q[1]) > 3;
+      if(far(c[0], a)) c.unshift(a); else c[0] = a;
+      if(far(c[c.length - 1], b)) c.push(b); else c[c.length - 1] = b;
+      return c;
+    }
+    let drawBusy = false;
+    async function drawRecompute(list){
+      drawBusy = true;
+      const calc = list.filter(i=> drawSegs[i] && drawSegs[i].mode !== 'gerade');
+      if(calc.length) showToast(drawSegs[calc[0]].mode === 'ski' ? 'Skispur wird aus dem Gelände gerechnet …' : 'Weg wird gesucht …');
+      for(const i of list){
+        const sg = drawSegs[i];
+        if(!sg) continue;
+        const a = sg.coords[0], b = sg.coords[sg.coords.length - 1];
+        try{ sg.coords = await drawCompute(sg.mode, a, b); }
+        catch(e){ sg.mode = 'gerade'; sg.coords = [a, b]; showToast('Konnte nicht gerechnet werden (offline?) – als gerade Linie gezeichnet.', true); }
+      }
+      drawBusy = false;
+      manualTrack = drawJoin(drawSegs);
+      if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs;
+      gpxTrackChanged();
+    }
+    function drawLabel(m){ return m === 'ski' ? 'Skispur' : m === 'weg' ? 'Wanderweg' : 'Gerade'; }
+    // Anker k verschieben: angrenzende Abschnitte neu
+    function drawMoveAnchor(k, ll){
+      drawSync();
+      const p = [ll.lat, ll.lng], list = [];
+      if(k > 0){ const sg = drawSegs[k - 1]; sg.coords = [sg.coords[0], p]; list.push(k - 1); }
+      if(k < drawSegs.length){ const sg = drawSegs[k]; sg.coords = [p, sg.coords[sg.coords.length - 1]]; list.push(k); }
+      if(!drawSegs.length){ manualTrack = [p]; gpxTrackChanged(); return; }
+      drawRecompute(list);
+    }
+    // Anker k entfernen: die beiden Abschnitte werden einer (Art des vorderen)
+    function drawDeleteAnchor(k){
+      drawSync();
+      if(k === 0) drawSegs.shift();
+      else if(k === drawSegs.length) drawSegs.pop();
+      else{
+        const a = drawSegs[k - 1], b = drawSegs[k];
+        drawSegs.splice(k - 1, 2, {mode: a.mode, coords: [a.coords[0], b.coords[b.coords.length - 1]]});
+        drawRecompute([k - 1]); return;
+      }
+      manualTrack = drawSegs.length ? drawJoin(drawSegs) : manualTrack.slice(0, 0);
+      gpxTrackChanged();
+    }
+    // Mitte von Abschnitt k gezogen: dort Zwischenpunkt, beide Teile neu
+    function drawSplit(k, ll){
+      drawSync();
+      const sg = drawSegs[k], p = [ll.lat, ll.lng];
+      drawSegs.splice(k, 1, {mode: sg.mode, coords: [sg.coords[0], p]}, {mode: sg.mode, coords: [p, sg.coords[sg.coords.length - 1]]});
+      drawRecompute([k, k + 1]);
+    }
     function gpxBtn(label, cls, fn){
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'btn ' + (cls || 'secondary'); b.textContent = label;
@@ -11562,6 +11647,17 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       return b;
     }
     // Werkzeuge an einem Punkt: bis/ab hier behalten (schneiden), Punkt einfügen, Punkt löschen
+    function drawAnchorMenu(i, k){
+      const wrap = document.createElement('div');
+      wrap.className = 'fs-gpx-menu';
+      const n = manualTrack.length;
+      if(i > 0 && i < n - 1){
+        wrap.appendChild(gpxBtn('Bis hier behalten', 'secondary', ()=> gpxCutAsk(i, 'bis', k)));
+        wrap.appendChild(gpxBtn('Ab hier behalten', 'secondary', ()=> gpxCutAsk(i, 'ab', k)));
+      }
+      if(drawSegs.length > 1 || n <= 2) wrap.appendChild(gpxBtn('Punkt löschen', 'danger', ()=>{ pushUndo(); map.closePopup(); drawDeleteAnchor(k); }));
+      return wrap;
+    }
     function gpxVertexMenu(i){
       const wrap = document.createElement('div');
       wrap.className = 'fs-gpx-menu';
@@ -11582,7 +11678,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       return wrap;
     }
     // Schneiden: der Rest wird auf Wunsch eine eigene Route (bis hier → Abstieg/Abfahrt, ab hier → Zustieg)
-    function gpxCutAsk(i, how){
+    function gpxCutAsk(i, how, anchorK){
       const keep = how === 'bis' ? manualTrack.slice(0, i + 1) : manualTrack.slice(i);
       const rest = how === 'bis' ? manualTrack.slice(i) : manualTrack.slice(0, i + 1);
       const altEl = document.getElementById('route-alt-tracks');
@@ -11597,6 +11693,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           if(typeof fsRoutesEditorRender === 'function') fsRoutesEditorRender();
         }
         manualTrack = keep;
+        if(anchorK != null && drawSegs){ drawSegs = how === 'bis' ? drawSegs.slice(0, anchorK) : drawSegs.slice(anchorK); if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs; }
         map.closePopup();
         gpxTrackChanged();
         renderRouteMeta();
@@ -11650,7 +11747,28 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           }
         }
         // Ziehpunkte: eigener GPX-Track und gezeichnete Linie (nicht eine berechnete Route mit hunderten Punkten)
-        if(mode==='line' && manualTrack.length <= 400){
+        if(mode==='line' && !usingGpxTrack){
+          // Zeichnen: Ziehpunkte an den Ankern, Kreis in der Mitte jedes Abschnitts zum Umlenken
+          drawSync();
+          const anchors = drawAnchorIdx();
+          if(anchors.length <= 300){
+            anchors.forEach((i, k)=>{
+              const pt = manualTrack[i];
+              const marker = FL.marker(pt, {icon: FL.divIcon({className: 'gpx-edit-vertex-icon', html: '<div class="fs-gpx-v"><i></i></div>', iconSize: [44,44], iconAnchor: [22,22]}), draggable: true}).addTo(lineLayer);
+              marker.on('dragstart', ()=>{ pushUndo(); const el = marker.getElement(); if(el) el.classList.add('fs-gpx-drag'); });
+              marker.on('dragend', ()=> drawMoveAnchor(k, marker.getLatLng()));
+              const menu = (e)=>{ FL.DomEvent.stopPropagation(e); if(e.originalEvent) FL.DomEvent.preventDefault(e.originalEvent); FL.popup().setLatLng(pt).setContent(drawAnchorMenu(i, k)).openOn(map); };
+              marker.on('click', menu);
+              marker.on('contextmenu', menu);
+            });
+            drawSegs.forEach((sg, k)=>{
+              const c = sg.coords, mid = c.length > 2 ? c[Math.floor(c.length / 2)] : [(c[0][0] + c[1][0]) / 2, (c[0][1] + c[1][1]) / 2];
+              const m = FL.marker(mid, {icon: FL.divIcon({className: 'gpx-edit-vertex-icon', html: '<div class="fs-draw-mid" title="Ziehen: Zwischenpunkt"><i></i></div>', iconSize: [40,40], iconAnchor: [20,20]}), draggable: true}).addTo(lineLayer);
+              m.on('dragstart', ()=>{ pushUndo(); const el = m.getElement(); if(el) el.classList.add('fs-gpx-drag'); });
+              m.on('dragend', ()=> drawSplit(k, m.getLatLng()));
+            });
+          }
+        }else if(mode==='line' && manualTrack.length <= 400){
           // Nur beim (max. 200 Punkte grossen, siehe simplifyTrackForStorage) eigenen GPX-Track UND
           // nur im Linie-Modus: jeder Punkt einzeln verschiebbar/entfernbar, wie zuvor in der
           // separaten GPX-Karte (renderGpxTrackEditorMap, jetzt entfernt). Ausserhalb des Linie-
@@ -11837,7 +11955,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       try{ map.getContainer().classList.toggle('fs-ed-mode-line', mode === 'line'); }catch(e){}
       // Alle Linien gleich bearbeitbar: eine berechnete oder sehr lange Linie beim Wechsel zu «Linie» auf die wichtigen
       // Punkte vereinfachen (etwa 8 m genau); danach Ziehpunkte wie jede Linie. Rückgängig mit ↶.
-      if(mode === 'line' && !usingGpxTrack && manualTrack.length > 2 && (lastRouteStats || manualTrack.length > 400)){
+      if(mode === 'line' && !usingGpxTrack && manualTrack.length > 2 && (lastRouteStats || manualTrack.length > 400) && !drawHasCalc()){
         pushUndo();
         const before = manualTrack.length;
         manualTrack = fsSimplifyLine(manualTrack, 8);
@@ -11866,7 +11984,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     undoBtn.addEventListener('click', ()=>{
       if(usingGpxTrack) return;
       pushUndo();
-      manualTrack.pop();
+      drawSync();
+      if(drawSegs.length){ drawSegs.pop(); manualTrack = drawSegs.length ? drawJoin(drawSegs) : manualTrack.slice(0, 1); if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs; }
+      else manualTrack.pop();
       setLastRouteStats(null);
       routeStatsEl.style.display = 'none';
       routeStatsEl.innerHTML = '';
@@ -12018,8 +12138,20 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function addLineAt(lat, lon){
       // Beim Bearbeiten des GPX-Tracks nie Punkte anhängen
       if(usingGpxTrack){ showToast('Zuerst «GPX-Track fertig bearbeitet», dann eine neue Linie zeichnen.', true); return; }
+      if(drawBusy){ showToast('Einen Moment – der letzte Abschnitt wird noch gerechnet.'); return; }
       pushUndo();
+      drawSync();
+      if(manualTrack.length && drawConnect !== 'gerade'){
+        const a = manualTrack[manualTrack.length - 1];
+        drawSegs.push({mode: drawConnect, coords: [a, [lat, lon]]});
+        manualTrack = drawJoin(drawSegs);
+        redrawLine();
+        drawRecompute([drawSegs.length - 1]);
+        return;
+      }
+      if(manualTrack.length) drawSegs.push({mode: 'gerade', coords: [manualTrack[manualTrack.length - 1], [lat, lon]]});
       manualTrack.push([lat, lon]);
+      if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs;
       setLastRouteStats(null);
       routeStatsEl.style.display = 'none';
       routeStatsEl.innerHTML = '';
