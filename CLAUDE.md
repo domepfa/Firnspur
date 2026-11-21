@@ -75,7 +75,7 @@ aus anderen Apps übernehmen.
   `fsSlfEvoHtml`) und Wetter laut Bulletin je 24 h (`customData.CH.weather`: Wind, Neuschnee, Temperatur 2000 m; `fsSlfWeatherHtml`).
 - Lawinen in der Liste (`fsCardSlfHtml`, `fsTourSlfHit`): Stufe der Region und «Problem», wenn steile Stellen der Route (Routen-Check,
   im Hintergrund gerechnet, Kurzfassung auf dem Gerät `fs-rc-sum`) in Exposition und Höhe eines Lawinenproblems liegen; sonst nach
-  Exposition/Gipfelhöhe. Zusatzfilter «Am Tag X» (`fsExtraFilterHtml`): Problembereich ausblenden, passt zur Jahreszeit.
+  Exposition/Gipfelhöhe; Kurzkalender gestern · heute → Ausblick aus `bul.evo`. Zusatzfilter «Am Tag X» (`fsExtraFilterHtml`): Problembereich ausblenden, passt zur Jahreszeit.
 - In der Tour zusätzlich: Faustregel nach Munter im Bulletin (`fsReductionHtml`), «Sonne auf der Abfahrt» (Skitour, `fsFirnHtml`:
   Sonnenstand + Schatten der Berge aus dem Höhenmodell), «Beste Zeit» (`bestMonths`, sonst aus Begehungen, `fsTourSeasonText`),
   Zeit nach SAC-Formel für Touren ohne Zeitbedarf (`fsTourTimeEstimate`, Höhenmeter sonst aus dem Höhenmodell, `fs-time`).
