@@ -3178,8 +3178,8 @@ html:is(.fs-mapfull, .fs-scanning) #fs-ov-chips{ display:none !important; }
 
 /* ===== Wettersymbole mehrfarbig (FS_WX_ICONS) ===== */
 :root{ --wxi-sun:#F2B705; --wxi-sun-s:#C98A00; --wxi-cloud:#FFFFFF; --wxi-cloud2:#C9D2D8; --wxi-cloud3:#AEB9C1; --wxi-cloud-s:#5E6E78;
-  --wxi-rain:#2B7BD6; --wxi-snow:#4C6EDB; --wxi-fog:#8A979F; --wxi-moon:#E9EEF7; --wxi-moon-s:#6E7FA6; --wxi-bolt:#F2B705; --wxi-bolt-s:#9A6B00; }
-html.fs-dark{ --wxi-cloud:#E4E9ED; --wxi-cloud2:#AEB9C1; --wxi-cloud3:#8E9AA4; --wxi-cloud-s:#2F3C45; --wxi-rain:#5AA2F0; --wxi-snow:#93ABF7; --wxi-fog:#9AA6AE; --wxi-moon:#DCE3F2; }
+  --wxi-rain:#2B7BD6; --wxi-snow:#8B5CF6; --wxi-fog:#8A979F; --wxi-moon:#E9EEF7; --wxi-moon-s:#6E7FA6; --wxi-bolt:#F2B705; --wxi-bolt-s:#9A6B00; }
+html.fs-dark{ --wxi-cloud:#E4E9ED; --wxi-cloud2:#AEB9C1; --wxi-cloud3:#8E9AA4; --wxi-cloud-s:#2F3C45; --wxi-rain:#5AA2F0; --wxi-snow:#C4B5FD; --wxi-fog:#9AA6AE; --wxi-moon:#DCE3F2; }
 svg.fs-wxi{ fill:none; stroke:none; }
 .fs-wxi .ws{ fill:var(--wxi-sun); stroke:var(--wxi-sun-s); stroke-width:1.4; }
 .fs-wxi .wr{ fill:none; stroke:var(--wxi-sun-s); stroke-width:1.6; stroke-linecap:round; }
@@ -3188,7 +3188,7 @@ svg.fs-wxi{ fill:none; stroke:none; }
 .fs-wxi .wc2{ fill:var(--wxi-cloud2); }
 .fs-wxi .wc3{ fill:var(--wxi-cloud3); }
 .fs-wxi .wd{ fill:none; stroke:var(--wxi-rain); stroke-width:2.2; stroke-linecap:round; }
-.fs-wxi .wf{ fill:none; stroke:var(--wxi-snow); stroke-width:1.75; stroke-linecap:round; }
+.fs-wxi .wf{ fill:none; stroke:var(--wxi-snow); stroke-width:2; stroke-linecap:round; }
 .fs-wxi .wg{ fill:none; stroke:var(--wxi-fog); stroke-width:1.9; stroke-linecap:round; }
 .fs-wxi .wb{ fill:var(--wxi-bolt); stroke:var(--wxi-bolt-s); stroke-width:1.2; stroke-linejoin:round; }
 .fs-card-wx svg.fs-wxi{ width:19px; height:19px; margin:-2px 0; } /* klein noch lesbar */
@@ -3351,3 +3351,12 @@ img.fs-img-err{ content:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 html.fs-sheet-open #fs-ov-chips{ display:none !important; }
 .fs-start-pick select{ flex:none; width:auto; min-height:40px; border:1px solid var(--line); border-radius:10px; padding:0 8px; font:inherit; font-size:14px; background:var(--paper); color:var(--ink); }
 .fs-start-pick > span{ font-size:15px; font-weight:700; color:var(--ink); }
+
+/* Niederschlag im Wetterstreifen: Schnee (Flocke, cm, violett) und Regen (Tropfen, mm, blau) klar getrennt */
+.wx-p{ display:flex; flex-direction:column; align-items:center; gap:1px; line-height:1.1; }
+.wx-p .fs-i{ width:14px; height:14px; }
+.wx-p small{ font-size:10.5px; font-weight:700; letter-spacing:.02em; }
+.wx-p-rain{ color:var(--wxi-rain); }
+.wx-p-snow{ color:var(--wxi-snow); }
+.wx-p-mix{ color:var(--ink-soft); }
+.fs-wxw-d em .fs-i{ width:11px; height:11px; margin-right:2px; vertical-align:-1px; }
