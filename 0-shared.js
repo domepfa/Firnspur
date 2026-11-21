@@ -23035,6 +23035,15 @@ function fsEnsureThemeToggles(){
       if(typeof render === 'function') render();
     });
     row.appendChild(c);
+    // Start mit: Disziplin beim Öffnen der installierten App (pro Gerät; Auswertung früh in index.html)
+    const sm = document.createElement('label');
+    sm.className = 'fs-theme-toggle fs-start-pick';
+    let cur = 'last'; try{ cur = localStorage.getItem('fs-start') || 'last'; }catch(e){}
+    sm.innerHTML = '<span>Start mit</span><select aria-label="Start mit">' + [['last', 'Zuletzt benutzt'], ['ski', 'Skitour'], ['hoch', 'Hochtour'], ['klet', 'Klettern'], ['wand', 'Wandern']]
+      .map(([v, l])=> `<option value="${v}" ${cur === v ? 'selected' : ''}>${l}</option>`).join('') + '</select>';
+    sm.addEventListener('click', (e)=> e.stopPropagation());
+    sm.querySelector('select').addEventListener('change', (e)=>{ try{ localStorage.setItem('fs-start', e.target.value); }catch(err){} showToast('Gespeichert – gilt beim nächsten Öffnen der App.'); });
+    row.appendChild(sm);
     const w = document.createElement('button');
     w.type = 'button'; w.className = 'fs-theme-toggle';
     w.innerHTML = '<span>Webcams und Wetter meiner Touren</span>' + fsIconHtml('camera');
