@@ -21756,6 +21756,7 @@ function fsRcBodyHtml(res, withBulletin){
     <div class="fs-rc-actions">
       <button type="button" class="btn fs-rc-open" data-rc-open>${fsIconHtml('expand')}Gross ansehen</button>
       <button type="button" class="btn secondary fs-rc-fly" data-rc-fly>${fsIconHtml('play')}Vorbeiflug</button>
+      <button type="button" class="btn secondary fs-rc-scan" data-rc-scan>${fsIconHtml('scan')}Hang-Scan in 3D</button>
     </div>`;
 }
 // Vollansicht: Karte mit der eingefärbten Route, grosses Profil zum Antippen, Legende in Worten, Exposition und Bulletin
@@ -21978,6 +21979,11 @@ document.addEventListener('click', (ev)=>{
   if(ev.target.closest('[data-rc-fly]')){
     const t = (state.tours || []).find(x=> key.indexOf(x.id + ':') === 0);
     if(t) fsFlyOpen(t);
+    return;
+  }
+  if(ev.target.closest('[data-rc-scan]')){
+    const t = (state.tours || []).find(x=> key.indexOf(x.id + ':') === 0);
+    if(t) fsScanTour(t);
     return;
   }
   const mode = ev.target.closest('[data-rc-mode]');
@@ -22343,6 +22349,30 @@ function fsScanShow(res, layer){
 let fsScanAimSt = null;
 // Aus dem Menü: der Rahmen liegt über dem Ausschnitt, der gerade offen ist (kein Springen, kein Drehen)
 function fsScanFromGps(){ fsScanAim({}); }
+// Hang-Scan einer Tour: Rahmen entlang der Hauptrichtung der Route (mit 300 m Rand), Blick von der Seite (eher nach Norden)
+function fsScanForRoute(c){
+  if(!c || c.length < 2) return null;
+  const lat0 = c.reduce((a, q)=> a + q[0], 0) / c.length, lon0 = c.reduce((a, q)=> a + q[1], 0) / c.length;
+  const kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 110540;
+  const P = c.map(q=> [(q[1] - lon0) * kx, (q[0] - lat0) * ky]); // x Ost, y Nord in m
+  let sxx = 0, syy = 0, sxy = 0; P.forEach(([x, y])=>{ sxx += x * x; syy += y * y; sxy += x * y; });
+  const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy); // Hauptachse, gegen Ost gemessen
+  const ux = Math.cos(ang), uy = Math.sin(ang), vx = -uy, vy = ux;
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  P.forEach(([x, y])=>{ const u = x * ux + y * uy, v = x * vx + y * vy; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); });
+  const pad = 300, um = (u0 + u1) / 2, vm = (v0 + v1) / 2;
+  const cx = um * ux + vm * vx, cy = um * uy + vm * vy;
+  const bearing = (90 - ang * 180 / Math.PI + 360) % 360; // Kompass: 0 = Nord
+  let vb = (bearing + 90) % 360; if(vb > 90 && vb < 270) vb = (vb + 180) % 360;
+  return {lat: lat0 + cy / ky, lon: lon0 + cx / kx, bearing, length: Math.max(800, u1 - u0 + 2 * pad), width: Math.max(800, v1 - v0 + 2 * pad), centered: true, viewBearing: vb, route: c};
+}
+function fsScanTour(t){
+  const c = fsRcLine(t);
+  const s = fsScanForRoute(c);
+  if(!s){ showToast('Diese Tour hat keine Linie für den Hang-Scan.', true); return; }
+  if(s.length > 12000){ showToast('Die Route ist für den Hang-Scan zu lang (über 12 km) – Ausschnitt auf der Karte wählen.', true); return; }
+  fsScanOpen(s);
+}
 // Rahmen auf dem Bildschirm (Sucher): oben = Blickrichtung, Höhe = Länge, Breite = ratio × Länge
 function fsScanFrameBox(panelH, ratio){
   ratio = ratio || 0.8;
@@ -22581,6 +22611,11 @@ async function fsScanOpen(s){
     map.addLayer({id:'fs-scan', type:'raster', source:'fs-scan', paint:{'raster-opacity': 1, 'raster-resampling':'linear', 'raster-fade-duration':0}});
     map.addSource('fs-scan-box', {type:'geojson', data:{type:'Feature', properties:{}, geometry:{type:'LineString', coordinates: fsScanPolygon(s)}}});
     map.addLayer({id:'fs-scan-box', type:'line', source:'fs-scan-box', paint:{'line-color':'#ffffff', 'line-width':2, 'line-opacity':0.85}});
+    if(s.route && s.route.length > 1){ // Hang-Scan einer Tour: die Route darüber
+      map.addSource('fs-scan-route', {type:'geojson', data:{type:'Feature', properties:{}, geometry:{type:'LineString', coordinates: s.route.map(c=> [c[1], c[0]])}}});
+      map.addLayer({id:'fs-scan-route-case', type:'line', source:'fs-scan-route', layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#ffffff', 'line-width':7, 'line-opacity':0.9}});
+      map.addLayer({id:'fs-scan-route', type:'line', source:'fs-scan-route', layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#1565C0', 'line-width':3.5}});
+    }
     loading.remove();
   });
   wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(b=> b.addEventListener('click', async ()=>{
@@ -22619,8 +22654,9 @@ function fsScanCreate3d(s, onReady){
     if(s.origin) fsmAddMarker(map, s.origin.lat, s.origin.lon, '<div class="fs-scan-me" aria-label="Standort"></div>', {anchor:'center'});
     const bb = new maplibregl.LngLatBounds();
     fsScanPolygon(s).forEach(c=> bb.extend(c));
-    const cam = map.cameraForBounds(bb, {padding:{top:110, bottom: Math.round(window.innerHeight * 0.3), left:20, right:20}, bearing: s.bearing});
-    if(cam) map.jumpTo({center: cam.center, zoom: cam.zoom, bearing: s.bearing, pitch: 58});
+    const vb = s.viewBearing != null ? s.viewBearing : s.bearing; // Route: Blick von der Seite
+    const cam = map.cameraForBounds(bb, {padding:{top:110, bottom: Math.round(window.innerHeight * 0.3), left:20, right:20}, bearing: vb});
+    if(cam) map.jumpTo({center: cam.center, zoom: cam.zoom, bearing: vb, pitch: s.route ? 52 : 58});
   });
   return map;
 }
