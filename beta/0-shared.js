@@ -4195,13 +4195,18 @@ function fsSlfParse(b, rid){
       later: pr.validTimePeriod === 'later'};
   }).filter(pr=> pr.type);
   const reg = (b.regions || []).find(r=> (r.regionID || r.id) === rid);
-  // Ausblick (CAAML «tendency»): Richtung, Text, bis wann – fehlt er, bleibt die Karte wie bisher
-  const tdl = Array.isArray(b.tendency) ? b.tendency : (b.tendency ? [b.tendency] : []);
-  const plain = h=>{ if(!h) return ''; try{ return (new DOMParser().parseFromString(String(h), 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim(); }catch(e){ return String(h).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); } };
-  const tendency = tdl.map(x=> x && ({type: x.tendencyType || '', text: plain(x.highlights || x.comment || ''), end: x.validTime && x.validTime.endTime ? new Date(x.validTime.endTime) : null}))
-    .find(x=> x && (x.type || x.text)) || null;
+  // Gefahrenbeschreibung: beim SLF steht sie im Feld «tendency» (Überschriften h2 und Absätze)
+  const descr = (Array.isArray(b.tendency) ? b.tendency : (b.tendency ? [b.tendency] : [])).map(x=> x && x.comment).filter(Boolean).join('');
+  // Entwicklung der Gefahr (vergangene Tage, heute, Ausblick) und Wetter laut Bulletin (je 24 h: Wind, Neuschnee, Temperatur 2000 m)
+  const ch = (b.customData || {}).CH || {};
+  const evo = (ch.dangerRatingEvolution || []).map(x=>{ const r = x.dangerRating || {}, inf = SLF_DANGER_LEVELS[r.mainValue]; return inf ? {date: x.date, level: inf.level, sub: ((r.customData || {}).CH || {}).subdivision || '', color: inf.color} : (x.date ? {date: x.date, level: 0} : null); })
+    .filter(Boolean).sort((a, c)=> a.date < c.date ? -1 : 1);
+  const weather = (ch.weather || []).map(w=> ({start: w.period && new Date(w.period.start), end: w.period && new Date(w.period.end),
+    wind: w.wind ? {kmh: w.wind.speedKmh, dir: w.wind.direction || '', hi: !!w.wind.highlight} : null,
+    snow: (w.newSnow || []).map(n=> ({m: n.elevationM, cm: n.snowCm, rain: n.precipitationType === 'rain'})),
+    temps: ((w.timeSeries || {}).temperatures || []).map(t=> ({t: new Date(t.timestamp), c: t.valueC, m: t.elevationM}))})).filter(w=> w.start && w.end).sort((a, c)=> a.start - c.start);
   return {start: new Date(b.validTime.startTime), end: new Date(b.validTime.endTime), pub: b.publicationTime ? new Date(b.publicationTime) : null,
-    ratings, problems, tendency, region: reg && reg.name ? reg.name : '', id: b.bulletinID || ''};
+    ratings, problems, descr, evo, weather, region: reg && reg.name ? reg.name : '', id: b.bulletinID || ''};
 }
 // Bulletins für einen Ort: das jetzt gültige und (falls schon da) das nächste
 async function fsSlfForPoint(lat, lon){
@@ -4230,12 +4235,48 @@ function fsSlfTourHits(t, bul){
     return asp && high;
   });
 }
-// Ausblick des Bulletins: Pfeil und Wort für die Richtung (nicht Farbe allein), dazu der Text des SLF
-function fsSlfTendencyHtml(td){
-  if(!td) return '';
-  const k = {increasing: ['↑', 'Gefahr steigt'], steady: ['→', 'Gefahr bleibt etwa gleich'], decreasing: ['↓', 'Gefahr nimmt ab']}[td.type] || null;
-  const until = td.end && !isNaN(td.end) ? ' bis ' + td.end.toLocaleDateString('de-CH', {weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'Europe/Zurich'}) : '';
-  return `<div class="fs-slf-tend fs-slf-tend-${esc(td.type || 'x')}"><div class="fs-slf-tend-h"><b>Ausblick${esc(until)}</b>${k ? `<span><i aria-hidden="true">${k[0]}</i>${k[1]}</span>` : ''}</div>${td.text ? `<p>${esc(td.text)}</p>` : ''}</div>`;
+// Gefahrenbeschreibung des SLF: nur Text (Überschriften fett, Absätze), aufklappbar
+function fsSlfDescrHtml(h){
+  if(!h) return '';
+  let out = '';
+  try{
+    const doc = new DOMParser().parseFromString(String(h), 'text/html');
+    doc.body.querySelectorAll('h1, h2, h3, p, li').forEach(el=>{ const tx = (el.textContent || '').replace(/\s+/g, ' ').trim(); if(tx) out += /^H/.test(el.tagName) ? `<b>${esc(tx)}</b>` : `<p>${esc(tx)}</p>`; });
+    if(!out){ const tx = (doc.body.textContent || '').replace(/\s+/g, ' ').trim(); if(tx) out = `<p>${esc(tx)}</p>`; } // reiner Text ohne Absätze
+  }catch(e){ out = `<p>${esc(String(h).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())}</p>`; }
+  return out ? `<details class="fs-slf-descr"><summary>Gefahrenbeschreibung</summary>${out}</details>` : '';
+}
+// Entwicklung der Gefahr: vergangene Tage, heute (gültiges Bulletin), Ausblick – wie der Kalender bei White Risk
+function fsSlfEvoHtml(bul){
+  const evo = bul && bul.evo;
+  if(!evo || evo.length < 2) return '';
+  const dayOf = d=> new Date(d.getTime() - 60 * 1000).toLocaleDateString('sv-SE', {timeZone: 'Europe/Zurich'}); // Gültigkeit endet um 17:00 → dieser Tag
+  const cur = dayOf(bul.end);
+  const cells = evo.slice(-7).map(x=>{
+    const d = new Date(x.date + 'T12:00:00'), wd = d.toLocaleDateString('de-CH', {weekday: 'short'}).replace('.', ''), dm = d.toLocaleDateString('de-CH', {day: '2-digit', month: '2-digit'});
+    const tag = x.date === cur ? 'Aktuell' : x.date > cur ? 'Ausblick' : wd;
+    return `<div class="fs-slf-evo-d${x.date === cur ? ' cur' : ''}${x.date > cur ? ' next' : ''}"><span>${esc(tag)}</span>${x.level ? `<b style="--lvl:${x.color}; color:${x.level >= 3 ? '#fff' : '#0F1E27'}">${fsSlfLevelTxt(x.level, x.sub)}</b>` : '<b class="na">?</b>'}<em>${esc(dm)}</em></div>`;
+  }).join('');
+  return `<div class="fs-slf-evo"><p class="fs-slf-sub">Entwicklung der Gefahr</p><div class="fs-slf-evo-row">${cells}</div></div>`;
+}
+// Wetter laut Bulletin: je 24 h Wind (Stärke, Richtung, «besonders beachten»), Neuschnee, dazu Temperatur 2000 m als Linie
+function fsSlfWeatherHtml(ws){
+  if(!ws || !ws.length) return '';
+  const fmt = d=> d.toLocaleDateString('de-CH', {weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'Europe/Zurich'});
+  const rows = ws.map(w=>{
+    const top = w.snow.filter(n=> !n.rain).sort((a, c)=> c.m - a.m)[0]; // Neuschnee in der höchsten Lage, die das Bulletin nennt
+    const sn = top ? `${fsIconHtml('snow')}${top.cm} cm auf ${top.m} m` : (w.snow.some(n=> n.rain) ? 'Regen' : '');
+    return `<div class="fs-slf-wx-r"><span>bis ${esc(fmt(w.end))}</span><b class="${w.wind && w.wind.hi ? 'hi' : ''}">${w.wind ? `${fsIconHtml('wind')}${w.wind.kmh} km/h ${esc(w.wind.dir)}${w.wind.hi ? ' !' : ''}` : ''}</b><em>${sn}</em></div>`;
+  }).join('');
+  const T = [].concat(...ws.map(w=> w.temps)).filter(x=> isFinite(x.c)).sort((a, c)=> a.t - c.t);
+  let svg = '';
+  if(T.length > 6){
+    const W = 300, H = 56, t0 = T[0].t, t1 = T[T.length - 1].t, mn = Math.min(-5, ...T.map(x=> x.c)), mx = Math.max(5, ...T.map(x=> x.c));
+    const X = t=> ((t - t0) / (t1 - t0) * W).toFixed(1), Y = c=> (H - 6 - (c - mn) / (mx - mn) * (H - 12)).toFixed(1);
+    const last = T[T.length - 1];
+    svg = `<div class="fs-slf-temp"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="${W}" y1="${Y(0)}" y2="${Y(0)}" class="z"/><polyline points="${T.map(x=> X(x.t) + ',' + Y(x.c)).join(' ')}" fill="none"/></svg><span>Temperatur auf 2000 m · zuletzt ${last.c.toFixed(1).replace('.', ',')} °C</span></div>`;
+  }
+  return `<div class="fs-slf-wx"><p class="fs-slf-sub">Wetter laut Bulletin (je 24 h bis 17:00)</p>${rows}${svg}</div>`;
 }
 function fsSlfBoxHtml(lat, lon){
   state._slf = state._slf || {};
@@ -4263,7 +4304,9 @@ function fsSlfBoxHtml(lat, lon){
     ${bul.ratings.map(r=> `<div class="fs-slf-lvl"><span class="fs-slf-dot" style="--lvl:${r.color}; color:${r.level >= 3 ? '#fff' : '#0F1E27'}">${fsSlfLevelTxt(r.level, r.sub)}</span><div>${esc(r.label)}${r.elev || r.later ? `<small>${esc([r.elev, r.later ? 'im Tagesverlauf' : ''].filter(Boolean).join(' · '))}</small>` : ''}</div></div>`).join('')}
     ${bul.problems.length ? `<ul class="fs-slf-prob">${bul.problems.map(pr=> `<li>${FS_SLF_PROB_ICON[pr.raw] ? fsIconHtml(FS_SLF_PROB_ICON[pr.raw]) : ''}<span>${esc(pr.type)}</span><em>${esc(prob(pr))}</em>${pr.aspects.length && FS_SLF_PROB_ICON[pr.raw] ? fsSlfRoseSvg(pr.aspects, 26) : ''}</li>`).join('')}</ul>` : ''}
     ${hits.length ? `<div class="fs-slf-hit"><b>Deine Tour: Exposition ${esc(expoTxt)}${t.targetAltitude ? ' · Gipfel ' + esc(String(t.targetAltitude)) + ' m' : ''}</b>Liegt laut Exposition und Gipfelhöhe im Bereich: ${esc(hits.map(h=> h.type).join(', '))}.</div>` : ''}
-    ${fsSlfTendencyHtml(bul.tendency)}
+    ${fsSlfDescrHtml(bul.descr)}
+    ${fsSlfEvoHtml(bul)}
+    ${fsSlfWeatherHtml(bul.weather)}
     ${fsReductionHtml(t, bul)}
     <a class="fs-slf-link" href="https://whiterisk.ch/de/conditions/bulletin" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk</a>
     <p class="fs-slf-src">${esc([bul.region ? 'Region ' + bul.region : '', bul.pub ? 'Stand ' + fsSlfFmt(bul.pub) : ''].filter(Boolean).join(' · '))}</p>
