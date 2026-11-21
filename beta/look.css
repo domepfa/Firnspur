@@ -3342,3 +3342,10 @@ label.btn input[type=file]{ display:none; }
 .fs-draw-segmenu{ min-width:250px; }
 .fs-draw-segmenu .fs-draw-seg{ margin:6px 0 8px; }
 .fs-rc-actions .fs-rc-scan{ grid-column:1 / -1; }
+.fs-rc-above{ margin:8px 0; }
+.fs-rc-above p{ display:flex; gap:8px; align-items:flex-start; margin:0; padding:10px 12px; border-radius:12px; background:var(--ice-light); font-size:14px; line-height:1.4; }
+.fs-rc-above.warn p{ background:color-mix(in srgb, var(--warn, #E8590C) 12%, var(--paper)); }
+.fs-rc-above .fs-i{ flex:none; width:18px; height:18px; margin-top:1px; }
+.fs-rc-above .btn{ width:100%; min-height:48px; display:flex; align-items:center; justify-content:center; gap:8px; }
+img.fs-img-err{ content:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 64'%3E%3Crect width='96' height='64' fill='%23E9EEF1'/%3E%3Cpath d='M38 26h4l2-3h8l2 3h4v14H38z M48 29a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9z' fill='none' stroke='%239AA8B0' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E"); object-fit:cover; }
+html.fs-sheet-open #fs-ov-chips{ display:none !important; }
