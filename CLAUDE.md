@@ -59,6 +59,8 @@ aus anderen Apps übernehmen.
   Triebschnee (Modell, `fsDrift*`, Protokoll `fsdrift://`): Wind der letzten 72 h aus Open-Meteo (700 hPa) für die Kartenmitte,
   Windschatten aus dem Höhenmodell (Winstral-Sx bis 300 m, stärker knapp unter Kämmen und in Mulden); leer ohne Neuschnee.
   Keine Lawinenbeurteilung – so steht es in der Legende. Tour: «Berichte anderer» als Websuche auf gipfelbuch.ch (`fsGipfelbuchHtml`).
+- Start (Profil-Menü «Start mit», Gerät `fs-start`: last|ski|hoch|klet|wand; zuletzt benutzt `fs-last-disc`): gilt beim Öffnen der
+  installierten App (index.html ohne Angaben im Standalone-Modus oder `launch=1` von fixseil.html/wandern.html); gezielte Links gehen vor.
 - Planer (`fsPlannerOpen`): «Auf Wegen» rechnet über das swisstopo-Wegnetz (`fsrRoute`, sonst openrouteservice); «Skitour (weglos)»
   rechnet auf dem Gerät eine Aufstiegsspur mit Spitzkehren aus dem Höhenmodell (`fsSkiRoute`: Raster über `fsElevGrid` aus dem
   swisstopo-Gelände, Suche `fsSkiEngine` im Web Worker; Spur höchstens etwa 17° steil, Hänge bis 30° normal, 30–35° leicht, ab 35° stark gemieden, kleine Richtungswechsel kosten etwas; Linie geglättet (`fsSmoothTrack`); Linie nach
