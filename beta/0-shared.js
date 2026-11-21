@@ -1862,6 +1862,7 @@ function fsEdRelease(fm){
   if(!fm || fm._released) return;
   fm._released = true;
   const ml = fm._ml;
+  (fm._fsCleanups || []).forEach(f=>{ try{ f(); }catch(e){} }); fm._fsCleanups = null; // z. B. Malen der Bereiche
   fm.detach();
   try{ ml.getContainer().classList.remove('fs-ed-mode-line'); }catch(e){}
   ml._fsInfoBlock = null;
@@ -7898,6 +7899,7 @@ function fsSkiEngine(){
         const j = ny * w + nx, L = ML[m], dz = e[j] - ei, gr = dz / L;
         let t = dz >= 0 ? L / V + dz / UP : L / (V * 1.6);
         let pen = slopePen(Math.max(si, sl[j]));
+        if(job.mul) pen *= job.mul[j];                   // Bereiche: meiden teuer, bevorzugen günstiger
         if(gr > 0.31) pen *= 1 + (gr - 0.31) * 45;      // Spur steiler als etwa 17°: rasch teuer
         if(gr > 0.42) pen *= 6;                          // kaum mehr mit Fellen: Stapfen
         if(gr < -0.45) pen *= 1 + (-gr - 0.45) * 8;
@@ -7928,13 +7930,37 @@ function fsSkiSolve(job){
     }
   }catch(e){ fsSkiWorker = null; }
   if(!fsSkiWorker) return Promise.resolve().then(()=> fsSkiEngine().solve(job));
-  return new Promise((resolve, reject)=>{ const id = ++fsSkiSeq; fsSkiPending.set(id, {resolve, reject}); fsSkiWorker.postMessage({id, job}, [job.e.buffer]); });
+  return new Promise((resolve, reject)=>{ const id = ++fsSkiSeq; fsSkiPending.set(id, {resolve, reject}); fsSkiWorker.postMessage({id, job}, job.mul ? [job.e.buffer, job.mul.buffer] : [job.e.buffer]); });
 }
 // Farbe und Klasse der Linie nach Steilheit des Geländes (Farbe nie allein: Legende und Zahlen im Planer)
 const FS_SKI_CLASSES = [{max: 30, color: null, label: 'unter 30°'}, {max: 35, color: '#E8910C', label: '30–35°'}, {max: 40, color: '#D9480F', label: '35–40°'}, {max: 90, color: '#7A1FA2', label: 'über 40°'}];
 function fsSkiClass(s){ return s < 30 ? 0 : s < 35 ? 1 : s < 40 ? 2 : 3; }
 // waypoints: [[lat, lon], …] → wie fetchCalculatedRoute, dazu slopes (je Punkt), über30M, maxSlope, stapfenHm, kehren
-async function fsSkiRoute(waypoints){
+// Bereiche (meiden/bevorzugen) als Faktor je Rasterzelle: meiden ×12, bevorzugen ×0.55
+function fsAreaMul(areas, box, z){
+  if(!areas || !areas.length) return null;
+  const N = 256 * Math.pow(2, z), PX = lon=> (lon + 180) / 360 * N, PY = lat=>{ const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * N; };
+  const mul = new Float32Array(box.w * box.h).fill(1);
+  let any = false;
+  areas.forEach(a=>{
+    if(!a || !Array.isArray(a.poly) || a.poly.length < 3) return;
+    const f = a.kind === 'prefer' ? 0.55 : 12;
+    const P = a.poly.map(q=> [PX(+q[1]) - box.x0, PY(+q[0]) - box.y0]);
+    const xs = P.map(p=> p[0]), ys = P.map(p=> p[1]);
+    const x0 = Math.max(0, Math.floor(Math.min(...xs))), x1 = Math.min(box.w - 1, Math.ceil(Math.max(...xs))), y0 = Math.max(0, Math.floor(Math.min(...ys))), y1 = Math.min(box.h - 1, Math.ceil(Math.max(...ys)));
+    for(let y = y0; y <= y1; y++){
+      const cy = y + 0.5, xsInt = [];
+      for(let i = 0, j = P.length - 1; i < P.length; j = i++){ const [xi, yi] = P[i], [xj, yj] = P[j]; if((yi > cy) !== (yj > cy)) xsInt.push(xi + (cy - yi) / (yj - yi) * (xj - xi)); }
+      xsInt.sort((a, b)=> a - b);
+      for(let k = 0; k + 1 < xsInt.length; k += 2){
+        const a0 = Math.max(x0, Math.ceil(xsInt[k] - 0.5)), a1 = Math.min(x1, Math.floor(xsInt[k + 1] - 0.5));
+        for(let x = a0; x <= a1; x++){ const i = y * box.w + x; mul[i] = f > 1 ? Math.max(mul[i], f) : Math.min(mul[i], f); any = true; }
+      }
+    }
+  });
+  return any ? mul : null;
+}
+async function fsSkiRoute(waypoints, opts){
   if(!waypoints || waypoints.length < 2) throw new Error('Mindestens zwei Punkte (Start und Ziel) nötig.');
   const PX = (lon, z)=> (lon + 180) / 360 * 256 * Math.pow(2, z);
   const PY = (lat, z)=>{ const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * Math.pow(2, z); };
@@ -7957,7 +7983,7 @@ async function fsSkiRoute(waypoints){
     const grid = await fsElevGrid(z, box.x0, box.y0, box.w, box.h);
     if(!grid.swiss) swissAll = false;
     const cl = (v, n)=> Math.max(0, Math.min(n - 1, v));
-    const job = {e: grid.e, w: box.w, h: box.h, cell: box.mpp,
+    const job = {e: grid.e, w: box.w, h: box.h, cell: box.mpp, mul: fsAreaMul(opts && opts.areas, box, z),
       sx: cl(Math.floor(PX(a[1], z)) - box.x0, box.w), sy: cl(Math.floor(PY(a[0], z)) - box.y0, box.h),
       tx: cl(Math.floor(PX(b[1], z)) - box.x0, box.w), ty: cl(Math.floor(PY(b[0], z)) - box.y0, box.h)};
     const out = await fsSkiSolve(job);
@@ -10828,6 +10854,7 @@ function fsRoutesEditorHtml(t){
     <input type="hidden" name="manualTrackName" id="route-manual-name" value="${esc(t.manualTrackName||'')}"/>
     <input type="hidden" name="manualTrackType" id="route-manual-type" value="${esc(t.manualTrackType||'')}"/>
     <input type="hidden" name="altTracks" id="route-alt-tracks" value='${esc(JSON.stringify(t.altTracks||[]))}'/>
+    <input type="hidden" name="routeAreas" id="route-areas-hidden" value='${esc(JSON.stringify(t.routeAreas||[]))}'/>
   </div>`;
 }
 function fsRoutesEditorRender(){
@@ -10934,6 +10961,7 @@ document.addEventListener('fs-track-changed', ()=> fsRoutesEditorRender());
 // Originale entfernter Routen bleiben liegen.
 function fsApplyRoutesFromForm(t, form, prev){
   if(form.altTracks === undefined) return [];
+  if(form.routeAreas != null){ try{ const ar = JSON.parse(form.routeAreas || '[]'); if(Array.isArray(ar)) t.routeAreas = ar; }catch(e){} } // Bereiche meiden/bevorzugen (nur im Editor sichtbar)
   t.trackName = form.trackName || ''; t.trackType = form.trackType || '';
   t.manualTrackName = form.manualTrackName || ''; t.manualTrackType = form.manualTrackType || '';
   let alts = []; try{ alts = JSON.parse(form.altTracks || '[]'); }catch(e){ alts = (prev && prev.altTracks) || []; }
@@ -11162,7 +11190,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const MODE_META = {
       point: { label: 'Punkte', color: 'var(--ice-deep)' },
       line: { label: 'Zeichnen', color: '#1565C0' },
-      route: { label: 'Route', color: '#2F6B44' }
+      route: { label: 'Route', color: '#2F6B44' },
+      area: { label: 'Bereiche', color: '#C92A2A' }
     };
     const modeRow = document.createElement('div');
     modeRow.style.cssText = 'display:flex; gap:4px; margin-bottom:10px; background:var(--ice-light); padding:4px; border-radius:20px;';
@@ -11178,8 +11207,25 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     const routeModeBtn = makeModeBtn('route');
     modeRow.appendChild(lineModeBtn); // «Zeichnen» zuerst; «Route» ist darin aufgegangen (Verbinden als …)
     modeRow.appendChild(pointModeBtn);
+    const areaModeBtn = makeModeBtn('area'); // Bereiche meiden/bevorzugen (nur Tourformular, Vollbild)
+    modeRow.appendChild(areaModeBtn);
     modeRow.appendChild(routeModeBtn);
     routeModeBtn.style.display = 'none';
+    if(!document.getElementById('route-areas-hidden') || !isFullscreen) areaModeBtn.style.display = 'none';
+    areaModeBtn.addEventListener('click', ()=> setMode('area'));
+    // Bedienfeld «Bereiche»: Pinsel Meiden/Bevorzugen/Radieren, Skispur neu rechnen
+    let areaBrush = 'avoid';
+    const areaRow = document.createElement('div');
+    areaRow.className = 'fs-area-row'; areaRow.style.display = 'none';
+    const paintAreaRow = ()=>{
+      areaRow.innerHTML = '<div class="fs-draw-connect-l">Pinsel</div><div class="fs-draw-seg fs-area-seg" role="group" aria-label="Pinsel">'
+        + [['avoid', 'Meiden'], ['prefer', 'Bevorzugen'], ['erase', 'Radieren']].map(([k, l])=> `<button type="button" data-brush="${k}" class="b-${k}${areaBrush === k ? ' on' : ''}" aria-pressed="${areaBrush === k}"><i class="sw"></i>${l}</button>`).join('') + '</div>'
+        + `<div class="fs-draw-hint">${areaBrush === 'erase' ? 'Fläche antippen zum Löschen.' : 'Mit einem Finger eine Fläche umfahren · zwei Finger verschieben die Karte · Fläche antippen: Notiz'}</div>`
+        + `<button type="button" class="btn secondary fs-area-recalc">${fsIconHtml('refresh')}Skispur neu rechnen</button>`;
+      areaRow.querySelectorAll('[data-brush]').forEach(b=> b.addEventListener('click', ()=>{ areaBrush = b.getAttribute('data-brush'); paintAreaRow(); }));
+      areaRow.querySelector('.fs-area-recalc').addEventListener('click', ()=> drawAreasRecalc());
+    };
+    paintAreaRow();
     wrapDiv.appendChild(modeRow);
     if(edNext.noPoints) pointModeBtn.style.display = 'none'; // Route aus der Routenliste: nur Linie/Route
     if(!manualTrackHidden && !gpxHiddenInput){ lineModeBtn.style.display = 'none'; routeModeBtn.style.display = 'none'; modeRow.style.display = 'none'; } // nur Punkte (Hütte: Linien über «Zustiege»)
@@ -11276,6 +11322,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     gpxSummitBtn.title = 'Am höchsten Punkt schneiden';
     lineActionsRow.appendChild(gpxSummitBtn);
     wrapDiv.appendChild(lineActionsRow);
+    wrapDiv.appendChild(areaRow);
 
     // Route-Modus als eigene, grün getönte Karte (passend zur grünen Routen-Farbe auf der Karte) –
     // mit Zähler, wie viele Wegpunkte schon gesetzt sind, und einem grossen, deutlich erkennbaren
@@ -11361,7 +11408,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       }
       const fsPeBottom = document.createElement('div');
       fsPeBottom.className = 'fs-pe-bottom';
-      fsPeBottom.append(lineActionsRow, routeActionsRow, routeStatsEl, routeMetaEl);
+      fsPeBottom.append(lineActionsRow, areaRow, routeActionsRow, routeStatsEl, routeMetaEl);
       wrapDiv.append(fsPeTop, fsPeBottom);
       ['click','pointerdown','touchstart','wheel','dblclick'].forEach(ev=>{
         fsPeTop.addEventListener(ev, e=> e.stopPropagation());
@@ -11643,7 +11690,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function drawHasCalc(){ drawSync(); return drawSegs.some(sg=> sg.mode !== 'gerade'); }
     async function drawCompute(m, a, b){
       if(m === 'gerade' || m === 'folgen' || m === 'fest') return [a, b];
-      const r = m === 'ski' ? await fsSkiRoute([a, b]) : await fetchCalculatedRoute([a, b]);
+      const r = m === 'ski' ? await fsSkiRoute([a, b], {areas: drawAreasRead()}) : await fetchCalculatedRoute([a, b]);
       const c = ((r && r.coords) || []).map(q=> [+q[0], +q[1]]).filter(q=> isFinite(q[0]) && isFinite(q[1]));
       if(c.length < 2) throw new Error('keine Route');
       const far = (p, q)=> fsGeoDist(p[0], p[1], q[0], q[1]) > 3;
@@ -11940,6 +11987,104 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         m.on('dragend', ()=> drawSplit(k, m.getLatLng()));
       });
     }
+    /* ===== Bereiche meiden/bevorzugen =====
+       Mit einem Finger eine Fläche umfahren (Pinsel Meiden/Bevorzugen), antippen: Notiz oder löschen. Gespeichert in der Tour
+       (`routeAreas`), sichtbar nur hier im Editor (blass, im Reiter «Bereiche» kräftig). Die Skispur-Rechnung macht Rot teuer,
+       Grün günstiger (fsAreaMul). */
+    function drawAreasRead(){ try{ const a = JSON.parse((document.getElementById('route-areas-hidden') || {}).value || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+    function drawAreasWrite(a){ const el = document.getElementById('route-areas-hidden'); if(el){ el.value = JSON.stringify(a); markModalDirty(); } drawAreasRender(); }
+    const aml = map._ml;
+    function drawAreasRender(){
+      if(!aml || !aml.getStyle || !document.getElementById('route-areas-hidden')) return;
+      const a = drawAreasRead(), on = mode === 'area';
+      const fc = {type: 'FeatureCollection', features: a.filter(x=> x && x.poly && x.poly.length > 2).map(x=> ({type: 'Feature', properties: {id: x.id, kind: x.kind}, geometry: {type: 'Polygon', coordinates: [x.poly.map(q=> [q[1], q[0]]).concat([[x.poly[0][1], x.poly[0][0]]])]}}))};
+      try{
+        if(aml.getSource('fl-areas')) aml.getSource('fl-areas').setData(fc);
+        else{
+          aml.addSource('fl-areas', {type: 'geojson', data: fc});
+          aml.addLayer({id: 'fl-areas-fill', type: 'fill', source: 'fl-areas', paint: {'fill-color': ['match', ['get', 'kind'], 'prefer', '#2F9E44', '#E03131'], 'fill-opacity': 0.1}});
+          aml.addLayer({id: 'fl-areas-avoid', type: 'line', source: 'fl-areas', filter: ['!=', ['get', 'kind'], 'prefer'], paint: {'line-color': '#E03131', 'line-width': 2, 'line-dasharray': [2, 1.5], 'line-opacity': 0.5}});
+          aml.addLayer({id: 'fl-areas-prefer', type: 'line', source: 'fl-areas', filter: ['==', ['get', 'kind'], 'prefer'], paint: {'line-color': '#2F9E44', 'line-width': 2, 'line-opacity': 0.5}});
+          if(!aml.getSource('fl-area-draft')){ aml.addSource('fl-area-draft', {type: 'geojson', data: {type: 'FeatureCollection', features: []}}); aml.addLayer({id: 'fl-area-draft', type: 'line', source: 'fl-area-draft', paint: {'line-color': '#ffffff', 'line-width': 3}}); }
+        }
+        aml.setPaintProperty('fl-areas-fill', 'fill-opacity', on ? 0.32 : 0.1);
+        aml.setPaintProperty('fl-areas-avoid', 'line-opacity', on ? 0.95 : 0.45);
+        aml.setPaintProperty('fl-areas-prefer', 'line-opacity', on ? 0.95 : 0.45);
+      }catch(e){}
+    }
+    function drawAreasMode(on){
+      try{ if(on) aml.dragPan.disable(); else aml.dragPan.enable(); }catch(e){}
+      drawAreasRender();
+    }
+    const inPoly = (p, poly)=>{ let c = false; for(let i = 0, j = poly.length - 1; i < poly.length; j = i++){ const a = poly[i], b = poly[j]; if((a[0] > p[0]) !== (b[0] > p[0]) && p[1] < (b[1] - a[1]) * (p[0] - a[0]) / (b[0] - a[0]) + a[1]) c = !c; } return c; };
+    function drawAreaAt(lat, lon){ const a = drawAreasRead(); for(let i = a.length - 1; i >= 0; i--) if(a[i] && a[i].poly && inPoly([lat, lon], a[i].poly)) return a[i]; return null; }
+    function drawAreaMenu(ar, ll){
+      const wrap = document.createElement('div');
+      wrap.className = 'fs-gpx-menu';
+      const h = document.createElement('p'); h.textContent = ar.kind === 'prefer' ? 'Bereich bevorzugen' : 'Bereich meiden'; wrap.appendChild(h);
+      const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'fs-area-note'; inp.placeholder = 'Notiz, z. B. oft abgeblasen'; inp.value = ar.note || '';
+      inp.addEventListener('change', ()=>{ const a = drawAreasRead(), x = a.find(q=> q.id === ar.id); if(x){ x.note = inp.value.trim(); drawAreasWrite(a); } });
+      wrap.appendChild(inp);
+      wrap.appendChild(gpxBtn('Bereich löschen', 'danger', ()=>{ if(!confirm('Diesen Bereich löschen?')) return; drawAreasWrite(drawAreasRead().filter(q=> q.id !== ar.id)); map.closePopup(); }));
+      FL.popup().setLatLng(ll).setContent(wrap).openOn(map);
+    }
+    // Malen: ein Finger umfährt die Fläche; ein zweiter Finger bricht ab (Karte verschieben/zoomen)
+    if(aml && document.getElementById('route-areas-hidden') && isFullscreen){
+      const cc = aml.getCanvasContainer();
+      let pt = null;
+      const xy = e=>{ const r = cc.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+      const draft = (pts)=>{ try{ const s = aml.getSource('fl-area-draft'); if(s) s.setData({type: 'Feature', properties: {}, geometry: {type: 'LineString', coordinates: pts.length > 1 ? pts.map(q=> [q[1], q[0]]) : []}}); }catch(e){} };
+      const down = (e)=>{
+        if(mode !== 'area') return;
+        if(!e.isPrimary){ pt = null; draft([]); return; }
+        if(e.target.closest && e.target.closest('.maplibregl-marker, .maplibregl-popup, .fsm-ctlbox, .fsm-panel')) return;
+        pt = {id: e.pointerId, pts: [], px: xy(e), moved: false};
+      };
+      const move = (e)=>{
+        if(!pt || e.pointerId !== pt.id || mode !== 'area') return;
+        const p = xy(e);
+        if(!pt.moved && Math.hypot(p[0] - pt.px[0], p[1] - pt.px[1]) < 8) return;
+        if(areaBrush === 'erase') return;
+        if(!pt.moved){ pt.moved = true; const ll0 = aml.unproject(pt.px); pt.pts.push([ll0.lat, ll0.lng]); }
+        const last = pt.last || pt.px;
+        if(Math.hypot(p[0] - last[0], p[1] - last[1]) < 6) return;
+        pt.last = p; const ll = aml.unproject(p); pt.pts.push([ll.lat, ll.lng]);
+        draft(pt.pts);
+      };
+      const up = (e)=>{
+        if(!pt || e.pointerId !== pt.id) return;
+        const done = pt; pt = null; draft([]);
+        if(mode !== 'area') return;
+        if(!done.moved){ // Antippen: vorhandenen Bereich bearbeiten bzw. löschen
+          const ll = aml.unproject(done.px), ar = drawAreaAt(ll.lat, ll.lng);
+          if(!ar) return;
+          if(areaBrush === 'erase'){ if(confirm('Diesen Bereich löschen?')) drawAreasWrite(drawAreasRead().filter(q=> q.id !== ar.id)); }
+          else drawAreaMenu(ar, {lat: ll.lat, lng: ll.lng});
+          return;
+        }
+        const poly = fsSimplifyLine(done.pts, 4).map(q=> [Math.round(q[0] * 1e6) / 1e6, Math.round(q[1] * 1e6) / 1e6]);
+        if(poly.length < 3){ showToast('Fläche zu klein – mit dem Finger einen Bereich umfahren.'); return; }
+        const a = drawAreasRead(); a.push({id: uid('ra'), kind: areaBrush, poly, note: ''});
+        drawAreasWrite(a);
+        showToast(areaBrush === 'prefer' ? 'Bereich «bevorzugen» gesetzt.' : 'Bereich «meiden» gesetzt.');
+      };
+      cc.addEventListener('pointerdown', down, true); cc.addEventListener('pointermove', move, true); cc.addEventListener('pointerup', up, true); cc.addEventListener('pointercancel', up, true);
+      (map._fsCleanups = map._fsCleanups || []).push(()=>{ cc.removeEventListener('pointerdown', down, true); cc.removeEventListener('pointermove', move, true); cc.removeEventListener('pointerup', up, true); cc.removeEventListener('pointercancel', up, true); try{ aml.dragPan.enable(); }catch(e){} });
+      setTimeout(drawAreasRender, 300);
+    }
+    // Skispur neu rechnen: Skispur-Abschnitte und unveränderte Abschnitte, die einen Bereich berühren
+    function drawAreasRecalc(){
+      if(!manualTrack.length){ showToast('Noch keine Linie – unter «Zeichnen» Punkte setzen.'); return; }
+      drawSync();
+      const areas = drawAreasRead();
+      const touches = sg=> areas.some(a=> a.poly && sg.coords.some(c=> inPoly(c, a.poly)));
+      const list = [];
+      drawSegs.forEach((sg, i)=>{ if(sg.mode === 'ski' || ((sg.mode === 'fest' || sg.mode === 'folgen') && touches(sg))){ sg.mode = 'ski'; list.push(i); } });
+      if(!list.length){ showToast('Keine Skispur-Abschnitte in der Nähe der Bereiche.'); return; }
+      pushUndo();
+      setMode('line');
+      drawRecompute(list);
+    }
     // Abschnitt antippen: Art nur für diesen Abschnitt ändern, oder hier einen Zwischenpunkt setzen
     function drawSegMenu(k, ll){
       drawSync();
@@ -12136,13 +12281,15 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         persistTrack();
         showToast('Linie auf ' + manualTrack.length + ' Punkte vereinfacht (vorher ' + before + ') – jetzt Punkte ziehen oder antippen. Rückgängig mit ↶.');
       }
-      [['point',pointModeBtn],['line',lineModeBtn],['route',routeModeBtn]].forEach(([key,btn])=>{
+      [['point',pointModeBtn],['line',lineModeBtn],['route',routeModeBtn],['area',areaModeBtn]].forEach(([key,btn])=>{
         const active = mode===key;
         btn.style.background = active ? MODE_META[key].color : 'transparent';
         btn.style.color = active ? '#fff' : 'var(--ink-soft)';
         btn.style.boxShadow = active ? '0 1px 4px rgba(0,0,0,0.25)' : 'none';
       });
       lineActionsRow.style.display = mode==='line' ? 'flex' : 'none';
+      areaRow.style.display = mode==='area' ? 'block' : 'none';
+      if(typeof drawAreasMode === 'function') drawAreasMode(mode === 'area');
       routeActionsRow.style.display = mode==='route' ? 'block' : 'none';
       pointHint.style.display = mode==='point' ? '' : 'none';
       // Zeigt/versteckt die ziehbaren Punkte des eigenen GPX-Tracks je nach Modus (siehe redrawLine).
@@ -12404,6 +12551,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       return false;
     }
     map.on('click', async (e)=>{
+      if(mode === 'area') return; // Bereiche: eigene Gesten (drawAreas*)
       if(await offerLayerRoute(e)) return;
       if(mode==='line'){
         addLineAt(e.latlng.lat, e.latlng.lng);
