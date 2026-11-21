@@ -51,7 +51,8 @@ aus anderen Apps übernehmen.
   um die Kartenmitte geschätzt, `fsSnowLineUpdate`; ohne Schnee an den Stationen Winterbild mit 1500 m).
 - Kartenebenen (`FSM_OVERLAYS`): Hangexposition rechnet das Gerät aus dem Höhenmodell (Protokoll `fsaspect://`);
   Skipisten/Lifte (`fsmPisten`), Parkplätze und Wasser/Unterstände (`fsmOsmPoints`, `FS_OSM_CFG`) kommen aus
-  OpenStreetMap über Overpass, je Kachel ab Zoom 11. Legenden stehen im Ebenen-Fenster (`legend`).
+  OpenStreetMap über Overpass, je Kachel ab Zoom 11. Legenden stehen im Ebenen-Fenster (`legend`). Ebenen-Fenster (`fsmSyncPanel`): Grundkarten als Vorschaubild,
+  Ebenen als Kacheln, oben «Meine Ebenen» in eigener Reihenfolge (Gerät je App, `fsmFavs`, «Anpassen», Halten und Ziehen `fsmFavDrag`).
   Punkt-Ebenen (Webcams, Messstationen, Parkplätze, Wasser, geteilte Punkte) laufen über `fsmClAdd`/`fsmClSet`: nur Punkte
   im Ausschnitt hängen an der Karte, nahe werden zu einem Kreis mit Anzahl gebündelt (ab Zoom 15 einzeln). SAC-Skitouren
   und Wanderwege erst ab Zoom 11.
