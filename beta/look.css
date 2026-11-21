@@ -3360,3 +3360,13 @@ html.fs-sheet-open #fs-ov-chips{ display:none !important; }
 .wx-p-snow{ color:var(--wxi-rain); }
 .wx-p-mix{ color:var(--ink-soft); }
 .fs-wxw-d em .fs-i{ width:11px; height:11px; margin-right:2px; vertical-align:-1px; }
+
+/* ===== Editor: Bereiche meiden/bevorzugen ===== */
+.fs-area-row{ flex:1 1 100%; }
+.fs-area-seg button .sw{ display:block; width:20px; height:12px; border-radius:4px; }
+.fs-area-seg .b-avoid{ color:#C92A2A; } .fs-area-seg .b-avoid .sw{ background:rgba(224,49,49,.4); border:2px dashed #E03131; }
+.fs-area-seg .b-prefer{ color:#2B8A3E; } .fs-area-seg .b-prefer .sw{ background:rgba(47,158,68,.4); border:2px solid #2F9E44; }
+.fs-area-seg .b-erase .sw{ background:none; border:2px solid var(--line); }
+.fs-area-recalc{ width:100%; margin-top:8px; min-height:46px; display:flex; align-items:center; justify-content:center; gap:8px; }
+.fs-area-note{ width:100%; min-height:40px; margin:4px 0 8px; border:1px solid var(--line); border-radius:10px; padding:0 10px; font:inherit; font-size:14px; }
+.fs-pe-bottom > .fs-area-row{ background:var(--paper); padding:10px; }

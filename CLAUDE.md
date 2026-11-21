@@ -96,8 +96,11 @@ aus anderen Apps übernehmen.
   Aussehen je Art `FS_DRAW_STYLE` (Skispur durchgezogen, Wanderweg gepunktet grün, Gerade gestrichelt, übernommen violett).
   Route anhängen: Tipp nahe einer vorhandenen Route rastet ein (`drawSnapFind`: weitere Routen, Zustiege, GPX, andere Touren
   bis 25 km), dann «Ab hier folgen bis zum Ende/Anfang» bzw. beim ersten Punkt «Vom Anfang/Ende bis hier übernehmen» (Art `folgen`).
-  Alle Linien gleich bearbeitbar (Ziehpunkte); berechnete/lange Linien werden beim Wechsel zu «Linie» vereinfacht
-  (`fsSimplifyLine`, 8 m). Tour-Routen auf der Startkarte kräftig mit weissem Rand (`fs-home-routes-case`).
+  Reiter «Bereiche» (nur Tourformular): mit einem Finger eine Fläche umfahren, Pinsel Meiden/Bevorzugen/Radieren, antippen = Notiz
+  oder löschen; Feld `routeAreas` [{id, kind: avoid|prefer, poly, note}] der Tour, sichtbar nur im Editor (blass, im Reiter kräftig),
+  nicht auf der Tour-Karte. Die Skispur-Rechnung gewichtet je Rasterzelle (`fsAreaMul`: meiden ×12, bevorzugen ×0.55);
+  «Skispur neu rechnen» (`drawAreasRecalc`). Ziehen von Kartenpunkten mit eigener Zeigerverfolgung (FL-Marker, Pointer Capture).
+  Tour-Routen auf der Startkarte kräftig mit weissem Rand (`fs-home-routes-case`).
 - Hang-Scan (`fsScan*` in `0-shared.js`): Zielen mit festem Rahmen auf der Startkarte (Menü oder Gedrückthalten),
   Rechnung auf dem Gerät, eigene 3D-Ansicht mit den Ebenen Steilheit, Lawine, Klippen, Sonne (Zeitraffer).
   Neigung ab 30° aus der swisstopo-Karte «Hangneigung über 30°» (wie der Routen-Check `fsRc*`), sonst
