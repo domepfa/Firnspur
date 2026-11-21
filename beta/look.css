@@ -3349,3 +3349,5 @@ label.btn input[type=file]{ display:none; }
 .fs-rc-above .btn{ width:100%; min-height:48px; display:flex; align-items:center; justify-content:center; gap:8px; }
 img.fs-img-err{ content:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 64'%3E%3Crect width='96' height='64' fill='%23E9EEF1'/%3E%3Cpath d='M38 26h4l2-3h8l2 3h4v14H38z M48 29a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9z' fill='none' stroke='%239AA8B0' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E"); object-fit:cover; }
 html.fs-sheet-open #fs-ov-chips{ display:none !important; }
+.fs-start-pick select{ flex:none; width:auto; min-height:40px; border:1px solid var(--line); border-radius:10px; padding:0 8px; font:inherit; font-size:14px; background:var(--paper); color:var(--ink); }
+.fs-start-pick > span{ font-size:15px; font-weight:700; color:var(--ink); }
