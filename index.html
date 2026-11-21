@@ -9,6 +9,18 @@
 <link rel="manifest" href="./manifest.json">
 <script>/* Alle Disziplinen auf einer Seite: ?d=wand | hoch | klet (wandern.html und fixseil.html leiten hierher weiter) */
 (function(){ var q = location.search, d = (q.match(/[?&]d=(wand|hoch|klet)(&|$)/) || [])[1] || (/[?&]view=msl(&|$)/.test(q) ? 'klet' : '');
+  /* «Start mit» (Profil-Menü, pro Gerät): beim Öffnen der installierten App die gewählte bzw. zuletzt benutzte Disziplin.
+     Gezielte Links (andere Angaben in der Adresse) gehen vor. */
+  try{
+    var st = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+    var launch = /[?&]launch=1(&|$)/.test(q) || (st && !q);
+    if(launch){
+      var pref = localStorage.getItem('fs-start') || 'last', t = pref === 'last' ? localStorage.getItem('fs-last-disc') : pref;
+      if(t === 'ski' || t === 'wand' || t === 'hoch' || t === 'klet'){ d = t === 'ski' ? '' : t; }
+      history.replaceState(null, '', location.pathname + (d ? '?d=' + d : '') + location.hash);
+    }
+    localStorage.setItem('fs-last-disc', d || 'ski');
+  }catch(e){}
   if(!d) return;
   document.documentElement.dataset.disc = d;
   document.title = document.title.replace('Skitour', {wand: 'Wandern', hoch: 'Hochtour', klet: 'Klettern'}[d]);
@@ -3471,6 +3483,7 @@ function fsSwitchDisc(d){
   const mf = document.querySelector('link[rel=manifest]');
   if(mf) mf.href = d === 'wand' ? './manifest-wandern.json' : fsDiscMode(d) === 'fix' ? './manifest-fixseil.json' : './manifest.json';
   try{ history.replaceState(history.state, '', './index.html' + (d === 'ski' ? '' : '?d=' + d)); }catch(e){}
+  try{ localStorage.setItem('fs-last-disc', d); }catch(e){} // für «Start mit: Zuletzt benutzt»
   fsDiscLinks();
   if(fsMode === 'fix'){
     // Hochtour ↔ Klettern: dieselben Daten, nur andere Ansicht
