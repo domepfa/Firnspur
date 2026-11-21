@@ -13905,7 +13905,7 @@ function fsWxWallDraw(ov, tours){
     const fz = sd != null && ds[sd] && ds[sd].fz != null ? ds[sd] : ds.find(x=> x && x.fz != null);
     const foot = [w.ele ? 'Gipfel ' + fsRcFmtE(w.ele) + ' m' : '', wmax && wmax.wind >= 20 ? 'Wind ' + wd(wmax.date) + ' ' + r0(wmax.wind) + ' km/h' : '', fz ? 'Nullgrad ' + wd(fz.date) + ' ' + fsRcFmtE(Math.round(fz.fz / 100) * 100) + ' m' : ''].filter(Boolean).join(' · ');
     return `<div class="fs-wxw-card" data-tour="${esc(t.id)}"><div class="fs-wxw-h"><b>${esc(t.name || '')}</b>${t.difficulty ? `<em>${esc(t.difficulty)}</em>` : ''}${fsCardSlfHtml(t)}<button type="button" class="fs-camw-go" data-go="${esc(t.id)}">Zur Tour →</button></div>
-      <div class="fs-wxw-days">${ds.map((x, i)=> x ? `<div class="fs-wxw-d${sd === i ? ' on' : ''}"><span>${wd(x.date)}</span>${fsIconHtml(x.icon)}<b>${r0(x.tmax)}°</b><i>${r0(x.tmin)}°</i><em>${x.sn >= 1 ? r0(x.sn) + ' cm' : x.pr >= 0.5 ? x.pr.toFixed(x.pr < 10 ? 1 : 0) + ' mm' : ''}</em></div>` : '<div class="fs-wxw-d"></div>').join('')}</div>
+      <div class="fs-wxw-days">${ds.map((x, i)=> x ? `<div class="fs-wxw-d${sd === i ? ' on' : ''}"><span>${wd(x.date)}</span>${fsIconHtml(x.icon)}<b>${r0(x.tmax)}°</b><i>${r0(x.tmin)}°</i><em class="${x.sn >= 1 ? 'wx-p-snow' : 'wx-p-rain'}">${x.sn >= 1 ? fsIconHtml('snow') + r0(x.sn) + ' cm' : x.pr >= 0.5 ? fsIconHtml('drop') + x.pr.toFixed(x.pr < 10 ? 1 : 0) + ' mm' : ''}</em></div>` : '<div class="fs-wxw-d"></div>').join('')}</div>
       ${foot ? `<p class="fs-wxw-f">${esc(foot)}</p>` : ''}</div>`;
   }).join('') + `<p class="fs-camw-more">Open-Meteo (Modelle MeteoSchweiz), gerechnet auf Gipfelhöhe; Symbole aus der nächsten MeteoSchweiz-Ortsprognose.</p>`;
 }
@@ -15194,7 +15194,7 @@ function meteoForecastOnlyHtml(lat, lon){
           <div class="wx-d">${lbl.weekday}</div>
           <div class="wx-i">${meteoDayIcon(d.precipMm, d.tempMax, fsWxOrteDayCode(lat, lon, d.date))}</div>
           <div class="wx-t"><b>${Math.round(d.tempMax)}°</b> <span>${Math.round(d.tempMin)}°</span></div>
-          ${d.precipMm>=0.1 ? `<div class="wx-p">${d.precipMm.toFixed(1)} mm</div>` : ''}
+          ${fsPrecipHtml(d.precipMm, fsPrecipKind(fsWxOrteDayCode(lat, lon, d.date), d.tempMax, d.tempMin))}
         </div>`;
       }).join('')}
     </div>
@@ -15233,6 +15233,23 @@ function ensureMeteoBulkData(){
 }
 
 // Tagessymbol: echtes Symbol der nächsten MeteoSchweiz-Ortsprognose (code), sonst grob aus Niederschlag und Temperatur
+// Niederschlag eines Tages: Schnee, Regen oder gemischt – zuerst aus dem Symbol der Ortsprognose, sonst aus der Temperatur.
+// Schnee als Neuschnee-Schätzung in cm (Faustregel 1 mm ≈ 1 cm), Regen in mm; Wort und Zeichen, nicht nur Farbe.
+function fsPrecipKind(code, tmax, tmin){
+  const sy = code != null ? fsWxSym(code) : null, ic = sy ? sy.icon : '';
+  if(/sleet/.test(ic)) return 'mix';
+  if(/snow/.test(ic)) return 'snow';
+  if(/rain|showers|storm/.test(ic)) return (tmax != null && tmax <= 1) ? 'snow' : 'rain';
+  if(tmax != null && tmax <= 1) return 'snow';
+  if(tmax != null && tmax <= 3 && (tmin == null || tmin <= 0)) return 'mix';
+  return 'rain';
+}
+function fsPrecipHtml(mm, kind){
+  if(!(mm >= 0.1)) return '';
+  if(kind === 'snow') return `<div class="wx-p wx-p-snow">${fsIconHtml('snow')}<span>≈ ${Math.max(1, Math.round(mm))} cm</span><small>Schnee</small></div>`;
+  if(kind === 'mix') return `<div class="wx-p wx-p-mix">${fsIconHtml('drop')}<span>${mm.toFixed(1)} mm</span><small>Schnee/Regen</small></div>`;
+  return `<div class="wx-p wx-p-rain">${fsIconHtml('drop')}<span>${mm.toFixed(1)} mm</span><small>Regen</small></div>`;
+}
 function meteoDayIcon(precipMm, tempMax, code){
   if(code != null){ const sy = fsWxSym(code); if(sy) return fsIconHtml(sy.icon); }
   const cold = tempMax != null && tempMax <= 1, mixed = tempMax != null && tempMax <= 3;
