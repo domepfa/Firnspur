@@ -16147,8 +16147,14 @@ function fsCardSlfHtml(t){
   if(!bul || !bul.ratings.length) return '';
   const top = bul.ratings[0];
   const hit = fsTourSlfHit(t, bul);
+  // Kurzkalender: gestern, heute, Ausblick (aus dem Bulletin, wie bei White Risk)
+  const evo = bul.evo || [], cd = new Date(bul.end.getTime() - 60000).toLocaleDateString('sv-SE', {timeZone: 'Europe/Zurich'});
+  const ci = evo.findIndex(x=> x.date === cd), prev = ci > 0 ? evo[ci - 1] : null, next = ci >= 0 ? evo.slice(ci + 1).find(x=> x.level) : null;
+  const sq = (x, cls)=> x && x.level ? `<i class="fs-cev ${cls}" style="--lvl:${x.color}; color:${x.level >= 3 ? '#fff' : '#0F1E27'}">${fsSlfLevelTxt(x.level, x.sub)}</i>` : '';
+  const evoTxt = [prev && prev.level ? 'gestern ' + fsSlfLevelTxt(prev.level, prev.sub) : '', next ? 'Ausblick ' + fsSlfLevelTxt(next.level, next.sub) : ''].filter(Boolean).join(', ');
   const lbl = 'Lawinengefahr ' + top.level + ', ' + top.label + (hit ? ', steile Stellen der Route im Problembereich des Bulletins' : hit === false ? ', Route nicht im Problembereich' : '');
-  return `<span class="fs-card-slf${hit ? ' is-hit' : ''}" role="img" aria-label="${esc(lbl)}" title="${esc(lbl)}"><i style="--lvl:${top.color}">${top.level}</i>${hit ? fsIconHtml('alert') + '<b>Problem</b>' : ''}</span>`;
+  const lblFull = lbl + (evoTxt ? ' (' + evoTxt + ')' : '');
+  return `<span class="fs-card-slf${hit ? ' is-hit' : ''}${prev || next ? ' has-evo' : ''}" role="img" aria-label="${esc(lblFull)}" title="${esc(lblFull)}">${sq(prev, 'prev')}<i style="--lvl:${top.color}">${prev || next ? fsSlfLevelTxt(top.level, top.sub) : top.level}</i>${next ? '<em>→</em>' + sq(next, 'next') : ''}${hit ? fsIconHtml('alert') + '<b>Problem</b>' : ''}</span>`;
 }
 // Liegt die Tour im Problembereich des Bulletins? true/false, null = unbekannt. Genau mit dem Routen-Check (steile
 // Stellen ab 30° mit Exposition und Höhe; aus dieser Sitzung oder gemerkt), sonst nach Exposition und Gipfelhöhe.
