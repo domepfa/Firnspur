@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#F3F6F8">
 <!-- Hochtour und Klettern laufen jetzt mit Skitour und Wandern auf index.html (Wechsel ohne Neuladen).
      Diese Adresse bleibt für installierte Apps und Lesezeichen und leitet weiter (?view=msl → Klettern). -->
-<script>(function(){ var q = location.search.replace(/^\?/, ''); var klet = /(^|&)view=msl(&|$)/.test(q); location.replace('./index.html?d=' + (klet ? 'klet' : 'hoch') + (q ? '&' + q : '') + location.hash); })();</script>
+<script>(function(){ var q = location.search.replace(/^\?/, ''); var klet = /(^|&)view=msl(&|$)/.test(q); var st = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone; /* installierte App: Start nach «Start mit» */ location.replace('./index.html?d=' + (klet ? 'klet' : 'hoch') + (q ? '&' + q : '') + (st && !q ? '&launch=1' : '') + location.hash); })();</script>
 </head>
 <body style="background:#F3F6F8"></body>
 </html>
