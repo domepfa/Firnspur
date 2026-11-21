@@ -10741,6 +10741,8 @@ const FS_ROUTE_TYPES = {
   zustieg:  {label:'Zustieg', color:'#2F7D4A'},
   abstieg:  {label:'Abstieg', color:'#D9730D'}
 };
+// Zeichnen: Aussehen eines Abschnitts nach Art (Skispur, Wanderweg, Gerade) – Farbe und Strichart, nicht Farbe allein
+const FS_DRAW_STYLE = {ski: {color: '#1565C0'}, weg: {color: '#2F7D4A', dash: '1,7'}, gerade: {color: '#1565C0', dash: '8,6'}};
 const FS_ROUTE_TYPE_ORDER = ['aufstieg','aufab','abfahrt','abstieg','variante','zustieg'];
 function fsRouteTypesOn(){ return true; } // alle Apps (Skitour, Hochtour/Klettern, Wandern)
 // Bezeichnung einer Routenart – abgefahren wird nur in der Skitour-App, sonst geht man ab
@@ -11610,7 +11612,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs;
       gpxTrackChanged();
     }
-    function drawLabel(m){ return m === 'ski' ? 'Skispur' : m === 'weg' ? 'Wanderweg' : 'Gerade'; }
+    function drawLabelUnused(m){ return m === 'ski' ? 'Skispur' : m === 'weg' ? 'Wanderweg' : 'Gerade'; }
     // Anker k verschieben: angrenzende Abschnitte neu
     function drawMoveAnchor(k, ll){
       drawSync();
@@ -11731,7 +11733,21 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       gpxEditBtn.textContent = usingGpxTrack ? '✓ GPX-Track fertig bearbeitet' : 'GPX-Track bearbeiten';
       gpxSummitBtn.style.display = (usingGpxTrack && manualTrack.length > 3) ? '' : 'none';
       undoBtn.style.display = clearLineBtn.style.display = usingGpxTrack ? 'none' : '';
-      if(manualTrack.length){
+      const drawView = mode === 'line' && !usingGpxTrack && manualTrack.length > 1;
+      if(drawView){
+        // Zeichnen: jeder Abschnitt einzeln, nach Art gezeichnet; antippen = nur diesen Abschnitt anders verbinden
+        drawSync();
+        drawSegs.forEach((sg, k)=>{
+          const st = FS_DRAW_STYLE[sg.mode] || FS_DRAW_STYLE.gerade;
+          FL.polyline(sg.coords, {color:'#ffffff', weight:7, opacity:0.7, interactive:false}).addTo(lineLayer);
+          FL.polyline(sg.coords, Object.assign({color: st.color, weight:4, opacity:1, interactive:false}, st.dash ? {dashArray: st.dash} : {})).addTo(lineLayer);
+          FL.polyline(sg.coords, {color:'#000', weight:26, opacity:0}).addTo(lineLayer).on('click', (e)=>{
+            FL.DomEvent.stopPropagation(e);
+            FL.popup().setLatLng(e.latlng).setContent(drawSegMenu(k, e.latlng)).openOn(map);
+          });
+        });
+      }
+      if(manualTrack.length && !drawView){
         // Deutlich breitere, unsichtbare Klickfläche unter der sichtbaren Linie – auf einer
         // schmalen 4px-Linie mit dem Finger genau zu treffen ist auf dem Handy sehr schwierig.
         const hitLine = FL.polyline(manualTrack, {color:'#000', weight:26, opacity:0}).addTo(lineLayer);
@@ -11747,8 +11763,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           }
         }
         // Ziehpunkte: eigener GPX-Track und gezeichnete Linie (nicht eine berechnete Route mit hunderten Punkten)
-        if(mode==='line' && !usingGpxTrack){
-          // Zeichnen: Ziehpunkte an den Ankern, Kreis in der Mitte jedes Abschnitts zum Umlenken
+        if(false){
+          // (Ziehpunkte im Zeichnen: siehe drawHandles), Kreis in der Mitte jedes Abschnitts zum Umlenken
           drawSync();
           const anchors = drawAnchorIdx();
           if(anchors.length <= 300){
@@ -11791,8 +11807,56 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           });
         }
       }
+      if(drawView || (mode === 'line' && !usingGpxTrack && manualTrack.length === 1)) drawHandles();
       updateGpxReplaceBtn();
       renderRouteMeta();
+    }
+    // Zeichnen: Ziehpunkte an den Ankern, Kreis in der Mitte jedes Abschnitts zum Umlenken
+    function drawHandles(){
+      drawSync();
+      const anchors = drawAnchorIdx();
+      if(anchors.length > 300) return;
+      anchors.forEach((i, k)=>{
+        const pt = manualTrack[i];
+        const marker = FL.marker(pt, {icon: FL.divIcon({className: 'gpx-edit-vertex-icon', html: '<div class="fs-gpx-v"><i></i></div>', iconSize: [44,44], iconAnchor: [22,22]}), draggable: true}).addTo(lineLayer);
+        marker.on('dragstart', ()=>{ pushUndo(); const el = marker.getElement(); if(el) el.classList.add('fs-gpx-drag'); });
+        marker.on('dragend', ()=> drawMoveAnchor(k, marker.getLatLng()));
+        const menu = (e)=>{ FL.DomEvent.stopPropagation(e); if(e.originalEvent) FL.DomEvent.preventDefault(e.originalEvent); FL.popup().setLatLng(pt).setContent(drawAnchorMenu(i, k)).openOn(map); };
+        marker.on('click', menu);
+        marker.on('contextmenu', menu);
+      });
+      drawSegs.forEach((sg, k)=>{
+        const c = sg.coords, mid = c.length > 2 ? c[Math.floor(c.length / 2)] : [(c[0][0] + c[1][0]) / 2, (c[0][1] + c[1][1]) / 2];
+        const m = FL.marker(mid, {icon: FL.divIcon({className: 'gpx-edit-vertex-icon', html: '<div class="fs-draw-mid" title="Ziehen: Zwischenpunkt"><i></i></div>', iconSize: [40,40], iconAnchor: [20,20]}), draggable: true}).addTo(lineLayer);
+        m.on('dragstart', ()=>{ pushUndo(); const el = m.getElement(); if(el) el.classList.add('fs-gpx-drag'); });
+        m.on('dragend', ()=> drawSplit(k, m.getLatLng()));
+      });
+    }
+    // Abschnitt antippen: Art nur für diesen Abschnitt ändern, oder hier einen Zwischenpunkt setzen
+    function drawSegMenu(k, ll){
+      drawSync();
+      const sg = drawSegs[k];
+      const wrap = document.createElement('div');
+      wrap.className = 'fs-gpx-menu fs-draw-segmenu';
+      const h = document.createElement('p');
+      h.textContent = 'Abschnitt ' + (k + 1) + ' von ' + drawSegs.length + ' · ' + fsLineKm(sg.coords).toFixed(1) + ' km';
+      wrap.appendChild(h);
+      const seg = document.createElement('div');
+      seg.className = 'fs-draw-seg';
+      seg.innerHTML = [['ski', 'snow', 'Skispur'], ['weg', 'walk', 'Wanderweg'], ['gerade', 'ruler', 'Gerade']].map(([m, ic, l])=> `<button type="button" data-m="${m}" class="${sg.mode === m ? 'on' : ''}" aria-pressed="${sg.mode === m}">${fsIconHtml(ic)}${l}</button>`).join('');
+      seg.querySelectorAll('[data-m]').forEach(b=> b.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const m = b.getAttribute('data-m');
+        map.closePopup();
+        if(m === sg.mode) return;
+        pushUndo();
+        sg.mode = m;
+        sg.coords = [sg.coords[0], sg.coords[sg.coords.length - 1]];
+        drawRecompute([k]);
+      }));
+      wrap.appendChild(seg);
+      wrap.appendChild(gpxBtn('Hier Zwischenpunkt setzen', 'secondary', ()=>{ pushUndo(); map.closePopup(); drawSplit(k, ll); }));
+      return wrap;
     }
     // Weitere Routen der Tour (Routenliste im Formular) gestrichelt mitzeigen, und für die aktuelle
     // Linie Name/Art sowie "Als weitere Route ablegen" anbieten – so lassen sich Zustieg, Aufstieg,
