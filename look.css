@@ -3300,3 +3300,28 @@ label.btn input[type=file]{ display:none; }
 .fs-har-more[open] > summary::before{ content:'–'; }
 .fs-file-picked{ display:block; margin-top:6px; font-size:13px; color:var(--ink-soft); }
 .fs-file-picked:empty{ display:none; }
+
+/* ===== Ebenen-Fenster: Grundkarten als Bild, Ebenen als Kacheln, «Meine Ebenen» ===== */
+.fsm-bases{ display:flex; gap:8px; overflow-x:auto; padding:2px 2px 6px; margin:0 -2px 4px; scrollbar-width:none; }
+.fsm-bases::-webkit-scrollbar{ display:none; }
+.fsm-base{ flex:none; width:68px; border:none; background:none; padding:0; font:inherit; font-size:11.5px; font-weight:700; line-height:1.15; color:var(--ink-soft); text-align:center; cursor:pointer; }
+.fsm-base-img{ display:block; height:52px; margin-bottom:4px; border-radius:12px; background:var(--ice-light) center/cover no-repeat; border:2px solid var(--line); position:relative; }
+.fsm-base.on{ color:var(--ice-deep); }
+.fsm-base.on .fsm-base-img{ border-color:var(--ice-deep); box-shadow:inset 0 0 0 2px var(--paper); }
+.fsm-base-schnee{ filter:grayscale(.7) brightness(1.45) contrast(.9); }
+.fsm-base-hybrid::after{ content:'Aa'; position:absolute; left:6px; bottom:4px; color:#fff; font-weight:800; font-size:13px; text-shadow:0 1px 2px rgba(0,0,0,.7); }
+.fsm-group-fav{ display:flex; align-items:center; justify-content:space-between; }
+.fsm-fav-edit{ border:none; background:none; color:var(--ice-deep); font:inherit; font-size:13px; font-weight:800; letter-spacing:0; text-transform:none; min-height:40px; padding:0 4px; cursor:pointer; }
+.fsm-fav-hint{ margin:2px 0 6px; font-size:12.5px; color:var(--ink-soft); }
+.fsm-tiles{ display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin:4px 0 6px; }
+.fsm-tile{ position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; min-height:64px; padding:8px 4px;
+  border:1.5px solid var(--line); border-radius:14px; background:var(--paper); color:var(--ink-soft); font:inherit; font-size:12px; font-weight:700; line-height:1.15;
+  text-align:center; cursor:pointer; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; touch-action:manipulation; }
+.fsm-tile .fs-i{ width:22px; height:22px; }
+.fsm-tile span{ overflow-wrap:anywhere; }
+.fsm-tile.on{ background:var(--ice-deep); border-color:var(--ice-deep); color:#fff; }
+.fsm-tile.dragging{ z-index:5; box-shadow:0 10px 24px rgba(0,0,0,.25); transition:none; opacity:.95; }
+.fsm-tile.drop{ outline:3px dashed var(--ice-deep); outline-offset:2px; }
+.fsm-tile-badge{ position:absolute; top:-7px; right:-7px; width:24px; height:24px; border-radius:50%; background:var(--ink); color:var(--paper);
+  font-style:normal; font-weight:800; font-size:16px; line-height:24px; text-align:center; }
+.fsm-legend-t{ display:block; font-size:12.5px; margin-bottom:4px; }
