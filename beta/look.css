@@ -3339,3 +3339,5 @@ label.btn input[type=file]{ display:none; }
 .fs-draw-mid i{ display:block; width:12px; height:12px; border-radius:50%; background:#fff; border:2.5px solid #1565C0; box-shadow:0 1px 3px rgba(0,0,0,.4); opacity:.9; }
 .fs-gpx-drag .fs-draw-mid i{ transform:scale(1.6); }
 .fs-route-meta.fs-route-meta-fs{ display:none !important; }
+.fs-draw-segmenu{ min-width:250px; }
+.fs-draw-segmenu .fs-draw-seg{ margin:6px 0 8px; }
