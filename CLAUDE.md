@@ -44,7 +44,8 @@ aus anderen Apps übernehmen.
   dem Blatt (`fsCtxAcquire`/`fsCtxRelease`, Inhalte über `fsAreaForMap`). «Karte bearbeiten» leiht sie im Vollbild
   aus (`fsEdAcquire`/`fsEdRelease`, Werkzeuge als FL-Hülle aus `renderPointsEditorMap`); Formular und Blatt zeigen
   nur eine Übersicht (`fsEdCompact`). 3D ist dieselbe Karte, geneigt mit Gelände (`fsmTerrainToggle`; Hoch =
-  swisstopo-Gelände, Spar = Terrarium, Wahl im Ebenen-Fenster; Zurück macht sie flach). Eigene Ansichten nur noch
+  swisstopo-Gelände, Spar = Terrarium, Wahl im Ebenen-Fenster; Zurück macht sie flach; nach dem Einschalten lädt
+  `fsmRasterReload` die Rasterkacheln neu, sonst flackern in 2D geladene Kacheln beim Verschieben). Eigene Ansichten nur noch
   für Überflug/«Bearbeiten in 3D» (`fs3dMlOpen`), «Gipfel ringsum» (Cesium) und Hang-Scan.
 - Grundkarten (`FSM_BASES`): Karte, Winter (Landeskarte Winterausgabe), Luftbild, Luftbild + Namen, Luftbild Winter
   (Luftbild mit Schnee, auf dem Gerät aus Höhenmodell und Luftbild gerechnet: Protokoll `fssnow://`, Schneegrenze `FS_SNOW_LINE`: aktuell aus den SLF-Stationen
