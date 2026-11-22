@@ -173,6 +173,8 @@ aus anderen Apps übernehmen.
     Eigene Fenster wie der Tourenzettel laufen über `fsNoEmojiHtml()`.
   - Erlaubt sind typografische Zeichen wie → ↑ ↓ · – ✓ ☐.
 - **Bedienung:** grosse Knöpfe, in einem Raster ausgerichtet (gleiche Grösse, gleiche Abstände).
+  Querformat (ab 760 px breit, `fsLandscape()` und dieselbe Media-Query in `look.css`): Werkzeuge des Karten-Editors, Abschlussblatt
+  der Planung und Gebiet-Blatt als Spalte links, Karte daneben (Einpassen mit Rand links).
   Was gerade nicht geht, ausblenden statt ausgrauen. Farbe nie als einziges Merkmal.
 - **Bearbeiten** nur nach Gedrückthalten; Löschen immer mit Rückfrage.
 - **Notfall-Informationen** sachlich, ohne Alarm-Rhetorik.

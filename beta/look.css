@@ -3466,3 +3466,18 @@ html.fs-sheet-open #fs-ov-chips{ display:none !important; }
 #fs-routes-edit .fs-route-edit > .fs-route-line{ grid-area:ed; }
 #fs-routes-edit .fs-route-edit > .fs-route-del{ grid-area:dl; }
 @media (max-width: 380px){ #fs-routes-edit .fs-route-edit{ grid-template-columns:18px minmax(0, 1fr) 40px 40px; } #fs-routes-edit .fs-route-edit .fs-route-type{ width:100%; } }
+
+/* ===== Querformat: Werkzeuge in einer Spalte links, Karte daneben ===== */
+@media (min-width: 760px) and (orientation: landscape){
+  .fs-pe-top{ right:auto; width:min(380px, 42vw); }
+  .fs-pe-top .fs-pe-search{ margin-right:0 !important; }
+  .fs-pe-bottom{ right:auto; width:min(380px, 42vw); max-height:calc(100% - 210px); }
+  .fs-pe-bottom .fs-draw-seg button{ min-height:52px; }
+  /* Abschlussblatt der Planung: links statt unten */
+  .fs-cond-sheet.fs-plan-sheet{ align-items:stretch; justify-content:flex-start; }
+  .fs-cond-sheet.fs-plan-sheet .in{ width:min(400px, 44vw); height:100%; max-height:none; margin:0 !important; border-radius:0 22px 22px 0; box-sizing:border-box; overflow-y:auto; }
+  /* Gebiet anlegen: Spalte links */
+  .fs-scan-aim.fs-geb-panel{ right:auto; left:10px; top:calc(10px + env(safe-area-inset-top, 0px)); bottom:10px; width:min(400px, 44vw);
+    max-width:none; margin:0; max-height:none; border-radius:20px; align-content:start; overflow-y:auto; }
+  .fs-geb-panel .fs-geb-list{ max-height:none; }
+}
