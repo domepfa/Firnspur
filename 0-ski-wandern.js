@@ -831,7 +831,17 @@ function fsGebNameFor(items){
 function fsGebSugHidden(){ try{ return JSON.parse(localStorage.getItem('fs-geb-sug-hide-' + DISC) || '[]'); }catch(e){ return []; } }
 // Touren und Hütten ohne Gebiet, die nah beieinander liegen (Kette bis 6 km), ab 3 Einträgen
 function fsGebSuggestions(){
-  const free = fsGebItems().filter(i=> !fsGebOf(i.x));
+  const hidden0 = fsGebSugHidden(), inGeb = [];
+  let free = fsGebItems().filter(i=> !fsGebOf(i.x));
+  // Liegt im umfahrenen Bereich eines Gebiets: dort dazunehmen
+  state.gebiete.forEach(g=>{
+    if(!(g.outline || []).length) return;
+    const its = free.filter(i=> fsGebInOutline(g, i) && (g.skipIds || []).indexOf(i.x.id) < 0);
+    if(!its.length) return;
+    free = free.filter(i=> its.indexOf(i) < 0);
+    const key = 'in:' + g.id + ':' + its.map(i=> i.x.id).sort().join(',');
+    if(hidden0.indexOf(key) < 0) inGeb.push({key, items: its, geb: g, title: g.name});
+  });
   const par = free.map((_, i)=> i), find = i=> par[i] === i ? i : (par[i] = find(par[i]));
   for(let i = 0; i < free.length; i++) for(let j = i + 1; j < free.length; j++){
     if(fsGeoDist(free[i].lat, free[i].lon, free[j].lat, free[j].lon) <= 6000) par[find(i)] = find(j);
@@ -845,7 +855,7 @@ function fsGebSuggestions(){
     items.forEach(a=> items.forEach(b=>{ span = Math.max(span, fsGeoDist(a.lat, a.lon, b.lat, b.lon)); }));
     const reg = fsGebMajor(items, 'region'), name = fsGebNameFor(items);
     return {key, items, span, name, title: reg && reg !== name ? reg + ' · ' + name : name};
-  }).filter(s=> hidden.indexOf(s.key) < 0).sort((a, b)=> b.items.length - a.items.length).slice(0, 3);
+  }).filter(s=> hidden.indexOf(s.key) < 0).sort((a, b)=> b.items.length - a.items.length).slice(0, 3).reduce((a, s)=> a.concat([s]), inGeb.slice(0, 3));
 }
 function fsGebSugHtml(){
   if(state.search.trim()) return '';
@@ -857,7 +867,9 @@ function fsGebSugHtml(){
     return [t ? t + (t === 1 ? ' Tour' : ' Touren') : '', h ? h + (h === 1 ? ' Hütte' : ' Hütten') : ''].filter(Boolean).join(' und ');
   };
   return `<div class="fs-geb-sug"><div class="fs-geb-sug-lbl">Vorschläge</div>
-    ${sug.map((s, i)=> `<div class="fs-geb-sug-card"><b>${esc(s.title)}</b>
+    ${sug.map((s, i)=> s.geb ? `<div class="fs-geb-sug-card"><b>${esc(s.title)}</b>
+      <p>${cnt(s)} ohne Gebiet ${s.items.length === 1 ? 'liegt' : 'liegen'} in diesem Gebiet</p>
+      <div class="fs-geb-sug-btns"><button type="button" class="btn secondary" data-act="geb-sug-hide" data-i="${i}">Ausblenden</button><button type="button" class="btn" data-act="geb-sug-make" data-i="${i}">Ansehen und dazunehmen</button></div></div>` : `<div class="fs-geb-sug-card"><b>${esc(s.title)}</b>
       <p>${cnt(s)} ohne Gebiet, bis ${Math.max(1, Math.round(s.span / 1000))} km auseinander</p>
       <div class="fs-geb-sug-btns"><button type="button" class="btn secondary" data-act="geb-sug-hide" data-i="${i}">Ausblenden</button><button type="button" class="btn" data-act="geb-sug-make" data-i="${i}">Ansehen und anlegen</button></div></div>`).join('')}
     ${state.gebiete.length ? '<div class="fs-geb-sug-lbl">Meine Gebiete</div>' : ''}</div>`;
@@ -868,7 +880,11 @@ function fsGebSugHide(i){
   try{ localStorage.setItem('fs-geb-sug-hide-' + DISC, JSON.stringify(h.slice(-50))); }catch(e){}
   render();
 }
-function fsGebSugMake(i){ const s = (state._gebSug || [])[i]; if(s) fsGebStart({items: s.items, name: s.name}); }
+function fsGebSugMake(i){
+  const s = (state._gebSug || [])[i]; if(!s) return;
+  if(s.geb) fsGebStart({geb: s.geb, items: fsGebMembers(s.geb).concat(s.items)});
+  else fsGebStart({items: s.items, name: s.name});
+}
 
 let fsGebSt = null;
 // Neues Gebiet: ohne Angaben zuerst umfahren; mit {items} direkt die Auswahl (Vorschlag)
@@ -887,6 +903,7 @@ function fsGebStart(o){
     document.body.appendChild(panel);
     ['click', 'pointerdown', 'touchstart', 'wheel'].forEach(ev=> panel.addEventListener(ev, e=> e.stopPropagation()));
     pushOverlayLayer(fsGebEnd);
+    st.geb = o.geb || null;
     if(o.items) fsGebPick(o.items, o.name, false);
     else fsGebLasso();
   });
@@ -900,6 +917,10 @@ function fsGebEnd(){
   if(st.unwire) st.unwire();
   st.markers.forEach(m=> m.remove());
   fsGebPoly(null);
+  const ml = typeof fsHomeMap !== 'undefined' ? fsHomeMap : null;
+  if(ml) try{ ['fs-geb-old-f', 'fs-geb-old-l'].forEach(id=>{ if(ml.getLayer(id)) ml.removeLayer(id); }); if(ml.getSource('fs-geb-old')) ml.removeSource('fs-geb-old'); }catch(e){}
+  // Abgebrochen: zurück zum Gebiet
+  if(st.geb && !st.done) setTimeout(()=>{ if(!state.modal){ state.modal = {type: 'gebiet-detail', payload: st.geb.id}; render(); } }, 60);
 }
 function fsGebClose(){ if(fsGebSt) closeTopOverlayLayer(); }
 function fsGebPoly(ring){
@@ -921,11 +942,29 @@ function fsGebLasso(){
   st.markers.forEach(m=> m.remove()); st.markers = [];
   fsGebPoly(null);
   if(st.unwire) st.unwire();
-  st.panel.innerHTML = `<div class="fs-scan-aim-head"><b>${fsIconHtml('mountain')}Neues Gebiet</b><button type="button" class="x-btn" data-x aria-label="Schliessen">×</button></div>
-    <p class="fs-scan-aim-hint">Tal oder Massiv mit einem Finger umfahren – Touren und Hütten darin werden gefunden. Mit zwei Fingern Karte verschieben und zoomen.</p>
-    <div class="fs-scan-aim-btns"><button type="button" class="btn secondary" data-x>Abbrechen</button><button type="button" class="btn secondary" data-form>Ohne Karte anlegen</button></div>`;
+  const geb = st.geb;
+  st.panel.innerHTML = `<div class="fs-scan-aim-head"><b>${fsIconHtml('mountain')}${geb ? esc(geb.name) : 'Neues Gebiet'}</b><button type="button" class="x-btn" data-x aria-label="Schliessen">×</button></div>
+    <p class="fs-scan-aim-hint">${geb ? 'Bereich mit weiteren Touren und Hütten mit einem Finger umfahren.' : 'Tal oder Massiv mit einem Finger umfahren – Touren und Hütten darin werden gefunden.'} Mit zwei Fingern Karte verschieben und zoomen.</p>
+    <div class="fs-scan-aim-btns">${geb ? '<button type="button" class="btn secondary" data-x>Abbrechen</button><button type="button" class="btn secondary" data-list>Nur Liste bearbeiten</button>' : '<button type="button" class="btn secondary" data-x>Abbrechen</button><button type="button" class="btn secondary" data-form>Ohne Karte anlegen</button>'}</div>`;
   st.panel.querySelectorAll('[data-x]').forEach(b=> b.addEventListener('click', fsGebClose));
-  st.panel.querySelector('[data-form]').addEventListener('click', ()=>{ fsGebClose(); openAddGebiet(); });
+  const fb = st.panel.querySelector('[data-form]');
+  if(fb) fb.addEventListener('click', ()=>{ fsGebClose(); openAddGebiet(); });
+  const lb = st.panel.querySelector('[data-list]');
+  if(lb) lb.addEventListener('click', ()=>{ if(st.unwire){ st.unwire(); st.unwire = null; } if(st.svg){ st.svg.remove(); st.svg = null; } fsGebPick(fsGebMembers(geb), geb.name, true); });
+  if(geb){
+    // Bisherige Touren/Hütten und Fläche des Gebiets zeigen
+    const mem = fsGebMembers(geb);
+    (geb.outline || []).length && fsGebOutlineShow(geb);
+    mem.forEach(it=>{
+      const el = document.createElement('div'); el.className = 'fs-geb-pin';
+      el.innerHTML = fsIconHtml(it.kind === 'hut' ? 'hut' : DISC === 'wand' ? 'walk' : 'snow') + '<span>' + esc(it.x.name) + '</span>';
+      st.markers.push(new maplibregl.Marker({element: el, anchor: 'center'}).setLngLat([it.lon, it.lat]).addTo(ml));
+    });
+    if(mem.length){
+      const lons = mem.map(i=> i.lon), lats = mem.map(i=> i.lat);
+      try{ ml.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], {padding: {top: 90, left: 60, right: 60, bottom: st.panel.offsetHeight + 40}, maxZoom: 13, duration: 500}); }catch(e){}
+    }
+  }
   const NS = 'http://www.w3.org/2000/svg';
   const svg = st.svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('class', 'fs-geb-draft');
@@ -953,11 +992,15 @@ function fsGebLasso(){
     if(pts.length < 8) return; // nur angetippt
     const r = cc.getBoundingClientRect();
     const ring = pts.map(q=>{ const ll = ml.unproject([q[0] - r.left, q[1] - r.top]); return [ll.lng, ll.lat]; });
-    const items = fsGebItems().filter(i=> fsPointInPoly(i.lon, i.lat, ring));
-    if(!items.length){ showToast('Darin liegt keine Tour oder Hütte – etwas grösser umfahren.'); return; }
+    const inside = fsGebItems().filter(i=> fsPointInPoly(i.lon, i.lat, ring));
+    const mem = geb ? fsGebMembers(geb) : [];
+    const items = mem.concat(inside.filter(i=> !mem.some(m=> m.x === i.x)));
+    if(!inside.some(i=> !mem.some(m=> m.x === i.x))){ showToast(geb ? 'Darin liegt keine weitere Tour oder Hütte – etwas grösser umfahren.' : 'Darin liegt keine Tour oder Hütte – etwas grösser umfahren.'); return; }
     st.unwire(); st.unwire = null; svg.remove(); st.svg = null;
+    st.markers.forEach(m=> m.remove()); st.markers = [];
+    st.ring = ring;
     fsGebPoly(ring);
-    fsGebPick(items, fsGebNameFor(items.filter(i=> !fsGebOf(i.x))) || fsGebNameFor(items), true);
+    fsGebPick(items, geb ? geb.name : (fsGebNameFor(items.filter(i=> !fsGebOf(i.x))) || fsGebNameFor(items)), true);
   };
   cc.addEventListener('pointerdown', down, true); cc.addEventListener('pointermove', move, true); cc.addEventListener('pointerup', up, true); cc.addEventListener('pointercancel', up, true);
   st.unwire = ()=>{ cc.removeEventListener('pointerdown', down, true); cc.removeEventListener('pointermove', move, true); cc.removeEventListener('pointerup', up, true); cc.removeEventListener('pointercancel', up, true); try{ ml.dragPan.enable(); }catch(err){} };
@@ -967,21 +1010,23 @@ function fsGebPick(items, name, fromLasso){
   const st = fsGebSt, ml = st.ml;
   items = items.slice().sort((a, b)=> (a.kind === b.kind ? 0 : a.kind === 'hut' ? 1 : -1) || (a.x.name || '').localeCompare(b.x.name || '', 'de'));
   st.items = items; st.sel = {};
-  items.forEach((it, i)=>{ st.sel[i] = !fsGebOf(it.x); });
+  const geb = st.geb;
+  items.forEach((it, i)=>{ const g = fsGebOf(it.x); st.sel[i] = !g || (geb && g.id === geb.id); });
   const meta = it=>{
     const g = fsGebOf(it.x);
+    if(g && geb && g.id === geb.id) return 'schon dabei';
     if(g) return 'in ' + esc(g.name);
     if(it.kind === 'hut') return 'Hütte';
     return [DISC === 'wand' ? 'Wanderung' : 'Skitour', it.x.difficulty].filter(Boolean).map(esc).join(' · ');
   };
-  st.panel.innerHTML = `<div class="fs-scan-aim-head"><b>${fsIconHtml('mountain')}Neues Gebiet</b><button type="button" class="x-btn" data-x aria-label="Schliessen">×</button></div>
-    <label class="fs-geb-name"><span>Name</span><input type="text" value="${esc(name || '')}" placeholder="z. B. Engelberger Tal"></label>
+  st.panel.innerHTML = `<div class="fs-scan-aim-head"><b>${fsIconHtml('mountain')}${geb ? 'Touren und Hütten' : 'Neues Gebiet'}</b><button type="button" class="x-btn" data-x aria-label="Schliessen">×</button></div>
+    <label class="fs-geb-name"${geb ? ' hidden' : ''}><span>Name</span><input type="text" value="${esc(name || '')}" placeholder="z. B. Engelberger Tal"></label>
     <div class="fs-geb-list">${items.map((it, i)=> `<label class="fs-geb-it"><input type="checkbox" data-i="${i}" ${st.sel[i] ? 'checked' : ''}><span>${esc(it.x.name)}</span><small>${meta(it)}</small></label>`).join('')}</div>
     <div class="fs-scan-aim-btns"><button type="button" class="btn secondary" data-back>${fromLasso ? 'Neu umfahren' : 'Abbrechen'}</button><button type="button" class="btn" data-go></button></div>`;
   const inp = st.panel.querySelector('.fs-geb-name input'), go = st.panel.querySelector('[data-go]');
   const sync = ()=>{
     const n = items.filter((_, i)=> st.sel[i]).length;
-    go.textContent = 'Gebiet anlegen' + (n ? ' (' + n + ')' : '');
+    go.textContent = geb ? 'Übernehmen (' + n + ')' : 'Gebiet anlegen' + (n ? ' (' + n + ')' : '');
     st.markers.forEach((m, i)=> m.getElement().classList.toggle('off', !st.sel[i]));
     st.panel.querySelectorAll('.fs-geb-it input').forEach(c=>{ c.checked = !!st.sel[+c.dataset.i]; });
   };
@@ -992,8 +1037,11 @@ function fsGebPick(items, name, fromLasso){
     const nm = inp.value.trim();
     if(!nm){ showToast('Bitte einen Namen eingeben.', true); inp.focus(); return; }
     const chosen = items.filter((_, i)=> st.sel[i]);
+    const ring = st.ring;
+    st.done = true;
     fsGebClose();
-    fsGebCreate(nm, chosen);
+    if(geb) fsGebApply(geb, items, chosen, ring);
+    else fsGebCreate(nm, chosen, ring);
   });
   // Markierungen auf der Karte; antippen = an-/abwählen
   st.markers.forEach(m=> m.remove()); st.markers = [];
@@ -1011,8 +1059,9 @@ function fsGebPick(items, name, fromLasso){
   }
 }
 // Gebiet anlegen und die gewählten Touren/Hütten zuordnen (je Eintrag sicher gespeichert)
-async function fsGebCreate(name, chosen){
+async function fsGebCreate(name, chosen, ring){
   const g = {id: uid('geb'), name, region: fsGebMajor(chosen, 'region'), subregion: fsGebMajor(chosen, 'subregion'), description: '', points: [], manualTrack: [],
+    outline: ring ? [fsGebRingStore(ring)] : [],
     createdBy: state.myName, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), updatedBy: state.myName};
   state.gebiete.unshift(g);
   state.view = 'gebiete';
@@ -1029,3 +1078,57 @@ async function fsGebCreate(name, chosen){
   else showToast('Gebiet «' + name + '» angelegt' + (chosen.length ? ' mit ' + chosen.length + (chosen.length === 1 ? ' Eintrag.' : ' Einträgen.') : '.'));
   render();
 }
+
+// Umfahrene Fläche fürs Gebiet merken (vereinfacht, gerundet) – für Vorschläge «liegt im Gebiet»
+function fsGebRingStore(ring){
+  let r = ring.map(q=> [q[1], q[0]]);
+  try{ r = fsSimplifyLine(r, 60); }catch(e){}
+  return r.map(q=> [Math.round(q[1] * 1e5) / 1e5, Math.round(q[0] * 1e5) / 1e5]);
+}
+function fsGebInOutline(geb, it){ return (geb.outline || []).some(r=> Array.isArray(r) && r.length > 2 && fsPointInPoly(it.lon, it.lat, r)); }
+function fsGebOutlineShow(geb){
+  const ml = typeof fsHomeMap !== 'undefined' ? fsHomeMap : null; if(!ml) return;
+  const rings = (geb.outline || []).filter(r=> Array.isArray(r) && r.length > 2);
+  const ac = getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1E6AA0';
+  try{
+    const data = {type: 'FeatureCollection', features: rings.map(r=> ({type: 'Feature', properties: {}, geometry: {type: 'Polygon', coordinates: [r.concat([r[0]])]}}))};
+    const src = ml.getSource('fs-geb-old');
+    if(src){ src.setData(data); return; }
+    ml.addSource('fs-geb-old', {type: 'geojson', data});
+    ml.addLayer({id: 'fs-geb-old-f', type: 'fill', source: 'fs-geb-old', paint: {'fill-color': ac, 'fill-opacity': 0.08}});
+    ml.addLayer({id: 'fs-geb-old-l', type: 'line', source: 'fs-geb-old', paint: {'line-color': ac, 'line-width': 2, 'line-opacity': 0.6}});
+  }catch(e){}
+}
+function fsGebMembers(geb){ return fsGebItems().filter(i=> i.x.gebietId === geb.id); }
+// Gebiet bearbeiten: neu angehakte dazu, abgehakte heraus (gebietId leer), Fläche ergänzen
+async function fsGebApply(geb, items, chosen, ring){
+  const now = new Date().toISOString(), changed = [];
+  items.forEach(it=>{
+    const want = chosen.indexOf(it) >= 0, has = it.x.gebietId === geb.id;
+    if(want === has) return;
+    it.x.gebietId = want ? geb.id : '';
+    it.x.updatedAt = now; it.x.updatedBy = state.myName;
+    changed.push(it);
+  });
+  let gebChanged = false;
+  // Bewusst entfernt: nicht wieder als «liegt im Gebiet» vorschlagen
+  const rem0 = changed.filter(i=> i.x.gebietId !== geb.id).map(i=> i.x.id), add0 = changed.filter(i=> i.x.gebietId === geb.id).map(i=> i.x.id);
+  if(rem0.length || (geb.skipIds || []).some(id=> add0.indexOf(id) >= 0)){
+    geb.skipIds = (geb.skipIds || []).filter(id=> add0.indexOf(id) < 0).concat(rem0).slice(-200); gebChanged = true;
+  }
+  if(ring){ geb.outline = (geb.outline || []).concat([fsGebRingStore(ring)]).slice(-12); gebChanged = true; }
+  if(gebChanged){ geb.updatedAt = now; geb.updatedBy = state.myName; }
+  state.modal = {type: 'gebiet-detail', payload: geb.id};
+  render();
+  let ok = true;
+  if(gebChanged){ const r = await saveGebietCloud(geb).catch(()=> false); geb._unsynced = !r; if(!r) ok = false; }
+  for(const it of changed){
+    const r = await (it.kind === 'hut' ? saveHutCloud(it.x) : saveTourCloud(it.x)).catch(()=> false);
+    if(!r){ it.x._unsynced = true; ok = false; }
+  }
+  const add = changed.filter(i=> i.x.gebietId === geb.id).length, rem = changed.length - add;
+  if(!ok){ markUnsaved(); fsToastLocalSaved('Gebiet ist'); }
+  else showToast(changed.length ? [add ? add + ' dazugenommen' : '', rem ? rem + ' entfernt' : ''].filter(Boolean).join(', ') + '.' : 'Nichts geändert.');
+  render();
+}
+function fsGebAddItems(id){ const geb = state.gebiete.find(g=> g.id === id); if(geb) fsGebStart({geb}); }

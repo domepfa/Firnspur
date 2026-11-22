@@ -16524,7 +16524,7 @@ const HOLD_TO_EDIT_ACTS = new Set([
   'fs-ort-link','fs-ort-edit','fs-ort-unlink','fs-ort-delete','fs-link-hut','fs-erf-new','fs-erf-apply','fs-erf-delete','fs-hut-adopt',
   'open-complete-tour','open-complete-hut','mark-done',
   'add-tour-route','add-access-route','add-sektor-route','add-msl-in-sektor','add-sektor-to-klettergebiet',
-  'convert-msl-to-klettergarten'
+  'convert-msl-to-klettergarten', 'geb-add-items'
 ]);
 const HOLD_TO_EDIT_MS = 650;
 // Angaben, die nur noch im Formular geändert werden (Status, Karte): im Blatt nicht zeigen. Alle übrigen

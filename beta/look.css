@@ -3432,3 +3432,4 @@ html.fs-sheet-open #fs-ov-chips{ display:none !important; }
 .fs-geb-sug-card p{ margin:0 0 6px; color:var(--ink-soft); font-size:13.5px; }
 .fs-geb-sug-btns{ display:grid; grid-template-columns:1fr 1.4fr; gap:8px; }
 .fs-geb-sug-btns .btn{ min-height:46px; justify-content:center; }
+.fs-geb-name[hidden]{ display:none; }
