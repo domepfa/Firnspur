@@ -3443,3 +3443,4 @@ html.fs-sheet-open #fs-ov-chips{ display:none !important; }
 .fs-plan-done-row .btn{ min-height:48px; justify-content:center; }
 .fs-ed-hit{ display:grid; grid-template-columns:1fr auto; gap:6px; align-items:center; }
 .fs-ed-hit .btn{ font-size:12.5px; padding:6px 10px; min-height:36px; }
+.fs-cond-sheet.fs-plan-sheet{ background:transparent; } /* Linie auf der Karte bleibt sichtbar */
