@@ -93,7 +93,8 @@ aus anderen Apps übernehmen.
   Sonnenstand + Schatten der Berge aus dem Höhenmodell), «Beste Zeit» (`bestMonths`, sonst aus Begehungen, `fsTourSeasonText`),
   Zeit nach SAC-Formel für Touren ohne Zeitbedarf (`fsTourTimeEstimate`, Höhenmeter sonst aus dem Höhenmodell, `fs-time`).
   Wetter/Bedingungen/Bulletin gelten am Gipfel (`fsTourWxHtml`), auch für Touren nur mit Linie.
-  Eigene Touren: Webcam-Streifen unter den Kennzahlen (`fsTourCamsHtml`, drei Webcams, festgelegte zuerst: Feld `webcamPin`
+  Eigene Touren: Webcam-Streifen unter den Kennzahlen (`fsTourCamsHtml`, bis 6 Webcams entlang der ganzen Tour – gesucht um Gipfel und Start,
+  sortiert nach Abstand zur nächsten Stelle der Tour, `fsTourWebcams`; auch in «Webcams meiner Touren» –, festgelegte zuerst: Feld `webcamPin`
   {id, name}, per Gedrückthalten); Schalter «Webcams in meinen Touren» im Profil-Menü (Gerät, `fs-theme`.cams).
   Webcam-Vollbild: seitlich durch alle Webcams derselben Stelle wischen (Streifen, Bedingungen, Karte im Ausschnitt), Beschriftung
   und «Diese Webcam zuerst zeigen» (eigene Touren). «Webcams meiner Touren» (`fsOpenCamWall`): Knopf «Webcams» über der Touren-Liste

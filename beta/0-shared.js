@@ -13582,11 +13582,11 @@ let fsWindyStatus = '';
 async function fsWebcamsNear(lat, lon){
   if(WINDY_API_KEY){
     try{
-      const r = await fetch('https://api.windy.com/webcams/api/v3/webcams?nearby=' + lat.toFixed(4) + ',' + lon.toFixed(4) + ',30&include=images,location,urls&limit=8', {headers:{'x-windy-api-key': WINDY_API_KEY}});
+      const r = await fetch('https://api.windy.com/webcams/api/v3/webcams?nearby=' + lat.toFixed(4) + ',' + lon.toFixed(4) + ',30&include=images,location,urls&limit=12', {headers:{'x-windy-api-key': WINDY_API_KEY}});
       if(r.ok){
         const j = await r.json();
         const list = (j.webcams || []).map(w=>({id: 'w' + (w.webcamId || w.id), name: w.title || 'Webcam', img: w.images && w.images.current && (w.images.current.preview || w.images.current.thumbnail), href: (w.urls && (w.urls.detail || w.urls.provider)) || 'https://www.windy.com/webcams/' + w.webcamId, src:'Webcams von Windy.com',
-          age: w.lastUpdatedOn || '', d: w.location && isFinite(w.location.latitude) ? fsGeoDist(lat, lon, w.location.latitude, w.location.longitude) : null})).sort((a, b)=> (a.d == null ? 1e9 : a.d) - (b.d == null ? 1e9 : b.d));
+          age: w.lastUpdatedOn || '', lat: w.location && w.location.latitude, lon: w.location && w.location.longitude, d: w.location && isFinite(w.location.latitude) ? fsGeoDist(lat, lon, w.location.latitude, w.location.longitude) : null})).sort((a, b)=> (a.d == null ? 1e9 : a.d) - (b.d == null ? 1e9 : b.d));
         fsWindyStatus = list.length ? 'ok' : 'keine Webcam im Umkreis von 30 km';
         if(list.length) return list;
       }else{
@@ -13601,30 +13601,53 @@ async function fsWebcamsNear(lat, lon){
     return (j.features || []).filter(f=> f.geometry && f.geometry.type === 'Point').map(f=>{
       const p = f.properties || {}, l = fsLinksOf(p);
       if(!l.img && p.description){ const m = /<img[^>]+src="(https:[^"]+)"/.exec(p.description); if(m) l.img = m[1]; }
-      return {id: 'm' + (p.station_name || ''), d: fsGeoDist(lat, lon, f.geometry.coordinates[1], f.geometry.coordinates[0]), name: p.station_name || 'Webcam', img: l.img, href: l.img || l.link || 'https://www.meteoschweiz.admin.ch', src:'MeteoSchweiz-Wetterkameras', live: true};
-    }).filter(x=> x.d < 40000).sort((a, b)=> a.d - b.d).slice(0, 4);
+      return {id: 'm' + (p.station_name || ''), lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], d: fsGeoDist(lat, lon, f.geometry.coordinates[1], f.geometry.coordinates[0]), name: p.station_name || 'Webcam', img: l.img, href: l.img || l.link || 'https://www.meteoschweiz.admin.ch', src:'MeteoSchweiz-Wetterkameras', live: true};
+    }).filter(x=> x.d < 40000).sort((a, b)=> a.d - b.d).slice(0, 8);
   }catch(e){ return []; }
 }
 
 /* ===== Webcams offen in der Tour =====
-   Bei eigenen Touren (Eigentümer) gleich unter den Kennzahlen ein Streifen mit drei Webcams zum Wischen: zuerst die
+   Bei eigenen Touren (Eigentümer) gleich unter den Kennzahlen ein Streifen mit bis zu sechs Webcams entlang der Tour zum Wischen: zuerst die
    festgelegte (webcamPin an der Tour: {id, name}), dann die nächsten. Antippen: Bild im Vollbild; Gedrückthalten: diese
    Webcam zuerst zeigen bzw. nicht mehr. Ein/aus im Profil-Menü («Webcams in meinen Touren», auf dem Gerät). */
 const fsTourCamCache = new Map();
+// Webcams entlang der ganzen Tour: gesucht um Gipfel und Start (bis 3 Stellen, je mindestens 3 km auseinander),
+// sortiert nach dem Abstand zur nächsten Stelle der Tour (Punkte, Linien, Gipfel) – so kommt auch die Webcam am Parkplatz dazu
+function fsTourCamKey(t){ return 'r:' + t.id + ':' + (t.updatedAt || ''); }
+function fsTourCamGeo(t){
+  const ll = q=> Array.isArray(q) ? [+q[0], +q[1]] : q ? [+q.lat, +(q.lon != null ? q.lon : q.lng)] : null;
+  const anchors = [], line = [];
+  const add = (p)=>{ const a = ll(p); if(!a || !isFinite(a[0]) || !isFinite(a[1])) return; line.push(a); if(anchors.length < 3 && !anchors.some(q=> fsGeoDist(q[0], q[1], a[0], a[1]) < 3000)) anchors.push(a); };
+  add(fsTourSummitPoint(t)); add(tourMapPoint(t));
+  fsTourRoutes(t).forEach(r=>{ const c = r.coords || []; if(c.length){ add(c[0]); add(c[c.length - 1]); const st = Math.max(1, Math.ceil(c.length / 40)); c.forEach((q, i)=>{ if(i % st === 0){ const a = ll(q); if(a && isFinite(a[0])) line.push(a); } }); } });
+  (t.points || []).forEach(p=> add(p));
+  return {anchors, line};
+}
+async function fsTourWebcams(t){
+  const {anchors, line} = fsTourCamGeo(t);
+  if(!anchors.length) return [];
+  const lists = await Promise.all(anchors.map(a=> fsWebcamsNear(a[0], a[1]).catch(()=> [])));
+  const byId = new Map();
+  lists.forEach(l=> (l || []).forEach(w=>{ if(!byId.has(w.id)) byId.set(w.id, w); }));
+  return Array.from(byId.values()).map(w=>{
+    if(w.lat == null || !isFinite(+w.lat)) return w;
+    let d = Infinity; line.forEach(p=>{ const x = fsGeoDist(p[0], p[1], +w.lat, +w.lon); if(x < d) d = x; });
+    return Object.assign({}, w, {d});
+  }).sort((a, b)=> (a.d == null ? 1e9 : a.d) - (b.d == null ? 1e9 : b.d));
+}
 function fsCamsOpenOn(){ return fsThemePrefs().cams !== false; }
 function fsTourCamsHtml(t){
   if(!t || !fsCamsOpenOn() || !state.myName || fsNameKey(fsOwnerOf(t)) !== fsNameKey(state.myName)) return '';
-  const p = fsTourSummitPoint(t) || tourMapPoint(t);
-  if(!p || !isFinite(p.lat) || !isFinite(p.lon)) return '';
-  const key = (+p.lat).toFixed(2) + ',' + (+p.lon).toFixed(2);
+  if(!fsTourCamGeo(t).anchors.length) return '';
+  const key = fsTourCamKey(t);
   let c = fsTourCamCache.get(key);
   if(!c || (c.status === 'ok' && Date.now() - c.at > 10 * 60000)){
     if(!c) fsTourCamCache.set(key, c = {status: 'loading'});
-    if(navigator.onLine !== false) fsWebcamsNear(+p.lat, +p.lon).then(list=> fsTourCamCache.set(key, {status: 'ok', list, at: Date.now()}), ()=> fsTourCamCache.set(key, {status: 'err', at: Date.now()})).then(()=> fsRenderSoon());
+    if(navigator.onLine !== false) fsTourWebcams(t).then(list=> fsTourCamCache.set(key, {status: 'ok', list, at: Date.now()}), ()=> fsTourCamCache.set(key, {status: 'err', at: Date.now()})).then(()=> fsRenderSoon());
   }
   if(!c.list || !c.list.length) return '';
   const pin = t.webcamPin && t.webcamPin.id;
-  const list = c.list.slice().sort((a, b)=> (b.id === pin) - (a.id === pin)).filter(w=> w.img).slice(0, 3);
+  const list = c.list.slice().sort((a, b)=> (b.id === pin) - (a.id === pin)).filter(w=> w.img).slice(0, 6);
   if(!list.length) return '';
   const km = d=> d == null ? '' : d < 1000 ? Math.round(d / 10) * 10 + ' m' : (d / 1000).toFixed(d < 10000 ? 1 : 0) + ' km';
   return `<div class="fs-tcams" data-tour="${esc(t.id)}" aria-label="Webcams in der Nähe">${list.map(w=>{
@@ -13671,7 +13694,7 @@ function fsCamWallTours(){
   const inView = t=>{ const p = fsTourPlace(t); return b && b.contains([p.lon, p.lat]) ? 0 : 1; };
   return list.sort((x, y)=> inView(x) - inView(y) || String(x.name || '').localeCompare(String(y.name || ''), 'de'));
 }
-function fsCamWallKey(t){ const p = fsTourPlace(t); return (+p.lat).toFixed(2) + ',' + (+p.lon).toFixed(2); }
+function fsCamWallKey(t){ return fsTourCamKey(t); }
 function fsCamWallCams(t){
   const c = fsTourCamCache.get(fsCamWallKey(t));
   if(!c || !c.list) return null;
@@ -13720,9 +13743,8 @@ async function fsCamWallLoad(ov){
     const key = fsCamWallKey(t), c = fsTourCamCache.get(key);
     if(c && c.status === 'ok' && Date.now() - c.at < 10 * 60000) continue;
     if(navigator.onLine === false) break;
-    const p = fsTourPlace(t);
     fsTourCamCache.set(key, {status: 'loading'});
-    try{ const list = await fsWebcamsNear(+p.lat, +p.lon); fsTourCamCache.set(key, {status: 'ok', list, at: Date.now()}); }
+    try{ const list = await fsTourWebcams(t); fsTourCamCache.set(key, {status: 'ok', list, at: Date.now()}); }
     catch(e){ fsTourCamCache.set(key, {status: 'err', at: Date.now()}); }
     if(document.body.contains(ov)) fsCamWallDraw(ov);
   }
