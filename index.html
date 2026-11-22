@@ -1916,14 +1916,14 @@ function tourFormHtmlSki(existing){
         <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">${fsIconHtml('search')} Auf Camptocamp.org suchen</button>
         <div id="camptocamp-search-box" style="margin-top:10px; display:none;"></div>
       </div>
-      <div class="field"><label>Link zu einer GPX-Datei (optional)</label><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></div>
       ${fsMoreLinksFieldHtml(t)}
-      <div class="field" id="fs-tracks-field"><label>GPX-Tracks &amp; Routen</label>
+      <div class="field" id="fs-tracks-field"><label>Routen</label>
         <input type="file" id="gpx-file-input" accept=".gpx,application/gpx+xml" hidden/>
         <input type="hidden" name="trackSimplified" id="track-simplified-hidden" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
         <input type="hidden" name="tourIdForTrack" id="tour-id-for-track" value="${esc(t.id||'')}"/>
         ${fsRoutesEditorHtml(t)}
         <p id="gpx-upload-status" class="fs-gpx-status"></p>
+        <details class="fs-gpxlink"${t.gpxLink ? ' open' : ''}><summary>Link zu einer GPX-Datei</summary><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></details>
       </div>
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. steile Rinne kurz vor dem Gipfel, ausgesetzte Querung …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Lawinenhänge, Gletscherspalten, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
@@ -1945,9 +1945,9 @@ function tourFormHtmlSki(existing){
         </div>
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
-      <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
+      <div class="field"><label>Punkte (Parkplatz, Haltestelle …)</label>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('pin')} Punkte auf der Karte setzen</button>
+        <div class="hint">${fsIconHtml('pin')} Antippen setzt einen Punkt, Bezeichnung eintragen, speichern. Routen oben unter «Routen».</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
@@ -2055,14 +2055,14 @@ function tourFormHtmlWand(existing){
         <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">${fsIconHtml('search')} Auf Camptocamp.org suchen</button>
         <div id="camptocamp-search-box" style="margin-top:10px; display:none;"></div>
       </div>
-      <div class="field"><label>Link zu einer GPX-Datei (optional)</label><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></div>
       ${fsMoreLinksFieldHtml(t)}
-      <div class="field" id="fs-tracks-field"><label>GPX-Tracks &amp; Routen</label>
+      <div class="field" id="fs-tracks-field"><label>Routen</label>
         <input type="file" id="gpx-file-input" accept=".gpx,application/gpx+xml" hidden/>
         <input type="hidden" name="trackSimplified" id="track-simplified-hidden" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
         <input type="hidden" name="tourIdForTrack" id="tour-id-for-track" value="${esc(t.id||'')}"/>
         ${fsRoutesEditorHtml(t)}
         <p id="gpx-upload-status" class="fs-gpx-status"></p>
+        <details class="fs-gpxlink"${t.gpxLink ? ' open' : ''}><summary>Link zu einer GPX-Datei</summary><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></details>
       </div>
       <div class="field"><label>Schlüsselstelle</label><textarea name="crux" placeholder="z. B. Kettenstelle kurz vor dem Pass, ausgesetzte Querung …">${esc(t.crux||'')}</textarea></div>
       <div class="field"><label>Spezielles</label><textarea name="special" placeholder="Hund, Einkehr, Brunnen, Badestellen, beste Jahreszeit …">${esc(t.special||'')}</textarea></div>
@@ -2084,9 +2084,9 @@ function tourFormHtmlWand(existing){
         </div>
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
-      <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
+      <div class="field"><label>Punkte (Parkplatz, Haltestelle …)</label>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('pin')} Punkte auf der Karte setzen</button>
+        <div class="hint">${fsIconHtml('pin')} Antippen setzt einen Punkt, Bezeichnung eintragen, speichern. Routen oben unter «Routen».</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
@@ -7060,14 +7060,14 @@ function tourFormHtml__fix(existing){
         <button type="button" class="btn secondary" id="camptocamp-search-toggle-btn" style="margin-top:8px;">${fsIconHtml('search')} Auf Camptocamp.org suchen</button>
         <div id="camptocamp-search-box" style="margin-top:10px; display:none;"></div>
       </div>
-      <div class="field"><label>Link zu einer GPX-Datei (optional)</label><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></div>
       ${fsMoreLinksFieldHtml(t)}
-      <div class="field" id="fs-tracks-field"><label>GPX-Tracks &amp; Routen</label>
+      <div class="field" id="fs-tracks-field"><label>Routen</label>
         <input type="file" id="gpx-file-input" accept=".gpx,application/gpx+xml" hidden/>
         <input type="hidden" name="trackSimplified" id="track-simplified-hidden" value='${esc(t.trackSimplified ? JSON.stringify(t.trackSimplified) : "")}'/>
         <input type="hidden" name="tourIdForTrack" id="tour-id-for-track" value="${esc(t.id||'')}"/>
         ${fsRoutesEditorHtml(t)}
         <p id="gpx-upload-status" class="fs-gpx-status"></p>
+        <details class="fs-gpxlink"${t.gpxLink ? ' open' : ''}><summary>Link zu einer GPX-Datei</summary><input type="url" name="gpxLink" value="${esc(t.gpxLink||'')}" placeholder="https://.../track.gpx"/></details>
       </div>
       ${fsRlFieldHtml('tour', t)}
       <div class="field"><label>Topo-Bilder (max. ${TOPO_IMAGE_MAX_COUNT})</label>
@@ -7101,9 +7101,9 @@ function tourFormHtml__fix(existing){
         </div>
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
-      <div class="field"><label>Punkte &amp; Linie auf der Karte (Parkplatz, Haltestelle, geplante Route …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('map')} Karte öffnen</button>
-        <div class="hint">${fsIconHtml('pin')} Punkt setzen: antippen, Bezeichnung eintragen, speichern. ${fsIconHtml('edit')} Linie zeichnen: antippen fügt Wegpunkte hinzu.</div>
+      <div class="field"><label>Punkte (Parkplatz, Haltestelle …)</label>
+        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('pin')} Punkte auf der Karte setzen</button>
+        <div class="hint">${fsIconHtml('pin')} Antippen setzt einen Punkt, Bezeichnung eintragen, speichern. Routen oben unter «Routen».</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>

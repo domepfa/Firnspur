@@ -3444,3 +3444,25 @@ html.fs-sheet-open #fs-ov-chips{ display:none !important; }
 .fs-ed-hit{ display:grid; grid-template-columns:1fr auto; gap:6px; align-items:center; }
 .fs-ed-hit .btn{ font-size:12.5px; padding:6px 10px; min-height:36px; }
 .fs-cond-sheet.fs-plan-sheet{ background:transparent; } /* Linie auf der Karte bleibt sichtbar */
+
+/* ===== Tourformular: Routen und Punkte ===== */
+#fs-routes-edit .fs-route-edit{ display:grid; grid-template-columns:22px minmax(0, 1fr) auto 44px 44px; align-items:center; gap:8px; margin-bottom:8px;
+  padding:8px; border:1.5px solid var(--line); border-radius:14px; background:var(--paper); }
+#fs-routes-edit .fs-route-edit .fs-route-nm{ display:grid; gap:2px; min-width:0; }
+#fs-routes-edit .fs-route-edit .fs-route-nm small{ font-size:12px; color:var(--ink-soft); padding-left:2px; }
+#fs-routes-edit .fs-route-edit .fs-route-type{ max-width:none; }
+#fs-routes-edit .fs-route-edit .fs-route-line{ background:var(--ice-light); color:var(--ice-deep); border-radius:12px; }
+.fs-gpxlink{ margin-top:8px; }
+.fs-gpxlink summary{ cursor:pointer; font-size:13px; color:var(--ink-soft); text-decoration:underline; list-style:none; padding:6px 0; }
+.fs-gpxlink summary::-webkit-details-marker{ display:none; }
+.fs-gpxlink input{ margin-top:6px; }
+#fs-routes-edit .fs-route-edit .fs-route-type{ width:118px; min-width:0; }
+@media (max-width: 380px){ #fs-routes-edit .fs-route-edit{ grid-template-columns:18px minmax(0, 1fr) 96px 40px 40px; gap:6px; } #fs-routes-edit .fs-route-edit .fs-route-type{ width:96px; } }
+/* Zwei Zeilen: Name oben, darunter Art, Linie bearbeiten, entfernen */
+#fs-routes-edit .fs-route-edit{ grid-template-columns:22px minmax(0, 1fr) 44px 44px; grid-template-areas:"sw nm nm nm" ". ty ed dl"; row-gap:6px; }
+#fs-routes-edit .fs-route-edit > .fs-route-sw{ grid-area:sw; }
+#fs-routes-edit .fs-route-edit > .fs-route-nm{ grid-area:nm; }
+#fs-routes-edit .fs-route-edit > .fs-route-type{ grid-area:ty; width:100%; }
+#fs-routes-edit .fs-route-edit > .fs-route-line{ grid-area:ed; }
+#fs-routes-edit .fs-route-edit > .fs-route-del{ grid-area:dl; }
+@media (max-width: 380px){ #fs-routes-edit .fs-route-edit{ grid-template-columns:18px minmax(0, 1fr) 40px 40px; } #fs-routes-edit .fs-route-edit .fs-route-type{ width:100%; } }

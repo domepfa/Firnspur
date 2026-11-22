@@ -100,6 +100,10 @@ aus anderen Apps übernehmen.
   (`fsRlFieldHtml`/`fsRlWire`, `fsRlCfg`: Hütte Sommer/Winter, Hochtour-Tour und Sektor Zustieg/Abstieg, Angaben aufklappbar), keine eigenen
   Zustiegs-/Abstiegs-Formulare mehr; Stift halten öffnet direkt das Formular (kein Bearbeiten-Modus); Hütten- und Tourformular in Abschnitten; eine alte
   Linie der Hütte (`manualTrack`) wird beim Speichern ein Zustieg (`fsHutAdoptLine`). Tour: `fsTourDrawRoute`.
+  Tourformular: Abschnitt «Routen» (Karten je Route mit Name, Art, Stift «Linie bearbeiten» auch für den GPX-Track `fsEdNext.gpx`,
+  Entfernen; GPX-Link klein aufklappbar) und getrennt «Punkte» («Punkte auf der Karte setzen» öffnet nur den Punkte-Modus,
+  `fsEdNext.pointsOnly`). «Route zeichnen» mit Art Abfahrt/Abstieg beginnt am Ende des Aufstiegs; weitere Routen sind im Editor
+  zur Orientierung und zum Einrasten sichtbar.
   Karten-Editor: Reiter «Zeichnen» und «Punkte» (Route ist in Zeichnen aufgegangen). Zeichnen verbindet je Abschnitt als Skispur
   (`fsSkiRoute`), Wanderweg (`fetchCalculatedRoute`) oder Gerade («Verbinden als», `drawConnect`, Gerät `fs-draw-connect`); Abschnitte
   `drawSegs` (Sitzung, am Formularfeld `_drawSegs`; eine geladene lange Linie bekommt wenige Anker, dazwischen Art `fest`, `drawSegsFromLine`), Ziehpunkte nur an Ankern, Kreis in der Mitte ziehen = Zwischenpunkt (`drawSplit`); Abschnitt antippen = nur diesen anders verbinden (`drawSegMenu`),
