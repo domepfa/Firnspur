@@ -24553,7 +24553,9 @@ function fsPlanDone(){
       <div class="fs-plan-done-row"><button type="button" class="btn secondary" data-share>${fsIconHtml('share')}Teilen</button><button type="button" class="btn secondary" data-gpx>${fsIconHtml('download')}GPX</button></div>
       <div class="fs-plan-done-row"><button type="button" class="btn secondary" data-more>${fsIconHtml('edit')}Weiter zeichnen</button><button type="button" class="btn secondary" data-drop>Verwerfen</button></div>
     </div>`);
+  fsPlanPreview(line, ov);
   const att = fsTrackAttachUi(line, 'Geplante Route', null, type, {plan});
+  att.addEventListener('input', e=> e.stopPropagation()); // Tour wählen ist keine Eingabe, die beim Schliessen nachfragt
   ov.querySelector('[data-attach]').appendChild(att);
   att.querySelector('.fs-sac-main') && att.querySelector('.fs-sac-main').addEventListener('click', ()=> setTimeout(()=>{ if(overlayLayers.length) closeTopOverlayLayer(); }, 1200));
   ov.querySelector('[data-new]').addEventListener('click', ()=>{
@@ -24565,6 +24567,27 @@ function fsPlanDone(){
   ov.querySelector('[data-share]').addEventListener('click', ()=> fsPlanShare(line, plan));
   ov.querySelector('[data-gpx]').addEventListener('click', ()=> downloadTrackAsGpx(line, 'Geplante Route'));
   ov.querySelector('[data-drop]').addEventListener('click', ()=>{ if(confirm('Geplante Route verwerfen?')) closeTopOverlayLayer(); });
+}
+// Geplante Linie auf der Startkarte zeigen, solange das Abschlussblatt offen ist (über dem Blatt eingepasst)
+function fsPlanPreview(line, ov){
+  const ml = fsHomeMap; if(!ml) return;
+  const ac = getComputedStyle(document.documentElement).getPropertyValue('--ice-deep').trim() || '#1E6AA0';
+  const ids = ['fs-plan-prev-c', 'fs-plan-prev-l'];
+  const clear = ()=>{ try{ ids.forEach(id=>{ if(ml.getLayer(id)) ml.removeLayer(id); }); if(ml.getSource('fs-plan-prev')) ml.removeSource('fs-plan-prev'); }catch(e){} };
+  clear();
+  try{
+    ml.addSource('fs-plan-prev', {type: 'geojson', data: {type: 'Feature', properties: {}, geometry: {type: 'LineString', coordinates: line.map(c=> [c[1], c[0]])}}});
+    ml.addLayer({id: ids[0], type: 'line', source: 'fs-plan-prev', layout: {'line-join': 'round', 'line-cap': 'round'}, paint: {'line-color': '#fff', 'line-width': 8}});
+    ml.addLayer({id: ids[1], type: 'line', source: 'fs-plan-prev', layout: {'line-join': 'round', 'line-cap': 'round'}, paint: {'line-color': ac, 'line-width': 4.5}});
+  }catch(e){}
+  ov.classList.add('fs-plan-sheet');
+  requestAnimationFrame(()=>{
+    const inn = ov.querySelector('.in'), h = inn ? inn.offsetHeight : Math.round(innerHeight * 0.5);
+    try{ fsmFit(ml, line, {top: 40, bottom: h + 30, left: 40, right: 40}, 15); }catch(e){}
+  });
+  // Blatt zu: Linie weg (fsSheet entfernt das Element; darauf warten)
+  const mo = new MutationObserver(()=>{ if(!ov.isConnected){ mo.disconnect(); clear(); } });
+  mo.observe(document.body, {childList: true});
 }
 // Link mit Ankern und Art je Abschnitt (pm: s=Skispur, w=Weg, g=Gerade); übernommene/feste Abschnitte gehen als
 // gerade Stücke mit (ausgedünnt). Der Empfänger rechnet die Abschnitte neu.
