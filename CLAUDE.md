@@ -67,7 +67,8 @@ aus anderen Apps übernehmen.
   Link `?plan=`) über `_fsDrawApi.setAnchors`. Nach «Fertig» Blatt: als neue Tour speichern oder zu einer Tour in der Nähe (`fsAttachPlanToTour`:
   ohne gezeichnete Linie wird es diese, sonst eine weitere Route). Abschnitte bleiben gespeichert: `manualTrackPlan` bzw. `plan` an weiteren
   Routen ([[Art, Anzahl Punkte], …], `fsSegsToPlan`/`fsPlanToSegs`, Feld `<Linienfeld>-plan`); im Formular hat jede gezeichnete/weitere Route
-  einen Stift «Linie auf der Karte bearbeiten» (`fsRouteEditLine`). Der frühere Planer liegt noch als `fsPlannerOpenClassic` (ungenutzt).
+  einen Stift «Linie auf der Karte bearbeiten» (`fsRouteEditLine`). Im Abschlussblatt auch «Teilen» (`fsPlanShare`: Link `?plan=` mit Ankern,
+  `pm` = Art je Abschnitt s/w/g, übernommene Stücke als gerade Teile) und «GPX».
 - Rechnungen im Planer/Zeichnen: «Auf Wegen» rechnet über das swisstopo-Wegnetz (`fsrRoute`, sonst openrouteservice); «Skitour (weglos)»
   rechnet auf dem Gerät eine Aufstiegsspur mit Spitzkehren aus dem Höhenmodell (`fsSkiRoute`: Raster über `fsElevGrid` aus dem
   swisstopo-Gelände, Suche `fsSkiEngine` im Web Worker; Spur höchstens etwa 17° steil, Hänge bis 30° normal, 30–35° leicht, ab 35° stark gemieden, kleine Richtungswechsel kosten etwas; Linie geglättet (`fsSmoothTrack`); Linie nach
