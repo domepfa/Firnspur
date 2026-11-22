@@ -1780,10 +1780,11 @@ function gebietDetailHtmlSki(id){
     <div class="detail-section">
       <h4>${fsIconHtml('hut')} Hütten (${huetten.length})</h4>
       ${huetten.length ? `<div class="grid" style="margin-top:6px;">${huetten.map(hutCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hütte in diesem Gebiet.</p>`}
-      <p class="hint" style="font-size:12.5px; color:var(--ink-faint); margin:10px 0 0 0;">Touren und Hütten ordnest du in der jeweiligen Tour/Hütte unter Bearbeiten → Gebiet zu.</p>
+
     </div>
     <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(geb.createdBy||'?')} · ${fmtDate(geb.createdAt)}${geb.updatedAt && geb.updatedAt!==geb.createdAt ? ` · zuletzt bearbeitet von ${esc(geb.updatedBy||'?')} · ${fmtDate(geb.updatedAt)}` : ''}</div>
     <div class="detail-actions">
+      <button class="btn secondary" data-act="geb-add-items" data-id="${geb.id}">${fsIconHtml('plus')} Touren dazunehmen</button>
       <button class="btn secondary" data-act="edit-gebiet" data-id="${geb.id}">Bearbeiten</button>
     </div>
   </div>`;
@@ -1812,10 +1813,11 @@ function gebietDetailHtmlWand(id){
     <div class="detail-section">
       <h4>${fsIconHtml('hut')} Hütten (${huetten.length})</h4>
       ${huetten.length ? `<div class="grid" style="margin-top:6px;">${huetten.map(hutCardHtml).join('')}</div>` : `<p style="font-size:13px; color:var(--ink-soft);">Noch keine Hütte in diesem Gebiet.</p>`}
-      <p class="hint" style="font-size:12.5px; color:var(--ink-faint); margin:10px 0 0 0;">Touren und Hütten ordnest du in der jeweiligen Tour/Hütte unter Bearbeiten → Gebiet zu.</p>
+
     </div>
     <div class="meta-line" style="margin-top:16px;">Angelegt von ${esc(geb.createdBy||'?')} · ${fmtDate(geb.createdAt)}${geb.updatedAt && geb.updatedAt!==geb.createdAt ? ` · zuletzt bearbeitet von ${esc(geb.updatedBy||'?')} · ${fmtDate(geb.updatedAt)}` : ''}</div>
     <div class="detail-actions">
+      <button class="btn secondary" data-act="geb-add-items" data-id="${geb.id}">${fsIconHtml('plus')} Touren dazunehmen</button>
       <button class="btn secondary" data-act="edit-gebiet" data-id="${geb.id}">Bearbeiten</button>
     </div>
   </div>`;
@@ -3186,6 +3188,7 @@ function wireModalHandlers__sw(){
     });
   });
   root.querySelectorAll('[data-act="edit-gebiet"]').forEach(el=> el.onclick = ()=>openEditGebiet(el.getAttribute('data-id')));
+  root.querySelectorAll('[data-act="geb-add-items"]').forEach(el=> el.onclick = ()=> fsGebAddItems(el.getAttribute('data-id')));
   root.querySelectorAll('[data-act="open-gebiet"]').forEach(el=> el.onclick = ()=>openGebietDetail(el.getAttribute('data-id')));
 
   const hutForm = document.getElementById('hut-form');
