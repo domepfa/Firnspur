@@ -2163,8 +2163,9 @@ function fsHomeRoutesSync(){
   const map = fsHomeMap;
   if(!map || !map._fsmLoaded || !map.getStyle()) return;
   const isTours = !!fsHomePts && (fsHomePts.kind === 'tour' || fsHomePts.kind === 'msl');
-  const on = isTours && fsmOverlayOn(map, 'tourrouten');
-  const ids = on ? fsHomePts.points.map(p=> p.id) : [];
+  // Ebene «Tour-Routen» an: immer zeigen – in der Touren-Ansicht die der Liste (Filter), sonst (Hütten, Gebiete …) alle Touren
+  const on = fsmOverlayOn(map, 'tourrouten');
+  const ids = !on ? [] : isTours ? fsHomePts.points.map(p=> p.id) : (state.tours || []).map(t=> t.id);
   const tById = new Map((state.tours || []).map(t=> [t.id, t]));
   // Schlüssel: welche Touren + Stand ihrer Linien (neu zeichnen nur bei Änderungen)
   const key = ids.map(id=>{ const t = tById.get(id); return id + ':' + (t ? (t.updatedAt || '') + ':' + fsTourRoutes(t).map(r=> (r.coords || []).length).join('.') : ''); }).join(',');
@@ -2188,16 +2189,17 @@ function fsHomeRoutesSync(){
     const tap = (e)=>{
       if(e.originalEvent && e.originalEvent._fsHomeRouteSeen) return;
       if(e.originalEvent) e.originalEvent._fsHomeRouteSeen = true;
-      if(fsPlanner || fsCtxOwner === 'edit' || !fsmOverlayOn(map, 'tourrouten') || !map.getLayer('fs-home-routes') || !fsHomePts) return;
+      if(fsPlanner || fsCtxOwner === 'edit' || !fsmOverlayOn(map, 'tourrouten') || !map.getLayer('fs-home-routes')) return;
       const tg = e.originalEvent && e.originalEvent.target;
       if(tg && tg.closest && tg.closest('.fs-home-pin, .fs-home-tpt, .fs-home-clu')) return;
       const r = 14, box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
       const hits = map.queryRenderedFeatures(box, {layers: ['fs-home-route-sel', 'fs-home-routes']});
       const id = hits.length && hits[0].properties && hits[0].properties.id;
-      const pt = id && fsHomePts.points.find(q=> q.id === id);
-      if(!pt) return;
+      if(!id) return;
+      const pt = fsHomePts && fsHomePts.points.find(q=> q.id === id);
       if(e.originalEvent) e.originalEvent._fsmHandled = true;
-      fsHomeCard(pt);
+      if(pt) fsHomeCard(pt);
+      else if(typeof openTourDetail === 'function') openTourDetail(id); // Hütten-/Gebiete-Ansicht: Tour direkt öffnen
     };
     map.on('preclick', tap);
     map.on('click', tap);
@@ -2208,7 +2210,7 @@ function fsHomeRoutesSync(){
     ids.forEach(id=>{ const t = tById.get(id); if(t) fsHomeTourLines(t).forEach(c=> features.push({type:'Feature', properties:{id}, geometry:{type:'LineString', coordinates:c}})); });
     map.getSource('fs-home-routes').setData({type:'FeatureCollection', features});
   }
-  const sel = on ? (fsHomeSel || '') : '';
+  const sel = on && isTours ? (fsHomeSel || '') : '';
   const t = sel ? (state.tours || []).find(x=> x.id === sel) : null;
   // Nur bei Änderung der Auswahl neu setzen (wird oft aufgerufen)
   const selKey = sel + ':' + (t ? (t.updatedAt || '') + ':' + (t.points || []).length : '');
