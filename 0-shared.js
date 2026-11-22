@@ -13561,7 +13561,6 @@ function fsConditionsHtml(lat, lon, alt){
   const rainNear = fsNearest(c.rain, lat, lon, 25000);
   const offline = !c.om && (navigator.onLine === false || (typeof state !== 'undefined' && state.offlineMode) || (!c.hs && !c.ns && !c.rain)); // nichts kam an: wohl offline
   parts.push(`<p class="fs-cond-sum">${sent || (offline ? 'Offline – Bedingungen erscheinen, sobald wieder Internet da ist.' : 'Für diesen Punkt sind gerade keine Modelldaten verfügbar.')}</p>`);
-  if(slfBox) parts.unshift(slfBox);
   if(chips.length) parts.push(`<div class="fs-cond-chips">${chips.join('')}</div>`);
   if(bars) parts.push(bars + `<p class="wx-src">Open-Meteo (Modell MeteoSchweiz), gerechnet für ${c.om && c.om.elevation != null ? Math.round(c.om.elevation) + ' m' : 'diesen Punkt'}${alt ? ' (Gipfel)' : ''} – Modellwerte, keine Messung.</p>`);
   // Gemessen
@@ -13571,6 +13570,7 @@ function fsConditionsHtml(lat, lon, alt){
   if(msNs && msNs.v > 0) rows.push([`${esc(msNs.name)} <small>MeteoSchweiz · ${fsFmtKm(msNs.d)}</small>`, `${Math.round(msNs.v)} cm Neuschnee${sameSt ? ' · ' + rainNear.v.toFixed(1) + ' mm' : ''} in 24 h`]);
   if(rainNear && !sameSt) rows.push([`${esc(rainNear.name)} <small>${rainNear.src} · ${fsFmtKm(rainNear.d)}</small>`, `${rainNear.v.toFixed(1)} mm in 24 h`]);
   if(rows.length) parts.push(`<p class="fs-cond-h">Gemessen in der Nähe</p>` + rows.map(r=> `<div class="fs-cond-row"><span>${r[0]}</span><b>${r[1]}</b></div>`).join(''));
+  if(slfBox) parts.push(slfBox); // Bulletin nach Schnee (Grafik und Messungen)
   // Webcams
   if(c.cams && c.cams.length) parts.push(`<p class="fs-cond-h">Webcams</p><div class="fs-cond-cams">${c.cams.map(w=> `<a href="${esc(w.href)}" target="_blank" rel="noopener noreferrer">${w.img ? `<img src="${esc(w.img)}" alt="" loading="lazy"/>` : `<span class="noimg">${fsIconHtml('camera')}</span>`}<span>${esc(w.name)}</span></a>`).join('')}</div><p class="wx-src">${c.cams[0].src}</p>`);
   if(WINDY_API_KEY && fsWindyStatus && fsWindyStatus !== 'ok' && !/fetch|Netz/i.test(fsWindyStatus)) parts.push(`<p class="wx-src">Windy: ${esc(fsWindyStatus)}</p>`);
