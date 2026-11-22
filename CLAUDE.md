@@ -111,6 +111,10 @@ aus anderen Apps übernehmen.
   nicht auf der Tour-Karte. Die Skispur-Rechnung gewichtet je Rasterzelle (`fsAreaMul`: meiden ×12, bevorzugen ×0.55);
   «Skispur neu rechnen» (`drawAreasRecalc`). Ziehen von Kartenpunkten mit eigener Zeigerverfolgung (FL-Marker, Pointer Capture).
   Tour-Routen auf der Startkarte kräftig mit weissem Rand (`fs-home-routes-case`).
+- SAC-Routen sind oft mehrteilig (MultiLineString, Teile zeigen Richtung Gipfel): `fsMultiLineRoutes` macht daraus zusammenhängende
+  Routen (von jedem Anfang bis zum Gipfel-Knoten, sonst gierig verkettet), `fsSacRoutes` setzt die Art (andere Abfahrt als Aufstieg:
+  zweite Route umgedreht als «Abfahrt»). Neue Tour aus SAC: Zeit (`fsSacDuration`), Auf-/Abstieg Hm, Routenname, weitere Routen.
+  Bearbeiten-Karte ohne Punkte/Linie passt sich auf den GPX-Track ein.
 - SAC-Skitour/Wanderroute auf der Startkarte antippen → «Zu einer Tour in der Nähe» (`fsTrackAttachUi`): Touren nach Abstand zur Linie
   (bis 15 km mit Abstand, sonst «Weiter weg» alphabetisch), nächste vorgewählt. Ersetzt nie: ohne Linie wird es die Route, sonst eine
   weitere Route (SAC als Aufstieg); ersetzen nur im Tourformular.

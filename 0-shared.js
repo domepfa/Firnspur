@@ -9609,6 +9609,8 @@ function skitourAttrs(feature){
     altitude: a.target_altitude || '',
     difficulty: a.difficulty_de || '',
     time: a.ascent_time_label || '',
+    ascentHm: a.ascent_altitude || '',
+    descentHm: a.descent_altitude || '',
     url: a.url_sac_de || ''
   };
 }
@@ -9899,8 +9901,53 @@ function buildWegsperrungPopupContent(feature){
 function geojsonToLatLngs(geometry){
   if(!geometry) return [];
   if(geometry.type === 'LineString') return geometry.coordinates.map(c=>[c[1], c[0]]);
-  if(geometry.type === 'MultiLineString') return geometry.coordinates.flat().map(c=>[c[1], c[0]]);
+  if(geometry.type === 'MultiLineString'){ const r = fsMultiLineRoutes(geometry.coordinates); return r.length ? r[0].coords : []; }
   return [];
+}
+// Mehrteilige Linie (MultiLineString, [lon, lat]) in zusammenhängende Routen zerlegen statt die Teile blind
+// aneinanderzuhängen (gab gerade Sprünge). Die SAC-Teilstücke zeigen alle Richtung Gipfel und treffen sich an
+// Knoten: Gipfel = Knoten, an dem nur Teile enden. Von jedem Anfang (dort beginnt nur ein Teil) bis zum Gipfel
+// folgen = eine Route. Ohne eindeutigen Gipfel: Teile so verketten, dass die Lücken möglichst klein sind.
+function fsMultiLineRoutes(parts){
+  parts = (parts || []).map(p=> (p || []).map(c=> [+c[1], +c[0]]).filter(c=> isFinite(c[0]) && isFinite(c[1]))).filter(p=> p.length > 1);
+  if(parts.length <= 1) return parts.map(c=> ({coords: c}));
+  const nodes = [], node = (c)=>{ for(let i = 0; i < nodes.length; i++) if(fsGeoDist(nodes[i][0], nodes[i][1], c[0], c[1]) < 25) return i; nodes.push(c); return nodes.length - 1; };
+  const E = parts.map(p=> ({p, a: node(p[0]), b: node(p[p.length - 1])}));
+  const inN = nodes.map((_, i)=> E.filter(e=> e.b === i && e.a !== i).length), outN = nodes.map((_, i)=> E.filter(e=> e.a === i && e.b !== i).length);
+  const sinks = nodes.map((_, i)=> i).filter(i=> inN[i] > 0 && outN[i] === 0);
+  const join = (a, b)=> a.concat(b.slice(1));
+  if(sinks.length === 1){
+    const S = sinks[0], used = new Set(), routes = [];
+    E.forEach(e0=>{
+      if(inN[e0.a] !== 0 || e0.a === S) return; // nur an Anfängen beginnen
+      let line = e0.p.slice(), n = e0.b, guard = 0; used.add(e0);
+      while(n !== S && guard++ < 50){ const nx = E.find(e=> e.a === n && e.b !== e.a); if(!nx) break; line = join(line, nx.p); used.add(nx); n = nx.b; }
+      routes.push({coords: line});
+    });
+    E.forEach(e=>{ if(!used.has(e)) routes.push({coords: e.p.slice()}); }); // z. B. Schlaufen am Gipfel
+    if(routes.length) return routes;
+  }
+  // Rückfall: gierig verketten (nächstes Ende zuerst, Teil wenn nötig umgedreht)
+  const rest = parts.slice(1); let line = parts[0].slice();
+  while(rest.length){
+    const end = line[line.length - 1]; let bi = 0, rev = false, bd = Infinity;
+    rest.forEach((p, i)=>{ const d1 = fsGeoDist(end[0], end[1], p[0][0], p[0][1]), d2 = fsGeoDist(end[0], end[1], p[p.length - 1][0], p[p.length - 1][1]); if(d1 < bd){ bd = d1; bi = i; rev = false; } if(d2 < bd){ bd = d2; bi = i; rev = true; } });
+    const p = rest.splice(bi, 1)[0], q = rev ? p.slice().reverse() : p;
+    line = bd < 25 ? join(line, q) : line.concat(q);
+  }
+  return [{coords: line}];
+}
+// SAC-Route: Hauptroute plus weitere (bei anderer Abfahrt als Aufstieg: zweite Route umgedreht als Abfahrt)
+function fsSacRoutes(feature, info){
+  const g = feature && feature.geometry;
+  if(!g) return [];
+  const routes = g.type === 'MultiLineString' ? fsMultiLineRoutes(g.coordinates) : [{coords: geojsonToLatLngs(g)}];
+  const asc = +(info && info.ascentHm) || 0, desc = +(info && info.descentHm) || 0;
+  return routes.filter(r=> r.coords.length > 1).map((r, i)=>{
+    if(i === 0) return Object.assign(r, {type: asc && desc && asc !== desc ? 'aufstieg' : 'aufab'});
+    if(i === 1 && asc && desc && asc !== desc) return {coords: r.coords.slice().reverse(), type: 'abfahrt', name: 'Abfahrt'};
+    return Object.assign(r, {type: 'variante', name: 'Variante'});
+  });
 }
 
 // Popup-Inhalt für eine per identifySkitourAt() gefundene Skitour – Name (falls bekannt)
@@ -9990,7 +10037,8 @@ function buildSkitourPopupContent(featureOrList, opts){
     sac.textContent = 'Im SAC-Tourenportal öffnen';
     wrap.appendChild(sac);
   }
-  const coords = geojsonToLatLngs(feature.geometry);
+  const sacRoutes = fsSacRoutes(feature, info);
+  const coords = sacRoutes.length ? sacRoutes[0].coords : [];
   if(coords.length){
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -10007,7 +10055,7 @@ function buildSkitourPopupContent(featureOrList, opts){
       nb.type = 'button';
       nb.className = 'fs-sac-sec';
       nb.textContent = 'Als neue Tour übernehmen';
-      nb.addEventListener('click', ()=> openAddTourFromSkitour(info, coords));
+      nb.addEventListener('click', ()=> openAddTourFromSkitour(info, coords, sacRoutes));
       wrap.appendChild(nb);
     }
     // Direkt einer bestehenden Tour zuweisen, statt den Umweg über Herunterladen und
@@ -10034,7 +10082,7 @@ function buildSkitourPopupContent(featureOrList, opts){
 // Legt aus einer SAC-Route der swisstopo-Ebene eine neue Skitour an: Formular mit Ziel, Route,
 // Schwierigkeit, Höhe, SAC-Link und Track vorbefüllt; die GPX-Datei wird beim Speichern mit
 // abgelegt (siehe _fsPendingGpx in submitTourForm). Vorher die grosse Karte schliessen.
-function openAddTourFromSkitour(info, coords){
+function openAddTourFromSkitour(info, coords, routes){
   let simplified = coords;
   try{
     simplified = simplifyTrackForStorage(coords.map(c=>({lat:c[0], lon:c[1]})), 200)
@@ -10046,11 +10094,25 @@ function openAddTourFromSkitour(info, coords){
     difficulty: info.difficulty || '',
     targetAltitude: info.altitude ? String(info.altitude) : '',
     tourLink: info.url || '',
+    duration: fsSacDuration(info.time),
+    elevationGain: info.ascentHm ? String(info.ascentHm) : '',
+    elevationLoss: info.descentHm && info.descentHm !== info.ascentHm ? String(info.descentHm) : '',
     trackSimplified: simplified,
+    trackName: info.route || '',
+    trackType: routes && routes[0] && routes[0].type || '',
+    altTracks: (routes || []).slice(1).map((r, i)=> ({id: 'alt_' + Date.now().toString(36) + i + Math.random().toString(36).slice(2, 6), name: r.name || '', type: r.type || 'variante',
+      trackSimplified: (()=>{ try{ return simplifyTrackForStorage(r.coords.map(c=>({lat:c[0], lon:c[1]})), 200).map(p=>[Math.round(p.lat*1e6)/1e6, Math.round(p.lon*1e6)/1e6]); }catch(e){ return r.coords; } })()})),
     _fsPendingGpx: { coords, name: (info.target || 'Skitour') + (info.route ? ' – ' + info.route : '') }
   };
   const open = ()=>{ state.modal = {type:'edit-tour', payload}; render(); };
   if(typeof ensureName === 'function') ensureName(open); else open();
+}
+// «02:30 h» → «2:30», «03:00 h» → «3»
+function fsSacDuration(t){
+  const m = String(t || '').match(/(\d+):(\d+)/);
+  if(!m) return '';
+  const h = +m[1], mi = +m[2];
+  return mi ? h + ':' + String(mi).padStart(2, '0') : String(h);
 }
 // Übernimmt die von identifySkitourAt() gelieferten Koordinaten direkt als GPX-Track einer
 // bestehenden Tour – ohne den Umweg über "Herunterladen" und anschliessendes manuelles
@@ -10849,9 +10911,17 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // Ausschnitt behalten statt auf den ersten Punkt zurückzuspringen – lastPointsEditorMapView
     // wird nur bei einer wirklich NEUEN Bearbeiten-Sitzung zurückgesetzt (siehe
     // syncModalDirtyTracking), nicht bei diesem Mini/Vollbild-Wechsel selbst.
-    const center = lastPointsEditorMapView ? lastPointsEditorMapView.center
+    // Ohne Punkte und gezeichnete Linie: auf den GPX-Track einpassen (neue Tour aus einer SAC-Route lag sonst ganz ausgezoomt)
+    const gpxFit = (()=>{
+      if(lastPointsEditorMapView || points.length || manualTrack.length || !gpxTrackFromHidden || gpxTrackFromHidden.length < 2) return null;
+      const la = gpxTrackFromHidden.map(c=> +c[0]), lo = gpxTrackFromHidden.map(c=> +c[1]);
+      const s0 = Math.min(...la), n0 = Math.max(...la), w0 = Math.min(...lo), e0 = Math.max(...lo);
+      const spanM = Math.max((n0 - s0) * 111320, (e0 - w0) * 111320 * Math.cos((s0 + n0) / 2 * Math.PI / 180), 300);
+      return {center: [(s0 + n0) / 2, (w0 + e0) / 2], zoom: Math.max(9, Math.min(15, Math.log2(40075016 * Math.cos((s0 + n0) / 2 * Math.PI / 180) * 0.6 * Math.min(innerWidth, innerHeight) / 256 / spanM)))};
+    })();
+    const center = lastPointsEditorMapView ? lastPointsEditorMapView.center : gpxFit ? gpxFit.center
       : (points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : (firstRefPoint || [46.8182, 8.2275]))));
-    const zoom = lastPointsEditorMapView ? lastPointsEditorMapView.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
+    const zoom = lastPointsEditorMapView ? lastPointsEditorMapView.zoom : gpxFit ? gpxFit.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
     // Vollbild: dieselbe Karte wie überall (Startkarte ausgeliehen); nur die kleine Karte im Formular ist eigen
     const map = ((isFullscreen && fsEdAcquire(mapDivId)) || fsmCreateFlMap(mapDivId, isFullscreen ? {on3d: (ml)=> openEditor3d(ml)} : undefined)).setView(center, zoom);
     // Bearbeiten: «Fertig» statt «Schliessen» – die Änderungen bleiben (gespeichert wird im Blatt bzw. Formular)
