@@ -8676,9 +8676,10 @@ function fsPlanFromUrl(){
   const qs = new URLSearchParams(location.search);
   const raw = qs.get('plan');
   if(!raw) return;
-  const pts = raw.split('~').map(x=> x.split(',').map(Number)).filter(a=> a.length === 2 && isFinite(a[0]) && isFinite(a[1]) && Math.abs(a[0]) <= 90 && Math.abs(a[1]) <= 180).slice(0, 30).map(a=> ({lat: a[0], lon: a[1]}));
+  const pts = raw.split('~').map(x=> x.split(',').map(Number)).filter(a=> a.length === 2 && isFinite(a[0]) && isFinite(a[1]) && Math.abs(a[0]) <= 90 && Math.abs(a[1]) <= 180).slice(0, 60).map(a=> ({lat: a[0], lon: a[1]}));
   const names = (qs.get('pn') || '').split('|');
-  qs.delete('plan'); qs.delete('pn');
+  const modes = (qs.get('pm') || '').split('').map(c=> ({s: 'ski', w: 'weg', g: 'gerade'})[c] || null);
+  qs.delete('plan'); qs.delete('pn'); qs.delete('pm');
   try{ history.replaceState(history.state, '', location.pathname + (qs.toString() ? '?' + qs : '') + location.hash); }catch(e){}
   if(pts.length < 2) return;
   const clean = v=> v.replace(/[<>"]/g, '').trim().slice(0, 120);
@@ -8686,726 +8687,15 @@ function fsPlanFromUrl(){
   if(names[1]) pts[pts.length - 1].label = clean(names[1]);
   let tries = 0;
   const go = ()=>{
-    if(fsHomeMap && fsHomeEl && !fsCtxUsesHome && fsHomeMap.loaded && fsHomeMap.loaded()){ fsPlannerOpen(null, pts); return; }
+    if(fsHomeMap && fsHomeEl && !fsCtxUsesHome && fsHomeMap.loaded && fsHomeMap.loaded()){ fsPlanDraw({pts, modes: modes.length === pts.length - 1 && modes.every(Boolean) ? modes : null}); return; }
     if(++tries < 60) setTimeout(go, 250);
   };
   setTimeout(go, 300);
 }
 if(typeof window !== 'undefined') window.addEventListener('load', ()=>{ try{ fsPlanFromUrl(); }catch(e){} });
-// handoff: die gespeicherte Tour öffnet gleich, ihr Fenster übernimmt den Verlaufs-Eintrag der Planung
-// (kein history.back() direkt vor dem nächsten pushState – das verwirrt die Zurück-Taste)
-function fsPlannerClose(fromBack, force, handoff){
-  const pl = fsPlanner;
-  if(!pl) return;
-  if(!fromBack && !force && pl.hasPoints() && !confirm('Planung beenden? Die Route wird verworfen.')) return;
-  fsPlanner = null;
-  pl.close();
-  if(!fromBack){
-    const i = overlayLayers.indexOf(pl.layer);
-    if(i >= 0) overlayLayers.splice(i, 1);
-    if(i >= 0 && i === overlayLayers.length){ if(handoff && !modalHistoryPushed) modalHistoryPushed = true; else consumeHistoryEntry(); }
-  }
-}
-// «Route planen» ist das Zeichnen-Werkzeug der Touren (fsPlanDraw); der frühere Planer bleibt als fsPlannerOpenClassic
+// «Route planen» ist das Zeichnen-Werkzeug der Touren (fsPlanDraw)
 function fsPlannerOpen(from, preset){
   fsPlanDraw({to: from || null, pts: preset || null});
-}
-function fsPlannerOpenClassic(from, preset){
-  if(fsPlanner || !fsHomeMap || !fsHomeEl || fsCtxUsesHome) return;
-  const ml = fsHomeMap;
-  const map = FL.map(ml);
-  const searchIndex = fsMapEntities();
-  let addPointPicking = false;
-  const renderAddPointBtn = ()=>{};
-  const closeTopOverlayLayer = ()=> fsPlannerClose(false, true, true); // «Als Tour speichern» schliesst die Planung
-  const root = document.documentElement;
-  root.classList.add('fs-planning');
-  /* ================= Spontane Wanderung planen (Start/Ziel, Route berechnen, optional als
-     Tour-Entwurf speichern) – eine ausklappbare Kachel am unteren Kartenrand, unabhängig von
-     einer bestehenden Tour: für kurzfristige Planung direkt auf der Übersichtskarte. */
-  let plannerExpanded = false;
-  let plannerStart = null; // {lat, lon, label}
-  let plannerEnd = null;
-  let plannerWaypoints = []; // [{lat, lon, marker}] – in Reihenfolge Start -> Ziel
-  let plannerStartMode = 'gps'; // 'gps' | 'map'
-  let plannerEndMode = 'search'; // 'search' | 'map'
-  let plannerPicking = null; // 'start' | 'end' | 'waypoint' | null – wartet auf einen Kartenklick
-  let plannerEndQuery = '';
-  let plannerSearchBusy = false;
-  let plannerEndCandidates = null; // Trefferliste der letzten Suche, zur Auswahl bei Mehrdeutigkeit
-  let plannerCalcBusy = false;
-  let plannerResult = null; // {coords, distanceM, durationS, ascentM, descentM}
-  let plannerStartMarker = null, plannerEndMarker = null, plannerRouteLine = null;
-  // Art der Route: 'ski' = weglos aus dem Gelände mit Spitzkehren (fsSkiRoute), 'weg' = auf Wegen. Skitour beginnt mit 'ski'.
-  let plannerProfile = (()=>{ let v = null; try{ v = localStorage.getItem('fs-planner-profile'); }catch(e){} return (v === 'ski' || v === 'weg') ? v : (fsAppKey() === 'firnspur' ? 'ski' : 'weg'); })();
-  let plannerSegLines = []; // farbige Abschnitte nach Steilheit (nur 'ski')
-  function clearPlannerSegs(){ plannerSegLines.forEach(l=>{ try{ map.removeLayer(l); }catch(e){} }); plannerSegLines = []; }
-  let plannerEndEditing = false; // Ziel ist gesetzt, soll aber per Suche ersetzt werden
-  let plannerMode = 'ziel'; // 'ziel' = Start → Ziel (Tipps setzen Zwischenpunkte) | 'kette' = Punkt für Punkt (jeder Tipp verlängert die Route)
-  let plannerAutoCalcTimer = null;
-
-  const plannerPanel = document.createElement('div');
-  plannerPanel.id = 'planner-panel';
-  plannerPanel.className = 'fsp';
-  FL.DomEvent.disableClickPropagation(plannerPanel);
-  FL.DomEvent.disableScrollPropagation(plannerPanel);
-  plannerPanel.classList.add('fsp-home');
-  document.body.appendChild(plannerPanel);
-
-  // Farbige Punkt-Icons als echte FL.marker (statt FL.circleMarker) – nur FL.marker unterstützt
-  // in Leaflet ohne Zusatz-Plugin das Ziehen (draggable:true), was Start/Ziel/Zwischenpunkte
-  // direkt auf der Karte korrigierbar macht.
-  // Punkte sind fest: Karte verschieben bewegt nie einen Punkt. Verschieben erst nach langem
-  // Drücken (~0,45 s, kurze Vibration) – dann folgt der Punkt dem Finger, bis man loslässt.
-  function makeLongPressDraggable(marker, onMoved){
-    let timer = null, start = null, active = false, pid = null;
-    const cancel = ()=>{ clearTimeout(timer); timer = null; };
-    const down = (ev)=>{
-      start = {x: ev.clientX, y: ev.clientY}; pid = ev.pointerId;
-      cancel();
-      timer = setTimeout(()=>{
-        active = true;
-        map.dragging.disable();
-        const el = marker.getElement(); if(el) el.classList.add('fsp-lifted');
-        fsHaptic(15);
-      }, 450);
-    };
-    const move = (ev)=>{
-      if(ev.pointerId !== pid) return;
-      if(!active){ if(start && Math.hypot(ev.clientX-start.x, ev.clientY-start.y) > 8) cancel(); return; }
-      ev.preventDefault();
-      marker.setLatLng(map.mouseEventToLatLng(ev));
-    };
-    const up = (ev)=>{
-      if(ev.pointerId !== pid) return;
-      cancel();
-      if(active){
-        active = false;
-        map.dragging.enable();
-        const el = marker.getElement(); if(el) el.classList.remove('fsp-lifted');
-        onMoved(marker.getLatLng());
-      }
-      pid = null; start = null;
-    };
-    // Neu anbinden, wenn Leaflet das Icon-Element austauscht (setIcon beim Umnummerieren).
-    marker._fsAttachLongPress = ()=>{
-      const el = marker.getElement();
-      if(el && !el._fsLongPress){ el._fsLongPress = true; el.addEventListener('pointerdown', down); }
-    };
-    document.addEventListener('pointermove', move, {passive:false});
-    document.addEventListener('pointerup', up);
-    document.addEventListener('pointercancel', up);
-    marker.once('remove', ()=>{
-      document.removeEventListener('pointermove', move);
-      document.removeEventListener('pointerup', up);
-      document.removeEventListener('pointercancel', up);
-    });
-    if(marker.getElement()) marker._fsAttachLongPress(); else marker.once('add', marker._fsAttachLongPress);
-  }
-  // Neuer Look: Start = weiss mit dunklem Ring, Zwischenpunkt = weiss mit Akzent-Ring und
-  // Nummer, Ziel = Akzentfarbe gefüllt (Farben siehe .fsp-marker in look.css).
-  function makePlannerDivIcon(color, label){
-    const kind = label==='S' ? 'start' : label==='Z' ? 'end' : 'via';
-    return FL.divIcon({
-      className: '', iconSize: [30,30], iconAnchor: [15,15],
-      html: `<div class="fsp-marker fsp-marker-${kind}">${kind==='via' ? (label||'') : ''}</div>`
-    });
-  }
-
-  function invalidatePlannerResult(){
-    plannerResult = null;
-    if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
-    clearPlannerSegs();
-    scheduleAutoPlannerCalc();
-  }
-  // Sobald Start und Ziel stehen, rechnet sich die Route nach jeder Änderung (Punkt gesetzt,
-  // verschoben, entfernt) von selbst neu – kurz verzögert, damit mehrere Änderungen
-  // hintereinander nur eine Anfrage auslösen.
-  let plannerRecalcPending = false;
-  function scheduleAutoPlannerCalc(){
-    clearTimeout(plannerAutoCalcTimer);
-    if(!plannerStart || !plannerEnd) return;
-    if(plannerCalcBusy){ plannerRecalcPending = true; return; }
-    plannerAutoCalcTimer = setTimeout(()=>{ if(!plannerResult) calculatePlannerRoute(); }, 450);
-  }
-  // Tipp auf die Karte bei offener Planung (ohne gewählten Modus): erst Start, dann Ziel,
-  // danach Zwischenpunkte.
-  function plannerTapOnMap(lat, lon){
-    if(!plannerStart){ setPlannerPoint('start', lat, lon, 'Punkt auf der Karte'); return; }
-    if(!plannerEnd){ setPlannerPoint('end', lat, lon, 'Zielpunkt auf der Karte'); return; }
-    if(plannerMode === 'kette'){
-      // Punkt für Punkt: bisheriges Ziel wird zum letzten Zwischenpunkt, der neue Tipp zum Ziel.
-      addPlannerWaypoint(plannerEnd.lat, plannerEnd.lon);
-      setPlannerPoint('end', lat, lon, 'Zielpunkt auf der Karte');
-      return;
-    }
-    addPlannerWaypoint(lat, lon);
-  }
-  // Punkt für Punkt: letzten Schritt zurücknehmen (Ziel weg, letzter Zwischenpunkt wird Ziel).
-  function undoLastPlannerPoint(){
-    if(plannerWaypoints.length){
-      const last = plannerWaypoints[plannerWaypoints.length-1];
-      removePlannerWaypoint(plannerWaypoints.length-1);
-      setPlannerPoint('end', last.lat, last.lon, 'Zielpunkt auf der Karte');
-    }else if(plannerEnd){
-      if(plannerEndMarker){ map.removeLayer(plannerEndMarker); plannerEndMarker = null; }
-      plannerEnd = null;
-      invalidatePlannerResult();
-      renderPlannerPanel();
-    }else if(plannerStart){
-      discardPlannerRoute();
-    }
-  }
-
-  function setPlannerPoint(which, lat, lon, label){
-    const point = {lat, lon, label};
-    if(which==='start'){
-      plannerStart = point;
-      if(plannerStartMarker){
-        plannerStartMarker.setLatLng([lat,lon]);
-      }else{
-        plannerStartMarker = FL.marker([lat,lon], {icon: makePlannerDivIcon('#2F6B44','S')}).addTo(map);
-        makeLongPressDraggable(plannerStartMarker, (ll)=> setPlannerPoint('start', ll.lat, ll.lng, 'Startpunkt (verschoben)'));
-      }
-      plannerStartMarker.unbindTooltip().bindTooltip('Start: ' + label);
-    }else{
-      plannerEnd = point;
-      plannerEndCandidates = null;
-      plannerEndEditing = false;
-      if(plannerEndMarker){
-        plannerEndMarker.setLatLng([lat,lon]);
-      }else{
-        plannerEndMarker = FL.marker([lat,lon], {icon: makePlannerDivIcon('#B0392C','Z')}).addTo(map);
-        makeLongPressDraggable(plannerEndMarker, (ll)=> setPlannerPoint('end', ll.lat, ll.lng, 'Zielpunkt (verschoben)'));
-      }
-      plannerEndMarker.unbindTooltip().bindTooltip('Ziel: ' + label);
-    }
-    // Ein bereits berechnetes Ergebnis wird ungültig, sobald sich ein Punkt ändert.
-    invalidatePlannerResult();
-    renderPlannerPanel();
-  }
-
-  function renumberPlannerWaypointIcons(){
-    plannerWaypoints.forEach((wp,i)=>{ wp.marker.setIcon(makePlannerDivIcon('#1565C0', String(i+1))); if(wp.marker._fsAttachLongPress) wp.marker._fsAttachLongPress(); });
-  }
-
-  function addPlannerWaypoint(lat, lon){
-    const wp = {lat, lon};
-    const marker = FL.marker([lat,lon], {icon: makePlannerDivIcon('#1565C0', String(plannerWaypoints.length+1))}).addTo(map);
-    makeLongPressDraggable(marker, (ll)=>{
-      wp.lat = ll.lat; wp.lon = ll.lng;
-      invalidatePlannerResult();
-      renderPlannerPanel();
-    });
-    wp.marker = marker;
-    plannerWaypoints.push(wp);
-    invalidatePlannerResult();
-    renderPlannerPanel();
-  }
-
-  // Start und Ziel tauschen (Zwischenpunkte in umgekehrter Reihenfolge); steht beides, rechnet
-  // sich die Route gleich neu.
-  function swapPlannerEnds(){
-    const s0 = plannerStart, e0 = plannerEnd;
-    if(!s0 && !e0) return;
-    const relabel = (l, to)=> !l ? l : to==='start'
-      ? l.replace(/^Zielpunkt auf der Karte$/, 'Punkt auf der Karte').replace(/^Zielpunkt \(verschoben\)$/, 'Startpunkt (verschoben)')
-      : l.replace(/^Punkt auf der Karte$/, 'Zielpunkt auf der Karte').replace(/^Startpunkt \(verschoben\)$/, 'Zielpunkt (verschoben)');
-    if(plannerStartMarker){ map.removeLayer(plannerStartMarker); plannerStartMarker = null; }
-    if(plannerEndMarker){ map.removeLayer(plannerEndMarker); plannerEndMarker = null; }
-    plannerStart = null; plannerEnd = null; plannerEndEditing = false; plannerEndCandidates = null;
-    if(plannerPicking === 'start' || plannerPicking === 'end') plannerPicking = null;
-    plannerWaypoints.reverse();
-    renumberPlannerWaypointIcons();
-    if(e0) setPlannerPoint('start', e0.lat, e0.lon, relabel(e0.label, 'start'));
-    if(s0) setPlannerPoint('end', s0.lat, s0.lon, relabel(s0.label, 'end'));
-    fsHaptic(10);
-  }
-
-  function removePlannerWaypoint(index){
-    const wp = plannerWaypoints[index];
-    if(!wp) return;
-    map.removeLayer(wp.marker);
-    plannerWaypoints.splice(index, 1);
-    renumberPlannerWaypointIcons();
-    invalidatePlannerResult();
-    renderPlannerPanel();
-  }
-
-  function useMyLocationAsStart(){
-    if(!navigator.geolocation){ showToast('Geolokalisierung wird von diesem Gerät/Browser nicht unterstützt.', true); return; }
-    showToast('Standort wird ermittelt…');
-    navigator.geolocation.getCurrentPosition(
-      (pos)=> setPlannerPoint('start', pos.coords.latitude, pos.coords.longitude, 'Mein Standort'),
-      ()=> showToast('Standort konnte nicht ermittelt werden.', true),
-      {enableHighAccuracy:true, timeout:10000}
-    );
-  }
-
-  // Zeigt bei Mehrdeutigkeit (z. B. mehrere Orte namens "Bern") eine Trefferliste zur Auswahl,
-  // statt kommentarlos den ersten Treffer zu übernehmen – vorher liess sich nicht nachvollziehen,
-  // welcher Ort tatsächlich gemeint war.
-  async function searchAndSetEnd(query){
-    if(!query || !query.trim()) return;
-    plannerSearchBusy = true; plannerEndCandidates = null; renderPlannerPanel();
-    try{
-      const hits = await geocodePlaces(query.trim(), 5);
-      if(!hits.length) showToast('Kein Ort mit diesem Namen gefunden.', true);
-      else if(hits.length===1) setPlannerPoint('end', hits[0].lat, hits[0].lon, hits[0].label);
-      else plannerEndCandidates = hits;
-    }catch(e){
-      showToast('Suche fehlgeschlagen: ' + (e && e.message ? e.message : e), true);
-    }
-    plannerSearchBusy = false;
-    renderPlannerPanel();
-  }
-
-  function chooseEndCandidate(index){
-    const hit = plannerEndCandidates && plannerEndCandidates[index];
-    if(!hit) return;
-    plannerEndCandidates = null;
-    setPlannerPoint('end', hit.lat, hit.lon, hit.label);
-  }
-
-  async function calculatePlannerRoute(){
-    if(!plannerStart || !plannerEnd || plannerCalcBusy) return;
-    plannerCalcBusy = true; renderPlannerPanel();
-    try{
-      const waypointCoords = plannerWaypoints.map(w=> [w.lat, w.lon]);
-      const coords = [[plannerStart.lat, plannerStart.lon], ...waypointCoords, [plannerEnd.lat, plannerEnd.lon]];
-      const result = plannerProfile === 'ski' ? await fsSkiRoute(coords) : await fetchCalculatedRoute(coords);
-      plannerResult = result;
-      if(plannerRouteLine) map.removeLayer(plannerRouteLine);
-      clearPlannerSegs();
-      const accent = (getComputedStyle(document.documentElement).getPropertyValue('--ice-deep') || '#1E6AA0').trim();
-      if(result.slopes){
-        // Weisser Rand, darüber die Abschnitte in der Farbe ihrer Steilheit
-        plannerRouteLine = FL.polyline(result.coords, {color:'#ffffff', weight:9, opacity:0.9, lineCap:'round', lineJoin:'round'}).addTo(map);
-        let from = 0;
-        for(let i = 1; i <= result.coords.length - 1; i++){
-          const c = fsSkiClass(Math.max(result.slopes[i - 1], result.slopes[i]));
-          const next = i < result.coords.length - 1 ? fsSkiClass(Math.max(result.slopes[i], result.slopes[i + 1])) : -1;
-          if(next !== c){
-            plannerSegLines.push(FL.polyline(result.coords.slice(from, i + 1), {color: FS_SKI_CLASSES[c].color || accent, weight:5, opacity:1, lineCap:'round', lineJoin:'round'}).addTo(map));
-            from = i;
-          }
-        }
-      }else
-      plannerRouteLine = FL.polyline(result.coords, {color:accent, weight:6, opacity:0.95, lineCap:'round', lineJoin:'round'}).addTo(map);
-      map.fitBounds(plannerRouteLine.getBounds(), {paddingTopLeft:[40,80], paddingBottomRight:[40, Math.round(plannerPanel.offsetHeight||0) + 30]});
-    }catch(e){
-      { const msg = String(e && e.message ? e.message : e); showToast(/^Route konnte nicht/.test(msg) ? msg : 'Route konnte nicht berechnet werden: ' + msg, true); }
-    }
-    plannerCalcBusy = false;
-    // Wurde während der Berechnung ein Punkt verändert, gilt das Ergebnis nicht mehr.
-    if(plannerRecalcPending){ plannerRecalcPending = false; invalidatePlannerResult(); }
-    renderPlannerPanel();
-  }
-
-  function discardPlannerRoute(){
-    clearTimeout(plannerAutoCalcTimer); plannerRecalcPending = false;
-    plannerWaypoints.forEach(wp=> map.removeLayer(wp.marker));
-    plannerWaypoints = [];
-    if(plannerStartMarker){ map.removeLayer(plannerStartMarker); plannerStartMarker = null; }
-    if(plannerEndMarker){ map.removeLayer(plannerEndMarker); plannerEndMarker = null; }
-    plannerStart = null; plannerEnd = null; plannerPicking = null; plannerEndCandidates = null; plannerEndEditing = false;
-    plannerResult = null;
-    if(plannerRouteLine){ map.removeLayer(plannerRouteLine); plannerRouteLine = null; }
-    clearPlannerSegs();
-    renderPlannerPanel();
-  }
-
-  // Legt aus Start/Ziel/berechneter Route einen neuen Tour-Entwurf an (Status "entwurf") –
-  // Felder analog zu einer über das normale Formular neu angelegten Tour, damit die Anzeige
-  // (Kartenübersicht, Detailansicht) ohne Sonderfälle funktioniert. In Fixseil zusätzlich mit
-  // den MSL/Hochtour-spezifischen Feldern (leer/neutral), da tourCategory dort Pflicht ist.
-  // Lesbarer Name der geplanten Route (ohne echte Ortsnamen: «Neue Route <Datum>»)
-  function plannerRouteName(){
-    const generic = /auf der Karte|\(verschoben\)|^Mein Standort$/;
-    return (generic.test(plannerStart.label) && generic.test(plannerEnd.label))
-      ? 'Neue Route ' + new Date().toLocaleDateString('de-CH')
-      : (plannerStart.label + ' → ' + plannerEnd.label).slice(0, 120);
-  }
-  function plannerGpx(){
-    if(!plannerResult || !plannerResult.coords || !plannerResult.coords.length) return;
-    downloadTrackAsGpx(plannerResult.coords, plannerRouteName().replace(' → ', ' - '));
-  }
-  // Link mit Start, Zwischenpunkten und Ziel: öffnet beim Empfänger den Planer, der die Route neu rechnet
-  async function plannerShareLink(){
-    if(!plannerStart || !plannerEnd) return;
-    const f = v=> (+v).toFixed(5);
-    const pts = [plannerStart, ...plannerWaypoints, plannerEnd].map(p=> f(p.lat) + ',' + f(p.lon)).join('~');
-    const generic = /auf der Karte|\(verschoben\)|^Mein Standort$/;
-    const lbl = p=> generic.test(p.label || '') ? '' : (p.label || '');
-    const d = new URLSearchParams(location.search).get('d');
-    const qs = new URLSearchParams();
-    if(d) qs.set('d', d);
-    qs.set('plan', pts);
-    if(lbl(plannerStart) || lbl(plannerEnd)) qs.set('pn', lbl(plannerStart) + '|' + lbl(plannerEnd));
-    const url = location.origin + location.pathname + '?' + qs.toString().replace(/%2C/g, ',').replace(/%7E/g, '~');
-    const title = plannerRouteName();
-    try{
-      if(navigator.share){ await navigator.share({title, text: title, url}); return; }
-    }catch(e){ if(e && e.name === 'AbortError') return; }
-    try{ await navigator.clipboard.writeText(url); showToast('Link kopiert.'); }
-    catch(e){ prompt('Link zum Kopieren:', url); }
-  }
-
-  function savePlannerRouteAsDraft(){
-    if(!plannerStart || !plannerEnd) return;
-    ensureName(()=>{
-      const isFixseilAppNow = typeof SEKTOREN_PATH !== 'undefined';
-      // Ohne echte Ortsnamen (nur auf der Karte getippt) ein lesbarer Name statt
-      // "Punkt auf der Karte → Zielpunkt auf der Karte".
-      const name = plannerRouteName();
-      const t = {
-        id: uid('t'), name, routeName: '',
-        difficulty: '', targetAltitude: '',
-        elevationGain: plannerResult && typeof plannerResult.ascentM==='number' ? String(Math.round(plannerResult.ascentM)) : '',
-        elevationLoss: plannerResult && typeof plannerResult.descentM==='number' ? String(Math.round(plannerResult.descentM)) : '',
-        duration: plannerResult && typeof plannerResult.durationS==='number' ? formatDurationHM(plannerResult.durationS) : '',
-        region: '', subregion: '',
-        material: [], exposition: [], gefahren: [],
-        glacier: 'nein', ropeType: '', ropeLength: '',
-        approachTypes: [], stayTypes: [],
-        points: [
-          {label: plannerStart.label, lat: plannerStart.lat, lon: plannerStart.lon, category: ''},
-          ...plannerWaypoints.map((w,i)=> ({label: 'Zwischenpunkt ' + (i+1), lat: w.lat, lon: w.lon, category: ''})),
-          {label: plannerEnd.label, lat: plannerEnd.lat, lon: plannerEnd.lon, category: ''}
-        ],
-        manualTrack: plannerResult ? plannerResult.coords : [],
-        hutId: '', tourLink: '', gpxLink: '',
-        crux: '', special: '', approach: '', ascent: '', descent: '',
-        status: 'idee', conditions: null, completions: [],
-        createdBy: state.myName, createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(), updatedBy: state.myName
-      };
-      if(fsAppKey() === 'wandern'){
-        t.tourCategory = 'wanderung';
-        t.dog = ''; t.tourShape = '';
-      }
-      if(isFixseilAppNow){
-        t.tourCategory = 'hochtour';
-        t.climbGrade = ''; t.crevasseRisk = 'nein';
-        t.mandatoryDifficulty = ''; t.cruxDifficulty = ''; t.pitchCount = ''; t.longestPitch = ''; t.protection = '';
-        t.descentType = ''; t.sektorId = ''; t.quickdrawCount = ''; t.topoImages = [];
-        t.accessRoutes = []; t.descentRoutes = [];
-      }
-      state.tours.unshift(t);
-      closeTopOverlayLayer();
-      render();
-      saveTourCloud(t).then(ok=>{
-        if(!ok){ t._unsynced = true; markUnsaved(); showToast('Entwurf lokal gespeichert, aber nicht synchronisiert.', true); }
-        else showToast('Als Tour-Entwurf gespeichert – Details kannst du jetzt ergänzen.');
-        render();
-      }).catch(()=>{ t._unsynced = true; markUnsaved(); render(); });
-      if(typeof openTourDetail === 'function') openTourDetail(t.id);
-    });
-  }
-
-
-  // Neuer Look (Schritt 3): ruhige Stationen-Liste statt Formular, Punkte direkt auf der Karte
-  // antippen (erst Start, dann Ziel, danach Zwischenpunkte, siehe plannerTapOnMap), Route rechnet
-  // sich automatisch neu, sobald sich ein Punkt ändert (scheduleAutoPlannerCalc).
-  function plannerHintText(){
-    if(plannerPicking==='start') return 'Tippe auf die Karte, um den Start zu setzen.';
-    if(plannerPicking==='end') return 'Tippe auf die Karte, um das Ziel zu setzen.';
-    if(plannerPicking==='waypoint') return 'Tippe auf die Karte für weitere Zwischenpunkte.';
-    if(!plannerStart) return 'Tippe auf die Karte, um den Start zu setzen, oder nimm deinen Standort.';
-    if(!plannerEnd) return plannerMode === 'kette' ? 'Tippe den nächsten Punkt auf die Karte.' : 'Tippe auf die Karte oder suche einen Ort für das Ziel.';
-    if(plannerCalcBusy) return plannerProfile === 'ski' ? 'Gelände wird geladen, Spur wird berechnet …' : 'Route wird berechnet …';
-    if(plannerMode === 'kette') return 'Jeder Tipp auf die Karte verlängert die Route. Zum Verschieben einen Punkt lange drücken.';
-    if(!plannerResult) return '';
-    return 'Weitere Tipps auf die Karte setzen Zwischenpunkte. Zum Verschieben einen Punkt lange drücken.';
-  }
-  // Start/Ziel als Suchfelder: beim Antippen "Mein Standort", "Auf der Karte wählen" und die
-  // zuletzt benutzten Orte, beim Tippen laufend Vorschläge (eigene Einträge sofort und offline,
-  // darunter Orte/Berge/Hütten aus der swisstopo-Suche – dieselbe Quelle wie die Lupe oben).
-  let plannerWpOpen = false;
-  let plannerSuggSeq = 0, plannerSuggTimer = null;
-  function plannerStopFieldHtml(which){
-    const p = which==='start' ? plannerStart : plannerEnd;
-    const picking = plannerPicking===which;
-    return `<div class="fsp-stop">
-      <span class="fsp-dot ${which==='start' ? 'fsp-dot-start' : 'fsp-dot-end'}" aria-hidden="true"></span>
-      <div class="fsp-stop-body">
-        <div class="fsp-k">${which==='start' ? 'Start' : 'Ziel'}</div>
-        <input type="text" class="fsp-field" data-planner-field="${which}" value="${p ? esc(p.label) : ''}"
-          placeholder="${picking ? 'Tippe auf die Karte …' : 'Ort, Hütte oder Gipfel'}" aria-label="${which==='start' ? 'Start suchen' : 'Ziel suchen'}" autocomplete="off" enterkeyhint="search"/>
-      </div>
-      ${p ? `<button type="button" class="fsp-icon fsp-clear" data-act="planner-clear" data-which="${which}" aria-label="${which==='start' ? 'Start' : 'Ziel'} entfernen" title="Entfernen">${fsIconHtml('x')}</button>` : ''}
-    </div>`;
-  }
-  function plannerRecent(){ try{ return JSON.parse(localStorage.getItem('fs-planner-recent')||'[]'); }catch(e){ return []; } }
-  function plannerRememberRecent(label, lat, lon){
-    if(!label || /auf der Karte|verschoben|^Mein Standort$/.test(label)) return;
-    try{
-      const list = plannerRecent().filter(r=> r.label!==label);
-      list.unshift({label, lat, lon});
-      localStorage.setItem('fs-planner-recent', JSON.stringify(list.slice(0,5)));
-    }catch(e){}
-  }
-  function plannerSuggButtonsHtml(items){
-    return items.map((it,i)=>`<button type="button" class="fsp-sugg-item" data-sugg-index="${i}">
-      <span class="fsp-sugg-ic">${fsIconHtml(it.icon||'pin')}</span><span class="fsp-sugg-label">${esc(it.label)}</span>${it.sub ? `<span class="fsp-sugg-sub">${esc(it.sub)}</span>` : ''}
-    </button>`).join('');
-  }
-  function showPlannerSuggestions(which, query){
-    const box = plannerPanel.querySelector('#fsp-sugg-' + which);
-    if(!box) return;
-    const q = (query||'').trim();
-    const base = [
-      ...(which==='start' ? [{icon:'gps', label:'Mein Standort', action:'gps'}] : []),
-      {icon:'map', label:'Auf der Karte wählen', action:'map'}
-    ];
-    const pick = (items, status)=>{
-      box.hidden = false;
-      box.innerHTML = plannerSuggButtonsHtml(items) + (status ? `<div class="fsp-sugg-status">${esc(status)}</div>` : '');
-      box.querySelectorAll('[data-sugg-index]').forEach(btn=>{
-        // pointerdown statt click: sonst schliesst das Blur des Eingabefelds die Liste zuerst.
-        btn.addEventListener('pointerdown', (ev)=>{
-          ev.preventDefault();
-          const it = items[parseInt(btn.getAttribute('data-sugg-index'), 10)];
-          box.hidden = true;
-          const inp = plannerPanel.querySelector('[data-planner-field="' + which + '"]'); if(inp) inp.blur();
-          if(it.action==='gps'){ plannerStartMode = 'gps'; plannerPicking = null; useMyLocationAsStart(); return; }
-          if(it.action==='map'){ plannerPicking = which; addPointPicking = false; renderAddPointBtn(); renderPlannerPanel(); showToast(which==='start' ? 'Tippe auf die Karte, um den Start zu setzen.' : 'Tippe auf die Karte, um das Ziel zu setzen.'); return; }
-          plannerRememberRecent(it.label, it.lat, it.lon);
-          setPlannerPoint(which, it.lat, it.lon, it.label);
-          map.setView([it.lat, it.lon], Math.max(map.getZoom(), 13));
-        });
-      });
-    };
-    if(!q){
-      const recent = plannerRecent().map(r=>({icon:'clock', label:r.label, lat:r.lat, lon:r.lon, sub:'zuletzt'}));
-      pick([...base, ...recent]);
-      return;
-    }
-    const local = searchIndex.filter(e=> e.name.toLowerCase().includes(q.toLowerCase())).slice(0,6)
-      .map(e=>({icon:'pin', label:e.name, lat:e.coords[0], lon:e.coords[1], sub:'eigener Eintrag'}));
-    pick([...local, ...base], 'Suche online …');
-    const seq = ++plannerSuggSeq;
-    clearTimeout(plannerSuggTimer);
-    plannerSuggTimer = setTimeout(async ()=>{
-      try{
-        const res = await fetch('https://api3.geo.admin.ch/rest/services/api/SearchServer?type=locations&limit=8&sr=4326&searchText=' + encodeURIComponent(q));
-        if(seq !== plannerSuggSeq) return;
-        const data = await res.json();
-        const online = (data.results||[]).map(r=>r.attrs||{}).filter(a=>a.lat!=null && a.lon!=null)
-          .map(a=>({icon:'pin', label:(a.label||q).replace(/<[^>]+>/g,''), lat:a.lat, lon:a.lon}));
-        pick([...local, ...online, ...base], (local.length || online.length) ? '' : 'Keine Treffer.');
-      }catch(e){
-        if(seq !== plannerSuggSeq) return;
-        pick([...local, ...base], 'Offline – nur eigene Einträge durchsucht.');
-      }
-    }, 300);
-  }
-  function clearPlannerPoint(which){
-    if(which==='start'){ if(plannerStartMarker){ map.removeLayer(plannerStartMarker); plannerStartMarker = null; } plannerStart = null; }
-    else{ if(plannerEndMarker){ map.removeLayer(plannerEndMarker); plannerEndMarker = null; } plannerEnd = null; }
-    invalidatePlannerResult();
-    renderPlannerPanel();
-  }
-  function renderPlannerPanel(){
-    const accent = (getComputedStyle(document.documentElement).getPropertyValue('--ice-deep') || '#1E6AA0').trim();
-    if(plannerRouteLine && !(plannerResult && plannerResult.slopes)) plannerRouteLine.setStyle({color: accent});
-    if(!plannerExpanded){
-      plannerPanel.className = 'fsp fsp-collapsed fsp-home';
-      plannerPanel.style.cssText = '';
-      plannerPanel.innerHTML = `<button type="button" class="fsp-fab" data-act="planner-toggle" aria-label="Planung aufklappen">${fsIconHtml('compass')}Route planen${plannerResult && typeof plannerResult.distanceM === 'number' ? ' · ' + (plannerResult.distanceM / 1000).toFixed(1).replace('.', ',') + ' km' : ''}</button><button type="button" class="fsp-fab fsp-fab-x" data-act="planner-close" aria-label="Planung beenden">${fsIconHtml('x')}</button>`;
-      wirePlannerPanel();
-      return;
-    }
-    plannerPanel.className = 'fsp fsp-open fsp-home';
-    plannerPanel.style.cssText = '';
-    const showEndInput = !plannerEnd || plannerEndEditing;
-    const hint = plannerHintText();
-    const km = plannerResult && typeof plannerResult.distanceM==='number' ? (plannerResult.distanceM>=1000 ? (plannerResult.distanceM/1000).toFixed(1).replace('.',',') : String(Math.round(plannerResult.distanceM))) : null;
-    const kmUnit = plannerResult && plannerResult.distanceM>=1000 ? 'km' : 'm';
-    plannerPanel.innerHTML = `
-      <div class="fsp-head">
-        <span class="fsp-grip" aria-hidden="true"></span>
-        <h3>Route planen</h3>
-        <span class="fsp-head-btns"><button type="button" class="fsp-x" data-act="planner-toggle" aria-label="Planung einklappen">${fsIconHtml('chevdown')}</button><button type="button" class="fsp-x" data-act="planner-close" aria-label="Planung beenden">${fsIconHtml('x')}</button></span>
-      </div>
-      <div class="fsp-mode fsp-profile-sel" role="group" aria-label="Art der Route">
-        <button type="button" data-act="planner-profile" data-profile="ski" aria-pressed="${plannerProfile==='ski'}" class="${plannerProfile==='ski'?'on':''}">${fsIconHtml('snow').replace(/ fs-wx-\w+/, '')}Skitour (weglos)</button>
-        <button type="button" data-act="planner-profile" data-profile="weg" aria-pressed="${plannerProfile==='weg'}" class="${plannerProfile==='weg'?'on':''}">${fsIconHtml('walk')}Auf Wegen</button>
-      </div>
-      <div class="fsp-mode" role="group" aria-label="Art der Planung">
-        <button type="button" data-act="planner-mode" data-mode="ziel" aria-pressed="${plannerMode==='ziel'}" class="${plannerMode==='ziel'?'on':''}">Start → Ziel</button>
-        <button type="button" data-act="planner-mode" data-mode="kette" aria-pressed="${plannerMode==='kette'}" class="${plannerMode==='kette'?'on':''}">Punkt für Punkt</button>
-      </div>
-      <div class="fsp-stops${(plannerStart || plannerEnd) ? ' fsp-has-swap' : ''}">
-        ${(plannerStart || plannerEnd) ? `<button type="button" class="fsp-icon fsp-swap" data-act="planner-swap" aria-label="Start und Ziel tauschen" title="Start und Ziel tauschen">${fsIconHtml('swap')}</button>` : ''}
-        ${plannerStopFieldHtml('start')}
-        <div class="fsp-sugg" id="fsp-sugg-start" hidden></div>
-        ${plannerWaypoints.length > 2 && !plannerWpOpen ? `
-        <button type="button" class="fsp-stop fsp-wp-summary" data-act="planner-wp-toggle" aria-expanded="false">
-          <span class="fsp-dot fsp-dot-via" aria-hidden="true">${plannerWaypoints.length}</span>
-          <span class="fsp-stop-body"><span class="fsp-v">${plannerWaypoints.length} Zwischenpunkte</span></span>
-          <span class="fsp-chev" aria-hidden="true"></span>
-        </button>` : plannerWaypoints.map((wp,i)=>`
-        <div class="fsp-stop">
-          <span class="fsp-dot fsp-dot-via" aria-hidden="true">${i+1}</span>
-          <div class="fsp-stop-body"><div class="fsp-v">Zwischenpunkt ${i+1}</div></div>
-          <div class="fsp-stop-actions">
-            ${i===0 && plannerWaypoints.length > 2 ? `<button type="button" class="fsp-icon" data-act="planner-wp-toggle" aria-label="Zwischenpunkte zuklappen" title="Zuklappen">${fsIconHtml('chevdown')}</button>` : ''}
-            <button type="button" class="fsp-icon" data-act="planner-waypoint-remove" data-index="${i}" aria-label="Zwischenpunkt ${i+1} entfernen" title="Entfernen">${fsIconHtml('x')}</button>
-          </div>
-        </div>`).join('')}
-        ${plannerStopFieldHtml('end')}
-        <div class="fsp-sugg" id="fsp-sugg-end" hidden></div>
-        ${plannerMode==='kette'
-          ? `<button type="button" class="fsp-add" data-act="planner-undo" ${plannerStart ? '' : 'disabled'}>${fsIconHtml('undo')}Letzten Punkt zurück</button>`
-          : `<button type="button" class="fsp-add ${plannerPicking==='waypoint'?'on':''}" data-act="planner-add-waypoint">${fsIconHtml('plus')}${plannerPicking==='waypoint' ? 'Fertig mit Zwischenpunkten' : 'Zwischenpunkt setzen'}</button>`}
-      </div>
-      ${hint ? `<p class="fsp-hint">${esc(hint)}</p>` : ''}
-      ${plannerResult ? `
-        <div class="fsp-stats">
-          ${km!==null ? `<div><b>${km}</b><span>${kmUnit}</span></div>` : ''}
-          <div><b>${Math.round(plannerResult.ascentM||0)}</b><span>Hm auf</span></div>
-          <div><b>${Math.round(plannerResult.descentM||0)}</b><span>Hm ab</span></div>
-          ${typeof plannerResult.durationS==='number' ? `<div><b>${Math.floor(plannerResult.durationS/3600)}:${String(Math.round(plannerResult.durationS/60)%60).padStart(2,'0')}</b><span>Std</span></div>` : ''}
-        </div>
-        <div class="fsp-profile">${elevationProfileSvgHtml(plannerResult.elevationProfile)}</div>
-        ${plannerResult.slopes ? `
-        <p class="fsp-ski-facts">Steilste Stelle ${Math.round(plannerResult.maxSlope)}° · ${plannerResult.over30M >= 10 ? Math.round(plannerResult.over30M / 10) * 10 + ' m über 30°' : 'nichts über 30°'} · ${plannerResult.kehren} Spitzkehren${plannerResult.stapfenHm >= 10 ? ' · Stapfen ca. ' + Math.round(plannerResult.stapfenHm / 10) * 10 + ' Hm' : ''}</p>
-        <div class="fsp-ski-legend" aria-label="Farben der Linie nach Steilheit">${FS_SKI_CLASSES.map(c=> `<span><i style="background:${c.color || 'var(--ice-deep)'}"></i>${c.label}</span>`).join('')}</div>
-        <p class="fsp-note">Vorschlag aus dem Gelände (${plannerResult.swiss ? 'swisstopo-Höhenmodell' : 'grobes Höhenmodell'}), Aufstieg 400 Hm/h ohne Pausen. Ersetzt keine Beurteilung von Lawinengefahr und Verhältnissen.</p>` : `
-        <p class="fsp-note">Grobe Schätzung, ohne Pausen.</p>`}
-        <div class="fsp-share">
-          <button type="button" class="btn secondary" data-act="planner-gpx">${fsIconHtml('download')}GPX</button>
-          <button type="button" class="btn secondary" data-act="planner-link">${fsIconHtml('link')}Link teilen</button>
-        </div>
-      ` : ''}
-      <div class="fsp-actions">
-        ${(plannerStart || plannerEnd || plannerWaypoints.length) ? `<button type="button" class="fsp-icon fsp-icon-lg" data-act="planner-discard" aria-label="Route verwerfen" title="Verwerfen">${fsIconHtml('trash')}</button>` : ''}
-        ${plannerResult
-          ? `<button type="button" class="btn" data-act="planner-save">Als Tour speichern</button>`
-          : `<button type="button" class="btn" data-act="planner-calc" ${canCalcPlanner() ? '' : 'disabled'}>${plannerCalcBusy ? 'Berechne …' : 'Route berechnen'}</button>`}
-      </div>
-    `;
-    wirePlannerPanel();
-  }
-  function canCalcPlanner(){ return !!(plannerStart && plannerEnd && !plannerCalcBusy); }
-
-  function wirePlannerPanel(){
-    const closeBtn = plannerPanel.querySelector('[data-act="planner-close"]');
-    if(closeBtn) closeBtn.onclick = ()=> fsPlannerClose();
-    const toggleBtn = plannerPanel.querySelector('[data-act="planner-toggle"]');
-    if(toggleBtn) toggleBtn.onclick = ()=>{
-      plannerExpanded = !plannerExpanded;
-      renderPlannerPanel();
-    };
-    const startGpsBtn = plannerPanel.querySelector('[data-act="planner-start-gps"]');
-    if(startGpsBtn) startGpsBtn.onclick = ()=>{ plannerStartMode = 'gps'; plannerPicking = null; useMyLocationAsStart(); };
-    const startMapBtn = plannerPanel.querySelector('[data-act="planner-start-map"]');
-    if(startMapBtn) startMapBtn.onclick = ()=>{ plannerStartMode = 'map'; plannerPicking = 'start'; addPointPicking = false; renderAddPointBtn(); renderPlannerPanel(); showToast('Tippe auf die Karte, um den Startpunkt zu setzen.'); };
-    const endMapBtn = plannerPanel.querySelector('[data-act="planner-end-map"]');
-    if(endMapBtn) endMapBtn.onclick = ()=>{ plannerEndMode = 'map'; plannerPicking = 'end'; addPointPicking = false; renderAddPointBtn(); renderPlannerPanel(); showToast('Tippe auf die Karte, um den Zielpunkt zu setzen.'); };
-    const addWaypointBtn = plannerPanel.querySelector('[data-act="planner-add-waypoint"]');
-    if(addWaypointBtn) addWaypointBtn.onclick = ()=>{
-      // Erneutes Antippen beendet den (sonst dauerhaften) Auswahlmodus wieder.
-      plannerPicking = (plannerPicking==='waypoint') ? null : 'waypoint';
-      addPointPicking = false; renderAddPointBtn();
-      renderPlannerPanel();
-      if(plannerPicking==='waypoint') showToast('Tippe auf die Karte, um Zwischenpunkte zu setzen.');
-    };
-    plannerPanel.querySelectorAll('[data-act="planner-waypoint-remove"]').forEach(btn=>{
-      btn.onclick = ()=> removePlannerWaypoint(parseInt(btn.getAttribute('data-index'), 10));
-    });
-    const searchInput = plannerPanel.querySelector('#planner-search-input');
-    if(searchInput){
-      searchInput.value = plannerEndQuery;
-      searchInput.oninput = (e)=>{ plannerEndQuery = e.target.value; };
-      searchInput.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); searchAndSetEnd(plannerEndQuery); } };
-    }
-    const searchBtn = plannerPanel.querySelector('[data-act="planner-search-btn"]');
-    if(searchBtn) searchBtn.onclick = ()=> searchAndSetEnd(plannerEndQuery);
-    const searchForm = plannerPanel.querySelector('[data-act="planner-search-form"]');
-    if(searchForm) searchForm.onsubmit = (e)=>{ e.preventDefault(); searchAndSetEnd(plannerEndQuery); };
-    plannerPanel.querySelectorAll('[data-act="planner-profile"]').forEach(btn=>{
-      btn.onclick = ()=>{
-        const v = btn.getAttribute('data-profile');
-        if(v === plannerProfile) return;
-        plannerProfile = v;
-        try{ localStorage.setItem('fs-planner-profile', v); }catch(e){}
-        invalidatePlannerResult(); renderPlannerPanel();
-      };
-    });
-    plannerPanel.querySelectorAll('[data-act="planner-mode"]').forEach(btn=>{
-      btn.onclick = ()=>{ plannerMode = btn.getAttribute('data-mode'); plannerPicking = null; renderPlannerPanel(); };
-    });
-    plannerPanel.querySelectorAll('[data-planner-field]').forEach(inp=>{
-      const which = inp.getAttribute('data-planner-field');
-      inp.addEventListener('focus', ()=>{ inp.select(); showPlannerSuggestions(which, ''); });
-      inp.addEventListener('input', ()=> showPlannerSuggestions(which, inp.value));
-      inp.addEventListener('blur', ()=>{ setTimeout(()=>{ const box = plannerPanel.querySelector('#fsp-sugg-' + which); if(box) box.hidden = true; }, 150); });
-      inp.addEventListener('keydown', (e)=>{
-        if(e.key==='Enter'){ e.preventDefault(); const first = plannerPanel.querySelector('#fsp-sugg-' + which + ' [data-sugg-index]'); if(first) first.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true})); }
-      });
-    });
-    const swapBtn = plannerPanel.querySelector('[data-act="planner-swap"]');
-    if(swapBtn) swapBtn.onclick = swapPlannerEnds;
-    plannerPanel.querySelectorAll('[data-act="planner-clear"]').forEach(btn=>{ btn.onclick = ()=> clearPlannerPoint(btn.getAttribute('data-which')); });
-    plannerPanel.querySelectorAll('[data-act="planner-wp-toggle"]').forEach(btn=>{ btn.onclick = ()=>{ plannerWpOpen = !plannerWpOpen; renderPlannerPanel(); }; });
-    const undoBtn = plannerPanel.querySelector('[data-act="planner-undo"]');
-    if(undoBtn) undoBtn.onclick = undoLastPlannerPoint;
-    const endEditBtn = plannerPanel.querySelector('[data-act="planner-end-edit"]');
-    if(endEditBtn) endEditBtn.onclick = ()=>{ plannerEndEditing = true; renderPlannerPanel(); const i = plannerPanel.querySelector('#planner-search-input'); if(i) i.focus(); };
-    plannerPanel.querySelectorAll('[data-act="planner-end-candidate"]').forEach(btn=>{
-      btn.onclick = ()=> chooseEndCandidate(parseInt(btn.getAttribute('data-index'), 10));
-    });
-    const calcBtn = plannerPanel.querySelector('[data-act="planner-calc"]');
-    if(calcBtn) calcBtn.onclick = calculatePlannerRoute;
-    const discardBtn = plannerPanel.querySelector('[data-act="planner-discard"]');
-    if(discardBtn) discardBtn.onclick = discardPlannerRoute;
-    const gpxBtn = plannerPanel.querySelector('[data-act="planner-gpx"]');
-    if(gpxBtn) gpxBtn.onclick = plannerGpx;
-    const linkBtn = plannerPanel.querySelector('[data-act="planner-link"]');
-    if(linkBtn) linkBtn.onclick = plannerShareLink;
-    const saveBtn = plannerPanel.querySelector('[data-act="planner-save"]');
-    if(saveBtn) saveBtn.onclick = savePlannerRouteAsDraft;
-  }
-
-  map.on('click', (e)=>{
-    if(!plannerExpanded) return; // eingeklappt: Karte frei bedienen
-    if(plannerPicking){
-      if(plannerPicking === 'waypoint'){ addPlannerWaypoint(e.latlng.lat, e.latlng.lng); return; }
-      const which = plannerPicking;
-      plannerPicking = null;
-      setPlannerPoint(which, e.latlng.lat, e.latlng.lng, which === 'start' ? 'Punkt auf der Karte' : 'Zielpunkt auf der Karte');
-      return;
-    }
-    plannerTapOnMap(e.latlng.lat, e.latlng.lng);
-  });
-  ml._fsInfoBlock = ()=> plannerExpanded; // Tipps gehören der Planung, keine Infos der Karte
-  plannerExpanded = true;
-  // Ebenen bleiben, wie man sie gewählt hat (Wanderwege lassen sich im Ebenen-Fenster zuschalten)
-  renderPlannerPanel();
-  if(from) setPlannerPoint('start', from.lat, from.lng, 'Punkt auf der Karte');
-  // Geteilter Link: Start, Zwischenpunkte, Ziel setzen (die Route rechnet sich danach selbst)
-  if(preset && preset.length >= 2){
-    const a = preset[0], z = preset[preset.length - 1];
-    setPlannerPoint('start', a.lat, a.lon, a.label || 'Punkt auf der Karte');
-    preset.slice(1, -1).forEach(p=> addPlannerWaypoint(p.lat, p.lon));
-    setPlannerPoint('end', z.lat, z.lon, z.label || 'Zielpunkt auf der Karte');
-    try{ fsmFit(ml, preset.map(p=> [p.lat, p.lon]), {top: 90, bottom: Math.round(innerHeight * 0.55), left: 40, right: 40}, 14); }catch(e){}
-  }
-  const layer = ()=> fsPlannerClose(true);
-  fsPlanner = {
-    layer,
-    hasPoints: ()=> !!(plannerStart || plannerEnd || plannerWaypoints.length),
-    close: ()=>{
-      try{ discardPlannerRoute(); }catch(e){}
-      plannerPanel.remove();
-      map.detach();
-      ml._fsInfoBlock = null;
-      root.classList.remove('fs-planning');
-    }
-  };
-  pushOverlayLayer(layer);
 }
 // Suche auf der Karte: eigene Einträge der Startkarte sofort, Berge, Hütten und Orte über die
 // swisstopo-Suche (braucht Internet). Ein eigener Treffer zeigt seine Kurzinfo, ein Ort eine Markierung.
@@ -12613,12 +11903,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       showToast('Richtung umgekehrt.');
     }
     // Mehrere Anker auf einmal (Planer: Start → Ziel); jeder Abschnitt mit «Verbinden als»
-    function drawSetAnchors(list){
+    function drawSetAnchors(list, modes){
       if(usingGpxTrack || !list || list.length < 1) return;
       pushUndo();
       manualTrack = [list[0]];
       drawSegs = [];
-      for(let i = 1; i < list.length; i++) drawSegs.push({mode: drawConnect, coords: [list[i - 1], list[i]]});
+      for(let i = 1; i < list.length; i++) drawSegs.push({mode: (modes && modes[i - 1]) || drawConnect, coords: [list[i - 1], list[i]]});
       if(drawSegs.length){ manualTrack = drawJoin(drawSegs); redrawLine(); drawRecompute(drawSegs.map((_, i)=> i)); }
       else{ if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs; redrawLine(); persistTrack(); }
     }
@@ -24223,6 +23513,7 @@ const FS_ICON_PATHS = {
   search: 'M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14zM20 20l-4-4',
   download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
   upload: 'M12 16V4M7 9l5-5 5 5M5 20h14',
+  share: 'M15 5a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M15 19a3 3 0 1 0 6 0a3 3 0 1 0-6 0M8.6 10.5l6.8-4M8.6 13.5l6.8 4',
   car: 'M4 16v-4l2-5h12l2 5v4zM4 12h16M6 16v3h2v-3M16 16v3h2v-3M7.5 14h.5M16 14h.5',
   partly: 'M8 3.5V5M3.5 8H5M4.8 4.8l1 1M11.2 4.8l-1 1M5.3 10.8A3.5 3.5 0 1 1 11.4 7.6M9 20h9a3.5 3.5 0 0 0 0-7 5 5 0 0 0-9.6 1.2A3 3 0 0 0 9 20z',
   note: 'M9 3.5h6v3H9zM7.5 5H5.5v16h13V5h-2M8.5 11h7M8.5 15h5',
@@ -25228,7 +24519,10 @@ function fsPlanDraw(o){
     const api = m && m._fsDrawApi;
     if(!api){ if(++tries < 60) setTimeout(ready, 150); return; }
     const cb = document.getElementById('fullscreen-map-close'); if(cb) cb.innerHTML = fsIconHtml('check') + 'Fertig';
-    if(o.pts && o.pts.length > 1) api.setAnchors(o.pts.map(p=> [+p.lat, +p.lon]));
+    if(o.pts && o.pts.length > 1){
+      api.setAnchors(o.pts.map(p=> [+p.lat, +p.lon]), o.modes);
+      try{ fsmFit(fsHomeMap, o.pts.map(p=> [+p.lat, +p.lon]), {top: 120, bottom: 260, left: 40, right: 40}, 14); }catch(e){}
+    }
     else if(o.to){
       const to = [+o.to.lat, +(o.to.lng != null ? o.to.lng : o.to.lon)];
       if(!navigator.geolocation){ api.add(to[0], to[1]); return; }
@@ -25256,6 +24550,7 @@ function fsPlanDone(){
     <div class="fs-plan-done">
       <button type="button" class="btn" data-new>${fsIconHtml('plus')}Als neue Tour speichern</button>
       <div data-attach></div>
+      <div class="fs-plan-done-row"><button type="button" class="btn secondary" data-share>${fsIconHtml('share')}Teilen</button><button type="button" class="btn secondary" data-gpx>${fsIconHtml('download')}GPX</button></div>
       <div class="fs-plan-done-row"><button type="button" class="btn secondary" data-more>${fsIconHtml('edit')}Weiter zeichnen</button><button type="button" class="btn secondary" data-drop>Verwerfen</button></div>
     </div>`);
   const att = fsTrackAttachUi(line, 'Geplante Route', null, type, {plan});
@@ -25267,7 +24562,32 @@ function fsPlanDone(){
     setTimeout(()=> ensureName(()=>{ state.modal = {type: 'edit-tour', payload}; render(); }), 250);
   });
   ov.querySelector('[data-more]').addEventListener('click', ()=>{ closeTopOverlayLayer(); setTimeout(()=> fsPlanDraw({line, plan, areas}), 250); });
+  ov.querySelector('[data-share]').addEventListener('click', ()=> fsPlanShare(line, plan));
+  ov.querySelector('[data-gpx]').addEventListener('click', ()=> downloadTrackAsGpx(line, 'Geplante Route'));
   ov.querySelector('[data-drop]').addEventListener('click', ()=>{ if(confirm('Geplante Route verwerfen?')) closeTopOverlayLayer(); });
+}
+// Link mit Ankern und Art je Abschnitt (pm: s=Skispur, w=Weg, g=Gerade); übernommene/feste Abschnitte gehen als
+// gerade Stücke mit (ausgedünnt). Der Empfänger rechnet die Abschnitte neu.
+async function fsPlanShare(line, plan){
+  let segs = fsPlanToSegs(line, plan);
+  if(!segs) segs = line.slice(1).map((q, i)=> ({mode: 'gerade', coords: [line[i], q]}));
+  const pts = [segs[0].coords[0]], modes = [];
+  segs.forEach(sg=>{
+    if(sg.mode === 'ski' || sg.mode === 'weg' || sg.mode === 'gerade'){ pts.push(sg.coords[sg.coords.length - 1]); modes.push(sg.mode[0]); return; }
+    let c = sg.coords; const st = Math.max(1, Math.ceil(c.length / 12));
+    c = c.filter((_, k)=> k && (k % st === 0 || k === c.length - 1));
+    c.forEach(q=>{ pts.push(q); modes.push('g'); });
+  });
+  if(pts.length > 60){ showToast('Route zu lang zum Teilen als Link – GPX verwenden.', true); return; }
+  const f = v=> (+v).toFixed(5);
+  const qs = new URLSearchParams();
+  const d = new URLSearchParams(location.search).get('d');
+  if(d) qs.set('d', d);
+  qs.set('plan', pts.map(p=> f(p[0]) + ',' + f(p[1])).join('~'));
+  qs.set('pm', modes.join(''));
+  const url = location.origin + location.pathname + '?' + qs.toString().replace(/%2C/g, ',').replace(/%7E/g, '~');
+  try{ if(navigator.share){ await navigator.share({title: 'Geplante Route', text: 'Geplante Route', url}); return; } }catch(e){ if(e && e.name === 'AbortError') return; }
+  try{ await navigator.clipboard.writeText(url); showToast('Link kopiert.'); }catch(e){ prompt('Link zum Kopieren:', url); }
 }
 // Geplante Route einer Tour geben: ohne gezeichnete Linie wird sie diese (bearbeitbar), sonst eine weitere Route
 async function fsAttachPlanToTour(t, coords, plan, type, name){
