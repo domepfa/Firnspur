@@ -4537,6 +4537,7 @@ document.addEventListener('click', (e)=>{
     const el = document.createElement('div'); el.className = 'fs-grm-pulse';
     const mk = new maplibregl.Marker({element: el}).setLngLat([lon, lat]).addTo(mp);
     setTimeout(()=> mk.remove(), 6000);
+    if(inSheet) fsGrmBackShow();
   }catch(err){}
 }, true);
 document.addEventListener('click', (e)=>{
@@ -23088,7 +23089,26 @@ function fsSheetHeightPx(detent){
   if(detent === 'full') return Math.round(vh - Math.min(64, vh * 0.08));
   return Math.round(vh * 0.56);
 }
+// Nach dem Antippen einer Stelle: Knopf über dem kleinen Blatt zurück zur Grafik (Blatt gross, Grafik im Blick)
+function fsGrmBackShow(){
+  let b = document.getElementById('fs-grm-back');
+  if(!b){
+    b = document.createElement('button'); b.type = 'button'; b.id = 'fs-grm-back'; b.className = 'fs-grm-back';
+    b.textContent = '↑ Zurück zur Grafik';
+    b.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      b.remove();
+      fsSetSheetDetent('full');
+      setTimeout(()=>{
+        const modal = document.querySelector('.overlay.fs-sheet-mode > .modal.td'), g = modal && modal.querySelector('.fs-grm');
+        if(modal && g) modal.scrollTo({top: g.getBoundingClientRect().top - modal.getBoundingClientRect().top + modal.scrollTop - 12, behavior: 'smooth'});
+      }, 380);
+    });
+    document.body.appendChild(b);
+  }
+}
 function fsSetSheetDetent(detent){
+  if(detent !== 'peek'){ const gb = document.getElementById('fs-grm-back'); if(gb) gb.remove(); }
   fsSheetDetent = detent;
   document.documentElement.dataset.fsDetent = detent;
   document.documentElement.style.setProperty('--fs-sheet-h', fsSheetHeightPx(detent) + 'px');

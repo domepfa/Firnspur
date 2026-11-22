@@ -3535,3 +3535,7 @@ html.fs-wide.fs-mapmode .fs-sheet{ padding-bottom:84px; }
 .fs-3x3-it i{ display:block; font-style:normal; font-size:12px; color:var(--ink-soft); margin-top:2px; }
 .fs-3x3-btn{ width:100%; min-height:48px; justify-content:center; margin-top:10px; }
 .fs-3x3-reset{ width:100%; min-height:46px; justify-content:center; margin-top:10px; }
+.fs-grm-back{ position:fixed; z-index:950; left:50%; transform:translateX(-50%); bottom:calc(var(--fs-sheet-h, 120px) + 14px);
+  min-height:48px; padding:0 20px; border:none; border-radius:999px; background:var(--ice-deep); color:#fff; font:800 15px var(--font-ui);
+  box-shadow:0 6px 18px rgba(15,30,39,.28); cursor:pointer; }
+html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
