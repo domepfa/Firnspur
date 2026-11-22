@@ -1787,6 +1787,7 @@ async function fsmTerrainToggle(map, on){
   if(!navigator.onLine){ map._fsTerrain = false; fsmTerrainButtons(map); showToast('3D braucht Internet für das Gelände.', true); return; }
   if(!(await fsmTerrainSource(map))) return;
   map.setTerrain({source:'fs-terrain', exaggeration:1});
+  fsmRasterReload(map);
   try{ map.setSky({'sky-color':'#8DBCE3', 'horizon-color':'#E3EEF6', 'fog-color':'#EEF3F7', 'sky-horizon-blend':0.5, 'horizon-fog-blend':0.6, 'fog-ground-blend':0.35}); }catch(e){}
   // Schräg auf denselben Ausschnitt; die Mitte liegt im sichtbaren Teil (über dem Blatt bzw. unter der Leiste)
   const sheet = document.documentElement.classList.contains('fs-sheet-open');
@@ -1808,6 +1809,17 @@ async function fsmTerrainToggle(map, on){
     map.on('moveend', ()=>{ if(map.getTerrain() && map._elevationFreeze && !map.isMoving()){ map._elevationFreeze = false; map.triggerRepaint(); } });
   }
 }
+// Kacheln, die in 2D geladen wurden, zeichnet MapLibre 4.7 mit Gelände beim Verschieben fehlerhaft: einzelne Bilder
+// fallen auf eine grobe Fassung zurück (Flackern). Nach dem Einschalten des Geländes darum die Rasterquellen neu laden.
+function fsmRasterReload(map){
+  try{
+    const st = map.getStyle();
+    Object.keys(st.sources || {}).forEach(id=>{
+      const sp = st.sources[id], src = map.getSource(id);
+      if(sp && sp.type === 'raster' && Array.isArray(sp.tiles) && src && typeof src.setTiles === 'function') src.setTiles(sp.tiles.slice());
+    });
+  }catch(e){}
+}
 // Gelände-Quelle nach gewählter Auflösung: Hoch = swisstopo-Gelände (wie map.geo.admin.ch, bis etwa 1.5 m), Spar = gröber
 async function fsmTerrainSource(map){
   const q = fs3dQuality();
@@ -1823,7 +1835,7 @@ async function fsmTerrainSource(map){
 }
 async function fsmTerrainSetQuality(map, q){
   try{ localStorage.setItem(fs3dQualityKey().key, q); }catch(e){}
-  if(map._fsTerrain && await fsmTerrainSource(map)) map.setTerrain({source:'fs-terrain', exaggeration:1});
+  if(map._fsTerrain && await fsmTerrainSource(map)){ map.setTerrain({source:'fs-terrain', exaggeration:1}); fsmRasterReload(map); }
   fsmSyncPanel(map);
 }
 // 3D-Knopf gefüllt, solange 3D an ist («Gipfel ringsum» steht dann im Ebenen-Fenster, damit die Knopfsäule
