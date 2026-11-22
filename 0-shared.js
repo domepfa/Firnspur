@@ -4341,6 +4341,7 @@ function fsSlfBoxHtml(lat, lon){
     ${fsSlfEvoHtml(bul)}
     ${fsSlfWeatherHtml(bul.weather)}
     ${fsReductionHtml(t, bul)}
+    ${fsGrmHtml(t, bul)}
     <a class="fs-slf-link" href="https://whiterisk.ch/de/conditions/bulletin" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk</a>
     <p class="fs-slf-src">${esc([bul.region ? 'Region ' + bul.region : '', bul.pub ? 'Stand ' + fsSlfFmt(bul.pub) : ''].filter(Boolean).join(' · '))}</p>
   </div>`;
@@ -4374,6 +4375,84 @@ function fsReductionHtml(t, bul){
   return `<div class="fs-slf-red"><span class="fs-slf-red-h">Faustregel (Reduktionsmethode)</span>${esc(rule.txt)}${route ? ' ' + route : ''}
     <small>Nach Werner Munter, für die höchste Stufe der Region. Grober Rahmen für die Planung, ersetzt keine Beurteilung vor Ort.</small></div>`;
 }
+/* ===== Grafische Reduktionsmethode (SLF/SAC) =====
+   Steile Stellen der Route (Routen-Check: Klassen 30–35°, 35–40° …) gegen die Gefahrenstufe: Richtwert Stufe 1 = 45°,
+   2 = 40°, 3 = 35°, 4 = 30° (Zwischenstufen +/− je ein Drittel). In der Kernzone (Exposition und Höhe eines Problems
+   im Bulletin) gilt die Stufe, ausserhalb eine Stufe tiefer. Planungshilfe, keine Beurteilung vor Ort. */
+function fsGrmModel(t, bul){
+  if(!t || !bul || !bul.ratings.length) return null;
+  const line = fsRcLine(t);
+  if(!line) return null;
+  const key = fsRcKey(t, line), rc = fsRcCache.get(key), pts = rc && rc.pts ? rc.pts : fsRcSumPts(key);
+  if(!pts){ if(!rc) fsRcBg(key, t); return null; }
+  const r0 = bul.ratings[0];
+  const lvl = Math.min(4.33, r0.level + (r0.sub === '+' ? 1 / 3 : r0.sub === '-' ? -1 / 3 : 0));
+  const probs = fsRcSlfProblems(bul);
+  const segs = []; let cur = null;
+  pts.forEach(p=>{
+    if(p.k >= 1){
+      if(!cur){ cur = {max: p, core: false}; segs.push(cur); }
+      if(p.k > cur.max.k) cur.max = p;
+      if(!probs.length || probs.some(pr=> fsRcInProblem(p, pr))) cur.core = true;
+    }else cur = null;
+  });
+  segs.forEach(sg=>{
+    const k = Math.min(5, sg.max.k);
+    sg.deg = 27.5 + 5 * k; sg.range = (FS_RC_CLASSES[k - 1] || {}).label || '';
+    sg.x = sg.core ? lvl : Math.max(1, lvl - 1);
+    sg.thr = 50 - 5 * Math.min(4, sg.x);
+    sg.over = r0.level >= 5 || sg.deg > sg.thr;
+  });
+  segs.sort((a, b)=> (b.over - a.over) || (b.deg - a.deg));
+  segs.forEach((sg, i)=> sg.lab = String.fromCharCode(65 + Math.min(i, 25)));
+  return {lvl, level: r0.level, label: r0.label, segs};
+}
+function fsGrmSvg(m){
+  const W = 320, H = 200, L = 36, R = 24, T = 10, B = 34, y0 = 25, y1 = 55;
+  const X = v=> L + (Math.min(4, Math.max(1, v)) - 1) / 3 * (W - L - R), Y = d=> T + (y1 - Math.min(y1, d)) / (y1 - y0) * (H - T - B);
+  const lim = [[1, 45], [2, 40], [3, 35], [4, 30]], pl = lim.map(([a, b])=> X(a) + ',' + Y(b)).join(' ');
+  const band = pl + ' ' + lim.slice().reverse().map(([a, b])=> X(a) + ',' + Y(b + 5)).join(' ');
+  let g = '';
+  [25, 30, 35, 40, 45, 50, 55].forEach(d=>{ g += `<line x1="${L}" x2="${W - R}" y1="${Y(d)}" y2="${Y(d)}" class="gl"/><text x="${L - 5}" y="${Y(d) + 4}" text-anchor="end" class="ax">${d}°</text>`; });
+  [[1, 'gering'], [2, 'mässig'], [3, 'erheblich'], [4, 'gross']].forEach(([v, n])=>{ g += `<text x="${X(v)}" y="${H - 18}" text-anchor="middle" class="lv">${v}</text><text x="${X(v)}" y="${H - 5}" text-anchor="middle" class="ax">${n}</text>`; });
+  const pts = m.segs.map(sg=> `<g class="${sg.over ? 'over' : 'ok'}${sg.core ? ' core' : ''}"><circle cx="${X(sg.x)}" cy="${Y(sg.deg)}" r="7"/><text x="${X(sg.x) + 10}" y="${Y(sg.deg) + 4}">${sg.lab}</text></g>`).join('');
+  return `<svg class="fs-grm-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Diagramm Gefahrenstufe und Hangneigung">
+    <polygon class="zone-ok" points="${X(1)},${Y(25)} ${pl} ${X(4)},${Y(25)}"/><polygon class="zone-mid" points="${band}"/>${g}
+    <polyline class="lim" points="${pl}"/><line class="now" x1="${X(m.lvl)}" x2="${X(m.lvl)}" y1="${T}" y2="${Y(25)}"/>${pts}</svg>`;
+}
+function fsGrmHtml(t, bul){
+  const m = fsGrmModel(t, bul);
+  if(!m) return '';
+  const head = `<span class="fs-slf-red-h">Grafische Reduktionsmethode</span>`;
+  if(!m.segs.length) return `<div class="fs-grm">${head}<p class="fs-grm-res ok">Keine Stelle der Route ist steiler als 30° – nach der Methode kein Konflikt.</p></div>`;
+  const over = m.segs.filter(sg=> sg.over);
+  const res = over.length ? `<b>${over.length} ${over.length === 1 ? 'Stelle' : 'Stellen'} über dem Richtwert</b>` : '<b>Alle steilen Stellen im Rahmen</b>';
+  const rows = m.segs.slice(0, 8).map(sg=>{
+    const p = sg.max, loc = p.lat != null ? ` data-grm-lat="${p.lat}" data-grm-lon="${p.lon}"` : '';
+    return `<button type="button" class="fs-grm-row"${loc}><i class="${sg.over ? 'over' : 'ok'}${sg.core ? ' core' : ''}">${sg.lab}</i>
+      <span>${esc(sg.range)}${p.ai != null ? ' · ' + esc(FS_RC_ASP_LONG[FS_RC_ASP[p.ai]] || '') : ''}${p.ele != null ? ' · ' + fsRcFmtE(p.ele) + ' m' : ''}
+      <small>${sg.core ? 'Kernzone' : 'ausserhalb der Kernzone → eine Stufe tiefer'} · Richtwert ${Math.round(sg.thr)}°</small></span>
+      <em class="${sg.over ? 'over' : 'ok'}">${sg.over ? 'zu steil' : 'im Rahmen'}</em></button>`;
+  }).join('');
+  return `<div class="fs-grm">${head}
+    <p class="fs-grm-sub">Steile Stellen der Route gegen die Gefahrenstufe ${fsSlfLevelTxt(m.level, '')} (${esc(m.label)})</p>
+    ${fsGrmSvg(m)}
+    <div class="fs-grm-leg"><span><i class="dot core"></i>Kernzone (Exposition/Höhe laut Bulletin)</span><span><i class="dot"></i>ausserhalb: eine Stufe tiefer</span></div>
+    <p class="fs-grm-res${over.length ? '' : ' ok'}">${res}</p>
+    <div class="fs-grm-list">${rows}</div>
+    <small>Nach SLF/SAC («Achtung Lawinen!»). Steilheit aus der swisstopo-Karte in 5°-Stufen. Planungshilfe – keine Lawinenbeurteilung vor Ort.</small></div>`;
+}
+document.addEventListener('click', (e)=>{
+  const b = e.target && e.target.closest && e.target.closest('[data-grm-lat]');
+  if(!b || !fsHomeMap) return;
+  const lat = +b.getAttribute('data-grm-lat'), lon = +b.getAttribute('data-grm-lon');
+  try{
+    fsHomeMap.flyTo({center: [lon, lat], zoom: Math.max(fsHomeMap.getZoom(), 15), duration: 700});
+    const el = document.createElement('div'); el.className = 'fs-grm-pulse';
+    const mk = new maplibregl.Marker({element: el}).setLngLat([lon, lat]).addTo(fsHomeMap);
+    setTimeout(()=> mk.remove(), 6000);
+  }catch(err){}
+}, true);
 document.addEventListener('click', (e)=>{
   const b = e.target && e.target.closest && e.target.closest('[data-slf-day]');
   if(!b) return;
