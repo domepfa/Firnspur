@@ -24665,6 +24665,8 @@ function fsPlanDone(){
   ov.querySelector('[data-gpx]').addEventListener('click', ()=> downloadTrackAsGpx(line, 'Geplante Route'));
   ov.querySelector('[data-drop]').addEventListener('click', ()=>{ if(confirm('Geplante Route verwerfen?')) closeTopOverlayLayer(); });
 }
+// Querformat (wie in look.css): Werkzeuge und Blätter stehen links statt unten
+function fsLandscape(){ try{ return matchMedia('(min-width: 760px) and (orientation: landscape)').matches; }catch(e){ return false; } }
 // Geplante Linie auf der Startkarte zeigen, solange das Abschlussblatt offen ist (über dem Blatt eingepasst)
 function fsPlanPreview(line, ov){
   const ml = fsHomeMap; if(!ml) return;
@@ -24679,8 +24681,8 @@ function fsPlanPreview(line, ov){
   }catch(e){}
   ov.classList.add('fs-plan-sheet');
   requestAnimationFrame(()=>{
-    const inn = ov.querySelector('.in'), h = inn ? inn.offsetHeight : Math.round(innerHeight * 0.5);
-    try{ fsmFit(ml, line, {top: 40, bottom: h + 30, left: 40, right: 40}, 15); }catch(e){}
+    const inn = ov.querySelector('.in'), side = fsLandscape(), h = inn ? inn.offsetHeight : Math.round(innerHeight * 0.5), w = inn ? inn.offsetWidth : 400;
+    try{ fsmFit(ml, line, side ? {top: 40, bottom: 40, left: w + 40, right: 70} : {top: 40, bottom: h + 30, left: 40, right: 40}, 15); }catch(e){}
   });
   // Blatt zu: Linie weg (fsSheet entfernt das Element; darauf warten)
   const mo = new MutationObserver(()=>{ if(!ov.isConnected){ mo.disconnect(); clear(); } });

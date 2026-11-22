@@ -962,7 +962,8 @@ function fsGebLasso(){
     });
     if(mem.length){
       const lons = mem.map(i=> i.lon), lats = mem.map(i=> i.lat);
-      try{ ml.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], {padding: {top: 90, left: 60, right: 60, bottom: st.panel.offsetHeight + 40}, maxZoom: 13, duration: 500}); }catch(e){}
+      const pad = fsLandscape() ? {top: 60, bottom: 60, left: st.panel.offsetWidth + 50, right: 70} : {top: 90, left: 60, right: 60, bottom: st.panel.offsetHeight + 40};
+      try{ ml.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], {padding: pad, maxZoom: 13, duration: 500}); }catch(e){}
     }
   }
   const NS = 'http://www.w3.org/2000/svg';
@@ -1055,7 +1056,8 @@ function fsGebPick(items, name, fromLasso){
   sync();
   if(!fromLasso){
     const lons = items.map(i=> i.lon), lats = items.map(i=> i.lat);
-    try{ ml.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], {padding: {top: 90, left: 60, right: 60, bottom: st.panel.offsetHeight + 40}, maxZoom: 13, duration: 600}); }catch(e){}
+    const pad = fsLandscape() ? {top: 60, bottom: 60, left: st.panel.offsetWidth + 50, right: 70} : {top: 90, left: 60, right: 60, bottom: st.panel.offsetHeight + 40};
+    try{ ml.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], {padding: pad, maxZoom: 13, duration: 600}); }catch(e){}
   }
 }
 // Gebiet anlegen und die gewählten Touren/Hütten zuordnen (je Eintrag sicher gespeichert)
