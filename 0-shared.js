@@ -10422,44 +10422,58 @@ function wanderrouteAttrs(f){
   return {title: a.chmobil_title || a.label || 'Wanderroute', nr: a.chmobil_route_number || ''};
 }
 // Linie übernehmen: als neue Tour (Formular vorbefüllt) oder in eine bestehende Tour
-function fsTrackAttachUi(coords, name, newTourFn){
+function fsTrackAttachUi(coords, name, newTourFn, routeType){
   const box = document.createElement('div');
+  box.className = 'fs-attach';
   if(newTourFn){
     const nb = document.createElement('button');
     nb.type = 'button'; nb.className = 'fs-sac-sec'; nb.textContent = 'Als neue Tour übernehmen';
     nb.addEventListener('click', newTourFn);
     box.appendChild(nb);
   }
-  if(Array.isArray(state.tours) && state.tours.length){
-    const sel = document.createElement('select');
-    sel.className = 'fs-wr-select';
-    state.tours.forEach(t=>{ const o = document.createElement('option'); o.value = t.id; o.textContent = t.name || '?'; sel.appendChild(o); });
-    const mainBtn = document.createElement('button');
-    mainBtn.type = 'button'; mainBtn.className = 'fs-sac-sec';
-    const sync = ()=>{ const t = state.tours.find(x=>x.id===sel.value); mainBtn.textContent = (t && t.trackSimplified) ? 'Als Haupttrack ersetzen' : 'Als Haupttrack übernehmen'; };
-    sel.addEventListener('change', sync); sync();
-    mainBtn.addEventListener('click', async ()=>{
-      const t = state.tours.find(x=>x.id===sel.value);
-      if(!t) return;
-      if(t.trackSimplified && !confirm(`"${t.name}" hat schon einen Haupttrack. Wirklich ersetzen?`)) return;
-      mainBtn.disabled = true;
-      const ok = await attachSkitourTrackToTour(t.id, coords, name);
-      mainBtn.disabled = false; sync();
-      showToast(ok ? `Route zu "${t.name}" hinzugefügt.` : 'Konnte nicht übernommen werden (Internetverbindung prüfen).', !ok);
-    });
-    const altBtn = document.createElement('button');
-    altBtn.type = 'button'; altBtn.className = 'fs-sac-sec'; altBtn.textContent = 'Als Variante hinzufügen';
-    altBtn.addEventListener('click', async ()=>{
-      const t = state.tours.find(x=>x.id===sel.value);
-      if(!t) return;
-      altBtn.disabled = true;
-      const ok = await attachSkitourTrackToTour(t.id, coords, name, {asAlternative:true});
-      altBtn.disabled = false;
-      showToast(ok ? `"${name}" als Variante zu "${t.name}" hinzugefügt.` : 'Konnte nicht hinzugefügt werden (Internetverbindung prüfen).', !ok);
-    });
-    const lab = document.createElement('p'); lab.className = 'fs-wr-label'; lab.textContent = 'Zu bestehender Tour:';
-    box.append(lab, sel, mainBtn, altBtn);
-  }
+  if(!Array.isArray(state.tours) || !state.tours.length) return box;
+  // Touren nach Nähe zur Linie (Punkte und Routen der Tour gegen die Linie, je ausgedünnt)
+  const thin = (arr, n)=>{ const st = Math.max(1, Math.ceil(arr.length / n)); return arr.filter((_, k)=> k % st === 0 || k === arr.length - 1); };
+  const line = thin(coords.map(c=> Array.isArray(c) ? [+c[0], +c[1]] : [+c.lat, +(c.lon != null ? c.lon : c.lng)]).filter(c=> isFinite(c[0]) && isFinite(c[1])), 40);
+  const dist = t=>{
+    const pts = [];
+    (t.points || []).forEach(p=>{ if(p && isFinite(+p.lat) && isFinite(+p.lon)) pts.push([+p.lat, +p.lon]); });
+    fsTourRoutes(t).forEach(r=> thin(r.coords || [], 20).forEach(q=>{ const a = Array.isArray(q) ? [+q[0], +q[1]] : [+q.lat, +(q.lon != null ? q.lon : q.lng)]; if(isFinite(a[0]) && isFinite(a[1])) pts.push(a); }));
+    let d = Infinity;
+    pts.forEach(a=> line.forEach(b=>{ const x = fsGeoDist(a[0], a[1], b[0], b[1]); if(x < d) d = x; }));
+    return d;
+  };
+  const list = state.tours.filter(t=> t && t.id).map(t=> ({t, d: dist(t)}));
+  const near = list.filter(x=> x.d <= 15000).sort((a, b)=> a.d - b.d);
+  const far = list.filter(x=> x.d > 15000).sort((a, b)=> (a.t.name || '').localeCompare(b.t.name || '', 'de'));
+  const fmt = d=> d < 1000 ? Math.round(d / 50) * 50 + ' m' : (d / 1000).toFixed(d < 10000 ? 1 : 0) + ' km';
+  const lab = document.createElement('p'); lab.className = 'fs-wr-label';
+  lab.textContent = near.length ? 'Zu einer Tour in der Nähe:' : 'Keine Tour in der Nähe (15 km). Zu einer anderen Tour:';
+  const sel = document.createElement('select');
+  sel.className = 'fs-wr-select';
+  const group = (title, arr, withD)=>{
+    if(!arr.length) return;
+    const g = document.createElement('optgroup'); g.label = title;
+    arr.forEach(x=>{ const o = document.createElement('option'); o.value = x.t.id; o.textContent = (x.t.name || '?') + (withD ? ' · ' + fmt(x.d) : ''); g.appendChild(o); });
+    sel.appendChild(g);
+  };
+  group('In der Nähe', near, true);
+  group(near.length ? 'Weiter weg' : 'Alle Touren', far, false);
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'fs-sac-main';
+  const cur = ()=> state.tours.find(x=> x.id === sel.value);
+  const sync = ()=>{ const t = cur(); btn.textContent = t && fsTourRoutes(t).length ? 'Als weitere Route hinzufügen' : 'Als Route übernehmen'; };
+  sel.addEventListener('change', sync); sync();
+  // Nie ersetzen: ohne Linie wird es die Hauptroute, sonst eine weitere Route (ersetzen nur im Tourformular)
+  btn.addEventListener('click', async ()=>{
+    const t = cur(); if(!t) return;
+    const asAlt = fsTourRoutes(t).length > 0;
+    btn.disabled = true; btn.textContent = 'Wird übernommen …';
+    const ok = await attachSkitourTrackToTour(t.id, coords, name, {asAlternative: asAlt, type: routeType});
+    btn.disabled = false; sync();
+    showToast(ok ? (asAlt ? `Als weitere Route zu «${t.name}» hinzugefügt.` : `Route zu «${t.name}» übernommen.`) : 'Konnte nicht übernommen werden (Internetverbindung prüfen).', !ok);
+  });
+  box.append(lab, sel, btn);
   return box;
 }
 function buildWanderroutePopupContent(list, opts){
@@ -10691,57 +10705,8 @@ function buildSkitourPopupContent(featureOrList, opts){
       note.style.cssText = 'margin:8px 0 0 0; font-size:12px; color:#6B7682;';
       note.textContent = 'Zu einer Tour übernehmen: auf der Startkarte antippen.';
       wrap.appendChild(note);
-    }else if(Array.isArray(state.tours) && state.tours.length){
-      const attachWrap = document.createElement('div');
-      attachWrap.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid #eee;';
-      const select = document.createElement('select');
-      select.style.cssText = 'width:100%; margin-bottom:6px; padding:6px 8px; border:1px solid #ccc; border-radius:3px; font-size:12.5px; box-sizing:border-box;';
-      state.tours.forEach(t=>{
-        const opt = document.createElement('option');
-        opt.value = t.id;
-        opt.textContent = t.name || '?';
-        select.appendChild(opt);
-      });
-      attachWrap.appendChild(select);
-      const mainBtn = document.createElement('button');
-      mainBtn.type = 'button';
-      mainBtn.style.cssText = 'width:100%; background:var(--ice-deep, #1F4D63); color:#fff; border:none; border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer; margin-bottom:6px;';
-      // Beschriftung hängt davon ab, ob die gewählte Tour schon einen Haupttrack hat – bei
-      // Auswahländerung entsprechend nachziehen.
-      function syncMainBtnLabel(){
-        const t = state.tours.find(x=>x.id===select.value);
-        mainBtn.innerHTML = (t && t.trackSimplified) ? (fsIconHtml('refresh') + ' Haupttrack ersetzen') : (fsIconHtml('plus') + ' Als Haupttrack übernehmen');
-      }
-      select.addEventListener('change', syncMainBtnLabel);
-      syncMainBtnLabel();
-      mainBtn.addEventListener('click', async ()=>{
-        const targetTour = state.tours.find(t=>t.id===select.value);
-        if(!targetTour) return;
-        if(targetTour.trackSimplified && !confirm(`"${targetTour.name}" hat schon einen Haupttrack. Wirklich ersetzen?`)) return;
-        mainBtn.disabled = true;
-        mainBtn.textContent = 'Wird übernommen…';
-        const ok = await attachSkitourTrackToTour(targetTour.id, coords, name);
-        mainBtn.disabled = false;
-        syncMainBtnLabel();
-        showToast(ok ? `Track zu "${targetTour.name}" hinzugefügt.` : 'Konnte nicht übernommen werden (Internetverbindung prüfen).', !ok);
-      });
-      attachWrap.appendChild(mainBtn);
-      const altBtn = document.createElement('button');
-      altBtn.type = 'button';
-      altBtn.innerHTML = (fsIconHtml('plus') + ' Als Alternativroute hinzufügen');
-      altBtn.style.cssText = 'width:100%; background:#fff; color:var(--ice-deep, #1F4D63); border:1px solid var(--ice-deep, #1F4D63); border-radius:3px; padding:8px 10px; font-size:12.5px; cursor:pointer;';
-      altBtn.addEventListener('click', async ()=>{
-        const targetTour = state.tours.find(t=>t.id===select.value);
-        if(!targetTour) return;
-        altBtn.disabled = true;
-        altBtn.textContent = 'Wird hinzugefügt…';
-        const ok = await attachSkitourTrackToTour(targetTour.id, coords, name, {asAlternative:true});
-        altBtn.disabled = false;
-        altBtn.innerHTML = (fsIconHtml('plus') + ' Als Alternativroute hinzufügen');
-        showToast(ok ? `"${name}" als Alternativroute zu "${targetTour.name}" hinzugefügt.` : 'Konnte nicht hinzugefügt werden (Internetverbindung prüfen).', !ok);
-      });
-      attachWrap.appendChild(altBtn);
-      wrap.appendChild(attachWrap);
+    }else{
+      wrap.appendChild(fsTrackAttachUi(coords, name + (info.route ? ' – ' + info.route : ''), null, 'aufstieg'));
     }
   }
   return wrap;
@@ -10791,7 +10756,7 @@ async function attachSkitourTrackToTour(tourId, coords, name, opts){
     // – inklusive bereits gespeicherter Alternativrouten – mit überschreiben.
     if(!Array.isArray(tour.altTracks)) tour.altTracks = [];
     const altId = 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
-    tour.altTracks.push({ id: altId, name: name || 'Alternativroute', trackSimplified: simplified });
+    tour.altTracks.push(Object.assign({ id: altId, name: name || 'Alternativroute', trackSimplified: simplified }, opts.type ? {type: opts.type} : {}));
     ok2 = await fbSet(GPX_TRACKS_PATH + 'Alt/' + tourId + '/' + altId, { gpx, uploadedAt: new Date().toISOString(), fileName: (name||'alternativroute') + '.gpx' }).catch(()=>false);
   }else{
     tour.trackSimplified = simplified;
