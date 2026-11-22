@@ -12713,7 +12713,23 @@ async function geocodePlaces(query, count){
 // Wichtig: Die deutsche Sprache steckt hier nicht in einem Pfad-Präfix, sondern im Domainnamen
 // selbst – meteoswiss.admin.ch ist Englisch, meteoschweiz.admin.ch Deutsch (per Screenshot bestätigt).
 const METEOSWISS_FALLBACK_URL = 'https://www.meteoschweiz.admin.ch/';
+// Ortschaft mit PLZ direkt von swisstopo (amtliches Ortschaftenverzeichnis, ohne Schlüssel). Die Lokalprognose-Seiten
+// haben die Form meteoswiss.admin.ch/local-forecasts/<ort>/<plz>.html; dieselbe Adresse unter meteoschweiz.admin.ch gab 404.
+function fsMeteoSlug(name){
+  const cd = new RegExp('[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']', 'g');
+  return String(name || '').toLowerCase().normalize('NFD').replace(cd, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
 async function buildMeteoSwissLink(lat, lon){
+  try{
+    const qs = new URLSearchParams({geometryType: 'esriGeometryPoint', geometry: lon + ',' + lat, layers: 'all:ch.swisstopo-vd.ortschaftenverzeichnis_plz',
+      tolerance: '0', sr: '4326', returnGeometry: 'false', imageDisplay: '100,100,96', mapExtent: (lon - 0.02) + ',' + (lat - 0.02) + ',' + (lon + 0.02) + ',' + (lat + 0.02)});
+    const r = await fetch('https://api3.geo.admin.ch/rest/services/all/MapServer/identify?' + qs);
+    if(r.ok){
+      const a = (((await r.json()).results || [])[0] || {}).attributes || {};
+      const slug = fsMeteoSlug(a.langtext);
+      if(a.plz && slug) return `https://www.meteoswiss.admin.ch/local-forecasts/${slug}/${a.plz}.html`;
+    }
+  }catch(e){}
   if(!OPENROUTESERVICE_API_KEY) return METEOSWISS_FALLBACK_URL;
   try{
     const res = await fetch(`https://api.openrouteservice.org/geocode/reverse?api_key=${encodeURIComponent(OPENROUTESERVICE_API_KEY)}&point.lat=${lat}&point.lon=${lon}&boundary.country=CHE&size=1`);
@@ -12729,7 +12745,7 @@ async function buildMeteoSwissLink(lat, lon){
       .normalize('NFD').replace(combiningDiacritics, '')
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     if(!slug) return METEOSWISS_FALLBACK_URL;
-    return `https://www.meteoschweiz.admin.ch/local-forecasts/${slug}/${plz}.html`;
+    return `https://www.meteoswiss.admin.ch/local-forecasts/${slug}/${plz}.html`;
   }catch(e){
     return METEOSWISS_FALLBACK_URL;
   }
