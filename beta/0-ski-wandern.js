@@ -263,6 +263,7 @@ function gebieteViewHtml(){
       <button class="btn fs-fab" data-act="add-gebiet">+ Neues Gebiet</button>
     </div>
     ${gebietListControlsHtml(listAll, {scan:false})}
+    <button type="button" class="btn secondary fs-geb-add" data-act="add-gebiet">${fsIconHtml('mountain')}Gebiet auf der Karte umfahren</button>
     ${fsGebSugHtml()}
     ${list.length ? `<div class="grid">${list.map(gebietCardHtml).join('')}</div>` : emptyGebiete()}
   `);
