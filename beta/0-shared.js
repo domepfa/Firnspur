@@ -4528,9 +4528,14 @@ document.addEventListener('click', (e)=>{
   if(!b || !fsHomeMap) return;
   const lat = +b.getAttribute('data-grm-lat'), lon = +b.getAttribute('data-grm-lon');
   try{
-    fsHomeMap.flyTo({center: [lon, lat], zoom: Math.max(fsHomeMap.getZoom(), 15), duration: 700});
+    // Blatt klein machen, damit die Stelle über dem Blatt zu sehen ist
+    const mp = (typeof fsCtxMap !== 'undefined' && fsCtxMap && document.documentElement.classList.contains('fs-ctx-map')) ? fsCtxMap : fsHomeMap;
+    const inSheet = document.documentElement.classList.contains('fs-sheet-open');
+    if(inSheet && typeof fsSetSheetDetent === 'function') fsSetSheetDetent('peek');
+    const pad = inSheet && typeof fsSheetMapPadPx === 'function' ? {top: 70, left: 30, right: 70, bottom: fsSheetMapPadPx('peek') + 20} : undefined;
+    mp.flyTo(Object.assign({center: [lon, lat], zoom: Math.max(mp.getZoom(), 15), duration: 700}, pad ? {padding: pad} : {}));
     const el = document.createElement('div'); el.className = 'fs-grm-pulse';
-    const mk = new maplibregl.Marker({element: el}).setLngLat([lon, lat]).addTo(fsHomeMap);
+    const mk = new maplibregl.Marker({element: el}).setLngLat([lon, lat]).addTo(mp);
     setTimeout(()=> mk.remove(), 6000);
   }catch(err){}
 }, true);
