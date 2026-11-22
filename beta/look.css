@@ -3433,3 +3433,13 @@ html.fs-sheet-open #fs-ov-chips{ display:none !important; }
 .fs-geb-sug-btns{ display:grid; grid-template-columns:1fr 1.4fr; gap:8px; }
 .fs-geb-sug-btns .btn{ min-height:46px; justify-content:center; }
 .fs-geb-name[hidden]{ display:none; }
+
+/* ===== Route planen: Abschluss ===== */
+.fs-plan-done{ display:grid; gap:10px; }
+.fs-plan-done > .btn{ min-height:52px; justify-content:center; }
+.fs-plan-done .fs-attach{ display:grid; gap:6px; padding-top:4px; border-top:1px solid var(--line); }
+.fs-plan-done .fs-sac-main{ min-height:48px; }
+.fs-plan-done-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.fs-plan-done-row .btn{ min-height:48px; justify-content:center; }
+.fs-ed-hit{ display:grid; grid-template-columns:1fr auto; gap:6px; align-items:center; }
+.fs-ed-hit .btn{ font-size:12.5px; padding:6px 10px; min-height:36px; }

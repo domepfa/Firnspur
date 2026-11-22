@@ -1809,6 +1809,19 @@ async function fsmTerrainToggle(map, on){
     map.on('moveend', ()=>{ if(map.getTerrain() && map._elevationFreeze && !map.isMoving()){ map._elevationFreeze = false; map.triggerRepaint(); } });
   }
 }
+// Abschnitte einer gezeichneten Linie kompakt speichern: [[Art, Anzahl Punkte], …]; passt die Linie nicht mehr, gilt der Plan nicht
+function fsSegsToPlan(segs){ return (segs || []).map(sg=> [sg.mode || 'gerade', (sg.coords || []).length]); }
+function fsPlanToSegs(line, plan){
+  if(!Array.isArray(line) || line.length < 2 || !Array.isArray(plan) || !plan.length) return null;
+  let k = 0; const segs = [];
+  for(const p of plan){
+    const n = Array.isArray(p) ? +p[1] : 0;
+    if(!(n >= 2) || k + n > line.length) return null;
+    segs.push({mode: ['ski', 'weg', 'gerade', 'folgen', 'fest'].indexOf(p[0]) >= 0 ? p[0] : 'fest', coords: line.slice(k, k + n)});
+    k += n - 1;
+  }
+  return k === line.length - 1 ? segs : null;
+}
 // Kacheln, die in 2D geladen wurden, zeichnet MapLibre 4.7 mit Gelände beim Verschieben fehlerhaft: einzelne Bilder
 // fallen auf eine grobe Fassung zurück (Flackern). Nach dem Einschalten des Geländes darum die Rasterquellen neu laden.
 function fsmRasterReload(map){
@@ -8693,7 +8706,11 @@ function fsPlannerClose(fromBack, force, handoff){
     if(i >= 0 && i === overlayLayers.length){ if(handoff && !modalHistoryPushed) modalHistoryPushed = true; else consumeHistoryEntry(); }
   }
 }
+// «Route planen» ist das Zeichnen-Werkzeug der Touren (fsPlanDraw); der frühere Planer bleibt als fsPlannerOpenClassic
 function fsPlannerOpen(from, preset){
+  fsPlanDraw({to: from || null, pts: preset || null});
+}
+function fsPlannerOpenClassic(from, preset){
   if(fsPlanner || !fsHomeMap || !fsHomeEl || fsCtxUsesHome) return;
   const ml = fsHomeMap;
   const map = FL.map(ml);
@@ -10434,7 +10451,7 @@ function wanderrouteAttrs(f){
   return {title: a.chmobil_title || a.label || 'Wanderroute', nr: a.chmobil_route_number || ''};
 }
 // Linie übernehmen: als neue Tour (Formular vorbefüllt) oder in eine bestehende Tour
-function fsTrackAttachUi(coords, name, newTourFn, routeType){
+function fsTrackAttachUi(coords, name, newTourFn, routeType, extra){
   const box = document.createElement('div');
   box.className = 'fs-attach';
   if(newTourFn){
@@ -10479,9 +10496,10 @@ function fsTrackAttachUi(coords, name, newTourFn, routeType){
   // Nie ersetzen: ohne Linie wird es die Hauptroute, sonst eine weitere Route (ersetzen nur im Tourformular)
   btn.addEventListener('click', async ()=>{
     const t = cur(); if(!t) return;
-    const asAlt = fsTourRoutes(t).length > 0;
+    const asAlt = extra && extra.plan ? !!(t.manualTrack && t.manualTrack.length > 1) : fsTourRoutes(t).length > 0;
     btn.disabled = true; btn.textContent = 'Wird übernommen …';
-    const ok = await attachSkitourTrackToTour(t.id, coords, name, {asAlternative: asAlt, type: routeType});
+    const ok = extra && extra.plan ? await fsAttachPlanToTour(t, coords, extra.plan, routeType, name === 'Geplante Route' ? '' : name)
+      : await attachSkitourTrackToTour(t.id, coords, name, {asAlternative: asAlt, type: routeType});
     btn.disabled = false; sync();
     showToast(ok ? (asAlt ? `Als weitere Route zu «${t.name}» hinzugefügt.` : `Route zu «${t.name}» übernommen.`) : 'Konnte nicht übernommen werden (Internetverbindung prüfen).', !ok);
   });
@@ -10886,6 +10904,7 @@ function fsRoutesEditorHtml(t){
     <input type="hidden" name="trackType" id="route-track-type" value="${esc(t.trackType||'')}"/>
     <input type="hidden" name="manualTrackName" id="route-manual-name" value="${esc(t.manualTrackName||'')}"/>
     <input type="hidden" name="manualTrackType" id="route-manual-type" value="${esc(t.manualTrackType||'')}"/>
+    <input type="hidden" name="manualTrackPlan" id="manual-track-hidden-plan" value='${esc(JSON.stringify(t.manualTrackPlan||[]))}'/>
     <input type="hidden" name="altTracks" id="route-alt-tracks" value='${esc(JSON.stringify(t.altTracks||[]))}'/>
     <input type="hidden" name="routeAreas" id="route-areas-hidden" value='${esc(JSON.stringify(t.routeAreas||[]))}'/>
   </div>`;
@@ -10905,6 +10924,7 @@ function fsRoutesEditorRender(){
       ${fsRouteSwatchHtml(r)}
       <input type="text" class="fs-route-name" value="${esc(r.name)}" placeholder="${esc(r.src === 'track' ? 'GPX-Track' : r.src === 'manual' ? 'Gezeichnete Linie' : 'Name')}" aria-label="Name der Route"/>
       <select class="fs-route-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k===r.type?'selected':''}>${fsRouteLabel(k)}</option>`).join('')}</select>
+      ${r.src !== 'track' ? `<button type="button" class="fs-icon-btn fs-route-line" aria-label="Linie auf der Karte bearbeiten">${fsIconHtml('edit')}</button>` : ''}
       <button type="button" class="fs-icon-btn fs-route-del" aria-label="Route entfernen">${fsIconHtml('trash')}</button>
     </div>`).join('') : '<p class="hint" style="margin:0 0 8px;">Noch keine Route – GPX hochladen oder auf der Karte zeichnen.</p>';
   box.querySelectorAll('.fs-route-edit').forEach(row=>{
@@ -10924,6 +10944,8 @@ function fsRoutesEditorRender(){
     };
     row.querySelector('.fs-route-name').addEventListener('input', write);
     row.querySelector('.fs-route-type').addEventListener('change', ()=>{ write(); fsRoutesEditorRender(); });
+    const ed = row.querySelector('.fs-route-line');
+    if(ed) ed.addEventListener('click', ()=> fsRouteEditLine(key));
     const del = row.querySelector('.fs-route-del');
     if(del) del.addEventListener('click', async ()=>{
       if(key === 'track'){
@@ -10935,7 +10957,8 @@ function fsRoutesEditorRender(){
       }
       if(!confirm('Diese Route entfernen? (Wird erst mit „Speichern“ übernommen.)')) return;
       if(key === 'manual'){
-        const mt = document.getElementById('manual-track-hidden'); if(mt) mt.value = '[]';
+        const mt = document.getElementById('manual-track-hidden'); if(mt){ mt.value = '[]'; mt._drawSegs = null; }
+        const plEl = document.getElementById('manual-track-hidden-plan'); if(plEl) plEl.value = '[]';
         ['route-manual-name', 'route-manual-type'].forEach(id=>{ const el = document.getElementById(id); if(el) el.value = ''; });
         markModalDirty();
         fsRoutesEditorRender();
@@ -10946,6 +10969,43 @@ function fsRoutesEditorRender(){
       markModalDirty();
       fsRoutesEditorRender();
     });
+  });
+}
+// Linie einer Route im Vollbild bearbeiten: die gezeichnete Linie direkt, eine weitere Route über ein eigenes Feld
+// (danach zurück in die Liste); die Abschnitte (Plan) gehen mit
+function fsRouteEditLine(key){
+  if(key === 'manual'){
+    fsEdNext = {line: true};
+    const open = document.getElementById('points-map-open'), tog = document.getElementById('points-map-toggle-btn');
+    if(open && open.offsetParent !== null) open.click(); else if(tog) tog.click(); else fsEdNext = {};
+    return;
+  }
+  const altEl = document.getElementById('route-alt-tracks');
+  let alts = []; try{ alts = JSON.parse(altEl.value || '[]'); }catch(e){}
+  const a = alts.find(x=> 'alt:' + x.id === key);
+  if(!a) return;
+  let tmp = document.getElementById('alt-edit-line');
+  if(!tmp){
+    tmp = document.createElement('div'); tmp.hidden = true;
+    tmp.innerHTML = '<input id="alt-edit-line"><input id="alt-edit-line-plan">';
+    document.getElementById('fs-routes-field').appendChild(tmp);
+    tmp = document.getElementById('alt-edit-line');
+  }
+  tmp.value = JSON.stringify(a.trackSimplified || []); tmp._drawSegs = null;
+  document.getElementById('alt-edit-line-plan').value = JSON.stringify(a.plan || []);
+  fsEdNext = {line: true, noPoints: true};
+  openFullscreenMap((id)=> renderPointsEditorMap(id, 'points-hidden', null, 'alt-edit-line', [], [], null, null), ()=>{
+    let line = [], plan = [];
+    try{ line = JSON.parse(tmp.value || '[]'); plan = JSON.parse(document.getElementById('alt-edit-line-plan').value || '[]'); }catch(e){}
+    let list = []; try{ list = JSON.parse(altEl.value || '[]'); }catch(e){}
+    const x = list.find(q=> 'alt:' + q.id === key);
+    if(x && line.length > 1 && JSON.stringify(line) !== JSON.stringify(x.trackSimplified)){
+      x.trackSimplified = line.map(c=> [Math.round(c[0] * 1e6) / 1e6, Math.round(c[1] * 1e6) / 1e6]);
+      if(plan.length) x.plan = plan; else delete x.plan;
+      altEl.value = JSON.stringify(list);
+      markModalDirty();
+    }
+    fsRoutesEditorRender();
   });
 }
 function fsWireRoutesEditor(){
@@ -10997,6 +11057,7 @@ function fsApplyRoutesFromForm(t, form, prev){
   if(form.routeAreas != null){ try{ const ar = JSON.parse(form.routeAreas || '[]'); if(Array.isArray(ar)) t.routeAreas = ar; }catch(e){} } // Bereiche meiden/bevorzugen (nur im Editor sichtbar)
   t.trackName = form.trackName || ''; t.trackType = form.trackType || '';
   t.manualTrackName = form.manualTrackName || ''; t.manualTrackType = form.manualTrackType || '';
+  if(form.manualTrackPlan != null){ try{ const pl = JSON.parse(form.manualTrackPlan || '[]'); t.manualTrackPlan = Array.isArray(pl) ? pl : []; }catch(e){} }
   let alts = []; try{ alts = JSON.parse(form.altTracks || '[]'); }catch(e){ alts = (prev && prev.altTracks) || []; }
   const uploads = [];
   t.altTracks = alts.map(a=>{
@@ -11206,7 +11267,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
             btn.style.cssText = 'text-align:left; background:var(--ice-light); border:none; border-radius:4px; padding:6px 9px; font-size:12.5px; color:var(--ink); cursor:pointer;';
             btn.textContent = '' + hit.label;
             btn.addEventListener('click', ()=>{ map.setView([hit.lat, hit.lon], 15); searchResults.innerHTML = ''; searchInput.value = ''; });
-            searchResults.appendChild(btn);
+            if(typeof mode !== 'undefined' && mode === 'line' && !usingGpxTrack){
+              const row = document.createElement('div'); row.className = 'fs-ed-hit';
+              const to = document.createElement('button'); to.type = 'button'; to.className = 'btn secondary';
+              to.textContent = manualTrack.length ? 'Hierhin zeichnen' : 'Hier starten';
+              to.addEventListener('click', ()=>{ searchResults.innerHTML = ''; searchInput.value = ''; addLineAt(hit.lat, hit.lon); try{ map.setView([hit.lat, hit.lon], Math.max(map.getZoom(), 13)); }catch(e){} });
+              row.append(btn, to); searchResults.appendChild(row);
+            }else searchResults.appendChild(btn);
           });
         }
       }catch(e){
@@ -11334,6 +11401,17 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     };
     paintConnect();
     lineActionsRow.appendChild(connectRow);
+    const gpsStartBtn = document.createElement('button');
+    gpsStartBtn.type = 'button'; gpsStartBtn.className = 'btn secondary'; gpsStartBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    gpsStartBtn.innerHTML = fsIconHtml('gps') + ' Start beim Standort';
+    gpsStartBtn.addEventListener('click', ()=> drawFromGps());
+    const reverseBtn = document.createElement('button');
+    reverseBtn.type = 'button'; reverseBtn.className = 'btn secondary'; reverseBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    reverseBtn.textContent = '⇅ Umkehren';
+    reverseBtn.addEventListener('click', ()=> drawReverse());
+    var drawToolsSync = ()=>{ const n = (typeof manualTrack !== 'undefined' && manualTrack) ? manualTrack.length : 0; gpsStartBtn.style.display = n ? 'none' : ''; reverseBtn.style.display = n > 1 ? '' : 'none'; };
+    lineActionsRow.appendChild(gpsStartBtn);
+    lineActionsRow.appendChild(reverseBtn);
     lineActionsRow.appendChild(undoBtn);
     lineActionsRow.appendChild(clearLineBtn);
     lineActionsRow.appendChild(finishBtn);
@@ -11601,6 +11679,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       markModalDirty();
       const target = usingGpxTrack ? gpxHiddenInput : manualTrackHidden;
       if(target) target.value = JSON.stringify(manualTrack);
+      drawPlanWrite();
+      if(typeof drawToolsSync === 'function') drawToolsSync();
       if(usingGpxTrack) gpxTrack = manualTrack;
       document.dispatchEvent(new CustomEvent('fs-track-changed'));
     }
@@ -11701,10 +11781,18 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
        Ziehpunkte nur an den Ankern; der Kreis in der Mitte eines Abschnitts lässt sich ziehen und setzt dort einen
        Zwischenpunkt (der Abschnitt wird neu gerechnet). Die Abschnitte gelten für diese Sitzung (am Formularfeld);
        eine geladene Linie besteht aus geraden Abschnitten zwischen ihren Knicken. */
+    // Abschnitte bleiben gespeichert (Feld «…Plan» neben der Linie): beim nächsten Öffnen wieder dieselben Anker und Arten
+    const planEl = manualTrackHiddenId ? document.getElementById(manualTrackHiddenId + '-plan') : null;
+    function drawPlanRead(){ try{ return planEl ? JSON.parse(planEl.value || '[]') : null; }catch(e){ return null; } }
+    function drawPlanWrite(){
+      if(!planEl || usingGpxTrack) return;
+      const ok = drawSegs && drawSegs.length && JSON.stringify(drawJoin(drawSegs)) === JSON.stringify(manualTrack);
+      planEl.value = JSON.stringify(ok ? fsSegsToPlan(drawSegs) : []);
+    }
     function drawJoin(segs){ const out = []; segs.forEach((sg, i)=> sg.coords.forEach((c, j)=>{ if(i && !j) return; out.push(c); })); return out; }
     function drawSync(){
       const ok = drawSegs && drawSegs.length && JSON.stringify(drawJoin(drawSegs)) === JSON.stringify(manualTrack);
-      if(!ok) drawSegs = drawSegsFromLine(manualTrack);
+      if(!ok) drawSegs = (!usingGpxTrack && fsPlanToSegs(manualTrack, drawPlanRead())) || drawSegsFromLine(manualTrack);
       if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs;
     }
     // Eine geladene Linie: kurz und von Hand = jeder Knick ein Anker (gerade). Lang oder berechnet = wenige Anker an den
@@ -12329,6 +12417,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(typeof redrawLine === 'function') redrawLine();
     }
     setMode(mode); // Zustieg startet in «Linie», sonst «Punkt»
+    drawToolsSync();
     updateRoutePanelState();
     pointModeBtn.addEventListener('click', ()=> setMode('point'));
     lineModeBtn.addEventListener('click', ()=> setMode('line'));
@@ -12513,6 +12602,38 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       redrawLine();
       persistTrack();
     }
+    // Linie umkehren (Abschnitte samt Art bleiben)
+    function drawReverse(){
+      if(usingGpxTrack || manualTrack.length < 2 || drawBusy) return;
+      pushUndo(); drawSync();
+      drawSegs = drawSegs.slice().reverse().map(sg=> Object.assign({}, sg, {coords: sg.coords.slice().reverse()}));
+      manualTrack = drawJoin(drawSegs);
+      if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs;
+      gpxTrackChanged();
+      showToast('Richtung umgekehrt.');
+    }
+    // Mehrere Anker auf einmal (Planer: Start → Ziel); jeder Abschnitt mit «Verbinden als»
+    function drawSetAnchors(list){
+      if(usingGpxTrack || !list || list.length < 1) return;
+      pushUndo();
+      manualTrack = [list[0]];
+      drawSegs = [];
+      for(let i = 1; i < list.length; i++) drawSegs.push({mode: drawConnect, coords: [list[i - 1], list[i]]});
+      if(drawSegs.length){ manualTrack = drawJoin(drawSegs); redrawLine(); drawRecompute(drawSegs.map((_, i)=> i)); }
+      else{ if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs; redrawLine(); persistTrack(); }
+    }
+    function drawFromGps(){
+      if(!navigator.geolocation){ showToast('Standort nicht verfügbar.', true); return; }
+      showToast('Standort wird bestimmt …');
+      navigator.geolocation.getCurrentPosition(p=>{
+        const ll = [p.coords.latitude, p.coords.longitude];
+        if(manualTrack.length) drawSetAnchors([ll].concat(drawAnchorIdx().map(i=> manualTrack[i])));
+        else addLineAt(ll[0], ll[1]);
+        try{ map.setView(ll, Math.max(map.getZoom(), 13)); }catch(e){}
+      }, ()=> showToast('Standort nicht verfügbar.', true), {enableHighAccuracy: true, timeout: 12000, maximumAge: 60000});
+    }
+    map._fsDrawApi = {add: (lat, lon)=> addLineAt(lat, lon), setAnchors: drawSetAnchors, reverse: drawReverse, gps: drawFromGps,
+      line: ()=> manualTrack.slice(), plan: ()=>{ drawSync(); return fsSegsToPlan(drawSegs); }, busy: ()=> drawBusy};
     function addPointAt(lat, lon){
       fsHaptic(20);
       pushUndo();
@@ -18118,10 +18239,12 @@ function fsTourDrawRoute(){
     let cur = []; try{ cur = JSON.parse(mt.value || '[]'); }catch(e){}
     if(cur.length > 1 && altEl){ // bisherige gezeichnete Linie als weitere Route ablegen, nichts überschreiben
       let alts = []; try{ alts = JSON.parse(altEl.value || '[]'); }catch(e){}
-      alts.push({id: 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), name: nm ? nm.value.trim() : '', type: FS_ROUTE_TYPES[ty.value] ? ty.value : 'aufstieg', trackSimplified: cur.map(c=> [Math.round(c[0] * 1e6) / 1e6, Math.round(c[1] * 1e6) / 1e6])});
+      let plan = []; try{ plan = JSON.parse((document.getElementById('manual-track-hidden-plan') || {}).value || '[]'); }catch(e){}
+      alts.push(Object.assign({id: 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), name: nm ? nm.value.trim() : '', type: FS_ROUTE_TYPES[ty.value] ? ty.value : 'aufstieg', trackSimplified: cur.map(c=> [Math.round(c[0] * 1e6) / 1e6, Math.round(c[1] * 1e6) / 1e6])}, plan.length ? {plan} : {}));
       altEl.value = JSON.stringify(alts);
     }
-    mt.value = '[]'; ty.value = type; if(nm) nm.value = '';
+    mt.value = '[]'; mt._drawSegs = null; ty.value = type; if(nm) nm.value = '';
+    const plEl = document.getElementById('manual-track-hidden-plan'); if(plEl) plEl.value = '[]';
     markModalDirty();
     fsRoutesEditorRender();
     fsEdNext = {line: true};
@@ -25077,3 +25200,88 @@ function toggleEmergencyCard(){
   const show = ()=>{ if(/[?&]diagnose\b/.test(location.search)){ const b = document.getElementById('debug-toggle-btn'); if(b) b.style.display = 'block'; } };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show); else show();
 })();
+
+/* ===== Route planen = Zeichnen-Werkzeug auf der Startkarte =====
+   Dieselben Werkzeuge wie im Tourformular (Verbinden als Skispur/Weg/Gerade, Anker ziehen, umlenken, anhängen,
+   Bereiche). Die Felder liegen in einem unsichtbaren Halter; nach «Fertig» ein Blatt: als neue Tour speichern oder
+   zu einer Tour in der Nähe hinzufügen. Die Abschnitte (Plan) gehen mit, damit die Route bearbeitbar bleibt. */
+let fsPlanHost = null;
+function fsPlanDraw(o){
+  o = o || {};
+  if(fsPlanHost || !fsHomeMap || !fsHomeEl || fsCtxUsesHome) return;
+  if(typeof state !== 'undefined' && state.modal) return;
+  const host = document.createElement('div');
+  host.hidden = true; host.id = 'fsplan-host';
+  host.innerHTML = '<input id="fsplan-pts" value="[]"><input id="fsplan-line"><input id="fsplan-line-plan"><input id="route-areas-hidden">';
+  document.body.appendChild(host);
+  fsPlanHost = host;
+  document.getElementById('fsplan-line').value = JSON.stringify(o.line || []);
+  document.getElementById('fsplan-line-plan').value = JSON.stringify(o.plan || []);
+  document.getElementById('route-areas-hidden').value = JSON.stringify(o.areas || []);
+  if(typeof fsHomeDetent !== 'undefined' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
+  fsEdNext = {line: true, noPoints: true};
+  openFullscreenMap((id)=> renderPointsEditorMap(id, 'fsplan-pts', null, 'fsplan-line', [], [], null, null), ()=> fsPlanDone());
+  let tries = 0;
+  const ready = ()=>{
+    if(fsPlanHost !== host) return;
+    const m = window.__activeLeafletMaps && window.__activeLeafletMaps['fullscreen-map-container-inner'];
+    const api = m && m._fsDrawApi;
+    if(!api){ if(++tries < 60) setTimeout(ready, 150); return; }
+    const cb = document.getElementById('fullscreen-map-close'); if(cb) cb.innerHTML = fsIconHtml('check') + 'Fertig';
+    if(o.pts && o.pts.length > 1) api.setAnchors(o.pts.map(p=> [+p.lat, +p.lon]));
+    else if(o.to){
+      const to = [+o.to.lat, +(o.to.lng != null ? o.to.lng : o.to.lon)];
+      if(!navigator.geolocation){ api.add(to[0], to[1]); return; }
+      navigator.geolocation.getCurrentPosition(p=> api.setAnchors([[p.coords.latitude, p.coords.longitude], to]),
+        ()=>{ api.add(to[0], to[1]); showToast('Standort nicht verfügbar – Punkt als Start gesetzt.'); }, {enableHighAccuracy: true, timeout: 10000, maximumAge: 60000});
+    }
+    else if(!(o.line && o.line.length)) showToast('Punkte antippen – sie werden als ' + (fsAppKey() === 'wandern' ? 'Weg' : 'Skispur') + ' verbunden.');
+  };
+  setTimeout(ready, 200);
+}
+function fsPlanDone(){
+  const host = fsPlanHost;
+  if(!host) return;
+  fsPlanHost = null;
+  let line = [], plan = [], areas = [];
+  try{ line = JSON.parse(document.getElementById('fsplan-line').value || '[]'); plan = JSON.parse(document.getElementById('fsplan-line-plan').value || '[]'); areas = JSON.parse(document.getElementById('route-areas-hidden').value || '[]'); }catch(e){}
+  host.remove();
+  try{ modalIsDirty = false; }catch(e){}
+  if(line.length < 2) return;
+  const ski = fsAppKey() !== 'wandern';
+  const type = ski ? 'aufstieg' : 'aufstieg';
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-season-h">Geplante Route</h3>
+    <p class="fs-season-p">${fsLineKm(line).toFixed(1)} km</p>
+    <div class="fs-plan-done">
+      <button type="button" class="btn" data-new>${fsIconHtml('plus')}Als neue Tour speichern</button>
+      <div data-attach></div>
+      <div class="fs-plan-done-row"><button type="button" class="btn secondary" data-more>${fsIconHtml('edit')}Weiter zeichnen</button><button type="button" class="btn secondary" data-drop>Verwerfen</button></div>
+    </div>`);
+  const att = fsTrackAttachUi(line, 'Geplante Route', null, type, {plan});
+  ov.querySelector('[data-attach]').appendChild(att);
+  att.querySelector('.fs-sac-main') && att.querySelector('.fs-sac-main').addEventListener('click', ()=> setTimeout(()=>{ if(overlayLayers.length) closeTopOverlayLayer(); }, 1200));
+  ov.querySelector('[data-new]').addEventListener('click', ()=>{
+    closeTopOverlayLayer();
+    const payload = {manualTrack: line, manualTrackPlan: plan, manualTrackType: type, routeAreas: areas};
+    setTimeout(()=> ensureName(()=>{ state.modal = {type: 'edit-tour', payload}; render(); }), 250);
+  });
+  ov.querySelector('[data-more]').addEventListener('click', ()=>{ closeTopOverlayLayer(); setTimeout(()=> fsPlanDraw({line, plan, areas}), 250); });
+  ov.querySelector('[data-drop]').addEventListener('click', ()=>{ if(confirm('Geplante Route verwerfen?')) closeTopOverlayLayer(); });
+}
+// Geplante Route einer Tour geben: ohne gezeichnete Linie wird sie diese (bearbeitbar), sonst eine weitere Route
+async function fsAttachPlanToTour(t, coords, plan, type, name){
+  const line = coords.map(c=> [Math.round(c[0] * 1e6) / 1e6, Math.round(c[1] * 1e6) / 1e6]);
+  if(!(t.manualTrack && t.manualTrack.length > 1)){
+    t.manualTrack = line; t.manualTrackPlan = plan || []; t.manualTrackType = type || 'aufstieg'; if(!t.manualTrackName) t.manualTrackName = name || '';
+  }else{
+    if(!Array.isArray(t.altTracks)) t.altTracks = [];
+    t.altTracks.push(Object.assign({id: 'alt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), name: name || '', type: type || 'variante', trackSimplified: line}, plan && plan.length ? {plan} : {}));
+  }
+  t.updatedAt = new Date().toISOString(); t.updatedBy = state.myName;
+  const save = fsFn('saveTourCloud');
+  const ok = save ? await save(t).catch(()=> false) : false;
+  if(!ok){ t._unsynced = true; try{ markUnsaved(); }catch(e){} }
+  try{ if(typeof render === 'function') render(); }catch(e){}
+  return ok;
+}

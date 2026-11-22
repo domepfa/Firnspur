@@ -62,7 +62,13 @@ aus anderen Apps übernehmen.
   Keine Lawinenbeurteilung – so steht es in der Legende. Tour: «Berichte anderer» als Websuche auf gipfelbuch.ch (`fsGipfelbuchHtml`).
 - Start (Profil-Menü «Start mit», Gerät `fs-start`: last|ski|hoch|klet|wand; zuletzt benutzt `fs-last-disc`): gilt beim Öffnen der
   installierten App (index.html ohne Angaben im Standalone-Modus oder `launch=1` von fixseil.html/wandern.html); gezielte Links gehen vor.
-- Planer (`fsPlannerOpen`): «Auf Wegen» rechnet über das swisstopo-Wegnetz (`fsrRoute`, sonst openrouteservice); «Skitour (weglos)»
+- «Route planen» (`fsPlannerOpen` → `fsPlanDraw`): dasselbe Zeichnen-Werkzeug wie im Tourformular auf der Startkarte (Felder in einem
+  unsichtbaren Halter `fsplan-host`); dazu «Start beim Standort», «Umkehren», Suchtreffer «Hierhin zeichnen»; Vorgaben (Punkt «Route hierhin»,
+  Link `?plan=`) über `_fsDrawApi.setAnchors`. Nach «Fertig» Blatt: als neue Tour speichern oder zu einer Tour in der Nähe (`fsAttachPlanToTour`:
+  ohne gezeichnete Linie wird es diese, sonst eine weitere Route). Abschnitte bleiben gespeichert: `manualTrackPlan` bzw. `plan` an weiteren
+  Routen ([[Art, Anzahl Punkte], …], `fsSegsToPlan`/`fsPlanToSegs`, Feld `<Linienfeld>-plan`); im Formular hat jede gezeichnete/weitere Route
+  einen Stift «Linie auf der Karte bearbeiten» (`fsRouteEditLine`). Der frühere Planer liegt noch als `fsPlannerOpenClassic` (ungenutzt).
+- Rechnungen im Planer/Zeichnen: «Auf Wegen» rechnet über das swisstopo-Wegnetz (`fsrRoute`, sonst openrouteservice); «Skitour (weglos)»
   rechnet auf dem Gerät eine Aufstiegsspur mit Spitzkehren aus dem Höhenmodell (`fsSkiRoute`: Raster über `fsElevGrid` aus dem
   swisstopo-Gelände, Suche `fsSkiEngine` im Web Worker; Spur höchstens etwa 17° steil, Hänge bis 30° normal, 30–35° leicht, ab 35° stark gemieden, kleine Richtungswechsel kosten etwas; Linie geglättet (`fsSmoothTrack`); Linie nach
   Steilheit gefärbt, `FS_SKI_CLASSES`). Ein Vorschlag aus dem Gelände, keine Lawinenbeurteilung – so steht es auch im Planer.
