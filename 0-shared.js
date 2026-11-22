@@ -3597,8 +3597,8 @@ function agendaDetailHtml(id){
       <span class="bf-avatars">${(a.participants||[]).slice(0,6).map((p,i)=>`<i style="background:${['var(--ink)','var(--ice-deep)','#7D8C96','#B0875A','#5E7A3A','#6570B0'][i%6]}" title="${esc(p.by)}">${esc((p.by||'?').charAt(0).toUpperCase())}</i>`).join('')}</span>
     </div>
     <div class="field bf-status"><label>Status</label>${agendaStatusSelectHtml(a)}</div>
-    ${briefingTabsBarHtml()}
-    ${(state._briefTab||'ablauf')==='pack' ? briefingPackHtml(a) : (state._briefTab||'ablauf')==='notfall' ? briefingNotfallHtml(a) : `
+    ${briefingTabsBarHtml(a)}
+    ${(state._briefTab||'ablauf')==='pack' ? briefingPackHtml(a) : (state._briefTab||'ablauf')==='filter' ? briefing3x3Html(a) : (state._briefTab||'ablauf')==='notfall' ? briefingNotfallHtml(a) : `
     ${briefingAblaufExtrasHtml(a)}
     ${a.weatherSnapshot ? `<div class="detail-section" style="background:var(--ice-light);">
       <h4>${fsIconHtml('download')} Für unterwegs gespeichert${a.weatherSnapshot.locationLabel ? ' – ' + esc(a.weatherSnapshot.locationLabel) : ''}</h4>
@@ -3881,6 +3881,7 @@ function printTourenzettel(agendaId){
   ${winter ? `<div class="section"><h4>${fsIconHtml('snow')} Lawinensituation</h4><div class="box" id="tz-avalanche"><p class="muted" style="margin:0;">Bulletin wird geladen …</p></div></div>` : ''}
 
   ${brief.planB ? `<div class="section"><h4>${fsIconHtml('undo')} Plan B</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.planB)}</p></div>` : ''}
+  ${winter ? `<div class="section"><h4>${fsIconHtml('check')} 3×3-Filter</h4><div class="box">${FS_3X3.map(sg=> `<p class="rt" style="margin:0 0 4px;"><strong>${escHtml(sg.label)}:</strong></p>` + sg.items.map(it=> `<div style="font-size:13px;margin:0 0 2px 8px;">${(a.check3x3 || {})[it.id] ? '✓' : '☐'} ${escHtml(it.txt)}${(a.check3x3 || {})[it.id] ? ' <span class="muted">(' + escHtml(a.check3x3[it.id]) + ')</span>' : ''}</div>`).join('')).join('')}</div></div>` : ''}
   ${brief.anforderungen ? `<div class="section"><h4>${fsIconHtml('check')} Das braucht es</h4><p style="font-size:13.5px;margin:0;">${escHtml(brief.anforderungen)}</p></div>` : ''}
 
   <div class="section"><h4>${fsIconHtml('pack')} Material</h4>${materialList.length ? `<div class="material-box">${materialList.map(m=>`<div>☐ ${escHtml(m)}</div>`).join('')}</div>` : `<p class="muted">Keine Material-Angaben zu dieser Tour hinterlegt.</p>`}</div>
@@ -4342,6 +4343,7 @@ function fsSlfBoxHtml(lat, lon){
     ${fsSlfWeatherHtml(bul.weather)}
     ${fsReductionHtml(t, bul)}
     ${fsGrmHtml(t, bul)}
+    ${t ? `<button type="button" class="btn secondary fs-3x3-btn" data-act="fs-3x3-open" data-id="${esc(t.id)}">${fsIconHtml('check')}Check vor Ort (3×3-Filter)</button>` : ''}
     <a class="fs-slf-link" href="https://whiterisk.ch/de/conditions/bulletin" target="_blank" rel="noopener noreferrer">Ganzes Bulletin auf White Risk</a>
     <p class="fs-slf-src">${esc([bul.region ? 'Region ' + bul.region : '', bul.pub ? 'Stand ' + fsSlfFmt(bul.pub) : ''].filter(Boolean).join(' · '))}</p>
   </div>`;
@@ -4375,6 +4377,85 @@ function fsReductionHtml(t, bul){
   return `<div class="fs-slf-red"><span class="fs-slf-red-h">Faustregel (Reduktionsmethode)</span>${esc(rule.txt)}${route ? ' ' + route : ''}
     <small>Nach Werner Munter, für die höchste Stufe der Region. Grober Rahmen für die Planung, ersetzt keine Beurteilung vor Ort.</small></div>`;
 }
+/* ===== 3×3-Filter nach Munter =====
+   Verhältnisse, Gelände, Mensch – je bei der Planung, vor Ort und am Einzelhang. Planung im Tourenbriefing
+   (Haken für die Gruppe im Termin, Feld check3x3 {id: Name}), vor Ort und am Einzelhang als Blatt in der Tour
+   (nur Gedächtnisstütze, nichts gespeichert). Auto-Hinweise aus Bulletin und Routen-Check. */
+const FS_3X3 = [
+  {st: 'plan', label: 'Planung', items: [
+    {id: 'p-v1', g: 'Verhältnisse', txt: 'Lawinenbulletin gelesen: Stufe, Probleme, Kernzone', auto: 'bul'},
+    {id: 'p-v2', g: 'Verhältnisse', txt: 'Wetter, Neuschnee und Wind der letzten Tage angeschaut'},
+    {id: 'p-g1', g: 'Gelände', txt: 'Steile Stellen der Route kennen (Routen-Check, Reduktionsmethode)', auto: 'grm'},
+    {id: 'p-g2', g: 'Gelände', txt: 'Schlüsselstellen, Ausweichroute und Umkehrpunkt festgelegt'},
+    {id: 'p-m1', g: 'Mensch', txt: 'Gruppe: Grösse, Können und Kondition passen zur Tour'},
+    {id: 'p-m2', g: 'Mensch', txt: 'LVS, Schaufel, Sonde und Erste Hilfe dabei, Zeitplan mit Reserve'}]},
+  {st: 'ort', label: 'Vor Ort', items: [
+    {id: 'o-v1', g: 'Verhältnisse', txt: 'Alarmzeichen? Frische Lawinen, Wumm-Geräusche, Risse, frischer Triebschnee'},
+    {id: 'o-v2', g: 'Verhältnisse', txt: 'Wetter und Sicht wie erwartet'},
+    {id: 'o-g1', g: 'Gelände', txt: 'Gelände passt zur Planung: Steilheit, Exposition, Höhe'},
+    {id: 'o-m1', g: 'Mensch', txt: 'LVS-Check gemacht, alle fit, Zeitplan eingehalten'}]},
+  {st: 'hang', label: 'Einzelhang', items: [
+    {id: 'h-v1', g: 'Verhältnisse', txt: 'Hang frei von Triebschnee und Alarmzeichen'},
+    {id: 'h-g1', g: 'Gelände', txt: 'Steilheit und Exposition; was liegt darüber und darunter (Absturz, Mulden, Bäume)'},
+    {id: 'h-m1', g: 'Mensch', txt: 'Abstände, einzeln befahren, Sammelpunkte ausserhalb der Gefahr'}]}
+];
+// Kurze Auto-Hinweise zur Tour (Bulletin, Reduktionsmethode)
+function fs3x3Auto(t, kind){
+  if(!t) return '';
+  const pt = fsTourSummitPoint(t) || tourMapPoint(t);
+  if(!pt) return '';
+  const key = (+pt.lat).toFixed(2) + ',' + (+pt.lon).toFixed(2), c = state._slf && state._slf[key];
+  const bul = c && c.status === 'ok' && c.r ? (c.r.cur || c.r.next) : null;
+  if(!bul){ if(!c) fsSlfBoxHtml(+pt.lat, +pt.lon); return ''; }
+  if(kind === 'bul'){
+    const r0 = bul.ratings[0];
+    return r0 ? 'Stufe ' + fsSlfLevelTxt(r0.level, r0.sub) + ' ' + r0.label + (bul.problems.length ? ' · ' + bul.problems.map(pr=> pr.type).join(', ') : '') : '';
+  }
+  if(kind === 'grm'){
+    const m = fsGrmModel(t, bul);
+    if(!m) return '';
+    const over = m.segs.filter(sg=> sg.over).length;
+    return !m.segs.length ? 'Keine Stelle steiler als 30°' : m.segs.length + (m.segs.length === 1 ? ' steile Stelle' : ' steile Stellen') + (over ? ', ' + over + ' über dem Richtwert' : ', alle im Rahmen');
+  }
+  return '';
+}
+function fs3x3ListHtml(stages, checks, opts){
+  opts = opts || {};
+  return stages.map(sg=> `<div class="fs-3x3-st"><div class="fs-3x3-sth">${esc(sg.label)}</div>${sg.items.map(it=>{
+    const by = checks && checks[it.id], on = !!by, auto = it.auto && opts.tour ? fs3x3Auto(opts.tour, it.auto) : '';
+    return `<button type="button" class="fs-3x3-it${on ? ' on' : ''}" data-3x3="${it.id}"${opts.agenda ? ` data-agenda="${esc(opts.agenda)}"` : ''} aria-pressed="${on}">
+      <span class="fs-3x3-box" aria-hidden="true">✓</span><span><small>${esc(it.g)}</small>${esc(it.txt)}${auto ? `<em>${esc(auto)}</em>` : ''}${on && typeof by === 'string' && opts.agenda ? `<i>abgehakt von ${esc(by)}</i>` : ''}</span></button>`;
+  }).join('')}</div>`).join('');
+}
+// Tour: «Check vor Ort» – vor Ort und am Einzelhang, nur für diese Sitzung
+let fs3x3Local = {};
+function fs3x3Open(tourId){
+  const t = (state.tours || []).find(x=> x.id === tourId);
+  const draw = ()=> `<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-season-h">Check vor Ort</h3>
+    <p class="fs-season-p">3×3-Filter nach Munter: vor Ort und am Einzelhang. Eine Gedächtnisstütze, keine Beurteilung.</p>
+    <div class="fs-3x3">${fs3x3ListHtml(FS_3X3.slice(1), fs3x3Local[tourId] || {}, {tour: t})}</div>
+    <button type="button" class="btn secondary fs-3x3-reset" data-reset>Alle Haken entfernen</button>`;
+  const ov = fsSheet(draw());
+  ov._saved = true;
+  const wire = ()=>{
+    ov.querySelectorAll('[data-3x3]').forEach(b=> b.addEventListener('click', ()=>{
+      const m = fs3x3Local[tourId] = fs3x3Local[tourId] || {}, id = b.getAttribute('data-3x3');
+      if(m[id]) delete m[id]; else m[id] = true;
+      b.classList.toggle('on', !!m[id]); b.setAttribute('aria-pressed', String(!!m[id])); fsHaptic(15);
+    }));
+    const r = ov.querySelector('[data-reset]');
+    if(r) r.addEventListener('click', ()=>{ fs3x3Local[tourId] = {}; ov.querySelectorAll('[data-3x3]').forEach(b=>{ b.classList.remove('on'); b.setAttribute('aria-pressed', 'false'); }); });
+    ov.querySelectorAll('[data-close]').forEach(b=> b.addEventListener('click', ()=> closeTopOverlayLayer()));
+  };
+  wire();
+}
+document.addEventListener('click', (e)=>{
+  const b = e.target && e.target.closest && e.target.closest('[data-act="fs-3x3-open"]');
+  if(!b) return;
+  e.stopPropagation();
+  fs3x3Open(b.getAttribute('data-id'));
+}, true);
 /* ===== Grafische Reduktionsmethode (SLF/SAC) =====
    Steile Stellen der Route (Routen-Check: Klassen 30–35°, 35–40° …) gegen die Gefahrenstufe: Richtwert Stufe 1 = 45°,
    2 = 40°, 3 = 35°, 4 = 30° (Zwischenstufen +/− je ein Drittel). In der Kernzone (Exposition und Höhe eines Problems
@@ -24110,9 +24191,20 @@ function briefingNotfallHtml(a){
     </div>
     <button type="button" class="btn secondary" data-act="brief-open-emergency" style="width:100%;">${fsIconHtml('sos', '#B42318')} Notfallkarte mit den 5 W und Standort</button>`;
 }
-function briefingTabsBarHtml(){
+// 3×3-Filter im Termin: Haken gelten für die Gruppe (wer abgehakt hat, steht dabei)
+function briefing3x3Html(a){
+  const tour = findAgendaLinkedTour(a.tourRef);
+  const checks = a.check3x3 || {};
+  const plan = FS_3X3[0].items, done = plan.filter(it=> checks[it.id]).length;
+  return `<div class="bf-card"><div class="bf-row"><h3 class="bf-h">3×3-Filter</h3><span class="bf-count">Planung ${done} von ${plan.length}</span></div>
+      <div class="bf-bar"><span style="width:${Math.round(done / plan.length * 100)}%"></span></div>
+      <p class="bf-empty" style="margin-top:8px;">Nach Munter: Verhältnisse, Gelände, Mensch – bei der Planung, vor Ort und am Einzelhang. Die Haken gelten für die ganze Gruppe.</p></div>
+    <div class="fs-3x3">${fs3x3ListHtml(FS_3X3, checks, {agenda: a.id, tour})}</div>`;
+}
+function briefingTabsBarHtml(a){
   const tab = state._briefTab || 'ablauf';
-  const tabs = [['ablauf','Ablauf','clock'],['pack','Packliste','pack'],['notfall','Notfall','sos']];
+  // 3×3-Filter (Lawinen) nicht bei Wanderungen
+  const tabs = [['ablauf','Ablauf','clock'],['pack','Packliste','pack']].concat(a && a.type === 'wandern' ? [] : [['filter','3×3','check']]).concat([['notfall','Notfall','sos']]);
   return `<div class="bf-tabs" role="tablist">
       ${tabs.map(t=>`<button type="button" role="tab" data-act="brief-tab" data-tab="${t[0]}" aria-selected="${tab===t[0]}" class="${tab===t[0]?'on':''}">${fsIconHtml(t[2])}${t[1]}</button>`).join('')}
     </div>`;
@@ -24192,6 +24284,22 @@ function briefingFormValues(){
 
 // Ein zentraler Klick-/Eingabe-Handler (Delegation, in der Capture-Phase, weil Dialoge Klicks
 // per stopPropagation abfangen), damit index.html und fixseil.html nichts zusätzlich verdrahten müssen.
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest && e.target.closest('[data-3x3][data-agenda]');
+  if(!el) return;
+  e.stopPropagation();
+  ensureName(async ()=>{
+    const a = state.agenda.find(x=> x.id === el.getAttribute('data-agenda'));
+    if(!a) return;
+    const id = el.getAttribute('data-3x3');
+    a.check3x3 = Object.assign({}, a.check3x3 || {});
+    if(a.check3x3[id]) a.check3x3[id] = ''; else a.check3x3[id] = state.myName; // abhaken leert bewusst ('')
+    fsHaptic(15);
+    render();
+    const ok = await saveAgendaCloud(a).catch(()=> false);
+    a._unsynced = !ok; if(!ok) markUnsaved();
+  });
+}, true);
 document.addEventListener('click', async (e)=>{
   const el = e.target.closest && e.target.closest('[data-act^="brief-"]');
   if(!el) return;
