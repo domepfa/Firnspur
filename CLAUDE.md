@@ -86,7 +86,10 @@ aus anderen Apps übernehmen.
   Exposition/Gipfelhöhe; Kurzkalender gestern · heute → Ausblick aus `bul.evo`. Zusatzfilter «Am Tag X» (`fsExtraFilterHtml`): Problembereich ausblenden, passt zur Jahreszeit.
 - In der Tour zusätzlich: Faustregel nach Munter im Bulletin (`fsReductionHtml`), Grafische Reduktionsmethode SLF/SAC (`fsGrmHtml`/`fsGrmModel`:
   steile Abschnitte aus dem Routen-Check in 5°-Klassen, Richtwert 45/40/35/30° je Stufe, Zwischenstufen ±⅓, ausserhalb der Kernzone eine Stufe tiefer;
-  Diagramm, Liste antippen = Stelle auf der Karte), «Sonne auf der Abfahrt» (Skitour, `fsFirnHtml`:
+  Diagramm, Liste antippen = Stelle auf der Karte),
+  3×3-Filter nach Munter (`FS_3X3`): im Bulletin der Tour Knopf «Check vor Ort» (Blatt mit vor Ort/Einzelhang, nichts gespeichert,
+  `fs3x3Open`); im Termin Reiter «3×3» (nicht bei Wanderungen) mit allen drei Stufen, Haken für die Gruppe im Feld `check3x3` {id: Name, '' = abgehakt
+  entfernt}, Auto-Hinweise aus Bulletin/Reduktionsmethode (`fs3x3Auto`); auf dem Tourenzettel im Winter als Liste. «Sonne auf der Abfahrt» (Skitour, `fsFirnHtml`:
   Sonnenstand + Schatten der Berge aus dem Höhenmodell), «Beste Zeit» (`bestMonths`, sonst aus Begehungen, `fsTourSeasonText`),
   Zeit nach SAC-Formel für Touren ohne Zeitbedarf (`fsTourTimeEstimate`, Höhenmeter sonst aus dem Höhenmodell, `fs-time`).
   Wetter/Bedingungen/Bulletin gelten am Gipfel (`fsTourWxHtml`), auch für Touren nur mit Linie.
