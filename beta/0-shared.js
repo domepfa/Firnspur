@@ -4159,7 +4159,10 @@ async function fsSlfFetchBulletin(){
     const r = await fetch(FS_SLF_DATEN_URL, {cache: 'no-cache'});
     if(r.ok){ const d = await r.json(); if(d && d.regions && d.bulletin) viaDaten = d; }
   }catch(e){}
-  const fresh = viaDaten && viaDaten.fetchedAt && Date.now() - new Date(viaDaten.fetchedAt).getTime() < 3 * 3600e3;
+  // Kopie gilt nur, wenn sie jung ist UND ein Bulletin enthält, das jetzt noch gilt (um 17 Uhr erscheint das neue;
+  // eine Kopie vom Nachmittag hatte danach keines mehr, und die Tour zeigte nur noch die Gefahrenstufe)
+  const validNow = (bd)=>{ const l = Array.isArray(bd) ? bd : ((bd && bd.bulletins) || []); const now = Date.now(); return l.some(x=> x.validTime && new Date(x.validTime.endTime).getTime() > now); };
+  const fresh = viaDaten && viaDaten.fetchedAt && Date.now() - new Date(viaDaten.fetchedAt).getTime() < 3 * 3600e3 && validNow(viaDaten.bulletin);
   if(fresh) return {regions: viaDaten.regions, bd: viaDaten.bulletin};
   try{
     // Seit Oktober 2026: Bulletin nur noch unter /caaml/<sprache>/json; Regionen-Umrisse von den EAWS (gleiche IDs, CH-…)
@@ -4308,11 +4311,14 @@ function fsSlfWeatherHtml(ws){
 function fsSlfBoxHtml(lat, lon){
   state._slf = state._slf || {};
   const key = lat.toFixed(2) + ',' + lon.toFixed(2);
-  const c = state._slf[key];
+  let c = state._slf[key];
+  // Kein Bulletin bzw. Fehler: nach 10 Minuten neu versuchen (sonst blieb es die ganze Sitzung leer)
+  if(c && (c.status === 'none' || c.status === 'err') && Date.now() - (c.at || 0) > 10 * 60e3){ c = null; fsSlfAllPromise = null; }
+  if(c && c.status === 'ok' && c.r && c.r.cur && c.r.cur.end < new Date() && !c.r.next){ c = null; fsSlfAllPromise = null; } // abgelaufen: neues Bulletin holen
   if(!c){
-    state._slf[key] = {status:'loading'};
-    fsSlfForPoint(lat, lon).then(r=>{ state._slf[key] = {status: r ? 'ok' : 'none', r}; fsRenderSoon(); })
-      .catch(()=>{ state._slf[key] = {status:'err'}; fsRenderSoon(); });
+    state._slf[key] = {status:'loading', at: Date.now()};
+    fsSlfForPoint(lat, lon).then(r=>{ state._slf[key] = {status: r ? 'ok' : 'none', r, at: Date.now()}; fsRenderSoon(); })
+      .catch(()=>{ state._slf[key] = {status:'err', at: Date.now()}; fsRenderSoon(); });
     return '';
   }
   if(c.status !== 'ok') return '';
