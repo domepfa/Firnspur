@@ -22644,13 +22644,16 @@ async function fsScanOpen(s){
   if(res.error){ loading.textContent = res.error; return; }
   res.bul = slf ? fsRcSlfBul(slf) : null;
   res.probs = fsRcSlfProblems(res.bul);
-  let layer = 'steil';
+  let layer = 'steil', edit = null; // edit: geänderter Rahmen (Griffe), noch nicht gerechnet
   fsScanImage(res, 'lawine'); // zählt die Treffer fürs Blatt
   const card = wrap.querySelector('.fs-scan-card');
   const drawCard = ()=>{
-    card.innerHTML = `<label class="fs-scan-op"><span>Deckkraft</span><input type="range" min="0" max="100" step="5" value="${Math.round(fsScanOpacity() * 100)}" aria-label="Deckkraft der Farben"><b>${Math.round(fsScanOpacity() * 100)} %</b></label>` + fsScanCardHtml(res, layer);
+    card.innerHTML = (edit ? `<div class="fs-scan-redo"><span>Rahmen geändert: ${fsRcFmtM(edit.length)} × ${fsRcFmtM(edit.width)}</span><button type="button" class="btn" data-redo>${fsIconHtml('scan')}Neu scannen</button></div>` : '')
+      + `<label class="fs-scan-op"><span>Deckkraft</span><input type="range" min="0" max="100" step="5" value="${Math.round(fsScanOpacity() * 100)}" aria-label="Deckkraft der Farben"><b>${Math.round(fsScanOpacity() * 100)} %</b></label>` + fsScanCardHtml(res, layer);
     card.hidden = false;
     fsScanWireTimeline(card, res, ()=> layer, drawCard);
+    const rd = card.querySelector('[data-redo]');
+    if(rd) rd.addEventListener('click', ()=>{ const ns = Object.assign({}, s, edit); closeTopOverlayLayer(); setTimeout(()=> fsScanOpen(ns), 250); });
     const r = card.querySelector('.fs-scan-op input'), out = card.querySelector('.fs-scan-op b');
     let raf = 0;
     r.addEventListener('input', ()=>{
@@ -22677,6 +22680,8 @@ async function fsScanOpen(s){
       map.addLayer({id:'fs-scan-route', type:'line', source:'fs-scan-route', layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#1565C0', 'line-width':3.5}});
     }
     loading.remove();
+    fsScanWireFrame(map, s, (e)=>{ edit = e; drawCard(); });
+    fsScanWireReadout(map, res);
   });
   wrap.querySelectorAll('.fs-scan-seg [data-k]').forEach(b=> b.addEventListener('click', async ()=>{
     layer = b.dataset.k;
@@ -22695,6 +22700,76 @@ async function fsScanOpen(s){
     if(map.getSource && map.getSource('fs-scan')) fsScanShow(res, layer);
     drawCard();
   }));
+}
+// Rahmen des Ergebnisses anpassen: Griffe in der Mitte jeder Seite (nur diese Seite verschieben) und in der Mitte
+// (ganzen Rahmen verschieben). Gerechnet wird erst mit «Neu scannen».
+function fsScanFrameOf(s){
+  const R = fsScanRect(s), tm = (R.t0 + R.t1) / 2;
+  const [lat, lon] = fsScanLL(R.ox + R.f[0] * tm, R.oy + R.f[1] * tm);
+  return {lat, lon, bearing: s.bearing, length: (R.t1 - R.t0) * R.m, width: 2 * R.hw * R.m};
+}
+function fsScanWireFrame(map, s, onEdit){
+  const fr = fsScanFrameOf(s);
+  const k = ()=> 111320 * Math.cos(fr.lat * Math.PI / 180);
+  const b = fr.bearing * Math.PI / 180, fwd = [Math.sin(b), Math.cos(b)], rgt = [Math.cos(b), -Math.sin(b)]; // [Ost, Nord]
+  const at = (t, u)=> [fr.lon + (fwd[0] * t + rgt[0] * u) / k(), fr.lat + (fwd[1] * t + rgt[1] * u) / 111320];
+  const poly = ()=>{ const L = fr.length / 2, W = fr.width / 2; const c = [at(-L, -W), at(L, -W), at(L, W), at(-L, W)]; return c.concat([c[0]]); };
+  const local = (ll)=>{ const dx = (ll.lng - fr.lon) * k(), dy = (ll.lat - fr.lat) * 111320; return [dx * fwd[0] + dy * fwd[1], dx * rgt[0] + dy * rgt[1]]; };
+  const H = [{id: 'f', t: 1, u: 0}, {id: 'b', t: -1, u: 0}, {id: 'r', t: 0, u: 1}, {id: 'l', t: 0, u: -1}, {id: 'c', t: 0, u: 0}];
+  const pos = (h)=> at(h.t * fr.length / 2, h.u * fr.width / 2);
+  const redraw = ()=>{
+    try{ map.getSource('fs-scan-box').setData({type: 'Feature', properties: {}, geometry: {type: 'LineString', coordinates: poly()}}); }catch(e){}
+    H.forEach(h=>{ if(h.mk && !h.dragging) h.mk.setLngLat(pos(h)); });
+  };
+  H.forEach(h=>{
+    const el = document.createElement('div');
+    el.className = 'fs-scan-grip3' + (h.id === 'c' ? ' mid' : '');
+    el.setAttribute('aria-label', h.id === 'c' ? 'Rahmen verschieben' : 'Seite verschieben');
+    if(h.id === 'c') el.innerHTML = fsIconHtml('move');
+    h.mk = new maplibregl.Marker({element: el, draggable: true}).setLngLat(pos(h)).addTo(map);
+    h.mk.on('dragstart', ()=>{ h.dragging = true; });
+    h.mk.on('drag', ()=>{
+      const ll = h.mk.getLngLat();
+      if(h.id === 'c'){ fr.lon = ll.lng; fr.lat = ll.lat; }
+      else{
+        const [t, u] = local(ll);
+        if(h.t){ // vorne/hinten: gegenüberliegende Seite bleibt
+          const opp = -h.t * fr.length / 2, edge = h.t > 0 ? Math.max(opp + 300, Math.min(opp + 12000, t)) : Math.min(opp - 300, Math.max(opp - 12000, t));
+          fr.length = Math.abs(edge - opp); const mid = (edge + opp) / 2;
+          const c = at(mid, 0); fr.lon = c[0]; fr.lat = c[1];
+        }else{
+          const opp = -h.u * fr.width / 2, edge = h.u > 0 ? Math.max(opp + 200, Math.min(opp + 6000, u)) : Math.min(opp - 200, Math.max(opp - 6000, u));
+          fr.width = Math.abs(edge - opp); const mid = (edge + opp) / 2;
+          const c = at(0, mid); fr.lon = c[0]; fr.lat = c[1];
+        }
+      }
+      redraw();
+    });
+    h.mk.on('dragend', ()=>{
+      h.dragging = false; redraw();
+      onEdit({lat: fr.lat, lon: fr.lon, bearing: fr.bearing, length: Math.round(fr.length / 10) * 10, width: Math.round(fr.width / 10) * 10, centered: true, origin: null});
+    });
+  });
+}
+// Antippen im Rahmen: Höhe, Neigung und Exposition dieser Stelle (aus der gerechneten Fläche), Schild antippen = weg
+function fsScanWireReadout(map, res){
+  let mk = null;
+  const clear = ()=>{ if(mk){ mk.remove(); mk = null; } };
+  map.on('click', (e)=>{
+    clear();
+    const [px, py] = fsRcPx(e.lngLat.lat, e.lngLat.lng, res.z);
+    const x = Math.floor(px) - res.x0, y = Math.floor(py) - res.y0;
+    if(x < 0 || y < 0 || x >= res.W || y >= res.H) return;
+    const i = y * res.W + x, sl = res.slope[i];
+    if(isNaN(sl)) return;
+    const el = res.ele[i], as = res.asp[i];
+    const slTxt = sl >= 50 ? 'über 50°' : sl >= 30 ? (Math.floor(sl / 5) * 5) + '–' + (Math.floor(sl / 5) * 5 + 5) + '°' : Math.round(sl) + '°';
+    const parts = [isNaN(el) ? '' : fsRcFmtE(el) + ' m', slTxt, isNaN(as) || sl < 3 ? '' : (FS_RC_ASP_LONG[fsScanDir(as)] || fsScanDir(as))].filter(Boolean);
+    const d = document.createElement('button'); d.type = 'button'; d.className = 'fs-scan-read';
+    d.innerHTML = '<i></i><span>' + esc(parts.join(' · ')) + '</span>';
+    d.addEventListener('click', (ev)=>{ ev.stopPropagation(); clear(); });
+    mk = new maplibregl.Marker({element: d, anchor: 'bottom-left', offset: [-7, 7]}).setLngLat(e.lngLat).addTo(map);
+  });
 }
 // 3D-Karte für Scan und Vorschau: Luftbild auf Gelände, Blick wie beim Zielen (vom unteren zum oberen Rand)
 function fsScanCreate3d(s, onReady){
@@ -23850,6 +23925,7 @@ const FS_ICON_PATHS = {
   search: 'M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14zM20 20l-4-4',
   download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
   upload: 'M12 16V4M7 9l5-5 5 5M5 20h14',
+  move: 'M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3',
   share: 'M15 5a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0M15 19a3 3 0 1 0 6 0a3 3 0 1 0-6 0M8.6 10.5l6.8-4M8.6 13.5l6.8 4',
   car: 'M4 16v-4l2-5h12l2 5v4zM4 12h16M6 16v3h2v-3M16 16v3h2v-3M7.5 14h.5M16 14h.5',
   partly: 'M8 3.5V5M3.5 8H5M4.8 4.8l1 1M11.2 4.8l-1 1M5.3 10.8A3.5 3.5 0 1 1 11.4 7.6M9 20h9a3.5 3.5 0 0 0 0-7 5 5 0 0 0-9.6 1.2A3 3 0 0 0 9 20z',
