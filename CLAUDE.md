@@ -41,7 +41,8 @@ aus anderen Apps übernehmen.
   `FL`, Routen `fsr*`, 3D), Login, Bearbeiten/Gedrückthalten, Topo-Bilder, Offline-Download,
   Anreise `fsTravel*`, Dunkelmodus, Icons (`FS_ICON_PATHS`), Tourenbriefing/Tourenzettel.
 - **Eine Karte für alles:** die Startkarte `fsHomeMap`. Tour, Hütte (`fsHutArea`), Gebiet, Klettergebiet und Sektor zeigen sie hinter
-  dem Blatt (`fsCtxAcquire`/`fsCtxRelease`, Inhalte über `fsAreaForMap`). «Karte bearbeiten» leiht sie im Vollbild
+  dem Blatt (`fsCtxAcquire`/`fsCtxRelease`, Inhalte über `fsAreaForMap`; beim Schliessen zurück zum vorherigen Ausschnitt, ausser man hat die Karte
+  inzwischen selbst verschoben: `_fsCtxMoved`). «Karte bearbeiten» leiht sie im Vollbild
   aus (`fsEdAcquire`/`fsEdRelease`, Werkzeuge als FL-Hülle aus `renderPointsEditorMap`); Formular und Blatt zeigen
   nur eine Übersicht (`fsEdCompact`). 3D ist dieselbe Karte, geneigt mit Gelände (`fsmTerrainToggle`; Hoch =
   swisstopo-Gelände, Spar = Terrarium, Wahl im Ebenen-Fenster; Zurück macht sie flach; nach dem Einschalten lädt
