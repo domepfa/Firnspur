@@ -143,6 +143,8 @@ aus anderen Apps übernehmen.
   Neigung ab 30° aus der swisstopo-Karte «Hangneigung über 30°» (wie der Routen-Check `fsRc*`), sonst
   Höhenmodell `FS3D_DEM`; Lawine gleicht Exposition und Höhe mit dem SLF-Bulletin ab. Die Einfärbung kommt
   als Kacheln über das Protokoll `fsscan://` (ein einzelnes Bild wurde auf dem 3D-Gelände nur teilweise gezeichnet).
+  Im Ergebnis: Griffe in der Mitte jeder Seite und in der Mitte (`fsScanWireFrame`, Rahmen 300 m–12 km × 200 m–6 km), danach «Neu scannen»;
+  Antippen im Rahmen zeigt Höhe · Neigung · Exposition der Stelle (`fsScanWireReadout`, aus der gerechneten Fläche).
   In der Tour: Knopf «Hang-Scan in 3D» im Routen-Check (`fsScanTour`/`fsScanForRoute`): Rahmen entlang der Hauptrichtung der Route
   (300 m Rand, bis 12 km), Blick von der Seite (`viewBearing`), Route eingezeichnet (`s.route`). «Hänge über der Spur prüfen»
   (`fsRcAboveRun`/`fsRcAboveAnalyse`): Zellen ab 35° bis 250 m neben der Spur, ≥ 30 m höher, zur Spur hin abfallend; Ergebnis `fs-rc-above`.
