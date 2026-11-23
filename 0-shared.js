@@ -1731,7 +1731,7 @@ function fsHomeStartView(){
 function fsHomeCreateMap(){
   // 3D ist dieselbe Karte, nur geneigt mit Gelände: Ausschnitt, Ebenen, Gedrückthalten, Planer und Hang-Scan bleiben
   fsHomeMap = fsmCreateMap('fs-home-map-inner', Object.assign({zoom: 7, ctlTop: 52, full: true}, fsHomeStartView(), {on3d: (m)=> fsmTerrainToggle(m)}));
-  fsmWireInfoClicks(fsHomeMap, {sac:{}}); // Startkarte: SAC-/Wanderrouten als neue Tour oder zu einer bestehenden übernehmen
+  fsmWireInfoClicks(fsHomeMap, {sac:{}, height: true}); // Startkarte; freie Stelle antippen: Höhe, Neigung, Exposition: SAC-/Wanderrouten als neue Tour oder zu einer bestehenden übernehmen
   fsHomeWireHold(fsHomeMap);
   // Die Startkarte liegt teils unter Leiste und Blatt: mehr Spielraum, damit alle Touren über dem Blatt Platz finden
   fsHomeMap.setMaxBounds(FSM_HOME_BOUNDS);
@@ -9263,11 +9263,49 @@ function fsmIdentifyView(map){
 }
 // SAC-Skitouren / Wegsperrungen antippen (wie auf der grossen Karte)
 function fsmWireInfoClicks(map, opts){
-  map.on('click', (e)=>{
+  // War beim Antippen schon etwas offen (Kurzinfo, Blatt, Fenster), schliesst der Tipp nur dieses
+  let busy = false;
+  map.getContainer().addEventListener('pointerdown', ()=>{
+    busy = !!(document.querySelector('.maplibregl-popup, .fs-home-card:not([hidden])') || document.documentElement.classList.contains('fs-sheet-open')
+      || (typeof state !== 'undefined' && state.modal));
+  }, true);
+  map.on('click', async (e)=>{
     if(e.originalEvent && e.originalEvent._fsmHandled) return;
     if(map._fsInfoBlock && map._fsInfoBlock()) return; // Grosse Karte: Planer/Punkt setzen wartet auf den Tipp
-    fsmHandleInfoClick(map, {lat: e.lngLat.lat, lng: e.lngLat.lng}, opts);
+    const wasBusy = busy;
+    const shown = await fsmHandleInfoClick(map, {lat: e.lngLat.lat, lng: e.lngLat.lng}, opts);
+    if(!shown && opts && opts.height && !wasBusy) fsHeightTap(map, e.lngLat);
   });
+}
+// Antippen einer freien Stelle: Höhe (swisstopo, genau), Neigung und Exposition – Neigung ab 30° aus der swisstopo-Karte
+// «Hangneigung über 30°» (5°-Stufen), sonst und Exposition aus dem Höhenmodell (ca. 30 m). Schild antippen = weg.
+let fsHeightMk = null;
+async function fsHeightTap(map, ll){
+  if(fsHeightMk){ fsHeightMk.remove(); fsHeightMk = null; } // neuer Tipp: Schild an die neue Stelle
+  const el = document.createElement('button'); el.type = 'button'; el.className = 'fs-scan-read';
+  el.innerHTML = '<i></i><span>…</span>';
+  // Rechte Hälfte: Schild nach links (sonst unter den Kartenknöpfen)
+  const px = map.project(ll).x, right = px > map.getContainer().clientWidth - 70 - px; // Seite mit mehr Platz
+  if(right) el.classList.add('left');
+  const mk = fsHeightMk = new maplibregl.Marker({element: el, anchor: right ? 'bottom-right' : 'bottom-left', offset: right ? [7, 7] : [-7, 7]}).setLngLat(ll).addTo(map);
+  el.addEventListener('click', (ev)=>{ ev.stopPropagation(); mk.remove(); if(fsHeightMk === mk) fsHeightMk = null; });
+  const lat = ll.lat, lon = ll.lng, inCH = lat > 45.8 && lat < 47.9 && lon > 5.9 && lon < 10.6;
+  const hP = (async ()=>{ if(!inCH) return null; try{ const [E, N] = fsWgsToLv95(lat, lon); const r = await fetch('https://api3.geo.admin.ch/rest/services/height?easting=' + Math.round(E) + '&northing=' + Math.round(N) + '&sr=2056'); if(r.ok){ const v = parseFloat((await r.json()).height); return isFinite(v) ? v : null; } }catch(e){} return null; })();
+  const ZD = 13, ZS = 15;
+  const [dem, sl, h] = await Promise.all([fsRcLoad(FS3D_DEM, ZD, [[lat, lon]], 2).catch(()=> null), inCH ? fsRcLoad(FS_RC_SLOPE_URL, ZS, [[lat, lon]], 3).catch(()=> null) : null, hP]);
+  if(fsHeightMk !== mk) return;
+  let ele = h, slope = null, asp = null, cls = 0;
+  if(dem){
+    const [x, y] = fsRcPx(lat, lon, ZD), e = (dx, dy)=> fsRcEle(fsRcPix(dem.tiles, ZD, Math.floor(x) + dx, Math.floor(y) + dy));
+    const v = [e(-1, -1), e(0, -1), e(1, -1), e(-1, 0), e(0, 0), e(1, 0), e(-1, 1), e(0, 1), e(1, 1)];
+    if(ele == null && v[4] != null) ele = v[4];
+    if(v.every(q=> q != null)){ const [a, b] = fsScanHorn(v, 40075016.686 * Math.cos(lat * Math.PI / 180) / (256 * Math.pow(2, ZD))); slope = a; asp = b; }
+  }
+  if(sl){ const [x, y] = fsRcPx(lat, lon, ZS); cls = fsRcClass(fsRcPix(sl.tiles, ZS, Math.floor(x), Math.floor(y))); }
+  const slTxt = cls ? FS_RC_CLASSES[cls - 1].label : slope != null ? (inCH ? '< 30°' : 'ca. ' + Math.round(slope) + '°') : '';
+  const parts = [ele != null ? fsRcFmtE(ele) + ' m' : '', slTxt, asp != null && (cls || (slope != null && slope >= 5)) ? fsScanDir(asp).replace('E', 'O') : ''].filter(Boolean);
+  el.setAttribute('aria-label', [ele != null ? fsRcFmtE(ele) + ' Meter' : '', cls ? 'Neigung ' + FS_RC_CLASSES[cls - 1].label : slope != null ? 'Neigung unter 30 Grad' : '', asp != null ? 'Exposition ' + (FS_RC_ASP_LONG[fsScanDir(asp)] || '') : ''].filter(Boolean).join(', ') + '. Antippen schliesst.');
+  el.querySelector('span').textContent = parts.length ? parts.join(' · ') : 'Keine Geländedaten';
 }
 // Infos zur angetippten Stelle (SAC-Skitour, Wegsperrung, Lawinengefahr), falls die Ebene an ist.
 // Gibt true zurück, wenn etwas gezeigt wurde.
