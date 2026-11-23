@@ -7785,9 +7785,14 @@ function fsGipfelbuchHtml(t){
   }
   if(!name) name = String(t.name || '').split(/[–,(\/]| - | via | über /)[0].trim();
   if(!name) return '';
-  const href = 'https://www.google.com/search?tbs=qdr:m&q=' + encodeURIComponent('site:gipfelbuch.ch/verhaeltnisse "' + name + '"');
-  return `<div class="detail-section fs-cond fs-gb"><h4>Berichte anderer</h4><a class="fs-cam-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">Gipfelbuch: Verhältnisse «${esc(name)}» im letzten Monat ↗</a>
-    <p class="wx-src">Websuche auf gipfelbuch.ch, neueste Berichte zuerst prüfen.</p></div>`;
+  // Breit suchen: ganze Seite gipfelbuch.ch, ohne Anführungszeichen und ohne Zeitfilter (der engere Filter fand oft nichts,
+  // weil die Suchmaschine neue Berichte erst später kennt); zweiter Link: dieselbe Suche, nur letztes Jahr
+  const q = 'site:gipfelbuch.ch ' + name;
+  const href = 'https://www.google.com/search?q=' + encodeURIComponent(q), hrefY = 'https://www.google.com/search?tbs=qdr:y&q=' + encodeURIComponent(q);
+  return `<div class="detail-section fs-cond fs-gb"><h4>Berichte anderer</h4>
+    <a class="fs-cam-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">Gipfelbuch: Berichte zu «${esc(name)}» ↗</a>
+    <a class="fs-cam-link" href="${esc(hrefY)}" target="_blank" rel="noopener noreferrer">Nur aus dem letzten Jahr ↗</a>
+    <p class="wx-src">Websuche auf gipfelbuch.ch – Datum der Berichte beachten.</p></div>`;
 }
 /* ===== Luftbild Winter: Luftbild mit Schnee, auf dem Gerät gerechnet =====
    Kacheln über das Protokoll fssnow://. Je Kachel Luftbild (swisstopo SWISSIMAGE) und Höhenmodell (FS3D_DEM):
