@@ -1756,6 +1756,14 @@ function fsCtxAcquire(innerId, on3d, owner){
   if((owner || 'ctx') === 'ctx' && fsHomeMap && fsHomeEl.parentNode && fsHomeEl.parentNode.classList && fsHomeEl.parentNode.classList.contains('fs-home-slot')){
     try{ const c = fsHomeMap.getCenter(); fsCtxView = {center: [c.lng, c.lat], zoom: fsHomeMap.getZoom(), bearing: fsHomeMap.getBearing(), pitch: fsHomeMap.getPitch(), all: fsHomeAll}; }catch(e){ fsCtxView = null; }
   }
+  // Selbst verschoben, während die Tour offen ist: beim Schliessen dort bleiben (nicht zurückspringen)
+  if(fsHomeMap){
+    fsHomeMap._fsCtxMoved = false;
+    if(!fsHomeMap._fsCtxMoveWired){
+      fsHomeMap._fsCtxMoveWired = true;
+      ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach(ev=> fsHomeMap.on(ev, (e)=>{ if(e && e.originalEvent && fsCtxOwner === 'ctx') fsHomeMap._fsCtxMoved = true; }));
+    }
+  }
   inner.appendChild(fsHomeEl);
   fsHomeEl.classList.add('in-ctx');
   try{ if(fsHomeMap){ fsHomeMap.setMaxBounds(FSM_BOUNDS); fsHomeMap.setMinZoom(null); } }catch(e){} // ausgeliehen: ohne Blatt, also ohne Spielraum
@@ -1935,7 +1943,8 @@ function fsCtxRelease(owner){
     if(view && map){
       try{
         fsHomeFitting = true; map.resize();
-        if(view.all){ fsHomeFitAll(); } else { map.jumpTo({center: view.center, zoom: view.zoom, bearing: view.bearing, pitch: view.pitch}); fsHomeAll = false; }
+        if(map._fsCtxMoved){ fsHomeFitting = false; fsHomeAll = false; fsHomeSaveCam(); } // selbst weitergewischt: Ausschnitt bleiben lassen
+        else if(view.all){ fsHomeFitAll(); } else { map.jumpTo({center: view.center, zoom: view.zoom, bearing: view.bearing, pitch: view.pitch}); fsHomeAll = false; }
       }catch(e){}
     }
     fsHomeFilter();
