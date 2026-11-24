@@ -9288,30 +9288,66 @@ let fsHeightMk = null;
 async function fsHeightTap(map, ll){
   if((typeof fsCtxOwner !== 'undefined' && fsCtxOwner) || (typeof fsPlanHost !== 'undefined' && fsPlanHost) || document.querySelector('#fullscreen-map-overlay[style*="block"]')) return; // Bearbeiten, Planen, Tour: dort nicht
   if(fsHeightMk){ fsHeightMk.remove(); fsHeightMk = null; } // neuer Tipp: Schild an die neue Stelle
-  const el = document.createElement('button'); el.type = 'button'; el.className = 'fs-scan-read';
-  el.innerHTML = '<i></i><span>…</span>';
-  // Rechte Hälfte: Schild nach links (sonst unter den Kartenknöpfen)
-  const px = map.project(ll).x, right = px > map.getContainer().clientWidth - 70 - px; // Seite mit mehr Platz
-  if(right) el.classList.add('left');
-  const mk = fsHeightMk = new maplibregl.Marker({element: el, anchor: right ? 'bottom-right' : 'bottom-left', offset: right ? [7, 7] : [-7, 7]}).setLngLat(ll).addTo(map);
-  el.addEventListener('click', (ev)=>{ ev.stopPropagation(); mk.remove(); if(fsHeightMk === mk) fsHeightMk = null; });
+  const R = 20; // Umkreis für die steilste Stufe (m)
+  const grp = {mks: [], remove(){ this.mks.forEach(m=>{ try{ m.remove(); }catch(e){} }); this.mks = []; try{ ['fs-hgt-ring-f', 'fs-hgt-ring-l'].forEach(id=>{ if(map.getLayer(id)) map.removeLayer(id); }); if(map.getSource('fs-hgt-ring')) map.removeSource('fs-hgt-ring'); }catch(e){} }};
+  fsHeightMk = grp;
   const lat = ll.lat, lon = ll.lng, inCH = lat > 45.8 && lat < 47.9 && lon > 5.9 && lon < 10.6;
+  // Kreis des Umkreises
+  try{
+    const k = 111320 * Math.cos(lat * Math.PI / 180), ring = [];
+    for(let a = 0; a <= 360; a += 10){ const r = a * Math.PI / 180; ring.push([lon + R * Math.sin(r) / k, lat + R * Math.cos(r) / 111320]); }
+    map.addSource('fs-hgt-ring', {type: 'geojson', data: {type: 'Feature', properties: {}, geometry: {type: 'Polygon', coordinates: [ring]}}});
+    map.addLayer({id: 'fs-hgt-ring-f', type: 'fill', source: 'fs-hgt-ring', paint: {'fill-color': '#ffffff', 'fill-opacity': 0.14}});
+    map.addLayer({id: 'fs-hgt-ring-l', type: 'line', source: 'fs-hgt-ring', paint: {'line-color': '#ffffff', 'line-width': 2.5, 'line-dasharray': [2, 1.5]}});
+  }catch(e){}
+  const dot = document.createElement('div'); dot.className = 'fs-hgt-dot';
+  grp.mks.push(new maplibregl.Marker({element: dot}).setLngLat(ll).addTo(map));
+  const px = map.project(ll).x, right = px > map.getContainer().clientWidth - 70 - px; // Seite mit mehr Platz
+  const label = (below)=>{
+    const el = document.createElement('button'); el.type = 'button'; el.className = 'fs-scan-read fs-hgt-lab' + (right ? ' left' : '');
+    el.innerHTML = '<span><b>…</b></span>';
+    el.addEventListener('click', (ev)=>{ ev.stopPropagation(); grp.remove(); if(fsHeightMk === grp) fsHeightMk = null; });
+    const anchor = (below ? 'top-' : 'bottom-') + (right ? 'right' : 'left');
+    const m = new maplibregl.Marker({element: el, anchor, offset: [right ? -10 : 10, below ? 10 : -10]}).setLngLat(ll).addTo(map);
+    grp.mks.push(m);
+    return el;
+  };
+  let el = label(false);
   const hP = (async ()=>{ if(!inCH) return null; try{ const [E, N] = fsWgsToLv95(lat, lon); const r = await fetch('https://api3.geo.admin.ch/rest/services/height?easting=' + Math.round(E) + '&northing=' + Math.round(N) + '&sr=2056'); if(r.ok){ const v = parseFloat((await r.json()).height); return isFinite(v) ? v : null; } }catch(e){} return null; })();
   const ZD = 13, ZS = 15;
-  const [dem, sl, h] = await Promise.all([fsRcLoad(FS3D_DEM, ZD, [[lat, lon]], 2).catch(()=> null), inCH ? fsRcLoad(FS_RC_SLOPE_URL, ZS, [[lat, lon]], 3).catch(()=> null) : null, hP]);
-  if(fsHeightMk !== mk) return;
-  let ele = h, slope = null, asp = null, cls = 0;
+  const mppS = 40075016.686 * Math.cos(lat * Math.PI / 180) / (256 * Math.pow(2, ZS)), rp = Math.ceil(R / mppS);
+  const [dem, sl, h] = await Promise.all([fsRcLoad(FS3D_DEM, ZD, [[lat, lon]], 2).catch(()=> null), inCH ? fsRcLoad(FS_RC_SLOPE_URL, ZS, [[lat, lon]], rp + 2).catch(()=> null) : null, hP]);
+  if(fsHeightMk !== grp) return;
+  let ele = h, slope = null, asp = null, cls = 0, maxK = 0, maxAt = null;
   if(dem){
     const [x, y] = fsRcPx(lat, lon, ZD), e = (dx, dy)=> fsRcEle(fsRcPix(dem.tiles, ZD, Math.floor(x) + dx, Math.floor(y) + dy));
     const v = [e(-1, -1), e(0, -1), e(1, -1), e(-1, 0), e(0, 0), e(1, 0), e(-1, 1), e(0, 1), e(1, 1)];
     if(ele == null && v[4] != null) ele = v[4];
     if(v.every(q=> q != null)){ const [a, b] = fsScanHorn(v, 40075016.686 * Math.cos(lat * Math.PI / 180) / (256 * Math.pow(2, ZD))); slope = a; asp = b; }
   }
-  if(sl){ const [x, y] = fsRcPx(lat, lon, ZS); cls = fsRcClass(fsRcPix(sl.tiles, ZS, Math.floor(x), Math.floor(y))); }
+  if(sl){
+    const [x, y] = fsRcPx(lat, lon, ZS), cx = Math.floor(x), cy = Math.floor(y);
+    cls = fsRcClass(fsRcPix(sl.tiles, ZS, cx, cy));
+    // steilste Stufe im Umkreis (am nächsten gelegene, wenn mehrere gleich steil)
+    let bd = Infinity;
+    for(let dy = -rp; dy <= rp; dy++) for(let dx = -rp; dx <= rp; dx++){
+      const d = Math.hypot(dx, dy) * mppS; if(d > R) continue;
+      const k = fsRcClass(fsRcPix(sl.tiles, ZS, cx + dx, cy + dy));
+      if(k > maxK || (k === maxK && k && d < bd)){ maxK = k; bd = d; maxAt = [cx + dx + 0.5, cy + dy + 0.5]; }
+    }
+  }
+  const more = maxK > cls && maxAt;
+  if(more){
+    const [la, lo] = fsScanLL(maxAt[0], maxAt[1], ZS);
+    const sd = document.createElement('div'); sd.className = 'fs-hgt-steep'; sd.title = 'Steilste Stelle im Umkreis';
+    grp.mks.push(new maplibregl.Marker({element: sd}).setLngLat([lo, la]).addTo(map));
+    // Schild nicht über den roten Punkt legen: liegt er oberhalb, kommt das Schild nach unten
+    if(la > lat){ el.parentNode && grp.mks.splice(grp.mks.findIndex(m=> m.getElement() === el), 1)[0].remove(); el = label(true); }
+  }
   const slTxt = cls ? FS_RC_CLASSES[cls - 1].label : slope != null ? (inCH ? '< 30°' : 'ca. ' + Math.round(slope) + '°') : '';
   const parts = [ele != null ? fsRcFmtE(ele) + ' m' : '', slTxt, asp != null && (cls || (slope != null && slope >= 5)) ? fsScanDir(asp).replace('E', 'O') : ''].filter(Boolean);
-  el.setAttribute('aria-label', [ele != null ? fsRcFmtE(ele) + ' Meter' : '', cls ? 'Neigung ' + FS_RC_CLASSES[cls - 1].label : slope != null ? 'Neigung unter 30 Grad' : '', asp != null ? 'Exposition ' + (FS_RC_ASP_LONG[fsScanDir(asp)] || '') : ''].filter(Boolean).join(', ') + '. Antippen schliesst.');
-  el.querySelector('span').textContent = parts.length ? parts.join(' · ') : 'Keine Geländedaten';
+  el.querySelector('span').innerHTML = '<b>' + esc(parts.length ? parts.join(' · ') : 'Keine Geländedaten') + '</b>' + (more ? '<small><i></i>im Umkreis ' + R + ' m bis ' + esc(FS_RC_CLASSES[maxK - 1].label) + '</small>' : '');
+  el.setAttribute('aria-label', [ele != null ? fsRcFmtE(ele) + ' Meter' : '', cls ? 'Neigung ' + FS_RC_CLASSES[cls - 1].label : slope != null ? 'Neigung unter 30 Grad' : '', asp != null ? 'Exposition ' + (FS_RC_ASP_LONG[fsScanDir(asp)] || '') : '', more ? 'im Umkreis von ' + R + ' Metern bis ' + FS_RC_CLASSES[maxK - 1].label : ''].filter(Boolean).join(', ') + '. Antippen schliesst.');
 }
 // Infos zur angetippten Stelle (SAC-Skitour, Wegsperrung, Lawinengefahr), falls die Ebene an ist.
 // Gibt true zurück, wenn etwas gezeigt wurde.
