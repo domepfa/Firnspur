@@ -9286,6 +9286,7 @@ function fsmWireInfoClicks(map, opts){
 // «Hangneigung über 30°» (5°-Stufen), sonst und Exposition aus dem Höhenmodell (ca. 30 m). Schild antippen = weg.
 let fsHeightMk = null;
 async function fsHeightTap(map, ll){
+  if((typeof fsCtxOwner !== 'undefined' && fsCtxOwner) || (typeof fsPlanHost !== 'undefined' && fsPlanHost) || document.querySelector('#fullscreen-map-overlay[style*="block"]')) return; // Bearbeiten, Planen, Tour: dort nicht
   if(fsHeightMk){ fsHeightMk.remove(); fsHeightMk = null; } // neuer Tipp: Schild an die neue Stelle
   const el = document.createElement('button'); el.type = 'button'; el.className = 'fs-scan-read';
   el.innerHTML = '<i></i><span>…</span>';
@@ -11738,6 +11739,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
     function drawAreasMode(on){
       try{ if(on) aml.dragPan.disable(); else aml.dragPan.enable(); }catch(e){}
+      // Ohne Verschieben setzt MapLibre «touch-action: pan-x pan-y»: das Handy übernimmt dann einen Finger selbst
+      // (pointercancel), und die Fläche liess sich nicht umfahren. Im Reiter «Bereiche» alle Gesten selbst behandeln.
+      try{ aml.getCanvasContainer().style.touchAction = on ? 'none' : ''; }catch(e){}
       drawAreasRender();
     }
     const inPoly = (p, poly)=>{ let c = false; for(let i = 0, j = poly.length - 1; i < poly.length; j = i++){ const a = poly[i], b = poly[j]; if((a[0] > p[0]) !== (b[0] > p[0]) && p[1] < (b[1] - a[1]) * (p[0] - a[0]) / (b[0] - a[0]) + a[1]) c = !c; } return c; };
@@ -11793,7 +11797,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         showToast(areaBrush === 'prefer' ? 'Bereich «bevorzugen» gesetzt.' : 'Bereich «meiden» gesetzt.');
       };
       cc.addEventListener('pointerdown', down, true); cc.addEventListener('pointermove', move, true); cc.addEventListener('pointerup', up, true); cc.addEventListener('pointercancel', up, true);
-      (map._fsCleanups = map._fsCleanups || []).push(()=>{ cc.removeEventListener('pointerdown', down, true); cc.removeEventListener('pointermove', move, true); cc.removeEventListener('pointerup', up, true); cc.removeEventListener('pointercancel', up, true); try{ aml.dragPan.enable(); }catch(e){} });
+      (map._fsCleanups = map._fsCleanups || []).push(()=>{ cc.removeEventListener('pointerdown', down, true); cc.removeEventListener('pointermove', move, true); cc.removeEventListener('pointerup', up, true); cc.removeEventListener('pointercancel', up, true); try{ aml.dragPan.enable(); cc.style.touchAction = ''; }catch(e){} });
       setTimeout(drawAreasRender, 300);
     }
     // Skispur neu rechnen: Skispur-Abschnitte und unveränderte Abschnitte, die einen Bereich berühren
