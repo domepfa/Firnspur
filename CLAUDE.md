@@ -146,7 +146,8 @@ aus anderen Apps übernehmen.
   Im Ergebnis: Griffe in der Mitte jeder Seite und in der Mitte (`fsScanWireFrame`, Rahmen 300 m–12 km × 200 m–6 km), danach «Neu scannen»;
   Antippen im Rahmen zeigt Höhe · Neigung · Exposition der Stelle (`fsScanWireReadout`, aus der gerechneten Fläche).
   Auf der Startkarte ebenso: freie Stelle antippen (nichts offen, keine Ebenen-Info) = Schild mit Höhe (swisstopo-Höhendienst), Neigung
-  (ab 30° aus «Hangneigung über 30°», sonst «< 30°») und Exposition (Höhenmodell) – `fsHeightTap`, Schild antippen schliesst.
+  (ab 30° aus «Hangneigung über 30°», sonst «< 30°») und Exposition (Höhenmodell) – `fsHeightTap`, Schild antippen schliesst; dazu Kreis 20 m
+  und, wenn steiler, «im Umkreis 20 m bis …» mit rotem Punkt an der steilsten Stelle.
   In der Tour: Knopf «Hang-Scan in 3D» im Routen-Check (`fsScanTour`/`fsScanForRoute`): Rahmen entlang der Hauptrichtung der Route
   (300 m Rand, bis 12 km), Blick von der Seite (`viewBearing`), Route eingezeichnet (`s.route`). «Hänge über der Spur prüfen»
   (`fsRcAboveRun`/`fsRcAboveAnalyse`): Zellen ab 35° bis 250 m neben der Spur, ≥ 30 m höher, zur Spur hin abfallend; Ergebnis `fs-rc-above`.
