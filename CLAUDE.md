@@ -117,6 +117,7 @@ aus anderen Apps übernehmen.
   bestehende Linie: Tippen hängt nichts an, erst «Weiterzeichnen» (`drawAppend`, Knopf `fs-draw-append`),
   Aussehen je Art `FS_DRAW_STYLE` (Skispur durchgezogen, Wanderweg gepunktet grün, Gerade gestrichelt, übernommen violett).
   Route anhängen: Tipp nahe einer vorhandenen Route (auch zwischen ihren Punkten, `drawProjLine`/`drawSplitAt`) rastet ein, Schalter «Einrasten» (Gerät `fs-draw-snap`, aus = Punkte frei);
+  Ziele sind alle Routen der Tour aus dem Formular ausser der gerade bearbeiteten (`drawEditAltId`), beim Bearbeiten einer weiteren Route auch Hauptlinie und GPX-Track (auch sichtbar);
   beim Zeichnen gehen Tipps auf abgelegte Routen an die eigene Linie, nicht an deren Menü; erster Punkt auf einer Route: «Hier beginnen (abzweigen)» (`drawSnapFind`: weitere Routen, Zustiege, GPX, andere Touren
   bis 25 km), dann «Ab hier folgen bis …» (Weiche: nächster Tipp auf derselben Route = Ende des Stücks, `drawFollowPend`/`drawFollowTo`) oder «… bis zum Ende/Anfang» bzw. beim ersten Punkt «Vom Anfang/Ende bis hier übernehmen» (Art `folgen`).
   Reiter «Bereiche» (nur Tourformular): mit einem Finger eine Fläche umfahren, Pinsel Meiden/Bevorzugen/Radieren, antippen = Notiz

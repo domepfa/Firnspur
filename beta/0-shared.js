@@ -11297,6 +11297,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
     if(!el2 || !hiddenInput) return;
     const edNext = fsEdNext; fsEdNext = {}; // einmalige Vorgaben fürs Öffnen (Routenliste: gleich «Linie», ohne Punkte)
+    const drawEditAltId = edNext.meta && /^alt:/.test(edNext.meta) ? edNext.meta.slice(4) : null; // weitere Route, die gerade bearbeitet wird
     const mapDivId = containerId + '-inner';
     destroyExistingMap(mapDivId);
     el2.innerHTML = '';
@@ -11957,7 +11958,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       const out = [];
       const add = (c, label)=>{ const cc = (c || []).map(q=> Array.isArray(q) ? [+q[0], +q[1]] : [+q.lat, +(q.lon != null ? q.lon : q.lng)]).filter(q=> isFinite(q[0]) && isFinite(q[1])); if(cc.length > 1) out.push({coords: cc, label}); };
       refTracks.forEach(rt=> add(rt.coords, rt.label || 'Route'));
-      try{ JSON.parse((document.getElementById('route-alt-tracks') || {}).value || '[]').forEach(a=> add(a.trackSimplified, a.name || fsRouteLabel(a.type))); }catch(e){}
+      // Alle Routen der Tour aus dem Formular – ausser der gerade bearbeiteten (sonst rastet sie an ihrer alten Fassung ein)
+      try{ JSON.parse((document.getElementById('route-alt-tracks') || {}).value || '[]').forEach(a=>{ if(a.id !== drawEditAltId) add(a.trackSimplified, a.name || fsRouteLabel(a.type)); }); }catch(e){}
+      const hv = id=>{ const el = document.getElementById(id); return el ? el.value : ''; };
+      const pj = id=>{ try{ return JSON.parse(hv(id) || 'null'); }catch(e){ return null; } };
+      if(manualTrackHiddenId !== 'manual-track-hidden'){ const m = pj('manual-track-hidden'); if(m) add(m, hv('route-manual-name') || fsRouteLabel(hv('route-manual-type') || 'aufstieg')); }
+      if(!gpxTrack){ const g = pj('track-simplified-hidden'); if(g) add(g, hv('route-track-name') || 'GPX-Track'); }
       if(!usingGpxTrack && gpxTrack) add(gpxTrack, 'GPX-Track');
       const ownId = (document.getElementById('tour-id-for-track') || {}).value || '';
       let c = null; try{ const m = map.getCenter(); c = [m.lat, m.lng]; }catch(e){}
@@ -12407,7 +12413,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(!altEl){ routeMetaEl.style.display = 'none'; return; }
       let alts = []; try{ alts = JSON.parse(altEl.value || '[]'); }catch(e){}
       alts.forEach((a, i)=>{
-        if(!a.trackSimplified || a.trackSimplified.length < 2) return;
+        if(!a.trackSimplified || a.trackSimplified.length < 2 || a.id === drawEditAltId) return; // die gerade bearbeitete ist die aktive Linie
         const st = fsRouteStyle({type: FS_ROUTE_TYPES[a.type] ? a.type : 'variante', src:'alt', idx:i});
         FL.polyline(a.trackSimplified, {color:'#ffffff', weight:6, opacity:0.6, interactive:false}).addTo(otherRoutesLayer);
         FL.polyline(a.trackSimplified, {color:'#000', weight:22, opacity:0}).addTo(otherRoutesLayer).on('click', (e)=>{
@@ -12416,6 +12422,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           if(mode === 'line' && !usingGpxTrack && (drawAppend || drawFollowPend || !manualTrack.length)){ addLineAt(e.latlng.lat, e.latlng.lng); return; }
           FL.popup().setLatLng(e.latlng).setContent(altRouteMenu(i, a)).openOn(map);
         });
+      // Beim Bearbeiten einer weiteren Route: Hauptlinien der Tour (gezeichnete Linie, GPX-Track) zur Orientierung und zum Einrasten zeigen
+      if(drawEditAltId){
+        const pj = id=>{ try{ const v = JSON.parse((document.getElementById(id) || {}).value || 'null'); return Array.isArray(v) && v.length > 1 ? v : null; }catch(e){ return null; } };
+        [[pj('manual-track-hidden'), (document.getElementById('route-manual-type') || {}).value], [pj('track-simplified-hidden'), (document.getElementById('route-track-type') || {}).value]].forEach(([c, ty])=>{
+          if(!c) return;
+          const st = fsRouteStyle({type: FS_ROUTE_TYPES[ty] ? ty : 'aufstieg', src: 'manual'});
+          FL.polyline(c, {color:'#ffffff', weight:6, opacity:0.6, interactive:false}).addTo(otherRoutesLayer);
+          FL.polyline(c, {color: st.color, weight:3.5, opacity:0.85, dashArray:'7,6', interactive:false}).addTo(otherRoutesLayer);
+        });
+      }
         FL.polyline(a.trackSimplified, {color: st.color, weight:3.5, opacity:0.85, dashArray:'7,6', interactive:false}).addTo(otherRoutesLayer);
       });
       if(!manualTrack.length){
