@@ -3488,7 +3488,7 @@ function agendaCardHtml(a){
       <h3>${a.status==='abgesagt' ? (fsIconHtml('x', '#B42318') + ' ') : ''}${esc(fsAgendaTitle(a) || 'Termin')}</h3>
       <span class="badge" style="background:${agendaTypeColor(a.type)}">${agendaTypeLabel(a.type)}</span>
     </div>
-    ${a.meetingPoint ? `<div class="stat-row"><span>${fsIconHtml('pin')} ${esc(a.meetingPoint)}</span></div>` : ''}
+    ${(()=>{ const ms = fsAgendaMeets(a); return ms.length ? `<div class="stat-row"><span>${fsIconHtml('pin')} ${esc(fsMeetText(ms[0]))}${ms.length > 1 ? ' · +' + (ms.length - 1) + ' Treffpunkt' + (ms.length > 2 ? 'e' : '') : ''}</span></div>` : ''; })()}
     ${a.note ? `<p class="excerpt">${esc(a.note)}</p>` : ''}
     <span class="hut-link-chip">${(a.participants||[]).length} dabei${(a.participants||[]).length ? ': ' + (a.participants||[]).map(p=>esc(p.by)).join(', ') : ''}</span>
     ${a._unsynced ? `<span class="hut-link-chip" style="background:#FBEAE7; color:#B0392C;">${fsIconHtml('alert')} nicht synchronisiert</span>` : ''}
@@ -3606,7 +3606,7 @@ function agendaDetailHtml(id){
       ${a.weatherSnapshot.meteoSwissLink ? `<a href="${esc(a.weatherSnapshot.meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary" style="display:inline-block; margin-top:8px;">${fsIconHtml('partly')} MeteoSchweiz öffnen</a>` : ''}
     </div>` : ''}
     <div id="agenda-weather-${a.id}"></div>
-    ${a.meetingPoint ? `<div class="detail-section"><h4>Treffpunkt</h4><p>${escL(a.meetingPoint)}</p></div>` : ''}
+    ${(()=>{ const ms = fsAgendaMeets(a); return ms.length ? `<div class="detail-section"><h4>Treffpunkt${ms.length > 1 ? 'e' : ''}</h4>${ms.map(m=> `<p class="fs-meet-show"><b>${esc(m.time || '–')}</b> ${esc(m.place || 'Ort offen')}${m.who ? ` <small>· ${esc(m.who)}</small>` : ''}</p>`).join('')}</div>` : ''; })()}
     ${a.days && a.days.length ? agendaDayPlanDetailHtml(a) : `
     ${(chosenAccess || chosenDescent) ? `<div class="detail-section">
       <h4>Route</h4>
@@ -3734,7 +3734,7 @@ function printTourenzettel(agendaId){
   if(a.days && a.days.length){
     agendaDayPlanTourenzettelRows(a).forEach(([label, text])=>{ if(text) ablaufItems.push({label, text}); });
   }else{
-    if(a.meetingPoint) ablaufItems.push({label:'Treffpunkt', text:a.meetingPoint});
+    fsAgendaMeets(a).forEach(m=> ablaufItems.push({label:'Treffpunkt', text: fsMeetText(m)}));
     if(a.anreiseType) ablaufItems.push({label:'Anreise', text:(a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' – '+a.anreiseOrt : '')});
     if(chosenAccess) ablaufItems.push({label:'Zustieg', text:chosenAccess.name||''});
     ablaufItems.push({label:typeLabel, text:a.tourName || 'Tour'});
@@ -3785,10 +3785,10 @@ function printTourenzettel(agendaId){
   const hasMap = points.length > 0 || tzMap.lines.length > 0;
 
   // Auf einen Blick: Treffpunkt/Zeit, Leitung, Rückkehr – und die Eckdaten der Tour
-  const meetTime = (a.meetingPoint || '').match(/\b(\d{1,2})[:.](\d{2})\b/);
+  const meetTime = ((fsAgendaMeets(a)[0] || {}).time || a.meetingPoint || '').match(/\b(\d{1,2})[:.](\d{2})\b/);
   const leader = a.leader || a.createdBy || '';
   const keyRows = [];
-  if(a.meetingPoint) keyRows.push(['Treffpunkt', a.meetingPoint]);
+  fsAgendaMeets(a).forEach(m=> keyRows.push(['Treffpunkt', fsMeetText(m)]));
   if(leader) keyRows.push(['Leitung', leader]);
   if(a.plannedReturnTime) keyRows.push(['Rückkehr geplant', a.plannedReturnTime]);
   const factRows = [];
@@ -3820,7 +3820,7 @@ function printTourenzettel(agendaId){
     const cat = MAP_POINT_CATEGORIES[p.category] || MAP_POINT_CATEGORIES[''];
     return [p.label || cat.label, lat.toFixed(5) + ', ' + lon.toFixed(5), fsFmtLv95(lat, lon)];
   });
-  if(a.meetingLat != null && a.meetingLon != null) coordRows.push(['Treffpunkt', a.meetingLat.toFixed(5) + ', ' + a.meetingLon.toFixed(5), fsFmtLv95(a.meetingLat, a.meetingLon)]);
+  fsAgendaMeets(a).forEach(m=>{ if(m.lat != null && m.lon != null) coordRows.push(['Treffpunkt' + (m.place ? ' ' + m.place : ''), (+m.lat).toFixed(5) + ', ' + (+m.lon).toFixed(5), fsFmtLv95(+m.lat, +m.lon)]); });
 
   // Anfahrt ab Treffpunkt: Auto zum Parkplatz und/oder ÖV zur Haltestelle
   const meet = (a.meetingLat != null && a.meetingLon != null) ? {lat: a.meetingLat, lon: a.meetingLon} : null;
@@ -4887,9 +4887,7 @@ function agendaFormHtml(editId){
         <input type="hidden" name="mapRoutesOff" value="${esc(JSON.stringify((a && a.mapRoutesOff) || []))}"/>
         <input type="hidden" name="ownRoutes" value="${esc(JSON.stringify((a && a.ownRoutes) || []))}"/>
       </div>
-      <div class="field fs-meet"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof" value="${a ? esc(a.meetingPoint||'') : ''}"/>
-        ${fsMeetToolsHtml(a)}
-      </div>
+      ${fsMeetsFieldHtml(a)}
       <div class="row2">
         <div class="field"><label>Geplante Rückkehrzeit</label><input name="plannedReturnTime" placeholder="z. B. 18:00" value="${a ? esc(a.plannedReturnTime||'') : ''}"/></div>
         <div class="field"><label>Notfallkontakt</label><input name="emergencyContact" placeholder="Name, Telefonnummer" value="${a ? esc(a.emergencyContact||'') : ''}"/></div>
@@ -5519,7 +5517,7 @@ function wireAgendaSingleDayFieldHandlers(agendaForm){
   if(sbbLinkBtn) sbbLinkBtn.onclick = ()=>{
     const ortInput = agendaForm.querySelector('input[name="anreiseOrt"]');
     const dateInput = agendaForm.querySelector('input[name="startDate"]');
-    const meetingInput = agendaForm.querySelector('input[name="meetingPoint"]');
+    const meetingInput = agendaForm.querySelector('.fs-meet-place');
     window.open(buildSbbLink(ortInput ? ortInput.value.trim() : '', dateInput ? dateInput.value : '', meetingInput ? meetingInput.value.trim() : ''), '_blank', 'noopener');
   };
   const endOptionHidden = agendaForm.querySelector('#end-option-hidden');
@@ -5664,7 +5662,7 @@ async function submitAgendaForm(form){
   if(isMultiDay && existing && !endNote) endNote = existing.endNote || ''; // mehrtägig: kein Feld dafür
   const editableFields = {
     type: form.type||'ski', startDate, endDate: form.endDate||'',
-    tourName, tourRef, meetingPoint: form.meetingPoint||'', note: form.note||'',
+    tourName, tourRef, note: form.note||'',
     days, extraTours,
     mapRoutesOff: (()=>{ try{ return JSON.parse(form.mapRoutesOff || '[]'); }catch(e){ return []; } })(),
     ownRoutes: (()=>{ try{ return JSON.parse(form.ownRoutes || '[]'); }catch(e){ return []; } })(),
@@ -5673,8 +5671,9 @@ async function submitAgendaForm(form){
     endOption, endNote,
     plannedReturnTime: form.plannedReturnTime||'', emergencyContact: form.emergencyContact||'',
     leader: (form.leader||'').trim(), costs: (form.costs||'').trim(),
-    meetingLat: isNaN(parseFloat(form.meetingLat)) ? null : +parseFloat(form.meetingLat).toFixed(5),
-    meetingLon: isNaN(parseFloat(form.meetingLon)) ? null : +parseFloat(form.meetingLon).toFixed(5),
+    // Treffpunkte als Liste; die alten Felder spiegeln den ersten (Anfahrt, ältere Geräte)
+    ...(()=>{ const ms = fsMeetsCollect(document.getElementById('agenda-form')), f = ms[0] || {};
+      return {meets: ms, meetingPoint: [f.time, f.place].filter(Boolean).join(' '), meetingLat: f.lat != null ? f.lat : null, meetingLon: f.lon != null ? f.lon : null}; })(),
   };
   // Natel der Teilnehmenden als Liste (Namen taugen nicht als Firebase-Schlüssel)
   const phoneKeys = Object.keys(form).filter(k=> k.startsWith('phone::'));
@@ -20942,9 +20941,25 @@ function fsAgendaPhone(a, name){
   const hit = (a && Array.isArray(a.phones) ? a.phones : []).find(x=> x && x.name === name);
   return hit ? hit.phone : '';
 }
-function fsMeetToolsHtml(a){
-  const has = a && a.meetingLat != null && a.meetingLon != null;
-  return `<input type="hidden" name="meetingLat" value="${has ? a.meetingLat : ''}"/><input type="hidden" name="meetingLon" value="${has ? a.meetingLon : ''}"/>
+// Treffpunkte: Liste {id, time, place, who, lat, lon}; alte Termine haben nur meetingPoint («06:30 Bahnhof») und meetingLat/Lon
+function fsAgendaMeets(a){
+  if(a && Array.isArray(a.meets) && a.meets.length) return a.meets;
+  if(!a || !a.meetingPoint && a.meetingLat == null) return [];
+  const mp = String(a.meetingPoint || ''), tm = mp.match(/\b(\d{1,2})[:.](\d{2})\b/);
+  return [{id: 'm0', time: tm ? tm[1].padStart(2, '0') + ':' + tm[2] : '', place: mp.replace(tm ? tm[0] : '', '').replace(/\s+/g, ' ').trim(), who: '',
+    lat: a.meetingLat != null ? a.meetingLat : null, lon: a.meetingLon != null ? a.meetingLon : null}];
+}
+function fsMeetText(m){ return [m.time, m.place].filter(Boolean).join(' ') + (m.who ? ' (' + m.who + ')' : ''); }
+function fsMeetRowHtml(m, i){
+  const has = m && m.lat != null && m.lon != null;
+  return `<div class="fs-meet" data-id="${esc((m && m.id) || ('m' + Date.now().toString(36) + i))}">
+    <div class="fs-meet-row">
+      <input type="time" class="fs-meet-time" aria-label="Zeit" value="${esc((m && m.time) || '')}"/>
+      <input type="text" class="fs-meet-place" placeholder="Ort, z. B. Bahnhof Thun" aria-label="Ort" value="${esc((m && m.place) || '')}"/>
+      ${i > 0 ? `<button type="button" class="fs-icon-btn" data-act="meet-del" aria-label="Treffpunkt entfernen">${fsIconHtml('trash')}</button>` : ''}
+    </div>
+    <input type="text" class="fs-meet-who" placeholder="Wer? z. B. Anna, Beat (leer = alle)" aria-label="Wer" value="${esc((m && m.who) || '')}"/>
+    <input type="hidden" class="fs-meet-lat" value="${has ? m.lat : ''}"/><input type="hidden" class="fs-meet-lon" value="${has ? m.lon : ''}"/>
     <div class="fs-meet-tools">
       <button type="button" class="btn secondary" data-act="meet-search">${fsIconHtml('search')} Ort suchen</button>
       <button type="button" class="btn secondary" data-act="meet-map">${fsIconHtml('pin')} Auf Karte</button>
@@ -20952,16 +20967,34 @@ function fsMeetToolsHtml(a){
       ${has ? `<button type="button" class="fs-meet-clear" data-act="meet-clear" title="Ort entfernen">×</button>` : ''}
     </div>
     <div class="fs-meet-results"></div>
-    <div class="fs-meet-map" hidden></div>`;
+    <div class="fs-meet-map" hidden></div>
+  </div>`;
+}
+function fsMeetsFieldHtml(a){
+  const list = fsAgendaMeets(a);
+  return `<div class="field fs-meets"><label>Treffpunkt</label>
+    <div class="fs-meets-list">${(list.length ? list : [{}]).map((m, i)=> fsMeetRowHtml(m, i)).join('')}</div>
+    <button type="button" class="btn secondary fs-meets-add" data-act="meet-add">${fsIconHtml('plus')} Weiterer Treffpunkt</button>
+  </div>`;
+}
+function fsMeetsCollect(root){
+  return Array.from((root || document).querySelectorAll('.fs-meets .fs-meet')).map(b=>{
+    const v = c=> (b.querySelector(c) || {}).value || '';
+    const lat = parseFloat(v('.fs-meet-lat')), lon = parseFloat(v('.fs-meet-lon'));
+    return {id: b.getAttribute('data-id'), time: v('.fs-meet-time').trim(), place: v('.fs-meet-place').trim(), who: v('.fs-meet-who').trim(),
+      lat: isNaN(lat) ? null : +lat.toFixed(5), lon: isNaN(lon) ? null : +lon.toFixed(5)};
+  }).filter(m=> m.time || m.place || m.lat != null);
 }
 function fsMeetSet(box, lat, lon, label){
-  box.querySelector('input[name="meetingLat"]').value = lat == null ? '' : lat.toFixed(5);
-  box.querySelector('input[name="meetingLon"]').value = lon == null ? '' : lon.toFixed(5);
+  box.querySelector('.fs-meet-lat').value = lat == null ? '' : lat.toFixed(5);
+  box.querySelector('.fs-meet-lon').value = lon == null ? '' : lon.toFixed(5);
   const st = box.querySelector('.fs-meet-status');
   st.textContent = lat == null ? 'Ort für die Anfahrt-Route' : '✓ ' + (label || 'Ort gesetzt');
   let clr = box.querySelector('.fs-meet-clear');
   if(lat != null && !clr){ clr = document.createElement('button'); clr.type = 'button'; clr.className = 'fs-meet-clear'; clr.setAttribute('data-act', 'meet-clear'); clr.title = 'Ort entfernen'; clr.textContent = '×'; st.after(clr); }
   if(lat == null && clr) clr.remove();
+  // Ort aus der Suche ins leere Ortsfeld übernehmen
+  const pl = box.querySelector('.fs-meet-place'); if(pl && !pl.value.trim() && label && lat != null && label !== 'auf der Karte gesetzt') pl.value = label;
   if(box._meetMap){
     if(box._meetMarker){ box._meetMarker.remove(); box._meetMarker = null; }
     if(lat != null) box._meetMarker = new maplibregl.Marker({color:'#B5652D'}).setLngLat([lon, lat]).addTo(box._meetMap);
@@ -20971,7 +21004,7 @@ function fsMeetSet(box, lat, lon, label){
 async function fsMeetSearch(box){
   const res = box.querySelector('.fs-meet-results');
   // Uhrzeit ("06:30") aus dem Freitext weglassen, sonst findet die Suche nichts
-  const q = (box.querySelector('input[name="meetingPoint"]').value || '').replace(/\b\d{1,2}[:.]\d{2}\b/g, '').replace(/\s+/g, ' ').trim();
+  const q = (box.querySelector('.fs-meet-place').value || '').replace(/\s+/g, ' ').trim();
   if(!q){ res.innerHTML = '<p class="fs-meet-hint">Zuerst einen Ort ins Feld schreiben, z. B. «Bahnhof Thun».</p>'; return; }
   res.innerHTML = '<p class="fs-meet-hint">Suche …</p>';
   try{
@@ -20988,7 +21021,7 @@ async function fsMeetMap(box){
   el.hidden = false;
   if(box._meetMap) return;
   try{ await fsmEnsureLoaded(); }catch(e){ el.innerHTML = '<p class="fs-meet-hint">Karte nicht verfügbar.</p>'; return; }
-  const lat = parseFloat(box.querySelector('input[name="meetingLat"]').value), lon = parseFloat(box.querySelector('input[name="meetingLon"]').value);
+  const lat = parseFloat(box.querySelector('.fs-meet-lat').value), lon = parseFloat(box.querySelector('.fs-meet-lon').value);
   const has = !isNaN(lat) && !isNaN(lon);
   const map = fsmCreateMap(el, {center: has ? [lat, lon] : [46.8, 8.2], zoom: has ? 13 : 7});
   box._meetMap = map;
@@ -20998,10 +21031,18 @@ async function fsMeetMap(box){
 document.addEventListener('click', (e)=>{
   const b = e.target.closest && e.target.closest('[data-act^="meet-"]');
   if(!b) return;
+  if(b.getAttribute('data-act') === 'meet-add'){
+    e.preventDefault(); e.stopPropagation();
+    const lst = b.closest('.fs-meets').querySelector('.fs-meets-list');
+    lst.insertAdjacentHTML('beforeend', fsMeetRowHtml({}, lst.children.length));
+    if(typeof markModalDirty === 'function') markModalDirty();
+    return;
+  }
   const box = b.closest('.fs-meet');
   if(!box) return;
   e.preventDefault(); e.stopPropagation();
   const act = b.getAttribute('data-act');
+  if(act === 'meet-del'){ if(confirm('Diesen Treffpunkt entfernen?')){ box.remove(); if(typeof markModalDirty === 'function') markModalDirty(); } return; }
   if(act === 'meet-search') fsMeetSearch(box);
   else if(act === 'meet-map') fsMeetMap(box);
   else if(act === 'meet-clear') fsMeetSet(box, null, null);
@@ -25059,8 +25100,9 @@ function briefingPackFromTemplate(type, tour){
 }
 function briefingSuggestedAblauf(a){
   const rows = [];
-  const mp = (a.meetingPoint||'').match(/(\d{1,2}[:.]\d{2})/);
-  rows.push({t: mp ? mp[1].replace('.',':') : '', label: a.meetingPoint ? 'Treffpunkt ' + a.meetingPoint.replace(mp ? mp[1] : '', '').trim() : 'Treffpunkt', kind:'punkt'});
+  const ms = fsAgendaMeets(a);
+  if(ms.length) ms.forEach(m=> rows.push({t: m.time || '', label: 'Treffpunkt ' + (m.place || '') + (m.who ? ' (' + m.who + ')' : ''), kind:'punkt'}));
+  else rows.push({t: '', label: 'Treffpunkt', kind:'punkt'});
   rows.push({t:'', label:'Start' + (a.tourName ? ' ' + a.tourName : ''), kind:'start'});
   rows.push({t:'', label:'Entscheidungspunkt (Schlüsselstelle, Verhältnisse prüfen)', kind:'entscheid'});
   rows.push({t:'', label: a.tourName ? 'Gipfel / Ziel ' + a.tourName : 'Gipfel / Ziel', kind:'gipfel'});
@@ -25245,7 +25287,7 @@ function briefingFormValues(){
     const [src, refId] = sel.value.split(':');
     tour = (src==='own' ? state.tours : state.otherAppTours).find(t=>t.id===refId) || null;
   }
-  return {type:get('type')||'ski', meetingPoint:get('meetingPoint'), plannedReturnTime:get('plannedReturnTime'),
+  return {type:get('type')||'ski', meets: fsMeetsCollect(f), plannedReturnTime:get('plannedReturnTime'),
     tourName: tour ? tour.name : get('customName'), tour};
 }
 
