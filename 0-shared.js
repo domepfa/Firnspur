@@ -11708,6 +11708,20 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         + [['ski', 'snow', (typeof drawRouteTypeKnown === 'function' && drawRouteTypeKnown()) ? (drawRouteIsDown() ? 'Abfahrtslinie' : 'Aufstiegsspur') : 'Skispur'], ['weg', 'walk', 'Wanderweg'], ['gerade', 'ruler', 'Gerade']].filter(x=> !(x[0] === 'weg' && fsAppKey() === 'firnspur')).map(([k, ic, l])=> `<button type="button" data-connect="${k}" aria-pressed="${drawConnect === k}" class="${drawConnect === k ? 'on' : ''}">${fsIconHtml(ic)}${l}</button>`).join('') + '</div>'
         + '<div class="fs-draw-hint">Tippen: nächster Punkt · Kreis in der Mitte eines Abschnitts ziehen: nur diesen Teil umlenken</div>';
       connectRow.querySelectorAll('[data-connect]').forEach(b=> b.addEventListener('click', ()=>{ drawConnect = b.getAttribute('data-connect'); try{ localStorage.setItem('fs-draw-connect', drawConnect); }catch(e){} paintConnect(); }));
+      if(typeof quickConnect !== 'undefined' && quickConnect){
+        quickConnect.innerHTML = [['ski', 'snow', 'Gelände'], ['weg', 'walk', 'Weg'], ['gerade', 'ruler', 'Gerade']].filter(x=> !(x[0] === 'weg' && fsAppKey() === 'firnspur')).map(([k, ic, l])=> `<button type="button" data-connect="${k}" aria-pressed="${drawConnect === k}" class="${drawConnect === k ? 'on' : ''}">${fsIconHtml(ic)}${l}</button>`).join('');
+        quickConnect.querySelectorAll('[data-connect]').forEach(b=> b.addEventListener('click', ()=>{ drawConnect = b.getAttribute('data-connect'); try{ localStorage.setItem('fs-draw-connect', drawConnect); }catch(e){} paintConnect(); }));
+      }
+      if(typeof quickArt !== 'undefined' && quickArt){
+        const m = fsRouteMetaGet(quickMk) || {}, downK = fsAppKey() === 'firnspur' ? 'abfahrt' : 'abstieg', isDown = m.type === 'abfahrt' || m.type === 'abstieg';
+        quickArt.innerHTML = [['aufstieg', 'Aufstieg', !isDown], [downK, downK === 'abfahrt' ? 'Abfahrt' : 'Abstieg', isDown]].map(([k, l, on])=> `<button type="button" data-art="${k}" aria-pressed="${on}" class="${on ? 'on' : ''}">${l}</button>`).join('');
+        quickArt.querySelectorAll('[data-art]').forEach(b=> b.addEventListener('click', ()=>{
+          const cur = fsRouteMetaGet(quickMk) || {name: ''}, v = b.getAttribute('data-art');
+          if(v === 'aufstieg' && !(cur.type === 'abfahrt' || cur.type === 'abstieg')) return; // Aufstieg-ähnliche Arten (Variante, Zustieg …) behalten
+          fsRouteMetaSet(quickMk, cur.name || '', v);
+          const sel = lineActionsRow.querySelector('.fs-ed-meta-type'); if(sel) sel.value = v;
+        }));
+      }
     };
     paintConnect();
     { const mk = edNext.meta || (edPickCtx ? (drawEditAltId ? 'alt:' + drawEditAltId : 'manual') : null); const mr = isFullscreen && mk ? fsEdMetaRowEl(mk) : null; if(mr) lineActionsRow.appendChild(mr); }
@@ -11731,6 +11745,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       appendBtn.style.display = n > 1 && !usingGpxTrack ? '' : 'none';
       appendBtn.classList.toggle('on', !!drawAppend); appendBtn.setAttribute('aria-pressed', !!drawAppend);
       appendBtn.innerHTML = fsIconHtml('plus') + (drawAppend ? ' Weiterzeichnen: an' : ' Weiterzeichnen');
+      connectRow.classList.toggle('pend', !!drawFollowPend);
       const hint = connectRow.querySelector('.fs-draw-hint');
       if(hint) hint.textContent = drawFollowPend ? 'Jetzt die Stelle auf «' + drawFollowPend.L.label + '» antippen, bis zu der die Linie folgen soll.'
         : 'Tippen: nächster Punkt · Kreis in der Mitte eines Abschnitts ziehen: nur diesen Teil umlenken';
@@ -11765,6 +11780,30 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     gpxSummitBtn.textContent = 'Nur Aufstieg';
     gpxSummitBtn.title = 'Am höchsten Punkt schneiden';
     lineActionsRow.appendChild(gpxSummitBtn);
+    // Vollbild: kompakte Leiste unten (Art · Gelände/Gerade · Letzter Punkt · Fertig, darüber km/Hm/Zeit);
+    // Name, Umkehren, Löschen, GPX erst nach «Mehr» – die Karte bleibt fast ganz frei
+    var drawStatsEl = null, quickArt = null, quickConnect = null, quickMk = null;
+    if(isFullscreen){
+      let barOpen = false; try{ barOpen = localStorage.getItem('fs-ed-bar-open') === '1'; }catch(e){}
+      quickMk = edNext.meta || (edPickCtx ? (drawEditAltId ? 'alt:' + drawEditAltId : 'manual') : null);
+      if(quickMk && !fsRouteMetaGet(quickMk)) quickMk = null;
+      lineActionsRow.classList.add('fs-line-bar');
+      drawStatsEl = document.createElement('div'); drawStatsEl.className = 'fs-draw-stats'; drawStatsEl.setAttribute('aria-live', 'polite');
+      const quick = document.createElement('div'); quick.className = 'fs-draw-quick';
+      if(quickMk){ quickArt = document.createElement('div'); quickArt.className = 'fs-draw-seg fs-q-art'; quickArt.setAttribute('role', 'group'); quickArt.setAttribute('aria-label', 'Art der Route'); quick.appendChild(quickArt); }
+      quickConnect = document.createElement('div'); quickConnect.className = 'fs-draw-seg fs-q-conn'; quickConnect.setAttribute('role', 'group'); quickConnect.setAttribute('aria-label', 'Verbinden als');
+      quick.appendChild(quickConnect);
+      undoBtn.className = 'fs-q-btn'; undoBtn.style.cssText = ''; undoBtn.textContent = '↺'; undoBtn.setAttribute('aria-label', 'Letzten Punkt entfernen'); undoBtn.title = 'Letzten Punkt entfernen';
+      finishBtn.className = 'btn fs-q-done'; finishBtn.style.cssText = ''; finishBtn.textContent = '✓ Fertig';
+      const moreBtn = document.createElement('button'); moreBtn.type = 'button'; moreBtn.className = 'fs-q-btn fs-q-more';
+      const applyBar = ()=>{ lineActionsRow.classList.toggle('compact', !barOpen); moreBtn.setAttribute('aria-expanded', barOpen); moreBtn.setAttribute('aria-label', barOpen ? 'Weniger' : 'Mehr: Name, Umkehren, Löschen'); moreBtn.innerHTML = barOpen ? '⌄' : '⌃'; };
+      moreBtn.addEventListener('click', ()=>{ barOpen = !barOpen; try{ localStorage.setItem('fs-ed-bar-open', barOpen ? '1' : '0'); }catch(e){} applyBar(); });
+      quick.append(finishBtn);
+      const statsRow = document.createElement('div'); statsRow.className = 'fs-draw-statsrow';
+      statsRow.append(drawStatsEl, undoBtn, moreBtn);
+      lineActionsRow.append(statsRow, quick);
+      applyBar(); paintConnect();
+    }
     var pickHint = null;
     if(edPickCtx){
       pickHint = document.createElement('div');
@@ -11775,7 +11814,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       [pointModeBtn, lineModeBtn, areaModeBtn].forEach(b=> b.style.display = 'none');
       const mkBack = ()=>{ const b = document.createElement('button'); b.type = 'button'; b.className = 'btn secondary fs-pick-back'; b.innerHTML = '‹ Alle Routen';
         b.addEventListener('click', ()=>{ map.closePopup(); if(usingGpxTrack){ exitGpxEdit(); updateGpxReplaceBtn(); renderRouteMeta(); } setMode('pick'); }); return b; };
-      lineActionsRow.insertBefore(mkBack(), lineActionsRow.firstChild);
+      { const lb = mkBack(), q = lineActionsRow.querySelector('.fs-draw-quick');
+        if(q){ lb.className = 'btn fs-q-done'; lb.innerHTML = '✓ Fertig'; lb.setAttribute('aria-label', 'Fertig – zurück zu allen Routen'); q.appendChild(lb); } // kompakte Leiste: «Fertig» führt zur Übersicht
+        else lineActionsRow.insertBefore(lb, lineActionsRow.firstChild); }
       areaRow.appendChild(mkBack());
     }
     wrapDiv.appendChild(lineActionsRow);
@@ -12178,48 +12219,38 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function drawRouteTypeKnown(){ return !!(edNext.meta || (manualTrackHiddenId === 'manual-track-hidden' && document.getElementById('fs-routes-edit'))); }
     map._fsRepaintConnect = ()=>{ try{ paintConnect(); }catch(e){} };
     const FS_DL_VARIANTS = [{k: 'direct', label: 'Direkt', color: '#7A1FA2', dash: null}, {k: 'moderate', label: 'Moderat', color: '#D9730D', dash: '10,6'}, {k: 'flat', label: 'Flach', color: '#2F7D4A', dash: '2,7'}];
-    // Abfahrt: drei Linien rechnen, auf der Karte zeigen, die gewählte zurückgeben (sonst null)
-    async function drawChooseDescent(a, b){
-      const res = [];
-      for(const v of FS_DL_VARIANTS){
-        try{ const r = await fsSkiRoute([a, b], {areas: drawAreasRead(), down: v.k}); res.push(Object.assign({v}, r)); }catch(e){}
+    // Abfahrt: «Direkt» wird sofort gerechnet und gezeigt; die anderen Linien rechnet das Gerät danach und bietet sie
+    // als kleine Schilder auf der Karte an (antippen = übernehmen). Weiterzeichnen oder ✕ blendet sie aus.
+    // Kennzahlen der Linie in der Leiste: km sofort, Höhenmeter und Zeit vom swisstopo-Höhendienst (verzögert, erst wenn nichts mehr rechnet)
+    var statsKey = '', statsElev = null, statsT = 0;
+    function drawStatsUpdate(){
+      if(!drawStatsEl) return;
+      const c = (typeof manualTrack !== 'undefined' && manualTrack) || [];
+      if(usingGpxTrack){ drawStatsEl.innerHTML = '<span>GPX-Track: Punkte ziehen oder antippen</span>'; return; }
+      if(c.length < 2){ drawStatsEl.innerHTML = '<span>' + (c.length ? 'Nächsten Punkt antippen' : 'Auf die Karte tippen: Start setzen') + '</span>'; return; }
+      let d = 0; for(let i = 1; i < c.length; i++) d += fsGeoDist(c[i - 1][0], c[i - 1][1], c[i][0], c[i][1]);
+      const key = c.length + '|' + c[0].join(',') + '|' + c[c.length - 1].join(',') + '|' + Math.round(d);
+      if(key !== statsKey){
+        statsKey = key; statsElev = null; clearTimeout(statsT);
+        statsT = setTimeout(async ()=>{
+          if(drawBusy){ statsKey = ''; return; } // nach dem Rechnen kommt ohnehin ein neuer Aufruf
+          try{ const e = await fsrElevation(c); if(statsKey === key){ statsElev = e; drawStatsUpdate(); } }catch(e){}
+        }, 900);
       }
-      if(!res.length) throw new Error('keine Route');
-      // praktisch gleiche Linien nur einmal
-      const same = (x, y)=>{ const n = 20; let d = 0; for(let i = 0; i <= n; i++){ const p = x.coords[Math.round(i / n * (x.coords.length - 1))], pr = drawProjLine(y.coords, p[0], p[1]); d += pr ? pr.d : 999; } return d / (n + 1) < 25; };
-      const list = res.filter((r, i)=> !res.slice(0, i).some(q=> same(r, q)));
-      if(list.length === 1) return list[0];
-      return await new Promise(resolve=>{
-        const grp = FL.layerGroup().addTo(map);
-        const done = (r)=>{ grp.remove(); panel.remove(); resolve(r); };
-        list.forEach((r, i)=>{
-          FL.polyline(r.coords, {color:'#ffffff', weight:8, opacity:0.85, interactive:false}).addTo(grp);
-          FL.polyline(r.coords, Object.assign({color: r.v.color, weight:5, opacity:1, interactive:false}, r.v.dash ? {dashArray: r.v.dash} : {})).addTo(grp);
-          FL.polyline(r.coords, {color:'#000', weight:26, opacity:0}).addTo(grp).on('click', (e)=>{ FL.DomEvent.stopPropagation(e); done(r); });
-          const mid = r.coords[Math.floor(r.coords.length * (0.35 + i * 0.15))];
-          FL.marker(mid, {icon: FL.divIcon({className: 'fs-dl-tag-icon', html: '<div class="fs-dl-tag" style="--c:' + r.v.color + '">' + (i + 1) + ' ' + r.v.label + '</div>', iconSize: [0, 0]})}).addTo(grp).on('click', ()=> done(r));
-        });
-        const panel = document.createElement('div');
-        panel.className = 'fs-dl-choose';
-        panel.innerHTML = '<p>Welche Abfahrtslinie?</p>' + list.map((r, i)=> `<button type="button" data-i="${i}"><i class="fs-route-sw${r.v.dash ? ' dash' : ''}" style="--c:${r.v.color}"></i><b>${i + 1} ${r.v.label}</b><small>${(r.distanceM / 1000).toFixed(1)} km · bis ${Math.round(r.maxSlope)}°${r.over35M > 15 ? ' · ' + Math.round(r.over35M / 10) * 10 + ' m über 35°' : ''}</small></button>`).join('')
-          + '<button type="button" class="fs-dl-x" data-x>Abbrechen (gerade Linie)</button>';
-        panel.addEventListener('click', e=>{ const bt = e.target.closest('button'); if(!bt) return; if(bt.hasAttribute('data-x')) done(null); else done(list[+bt.getAttribute('data-i')]); });
-        wrapDiv.appendChild(panel);
-      });
+      const parts = ['<b>' + (d / 1000).toFixed(1) + ' km</b>'];
+      if(statsElev){
+        parts.push('↑ ' + Math.round(statsElev.up / 10) * 10 + ' m', '↓ ' + Math.round(statsElev.down / 10) * 10 + ' m');
+        const ski = fsAppKey() === 'firnspur', down = ski && drawRouteIsDown();
+        const h = ski ? (down ? 0 : (d / 1000 + statsElev.up / 100) / 4) : fsrHikeSeconds(d, statsElev.up, statsElev.down) / 3600;
+        if(h > 0.05){ const mm = Math.round(h * 60 / 5) * 5; parts.push('ca. ' + Math.floor(mm / 60) + ':' + String(mm % 60).padStart(2, '0') + ' h'); }
+      }
+      if(drawBusy) parts.push('<span class="fs-ds-busy"><i></i>rechnet …</span>');
+      drawStatsEl.innerHTML = parts.join('<span class="fs-ds-sep">·</span>');
     }
-    async function drawCompute(m, a, b, sg){
-      if(m === 'gerade' || m === 'folgen' || m === 'fest') return [a, b];
-      const down = m === 'ski' && drawSkiDown(sg);
-      let r;
-      if(down && !(sg && sg.variant)){
-        r = await drawChooseDescent(a, b);
-        if(!r){ if(sg){ sg.mode = 'gerade'; } return [a, b]; }
-        if(sg) sg.variant = r.v.k;
-      }else{
-        r = m === 'ski' ? await fsSkiRoute([a, b], {areas: drawAreasRead(), down: down ? (sg && sg.variant) || 'direct' : false}) : await fetchCalculatedRoute([a, b]);
-      }
-      if(sg){ sg.steep = r && r.over35M > 15 ? {m: Math.round(r.over35M), max: Math.round(r.maxSlope)} : null; sg.slopes = m === 'ski' && r && r.slopes ? r.slopes : null; }
-      if(down && r && r.over35M > 15) showToast('Achtung: etwa ' + Math.round(r.over35M / 10) * 10 + ' m steiler als 35° (bis ' + Math.round(r.maxSlope) + '°) – markiert. Selbst beurteilen.', true);
+    var descAlts = null; // {grp, sg}
+    function drawDescAltsClear(){ if(descAlts){ try{ descAlts.grp.remove(); }catch(e){} descAlts = null; } }
+    function drawFitEnds(r, a, b, sg){
+      if(sg){ sg.steep = r && r.over35M > 15 ? {m: Math.round(r.over35M), max: Math.round(r.maxSlope)} : null; sg.slopes = r && r.slopes ? r.slopes.slice() : null; }
       const c = ((r && r.coords) || []).map(q=> [+q[0], +q[1]]).filter(q=> isFinite(q[0]) && isFinite(q[1]));
       if(c.length < 2) throw new Error('keine Route');
       const far = (p, q)=> fsGeoDist(p[0], p[1], q[0], q[1]) > 3;
@@ -12227,18 +12258,74 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(far(c[c.length - 1], b)){ c.push(b); if(sg && sg.slopes) sg.slopes = sg.slopes.concat([sg.slopes[sg.slopes.length - 1] || 0]); } else c[c.length - 1] = b;
       return c;
     }
+    async function drawDescentAlts(sg, quiet){
+      const g = sg._gen, a = sg.coords[0], b = sg.coords[sg.coords.length - 1];
+      const stale = ()=> sg._gen !== g || drawSegs.indexOf(sg) < 0 || mode !== 'line';
+      const same = (x, y)=>{ const n = 20; let d = 0; for(let i = 0; i <= n; i++){ const p = x[Math.round(i / n * (x.length - 1))], pr = drawProjLine(y, p[0], p[1]); d += pr ? pr.d : 999; } return d / (n + 1) < 25; };
+      const res = [];
+      for(const v of FS_DL_VARIANTS){
+        if(v.k === (sg.variant || 'direct')) continue;
+        if(stale()) return;
+        try{ const r = await fsSkiRoute([a, b], {areas: drawAreasRead(), down: v.k}); if(r && r.coords && r.coords.length > 1) res.push(Object.assign({v}, r)); }catch(e){}
+      }
+      if(stale()) return;
+      const list = res.filter((r, i)=> !same(r.coords, sg.coords) && !res.slice(0, i).some(q=> same(r.coords, q.coords)));
+      if(!list.length){ if(!quiet) showToast('Keine andere Abfahrtslinie – die übrigen wären praktisch gleich.'); return; }
+      drawDescAltsClear();
+      const grp = FL.layerGroup().addTo(map);
+      descAlts = {grp, sg};
+      const take = (r)=>{
+        if(stale()){ drawDescAltsClear(); return; }
+        pushUndo();
+        try{ sg.coords = drawFitEnds(r, a, b, sg); sg.variant = r.v.k; }catch(e){ return; }
+        drawDescAltsClear(); manualTrack = drawJoin(drawSegs); if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs; gpxTrackChanged();
+        if(r.over35M > 15) showToast('Achtung: etwa ' + Math.round(r.over35M / 10) * 10 + ' m steiler als 35° (bis ' + Math.round(r.maxSlope) + '°) – markiert. Selbst beurteilen.', true);
+        else showToast('Abfahrt «' + r.v.label + '» übernommen.');
+      };
+      list.forEach((r, i)=>{
+        FL.polyline(r.coords, {color:'#ffffff', weight:6, opacity:0.75, interactive:false}).addTo(grp);
+        FL.polyline(r.coords, Object.assign({color: r.v.color, weight:3.5, opacity:0.9, interactive:false}, r.v.dash ? {dashArray: r.v.dash} : {})).addTo(grp);
+        FL.polyline(r.coords, {color:'#000', weight:24, opacity:0}).addTo(grp).on('click', (e)=>{ FL.DomEvent.stopPropagation(e); take(r); });
+        const mid = r.coords[Math.floor(r.coords.length * (0.4 + i * 0.2))];
+        FL.marker(mid, {icon: FL.divIcon({className: 'fs-dl-tag-icon', html: '<div class="fs-dl-tag" style="--c:' + r.v.color + '">' + r.v.label + ' · bis ' + Math.round(r.maxSlope) + '°</div>', iconSize: [0, 0]})}).addTo(grp).on('click', ()=> take(r));
+      });
+      // Schild am Ende des Abschnitts: wie viele andere Linien, ✕ = behalten
+      FL.marker(b, {icon: FL.divIcon({className: 'fs-dl-tag-icon', html: '<div class="fs-dl-more">' + list.length + (list.length === 1 ? ' andere Linie' : ' andere Linien') + ' <b aria-label="Ausblenden">✕</b></div>', iconSize: [0, 0]})}).addTo(grp).on('click', ()=>{ drawDescAltsClear(); });
+      // alle Linien sichtbar über der Leiste (sonst Ausschnitt anpassen, nicht näher als jetzt)
+      try{
+        const sz = map.getSize(), bar = wrapDiv.querySelector('.fs-pe-bottom'), bh = bar ? bar.offsetHeight + 20 : 40, pts = [sg.coords].concat(list.map(r=> r.coords));
+        const out = pts.some(c=> c.some(q=>{ const p = map.latLngToContainerPoint(q); return p.x < 10 || p.x > sz.x - 10 || p.y < 130 || p.y > sz.y - bh; }));
+        if(out) map.fitBounds(grp.getBounds(), {paddingTopLeft: [30, 140], paddingBottomRight: [30, bh + 10], maxZoom: map.getZoom()});
+      }catch(e){}
+      showToast(list.length === 1 ? 'Eine andere Abfahrtslinie zur Wahl – auf der Karte antippen.' : list.length + ' andere Abfahrtslinien zur Wahl – auf der Karte antippen.');
+    }
+    async function drawCompute(m, a, b, sg){
+      if(m === 'gerade' || m === 'folgen' || m === 'fest') return [a, b];
+      const down = m === 'ski' && drawSkiDown(sg);
+      const first = down && sg && !sg.variant; // neue Abfahrt: Direkt zuerst, die anderen danach im Hintergrund
+      if(first) sg.variant = 'direct';
+      const r = m === 'ski' ? await fsSkiRoute([a, b], {areas: drawAreasRead(), down: down ? (sg && sg.variant) || 'direct' : false}) : await fetchCalculatedRoute([a, b]);
+      const c = drawFitEnds(r, a, b, m === 'ski' ? sg : null);
+      if(sg && m !== 'ski'){ sg.steep = null; sg.slopes = null; }
+      if(down && r && r.over35M > 15) showToast('Achtung: etwa ' + Math.round(r.over35M / 10) * 10 + ' m steiler als 35° (bis ' + Math.round(r.maxSlope) + '°) – markiert. Selbst beurteilen.', true);
+      if(first) setTimeout(()=>{ if(sg.coords.length > 2) drawDescentAlts(sg, true).catch(()=>{}); }, 0);
+      return c;
+    }
     let drawBusy = false, drawBusyN = 0;
     async function drawRecompute(list){
       drawBusyN++; drawBusy = true;
-      const calc = list.filter(i=> drawSegs[i] && drawSegs[i].mode !== 'gerade');
-      if(calc.length) showToast(drawSegs[calc[0]].mode === 'ski' ? (drawSkiDown(drawSegs[calc[0]]) ? 'Abfahrtslinie wird aus dem Gelände gerechnet …' : 'Skispur wird aus dem Gelände gerechnet …') : 'Weg wird gesucht …');
+      drawDescAltsClear();
+      const calcMode = sg=> sg.mode !== 'gerade' && sg.mode !== 'folgen' && sg.mode !== 'fest';
+      // erst alle betroffenen Abschnitte als «rechnet …» zeigen (gestrichelt, Schild in der Mitte), dann der Reihe nach rechnen
+      list.forEach(i=>{ const sg = drawSegs[i]; if(!sg) return; sg._err = null; if(calcMode(sg)){ sg._calc = true; sg._calcLabel = sg.mode === 'ski' ? (drawSkiDown(sg) ? 'Abfahrt wird gerechnet …' : 'Spur wird gerechnet …') : 'Weg wird gesucht …'; sg.coords = [sg.coords[0], sg.coords[sg.coords.length - 1]]; } });
+      manualTrack = drawJoin(drawSegs); redrawLine();
       for(const i of list){
         const sg = drawSegs[i];
         if(!sg) continue;
         const a = sg.coords[0], b = sg.coords[sg.coords.length - 1], g = sg._gen = (sg._gen || 0) + 1;
-        if(sg.mode !== 'gerade' && sg.mode !== 'folgen' && sg.mode !== 'fest'){ sg.coords = [a, b]; manualTrack = drawJoin(drawSegs); redrawLine(); } // sofort gerade zeigen, Spur folgt
-        try{ const c = await drawCompute(sg.mode, a, b, sg); if(sg._gen === g) sg.coords = c; } // nur das Neueste übernehmen
-        catch(e){ if(sg._gen === g){ sg.mode = 'gerade'; sg.coords = [a, b]; showToast('Konnte nicht gerechnet werden (offline?) – als gerade Linie gezeichnet.', true); } }
+        try{ const c = await drawCompute(sg.mode, a, b, sg); if(sg._gen === g){ sg.coords = c; sg._calc = false; } } // nur das Neueste übernehmen
+        catch(e){ if(sg._gen === g){ sg._calc = false; sg.mode = 'gerade'; sg.coords = [a, b]; sg._err = (navigator.onLine === false ? 'Ohne Netz' : (e && /keine Route/.test(e.message || '') ? 'Keine Spur gefunden' : 'Nicht gerechnet')) + ' – gerade Linie'; showToast(sg._err + '. Abschnitt antippen zum Ändern.', true); } }
+        if(sg._gen === g){ manualTrack = drawJoin(drawSegs); redrawLine(); }
       }
       drawBusyN--; drawBusy = drawBusyN > 0;
       manualTrack = drawJoin(drawSegs);
@@ -12455,7 +12542,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         // Zeichnen: jeder Abschnitt einzeln, nach Art gezeichnet; antippen = nur diesen Abschnitt anders verbinden
         drawSync();
         drawSegs.forEach((sg, k)=>{
-          const st = FS_DRAW_STYLE[sg.mode] || FS_DRAW_STYLE.gerade;
+          const st = sg._calc ? {color: '#5B7486', dash: '3,7'} : (FS_DRAW_STYLE[sg.mode] || FS_DRAW_STYLE.gerade);
           FL.polyline(sg.coords, {color:'#ffffff', weight:7, opacity:0.7, interactive:false}).addTo(lineLayer);
           FL.polyline(sg.coords, Object.assign({color: st.color, weight:4, opacity:1, interactive:false}, st.dash ? {dashArray: st.dash} : {})).addTo(lineLayer);
           // Steile Stellen (über 35° orange-rot, über 40° violett) auf berechneten Skispuren markieren
@@ -12466,8 +12553,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
             FL.DomEvent.stopPropagation(e);
             FL.popup().setLatLng(e.latlng).setContent(drawSegMenu(k, e.latlng)).openOn(map);
           });
+          // Abschnitt wird gerechnet bzw. konnte nicht gerechnet werden: Schild in der Mitte
+          if(sg._calc || sg._err){
+            const c = sg.coords, mid = c.length > 2 ? c[Math.floor(c.length / 2)] : [(c[0][0] + c[c.length - 1][0]) / 2, (c[0][1] + c[c.length - 1][1]) / 2];
+            const html = sg._calc ? '<div class="fs-seg-calc"><i></i>' + (sg._calcLabel || 'rechnet …') + '</div>' : '<div class="fs-seg-calc err">' + esc(sg._err) + '</div>';
+            const mk = FL.marker(mid, {icon: FL.divIcon({className: 'fs-dl-tag-icon', html, iconSize: [0, 0]})}).addTo(lineLayer);
+            if(sg._err) mk.on('click', (e)=>{ FL.DomEvent.stopPropagation(e); FL.popup().setLatLng(mid).setContent(drawSegMenu(k, FL.latLng ? FL.latLng(mid[0], mid[1]) : mid)).openOn(map); });
+          }
         });
       }
+      drawStatsUpdate();
       if(manualTrack.length && !drawView){
         // Deutlich breitere, unsichtbare Klickfläche unter der sichtbaren Linie – auf einer
         // schmalen 4px-Linie mit dem Finger genau zu treffen ist auf dem Handy sehr schwierig.
@@ -12678,7 +12773,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         drawRecompute([k]);
       }));
       wrap.appendChild(seg);
-      if(sg.mode === 'ski' && drawSkiDown(sg)) wrap.appendChild(gpxBtn('Andere Abfahrtslinie wählen' + (sg.variant ? ' (jetzt: ' + (FS_DL_VARIANTS.find(v=> v.k === sg.variant) || {}).label + ')' : ''), 'secondary', ()=>{ pushUndo(); map.closePopup(); sg.variant = null; sg.coords = [sg.coords[0], sg.coords[sg.coords.length - 1]]; drawRecompute([k]); }));
+      if(sg.mode === 'ski' && drawSkiDown(sg)) wrap.appendChild(gpxBtn('Andere Abfahrtslinie wählen' + (sg.variant ? ' (jetzt: ' + (FS_DL_VARIANTS.find(v=> v.k === sg.variant) || {}).label + ')' : ''), 'secondary', ()=>{ map.closePopup(); showToast('Andere Abfahrtslinien werden gerechnet …'); drawDescentAlts(sg).catch(()=>{}); }));
       if(sg.mode === 'ski'){
         const dn = drawSkiDown(sg);
         wrap.appendChild(gpxBtn(dn ? 'Als Aufstieg rechnen (Spitzkehren)' : 'Als Abfahrt rechnen (Linie wählen)', 'secondary', ()=>{ pushUndo(); map.closePopup(); sg.dir = dn ? 'up' : 'down'; sg.variant = null; sg.coords = [sg.coords[0], sg.coords[sg.coords.length - 1]]; drawRecompute([k]); }));
@@ -12863,6 +12958,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
 
     function setMode(newMode){
+      if(typeof drawDescAltsClear === 'function' && newMode !== 'line') drawDescAltsClear();
       if(newMode !== 'line' && usingGpxTrack){ exitGpxEdit(); updateGpxReplaceBtn(); }
       mode = newMode;
       try{ map.getContainer().classList.toggle('fs-ed-mode-line', mode === 'line'); }catch(e){}
