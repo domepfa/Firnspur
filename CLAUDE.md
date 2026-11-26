@@ -241,6 +241,8 @@ aus anderen Apps übernehmen.
 - Termin-Ansicht «Lage am Tourtag» (`loadAgendaLage`, oben im Reiter Ablauf): je Gipfel des Termins (`fsAgendaLageItems`: erste und weitere Touren,
   Tagesplan mit Datum je Tag) Wetter am Gipfel (`fetchTourDayDetail`) und Lawinenstufe mit Problemen aus dem Bulletin für genau diesen Tag
   (`fsSlfForDate`, sonst Ausblick aus `evo`); Unterschiede zum letzten Öffnen als «Geändert seit …» (Gerät `fs-lage-seen`). Nicht bei Wanderungen (Lawinen).
+  Letzter Stand auf dem Gerät (`fs-lage-last`, 30 Tage) wird ohne Netz gezeigt («Ohne Netz – Stand vom …»). Der alte Wetterblock darunter hat nur noch
+  «MeteoSchweiz öffnen» und «Für unterwegs speichern» (`weatherSnapshot` im Termin, für alle und den Tourenzettel).
 - Tägliches verschlüsseltes Backup: `.github/workflows/backup.yml`.
 - Wetter-Wertebilder (Niederschlag mit Art, Neuschnee, Temperatur, Böen, Bewölkung, Modellhöhe) aus MeteoSchweiz
   ICON-CH1: `tools/wetterbilder.py` (Kodierung dort), die App färbt sie ein und liest den Wert fürs Fadenkreuz;
