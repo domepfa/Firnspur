@@ -3622,3 +3622,4 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .fs-off-row-t b{ font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .fs-off-row-t small{ color:var(--ink-soft); font-size:12.5px; }
 .fs-off-frame{ border-style:dashed; }
+.btn.fs-draw-append.on{ background:var(--ice-deep); color:#fff; border-color:transparent; }
