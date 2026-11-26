@@ -256,6 +256,9 @@ aus anderen Apps übernehmen.
   seiner Höhe, ohne Höhe nimmt Open-Meteo die Geländehöhe; Schnee/Regen getrennt), Nullgrad und Höhenwind einmal darunter.
   Letzter Stand auf dem Gerät (`fs-lage-last`, 30 Tage) wird ohne Netz gezeigt («Ohne Netz – Stand vom …»). Der alte Wetterblock darunter hat nur noch
   «MeteoSchweiz öffnen» und «Für unterwegs speichern» (`weatherSnapshot` im Termin, für alle und den Tourenzettel).
+- Tourenzettel «Als PDF teilen» (`fsTzPdf`): unsichtbare Kopie des Zettels im App-Fenster (iframe, 720 px breit; html2canvas hing im Zettel-Fenster),
+  html2canvas + jsPDF von unpkg (`fsPdfLibs`), A4 mit Umbruch am Abschnittsanfang (`fsTzPdfPages`). Handy: erster Tipp erstellt, zweiter teilt
+  (Teilen braucht einen frischen Tipp); ohne Teilen-Menü Download; schlägt es fehl, Text wie bisher.
 - Tägliches verschlüsseltes Backup: `.github/workflows/backup.yml`.
 - Wetter-Wertebilder (Niederschlag mit Art, Neuschnee, Temperatur, Böen, Bewölkung, Modellhöhe) aus MeteoSchweiz
   ICON-CH1: `tools/wetterbilder.py` (Kodierung dort), die App färbt sie ein und liest den Wert fürs Fadenkreuz;

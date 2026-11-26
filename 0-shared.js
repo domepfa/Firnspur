@@ -3657,6 +3657,55 @@ function agendaDetailHtml(id){
 // (schöner Tourentag) statt bürokratisch – Notfallnummern stehen sachlich da, ohne Alarm-Rhetorik.
 // Schriften liegen in der App (offline verfügbar); für eigene Fenster die volle Adresse
 function fsFontsCssUrl(){ const l = document.querySelector('link[href*="fonts.css"]'); return l ? l.href : new URL('fonts/fonts.css', location.href).href; }
+// Bibliotheken fürs PDF im App-Fenster laden (im Zettel-Fenster luden fremde Skripte nicht zuverlässig)
+let fsPdfLibsP = null;
+function fsPdfLibs(){
+  if(fsPdfLibsP) return fsPdfLibsP;
+  const load = src=> new Promise((res, rej)=>{ const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  fsPdfLibsP = (window.html2canvas ? Promise.resolve() : load('https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js'))
+    .then(()=> window.jspdf ? null : load('https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js'))
+    .catch(e=>{ fsPdfLibsP = null; throw e; });
+  return fsPdfLibsP;
+}
+// Tourenzettel als PDF (A4, Rand 8 mm, Umbruch möglichst am Anfang eines Abschnitts)
+async function fsTzPdf(win, a){
+  await fsPdfLibs();
+  // Unsichtbare Kopie des Zettels im App-Fenster: html2canvas blieb beim Kopieren des Zettel-Fensters selbst hängen
+  const ifr = document.createElement('iframe');
+  const vw = 720; // Breite wie ein A4-Blatt (auf dem Handy sonst viele halbleere Seiten); die Karte bleibt in ihrer Grösse
+
+  ifr.style.cssText = 'position:fixed; left:-12000px; top:0; width:' + vw + 'px; height:2000px; border:0; visibility:hidden;';
+  document.body.appendChild(ifr);
+  try{
+    await new Promise(res=>{ ifr.onload = res; const mapW = (win.document.getElementById('tz-map') || {}).clientWidth || 0;
+      ifr.srcdoc = '<!DOCTYPE html>' + win.document.documentElement.outerHTML.replace('</head>', '<style>.no-print{display:none !important}' + (mapW ? '#tz-map,#tz-drive-map{max-width:' + mapW + 'px;}' : '') + '</style></head>'); });
+    await new Promise(r=> setTimeout(r, 800)); // Bilder und Schriften
+    const doc = ifr.contentDocument, wrap = doc.querySelector('.wrap') || doc.body;
+    const scale = 2;
+    const cv = await window.html2canvas(wrap, {scale, useCORS: true, backgroundColor: '#ffffff', logging: false, imageTimeout: 8000});
+    return fsTzPdfPages(cv, wrap, scale, a);
+  }finally{ ifr.remove(); }
+}
+function fsTzPdfPages(cv, wrap, scale, a){
+  const W = wrap.getBoundingClientRect().width, top0 = wrap.getBoundingClientRect().top;
+  const pageH = W * (297 - 16) / (210 - 16), H = cv.height / scale;
+  const marks = Array.from(wrap.querySelectorAll(':scope > *, .section')).map(el=> el.getBoundingClientRect().top - top0).filter(y=> y > 0).sort((x, y)=> x - y);
+  const pdf = new window.jspdf.jsPDF({unit: 'mm', format: 'a4', orientation: 'portrait'});
+  let start = 0, first = true;
+  while(start < H - 4){
+    let end = Math.min(H, start + pageH);
+    if(end < H){ const b = marks.filter(y=> y > start + pageH * 0.45 && y <= end).pop(); if(b) end = b; }
+    const part = document.createElement('canvas');
+    part.width = cv.width; part.height = Math.ceil((end - start) * scale);
+    const g = part.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, part.width, part.height);
+    g.drawImage(cv, 0, Math.floor(start * scale), cv.width, part.height, 0, 0, cv.width, part.height);
+    if(!first) pdf.addPage();
+    pdf.addImage(part.toDataURL('image/jpeg', 0.9), 'JPEG', 8, 8, 210 - 16, (end - start) * (210 - 16) / W);
+    first = false; start = end;
+  }
+  const name = 'Tourenzettel-' + String(fsAgendaTitle(a) || 'Tour').replace(/[^a-z0-9äöüÄÖÜ_\- ]/gi, '').trim().replace(/\s+/g, '-') + '.pdf';
+  return new File([pdf.output('blob')], name, {type: 'application/pdf'});
+}
 function printTourenzettel(agendaId){
   const a = state.agenda.find(x=>x.id===agendaId);
   if(!a) return;
@@ -3904,7 +3953,7 @@ function printTourenzettel(agendaId){
 
   <div class="actions no-print">
     <button class="primary" onclick="window.print()">${fsIconHtml('printer')} Drucken</button>
-    <button id="tz-share-btn" type="button">${fsIconHtml('link')} Teilen</button>
+    <button id="tz-share-btn" type="button">${fsIconHtml('share')} Als PDF teilen</button>
   </div>
   <div class="foot">Geteilt mit Firnspur am ${escHtml(new Date().toLocaleDateString('de-CH'))}.</div>
 </div>
@@ -3929,8 +3978,8 @@ function printTourenzettel(agendaId){
   // Stattdessen hier, aus dem Opener-Kontext heraus, per DOM-API nachträglich ins Popup einfügen –
   // das ist von dieser Chrome-Bremse nicht betroffen.
   const shareBtn = win.document.getElementById('tz-share-btn');
-  if(shareBtn){
-    shareBtn.onclick = function(){
+  // Teilen als PDF: der Zettel wie gedruckt (html2canvas + jsPDF, Seitenumbruch zwischen Abschnitten); klappt das nicht, Text wie bisher
+  const shareTextFallback = ()=>{
       if(win.navigator.share){
         win.navigator.share({title: a.tourName || 'Tourenzettel', text: shareText}).catch(()=>{});
       }else if(win.navigator.clipboard && win.navigator.clipboard.writeText){
@@ -3941,6 +3990,37 @@ function printTourenzettel(agendaId){
         }).catch(()=> win.alert(shareText));
       }else{
         win.alert(shareText);
+      }
+  };
+  if(shareBtn){
+    let readyFile = null;
+    const shareFile = async (file)=>{
+      const nav = win.navigator;
+      if(nav.canShare && nav.canShare({files: [file]})){ try{ await nav.share({files: [file], title: fsAgendaTitle(a) || 'Tourenzettel'}); }catch(e){} return; }
+      const l = win.document.createElement('a'); l.href = win.URL.createObjectURL(file); l.download = file.name; win.document.body.appendChild(l); l.click(); l.remove();
+      setTimeout(()=> win.URL.revokeObjectURL(l.href), 4000);
+    };
+    shareBtn.onclick = async function(){
+      // Zweiter Tipp: fertiges PDF teilen (Teilen braucht einen frischen Tipp, nicht erst nach dem Rechnen)
+      if(readyFile){ await shareFile(readyFile); return; }
+      const old = shareBtn.innerHTML;
+      shareBtn.disabled = true; shareBtn.textContent = 'PDF wird erstellt …';
+      try{
+        const file = await fsTzPdf(win, a);
+        const nav = win.navigator;
+        if(nav.canShare && nav.canShare({files: [file]})){
+          readyFile = file;
+          shareBtn.innerHTML = fsIconHtml('share') + ' PDF teilen';
+        }else{
+          await shareFile(file);
+          shareBtn.innerHTML = old;
+        }
+      }catch(err){
+        try{ win.console.warn('PDF fehlgeschlagen', err && err.message ? err.message : err); }catch(e2){}
+        shareTextFallback();
+        shareBtn.innerHTML = old;
+      }finally{
+        shareBtn.disabled = false;
       }
     };
   }
@@ -3955,7 +4035,7 @@ function printTourenzettel(agendaId){
     win.document.head.appendChild(css);
     return (leafletP = scriptIn('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'));
   };
-  const baseLayer = map=> win.L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {maxZoom:18, attribution:'© swisstopo'}).addTo(map);
+  const baseLayer = map=> win.L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {maxZoom:18, attribution:'© swisstopo', crossOrigin: true}).addTo(map); // crossOrigin: fürs PDF (Bild darf ins Canvas)
 
   // Mit Netz: echte Karte statt Skizze; ohne Netz (oder wenn sie nicht lädt) bleibt die Skizze
   if(hasMap && navigator.onLine !== false){
