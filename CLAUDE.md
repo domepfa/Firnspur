@@ -241,6 +241,8 @@ aus anderen Apps übernehmen.
 - Termin-Ansicht «Lage am Tourtag» (`loadAgendaLage`, oben im Reiter Ablauf): je Gipfel des Termins (`fsAgendaLageItems`: erste und weitere Touren,
   Tagesplan mit Datum je Tag) Wetter am Gipfel (`fetchTourDayDetail`) und Lawinenstufe mit Problemen aus dem Bulletin für genau diesen Tag
   (`fsSlfForDate`, sonst Ausblick aus `evo`); Unterschiede zum letzten Öffnen als «Geändert seit …» (Gerät `fs-lage-seen`). Nicht bei Wanderungen (Lawinen).
+  Wetter je Höhe (`fsLageLevelPoints`: Start = Parkplatz/Haltestelle/Anfang der Route, Hütte der Tour, Gipfel; `fsWxPointDay` je Punkt auf
+  seiner Höhe, ohne Höhe nimmt Open-Meteo die Geländehöhe; Schnee/Regen getrennt), Nullgrad und Höhenwind einmal darunter.
   Letzter Stand auf dem Gerät (`fs-lage-last`, 30 Tage) wird ohne Netz gezeigt («Ohne Netz – Stand vom …»). Der alte Wetterblock darunter hat nur noch
   «MeteoSchweiz öffnen» und «Für unterwegs speichern» (`weatherSnapshot` im Termin, für alle und den Tourenzettel).
 - Tägliches verschlüsseltes Backup: `.github/workflows/backup.yml`.
