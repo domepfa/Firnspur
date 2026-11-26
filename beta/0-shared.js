@@ -3497,7 +3497,7 @@ function agendaCardHtml(a){
   <div class="card" data-id="${a.id}" style="${dim}">
     <div class="agenda-date-row" data-act="open-agenda" data-id="${a.id}" style="cursor:pointer;">${fsIconHtml('calendar')} ${dateLabel}</div>
     <div class="card-top" data-act="open-agenda" data-id="${a.id}" style="cursor:pointer;">
-      <h3>${a.status==='abgesagt' ? (fsIconHtml('x', '#B42318') + ' ') : ''}${esc(a.tourName || 'Termin')}</h3>
+      <h3>${a.status==='abgesagt' ? (fsIconHtml('x', '#B42318') + ' ') : ''}${esc(fsAgendaTitle(a) || 'Termin')}</h3>
       <span class="badge" style="background:${agendaTypeColor(a.type)}">${agendaTypeLabel(a.type)}</span>
     </div>
     ${a.meetingPoint ? `<div class="stat-row"><span>${fsIconHtml('pin')} ${esc(a.meetingPoint)}</span></div>` : ''}
@@ -3597,7 +3597,7 @@ function agendaDetailHtml(id){
         <div class="detail-badge-row">
           <span class="badge" style="background:${agendaTypeColor(a.type)}">${agendaTypeLabel(a.type)}</span>
         </div>
-        <h2>${esc(a.tourName || 'Termin')}</h2>
+        <h2>${esc(fsAgendaTitle(a) || 'Termin')}</h2>
       </div>
       <button class="x-btn" data-act="close-modal">×</button>
     </div>
@@ -3700,6 +3700,7 @@ function printTourenzettel(agendaId){
     if(a.anreiseType) ablaufItems.push({label:'Anreise', text:(a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' – '+a.anreiseOrt : '')});
     if(chosenAccess) ablaufItems.push({label:'Zustieg', text:chosenAccess.name||''});
     ablaufItems.push({label:typeLabel, text:a.tourName || 'Tour'});
+    (a.extraTours || []).forEach((x, i)=> ablaufItems.push({label: (i ? (i + 2) + '. ' : '2. ') + 'Tour', text: x.tourName}));
     if(chosenDescent) ablaufItems.push({label:'Abstieg', text:chosenDescent.name||''});
     if(a.endOption) ablaufItems.push({label:'Nach der Tour', text:(a.endOption==='huette'?'Hütte':'Heimweg') + (a.endNote ? ' – '+a.endNote : '')});
     if(a.etappen && a.etappen.length){
@@ -3795,7 +3796,7 @@ function printTourenzettel(agendaId){
   const wxLoc = target ? {lat: parseFloat(target.lat), lon: parseFloat(target.lon), label: target.label || (tour && tour.name) || ''} : resolveAgendaWeatherLocation(a);
   const elev = tour && parseInt(tour.targetAltitude, 10) > 0 ? parseInt(tour.targetAltitude, 10) : null;
 
-  const shareTextLines = [a.tourName || 'Tour', dateLabel];
+  const shareTextLines = [fsAgendaTitle(a) || 'Tour', dateLabel];
   if(leader) shareTextLines.push('Leitung: ' + leader);
   ablaufItems.forEach(it=> shareTextLines.push(`${it.label}: ${it.text}`));
   if(brief.planB) shareTextLines.push('Plan B: ' + brief.planB);
@@ -3808,7 +3809,7 @@ function printTourenzettel(agendaId){
   const participants = a.participants || [];
   const phoneOf = name=> fsAgendaPhone(a, name);
 
-  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tourenzettel – ${escHtml(a.tourName||'Termin')}</title>
+  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tourenzettel – ${escHtml(fsAgendaTitle(a)||'Termin')}</title>
 <link rel="stylesheet" href="${escHtml(fsFontsCssUrl())}">
 <style>
   body{margin:0;background:#F3F6F8;color:#0F1E27;font-family:'Manrope',system-ui,sans-serif;}
@@ -3864,7 +3865,7 @@ function printTourenzettel(agendaId){
 </head><body>
 <div class="wrap">
   <div class="eyebrow">Tourenzettel · ${escHtml(typeLabel)}</div>
-  <h1 class="serif">${escHtml(a.tourName || 'Termin')}</h1>
+  <h1 class="serif">${escHtml(fsAgendaTitle(a) || 'Termin')}</h1>
   ${tour && tour.routeName ? `<div class="serif routename">${escHtml(tour.routeName)}</div>` : ''}
   <div class="badges">${badges.map(b=>`<span class="badge">${escHtml(b)}</span>`).join('')}</div>
 
@@ -4626,6 +4627,8 @@ function applyAgendaEditPrefill(agendaForm, a){
   }
   const endNoteInput = agendaForm.querySelector('#end-note-input');
   if(endNoteInput && a.endNote) endNoteInput.value = a.endNote;
+  const xb = agendaForm.querySelector('#agenda-extra-tours');
+  if(xb){ xb._wired = false; xb.querySelector('.agenda-extra-list').innerHTML = ''; wireAgendaExtraTours(agendaForm, a.extraTours || []); }
 }
 // Ohne editId: leeres Formular für einen neuen Termin (bisheriges Verhalten). Mit editId: dasselbe
 // Formular, aber mit den Werten des bestehenden Termins vorbelegt (Titel/Button-Beschriftung
@@ -4723,6 +4726,11 @@ function filterAgendaTourSelectsByType(agendaForm){
       syncAgendaDaySegmentRouteFields(sel.closest('.agenda-day-segment'));
     });
   }else{
+    agendaForm.querySelectorAll('.agenda-extra-sel').forEach(es=>{
+      const cur = es.value, ok = agendaTourChoiceMatchesType(cur, type);
+      es.innerHTML = customOpt(ok ? '' : 'custom') + agendaTourOptionsHtml(type, ok ? cur : '');
+      if(!ok){ es.value = 'custom'; const n = es.closest('.agenda-extra-row').querySelector('.agenda-extra-name'); if(n) n.hidden = false; }
+    });
     const sel = agendaForm.querySelector('#agenda-tour-select');
     if(!sel) return;
     const current = sel.value;
@@ -4740,6 +4748,46 @@ function filterAgendaTourSelectsByType(agendaForm){
 // Die klassischen Felder für einen eintägigen Termin – unverändert gegenüber vorher, nur aus der
 // Formular-Vorlage herausgelöst, damit sie bei einem Mehrtages-Datum (siehe unten) durch den
 // strukturierten Tagesplan ersetzt werden können, ohne das Formular selbst neu zu bauen.
+// Eintägiger Termin mit mehreren Touren (Rundtour über zwei Gipfel): Feld extraTours [{tourRef, tourName}]
+function fsAgendaTitle(a){
+  const names = [a.tourName].concat((a.extraTours || []).map(x=> x.tourName)).filter(Boolean);
+  return names.join(' + ');
+}
+function agendaExtraRowHtml(type, x){
+  const val = x && x.tourRef ? x.tourRef.source + ':' + x.tourRef.id : 'custom';
+  return `<div class="agenda-extra-row">
+    <div class="agenda-extra-top"><select class="agenda-extra-sel" aria-label="Weitere Tour"><option value="custom">– Neuer Vorschlag (Freitext) –</option>${agendaTourOptionsHtml(type, val)}</select>
+    <button type="button" class="fs-icon-btn agenda-extra-del" aria-label="Diese Tour entfernen">${fsIconHtml('trash')}</button></div>
+    <input type="text" class="agenda-extra-name" placeholder="z. B. Grosses Lobhorn" value="${esc(val === 'custom' && x ? (x.tourName || '') : '')}" ${val === 'custom' ? '' : 'hidden'}/>
+  </div>`;
+}
+function wireAgendaExtraTours(agendaForm, list){
+  const box = agendaForm.querySelector('#agenda-extra-tours'); if(!box || box._wired) return;
+  box._wired = true;
+  const type = ()=>{ const t = agendaForm.querySelector('select[name="type"]'); return t ? t.value : 'ski'; };
+  const lst = box.querySelector('.agenda-extra-list');
+  (list || []).forEach(x=> lst.insertAdjacentHTML('beforeend', agendaExtraRowHtml(type(), x)));
+  // Gewählte Tour, die hier nicht (mehr) in der Liste ist: Freitext mit ihrem Namen
+  lst.querySelectorAll('.agenda-extra-row').forEach((row, i)=>{
+    const sel = row.querySelector('select'), x = (list || [])[i];
+    if(x && x.tourRef && sel.value === 'custom'){ const n = row.querySelector('.agenda-extra-name'); n.hidden = false; n.value = x.tourName || ''; }
+  });
+  box.querySelector('.agenda-extra-add').addEventListener('click', ()=>{ lst.insertAdjacentHTML('beforeend', agendaExtraRowHtml(type(), null)); markModalDirty(); });
+  lst.addEventListener('change', e=>{ if(e.target.classList.contains('agenda-extra-sel')){ const n = e.target.closest('.agenda-extra-row').querySelector('.agenda-extra-name'); n.hidden = e.target.value !== 'custom'; } markModalDirty(); });
+  lst.addEventListener('click', e=>{ const d = e.target.closest('.agenda-extra-del'); if(d){ d.closest('.agenda-extra-row').remove(); markModalDirty(); } });
+}
+function collectAgendaExtraTours(){
+  return Array.from(document.querySelectorAll('#agenda-extra-tours .agenda-extra-row')).map(row=>{
+    const v = row.querySelector('select').value;
+    if(v && v !== 'custom'){
+      const [src, refId] = v.split(':');
+      const ref = (src === 'own' ? state.tours : state.otherAppTours).find(t=> t.id === refId);
+      if(ref) return {tourRef: {source: src, id: refId}, tourName: ref.name};
+    }
+    const n = row.querySelector('.agenda-extra-name').value.trim();
+    return n ? {tourRef: null, tourName: n} : null;
+  }).filter(Boolean);
+}
 function agendaSingleDayFieldsHtml(currentType){
   const type = currentType || 'ski';
   return `
@@ -4756,6 +4804,8 @@ function agendaSingleDayFieldsHtml(currentType){
       <label style="margin-top:10px; display:block;">Abstieg</label>
       <select name="descentRouteId" id="agenda-descent-route-select"><option value="">– nicht festgelegt –</option></select>
     </div>
+    <div class="field agenda-extra" id="agenda-extra-tours"><div class="agenda-extra-list"></div>
+      <button type="button" class="btn secondary agenda-extra-add">+ Weitere Tour (z. B. zweiter Gipfel)</button></div>
     <div class="field">
       <label>Anreise</label>
       <div class="chips">
@@ -4994,6 +5044,7 @@ function syncAgendaDayPlanMode(agendaForm){
 // Verdrahtet die klassischen Einzeltag-Felder – identisch zum bisherigen Verhalten, nur hierher
 // verschoben, weil sie jetzt bei jedem Moduswechsel neu ins DOM eingefügt werden.
 function wireAgendaSingleDayFieldHandlers(agendaForm){
+  wireAgendaExtraTours(agendaForm, []);
   const tourSelect = agendaForm.querySelector('#agenda-tour-select');
   const customField = agendaForm.querySelector('#agenda-custom-field');
   const routeFieldsWrap = agendaForm.querySelector('#agenda-route-fields');
@@ -5149,7 +5200,7 @@ async function submitAgendaForm(form){
   let accessRouteId = '', descentRouteId = '';
   let anreiseType = '', anreiseOrt = '';
   let endOption = '', endNote = '';
-  let days = null;
+  let days = null, extraTours = [];
   if(isMultiDay){
     days = form.days;
     const firstNamedSeg = days.flatMap(d=>d.segments).find(s=> s.tourName);
@@ -5174,6 +5225,8 @@ async function submitAgendaForm(form){
     accessRouteId = form.accessRouteId||''; descentRouteId = form.descentRouteId||'';
     anreiseType = form.anreiseType||''; anreiseOrt = form.anreiseOrt||'';
     endOption = form.endOption||''; endNote = form.endNote||'';
+    extraTours = collectAgendaExtraTours();
+    if(!tourName && extraTours.length){ const f = extraTours.shift(); tourName = f.tourName; tourRef = f.tourRef; }
   }
   if(!tourName){ showFormError('agenda-form', isMultiDay ? 'Bitte für mindestens einen Tag eine Tour auswählen oder einen Vorschlag eintragen.' : 'Bitte eine Tour auswählen oder einen Vorschlag eintragen.'); return; }
 
@@ -5192,7 +5245,7 @@ async function submitAgendaForm(form){
   const editableFields = {
     type: form.type||'ski', startDate, endDate: form.endDate||'',
     tourName, tourRef, meetingPoint: form.meetingPoint||'', note: form.note||'',
-    days,
+    days, extraTours,
     accessRouteId, descentRouteId,
     anreiseType, anreiseOrt,
     endOption, endNote,
@@ -24347,6 +24400,7 @@ function briefingSuggestedAblauf(a){
   rows.push({t:'', label:'Start' + (a.tourName ? ' ' + a.tourName : ''), kind:'start'});
   rows.push({t:'', label:'Entscheidungspunkt (Schlüsselstelle, Verhältnisse prüfen)', kind:'entscheid'});
   rows.push({t:'', label: a.tourName ? 'Gipfel / Ziel ' + a.tourName : 'Gipfel / Ziel', kind:'gipfel'});
+  (a.days && a.days.length ? [] : (a.extraTours || [])).forEach(x=> rows.push({t:'', label:'Gipfel / Ziel ' + x.tourName, kind:'gipfel'}));
   rows.push({t:'', label:'Umkehrzeit – spätestens jetzt zurück, egal wo', kind:'umkehr'});
   const rt = (a.plannedReturnTime||'').match(/(\d{1,2}[:.]\d{2})/);
   rows.push({t: rt ? rt[1].replace('.',':') : '', label:'Zurück', kind:'ende'});

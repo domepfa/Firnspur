@@ -3569,3 +3569,11 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .fs-share .btn{ min-height:64px; display:grid; grid-template-columns:24px 1fr; column-gap:10px; align-items:center; text-align:left; justify-content:stretch; padding:10px 14px; }
 .fs-share .btn .fs-i{ grid-row:span 2; }
 .fs-share .btn small{ grid-column:2; font-size:12.5px; font-weight:600; opacity:.85; }
+
+/* ===== Termin: weitere Touren am selben Tag ===== */
+.agenda-extra-list{ display:flex; flex-direction:column; gap:8px; }
+.agenda-extra-list:not(:empty){ margin-bottom:10px; }
+.agenda-extra-row{ display:flex; flex-direction:column; gap:6px; }
+.agenda-extra-top{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; }
+.agenda-extra-top select{ min-width:0; }
+.agenda-extra-add{ width:100%; }
