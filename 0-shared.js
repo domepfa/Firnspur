@@ -4225,6 +4225,48 @@ async function fsSlfForDate(lat, lon, dateStr){
 function fsLageLvlHtml(level, sub, color){
   return `<span class="fs-lage-lvl" style="--c:${color}">${level}${sub === 'plus' ? '+' : sub === 'minus' ? '−' : sub === 'neutral' ? '=' : ''}</span>`;
 }
+// Wetter eines Tages an einem Punkt auf seiner Höhe (Open-Meteo rechnet auf die Höhe um; ohne Höhe nimmt es die Geländehöhe)
+async function fsWxPointDay(lat, lon, dateStr, elev){
+  const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(4) + '&longitude=' + lon.toFixed(4)
+    + '&daily=weathercode,temperature_2m_max,temperature_2m_min,snowfall_sum,rain_sum,precipitation_sum,windspeed_10m_max,windgusts_10m_max'
+    + '&timezone=Europe%2FZurich&start_date=' + dateStr + '&end_date=' + dateStr + (elev ? '&elevation=' + elev : '');
+  for(let i = 0; i < 2; i++){
+    try{
+      const res = await fetch(url); if(!res.ok) throw new Error();
+      const d = await res.json(), dd = d.daily || {};
+      if(!dd.time || !dd.time.length) throw new Error();
+      return {code: dd.weathercode[0], tmin: dd.temperature_2m_min[0], tmax: dd.temperature_2m_max[0], snow: dd.snowfall_sum ? dd.snowfall_sum[0] : 0,
+        rain: dd.rain_sum ? dd.rain_sum[0] : 0, prec: dd.precipitation_sum ? dd.precipitation_sum[0] : 0, wind: dd.windspeed_10m_max[0], gust: dd.windgusts_10m_max ? dd.windgusts_10m_max[0] : null,
+        elev: Math.round(elev || d.elevation || 0)};
+    }catch(e){ await new Promise(ok=> setTimeout(ok, 1000)); }
+  }
+  return null;
+}
+// Start (Parkplatz, Haltestelle, sonst erster Punkt/Anfang der Route), Hütte der Tour, Gipfel
+function fsLageLevelPoints(t, summit){
+  const out = [], pts = (t.points || []).filter(p=> p && isFinite(parseFloat(p.lat)) && isFinite(parseFloat(p.lon)));
+  let st = pts.find(p=> p.category === 'parkplatz') || pts.find(p=> p.category === 'haltestelle');
+  if(!st){ const r = fsTourRoutes(t)[0], c = r && r.coords && r.coords[0]; if(c) st = Array.isArray(c) ? {lat: c[0], lon: c[1]} : c; }
+  if(!st) st = pts.find(p=> p.category !== 'gipfel');
+  if(st) out.push({label: 'Start', lat: +st.lat, lon: +(st.lon != null ? st.lon : st.lng), elev: null});
+  const hut = t.hutId && (state.huts || []).find(h=> h && h.id === t.hutId);
+  const hp = hut && (hut.points || []).find(p=> p && isFinite(parseFloat(p.lat)) && isFinite(parseFloat(p.lon)));
+  if(hp) out.push({label: hut.name || 'Hütte', lat: +hp.lat, lon: +hp.lon, elev: parseInt(hut.altitude, 10) > 0 ? parseInt(hut.altitude, 10) : null});
+  out.push({label: 'Gipfel', lat: summit.lat, lon: summit.lon, elev: parseInt(t.targetAltitude, 10) > 0 ? parseInt(t.targetAltitude, 10) : null});
+  // Punkte, die fast am selben Ort liegen, nur einmal
+  return out.filter((p, i)=> !out.slice(0, i).some(q=> Math.abs(q.lat - p.lat) < 0.003 && Math.abs(q.lon - p.lon) < 0.004));
+}
+function fsLageLevelsHtml(lv, wx){
+  const rows = lv.filter(x=> x.wx).map(x=>{
+    const w = x.wx, info = weatherCodeInfo(w.code);
+    const prec = w.snow >= 0.5 ? 'Schnee ' + Math.round(w.snow) + ' cm' + (w.rain >= 0.5 ? ', Regen ' + Math.round(w.rain) + ' mm' : '') : w.rain >= 0.5 ? 'Regen ' + Math.round(w.rain) + ' mm' : 'trocken';
+    return `<div class="fs-lage-lv">${fsIco(info.icon)}<div class="fs-lage-lv-l"><b>${esc(x.label)}</b><small>${w.elev ? w.elev + ' m' : ''}</small></div>
+      <div class="fs-lage-lv-v"><b>${Math.round(w.tmin)}° / ${Math.round(w.tmax)}°</b><small>${esc(prec)} · ${fsIconHtml('wind')} ${Math.round(w.wind)}${w.gust ? '–' + Math.round(w.gust) : ''} km/h</small></div></div>`;
+  });
+  if(!rows.length) return '';
+  const extra = wx && wx.status === 'ok' ? [wx.freezing ? 'Nullgrad ' + wx.freezing : '', wx.windHigh != null ? 'Wind auf ~3000 m ' + Math.round(wx.windHigh) + ' km/h' : ''].filter(Boolean).join(' · ') : '';
+  return `<div class="fs-lage-lvs">${rows.join('')}</div>${extra ? `<p class="fs-lage-na">${esc(extra)}</p>` : ''}`;
+}
 async function loadAgendaLage(agendaId){
   const a = state.agenda.find(x=> x.id === agendaId);
   const el = document.getElementById('agenda-lage-' + agendaId);
@@ -4247,11 +4289,12 @@ async function loadAgendaLage(agendaId){
       fetchTourDayDetail(it.lat, it.lon, it.date, elev).then(w=> w && w.status === 'error' ? new Promise(ok=> setTimeout(ok, 1200)).then(()=> fetchTourDayDetail(it.lat, it.lon, it.date, elev)) : w).catch(()=> ({status: 'error'})),
       winter ? fsSlfForDate(it.lat, it.lon, it.date).catch(()=> null) : Promise.resolve(null)
     ]);
-    return Object.assign({}, it, {wx, slf});
+    const lv = await Promise.all(fsLageLevelPoints(it.t, {lat: it.lat, lon: it.lon}).map(async p=> Object.assign(p, {wx: await fsWxPointDay(p.lat, p.lon, it.date, p.elev)})));
+    return Object.assign({}, it, {wx, slf, lv});
   }));
   if(el !== document.getElementById('agenda-lage-' + agendaId)) return;
   // Nichts geladen (Netz weg trotz «online»): letzten Stand zeigen
-  if(last && res.every(r=> !(r.wx && r.wx.status === 'ok') && !(r.slf))){ showLast(); return; }
+  if(last && res.every(r=> !(r.wx && r.wx.status === 'ok') && !(r.slf) && !(r.lv || []).some(x=> x.wx))){ showLast(); return; }
   // Vergleich mit dem letzten Öffnen
   let seenAll = {}; try{ seenAll = JSON.parse(localStorage.getItem('fs-lage-seen') || '{}'); }catch(e){}
   const prev = seenAll[agendaId] || null, now = {at: Date.now(), items: {}};
@@ -4278,8 +4321,9 @@ async function loadAgendaLage(agendaId){
       else if(r.slf && r.slf.outlook){ const ol = r.slf.outlook, inf = Object.values(SLF_DANGER_LEVELS).find(x=> x.level === ol.level); lawHtml = `<div class="fs-lage-row">${fsLageLvlHtml(ol.level, ol.sub, inf ? inf.color : '#ccc')}<div><b>Ausblick</b> laut SLF<br><small>Das Bulletin für diesen Tag ist noch nicht erschienen.</small></div></div>`; }
       else if(r.slf) lawHtml = `<p class="fs-lage-na">Bulletin für diesen Tag noch nicht erschienen.</p>`;
     }
-    let wxHtml = '';
-    if(wxOk){ const info = weatherCodeInfo(r.wx.weathercode); wxHtml = `<div class="fs-lage-row">${fsIco(info.icon)}<div><b>${esc(info.label)}</b> · ${Math.round(r.wx.tempMin)}° / ${Math.round(r.wx.tempMax)}°${r.wx.elevation ? ' auf ' + r.wx.elevation + ' m' : ''}<br><small>${fsIconHtml('drop')} ${r.wx.precipitation} mm · ${fsIconHtml('wind')} ${Math.round(r.wx.windMax)} km/h${r.wx.windHigh != null ? ', auf ~3000 m ' + Math.round(r.wx.windHigh) : ''}${r.wx.freezing ? ' · Nullgrad ' + esc(r.wx.freezing) : ''}</small></div></div>`; }
+    let wxHtml = r.lv && r.lv.some(x=> x.wx) ? fsLageLevelsHtml(r.lv, r.wx) : '';
+    if(wxHtml){}
+    else if(wxOk){ const info = weatherCodeInfo(r.wx.weathercode); wxHtml = `<div class="fs-lage-row">${fsIco(info.icon)}<div><b>${esc(info.label)}</b> · ${Math.round(r.wx.tempMin)}° / ${Math.round(r.wx.tempMax)}°${r.wx.elevation ? ' auf ' + r.wx.elevation + ' m' : ''}<br><small>${fsIconHtml('drop')} ${r.wx.precipitation} mm · ${fsIconHtml('wind')} ${Math.round(r.wx.windMax)} km/h${r.wx.windHigh != null ? ', auf ~3000 m ' + Math.round(r.wx.windHigh) : ''}${r.wx.freezing ? ' · Nullgrad ' + esc(r.wx.freezing) : ''}</small></div></div>`; }
     else if(r.wx && r.wx.status === 'too-far') wxHtml = `<p class="fs-lage-na">Wetter: noch zu weit weg (Prognose bis 16 Tage).</p>`;
     else if(r.wx && r.wx.status === 'error') wxHtml = `<p class="fs-lage-na">Wetter gerade nicht verfügbar.</p>`;
     return `<div class="fs-lage-item">
@@ -4297,7 +4341,7 @@ async function loadAgendaLage(agendaId){
     localStorage.setItem('fs-lage-last', JSON.stringify(lastAll));
   }catch(e){}
   el.innerHTML = `<div class="detail-section fs-lage"><h4>${fsIconHtml('mountain')} Lage am Tourtag</h4>${rows.join('')}
-    <p class="fs-lage-src">Wetter am Gipfel: Open-Meteo${winter ? ' · Lawinen: SLF-Bulletin (Region des Gipfels)' : ''} – beim Öffnen neu geladen.</p></div>`;
+    <p class="fs-lage-src">Wetter auf der Höhe von Start und Gipfel: Open-Meteo${winter ? ' · Lawinen: SLF-Bulletin (Region des Gipfels)' : ''} – beim Öffnen neu geladen.</p></div>`;
 }
 /* ===== Lawinenbulletin in der Tour =====
    Das Bulletin der SLF-Region am Ort, mit Gültigkeit, Stufen je Höhe, Problemen (Exposition, Höhe) und

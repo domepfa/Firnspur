@@ -3598,3 +3598,10 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .fs-lage .fs-lage-chg{ margin:0 0 8px; padding:6px 10px; border-radius:10px; background:var(--ice-light); font-size:13.5px; font-weight:700; color:var(--ink); }
 .fs-lage .fs-lage-na, .fs-lage .fs-lage-wait{ margin:0 0 6px; font-size:13.5px; color:var(--ink-soft); }
 .fs-lage .fs-lage-src{ margin:4px 0 0; font-size:12px; color:var(--ink-faint); }
+.fs-lage .fs-lage-lvs{ display:flex; flex-direction:column; gap:2px; margin:0 0 6px; }
+.fs-lage .fs-lage-lv{ display:grid; grid-template-columns:30px minmax(0, 1fr) auto; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid var(--line-soft); }
+.fs-lage .fs-lage-lv:last-child{ border-bottom:none; }
+.fs-lage .fs-lage-lv > .fs-i{ width:26px; height:26px; }
+.fs-lage .fs-lage-lv-l, .fs-lage .fs-lage-lv-v{ display:flex; flex-direction:column; font-size:14px; line-height:1.3; min-width:0; }
+.fs-lage .fs-lage-lv-v{ text-align:right; }
+.fs-lage .fs-lage-lv small{ color:var(--ink-soft); font-size:12.5px; }
