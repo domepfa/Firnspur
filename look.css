@@ -3162,6 +3162,7 @@ html.fs-mapmode #fs-ov-chips:not([hidden]){ display:flex; gap:8px; position:fixe
 .fs-ov-chip .fs-i:last-child{ color:var(--ink-faint); }
 html.fs-wide.fs-mapmode #fs-ov-chips:not([hidden]){ top:16px; left:calc(var(--fs-col) + 16px); right:84px; max-width:none; } /* auf der Karte, nicht über den Reitern */
 html:is(.fs-mapfull, .fs-scanning) #fs-ov-chips{ display:none !important; }
+html:has(.fs-tb-menu .who-menu[open]) #fs-ov-chips{ display:none !important; } /* Menü offen: Ebenen-Leiste verdeckte «Agenda» */
 
 /* ===== Webcams offen in der Tour (eigene Touren) ===== */
 .fs-tcams{ display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x mandatory; margin:4px -18px 0; padding:2px 18px 4px; scrollbar-width:none; }
