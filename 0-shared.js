@@ -11489,8 +11489,24 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     reverseBtn.type = 'button'; reverseBtn.className = 'btn secondary'; reverseBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
     reverseBtn.textContent = '⇅ Umkehren';
     reverseBtn.addEventListener('click', ()=> drawReverse());
-    var drawToolsSync = ()=>{ const n = (typeof manualTrack !== 'undefined' && manualTrack) ? manualTrack.length : 0; gpsStartBtn.style.display = n ? 'none' : ''; reverseBtn.style.display = n > 1 ? '' : 'none'; };
+    // Bestehende Linie bearbeiten: Tippen setzt keinen Punkt ans Ende (man wollte meist nur einen Punkt fassen); «Weiterzeichnen» schaltet das ein
+    const appendBtn = document.createElement('button');
+    appendBtn.type = 'button'; appendBtn.className = 'btn secondary fs-draw-append'; appendBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    appendBtn.addEventListener('click', ()=>{ drawAppend = !drawAppend; drawToolsSync(); showToast(drawAppend ? 'Tippen verlängert jetzt die Linie.' : 'Weiterzeichnen aus – Tippen setzt keine Punkte.'); });
+    var drawToolsSync = ()=>{
+      const n = (typeof manualTrack !== 'undefined' && manualTrack) ? manualTrack.length : 0;
+      if(n < 2) drawAppend = true;
+      gpsStartBtn.style.display = n ? 'none' : ''; reverseBtn.style.display = n > 1 ? '' : 'none';
+      appendBtn.style.display = n > 1 && !usingGpxTrack ? '' : 'none';
+      appendBtn.classList.toggle('on', !!drawAppend); appendBtn.setAttribute('aria-pressed', !!drawAppend);
+      appendBtn.innerHTML = fsIconHtml('plus') + (drawAppend ? ' Weiterzeichnen: an' : ' Weiterzeichnen');
+      const hint = connectRow.querySelector('.fs-draw-hint');
+      if(hint) hint.textContent = drawFollowPend ? 'Jetzt die Stelle auf «' + drawFollowPend.L.label + '» antippen, bis zu der die Linie folgen soll.'
+        : (drawAppend ? 'Tippen: nächster Punkt · Linie antippen: Zwischenpunkt oder Art ändern' : 'Punkte ziehen zum Verschieben · Linie antippen: Zwischenpunkt oder Art ändern · «Weiterzeichnen» zum Verlängern');
+    };
+    var drawAppend = true, drawFollowPend = null;
     lineActionsRow.appendChild(gpsStartBtn);
+    lineActionsRow.appendChild(appendBtn);
     lineActionsRow.appendChild(reverseBtn);
     lineActionsRow.appendChild(undoBtn);
     lineActionsRow.appendChild(clearLineBtn);
@@ -11971,6 +11987,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         if(j > 0) wrap.appendChild(gpxBtn('Vom Anfang dieser Route bis hier übernehmen', 'secondary', ()=>{ manualTrack = []; drawSegs = []; take(L.coords.slice(0, j + 1), 'Anfang übernommen – jetzt weiterzeichnen.'); }));
         if(j < L.coords.length - 1) wrap.appendChild(gpxBtn('Vom Ende dieser Route bis hier übernehmen', 'secondary', ()=>{ manualTrack = []; drawSegs = []; take(L.coords.slice(j).reverse(), 'Übernommen – jetzt weiterzeichnen.'); }));
       }else{
+        // Weiche: der anderen Route nur ein Stück folgen – danach die Stelle antippen, bis zu der es gehen soll
+        wrap.appendChild(gpxBtn('Ab hier folgen bis …', '', ()=>{ map.closePopup(); drawFollowPend = {L, j}; drawToolsSync(); showToast('Jetzt antippen, bis wohin der Route gefolgt wird.'); }));
         if(j < L.coords.length - 1) wrap.appendChild(gpxBtn('Ab hier folgen bis zum Ende', 'secondary', ()=> take(L.coords.slice(j), 'Der Route bis zum Ende gefolgt.')));
         if(j > 0) wrap.appendChild(gpxBtn('Ab hier folgen bis zum Anfang', 'secondary', ()=> take(L.coords.slice(0, j + 1).reverse(), 'Der Route bis zum Anfang gefolgt.')));
       }
@@ -12191,12 +12209,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         marker.on('click', menu);
         marker.on('contextmenu', menu);
       });
-      drawSegs.forEach((sg, k)=>{
-        const c = sg.coords, mid = c.length > 2 ? c[Math.floor(c.length / 2)] : [(c[0][0] + c[1][0]) / 2, (c[0][1] + c[1][1]) / 2];
-        const m = FL.marker(mid, {icon: FL.divIcon({className: 'gpx-edit-vertex-icon', html: '<div class="fs-draw-mid" title="Ziehen: Zwischenpunkt"><i></i></div>', iconSize: [40,40], iconAnchor: [20,20]}), draggable: true}).addTo(lineLayer);
-        m.on('dragstart', ()=>{ pushUndo(); const el = m.getElement(); if(el) el.classList.add('fs-gpx-drag'); });
-        m.on('dragend', ()=> drawSplit(k, m.getLatLng()));
-      });
+      // Kein ziehbarer Kreis mehr in der Mitte (wurde mit einem Punkt verwechselt und setzte beim Ziehen einen neuen):
+      // Zwischenpunkt über «Linie antippen → Hier Zwischenpunkt setzen» (drawSegMenu)
     }
     /* ===== Bereiche meiden/bevorzugen =====
        Mit einem Finger eine Fläche umfahren (Pinsel Meiden/Bevorzugen), antippen: Notiz oder löschen. Gespeichert in der Tour
@@ -12509,6 +12523,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       // Zeigt/versteckt die ziehbaren Punkte des eigenen GPX-Tracks je nach Modus (siehe redrawLine).
       if(typeof redrawLine === 'function') redrawLine();
     }
+    drawAppend = manualTrack.length < 2; // bestehende Linie: erst auf «Weiterzeichnen» verlängern
     setMode(mode); // Zustieg startet in «Linie», sonst «Punkt»
     drawToolsSync();
     if(edNext.gpx && gpxTrack){ enterGpxEdit(); updateGpxReplaceBtn(); redrawLine(); renderRouteMeta(); } // Stift am GPX-Track: gleich diesen bearbeiten
@@ -12670,10 +12685,29 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       updateRoutePanelState();
     });
 
+    // Weiche: zweiter Tipp auf derselben Route = bis dorthin folgen
+    function drawFollowTo(lat, lon){
+      const pd = drawFollowPend; drawFollowPend = null;
+      let z = 14; try{ z = map.getZoom(); }catch(e){}
+      const tol = 40 * 156543 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z);
+      let j2 = -1, best = Infinity;
+      pd.L.coords.forEach((q, i)=>{ const d = fsGeoDist(lat, lon, q[0], q[1]); if(d < best){ best = d; j2 = i; } });
+      if(best > tol || j2 === pd.j){ drawToolsSync(); showToast('Nicht auf derselben Route getippt – nichts angehängt.', true); return; }
+      const part = j2 > pd.j ? pd.L.coords.slice(pd.j, j2 + 1) : pd.L.coords.slice(j2, pd.j + 1).reverse();
+      pushUndo(); drawSync();
+      if(!manualTrack.length) manualTrack = [part[0]];
+      drawSegs.push({mode: 'folgen', label: pd.L.label, coords: part});
+      manualTrack = drawJoin(drawSegs);
+      if(manualTrackHidden) manualTrackHidden._drawSegs = drawSegs;
+      gpxTrackChanged();
+      drawToolsSync();
+      showToast('Der Route ' + fsLineKm(part).toFixed(1) + ' km gefolgt – jetzt weiterzeichnen.');
+    }
     function addLineAt(lat, lon){
       // Beim Bearbeiten des GPX-Tracks nie Punkte anhängen
       if(usingGpxTrack){ showToast('Zuerst «GPX-Track fertig bearbeitet», dann eine neue Linie zeichnen.', true); return; }
       if(drawBusy){ showToast('Einen Moment – der letzte Abschnitt wird noch gerechnet.'); return; }
+      if(drawFollowPend){ drawFollowTo(lat, lon); return; }
       const snap = drawSnapFind(lat, lon);
       if(snap){ lat = snap.L.coords[snap.j][0]; lon = snap.L.coords[snap.j][1]; }
       if(snap) setTimeout(()=> drawFollowAsk(snap, !manualTrack.length), drawConnect === 'gerade' || !manualTrack.length ? 50 : 50);
@@ -12802,6 +12836,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(mode === 'area') return; // Bereiche: eigene Gesten (drawAreas*)
       if(await offerLayerRoute(e)) return;
       if(mode==='line'){
+        if(!drawAppend && !drawFollowPend && !usingGpxTrack && manualTrack.length > 1){ showToast('Zum Verlängern zuerst «Weiterzeichnen» antippen.'); return; }
         addLineAt(e.latlng.lat, e.latlng.lng);
       }else if(mode==='route'){
         pushUndo();

@@ -113,10 +113,11 @@ aus anderen Apps übernehmen.
   zur Orientierung und zum Einrasten sichtbar.
   Karten-Editor: Reiter «Zeichnen» und «Punkte» (Route ist in Zeichnen aufgegangen). Zeichnen verbindet je Abschnitt als Skispur
   (`fsSkiRoute`), Wanderweg (`fetchCalculatedRoute`) oder Gerade («Verbinden als», `drawConnect`, Gerät `fs-draw-connect`); Abschnitte
-  `drawSegs` (Sitzung, am Formularfeld `_drawSegs`; eine geladene lange Linie bekommt wenige Anker, dazwischen Art `fest`, `drawSegsFromLine`), Ziehpunkte nur an Ankern, Kreis in der Mitte ziehen = Zwischenpunkt (`drawSplit`); Abschnitt antippen = nur diesen anders verbinden (`drawSegMenu`),
+  `drawSegs` (Sitzung, am Formularfeld `_drawSegs`; eine geladene lange Linie bekommt wenige Anker, dazwischen Art `fest`, `drawSegsFromLine`), Ziehpunkte nur an Ankern (kein ziehbarer Kreis in der Mitte mehr); Abschnitt antippen = nur diesen anders verbinden oder «Hier Zwischenpunkt setzen» (`drawSegMenu`/`drawSplit`);
+  bestehende Linie: Tippen hängt nichts an, erst «Weiterzeichnen» (`drawAppend`, Knopf `fs-draw-append`),
   Aussehen je Art `FS_DRAW_STYLE` (Skispur durchgezogen, Wanderweg gepunktet grün, Gerade gestrichelt, übernommen violett).
   Route anhängen: Tipp nahe einer vorhandenen Route rastet ein (`drawSnapFind`: weitere Routen, Zustiege, GPX, andere Touren
-  bis 25 km), dann «Ab hier folgen bis zum Ende/Anfang» bzw. beim ersten Punkt «Vom Anfang/Ende bis hier übernehmen» (Art `folgen`).
+  bis 25 km), dann «Ab hier folgen bis …» (Weiche: nächster Tipp auf derselben Route = Ende des Stücks, `drawFollowPend`/`drawFollowTo`) oder «… bis zum Ende/Anfang» bzw. beim ersten Punkt «Vom Anfang/Ende bis hier übernehmen» (Art `folgen`).
   Reiter «Bereiche» (nur Tourformular): mit einem Finger eine Fläche umfahren, Pinsel Meiden/Bevorzugen/Radieren, antippen = Notiz
   oder löschen; Feld `routeAreas` [{id, kind: avoid|prefer, poly, note}] der Tour, sichtbar nur im Editor (blass, im Reiter kräftig),
   nicht auf der Tour-Karte. Die Skispur-Rechnung gewichtet je Rasterzelle (`fsAreaMul`: meiden ×12, bevorzugen ×0.55);
