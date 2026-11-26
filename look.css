@@ -3652,3 +3652,16 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .agenda-mr-btns .fs-icon-btn{ width:40px; height:40px; font-size:17px; font-weight:800; }
 .agenda-mr-btns .fs-icon-btn.on{ background:var(--ice-light); color:var(--ice-deep); }
 .fs-day-prof{ width:100%; height:auto; display:block; margin-top:8px; }
+
+/* ===== Karte bearbeiten: Übersicht ===== */
+.fs-pick-hint{ position:absolute; left:10px; right:10px; bottom:12px; z-index:15; max-width:520px; margin:0 auto; background:var(--paper); border-radius:18px; padding:14px 16px;
+  box-shadow:var(--shadow-lg); text-align:center; font-size:14.5px; line-height:1.5; color:var(--ink-soft); }
+.fs-pick-hint b{ color:var(--ink); }
+.btn.fs-pick-back{ flex:1 1 100%; justify-content:flex-start; min-height:40px; font-size:13.5px !important; border:none; background:var(--ice-light); }
+.fs-here-menu{ display:flex; flex-direction:column; gap:8px; min-width:230px; }
+.fs-here-menu > b{ font-size:15px; }
+.fs-here-menu > .btn{ justify-content:center; min-height:46px; }
+.fs-here-grid{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.fs-here-grid .btn{ min-height:44px; justify-content:center; font-size:13px; padding:6px 8px; }
+.fs-here-grid .btn .fs-i{ width:16px; height:16px; }
+.fs-here-grid .fs-here-wide{ grid-column:span 2; }

@@ -115,6 +115,11 @@ aus anderen Apps übernehmen.
   Entfernen; GPX-Link klein aufklappbar); im Vollbild-Editor oben Name und Art der gerade bearbeiteten Route (`fsEdNext.meta` = Schlüssel, `fsEdMetaRowEl`/`fsRouteMetaSet`) und getrennt «Punkte» («Punkte auf der Karte setzen» öffnet nur den Punkte-Modus,
   `fsEdNext.pointsOnly`). «Route zeichnen» mit Art Abfahrt/Abstieg beginnt am Ende des Aufstiegs; weitere Routen sind im Editor
   zur Orientierung und zum Einrasten sichtbar.
+  «Karte bearbeiten» (Tourformular, Knopf statt «Punkte auf der Karte setzen»; `fsEdNext.pick`, `edPickCtx`): Übersicht mit allen Routen und Punkten,
+  ohne Reiter; Route antippen = bearbeiten (eigene Linie oder GPX direkt, weitere Route über `fsEdSwitchRoute` → `fsRouteEditLine`), «‹ Alle Routen» zurück;
+  gedrückt halten = Blase (`offerHereMenu`): «Neue Route hier starten» (`fsTourDrawRoute(startPt)`), Parkplatz/Haltestelle/Wasser/Biwak/Gipfel/anderer Punkt,
+  «Bereich meiden / lieber»; Punkt antippen = sein Formular. Beim Zeichnen auf eine andere Route: Einrast-Blase mit «Stattdessen … bearbeiten».
+  «Verbinden als»: «Aufstiegsspur» bzw. «Abfahrtslinie» nach der Art oben (`drawRouteTypeKnown`, neu gezeichnet bei Art-Wechsel), sonst «Skispur».
   Karten-Editor: Reiter «Zeichnen», «Punkte», «Bereiche». Zeichnen verbindet je Abschnitt als Skispur
   (`fsSkiRoute`), Wanderweg (`fetchCalculatedRoute`, nicht in der Skitour-App) oder Gerade («Verbinden als», `drawConnect`, Gerät `fs-draw-connect`); Abschnitte
   `drawSegs` (Sitzung, am Formularfeld `_drawSegs`; eine geladene lange Linie bekommt wenige Anker, dazwischen Art `fest`, `drawSegsFromLine`), Ziehpunkte an Ankern, Kreis in der Mitte ziehen = Zwischenpunkt (`drawSplit`); Abschnitt antippen = nur diesen anders verbinden (`drawSegMenu`); Tippen setzt immer den nächsten Punkt,
