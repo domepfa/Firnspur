@@ -236,6 +236,8 @@ aus anderen Apps übernehmen.
   neben `tourName`/`tourRef`; Titel überall über `fsAgendaTitle` («A + B»), auf Tourenzettel und im Ablauf je Tour eine Zeile.
   «Routen auf dem Tourenzettel» im Termin-Formular: alle Routen der Touren des Termins (`fsAgendaRouteList`, Id `<TourId>|<Schlüssel>`), abgewählte in
   `mapRoutesOff`, eigene GPX-Dateien nur für den Termin in `ownRoutes` [{id, name, coords}]; die Karte des Tourenzettels zeigt sie (`fsAgendaMapData`).
+  Im Formular kleine Karte (`agendaMapRoutesMap`, Route antippen = Haken an/ab, abgewählte blass) und Summe der angehakten Routen
+  (`fsAgendaTotals`: km aus der Linie, Hm über `fsrElevation`, gemerkt `fs-agenda-elev`, Zeit SAC-Formel, Skitour nur Aufstieg); auf dem Tourenzettel «Total des Tages».
 - Tägliches verschlüsseltes Backup: `.github/workflows/backup.yml`.
 - Wetter-Wertebilder (Niederschlag mit Art, Neuschnee, Temperatur, Böen, Bewölkung, Modellhöhe) aus MeteoSchweiz
   ICON-CH1: `tools/wetterbilder.py` (Kodierung dort), die App färbt sie ein und liest den Wert fürs Fadenkreuz;
