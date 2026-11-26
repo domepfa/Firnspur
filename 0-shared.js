@@ -3408,38 +3408,18 @@ async function loadAgendaWeather(agendaId){
     const info = weatherCodeInfo(w.weathercode);
     window.__agendaWeatherCache = window.__agendaWeatherCache || {};
     window.__agendaWeatherCache[agendaId] = { icon: info.icon, label: info.label, tempMin: w.tempMin, tempMax: w.tempMax, precipitation: w.precipitation, windMax: w.windMax, locationLabel: loc.label, source: w.source, meteoSwissLink };
-    const tl = agendaWeatherDayLabel(a.startDate);
-    el.innerHTML = `<div class="detail-section">
-      <h4>Wetter am Tourtag${loc.label ? ' – ' + esc(loc.label) : ''}</h4>
-      <p class="aw-when"><b>${esc(tl.wd)} ${esc(tl.dm)}</b>${tl.rel ? ' · ' + esc(tl.rel) : ''}</p>
-      <p style="font-size:15px; margin:0 0 4px 0;">${fsIco(info.icon)} ${esc(info.label)}</p>
-      <p style="font-size:13.5px; color:var(--ink-soft); margin:0;">${Math.round(w.tempMin)}° / ${Math.round(w.tempMax)}° · ${fsIconHtml('drop')} ${w.precipitation} mm · ${fsIconHtml('wind')} ${Math.round(w.windMax)} km/h</p>
-      ${(w.days || []).length > 1 ? `<div class="aw-days">
-        ${(w.days || []).map((day, i)=>{
-          const dInfo = weatherCodeInfo(day.weathercode), dl = agendaWeatherDayLabel(day.date);
-          return `<div class="aw-day${i === 0 ? ' on' : ''}">
-            <div class="aw-day-d">${i === 0 ? 'Tourtag' : esc(dl.wd + ' ' + dl.dm)}</div>
-            <div style="font-size:16px;">${fsIco(dInfo.icon)}</div>
-            <div style="font-size:12px;">${Math.round(day.tempMin)}° / ${Math.round(day.tempMax)}°</div>
-            ${day.precipitation ? `<div style="font-size:12px; color:var(--ink-soft);">${day.precipitation} mm</div>` : ''}
-          </div>`;
-        }).join('')}
-      </div>` : ''}
-      <p style="font-size:12px; color:var(--ink-faint); margin:6px 0 8px 0;">Prognose: ${esc(w.source||'Open-Meteo')} – kann sich noch ändern.</p>
+    // Das Wetter selbst steht oben in «Lage am Tourtag»; hier nur MeteoSchweiz und der Stand für unterwegs (im Termin, für alle)
+    el.innerHTML = `<div class="detail-section fs-aw-short">
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <a href="${esc(meteoSwissLink)}" target="_blank" rel="noopener noreferrer" class="btn secondary">${fsIconHtml('partly')} MeteoSchweiz öffnen</a>
         <button type="button" class="btn secondary" id="save-weather-snapshot-btn-${agendaId}">${fsIconHtml('download')} Für unterwegs speichern</button>
       </div>
+      <p style="font-size:12.5px; color:var(--ink-faint); margin:6px 0 0 0;">Speichert den Wetterstand im Termin – für alle sichtbar, auch ohne Netz und auf dem Tourenzettel.</p>
     </div>`;
     const snapBtn = document.getElementById('save-weather-snapshot-btn-' + agendaId);
     if(snapBtn) snapBtn.onclick = ()=> saveWeatherSnapshot(agendaId);
-  }else if(w.status==='too-far'){
-    const from = new Date(new Date(a.startDate + 'T00:00:00').getTime() - 16 * 86400000).toLocaleDateString('de-CH', {day:'2-digit', month:'2-digit'});
-    el.innerHTML = `<div class="detail-section"><h4>Wetter am Tourtag</h4><p style="font-size:13px; color:var(--ink-faint);">Prognose ab dem ${esc(from)} verfügbar (rund 16 Tage vor der Tour).</p></div>`;
-  }else if(w.status==='past'){
-    el.innerHTML = '';
   }else{
-    el.innerHTML = `<div class="detail-section"><h4>Wetter</h4><p style="font-size:13px; color:var(--ink-faint);">${escL(w.message||'Wetterdaten nicht verfügbar.')}</p></div>`;
+    el.innerHTML = ''; // zu weit weg, vorbei oder ohne Netz: steht in «Lage am Tourtag»
   }
 }
 // Friert die zuletzt geladene Wetterprognose auf dem Agenda-Eintrag ein (Offline-Snapshot) – nützlich,
@@ -4254,6 +4234,12 @@ async function loadAgendaLage(agendaId){
   const live = items.filter(it=> it.date >= today);
   if(!live.length){ el.innerHTML = ''; return; }
   const winter = a.type !== 'wandern';
+  // Zuletzt geladener Stand (Gerät): ohne Netz zeigen, z. B. in der Hütte
+  let lastAll = {}; try{ lastAll = JSON.parse(localStorage.getItem('fs-lage-last') || '{}'); }catch(e){}
+  const last = lastAll[agendaId];
+  const showLast = ()=>{ el.innerHTML = `<div class="detail-section fs-lage"><h4>${fsIconHtml('mountain')} Lage am Tourtag</h4>
+    <p class="fs-lage-chg">Ohne Netz – Stand vom ${esc(new Date(last.at).toLocaleString('de-CH', {weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}))}</p>${last.html}</div>`; };
+  if(navigator.onLine === false){ if(last) showLast(); else el.innerHTML = `<div class="detail-section fs-lage"><h4>${fsIconHtml('mountain')} Lage am Tourtag</h4><p class="fs-lage-na">Ohne Netz und noch nie geladen.</p></div>`; return; }
   el.innerHTML = `<div class="detail-section fs-lage"><h4>${fsIconHtml('mountain')} Lage am Tourtag</h4><p class="fs-lage-wait">Wird geladen …</p></div>`;
   const res = await Promise.all(live.map(async it=>{
     const elev = parseInt(it.t.targetAltitude, 10) > 0 ? parseInt(it.t.targetAltitude, 10) : null;
@@ -4264,6 +4250,8 @@ async function loadAgendaLage(agendaId){
     return Object.assign({}, it, {wx, slf});
   }));
   if(el !== document.getElementById('agenda-lage-' + agendaId)) return;
+  // Nichts geladen (Netz weg trotz «online»): letzten Stand zeigen
+  if(last && res.every(r=> !(r.wx && r.wx.status === 'ok') && !(r.slf))){ showLast(); return; }
   // Vergleich mit dem letzten Öffnen
   let seenAll = {}; try{ seenAll = JSON.parse(localStorage.getItem('fs-lage-seen') || '{}'); }catch(e){}
   const prev = seenAll[agendaId] || null, now = {at: Date.now(), items: {}};
@@ -4302,6 +4290,12 @@ async function loadAgendaLage(agendaId){
   });
   seenAll[agendaId] = now;
   try{ localStorage.setItem('fs-lage-seen', JSON.stringify(seenAll)); }catch(e){}
+  // Für ohne Netz merken (ohne «Geändert seit»-Hinweise); alte Termine aufräumen
+  try{
+    lastAll[agendaId] = {at: Date.now(), html: rows.join('').replace(/<p class="fs-lage-chg">[\s\S]*?<\/p>/g, '')};
+    Object.keys(lastAll).forEach(k=>{ if(Date.now() - lastAll[k].at > 30 * 864e5) delete lastAll[k]; });
+    localStorage.setItem('fs-lage-last', JSON.stringify(lastAll));
+  }catch(e){}
   el.innerHTML = `<div class="detail-section fs-lage"><h4>${fsIconHtml('mountain')} Lage am Tourtag</h4>${rows.join('')}
     <p class="fs-lage-src">Wetter am Gipfel: Open-Meteo${winter ? ' · Lawinen: SLF-Bulletin (Region des Gipfels)' : ''} – beim Öffnen neu geladen.</p></div>`;
 }
