@@ -111,7 +111,10 @@ aus anderen Apps übernehmen.
   Entfernen; GPX-Link klein aufklappbar); im Vollbild-Editor oben Name und Art der gerade bearbeiteten Route (`fsEdNext.meta` = Schlüssel, `fsEdMetaRowEl`/`fsRouteMetaSet`) und getrennt «Punkte» («Punkte auf der Karte setzen» öffnet nur den Punkte-Modus,
   `fsEdNext.pointsOnly`). «Route zeichnen» mit Art Abfahrt/Abstieg beginnt am Ende des Aufstiegs, ein weiterer Aufstieg (es gibt schon Auf- und Abstieg) am Ende der letzten Abfahrt; weitere Routen sind im Editor
   zur Orientierung und zum Einrasten sichtbar.
-  Karten-Editor: Reiter «Zeichnen» und «Punkte» (Route ist in Zeichnen aufgegangen). Zeichnen verbindet je Abschnitt als Skispur
+  Ein Editor für alles (Tourformular): Knopf «Karte bearbeiten» (`fsEdOpenTourEditor`, öffnet die erste Route); im Vollbild oben eine Reihe mit allen Routen
+  und «+ Neue Route» (`fsEdRouteChipsEl`, `edTourCtx`); Wechsel = Editor schliessen und mit der anderen Route öffnen (`fsEdSwitch` → `fsRouteEditLine`/`fsTourDrawRoute`),
+  andere Route auf der Karte antippen ebenso (ausser beim Weiterzeichnen); unten Weiterzeichnen · Letzter Punkt · «Mehr» (Name/Art, Umkehren, Einrasten, GPX, Löschen).
+  Karten-Editor: Reiter «Routen» (bzw. «Zeichnen»), «Punkte», «Bereiche». Zeichnen verbindet je Abschnitt als Skispur
   (`fsSkiRoute`), Wanderweg (`fetchCalculatedRoute`) oder Gerade («Verbinden als», `drawConnect`, Gerät `fs-draw-connect`); Abschnitte
   `drawSegs` (Sitzung, am Formularfeld `_drawSegs`; eine geladene lange Linie bekommt wenige Anker, dazwischen Art `fest`, `drawSegsFromLine`), Ziehpunkte nur an Ankern (kein ziehbarer Kreis in der Mitte mehr); Abschnitt antippen = nur diesen anders verbinden oder «Hier Zwischenpunkt setzen» (`drawSegMenu`/`drawSplit`);
   bestehende Linie: Tippen hängt nichts an, erst «Weiterzeichnen» (`drawAppend`, Knopf `fs-draw-append`),
