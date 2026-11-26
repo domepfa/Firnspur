@@ -133,6 +133,9 @@ aus anderen Apps übernehmen.
   «Skispur neu rechnen» (`drawAreasRecalc`). Ziehen von Kartenpunkten mit eigener Zeigerverfolgung (FL-Marker, Pointer Capture).
   Tour-Routen auf der Startkarte kräftig mit weissem Rand (`fs-home-routes-case`); Ebene an = in jeder Ansicht sichtbar (Touren: die der Liste, sonst alle;
   Linie antippen öffnet dort die Tour).
+- Richtung der Routen im Tourformular (`fsRoutesDirCheck`, nach jedem Neuzeichnen der Routenliste): Aufstieg/Zustieg bergauf, Abfahrt/Abstieg bergab
+  (Höhe Anfang/Ende `fsPointHeight`, gemerkt `fs-hpt`, mehr als 30 m falsch); verkehrt gezeichnete Route wird samt Abschnitten umgedreht (`fsRouteReverseInForm`)
+  mit Hinweis; selbst wieder umgekehrt bleibt sie so (gleiche Linie wird nicht nochmals geprüft).
 - Tour teilen (`fsShareOpen`, Knopf im Tourkopf): «Als Bild teilen» (1080×1350, swisstopo-Karte mit Routen und Kennzahlen, `fsShareImage`),
   «GPX-Datei» (eine Spur je Route, `fsShareGpxXml`), «Link» `?tour=<id>` (öffnet die Tour nach dem Laden). Ohne Teilen-Menü wird heruntergeladen.
 - SAC-Routen sind oft mehrteilig (MultiLineString, Teile zeigen Richtung Gipfel): `fsMultiLineRoutes` macht daraus zusammenhängende
@@ -253,6 +256,8 @@ aus anderen Apps übernehmen.
   `mapRoutesOff`, eigene GPX-Dateien nur für den Termin in `ownRoutes` [{id, name, coords}]; die Karte des Tourenzettels zeigt sie (`fsAgendaMapData`).
   Im Formular kleine Karte (`agendaMapRoutesMap`, Route antippen = Haken an/ab, abgewählte blass) und Summe der angehakten Routen
   (`fsAgendaTotals`: km aus der Linie, Hm über `fsrElevation`, gemerkt `fs-agenda-elev`, Zeit SAC-Formel, Skitour nur Aufstieg); auf dem Tourenzettel «Total des Tages».
+  Richtung nach Routenart (`fsAgendaOrient`: Abfahrt zählt bergab, Aufstieg bergauf – nichts doppelt), Reihenfolge des Tages (↑, `mapRoutesOrder`),
+  «Richtung umkehren» (⇅, `mapRoutesRev`), Höhenprofil des Tages (`fsAgendaProfileSvg`, Profil im Cache) im Formular und auf dem Tourenzettel.
 - Termin-Ansicht «Lage am Tourtag» (`loadAgendaLage`, oben im Reiter Ablauf): je Gipfel des Termins (`fsAgendaLageItems`: erste und weitere Touren,
   Tagesplan mit Datum je Tag) Wetter am Gipfel (`fetchTourDayDetail`) und Lawinenstufe mit Problemen aus dem Bulletin für genau diesen Tag
   (`fsSlfForDate`, sonst Ausblick aus `evo`); Unterschiede zum letzten Öffnen als «Geändert seit …» (Gerät `fs-lage-seen`). Nicht bei Wanderungen (Lawinen).

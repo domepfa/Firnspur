@@ -3937,6 +3937,7 @@ function printTourenzettel(agendaId){
   <div class="section"><h4>${fsIconHtml('pack')} Material</h4>${materialList.length ? `<div class="material-box">${materialList.map(m=>`<div>☐ ${escHtml(m)}</div>`).join('')}</div>` : `<p class="muted">Keine Material-Angaben zu dieser Tour hinterlegt.</p>`}</div>
 
   ${hasMap ? `<div class="section"><h4>${fsIconHtml('map')} Kartenausschnitt</h4><div id="tz-map">${fsOfflineSketchHtml(tzMap.lines, tzMap.points, 'Skizze ohne Kartenhintergrund (Norden oben)')}</div></div>` : ''}
+  ${(()=>{ const svg = fsAgendaProfileSvg(a); return svg ? `<div class="section"><h4>${fsIconHtml('mountain')} Höhenprofil des Tages</h4><div class="box" style="padding:8px">${svg}</div></div>` : ''; })()}
 
   ${participants.length ? `<div class="section"><h4>${fsIconHtml('users')} Teilnehmende (${participants.length})</h4><div class="box" style="padding:6px 10px;"><table>
     <tr><th>Name</th><th>Natel</th><th style="text-align:center;">Da</th>${winter ? '<th style="text-align:center;">LVS ✓</th>' : ''}</tr>
@@ -4886,6 +4887,8 @@ function agendaFormHtml(editId){
         <input type="file" accept=".gpx,application/gpx+xml" class="agenda-mr-file" hidden/>
         <input type="hidden" name="mapRoutesOff" value="${esc(JSON.stringify((a && a.mapRoutesOff) || []))}"/>
         <input type="hidden" name="ownRoutes" value="${esc(JSON.stringify((a && a.ownRoutes) || []))}"/>
+        <input type="hidden" name="mapRoutesOrder" value="${esc(JSON.stringify((a && a.mapRoutesOrder) || []))}"/>
+        <input type="hidden" name="mapRoutesRev" value="${esc(JSON.stringify((a && a.mapRoutesRev) || []))}"/>
       </div>
       ${fsMeetsFieldHtml(a)}
       <div class="row2">
@@ -5260,11 +5263,14 @@ function fsAgendaRouteList(a){
   const list = [];
   multi.forEach(t=> fsTourRoutes(t).forEach(r=>{
     const st = fsRouteStyle(r);
-    list.push({id: t.id + '|' + r.key, label: (multi.length > 1 ? t.name + ' – ' : '') + fsRouteTitle(r), color: st.color, dash: st.dash, coords: r.coords || []});
+    list.push({id: t.id + '|' + r.key, label: (multi.length > 1 ? t.name + ' – ' : '') + fsRouteTitle(r), color: st.color, dash: st.dash, coords: r.coords || [], type: r.type});
   }));
-  (a.ownRoutes || []).forEach(o=> list.push({id: 'own|' + o.id, label: o.name || 'Eigene GPX-Route', color: FS_ROUTE_TYPES.variante.color, dash: true, coords: o.coords || [], own: true}));
-  list.forEach(r=>{ r.coords = r.coords.map(c=> Array.isArray(c) ? [+c[0], +c[1]] : [+c.lat, +(c.lon != null ? c.lon : c.lng)]).filter(c=> isFinite(c[0]) && isFinite(c[1])); });
-  return list.filter(r=> r.coords.length > 1);
+  (a.ownRoutes || []).forEach(o=> list.push({id: 'own|' + o.id, label: o.name || 'Eigene GPX-Route', color: FS_ROUTE_TYPES.variante.color, dash: true, coords: o.coords || [], own: true, type: ''}));
+  const rev = a.mapRoutesRev || [], ord = a.mapRoutesOrder || [];
+  list.forEach(r=>{ r.coords = r.coords.map(c=> Array.isArray(c) ? [+c[0], +c[1]] : [+c.lat, +(c.lon != null ? c.lon : c.lng)]).filter(c=> isFinite(c[0]) && isFinite(c[1])); if(rev.indexOf(r.id) >= 0){ r.coords.reverse(); r.rev = true; } });
+  // Reihenfolge des Tages: gespeicherte zuerst, neue hinten
+  const pos = id=>{ const i = ord.indexOf(id); return i < 0 ? 1e6 : i; };
+  return list.filter(r=> r.coords.length > 1).map((r, i)=> Object.assign(r, {_i: i})).sort((x, y)=> (pos(x.id) - pos(y.id)) || (x._i - y._i));
 }
 function fsAgendaMapData(a){
   const off = a.mapRoutesOff || [];
@@ -5284,26 +5290,63 @@ function fsAgendaTotals(a, onUpdate){
   let km = 0, up = 0, down = 0, lkm = 0, missing = 0;
   on.forEach(r=>{
     const rk = fsLineKm(r.coords); km += rk;
-    const key = fsAgendaElevKey(r), e = cache[key];
+    const key = fsAgendaElevKey(r), e = cache[key] && cache[key].p ? cache[key] : null; // ältere Einträge ohne Profil neu holen
     if(!e){
       missing++;
       if(onUpdate && navigator.onLine !== false && !fsAgendaElevRun.has(key)){
         fsAgendaElevRun.add(key);
         fsrElevation(r.coords).then(res=>{
-          const c = fsAgendaElevCache(); c[key] = {up: res.up, down: res.down};
+          const c = fsAgendaElevCache(), pr = res.profile || [], step = Math.max(1, Math.ceil(pr.length / 50));
+          c[key] = {up: res.up, down: res.down, p: pr.filter((q, i)=> i % step === 0 || i === pr.length - 1).map(q=> [Math.round(q.distM), Math.round(q.eleM)])};
           try{ localStorage.setItem('fs-agenda-elev', JSON.stringify(c)); }catch(err){}
           onUpdate();
         }, ()=>{}).finally(()=> fsAgendaElevRun.delete(key));
       }
       return;
     }
-    up += e.up; down += e.down;
+    // Richtung nach der Art: eine bergauf gezeichnete Abfahrt zählt bergab (und umgekehrt) – nichts doppelt
+    const o = fsAgendaOrient(r, e);
+    up += o.up; down += o.down;
     // SAC-Formel wie bei den Touren: Leistungs-km = km + Hm/100 (+ Abstieg/150); Skitour nur Aufstieg
-    const kmUp = (e.up + e.down) ? rk * e.up / (e.up + e.down) : rk;
-    lkm += ski ? (e.up > 30 ? kmUp + e.up / 100 : 0) : rk + e.up / 100 + e.down / 150;
+    const kmUp = (o.up + o.down) ? rk * o.up / (o.up + o.down) : rk;
+    lkm += ski ? (o.up > 30 ? kmUp + o.up / 100 : 0) : rk + o.up / 100 + o.down / 150;
   });
   const h = missing || !lkm ? null : Math.max(0.5, Math.round(lkm / 4 * 2) / 2);
   return {n: on.length, km, up, down, h, ski, missing};
+}
+function fsAgendaOrient(r, e){
+  const down = r.type === 'abfahrt' || r.type === 'abstieg', up = r.type === 'aufstieg' || r.type === 'zustieg';
+  const flip = !r.rev && ((down && e.up > e.down) || (up && e.down > e.up)); // selbst umgekehrt: so lassen
+  let p = e.p || [];
+  if(flip && p.length){ const L = p[p.length - 1][0]; p = p.slice().reverse().map(q=> [L - q[0], q[1]]); }
+  return flip ? {up: e.down, down: e.up, p} : {up: e.up, down: e.down, p};
+}
+// Höhenprofil des Tages: angehakte Routen in ihrer Reihenfolge hintereinander (SVG), leer solange Höhen fehlen
+function fsAgendaProfileSvg(a){
+  const off = a.mapRoutesOff || [], cache = fsAgendaElevCache();
+  const on = fsAgendaRouteList(a).filter(r=> off.indexOf(r.id) < 0);
+  if(!on.length) return '';
+  const pts = [], marks = [];
+  let x0 = 0;
+  for(const r of on){
+    const e = cache[fsAgendaElevKey(r)];
+    if(!e || !e.p || e.p.length < 2) return '';
+    const o = fsAgendaOrient(r, e);
+    if(x0) marks.push(x0);
+    o.p.forEach(q=> pts.push([x0 + q[0], q[1], r.color]));
+    x0 += o.p[o.p.length - 1][0];
+  }
+  const W = 600, H = 150, pad = 26, ys = pts.map(q=> q[1]), min = Math.min(...ys), max = Math.max(...ys), span = Math.max(100, max - min);
+  const X = d=> pad + d / x0 * (W - pad - 6), Y = v=> H - 18 - (v - min) / span * (H - 34);
+  let path = '', segs = '';
+  pts.forEach((q, i)=>{ path += (i ? 'L' : 'M') + X(q[0]).toFixed(1) + ' ' + Y(q[1]).toFixed(1); });
+  for(let i = 1; i < pts.length; i++) segs += `<line x1="${X(pts[i - 1][0]).toFixed(1)}" y1="${Y(pts[i - 1][1]).toFixed(1)}" x2="${X(pts[i][0]).toFixed(1)}" y2="${Y(pts[i][1]).toFixed(1)}" stroke="${pts[i][2]}" stroke-width="3" stroke-linecap="round"/>`;
+  return `<svg class="fs-day-prof" viewBox="0 0 ${W} ${H}" role="img" aria-label="Höhenprofil des Tages">
+    <path d="${path} L${X(x0).toFixed(1)} ${H - 18} L${pad} ${H - 18} Z" fill="rgba(30,106,160,.10)"/>${segs}
+    ${marks.map(m=> `<line x1="${X(m).toFixed(1)}" y1="8" x2="${X(m).toFixed(1)}" y2="${H - 18}" stroke="#8A979F" stroke-dasharray="3 4"/>`).join('')}
+    <text x="2" y="${Y(max) + 4}" font-size="11" fill="#4A5A64">${Math.round(max)}</text><text x="2" y="${Y(min) + 4}" font-size="11" fill="#4A5A64">${Math.round(min)}</text>
+    <text x="${W - 6}" y="${H - 4}" font-size="11" fill="#4A5A64" text-anchor="end">${(x0 / 1000).toFixed(1)} km</text>
+  </svg>`;
 }
 function fsAgendaTotalsText(t){
   if(!t || !t.n) return '';
@@ -5320,7 +5363,7 @@ function fsAgendaFormRefs(agendaForm){
   const segs = []; agendaForm.querySelectorAll('.agenda-day-tour-select').forEach(x=> segs.push({tourRef: ref(x.value)}));
   if(segs.length) a.days = [{segments: segs}];
   const pj = n=>{ try{ return JSON.parse((agendaForm.querySelector(`input[name="${n}"]`) || {}).value || '[]'); }catch(e){ return []; } };
-  a.mapRoutesOff = pj('mapRoutesOff'); a.ownRoutes = pj('ownRoutes');
+  a.mapRoutesOff = pj('mapRoutesOff'); a.ownRoutes = pj('ownRoutes'); a.mapRoutesOrder = pj('mapRoutesOrder'); a.mapRoutesRev = pj('mapRoutesRev');
   const ty = agendaForm.querySelector('select[name="type"]'); a.type = ty ? ty.value : 'ski';
   return a;
 }
@@ -5330,7 +5373,7 @@ function agendaMapRoutesRefresh(agendaForm){
   box.querySelector('.agenda-mr-list').innerHTML = list.length ? list.map(r=> `<label class="agenda-mr-row">
       <input type="checkbox" data-mr="${esc(r.id)}" ${a.mapRoutesOff.indexOf(r.id) < 0 ? 'checked' : ''}/>
       <span class="fs-route-sw${r.dash ? ' dash' : ''}" style="--c:${r.color}"></span><span class="agenda-mr-l">${esc(r.label)} <small>· ${fsLineKm(r.coords).toFixed(1)} km</small></span>
-      ${r.own ? `<button type="button" class="fs-icon-btn agenda-mr-del" data-mr-del="${esc(r.id.slice(4))}" aria-label="GPX-Route entfernen">${fsIconHtml('trash')}</button>` : ''}
+      <span class="agenda-mr-btns">${list.indexOf(r) > 0 ? `<button type="button" class="fs-icon-btn" data-mr-up="${esc(r.id)}" aria-label="Früher am Tag">↑</button>` : ''}<button type="button" class="fs-icon-btn${r.rev ? ' on' : ''}" data-mr-rev="${esc(r.id)}" aria-label="Richtung umkehren" aria-pressed="${!!r.rev}">⇅</button>${r.own ? `<button type="button" class="fs-icon-btn agenda-mr-del" data-mr-del="${esc(r.id.slice(4))}" aria-label="GPX-Route entfernen">${fsIconHtml('trash')}</button>` : ''}</span>
     </label>`).join('') : '<p class="hint" style="margin:0 0 8px;">Die gewählten Touren haben noch keine Routen.</p>';
   agendaMapRoutesSum(agendaForm);
   agendaMapRoutesMap(agendaForm, a, list);
@@ -5339,7 +5382,7 @@ function agendaMapRoutesSum(agendaForm){
   const el = agendaForm.querySelector('.agenda-mr-sum'); if(!el) return;
   const t = fsAgendaTotals(fsAgendaFormRefs(agendaForm), ()=>{ if(document.body.contains(el)) agendaMapRoutesSum(agendaForm); });
   el.hidden = !t.n;
-  el.innerHTML = t.n ? `<b>Total${t.n > 1 ? ' (' + t.n + ' Routen)' : ''}:</b> ${esc(fsAgendaTotalsText(t))}${t.missing ? (navigator.onLine === false ? ' <small>– Höhen ohne Netz nicht verfügbar</small>' : ' <small>– Höhenmeter werden gerechnet …</small>') : (t.h ? '<br><small>Zeit nach SAC-Formel, ohne Pausen</small>' : '')}` : '';
+  el.innerHTML = t.n ? `<b>Total${t.n > 1 ? ' (' + t.n + ' Routen)' : ''}:</b> ${esc(fsAgendaTotalsText(t))}${t.missing ? (navigator.onLine === false ? ' <small>– Höhen ohne Netz nicht verfügbar</small>' : ' <small>– Höhenmeter werden gerechnet …</small>') : (t.h ? '<br><small>Zeit nach SAC-Formel, ohne Pausen · Reihenfolge mit ↑, Richtung mit ⇅</small>' : '')}${t.missing ? '' : fsAgendaProfileSvg(fsAgendaFormRefs(agendaForm))}` : '';
 }
 // Kleine Karte: Route antippen = an/ab (wie der Haken); abgewählte blass
 function agendaMapRoutesFeats(a, list){
@@ -5402,6 +5445,15 @@ function wireAgendaMapRoutes(agendaForm){
       const cur = fsAgendaFormRefs(agendaForm); agendaMapRoutesMap(agendaForm, cur, fsAgendaRouteList(cur)); agendaMapRoutesSum(agendaForm);
     });
     box.addEventListener('click', e=>{
+      const upB = e.target.closest && e.target.closest('[data-mr-up]'), rvB = e.target.closest && e.target.closest('[data-mr-rev]');
+      if(upB || rvB){
+        e.preventDefault();
+        const cur = fsAgendaFormRefs(agendaForm), ids = fsAgendaRouteList(cur).map(r=> r.id);
+        if(upB){ const id = upB.getAttribute('data-mr-up'), i = ids.indexOf(id); if(i > 0){ ids.splice(i, 1); ids.splice(i - 1, 0, id); } setJ('mapRoutesOrder', ids); }
+        else{ const id = rvB.getAttribute('data-mr-rev'), rv = getJ('mapRoutesRev'); setJ('mapRoutesRev', rv.indexOf(id) >= 0 ? rv.filter(x=> x !== id) : rv.concat([id])); }
+        agendaMapRoutesRefresh(agendaForm);
+        return;
+      }
       const d = e.target.closest && e.target.closest('[data-mr-del]'); if(!d) return;
       e.preventDefault();
       if(!confirm('Diese GPX-Route aus dem Termin entfernen?')) return;
@@ -5666,6 +5718,8 @@ async function submitAgendaForm(form){
     days, extraTours,
     mapRoutesOff: (()=>{ try{ return JSON.parse(form.mapRoutesOff || '[]'); }catch(e){ return []; } })(),
     ownRoutes: (()=>{ try{ return JSON.parse(form.ownRoutes || '[]'); }catch(e){ return []; } })(),
+    mapRoutesOrder: (()=>{ try{ return JSON.parse(form.mapRoutesOrder || '[]'); }catch(e){ return []; } })(),
+    mapRoutesRev: (()=>{ try{ return JSON.parse(form.mapRoutesRev || '[]'); }catch(e){ return []; } })(),
     accessRouteId, descentRouteId,
     anreiseType, anreiseOrt,
     endOption, endNote,
@@ -11038,9 +11092,71 @@ function fsRoutesEditorHtml(t){
     <input type="hidden" name="routeAreas" id="route-areas-hidden" value='${esc(JSON.stringify(t.routeAreas||[]))}'/>
   </div>`;
 }
+/* ===== Richtung der Routen =====
+   Aufstieg/Zustieg zeigen bergauf, Abfahrt/Abstieg bergab (Höhe am Anfang und Ende, swisstopo, gemerkt `fs-hpt`). Im Tourformular wird
+   eine verkehrt gezeichnete Route umgedreht (mit Hinweis; Mehr → Umkehren macht es rückgängig, dann fragt die App für diese Linie nicht mehr). */
+function fsPtHeightCache(){ try{ return JSON.parse(localStorage.getItem('fs-hpt') || '{}'); }catch(e){ return {}; } }
+async function fsPointHeight(lat, lon){
+  const k = (+lat).toFixed(4) + ',' + (+lon).toFixed(4), c = fsPtHeightCache();
+  if(c[k] != null) return c[k];
+  try{
+    const [E, N] = fsWgsToLv95(+lat, +lon);
+    const r = await fetch('https://api3.geo.admin.ch/rest/services/height?easting=' + Math.round(E) + '&northing=' + Math.round(N) + '&sr=2056');
+    if(!r.ok) return null;
+    const h = parseFloat((await r.json()).height);
+    if(!isFinite(h)) return null;
+    const c2 = fsPtHeightCache(); c2[k] = Math.round(h); const ks = Object.keys(c2); if(ks.length > 3000) ks.slice(0, 500).forEach(x=> delete c2[x]);
+    try{ localStorage.setItem('fs-hpt', JSON.stringify(c2)); }catch(e){}
+    return Math.round(h);
+  }catch(e){ return null; }
+}
+// 'reverse' wenn die Linie gegen ihre Art läuft (mehr als 30 m falsch), sonst 'ok'; null ohne Höhen
+async function fsRouteDirCheck(coords, type){
+  const want = type === 'abfahrt' || type === 'abstieg' ? -1 : (type === 'aufstieg' || type === 'zustieg') ? 1 : 0;
+  if(!want || !coords || coords.length < 2 || navigator.onLine === false) return null;
+  const f = coords[0], l = coords[coords.length - 1], P = q=> Array.isArray(q) ? [+q[0], +q[1]] : [+q.lat, +(q.lon != null ? q.lon : q.lng)];
+  const [a, b] = await Promise.all([fsPointHeight(...P(f)), fsPointHeight(...P(l))]);
+  if(a == null || b == null) return null;
+  return (b - a) * want < -30 ? 'reverse' : 'ok';
+}
+const fsRouteDirDone = new Set();
+let fsRouteDirTimer = 0;
+function fsRoutesDirCheckSoon(){ clearTimeout(fsRouteDirTimer); fsRouteDirTimer = setTimeout(fsRoutesDirCheck, 600); }
+async function fsRoutesDirCheck(){
+  if(!document.getElementById('fs-routes-edit')) return;
+  const rs = fsEdFormRoutes();
+  for(const r of rs){
+    const c = r.coords || [], sig = r.key + ':' + r.type + ':' + c.length + ':' + JSON.stringify(c[0]) + JSON.stringify(c[c.length - 1]);
+    if(fsRouteDirDone.has(sig)) continue;
+    fsRouteDirDone.add(sig);
+    const res = await fsRouteDirCheck(c, r.type);
+    if(res !== 'reverse') continue;
+    if(fsRouteReverseInForm(r.key)){
+      const c2 = c.slice().reverse(); fsRouteDirDone.add(r.key + ':' + r.type + ':' + c2.length + ':' + JSON.stringify(c2[0]) + JSON.stringify(c2[c2.length - 1]));
+      showToast('«' + fsRouteTitle(r) + '» war ' + (r.type === 'abfahrt' || r.type === 'abstieg' ? 'bergauf' : 'bergab') + ' gezeichnet – Richtung umgedreht.');
+      fsRoutesEditorRender();
+    }
+  }
+}
+// Linie samt Abschnitten (plan) einer Route im Formular umdrehen
+function fsRouteReverseInForm(key){
+  const rev = (id)=>{ const el = document.getElementById(id); if(!el) return false; try{ const v = JSON.parse(el.value || 'null'); if(!Array.isArray(v) || v.length < 2) return false; el.value = JSON.stringify(v.slice().reverse()); el._drawSegs = null; return true; }catch(e){ return false; } };
+  let ok = false;
+  if(key === 'track') ok = rev('track-simplified-hidden');
+  else if(key === 'manual'){ ok = rev('manual-track-hidden'); if(ok) rev('manual-track-hidden-plan'); }
+  else{
+    const el = document.getElementById('route-alt-tracks'); if(!el) return false;
+    let alts = []; try{ alts = JSON.parse(el.value || '[]'); }catch(e){}
+    const a = alts.find(x=> 'alt:' + x.id === key);
+    if(a && Array.isArray(a.trackSimplified) && a.trackSimplified.length > 1){ a.trackSimplified = a.trackSimplified.slice().reverse(); if(Array.isArray(a.plan)) a.plan = a.plan.slice().reverse(); el.value = JSON.stringify(alts); ok = true; }
+  }
+  if(ok && typeof markModalDirty === 'function') markModalDirty();
+  return ok;
+}
 function fsRoutesEditorRender(){
   const box = document.getElementById('fs-routes-edit');
   if(!box) return;
+  fsRoutesDirCheckSoon();
   const val = (id)=>{ const el = document.getElementById(id); return el ? el.value : ''; };
   const parse = (id, d)=>{ try{ return JSON.parse(val(id) || 'null') || d; }catch(e){ return d; } };
   const t = {
