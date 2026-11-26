@@ -3640,3 +3640,17 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .fs-ed-more > .btn{ flex:1 1 45%; min-height:46px; justify-content:center; }
 .fs-ed-more > .fs-ed-meta{ flex:1 1 100%; }
 .btn.fs-ed-morebtn.on{ background:var(--ice-light); }
+
+/* ===== Abfahrtslinie wählen ===== */
+.fs-dl-tag-icon{ width:0; height:0; }
+.fs-dl-tag{ position:absolute; transform:translate(-50%, -130%); white-space:nowrap; background:var(--paper); color:var(--ink); border:2px solid var(--c); border-radius:12px;
+  padding:4px 10px; font:800 13px Manrope, system-ui, sans-serif; box-shadow:0 2px 8px rgba(15,30,39,.2); }
+.fs-dl-choose{ position:absolute; left:10px; right:10px; bottom:12px; z-index:20; background:var(--paper); border-radius:18px; padding:12px; box-shadow:var(--shadow-lg);
+  display:flex; flex-direction:column; gap:6px; max-width:520px; margin:0 auto; }
+.fs-dl-choose p{ margin:0 0 4px; font-weight:800; font-size:15px; }
+.fs-dl-choose button{ display:grid; grid-template-columns:24px 1fr; align-items:center; column-gap:10px; text-align:left; min-height:52px; padding:6px 12px; border:1.5px solid var(--line);
+  border-radius:14px; background:var(--paper); color:var(--ink); font:inherit; cursor:pointer; }
+.fs-dl-choose button b{ font-size:15px; }
+.fs-dl-choose button small{ grid-column:2; color:var(--ink-soft); font-size:12.5px; }
+.fs-dl-choose button .fs-route-sw{ grid-row:span 2; width:22px; }
+.fs-dl-choose .fs-dl-x{ display:block; text-align:center; min-height:44px; color:var(--ink-soft); }
