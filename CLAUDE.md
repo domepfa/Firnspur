@@ -74,8 +74,8 @@ aus anderen Apps übernehmen.
   rechnet auf dem Gerät eine Aufstiegsspur mit Spitzkehren aus dem Höhenmodell (`fsSkiRoute`: Raster über `fsElevGrid` aus dem
   swisstopo-Gelände, Suche `fsSkiEngine` im Web Worker; Spur höchstens etwa 17° steil, Hänge bis 30° normal, 30–35° leicht, ab 35° stark gemieden, kleine Richtungswechsel kosten etwas; Linie geglättet (`fsSmoothTrack`); Linie nach
   Steilheit gefärbt, `FS_SKI_CLASSES`). Ein Vorschlag aus dem Gelände, keine Lawinenbeurteilung – so steht es auch im Planer.
-  Abfahrt (Route der Art Abfahrt/Abstieg, «Skispur ↓», pro Abschnitt umstellbar `sg.dir`): drei Linien zur Wahl (`drawChooseDescent`, `FS_DL_VARIANTS`):
-  Direkt (Steiles bleibt), Moderat (meidet über 35°), Flach (meidet über 30°); Felsabbrüche (≥ 48°, Linie > 45°) immer tabu; ohne Spitzkehren
+  Abfahrt (Route der Art Abfahrt/Abstieg, «Skispur ↓», pro Abschnitt umstellbar `sg.dir`): «Direkt» sofort, danach Moderat/Flach im Hintergrund als Schilder auf der Karte
+  (`drawDescentAlts`, `FS_DL_VARIANTS`, antippen = übernehmen, ✕ = behalten): Direkt (Steiles bleibt), Moderat (meidet über 35°), Flach (meidet über 30°); Felsabbrüche (≥ 48°, Linie > 45°) immer tabu; ohne Spitzkehren
   (`job.down`, Zustand ohne Richtung, stärker geglättet). Gewählte Art bleibt am Abschnitt (`sg.variant`), Anpassen rechnet ohne neue Frage; «Andere Abfahrtslinie wählen» im Abschnitt-Menü.
   Steile Stellen über 35° auf berechneten Skispuren markiert (`sg.slopes`) und gemeldet, nie automatisch umfahren. Suche: Verbesserung nur bei echtem Unterschied (Float32).
 - Auf- und Abstieg einer Tourlinie (`fsUpDownSplit`): Routen der Art Aufstieg bzw. Auf- & Abfahrt, die auch wieder hinunterführen,
@@ -120,6 +120,8 @@ aus anderen Apps übernehmen.
   gedrückt halten = Blase (`offerHereMenu`): «Neue Route hier starten» (`fsTourDrawRoute(startPt)`), Parkplatz/Haltestelle/Wasser/Biwak/Gipfel/anderer Punkt,
   «Bereich meiden / lieber»; Punkt antippen = sein Formular. Beim Zeichnen auf eine andere Route: Einrast-Blase mit «Stattdessen … bearbeiten».
   «Verbinden als»: «Aufstiegsspur» bzw. «Abfahrtslinie» nach der Art oben (`drawRouteTypeKnown`, neu gezeichnet bei Art-Wechsel), sonst «Skispur».
+  Vollbild-Editor unten kompakte Leiste (`fs-line-bar`): km · ↑ · ↓ · Zeit (`drawStatsUpdate`, Höhen vom swisstopo-Höhendienst), ↺ letzter Punkt, «Mehr» (Name, Umkehren, Löschen,
+  GPX; Gerät `fs-ed-bar-open`), Art Aufstieg/Abfahrt, Gelände/Gerade, «Fertig». Abschnitte im Rechnen gestrichelt mit Schild «… wird gerechnet» (`sg._calc`), Fehler mit Grund am Abschnitt (`sg._err`).
   Karten-Editor: Reiter «Zeichnen», «Punkte», «Bereiche». Zeichnen verbindet je Abschnitt als Skispur
   (`fsSkiRoute`), Wanderweg (`fetchCalculatedRoute`, nicht in der Skitour-App) oder Gerade («Verbinden als», `drawConnect`, Gerät `fs-draw-connect`); Abschnitte
   `drawSegs` (Sitzung, am Formularfeld `_drawSegs`; eine geladene lange Linie bekommt wenige Anker, dazwischen Art `fest`, `drawSegsFromLine`), Ziehpunkte an Ankern, Kreis in der Mitte ziehen = Zwischenpunkt (`drawSplit`); Abschnitt antippen = nur diesen anders verbinden (`drawSegMenu`); Tippen setzt immer den nächsten Punkt,
