@@ -2560,6 +2560,13 @@ function fsHomeLayout(){
     if(ag) ag.after(pb); else row.prepend(pb);
   }
   // Hang-Scan vom eigenen Standort (auf der Karte per Gedrückthalten «Hang scannen»)
+  if(row && !row.querySelector('[data-fs-offmaps]')){
+    const ob = document.createElement('button'); ob.type = 'button'; ob.setAttribute('data-fs-offmaps', '');
+    ob.innerHTML = fsIconHtml('download') + 'Offline-Karten';
+    ob.addEventListener('click', ()=>{ menu.open = false; fsOffListOpen(); });
+    const anchor = row.querySelector('[data-fs-scan]') || row.querySelector('[data-fs-plan]');
+    if(anchor) anchor.after(ob); else row.prepend(ob);
+  }
   if(row && !row.querySelector('[data-fs-scan]')){
     const sb = document.createElement('button'); sb.type = 'button'; sb.setAttribute('data-fs-scan', '');
     sb.innerHTML = fsIconHtml('scan') + 'Hang-Scan';
@@ -7542,17 +7549,38 @@ async function fsmOfflineIdList(){
   return fsmOfflineIds;
 }
 function fsmRegisterOfflineProtocol(){
+  // fsoff://karte/z/x/y bzw. fsoff://winter/z/x/y; Schlüssel <Id>_z_x_y (Landeskarte) bzw. <Id>_w_z_x_y (Winterkarte)
   maplibregl.addProtocol('fsoff', async (params, abort)=>{
-    const [z, x, y] = params.url.replace('fsoff://karte/', '').split('/');
-    for(const id of await fsmOfflineIdList()){
-      try{
-        const blob = await idbGet('tiles', id + '_' + z + '_' + x + '_' + y);
-        if(blob) return {data: await blob.arrayBuffer()};
-      }catch(e){}
+    const [layer, zs, xs, ys] = params.url.replace('fsoff://', '').split('/');
+    const z = +zs, x = +xs, y = +ys, pre = layer === 'winter' ? 'w_' : '';
+    const find = async (zz, xx, yy)=>{
+      for(const id of await fsmOfflineIdList()){
+        try{ const blob = await idbGet('tiles', id + '_' + pre + zz + '_' + xx + '_' + yy); if(blob) return blob; }catch(e){}
+      }
+      return null;
+    };
+    const own = await find(z, x, y);
+    if(own) return {data: await own.arrayBuffer()};
+    try{
+      const res = await fetch(FSM_WMTS(layer === 'winter' ? 'ch.swisstopo.pixelkarte-farbe-winter' : 'ch.swisstopo.pixelkarte-farbe', 'jpeg').replace('{z}', z).replace('{x}', x).replace('{y}', y), {signal: abort.signal});
+      if(!res.ok) throw new Error('Kachel nicht verfügbar');
+      return {data: await res.arrayBuffer()};
+    }catch(err){
+      // Ohne Netz: gröbere gespeicherte Kachel vergrössern (gespeichert bis Zoom 15, die Karte zoomt weiter)
+      for(let d = 1; d <= 4 && z - d >= 7; d++){
+        const blob = await find(z - d, x >> d, y >> d);
+        if(!blob) continue;
+        try{
+          const bm = await createImageBitmap(blob), n = 1 << d, sz = 256 / n;
+          const cv = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(256, 256) : Object.assign(document.createElement('canvas'), {width: 256, height: 256});
+          const g = cv.getContext('2d'); g.imageSmoothingEnabled = true;
+          g.drawImage(bm, (x - ((x >> d) << d)) * sz, (y - ((y >> d) << d)) * sz, sz, sz, 0, 0, 256, 256);
+          const out = cv.convertToBlob ? await cv.convertToBlob({type: 'image/jpeg', quality: 0.85}) : await new Promise(r=> cv.toBlob(r, 'image/jpeg', 0.85));
+          return {data: await out.arrayBuffer()};
+        }catch(e2){ break; }
+      }
+      throw err;
     }
-    const res = await fetch(FSM_WMTS('ch.swisstopo.pixelkarte-farbe', 'jpeg').replace('{z}', z).replace('{x}', x).replace('{y}', y), {signal: abort.signal});
-    if(!res.ok) throw new Error('Kachel nicht verfügbar');
-    return {data: await res.arrayBuffer()};
   });
 }
 function fsmPrefs(){
@@ -7585,7 +7613,7 @@ function fsmBaseStyle(){
     sources: {
       karte: {type:'raster', tiles:['fsoff://karte/{z}/{x}/{y}'], tileSize:256, maxzoom:18, attribution:'© swisstopo'},
       luftbild: {type:'raster', tiles:[FSM_WMTS('ch.swisstopo.swissimage','jpeg')], tileSize:256, maxzoom:19, attribution:'© swisstopo'},
-      winter: {type:'raster', tiles:[FSM_WMTS('ch.swisstopo.pixelkarte-farbe-winter','jpeg')], tileSize:256, maxzoom:18, attribution:'© swisstopo'},
+      winter: {type:'raster', tiles:['fsoff://winter/{z}/{x}/{y}'], tileSize:256, maxzoom:18, attribution:'© swisstopo'},
       'fsm-anchor': empty
     },
     layers: [
@@ -25705,3 +25733,187 @@ document.addEventListener('click', (e)=>{
   };
   window.addEventListener('load', ()=> setTimeout(go, 600));
 })();
+
+/* ===== Offline-Karten: Kartenausschnitt speichern =====
+   Menü «Offline-Karten» (fsOffListOpen): Liste aller gespeicherten Karten (Ausschnitte und «Für unterwegs» geladene Touren) mit
+   Löschen (Rückfrage) und bei Ausschnitten «Aktualisieren»; «+ Ausschnitt speichern» (fsOffAreaOpen): fester Rahmen auf der
+   Startkarte, Karte darunter verschieben/zoomen; Landeskarte und/oder Winterkarte bis Zoom 16 («Sehr genau», abschaltbar: bis 15, ein Viertel des Platzes). Gespeichert in
+   IndexedDB wie die Touren (Kacheln <Id>_z_x_y bzw. <Id>_w_z_x_y, Eintrag in «downloads» mit kind 'area'); die Karte liest sie
+   über fsoff:// und vergrössert ohne Netz gröbere Kacheln. Topo-Bilder der Touren im Ausschnitt kommen mit. */
+const FS_OFF_KB = {karte: 36, winter: 38};
+const FS_OFF_MAX_TILES = 16000;
+let fsOffSt = null;
+function fsOffTileList(bb, zmax){
+  const out = [];
+  for(let z = 8; z <= zmax; z++){
+    const x1 = lonToTileX(bb.w, z), x2 = lonToTileX(bb.e, z), y1 = latToTileY(bb.n, z), y2 = latToTileY(bb.s, z);
+    for(let x = x1; x <= x2; x++) for(let y = y1; y <= y2; y++) out.push([z, x, y]);
+  }
+  return out;
+}
+function fsOffFmtMb(kb){ const mb = kb / 1024; return mb < 10 ? mb.toFixed(1).replace('.0', '') + ' MB' : Math.round(mb) + ' MB'; }
+function fsOffAreaOpen(pre){
+  const ml = fsHomeMap;
+  if(!ml || !ml._fsmLoaded){ showToast('Die Karte lädt noch.', true); return; }
+  if(fsOffSt) fsOffAreaEnd();
+  if(typeof fsHomeDetent !== 'undefined' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
+  const ski = fsAppKey() === 'firnspur';
+  const st = fsOffSt = {layers: pre && pre.layers ? pre.layers.slice() : (ski ? ['karte', 'winter'] : ['karte']), zmax: pre && pre.zmax || 16, busy: false, stop: false};
+  document.documentElement.classList.add('fs-scanning');
+  const panel = document.createElement('div');
+  panel.className = 'fs-scan-aim fs-off-panel';
+  const d = new Date();
+  panel.innerHTML = `<div class="fs-scan-aim-head"><b>${fsIconHtml('download')}Karte offline speichern</b><button type="button" class="x-btn" data-x aria-label="Schliessen">×</button></div>
+    <input type="text" class="fs-off-name" placeholder="Name, z. B. Engstlenalp" value="${esc(pre && pre.name || '')}" aria-label="Name des Ausschnitts"/>
+    <div class="fs-off-opts">
+      <button type="button" data-l="karte">${fsIconHtml('map')}Landeskarte</button>
+      <button type="button" data-l="winter">${fsIconHtml('snow')}Winterkarte</button>
+      <button type="button" data-z16>${fsIconHtml('search')}Sehr genau</button>
+    </div>
+    <div class="fs-scan-aim-row"><span>Grösse</span><b data-size>–</b></div>
+    <p class="fs-scan-aim-hint" data-hint>Karte verschieben und zoomen, bis das Gebiet im Rahmen liegt.</p>
+    <div class="fs-off-prog" hidden><i></i></div>
+    <div class="fs-scan-aim-btns"><button type="button" class="btn secondary" data-x>Abbrechen</button><button type="button" class="btn" data-go>${fsIconHtml('download')}Speichern</button></div>`;
+  document.body.appendChild(panel);
+  const frame = document.createElement('div');
+  frame.className = 'fs-scan-frame fs-off-frame';
+  document.body.appendChild(frame);
+  st.panel = panel; st.frame = frame;
+  const box = ()=> fsScanFrameBox(panel.offsetHeight, 0.82);
+  const place = ()=>{ const b = box(); Object.assign(frame.style, {left: b.left + 'px', top: b.top + 'px', width: b.w + 'px', height: b.h + 'px'}); return b; };
+  const bbox = ()=>{
+    const b = place(), r = ml.getContainer().getBoundingClientRect();
+    const a = ml.unproject([b.left - r.left, b.top - r.top]), c = ml.unproject([b.left - r.left + b.w, b.top - r.top + b.h]);
+    return {n: Math.max(a.lat, c.lat), s: Math.min(a.lat, c.lat), w: Math.min(a.lng, c.lng), e: Math.max(a.lng, c.lng)};
+  };
+  st.bbox = bbox;
+  const paintOpts = ()=>{
+    panel.querySelectorAll('[data-l]').forEach(b=>{ const on = st.layers.includes(b.getAttribute('data-l')); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+    const z = panel.querySelector('[data-z16]'); z.classList.toggle('on', st.zmax === 16); z.setAttribute('aria-pressed', st.zmax === 16);
+  };
+  const upd = ()=>{
+    if(fsOffSt !== st || st.busy) return;
+    const bb = bbox(), n = fsOffTileList(bb, st.zmax).length;
+    const kb = n * st.layers.reduce((a, l)=> a + FS_OFF_KB[l], 0), tiles = n * st.layers.length;
+    const kmW = (bb.e - bb.w) * 111.32 * Math.cos((bb.n + bb.s) / 2 * Math.PI / 180), kmH = (bb.n - bb.s) * 111.32;
+    const tooBig = tiles > FS_OFF_MAX_TILES, none = !st.layers.length;
+    panel.querySelector('[data-size]').textContent = none ? 'Keine Karte gewählt' : `ca. ${fsOffFmtMb(kb)} · ${kmW.toFixed(1)} × ${kmH.toFixed(1)} km`;
+    panel.querySelector('[data-hint]').textContent = tooBig ? 'Zu gross – näher zoomen oder «Sehr genau» ausschalten.' : 'Karte verschieben und zoomen, bis das Gebiet im Rahmen liegt.';
+    panel.querySelector('[data-go]').hidden = tooBig || none;
+  };
+  st.upd = ()=> requestAnimationFrame(upd);
+  ml.on('move', st.upd);
+  st.resize = ()=> st.upd();
+  window.addEventListener('resize', st.resize);
+  panel.querySelectorAll('[data-l]').forEach(b=> b.addEventListener('click', ()=>{
+    const l = b.getAttribute('data-l');
+    st.layers = st.layers.includes(l) ? st.layers.filter(x=> x !== l) : st.layers.concat([l]);
+    paintOpts(); upd();
+  }));
+  panel.querySelector('[data-z16]').addEventListener('click', ()=>{ st.zmax = st.zmax === 16 ? 15 : 16; paintOpts(); upd(); });
+  panel.querySelectorAll('[data-x]').forEach(b=> b.addEventListener('click', ()=>{ if(st.busy){ st.stop = true; return; } closeTopOverlayLayer(); }));
+  panel.querySelector('[data-go]').addEventListener('click', ()=> fsOffAreaSave(st, pre && pre.id));
+  pushOverlayLayer(fsOffAreaEnd);
+  try{ ml.easeTo({bearing: 0, pitch: 0, duration: 0}); }catch(e){}
+  if(pre && pre.bbox){
+    const b = place(), cont = ml.getContainer();
+    try{ ml.fitBounds([[pre.bbox.w, pre.bbox.s], [pre.bbox.e, pre.bbox.n]], {padding: {top: b.top, bottom: cont.clientHeight - b.top - b.h, left: b.left, right: cont.clientWidth - b.left - b.w}, duration: 0}); }catch(e){}
+  }
+  else{
+    // Rahmen anfangs etwa 6 km hoch (kleiner Ausschnitt lohnt kaum), sonst wie gerade offen
+    const b = place(), bb = bbox(), kmH = (bb.n - bb.s) * 111.32;
+    if(kmH < 3 || kmH > 25){ const c = ml.unproject([b.cx - ml.getContainer().getBoundingClientRect().left, b.cy - ml.getContainer().getBoundingClientRect().top]); try{ ml.easeTo({zoom: fsScanZoomFor(c.lat, 6000, b.h), around: c, duration: 0}); }catch(e){} }
+  }
+  paintOpts(); upd();
+  setTimeout(()=>{ if(fsOffSt === st) upd(); }, 60);
+}
+function fsOffAreaEnd(){
+  const st = fsOffSt;
+  if(!st) return;
+  st.stop = true;
+  fsOffSt = null;
+  document.documentElement.classList.remove('fs-scanning');
+  if(st.panel) st.panel.remove();
+  if(st.frame) st.frame.remove();
+  window.removeEventListener('resize', st.resize);
+  if(fsHomeMap) fsHomeMap.off('move', st.upd);
+}
+async function fsOffAreaSave(st, replaceId){
+  const bb = st.bbox(), list = fsOffTileList(bb, st.zmax);
+  const name = (st.panel.querySelector('.fs-off-name').value || '').trim() || ('Ausschnitt ' + new Date().toLocaleDateString('de-CH'));
+  const jobs = [];
+  st.layers.forEach(l=> list.forEach(t=> jobs.push([l, t[0], t[1], t[2]])));
+  if(!jobs.length) return;
+  st.busy = true; st.stop = false;
+  try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
+  const id = replaceId || ('area_' + Date.now().toString(36));
+  const prog = st.panel.querySelector('.fs-off-prog'), bar = prog.querySelector('i'), go = st.panel.querySelector('[data-go]');
+  prog.hidden = false; go.hidden = true;
+  st.panel.querySelector('[data-hint]').textContent = 'Wird gespeichert … Die App darf offen bleiben, der Bildschirm sollte an sein.';
+  let done = 0, ok = 0, i = 0;
+  const work = async ()=>{
+    while(i < jobs.length && !st.stop){
+      const [l, z, x, y] = jobs[i++];
+      const key = id + '_' + (l === 'winter' ? 'w_' : '') + z + '_' + x + '_' + y;
+      try{
+        if(await idbGet('tiles', key)) ok++;
+        else{
+          const res = await fetch(FSM_WMTS(l === 'winter' ? 'ch.swisstopo.pixelkarte-farbe-winter' : 'ch.swisstopo.pixelkarte-farbe', 'jpeg').replace('{z}', z).replace('{x}', x).replace('{y}', y));
+          if(res.ok){ await idbPut('tiles', key, await res.blob()); ok++; }
+        }
+      }catch(e){}
+      done++;
+      if(done % 20 === 0 || done === jobs.length){ bar.style.width = (done / jobs.length * 100) + '%'; st.panel.querySelector('[data-size]').textContent = done + ' von ' + jobs.length + ' Kacheln'; }
+    }
+  };
+  await Promise.all(Array.from({length: 6}, work));
+  // Topo-Bilder der Touren im Ausschnitt (wie «Für unterwegs»: unter der Tour-Id)
+  if(!st.stop){
+    const inside = (state.tours || []).filter(t=> (t.points || []).some(p=> +p.lat <= bb.n && +p.lat >= bb.s && +p.lon >= bb.w && +p.lon <= bb.e));
+    for(const t of inside) for(const img of (t.topoImages || [])){
+      if(!img || !img.url || !img.id) continue;
+      try{ if(await idbGet('images', t.id + '_' + img.id)) continue; const r = await fetch(img.url); if(r.ok) await idbPut('images', t.id + '_' + img.id, await r.blob()); }catch(e){}
+    }
+  }
+  const now = Date.now(), complete = !st.stop && ok >= jobs.length * 0.95;
+  try{ await idbPut('downloads', id, {offlineId: id, kind: 'area', tourName: name, bbox: bb, layers: st.layers, zmax: st.zmax, downloadedAt: now, expiresAt: now + 365 * 864e5, tileCount: ok, imageCount: 0, complete}); }catch(e){}
+  fsmOfflineIds = null;
+  st.busy = false;
+  if(st.stop && fsOffSt !== st){ showToast('Abgebrochen – ' + ok + ' Kacheln sind gespeichert.'); return; }
+  showToast(complete ? '«' + name + '» ist offline gespeichert.' : 'Gespeichert, aber ' + (jobs.length - ok) + ' Kacheln fehlen (Netz?). «Aktualisieren» holt sie nach.', !complete);
+  if(fsOffSt === st) closeTopOverlayLayer();
+}
+async function fsOffListOpen(){
+  let all = [];
+  try{ all = (await idbGetAllEntries('downloads')).filter(e=> e.value && e.value.expiresAt > Date.now() && e.key !== FS_OVERVIEW_ID); }catch(e){}
+  all.sort((a, b)=> (b.value.downloadedAt || 0) - (a.value.downloadedAt || 0));
+  const kbOf = v=> (v.tileCount || 0) * (v.kind === 'area' ? (v.layers || ['karte']).reduce((a, l)=> a + FS_OFF_KB[l], 0) / Math.max(1, (v.layers || ['karte']).length) : FS_OFF_KB.karte);
+  const row = e=>{
+    const v = e.value, area = v.kind === 'area';
+    return `<div class="fs-off-row" data-id="${esc(e.key)}">
+      <div class="fs-off-row-t"><b>${esc(v.tourName || 'Karte')}</b><small>${area ? 'Ausschnitt' + ((v.layers || []).includes('winter') ? ' · mit Winterkarte' : '') : 'Tour'} · ${esc(new Date(v.downloadedAt).toLocaleDateString('de-CH'))} · ${fsOffFmtMb(kbOf(v))}${v.complete === false ? ' · unvollständig' : ''}</small></div>
+      ${area ? `<button type="button" class="fs-icon-btn" data-show aria-label="Auf der Karte zeigen">${fsIconHtml('map')}</button><button type="button" class="fs-icon-btn" data-upd aria-label="Aktualisieren">${fsIconHtml('download')}</button>` : ''}
+      <button type="button" class="fs-icon-btn" data-del aria-label="Löschen">${fsIconHtml('trash')}</button>
+    </div>`;
+  };
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-season-h">Offline-Karten</h3>
+    <p class="fs-season-p">Gespeicherte Karten gehen auch ohne Netz, z. B. in der Hütte.</p>
+    <button type="button" class="btn fs-off-new" data-new>${fsIconHtml('plus')}Ausschnitt speichern</button>
+    <div class="fs-off-list">${all.length ? all.map(row).join('') : '<p class="hint">Noch nichts gespeichert.</p>'}</div>`);
+  const close = ()=>{ const b = ov.querySelector('[data-close]'); if(b) b.click(); };
+  ov.querySelector('[data-new]').addEventListener('click', ()=>{ close(); setTimeout(()=> fsOffAreaOpen(null), 80); });
+  ov.querySelectorAll('.fs-off-row').forEach(r=>{
+    const id = r.getAttribute('data-id'), e = all.find(x=> x.key === id), v = e && e.value;
+    const del = r.querySelector('[data-del]');
+    del.addEventListener('click', async ()=>{
+      if(!confirm('«' + (v.tourName || 'Karte') + '» vom Gerät löschen?')) return;
+      try{ await deleteTourOfflineData(id); }catch(err){}
+      fsmOfflineIds = null; r.remove(); showToast('Gelöscht.');
+    });
+    const upd = r.querySelector('[data-upd]');
+    if(upd) upd.addEventListener('click', ()=>{ close(); setTimeout(()=> fsOffAreaOpen({id, name: v.tourName, bbox: v.bbox, layers: v.layers, zmax: v.zmax}), 80); });
+    const show = r.querySelector('[data-show]');
+    if(show) show.addEventListener('click', ()=>{ close(); if(typeof fsHomeSetDetent === 'function') fsHomeSetDetent('karte'); try{ fsHomeMap.fitBounds([[v.bbox.w, v.bbox.s], [v.bbox.e, v.bbox.n]], {padding: 40, duration: 600}); }catch(err){} });
+  });
+}
