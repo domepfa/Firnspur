@@ -153,6 +153,11 @@ aus anderen Apps übernehmen.
   In der Tour: Knopf «Hang-Scan in 3D» im Routen-Check (`fsScanTour`/`fsScanForRoute`): Rahmen entlang der Hauptrichtung der Route
   (300 m Rand, bis 12 km), Blick von der Seite (`viewBearing`), Route eingezeichnet (`s.route`). «Hänge über der Spur prüfen»
   (`fsRcAboveRun`/`fsRcAboveAnalyse`): Zellen ab 35° bis 250 m neben der Spur, ≥ 30 m höher, zur Spur hin abfallend; Ergebnis `fs-rc-above`.
+- Offline-Karten (Menü, `fsOffListOpen`): Liste der gespeicherten Karten (Ausschnitte und «Für unterwegs» geladene Touren), Ausschnitt zeigen,
+  aktualisieren (holt Fehlendes), löschen mit Rückfrage. «Ausschnitt speichern» (`fsOffAreaOpen`/`fsOffAreaSave`): fester Rahmen auf der Startkarte,
+  Landeskarte und/oder Winterkarte bis Zoom 16 («Sehr genau» aus = bis 15), Grösse geschätzt (`FS_OFF_KB`, höchstens `FS_OFF_MAX_TILES`), Topo-Bilder der
+  Touren darin. Kacheln in IndexedDB `<Id>_z_x_y` bzw. `<Id>_w_z_x_y`, Eintrag in `downloads` (kind 'area'). Protokoll `fsoff://karte|winter/…`:
+  zuerst gespeicherte Kacheln, sonst Netz, ohne Netz gröbere Kachel vergrössert.
 - In den App-Dateien: Laden/Offline-Cache, Actions, Ansichten (Touren, Hütten, Gebiete),
   Modal rendering (Formulare), Event wiring, Init.
 
