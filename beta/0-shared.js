@@ -3741,9 +3741,10 @@ function printTourenzettel(agendaId){
   huts.forEach(h=> contactRows.push([h.name, h.contact]));
 
   // Kartenausschnitt: echte Punkte/Track der verlinkten Tour, falls vorhanden – sonst kein Abschnitt.
-  const points = (tour && Array.isArray(tour.points)) ? tour.points.filter(p=>p && !isNaN(parseFloat(p.lat)) && !isNaN(parseFloat(p.lon))) : [];
-  const track = tour ? ((tour.trackSimplified && tour.trackSimplified.length) ? tour.trackSimplified : (tour.manualTrack && tour.manualTrack.length ? tour.manualTrack : null)) : null;
-  const hasMap = points.length > 0 || (track && track.length > 0);
+  // Alle angehakten Routen der Touren im Termin plus eigene GPX-Routen (fsAgendaMapData)
+  const tzMap = fsAgendaMapData(a);
+  const points = tzMap.points;
+  const hasMap = points.length > 0 || tzMap.lines.length > 0;
 
   // Auf einen Blick: Treffpunkt/Zeit, Leitung, Rückkehr – und die Eckdaten der Tour
   const meetTime = (a.meetingPoint || '').match(/\b(\d{1,2})[:.](\d{2})\b/);
@@ -3896,7 +3897,7 @@ function printTourenzettel(agendaId){
 
   <div class="section"><h4>${fsIconHtml('pack')} Material</h4>${materialList.length ? `<div class="material-box">${materialList.map(m=>`<div>☐ ${escHtml(m)}</div>`).join('')}</div>` : `<p class="muted">Keine Material-Angaben zu dieser Tour hinterlegt.</p>`}</div>
 
-  ${hasMap ? `<div class="section"><h4>${fsIconHtml('map')} Kartenausschnitt</h4><div id="tz-map">${(()=>{ const d = fsTourSketchData(tour); return fsOfflineSketchHtml(d.lines, d.points, 'Skizze ohne Kartenhintergrund (Norden oben)'); })()}</div></div>` : ''}
+  ${hasMap ? `<div class="section"><h4>${fsIconHtml('map')} Kartenausschnitt</h4><div id="tz-map">${fsOfflineSketchHtml(tzMap.lines, tzMap.points, 'Skizze ohne Kartenhintergrund (Norden oben)')}</div></div>` : ''}
 
   ${participants.length ? `<div class="section"><h4>${fsIconHtml('users')} Teilnehmende (${participants.length})</h4><div class="box" style="padding:6px 10px;"><table>
     <tr><th>Name</th><th>Natel</th><th style="text-align:center;">Da</th>${winter ? '<th style="text-align:center;">LVS ✓</th>' : ''}</tr>
@@ -3981,13 +3982,17 @@ function printTourenzettel(agendaId){
           if(p.label) m.bindPopup(p.label);
           bounds.push([lat, lon]);
         });
-        if(track && track.length){ win.L.polyline(track, {color:'#B5652D', weight:3}).addTo(map); bounds = bounds.concat(track); }
+        tzMap.lines.forEach(l=>{
+          win.L.polyline(l.coords, {color:'#ffffff', weight:6, opacity:.9}).addTo(map);
+          win.L.polyline(l.coords, {color:l.color, weight:3.5, dashArray: l.dash ? '9,7' : null}).addTo(map);
+          bounds = bounds.concat(l.coords);
+        });
         if(bounds.length > 1) map.fitBounds(bounds, {padding:[20,20]});
         else if(bounds.length === 1) map.setView(bounds[0], 13);
         else mapEl.style.display = 'none';
       }catch(e){
         const mapEl = $('tz-map');
-        if(mapEl){ const d = fsTourSketchData(tour); mapEl.innerHTML = fsNoEmojiHtml(fsOfflineSketchHtml(d.lines, d.points, 'Skizze ohne Kartenhintergrund (Norden oben)')); }
+        if(mapEl){ mapEl.innerHTML = fsNoEmojiHtml(fsOfflineSketchHtml(tzMap.lines, tzMap.points, 'Skizze ohne Kartenhintergrund (Norden oben)')); }
       }
     }).catch(()=>{ /* Skizze bleibt */ });
   }
@@ -4629,6 +4634,7 @@ function applyAgendaEditPrefill(agendaForm, a){
   if(endNoteInput && a.endNote) endNoteInput.value = a.endNote;
   const xb = agendaForm.querySelector('#agenda-extra-tours');
   if(xb){ xb._wired = false; xb.querySelector('.agenda-extra-list').innerHTML = ''; wireAgendaExtraTours(agendaForm, a.extraTours || []); }
+  setTimeout(()=> agendaMapRoutesRefresh(agendaForm), 0);
 }
 // Ohne editId: leeres Formular für einen neuen Termin (bisheriges Verhalten). Mit editId: dasselbe
 // Formular, aber mit den Werten des bestehenden Termins vorbelegt (Titel/Button-Beschriftung
@@ -4656,6 +4662,13 @@ function agendaFormHtml(editId){
         </select>
       </div>
       <div id="agenda-day-plan-container"></div>
+      <div class="field agenda-mr" id="agenda-map-routes"><label>Routen auf dem Tourenzettel</label>
+        <div class="agenda-mr-list"></div>
+        <button type="button" class="btn secondary agenda-mr-gpx">${fsIconHtml('upload')} GPX-Datei nur für diesen Termin</button>
+        <input type="file" accept=".gpx,application/gpx+xml" class="agenda-mr-file" hidden/>
+        <input type="hidden" name="mapRoutesOff" value="${esc(JSON.stringify((a && a.mapRoutesOff) || []))}"/>
+        <input type="hidden" name="ownRoutes" value="${esc(JSON.stringify((a && a.ownRoutes) || []))}"/>
+      </div>
       <div class="field fs-meet"><label>Treffpunkt</label><input name="meetingPoint" placeholder="z. B. 06:30 Bahnhof" value="${a ? esc(a.meetingPoint||'') : ''}"/>
         ${fsMeetToolsHtml(a)}
       </div>
@@ -5013,7 +5026,100 @@ function collectAgendaDayPlanFromDom(container){
 // Baut den Bereich unterhalb von "Art" neu auf: klassische Einzeltag-Felder, solange kein
 // (abweichendes) Enddatum gesetzt ist, sonst der Tag-für-Tag-Plan. Wird beim ersten Öffnen des
 // Formulars UND bei jeder Änderung von Start-/Enddatum aufgerufen.
+/* ===== Termin: Routen auf dem Tourenzettel =====
+   Alle Routen der Touren eines Termins (erste Tour, weitere Touren, Tagesplan) plus eigene GPX-Dateien nur für den Termin
+   (ownRoutes [{id, name, coords}]); abgewählte stehen in mapRoutesOff [id] – neue Routen sind so von selbst dabei.
+   Id einer Route: <TourId>|<Routenschlüssel> bzw. own|<id>. */
+function fsAgendaTourRefs(a){
+  const refs = [];
+  if(a.tourRef) refs.push(a.tourRef);
+  (a.extraTours || []).forEach(x=>{ if(x.tourRef) refs.push(x.tourRef); });
+  (a.days || []).forEach(d=> (d.segments || []).forEach(sg=>{ if(sg.tourRef) refs.push(sg.tourRef); }));
+  const seen = {}, tours = [];
+  refs.forEach(r=>{ const t = findAgendaLinkedTour(r); if(t && !seen[t.id]){ seen[t.id] = 1; tours.push(t); } });
+  return tours;
+}
+function fsAgendaRouteList(a){
+  const multi = fsAgendaTourRefs(a);
+  const list = [];
+  multi.forEach(t=> fsTourRoutes(t).forEach(r=>{
+    const st = fsRouteStyle(r);
+    list.push({id: t.id + '|' + r.key, label: (multi.length > 1 ? t.name + ' – ' : '') + fsRouteTitle(r), color: st.color, dash: st.dash, coords: r.coords || []});
+  }));
+  (a.ownRoutes || []).forEach(o=> list.push({id: 'own|' + o.id, label: o.name || 'Eigene GPX-Route', color: FS_ROUTE_TYPES.variante.color, dash: true, coords: o.coords || [], own: true}));
+  list.forEach(r=>{ r.coords = r.coords.map(c=> Array.isArray(c) ? [+c[0], +c[1]] : [+c.lat, +(c.lon != null ? c.lon : c.lng)]).filter(c=> isFinite(c[0]) && isFinite(c[1])); });
+  return list.filter(r=> r.coords.length > 1);
+}
+function fsAgendaMapData(a){
+  const off = a.mapRoutesOff || [];
+  const lines = fsAgendaRouteList(a).filter(r=> off.indexOf(r.id) < 0).map(r=> ({coords: r.coords, color: r.color, dash: r.dash}));
+  const points = [];
+  fsAgendaTourRefs(a).forEach(t=> (t.points || []).forEach(p=>{ if(p && isFinite(parseFloat(p.lat)) && isFinite(parseFloat(p.lon))) points.push({lat: +p.lat, lon: +p.lon, category: p.category || '', label: p.label || ''}); }));
+  return {lines, points};
+}
+// Stand des Formulars als Termin-Objekt (nur was für die Routenliste zählt)
+function fsAgendaFormRefs(agendaForm){
+  const ref = v=>{ if(!v || v === 'custom') return null; const [source, id] = v.split(':'); return {source, id}; };
+  const sel = agendaForm.querySelector('#agenda-tour-select');
+  const a = {tourRef: sel ? ref(sel.value) : null, extraTours: [], days: []};
+  agendaForm.querySelectorAll('.agenda-extra-sel').forEach(x=> a.extraTours.push({tourRef: ref(x.value)}));
+  const segs = []; agendaForm.querySelectorAll('.agenda-day-tour-select').forEach(x=> segs.push({tourRef: ref(x.value)}));
+  if(segs.length) a.days = [{segments: segs}];
+  const pj = n=>{ try{ return JSON.parse((agendaForm.querySelector(`input[name="${n}"]`) || {}).value || '[]'); }catch(e){ return []; } };
+  a.mapRoutesOff = pj('mapRoutesOff'); a.ownRoutes = pj('ownRoutes');
+  return a;
+}
+function agendaMapRoutesRefresh(agendaForm){
+  const box = agendaForm.querySelector('#agenda-map-routes'); if(!box) return;
+  const a = fsAgendaFormRefs(agendaForm), list = fsAgendaRouteList(a);
+  box.querySelector('.agenda-mr-list').innerHTML = list.length ? list.map(r=> `<label class="agenda-mr-row">
+      <input type="checkbox" data-mr="${esc(r.id)}" ${a.mapRoutesOff.indexOf(r.id) < 0 ? 'checked' : ''}/>
+      <span class="fs-route-sw${r.dash ? ' dash' : ''}" style="--c:${r.color}"></span><span class="agenda-mr-l">${esc(r.label)} <small>· ${fsLineKm(r.coords).toFixed(1)} km</small></span>
+      ${r.own ? `<button type="button" class="fs-icon-btn agenda-mr-del" data-mr-del="${esc(r.id.slice(4))}" aria-label="GPX-Route entfernen">${fsIconHtml('trash')}</button>` : ''}
+    </label>`).join('') : '<p class="hint" style="margin:0 0 8px;">Die gewählten Touren haben noch keine Routen.</p>';
+}
+function wireAgendaMapRoutes(agendaForm){
+  const box = agendaForm.querySelector('#agenda-map-routes'); if(!box) return;
+  if(!box._wired){
+    box._wired = true;
+    const hid = n=> agendaForm.querySelector(`input[name="${n}"]`);
+    const getJ = n=>{ try{ return JSON.parse(hid(n).value || '[]'); }catch(e){ return []; } };
+    const setJ = (n, v)=>{ hid(n).value = JSON.stringify(v); markModalDirty(); };
+    box.addEventListener('change', e=>{
+      const id = e.target.getAttribute && e.target.getAttribute('data-mr'); if(!id) return;
+      const off = getJ('mapRoutesOff').filter(x=> x !== id); if(!e.target.checked) off.push(id); setJ('mapRoutesOff', off);
+    });
+    box.addEventListener('click', e=>{
+      const d = e.target.closest && e.target.closest('[data-mr-del]'); if(!d) return;
+      e.preventDefault();
+      if(!confirm('Diese GPX-Route aus dem Termin entfernen?')) return;
+      const id = d.getAttribute('data-mr-del');
+      setJ('ownRoutes', getJ('ownRoutes').filter(o=> o.id !== id)); agendaMapRoutesRefresh(agendaForm);
+    });
+    const file = box.querySelector('.agenda-mr-file');
+    box.querySelector('.agenda-mr-gpx').addEventListener('click', ()=> file.click());
+    file.addEventListener('change', ()=>{
+      const f = file.files && file.files[0]; if(!f) return;
+      const rd = new FileReader();
+      rd.onload = ()=>{
+        const pts = parseGpxTrackPoints(String(rd.result || ''));
+        file.value = '';
+        if(pts.length < 2){ showToast('In dieser Datei ist keine Linie.', true); return; }
+        const coords = simplifyTrackForStorage(pts, 400).map(p=> [Math.round(p.lat * 1e5) / 1e5, Math.round(p.lon * 1e5) / 1e5]);
+        const name = f.name.replace(/\.gpx$/i, '').replace(/[_-]+/g, ' ').trim();
+        setJ('ownRoutes', getJ('ownRoutes').concat([{id: 'r' + Date.now().toString(36), name, coords}]));
+        agendaMapRoutesRefresh(agendaForm);
+      };
+      rd.readAsText(f);
+    });
+    // Tour-Auswahl geändert (Einzeltag, weitere Touren, Tagesplan): Liste neu
+    agendaForm.addEventListener('change', e=>{ if(e.target.matches && e.target.matches('#agenda-tour-select, .agenda-extra-sel, .agenda-day-tour-select, select[name="type"]')) setTimeout(()=> agendaMapRoutesRefresh(agendaForm), 0); });
+    agendaForm.addEventListener('click', e=>{ if(e.target.closest && e.target.closest('.agenda-extra-del, .agenda-day-seg-remove, [data-act*="seg"]')) setTimeout(()=> agendaMapRoutesRefresh(agendaForm), 0); });
+  }
+  agendaMapRoutesRefresh(agendaForm);
+}
 function syncAgendaDayPlanMode(agendaForm){
+  setTimeout(()=> wireAgendaMapRoutes(agendaForm), 0);
   const container = agendaForm.querySelector('#agenda-day-plan-container');
   if(!container) return;
   const startDate = agendaForm.querySelector('#agenda-start-date').value;
@@ -5246,6 +5352,8 @@ async function submitAgendaForm(form){
     type: form.type||'ski', startDate, endDate: form.endDate||'',
     tourName, tourRef, meetingPoint: form.meetingPoint||'', note: form.note||'',
     days, extraTours,
+    mapRoutesOff: (()=>{ try{ return JSON.parse(form.mapRoutesOff || '[]'); }catch(e){ return []; } })(),
+    ownRoutes: (()=>{ try{ return JSON.parse(form.ownRoutes || '[]'); }catch(e){ return []; } })(),
     accessRouteId, descentRouteId,
     anreiseType, anreiseOrt,
     endOption, endNote,
