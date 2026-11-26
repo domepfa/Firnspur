@@ -11505,8 +11505,15 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         : (drawAppend ? 'Tippen: nächster Punkt · Linie antippen: Zwischenpunkt oder Art ändern' : 'Punkte ziehen zum Verschieben · Linie antippen: Zwischenpunkt oder Art ändern · «Weiterzeichnen» zum Verlängern');
     };
     var drawAppend = true, drawFollowPend = null;
+    // Einrasten an anderen Routen ein/aus (Gerät): aus = Punkte setzen sich frei, auch ganz nahe an anderen Linien
+    const snapBtn = document.createElement('button');
+    snapBtn.type = 'button'; snapBtn.className = 'btn secondary fs-draw-append fs-draw-snap'; snapBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
+    const snapPaint = ()=>{ let on = true; try{ on = localStorage.getItem('fs-draw-snap') !== '0'; }catch(e){} snapBtn.classList.toggle('on', on); snapBtn.setAttribute('aria-pressed', on); snapBtn.innerHTML = fsIconHtml('link') + (on ? ' Einrasten: an' : ' Einrasten: aus'); };
+    snapBtn.addEventListener('click', ()=>{ let on = true; try{ on = localStorage.getItem('fs-draw-snap') !== '0'; localStorage.setItem('fs-draw-snap', on ? '0' : '1'); }catch(e){} snapPaint(); showToast(on ? 'Einrasten aus – Punkte setzen sich frei.' : 'Einrasten an – nahe einer Route anschliessen oder ihr folgen.'); });
+    snapPaint();
     lineActionsRow.appendChild(gpsStartBtn);
     lineActionsRow.appendChild(appendBtn);
+    lineActionsRow.appendChild(snapBtn);
     lineActionsRow.appendChild(reverseBtn);
     lineActionsRow.appendChild(undoBtn);
     lineActionsRow.appendChild(clearLineBtn);
@@ -11960,12 +11967,35 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       });
       return out;
     }
-    function drawSnapFind(lat, lon){
-      let z = 14; try{ z = map.getZoom(); }catch(e){}
-      const tol = 24 * 156543 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z); // etwa 24 Bildpunkte
+    // Nächste Stelle auf einer Linie (auch zwischen ihren Punkten): Abschnitt i, Fusspunkt p, Abstand d in m
+    function drawProjLine(coords, lat, lon){
+      const kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110540;
       let best = null;
-      drawSnapTargets().forEach(L=> L.coords.forEach((q, j)=>{ const d = fsGeoDist(lat, lon, q[0], q[1]); if(d < tol && (!best || d < best.d)) best = {L, j, d}; }));
+      for(let i = 0; i < coords.length - 1; i++){
+        const ax = (coords[i][1] - lon) * kx, ay = (coords[i][0] - lat) * ky, bx = (coords[i + 1][1] - lon) * kx, by = (coords[i + 1][0] - lat) * ky;
+        const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+        const t = l2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+        const px = ax + t * dx, py = ay + t * dy, d = Math.hypot(px, py);
+        if(!best || d < best.d) best = {i, t, d, p: [lat + py / ky, lon + px / kx]};
+      }
       return best;
+    }
+    // Linie mit dem Fusspunkt als eigenem Punkt: {coords, j} (j = Index des Fusspunkts)
+    function drawSplitAt(coords, pr){
+      if(pr.t <= 0.02) return {coords, j: pr.i};
+      if(pr.t >= 0.98) return {coords, j: pr.i + 1};
+      return {coords: coords.slice(0, pr.i + 1).concat([pr.p], coords.slice(pr.i + 1)), j: pr.i + 1};
+    }
+    function drawSnapOn(){ try{ return localStorage.getItem('fs-draw-snap') !== '0'; }catch(e){ return true; } }
+    function drawSnapFind(lat, lon){
+      if(!drawSnapOn()) return null;
+      let z = 14; try{ z = map.getZoom(); }catch(e){}
+      const tol = 26 * 156543 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z); // etwa 26 Bildpunkte
+      let best = null;
+      drawSnapTargets().forEach(L=>{ const pr = drawProjLine(L.coords, lat, lon); if(pr && pr.d < tol && (!best || pr.d < best.d)) best = {L, pr, d: pr.d}; });
+      if(!best) return null;
+      const sp = drawSplitAt(best.L.coords, best.pr);
+      return {L: {coords: sp.coords, label: best.L.label}, j: sp.j, d: best.d};
     }
     function drawFollowAsk(hit, first){
       const L = hit.L, j = hit.j, p = L.coords[j];
@@ -11992,7 +12022,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         if(j < L.coords.length - 1) wrap.appendChild(gpxBtn('Ab hier folgen bis zum Ende', 'secondary', ()=> take(L.coords.slice(j), 'Der Route bis zum Ende gefolgt.')));
         if(j > 0) wrap.appendChild(gpxBtn('Ab hier folgen bis zum Anfang', 'secondary', ()=> take(L.coords.slice(0, j + 1).reverse(), 'Der Route bis zum Anfang gefolgt.')));
       }
-      wrap.appendChild(gpxBtn('Nur hier anschliessen', 'secondary', ()=> map.closePopup()));
+      wrap.appendChild(gpxBtn(first ? 'Hier beginnen (abzweigen)' : 'Nur hier anschliessen', first ? '' : 'secondary', ()=> map.closePopup()));
       FL.popup().setLatLng(p).setContent(wrap).openOn(map);
     }
     function drawLabelUnused(m){ return m === 'ski' ? 'Skispur' : m === 'weg' ? 'Wanderweg' : 'Gerade'; }
@@ -12380,7 +12410,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         if(!a.trackSimplified || a.trackSimplified.length < 2) return;
         const st = fsRouteStyle({type: FS_ROUTE_TYPES[a.type] ? a.type : 'variante', src:'alt', idx:i});
         FL.polyline(a.trackSimplified, {color:'#ffffff', weight:6, opacity:0.6, interactive:false}).addTo(otherRoutesLayer);
-        FL.polyline(a.trackSimplified, {color:'#000', weight:22, opacity:0}).addTo(otherRoutesLayer).on('click', (e)=>{ FL.DomEvent.stopPropagation(e); FL.popup().setLatLng(e.latlng).setContent(altRouteMenu(i, a)).openOn(map); });
+        FL.polyline(a.trackSimplified, {color:'#000', weight:22, opacity:0}).addTo(otherRoutesLayer).on('click', (e)=>{
+          FL.DomEvent.stopPropagation(e);
+          // Beim Zeichnen gilt der Tipp der eigenen Linie (Punkt setzen, einrasten), nicht dem Menü der anderen Route
+          if(mode === 'line' && !usingGpxTrack && (drawAppend || drawFollowPend || !manualTrack.length)){ addLineAt(e.latlng.lat, e.latlng.lng); return; }
+          FL.popup().setLatLng(e.latlng).setContent(altRouteMenu(i, a)).openOn(map);
+        });
         FL.polyline(a.trackSimplified, {color: st.color, weight:3.5, opacity:0.85, dashArray:'7,6', interactive:false}).addTo(otherRoutesLayer);
       });
       if(!manualTrack.length){
@@ -12690,10 +12725,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       const pd = drawFollowPend; drawFollowPend = null;
       let z = 14; try{ z = map.getZoom(); }catch(e){}
       const tol = 40 * 156543 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z);
-      let j2 = -1, best = Infinity;
-      pd.L.coords.forEach((q, i)=>{ const d = fsGeoDist(lat, lon, q[0], q[1]); if(d < best){ best = d; j2 = i; } });
-      if(best > tol || j2 === pd.j){ drawToolsSync(); showToast('Nicht auf derselben Route getippt – nichts angehängt.', true); return; }
-      const part = j2 > pd.j ? pd.L.coords.slice(pd.j, j2 + 1) : pd.L.coords.slice(j2, pd.j + 1).reverse();
+      const pr = drawProjLine(pd.L.coords, lat, lon);
+      if(!pr || pr.d > tol){ drawToolsSync(); showToast('Nicht auf derselben Route getippt – nichts angehängt.', true); return; }
+      const sp = drawSplitAt(pd.L.coords, pr), C = sp.coords, j2 = sp.j, j1 = pd.j + (C.length > pd.L.coords.length && pr.i < pd.j ? 1 : 0);
+      if(j2 === j1){ drawToolsSync(); showToast('Das ist dieselbe Stelle – weiter entfernt antippen.', true); drawFollowPend = pd; return; }
+      const part = j2 > j1 ? C.slice(j1, j2 + 1) : C.slice(j2, j1 + 1).reverse();
       pushUndo(); drawSync();
       if(!manualTrack.length) manualTrack = [part[0]];
       drawSegs.push({mode: 'folgen', label: pd.L.label, coords: part});
@@ -18412,6 +18448,14 @@ function fsTourDrawRoute(){
     }
     // Abfahrt/Abstieg: am Ende des Aufstiegs (Gipfel) beginnen
     let startAt = null;
+    if(type === 'aufstieg'){
+      // Zweiter Gipfel: ein neuer Aufstieg beginnt am Ende der letzten Abfahrt (wenn es schon Aufstieg und Abfahrt gibt)
+      const val = (id)=>{ const el = document.getElementById(id); return el ? el.value : ''; };
+      const parse = (id, d)=>{ try{ return JSON.parse(val(id) || 'null') || d; }catch(e){ return d; } };
+      const rs = fsTourRoutes({trackSimplified: parse('track-simplified-hidden', null), trackType: val('route-track-type'), manualTrack: [], altTracks: parse('route-alt-tracks', [])});
+      const down = rs.filter(r=> r.type === 'abfahrt' || r.type === 'abstieg').pop();
+      if(down && rs.some(r=> r.type === 'aufstieg' || r.type === 'aufab') && down.coords && down.coords.length > 1){ const q = down.coords[down.coords.length - 1]; startAt = Array.isArray(q) ? [+q[0], +q[1]] : [+q.lat, +q.lon]; }
+    }
     if(type === 'abfahrt' || type === 'abstieg'){
       const val = (id)=>{ const el = document.getElementById(id); return el ? el.value : ''; };
       const parse = (id, d)=>{ try{ return JSON.parse(val(id) || 'null') || d; }catch(e){ return d; } };
