@@ -11277,7 +11277,7 @@ function fsRouteEditLine(key){
   }
   tmp.value = JSON.stringify(a.trackSimplified || []); tmp._drawSegs = null;
   document.getElementById('alt-edit-line-plan').value = JSON.stringify(a.plan || []);
-  fsEdNext = {line: true, meta: key};
+  fsEdNext = {line: true, noPoints: true, meta: key};
   openFullscreenMap((id)=> renderPointsEditorMap(id, 'points-hidden', null, 'alt-edit-line', [], [], null, null), ()=>{
     let line = [], plan = [];
     try{ line = JSON.parse(tmp.value || '[]'); plan = JSON.parse(document.getElementById('alt-edit-line-plan').value || '[]'); }catch(e){}
@@ -11386,34 +11386,12 @@ function renderMiniMap(containerId, lat, lon, label){
 // Nach einem GPX-Upload nur die Übersicht neu zeichnen, die Bearbeiten-Karte nicht von selbst öffnen
 let fsEdNoAuto = false;
 // Übersicht statt kleiner Karte: was eingetragen ist (Punkte, Linie, GPX) und ein Knopf zur Bearbeiten-Karte
-/* ===== Ein Editor für alle Routen der Tour =====
-   Im Vollbild-Editor des Tourformulars oben eine Reihe mit allen Routen (fsTourRoutes aus den Formularfeldern) und «+ Neue Route».
-   Wechsel = Editor schliessen (alles ist dann im Formular) und mit der anderen Route wieder öffnen (fsRouteEditLine/fsTourDrawRoute). */
+// Routen aus den Feldern des Tourformulars (für die Richtungsprüfung)
 function fsEdFormRoutes(){
   const val = id=>{ const el = document.getElementById(id); return el ? el.value : ''; };
   const parse = (id, d)=>{ try{ return JSON.parse(val(id) || 'null') || d; }catch(e){ return d; } };
   return fsTourRoutes({trackSimplified: parse('track-simplified-hidden', null), trackName: val('route-track-name'), trackType: val('route-track-type'),
     manualTrack: parse('manual-track-hidden', []), manualTrackName: val('route-manual-name'), manualTrackType: val('route-manual-type'), altTracks: parse('route-alt-tracks', [])});
-}
-function fsEdSwitch(key){
-  if(typeof closeTopOverlayLayer === 'function') closeTopOverlayLayer();
-  setTimeout(()=>{ if(key === 'new') fsTourDrawRoute(); else fsRouteEditLine(key); }, 350);
-}
-function fsEdRouteChipsEl(activeKey){
-  const routes = fsEdFormRoutes();
-  const row = document.createElement('div');
-  row.className = 'fs-ed-chips';
-  row.innerHTML = routes.map(r=>{ const st = fsRouteStyle(r); return `<button type="button" class="fs-ed-chip${r.key === activeKey ? ' on' : ''}" data-k="${esc(r.key)}" aria-pressed="${r.key === activeKey}"><i class="fs-route-sw${st.dash ? ' dash' : ''}" style="--c:${st.color}"></i>${esc(fsRouteTitle(r))}</button>`; }).join('')
-    + `<button type="button" class="fs-ed-chip add" data-k="new">${fsIconHtml('plus')}Neue Route</button>`;
-  row.addEventListener('click', e=>{ const b = e.target.closest('[data-k]'); if(!b || b.classList.contains('on')) return; fsEdSwitch(b.getAttribute('data-k')); });
-  return row;
-}
-// «Karte bearbeiten» im Tourformular: mit der ersten Route öffnen (gezeichnete Linie, sonst GPX, sonst weitere Route)
-function fsEdOpenTourEditor(open){
-  const rs = fsEdFormRoutes();
-  const first = rs.find(r=> r.key === 'manual') || rs.find(r=> r.key === 'track') || rs[0];
-  if(!first || first.key === 'manual'){ fsEdNext = {line: true, meta: first ? 'manual' : undefined}; open(); return; }
-  fsRouteEditLine(first.key);
 }
 function fsEdCompact(containerId, hiddenInputId, listContainerId, manualTrackHiddenId, gpxHiddenId, open){
   const el = document.getElementById(containerId);
@@ -11428,9 +11406,8 @@ function fsEdCompact(containerId, hiddenInputId, listContainerId, manualTrackHid
   if(!routesHere && gpx.length > 1) facts.push('GPX-Track ' + km(gpx).toFixed(1) + ' km');
   el.style.display = el.style.display === 'none' ? '' : el.style.display;
   el.innerHTML = `<div class="fs-ed-compact"><span>${fsIconHtml('map')}${esc(facts.join(' · '))}</span>
-    <button type="button" class="btn" id="${esc(containerId)}-open">${routesHere ? fsIconHtml('map') + 'Karte bearbeiten' : fsIconHtml('edit') + 'Auf der Karte bearbeiten'}</button></div>`;
-  // Tourformular: ein Editor für Routen und Punkte (Reiter); vorgegebene Öffnung (Stift einer Route) geht vor
-  el.querySelector('button').addEventListener('click', ()=>{ if(routesHere && !fsEdNext.line && !fsEdNext.pointsOnly) fsEdOpenTourEditor(open); else open(); });
+    <button type="button" class="btn${routesHere ? ' secondary' : ''}" id="${esc(containerId)}-open">${routesHere ? fsIconHtml('pin') + 'Punkte auf der Karte setzen' : fsIconHtml('edit') + 'Auf der Karte bearbeiten'}</button></div>`;
+  el.querySelector('button').addEventListener('click', ()=>{ if(routesHere && !fsEdNext.line) fsEdNext = {pointsOnly: true}; open(); });
   const listEl = listContainerId && document.getElementById(listContainerId);
   if(listEl) listEl.innerHTML = pts.length ? '<div class="chips" style="margin-top:8px;">' + pts.map(p=> `<span class="chip" style="background:var(--ice-light); border-color:transparent;">${fsIco((MAP_POINT_CATEGORIES[p.category || ''] || MAP_POINT_CATEGORIES['']).icon)} ${esc(p.label || 'Punkt')}</span>`).join('') + '</div>' : '';
 }
@@ -11542,9 +11519,6 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     if(!el2 || !hiddenInput) return;
     const edNext = fsEdNext; fsEdNext = {}; // einmalige Vorgaben fürs Öffnen (Routenliste: gleich «Linie», ohne Punkte)
     const drawEditAltId = edNext.meta && /^alt:/.test(edNext.meta) ? edNext.meta.slice(4) : null; // weitere Route, die gerade bearbeitet wird
-    // Tourformular im Vollbild: ein Editor für alle Routen (Reihe oben, «Mehr» unten, andere Route antippen = wechseln)
-    const edTourCtx = containerId === 'fullscreen-map-container' && !edNext.pointsOnly && !!document.getElementById('fs-routes-edit') && (manualTrackHiddenId === 'manual-track-hidden' || manualTrackHiddenId === 'alt-edit-line');
-    const edActiveKey = edNext.meta || (edNext.gpx ? 'track' : 'manual');
     const mapDivId = containerId + '-inner';
     destroyExistingMap(mapDivId);
     el2.innerHTML = '';
@@ -11716,13 +11690,13 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     finishBtn.type = 'button'; finishBtn.className = 'btn secondary'; finishBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
     finishBtn.textContent = '✓ Linie fertig';
     // Verbinden als: Skispur / Wanderweg / Gerade (gilt für neue Abschnitte)
-    let drawConnect = (()=>{ let v = null; try{ v = localStorage.getItem('fs-draw-connect'); }catch(e){} return ['ski', 'weg', 'gerade'].indexOf(v) >= 0 ? v : (fsAppKey() === 'wandern' ? 'weg' : 'ski'); })();
+    let drawConnect = (()=>{ let v = null; try{ v = localStorage.getItem('fs-draw-connect'); }catch(e){} if(v === 'weg' && fsAppKey() === 'firnspur') v = 'ski'; return ['ski', 'weg', 'gerade'].indexOf(v) >= 0 ? v : (fsAppKey() === 'wandern' ? 'weg' : 'ski'); })(); // Skitour: kein Wanderweg
     let drawSegs = (manualTrackHidden && manualTrackHidden._drawSegs) || null;
     const connectRow = document.createElement('div');
     connectRow.className = 'fs-draw-connect';
     const paintConnect = ()=>{
       connectRow.innerHTML = '<div class="fs-draw-connect-l">Verbinden als</div><div class="fs-draw-seg" role="group" aria-label="Verbinden als">'
-        + [['ski', 'snow', (typeof drawRouteIsDown === 'function' && drawRouteIsDown()) ? 'Skispur ↓' : 'Skispur'], ['weg', 'walk', 'Wanderweg'], ['gerade', 'ruler', 'Gerade']].map(([k, ic, l])=> `<button type="button" data-connect="${k}" aria-pressed="${drawConnect === k}" class="${drawConnect === k ? 'on' : ''}">${fsIconHtml(ic)}${l}</button>`).join('') + '</div>'
+        + [['ski', 'snow', (typeof drawRouteIsDown === 'function' && drawRouteIsDown()) ? 'Skispur ↓' : 'Skispur'], ['weg', 'walk', 'Wanderweg'], ['gerade', 'ruler', 'Gerade']].filter(x=> !(x[0] === 'weg' && fsAppKey() === 'firnspur')).map(([k, ic, l])=> `<button type="button" data-connect="${k}" aria-pressed="${drawConnect === k}" class="${drawConnect === k ? 'on' : ''}">${fsIconHtml(ic)}${l}</button>`).join('') + '</div>'
         + '<div class="fs-draw-hint">Tippen: nächster Punkt · Kreis in der Mitte eines Abschnitts ziehen: nur diesen Teil umlenken</div>';
       connectRow.querySelectorAll('[data-connect]').forEach(b=> b.addEventListener('click', ()=>{ drawConnect = b.getAttribute('data-connect'); try{ localStorage.setItem('fs-draw-connect', drawConnect); }catch(e){} paintConnect(); }));
     };
@@ -11750,7 +11724,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       appendBtn.innerHTML = fsIconHtml('plus') + (drawAppend ? ' Weiterzeichnen: an' : ' Weiterzeichnen');
       const hint = connectRow.querySelector('.fs-draw-hint');
       if(hint) hint.textContent = drawFollowPend ? 'Jetzt die Stelle auf «' + drawFollowPend.L.label + '» antippen, bis zu der die Linie folgen soll.'
-        : (drawAppend ? 'Tippen: nächster Punkt · Linie antippen: Zwischenpunkt oder Art ändern' : 'Punkte ziehen zum Verschieben · Linie antippen: Zwischenpunkt oder Art ändern · «Weiterzeichnen» zum Verlängern');
+        : 'Tippen: nächster Punkt · Kreis in der Mitte eines Abschnitts ziehen: nur diesen Teil umlenken';
     };
     var drawAppend = true, drawFollowPend = null;
     // Einrasten an anderen Routen ein/aus (Gerät): aus = Punkte setzen sich frei, auch ganz nahe an anderen Linien
@@ -11760,8 +11734,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     snapBtn.addEventListener('click', ()=>{ let on = true; try{ on = localStorage.getItem('fs-draw-snap') !== '0'; localStorage.setItem('fs-draw-snap', on ? '0' : '1'); }catch(e){} snapPaint(); showToast(on ? 'Einrasten aus – Punkte setzen sich frei.' : 'Einrasten an – nahe einer Route anschliessen oder ihr folgen.'); });
     snapPaint();
     lineActionsRow.appendChild(gpsStartBtn);
-    lineActionsRow.appendChild(appendBtn);
-    lineActionsRow.appendChild(snapBtn);
+
     lineActionsRow.appendChild(reverseBtn);
     lineActionsRow.appendChild(undoBtn);
     lineActionsRow.appendChild(clearLineBtn);
@@ -11783,16 +11756,6 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     gpxSummitBtn.textContent = 'Nur Aufstieg';
     gpxSummitBtn.title = 'Am höchsten Punkt schneiden';
     lineActionsRow.appendChild(gpxSummitBtn);
-    if(edTourCtx){
-      // Unten nur Weiterzeichnen · Letzter Punkt · Mehr; Seltenes unter «Mehr»
-      const more = document.createElement('div'); more.className = 'fs-ed-more'; more.hidden = true;
-      const moreBtn = document.createElement('button'); moreBtn.type = 'button'; moreBtn.className = 'btn secondary fs-ed-morebtn'; moreBtn.textContent = 'Mehr …';
-      [lineActionsRow.querySelector('.fs-ed-meta'), reverseBtn, snapBtn, gpxEditBtn, gpxSummitBtn, replaceGpxOriginalBtn, finishBtn, clearLineBtn].forEach(n=>{ if(n) more.appendChild(n); });
-      lineActionsRow.insertBefore(moreBtn, undoBtn.nextSibling);
-      lineActionsRow.appendChild(more);
-      lineActionsRow.classList.add('fs-ed-tour');
-      moreBtn.addEventListener('click', ()=>{ more.hidden = !more.hidden; moreBtn.classList.toggle('on', !more.hidden); moreBtn.textContent = more.hidden ? 'Mehr …' : 'Weniger'; });
-    }
     wrapDiv.appendChild(lineActionsRow);
     wrapDiv.appendChild(areaRow);
 
@@ -11870,7 +11833,6 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       undoAllBtn.innerHTML = '↶';
       modeRow.appendChild(undoAllBtn);
       fsPeTop.append(searchRow, searchResults, modeRow);
-      if(edTourCtx){ fsPeTop.appendChild(fsEdRouteChipsEl(edActiveKey)); lineModeBtn.textContent = 'Routen'; }
       const hints = Array.from(wrapDiv.querySelectorAll(':scope > p.hint'));
       if(hints.length){
         const d = document.createElement('details');
@@ -12184,7 +12146,10 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     // Skispur: Aufstieg mit Spitzkehren oder Abfahrt direkt – nach der Art der Route, pro Abschnitt umstellbar (sg.dir)
     function drawRouteIsDown(){
       let ty = '';
-      try{ const m = edTourCtx ? fsRouteMetaGet(edActiveKey) : null; ty = m ? m.type : ''; }catch(e){}
+      try{
+        const key = edNext.meta || (manualTrackHiddenId === 'manual-track-hidden' ? (usingGpxTrack ? 'track' : 'manual') : null);
+        const m = key && document.getElementById('fs-routes-edit') ? fsRouteMetaGet(key) : null; ty = m ? m.type : '';
+      }catch(e){}
       return ty === 'abfahrt' || ty === 'abstieg';
     }
     function drawSkiDown(sg){ return sg && sg.dir ? sg.dir === 'down' : drawRouteIsDown(); }
@@ -12297,7 +12262,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(pr.t >= 0.98) return {coords, j: pr.i + 1};
       return {coords: coords.slice(0, pr.i + 1).concat([pr.p], coords.slice(pr.i + 1)), j: pr.i + 1};
     }
-    function drawSnapOn(){ try{ return localStorage.getItem('fs-draw-snap') !== '0'; }catch(e){ return true; } }
+    function drawSnapOn(){ return true; } // immer einrasten (der Schalter ist wieder weg)
     function drawSnapFind(lat, lon){
       if(!drawSnapOn()) return null;
       let z = 14; try{ z = map.getZoom(); }catch(e){}
@@ -12555,8 +12520,12 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         marker.on('click', menu);
         marker.on('contextmenu', menu);
       });
-      // Kein ziehbarer Kreis mehr in der Mitte (wurde mit einem Punkt verwechselt und setzte beim Ziehen einen neuen):
-      // Zwischenpunkt über «Linie antippen → Hier Zwischenpunkt setzen» (drawSegMenu)
+      drawSegs.forEach((sg, k)=>{
+        const c = sg.coords, mid = c.length > 2 ? c[Math.floor(c.length / 2)] : [(c[0][0] + c[1][0]) / 2, (c[0][1] + c[1][1]) / 2];
+        const m = FL.marker(mid, {icon: FL.divIcon({className: 'gpx-edit-vertex-icon', html: '<div class="fs-draw-mid" title="Ziehen: Zwischenpunkt"><i></i></div>', iconSize: [40,40], iconAnchor: [20,20]}), draggable: true}).addTo(lineLayer);
+        m.on('dragstart', ()=>{ pushUndo(); const el = m.getElement(); if(el) el.classList.add('fs-gpx-drag'); });
+        m.on('dragend', ()=> drawSplit(k, m.getLatLng()));
+      });
     }
     /* ===== Bereiche meiden/bevorzugen =====
        Mit einem Finger eine Fläche umfahren (Pinsel Meiden/Bevorzugen), antippen: Notiz oder löschen. Gespeichert in der Tour
@@ -12670,7 +12639,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       wrap.appendChild(h);
       const seg = document.createElement('div');
       seg.className = 'fs-draw-seg';
-      seg.innerHTML = [['ski', 'snow', 'Skispur'], ['weg', 'walk', 'Wanderweg'], ['gerade', 'ruler', 'Gerade']].map(([m, ic, l])=> `<button type="button" data-m="${m}" class="${sg.mode === m ? 'on' : ''}" aria-pressed="${sg.mode === m}">${fsIconHtml(ic)}${l}</button>`).join('');
+      seg.innerHTML = [['ski', 'snow', 'Skispur'], ['weg', 'walk', 'Wanderweg'], ['gerade', 'ruler', 'Gerade']].filter(x=> !(x[0] === 'weg' && fsAppKey() === 'firnspur')).map(([m, ic, l])=> `<button type="button" data-m="${m}" class="${sg.mode === m ? 'on' : ''}" aria-pressed="${sg.mode === m}">${fsIconHtml(ic)}${l}</button>`).join('');
       seg.querySelectorAll('[data-m]').forEach(b=> b.addEventListener('click', (e)=>{
         e.stopPropagation();
         const m = b.getAttribute('data-m');
@@ -12735,21 +12704,15 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           FL.DomEvent.stopPropagation(e);
           // Beim Zeichnen gilt der Tipp der eigenen Linie (Punkt setzen, einrasten), nicht dem Menü der anderen Route
           if(mode === 'line' && !usingGpxTrack && (drawAppend || drawFollowPend || !manualTrack.length)){ addLineAt(e.latlng.lat, e.latlng.lng); return; }
-          if(edTourCtx){ fsEdSwitch('alt:' + a.id); return; } // andere Route antippen = diese bearbeiten
           FL.popup().setLatLng(e.latlng).setContent(altRouteMenu(i, a)).openOn(map);
         });
       // Beim Bearbeiten einer weiteren Route: Hauptlinien der Tour (gezeichnete Linie, GPX-Track) zur Orientierung und zum Einrasten zeigen
       if(drawEditAltId){
         const pj = id=>{ try{ const v = JSON.parse((document.getElementById(id) || {}).value || 'null'); return Array.isArray(v) && v.length > 1 ? v : null; }catch(e){ return null; } };
-        [[pj('manual-track-hidden'), (document.getElementById('route-manual-type') || {}).value, 'manual'], [pj('track-simplified-hidden'), (document.getElementById('route-track-type') || {}).value, 'track']].forEach(([c, ty, key])=>{
+        [[pj('manual-track-hidden'), (document.getElementById('route-manual-type') || {}).value], [pj('track-simplified-hidden'), (document.getElementById('route-track-type') || {}).value]].forEach(([c, ty])=>{
           if(!c) return;
           const st = fsRouteStyle({type: FS_ROUTE_TYPES[ty] ? ty : 'aufstieg', src: 'manual'});
           FL.polyline(c, {color:'#ffffff', weight:6, opacity:0.6, interactive:false}).addTo(otherRoutesLayer);
-          FL.polyline(c, {color:'#000', weight:22, opacity:0}).addTo(otherRoutesLayer).on('click', (e)=>{
-            FL.DomEvent.stopPropagation(e);
-            if(mode === 'line' && (drawAppend || drawFollowPend || !manualTrack.length)){ addLineAt(e.latlng.lat, e.latlng.lng); return; }
-            if(edTourCtx) fsEdSwitch(key);
-          });
           FL.polyline(c, {color: st.color, weight:3.5, opacity:0.85, dashArray:'7,6', interactive:false}).addTo(otherRoutesLayer);
         });
       }
@@ -12895,7 +12858,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       // Zeigt/versteckt die ziehbaren Punkte des eigenen GPX-Tracks je nach Modus (siehe redrawLine).
       if(typeof redrawLine === 'function') redrawLine();
     }
-    drawAppend = manualTrack.length < 2; // bestehende Linie: erst auf «Weiterzeichnen» verlängern
+    drawAppend = true; // wie bisher: Tippen setzt immer den nächsten Punkt
     setMode(mode); // Zustieg startet in «Linie», sonst «Punkt»
     drawToolsSync();
     if(edNext.gpx && gpxTrack){ enterGpxEdit(); updateGpxReplaceBtn(); redrawLine(); renderRouteMeta(); } // Stift am GPX-Track: gleich diesen bearbeiten
@@ -18785,14 +18748,6 @@ function fsTourDrawRoute(){
     }
     // Abfahrt/Abstieg: am Ende des Aufstiegs (Gipfel) beginnen
     let startAt = null;
-    if(type === 'aufstieg'){
-      // Zweiter Gipfel: ein neuer Aufstieg beginnt am Ende der letzten Abfahrt (wenn es schon Aufstieg und Abfahrt gibt)
-      const val = (id)=>{ const el = document.getElementById(id); return el ? el.value : ''; };
-      const parse = (id, d)=>{ try{ return JSON.parse(val(id) || 'null') || d; }catch(e){ return d; } };
-      const rs = fsTourRoutes({trackSimplified: parse('track-simplified-hidden', null), trackType: val('route-track-type'), manualTrack: [], altTracks: parse('route-alt-tracks', [])});
-      const down = rs.filter(r=> r.type === 'abfahrt' || r.type === 'abstieg').pop();
-      if(down && rs.some(r=> r.type === 'aufstieg' || r.type === 'aufab') && down.coords && down.coords.length > 1){ const q = down.coords[down.coords.length - 1]; startAt = Array.isArray(q) ? [+q[0], +q[1]] : [+q.lat, +q.lon]; }
-    }
     if(type === 'abfahrt' || type === 'abstieg'){
       const val = (id)=>{ const el = document.getElementById(id); return el ? el.value : ''; };
       const parse = (id, d)=>{ try{ return JSON.parse(val(id) || 'null') || d; }catch(e){ return d; } };
