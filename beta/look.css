@@ -3585,3 +3585,16 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .agenda-mr-map{ height:220px; border-radius:14px; overflow:hidden; border:1px solid var(--line); margin:0 0 10px; }
 .agenda-mr-sum{ margin:0 0 10px; font-size:14.5px; color:var(--ink); line-height:1.45; }
 .agenda-mr-sum small{ color:var(--ink-soft); }
+
+/* ===== Termin: Lage am Tourtag ===== */
+.fs-lage .fs-lage-item{ padding:10px 0; border-top:1px solid var(--line-soft); }
+.fs-lage .fs-lage-item:first-of-type{ border-top:none; padding-top:2px; }
+.fs-lage .fs-lage-h{ font-size:15px; margin:0 0 6px; }
+.fs-lage .fs-lage-h small{ color:var(--ink-soft); font-weight:600; }
+.fs-lage .fs-lage-row{ display:grid; grid-template-columns:34px 1fr; gap:10px; align-items:start; margin:0 0 8px; font-size:14px; line-height:1.4; }
+.fs-lage .fs-lage-row small{ color:var(--ink-soft); }
+.fs-lage .fs-lage-row > .fs-i{ width:28px; height:28px; }
+.fs-lage-lvl{ display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:8px; background:var(--c); color:#0F1E27; font-weight:800; font-size:15px; border:1px solid rgba(15,30,39,.15); }
+.fs-lage .fs-lage-chg{ margin:0 0 8px; padding:6px 10px; border-radius:10px; background:var(--ice-light); font-size:13.5px; font-weight:700; color:var(--ink); }
+.fs-lage .fs-lage-na, .fs-lage .fs-lage-wait{ margin:0 0 6px; font-size:13.5px; color:var(--ink-soft); }
+.fs-lage .fs-lage-src{ margin:4px 0 0; font-size:12px; color:var(--ink-faint); }
