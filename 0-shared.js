@@ -3382,6 +3382,7 @@ function agendaWeatherDayLabel(dateStr){
   return {wd, dm, rel: diff === 0 ? 'heute' : diff === 1 ? 'morgen' : diff > 1 ? 'in ' + diff + ' Tagen' : ''};
 }
 async function loadAgendaWeather(agendaId){
+  loadAgendaLage(agendaId).catch(()=>{});
   const a = state.agenda.find(x=>x.id===agendaId);
   const el = document.getElementById('agenda-weather-' + agendaId);
   if(!a || !el || !a.startDate) return;
@@ -3608,6 +3609,7 @@ function agendaDetailHtml(id){
     <div class="field bf-status"><label>Status</label>${agendaStatusSelectHtml(a)}</div>
     ${briefingTabsBarHtml(a)}
     ${(state._briefTab||'ablauf')==='pack' ? briefingPackHtml(a) : (state._briefTab||'ablauf')==='filter' ? briefing3x3Html(a) : (state._briefTab||'ablauf')==='notfall' ? briefingNotfallHtml(a) : `
+    <div id="agenda-lage-${a.id}"></div>
     ${briefingAblaufExtrasHtml(a)}
     ${a.weatherSnapshot ? `<div class="detail-section" style="background:var(--ice-light);">
       <h4>${fsIconHtml('download')} Für unterwegs gespeichert${a.weatherSnapshot.locationLabel ? ' – ' + esc(a.weatherSnapshot.locationLabel) : ''}</h4>
@@ -4214,6 +4216,94 @@ async function fsSlfBulletinAt(lat, lon, dateStr){
   const regionName = (b.regions || []).find(r=> (r.regionID || r.id) === rid);
   return {level: max.label, ratings, problems, region: regionName && regionName.name ? regionName.name : '',
     validUntil: new Date(b.validTime.endTime).toLocaleString('de-CH', {weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', timeZone:'Europe/Zurich'})};
+}
+/* ===== Termin: Lage am Tourtag =====
+   Je Gipfel des Termins (erste Tour, weitere Touren, Tagesplan mit eigenem Datum): Wetter am Gipfel (Open-Meteo) und Lawinenstufe
+   mit Problemen aus dem Bulletin für genau diesen Tag; noch nicht erschienen = Ausblick aus dem neusten Bulletin.
+   Was beim letzten Öffnen anders war, steht als «geändert seit …» (Gerät, fs-lage-seen). Nur lesen. */
+function fsAgendaLageItems(a){
+  const out = [], seen = {};
+  const add = (ref, date)=>{ const t = ref && findAgendaLinkedTour(ref); if(!t || !date || seen[t.id + date]) return; seen[t.id + date] = 1; out.push({t, date}); };
+  if(a.days && a.days.length) a.days.forEach(d=> (d.segments || []).forEach(sg=> add(sg.tourRef, d.date)));
+  else{ add(a.tourRef, a.startDate); (a.extraTours || []).forEach(x=> add(x.tourRef, a.startDate)); }
+  return out;
+}
+async function fsSlfForDate(lat, lon, dateStr){
+  const {regions, bd} = await fsSlfAll();
+  const feat = (regions.features || []).find(f=> fsPointInGeom(lon, lat, f.geometry));
+  if(!feat) return null;
+  const rid = slfRegionId(feat);
+  const list = (Array.isArray(bd) ? bd : (bd.bulletins || [])).filter(x=> x.validTime && (x.regions || []).some(r=> (r.regionID || r.id) === rid)).map(x=> fsSlfParse(x, rid))
+    .filter(x=> x.ratings.length).sort((x, y)=> x.start - y.start);
+  if(!list.length) return null;
+  const when = new Date(dateStr + 'T09:00:00');
+  const b = list.find(x=> x.start <= when && when < x.end);
+  if(b) return {bul: b};
+  const last = list[list.length - 1], ev = (last.evo || []).find(e=> String(e.date || '').slice(0, 10) === dateStr && e.level);
+  return {outlook: ev || null, region: last.region, later: when > last.end};
+}
+function fsLageLvlHtml(level, sub, color){
+  return `<span class="fs-lage-lvl" style="--c:${color}">${level}${sub === 'plus' ? '+' : sub === 'minus' ? '−' : sub === 'neutral' ? '=' : ''}</span>`;
+}
+async function loadAgendaLage(agendaId){
+  const a = state.agenda.find(x=> x.id === agendaId);
+  const el = document.getElementById('agenda-lage-' + agendaId);
+  if(!a || !el) return;
+  const items = fsAgendaLageItems(a).map(it=>{ const p = fsTourSummitPoint(it.t) || fsTzTargetPoint(it.t); return p ? Object.assign(it, {lat: +p.lat, lon: +p.lon}) : null; }).filter(Boolean);
+  const today = todayStr();
+  const live = items.filter(it=> it.date >= today);
+  if(!live.length){ el.innerHTML = ''; return; }
+  const winter = a.type !== 'wandern';
+  el.innerHTML = `<div class="detail-section fs-lage"><h4>${fsIconHtml('mountain')} Lage am Tourtag</h4><p class="fs-lage-wait">Wird geladen …</p></div>`;
+  const res = await Promise.all(live.map(async it=>{
+    const elev = parseInt(it.t.targetAltitude, 10) > 0 ? parseInt(it.t.targetAltitude, 10) : null;
+    const [wx, slf] = await Promise.all([
+      fetchTourDayDetail(it.lat, it.lon, it.date, elev).then(w=> w && w.status === 'error' ? new Promise(ok=> setTimeout(ok, 1200)).then(()=> fetchTourDayDetail(it.lat, it.lon, it.date, elev)) : w).catch(()=> ({status: 'error'})),
+      winter ? fsSlfForDate(it.lat, it.lon, it.date).catch(()=> null) : Promise.resolve(null)
+    ]);
+    return Object.assign({}, it, {wx, slf});
+  }));
+  if(el !== document.getElementById('agenda-lage-' + agendaId)) return;
+  // Vergleich mit dem letzten Öffnen
+  let seenAll = {}; try{ seenAll = JSON.parse(localStorage.getItem('fs-lage-seen') || '{}'); }catch(e){}
+  const prev = seenAll[agendaId] || null, now = {at: Date.now(), items: {}};
+  const multiDay = !!(a.days && a.days.length);
+  const rows = res.map(r=>{
+    const key = r.t.id + '|' + r.date;
+    const b = r.slf && r.slf.bul, top = b ? b.ratings[0] : null;
+    const probs = b ? b.problems.filter(pr=> pr.raw !== 'favourable_situation' && pr.raw !== 'no_distinct_avalanche_problem').map(pr=> pr.type + (pr.aspects.length ? ' ' + pr.aspects.map(x=> FS_SLF_ASPECTS[x] || x).join('/') : '') + (pr.lower ? ' über ' + pr.lower + ' m' : pr.upper ? ' unter ' + pr.upper + ' m' : '')) : [];
+    const lvl = top ? top.level + (top.sub === 'plus' ? '+' : top.sub === 'minus' ? '−' : '') : (r.slf && r.slf.outlook ? 'A' + r.slf.outlook.level : '');
+    const wxOk = r.wx && r.wx.status === 'ok';
+    const old = prev && prev.items && prev.items[key];
+    // Nicht geladen (kein Netz o. ä.): alten Stand behalten statt ihn zu vergessen
+    now.items[key] = {lvl: lvl || (old && old.lvl) || '', probs: lvl ? probs.map(x=> x.split(' ')[0]).join(',') : ((old && old.probs) || ''), wx: wxOk ? r.wx.weathercode : (old ? old.wx : null)};
+    const changes = [];
+    if(old){
+      if(old.lvl && lvl && old.lvl !== lvl) changes.push('Lawinen ' + old.lvl.replace(/^A/, '') + ' → ' + lvl.replace(/^A/, ''));
+      if(old.probs !== now.items[key].probs && lvl && old.lvl) changes.push('Probleme anders');
+      if(old.wx != null && wxOk && weatherCodeInfo(old.wx).label !== weatherCodeInfo(r.wx.weathercode).label) changes.push('Wetter ' + weatherCodeInfo(old.wx).label + ' → ' + weatherCodeInfo(r.wx.weathercode).label);
+    }
+    let lawHtml = '';
+    if(winter){
+      if(top) lawHtml = `<div class="fs-lage-row">${fsLageLvlHtml(top.level, top.sub, top.color)}<div><b>${esc(top.label)}</b>${top.elev ? ' ' + esc(top.elev) : ''}${b.ratings.length > 1 ? ` <small>(${b.ratings.slice(1).map(x=> x.level + ' ' + esc(x.elev || (x.later ? 'im Tagesverlauf' : ''))).join(', ')})</small>` : ''}
+          ${probs.length ? `<br><small>${probs.map(esc).join(' · ')}</small>` : ''}</div></div>`;
+      else if(r.slf && r.slf.outlook){ const ol = r.slf.outlook, inf = Object.values(SLF_DANGER_LEVELS).find(x=> x.level === ol.level); lawHtml = `<div class="fs-lage-row">${fsLageLvlHtml(ol.level, ol.sub, inf ? inf.color : '#ccc')}<div><b>Ausblick</b> laut SLF<br><small>Das Bulletin für diesen Tag ist noch nicht erschienen.</small></div></div>`; }
+      else if(r.slf) lawHtml = `<p class="fs-lage-na">Bulletin für diesen Tag noch nicht erschienen.</p>`;
+    }
+    let wxHtml = '';
+    if(wxOk){ const info = weatherCodeInfo(r.wx.weathercode); wxHtml = `<div class="fs-lage-row">${fsIco(info.icon)}<div><b>${esc(info.label)}</b> · ${Math.round(r.wx.tempMin)}° / ${Math.round(r.wx.tempMax)}°${r.wx.elevation ? ' auf ' + r.wx.elevation + ' m' : ''}<br><small>${fsIconHtml('drop')} ${r.wx.precipitation} mm · ${fsIconHtml('wind')} ${Math.round(r.wx.windMax)} km/h${r.wx.windHigh != null ? ', auf ~3000 m ' + Math.round(r.wx.windHigh) : ''}${r.wx.freezing ? ' · Nullgrad ' + esc(r.wx.freezing) : ''}</small></div></div>`; }
+    else if(r.wx && r.wx.status === 'too-far') wxHtml = `<p class="fs-lage-na">Wetter: noch zu weit weg (Prognose bis 16 Tage).</p>`;
+    else if(r.wx && r.wx.status === 'error') wxHtml = `<p class="fs-lage-na">Wetter gerade nicht verfügbar.</p>`;
+    return `<div class="fs-lage-item">
+      <div class="fs-lage-h"><b>${esc(r.t.name)}</b>${multiDay ? ' <small>' + esc(fmtWeekday(r.date)) + ', ' + esc(fmtDateShort(r.date)) + '</small>' : ''}</div>
+      ${changes.length ? `<p class="fs-lage-chg">Geändert seit ${esc(new Date(prev.at).toLocaleString('de-CH', {weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}))}: ${changes.map(esc).join(' · ')}</p>` : ''}
+      ${lawHtml}${wxHtml}
+    </div>`;
+  });
+  seenAll[agendaId] = now;
+  try{ localStorage.setItem('fs-lage-seen', JSON.stringify(seenAll)); }catch(e){}
+  el.innerHTML = `<div class="detail-section fs-lage"><h4>${fsIconHtml('mountain')} Lage am Tourtag</h4>${rows.join('')}
+    <p class="fs-lage-src">Wetter am Gipfel: Open-Meteo${winter ? ' · Lawinen: SLF-Bulletin (Region des Gipfels)' : ''} – beim Öffnen neu geladen.</p></div>`;
 }
 /* ===== Lawinenbulletin in der Tour =====
    Das Bulletin der SLF-Region am Ort, mit Gültigkeit, Stufen je Höhe, Problemen (Exposition, Höhe) und
