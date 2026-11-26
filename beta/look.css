@@ -3577,3 +3577,8 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .agenda-extra-top{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; }
 .agenda-extra-top select{ min-width:0; }
 .agenda-extra-add{ width:100%; }
+.agenda-mr-list{ display:flex; flex-direction:column; gap:2px; margin-bottom:10px; }
+.agenda-mr .agenda-mr-row{ display:grid; margin:0; grid-template-columns:auto auto 1fr auto; align-items:center; gap:10px; min-height:44px; font-weight:600; text-transform:none; letter-spacing:0; font-size:15px; color:var(--ink); }
+.agenda-mr .agenda-mr-row input{ width:22px; height:22px; margin:0; }
+.agenda-mr-l{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.agenda-mr-gpx{ width:100%; }

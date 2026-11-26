@@ -234,6 +234,8 @@ aus anderen Apps übernehmen.
   neuer Konten ist in der Konsole abgeschaltet. Die App und die Sicherung melden sich mit diesem Konto an.
 - Termin an einem Tag mit mehreren Touren (Rundtour über zwei Gipfel): «+ Weitere Tour» im Formular, Feld `extraTours` [{tourRef, tourName}]
   neben `tourName`/`tourRef`; Titel überall über `fsAgendaTitle` («A + B»), auf Tourenzettel und im Ablauf je Tour eine Zeile.
+  «Routen auf dem Tourenzettel» im Termin-Formular: alle Routen der Touren des Termins (`fsAgendaRouteList`, Id `<TourId>|<Schlüssel>`), abgewählte in
+  `mapRoutesOff`, eigene GPX-Dateien nur für den Termin in `ownRoutes` [{id, name, coords}]; die Karte des Tourenzettels zeigt sie (`fsAgendaMapData`).
 - Tägliches verschlüsseltes Backup: `.github/workflows/backup.yml`.
 - Wetter-Wertebilder (Niederschlag mit Art, Neuschnee, Temperatur, Böen, Bewölkung, Modellhöhe) aus MeteoSchweiz
   ICON-CH1: `tools/wetterbilder.py` (Kodierung dort), die App färbt sie ein und liest den Wert fürs Fadenkreuz;
