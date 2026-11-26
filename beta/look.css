@@ -3582,3 +3582,6 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .agenda-mr .agenda-mr-row input{ width:22px; height:22px; margin:0; }
 .agenda-mr-l{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .agenda-mr-gpx{ width:100%; }
+.agenda-mr-map{ height:220px; border-radius:14px; overflow:hidden; border:1px solid var(--line); margin:0 0 10px; }
+.agenda-mr-sum{ margin:0 0 10px; font-size:14.5px; color:var(--ink); line-height:1.45; }
+.agenda-mr-sum small{ color:var(--ink-soft); }

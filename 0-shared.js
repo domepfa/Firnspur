@@ -3754,6 +3754,7 @@ function printTourenzettel(agendaId){
   if(leader) keyRows.push(['Leitung', leader]);
   if(a.plannedReturnTime) keyRows.push(['Rückkehr geplant', a.plannedReturnTime]);
   const factRows = [];
+  { const tt = fsAgendaTotals(a, null); if(tt.n > 1 || (tt.n && (a.ownRoutes || []).length)) factRows.push(['Total des Tages', fsAgendaTotalsText(tt)]); }
   if(tour){
     if(tour.elevationGain) factRows.push(['Aufstieg', tour.elevationGain + ' Hm']);
     if(tour.elevationLoss) factRows.push([a.type === 'ski' ? 'Abfahrt' : 'Abstieg', tour.elevationLoss + ' Hm']);
@@ -4664,6 +4665,8 @@ function agendaFormHtml(editId){
       <div id="agenda-day-plan-container"></div>
       <div class="field agenda-mr" id="agenda-map-routes"><label>Routen auf dem Tourenzettel</label>
         <div class="agenda-mr-list"></div>
+        <div class="agenda-mr-map" hidden></div>
+        <p class="agenda-mr-sum" hidden></p>
         <button type="button" class="btn secondary agenda-mr-gpx">${fsIconHtml('upload')} GPX-Datei nur für diesen Termin</button>
         <input type="file" accept=".gpx,application/gpx+xml" class="agenda-mr-file" hidden/>
         <input type="hidden" name="mapRoutesOff" value="${esc(JSON.stringify((a && a.mapRoutesOff) || []))}"/>
@@ -5057,6 +5060,44 @@ function fsAgendaMapData(a){
   fsAgendaTourRefs(a).forEach(t=> (t.points || []).forEach(p=>{ if(p && isFinite(parseFloat(p.lat)) && isFinite(parseFloat(p.lon))) points.push({lat: +p.lat, lon: +p.lon, category: p.category || '', label: p.label || ''}); }));
   return {lines, points};
 }
+// Summe der angehakten Routen: Länge aus der Linie, Höhenmeter vom swisstopo-Höhendienst (je Route einmal, auf dem Gerät gemerkt)
+function fsAgendaElevCache(){ try{ return JSON.parse(localStorage.getItem('fs-agenda-elev') || '{}'); }catch(e){ return {}; } }
+const fsAgendaElevRun = new Set();
+function fsAgendaElevKey(r){ const c = r.coords, f = c[0], l = c[c.length - 1]; return [c.length, f[0].toFixed(5), f[1].toFixed(5), l[0].toFixed(5), l[1].toFixed(5)].join(':'); }
+function fsAgendaTotals(a, onUpdate){
+  const off = a.mapRoutesOff || [], cache = fsAgendaElevCache();
+  const on = fsAgendaRouteList(a).filter(r=> off.indexOf(r.id) < 0);
+  const ski = a.type === 'ski';
+  let km = 0, up = 0, down = 0, lkm = 0, missing = 0;
+  on.forEach(r=>{
+    const rk = fsLineKm(r.coords); km += rk;
+    const key = fsAgendaElevKey(r), e = cache[key];
+    if(!e){
+      missing++;
+      if(onUpdate && navigator.onLine !== false && !fsAgendaElevRun.has(key)){
+        fsAgendaElevRun.add(key);
+        fsrElevation(r.coords).then(res=>{
+          const c = fsAgendaElevCache(); c[key] = {up: res.up, down: res.down};
+          try{ localStorage.setItem('fs-agenda-elev', JSON.stringify(c)); }catch(err){}
+          onUpdate();
+        }, ()=>{}).finally(()=> fsAgendaElevRun.delete(key));
+      }
+      return;
+    }
+    up += e.up; down += e.down;
+    // SAC-Formel wie bei den Touren: Leistungs-km = km + Hm/100 (+ Abstieg/150); Skitour nur Aufstieg
+    const kmUp = (e.up + e.down) ? rk * e.up / (e.up + e.down) : rk;
+    lkm += ski ? (e.up > 30 ? kmUp + e.up / 100 : 0) : rk + e.up / 100 + e.down / 150;
+  });
+  const h = missing || !lkm ? null : Math.max(0.5, Math.round(lkm / 4 * 2) / 2);
+  return {n: on.length, km, up, down, h, ski, missing};
+}
+function fsAgendaTotalsText(t){
+  if(!t || !t.n) return '';
+  const parts = [t.km.toFixed(1) + ' km'];
+  if(!t.missing){ parts.push('↑ ' + Math.round(t.up / 10) * 10 + ' Hm', '↓ ' + Math.round(t.down / 10) * 10 + ' Hm'); if(t.h) parts.push('ca. ' + String(t.h).replace('.5', '½') + ' h' + (t.ski ? ' Aufstieg' : '')); }
+  return parts.join(' · ');
+}
 // Stand des Formulars als Termin-Objekt (nur was für die Routenliste zählt)
 function fsAgendaFormRefs(agendaForm){
   const ref = v=>{ if(!v || v === 'custom') return null; const [source, id] = v.split(':'); return {source, id}; };
@@ -5067,6 +5108,7 @@ function fsAgendaFormRefs(agendaForm){
   if(segs.length) a.days = [{segments: segs}];
   const pj = n=>{ try{ return JSON.parse((agendaForm.querySelector(`input[name="${n}"]`) || {}).value || '[]'); }catch(e){ return []; } };
   a.mapRoutesOff = pj('mapRoutesOff'); a.ownRoutes = pj('ownRoutes');
+  const ty = agendaForm.querySelector('select[name="type"]'); a.type = ty ? ty.value : 'ski';
   return a;
 }
 function agendaMapRoutesRefresh(agendaForm){
@@ -5077,6 +5119,62 @@ function agendaMapRoutesRefresh(agendaForm){
       <span class="fs-route-sw${r.dash ? ' dash' : ''}" style="--c:${r.color}"></span><span class="agenda-mr-l">${esc(r.label)} <small>· ${fsLineKm(r.coords).toFixed(1)} km</small></span>
       ${r.own ? `<button type="button" class="fs-icon-btn agenda-mr-del" data-mr-del="${esc(r.id.slice(4))}" aria-label="GPX-Route entfernen">${fsIconHtml('trash')}</button>` : ''}
     </label>`).join('') : '<p class="hint" style="margin:0 0 8px;">Die gewählten Touren haben noch keine Routen.</p>';
+  agendaMapRoutesSum(agendaForm);
+  agendaMapRoutesMap(agendaForm, a, list);
+}
+function agendaMapRoutesSum(agendaForm){
+  const el = agendaForm.querySelector('.agenda-mr-sum'); if(!el) return;
+  const t = fsAgendaTotals(fsAgendaFormRefs(agendaForm), ()=>{ if(document.body.contains(el)) agendaMapRoutesSum(agendaForm); });
+  el.hidden = !t.n;
+  el.innerHTML = t.n ? `<b>Total${t.n > 1 ? ' (' + t.n + ' Routen)' : ''}:</b> ${esc(fsAgendaTotalsText(t))}${t.missing ? (navigator.onLine === false ? ' <small>– Höhen ohne Netz nicht verfügbar</small>' : ' <small>– Höhenmeter werden gerechnet …</small>') : (t.h ? '<br><small>Zeit nach SAC-Formel, ohne Pausen</small>' : '')}` : '';
+}
+// Kleine Karte: Route antippen = an/ab (wie der Haken); abgewählte blass
+function agendaMapRoutesFeats(a, list){
+  const off = a.mapRoutesOff || [];
+  return {type: 'FeatureCollection', features: list.map(r=> ({type: 'Feature', properties: {id: r.id, color: r.color, dash: r.dash ? 1 : 0, on: off.indexOf(r.id) < 0 ? 1 : 0},
+    geometry: {type: 'LineString', coordinates: r.coords.map(c=> [c[1], c[0]])}}))};
+}
+function agendaMapRoutesMap(agendaForm, a, list){
+  const box = agendaForm.querySelector('.agenda-mr-map'); if(!box) return;
+  box.hidden = !list.length;
+  if(!list.length) return;
+  const sig = list.map(r=> r.id).join(',');
+  const fit = map=>{ const all = []; list.forEach(r=> r.coords.forEach(c=> all.push(c))); fsmFit(map, all, 28, 15); };
+  if(box._map){
+    const m = box._map;
+    fsmWhenLoaded(m, ()=>{ try{ m.getSource('fsamr').setData(agendaMapRoutesFeats(a, list)); }catch(e){} if(box._sig !== sig){ box._sig = sig; fit(m); } });
+    return;
+  }
+  if(box._pending) return;
+  box._pending = true;
+  fsmEnsureLoaded().then(()=>{
+    box._pending = false;
+    if(!document.body.contains(box) || box._map) return;
+    const map = box._map = fsmCreateMap(box, {controls: false});
+    box._sig = sig;
+    fsmWhenLoaded(map, ()=>{
+      // nur die Routen des Termins: Kartenebenen aus den Einstellungen hier aus (ohne sie zu speichern)
+      try{ fsmOverlaysForApp(map).forEach(o=>{ if(fsmOverlayOn(map, o.id)) fsmSetOverlay(map, o.id, false, true); }); }catch(e){}
+      const cur = fsAgendaFormRefs(agendaForm), lst = fsAgendaRouteList(cur);
+      try{
+        map.addSource('fsamr', {type: 'geojson', data: agendaMapRoutesFeats(cur, lst)});
+        const lay = {'line-cap': 'round', 'line-join': 'round'};
+        map.addLayer({id: 'fsamr-case', type: 'line', source: 'fsamr', filter: ['==', ['get', 'on'], 1], layout: lay, paint: {'line-color': '#ffffff', 'line-width': 9, 'line-opacity': 0.9}});
+        map.addLayer({id: 'fsamr-solid', type: 'line', source: 'fsamr', filter: ['==', ['get', 'dash'], 0], layout: lay, paint: {'line-color': ['get', 'color'], 'line-width': ['case', ['==', ['get', 'on'], 1], 5, 3.5], 'line-opacity': ['case', ['==', ['get', 'on'], 1], 1, 0.35]}});
+        map.addLayer({id: 'fsamr-dash', type: 'line', source: 'fsamr', filter: ['==', ['get', 'dash'], 1], layout: {'line-join': 'round'}, paint: {'line-color': ['get', 'color'], 'line-width': ['case', ['==', ['get', 'on'], 1], 5, 3.5], 'line-opacity': ['case', ['==', ['get', 'on'], 1], 1, 0.35], 'line-dasharray': [2, 1.4]}});
+      }catch(e){}
+      fit(map);
+      map.on('click', e=>{
+        const p = e.point, tol = 14;
+        let hits = [];
+        try{ hits = map.queryRenderedFeatures([[p.x - tol, p.y - tol], [p.x + tol, p.y + tol]], {layers: ['fsamr-solid', 'fsamr-dash']}); }catch(err){}
+        if(!hits.length) return;
+        const id = hits[0].properties.id;
+        const cb = Array.from(agendaForm.querySelectorAll('[data-mr]')).find(x=> x.getAttribute('data-mr') === id);
+        if(cb){ cb.checked = !cb.checked; cb.dispatchEvent(new Event('change', {bubbles: true})); }
+      });
+    });
+  }).catch(()=>{ box._pending = false; box.hidden = true; });
 }
 function wireAgendaMapRoutes(agendaForm){
   const box = agendaForm.querySelector('#agenda-map-routes'); if(!box) return;
@@ -5088,6 +5186,7 @@ function wireAgendaMapRoutes(agendaForm){
     box.addEventListener('change', e=>{
       const id = e.target.getAttribute && e.target.getAttribute('data-mr'); if(!id) return;
       const off = getJ('mapRoutesOff').filter(x=> x !== id); if(!e.target.checked) off.push(id); setJ('mapRoutesOff', off);
+      const cur = fsAgendaFormRefs(agendaForm); agendaMapRoutesMap(agendaForm, cur, fsAgendaRouteList(cur)); agendaMapRoutesSum(agendaForm);
     });
     box.addEventListener('click', e=>{
       const d = e.target.closest && e.target.closest('[data-mr-del]'); if(!d) return;
