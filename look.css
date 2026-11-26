@@ -3328,6 +3328,9 @@ label.btn input[type=file]{ display:none; }
 
 /* ===== Zeichnen: Verbinden als, Kreis in der Mitte eines Abschnitts ===== */
 .fs-draw-connect{ flex:1 1 100%; }
+.fs-ed-meta{ flex:1 1 100%; display:grid; grid-template-columns:1fr auto; gap:8px; }
+.fs-ed-meta input, .fs-ed-meta select{ min-height:44px; box-sizing:border-box; border:1px solid var(--line); border-radius:12px; background:var(--paper);
+  color:var(--ink); font:inherit; font-size:15px; font-weight:700; padding:0 12px; min-width:0; }
 .fs-draw-connect-l{ font-size:11.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); margin:0 0 6px; }
 .fs-draw-seg{ display:grid; grid-template-columns:repeat(3, 1fr); gap:4px; padding:4px; border-radius:14px; background:var(--ice-light); }
 .fs-draw-seg button{ display:flex; flex-direction:column; align-items:center; gap:3px; min-height:52px; border:none; border-radius:10px; background:transparent;

@@ -108,7 +108,7 @@ aus anderen Apps übernehmen.
   Zustiegs-/Abstiegs-Formulare mehr; Stift halten öffnet direkt das Formular (kein Bearbeiten-Modus); Hütten- und Tourformular in Abschnitten; eine alte
   Linie der Hütte (`manualTrack`) wird beim Speichern ein Zustieg (`fsHutAdoptLine`). Tour: `fsTourDrawRoute`.
   Tourformular: Abschnitt «Routen» (Karten je Route mit Name, Art, Stift «Linie bearbeiten» auch für den GPX-Track `fsEdNext.gpx`,
-  Entfernen; GPX-Link klein aufklappbar) und getrennt «Punkte» («Punkte auf der Karte setzen» öffnet nur den Punkte-Modus,
+  Entfernen; GPX-Link klein aufklappbar); im Vollbild-Editor oben Name und Art der gerade bearbeiteten Route (`fsEdNext.meta` = Schlüssel, `fsEdMetaRowEl`/`fsRouteMetaSet`) und getrennt «Punkte» («Punkte auf der Karte setzen» öffnet nur den Punkte-Modus,
   `fsEdNext.pointsOnly`). «Route zeichnen» mit Art Abfahrt/Abstieg beginnt am Ende des Aufstiegs; weitere Routen sind im Editor
   zur Orientierung und zum Einrasten sichtbar.
   Karten-Editor: Reiter «Zeichnen» und «Punkte» (Route ist in Zeichnen aufgegangen). Zeichnen verbindet je Abschnitt als Skispur

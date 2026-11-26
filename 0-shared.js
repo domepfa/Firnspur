@@ -10588,15 +10588,48 @@ function fsRoutesEditorRender(){
 }
 // Linie einer Route im Vollbild bearbeiten: die gezeichnete Linie direkt, eine weitere Route über ein eigenes Feld
 // (danach zurück in die Liste); die Abschnitte (Plan) gehen mit
+// Name und Art der gerade bearbeiteten Route (Editor im Vollbild schreibt direkt in die Formularfelder)
+function fsRouteMetaGet(key){
+  const v = id=>{ const el = document.getElementById(id); return el ? el.value : ''; };
+  if(key === 'track') return {name: v('route-track-name'), type: v('route-track-type') || 'aufstieg'};
+  if(key === 'manual') return {name: v('route-manual-name'), type: v('route-manual-type') || 'aufstieg'};
+  let alts = []; try{ alts = JSON.parse(v('route-alt-tracks') || '[]'); }catch(e){}
+  const a = alts.find(x=> 'alt:' + x.id === key);
+  return a ? {name: a.name || '', type: a.type || 'variante'} : null;
+}
+function fsRouteMetaSet(key, name, type){
+  const set = (id, val)=>{ const el = document.getElementById(id); if(el) el.value = val; };
+  if(key === 'track'){ set('route-track-name', name); set('route-track-type', type); }
+  else if(key === 'manual'){ set('route-manual-name', name); set('route-manual-type', type); }
+  else{
+    const el = document.getElementById('route-alt-tracks'); if(!el) return;
+    let alts = []; try{ alts = JSON.parse(el.value || '[]'); }catch(e){}
+    const a = alts.find(x=> 'alt:' + x.id === key); if(!a) return;
+    a.name = name; a.type = type; el.value = JSON.stringify(alts);
+  }
+  markModalDirty();
+  try{ fsRoutesEditorRender(); }catch(e){}
+}
+function fsEdMetaRowEl(key){
+  const m = fsRouteMetaGet(key); if(!m) return null;
+  const row = document.createElement('div'); row.className = 'fs-ed-meta';
+  row.innerHTML = `<input type="text" class="fs-ed-meta-name" value="${esc(m.name)}" placeholder="Name" aria-label="Name der Route"/>
+    <select class="fs-ed-meta-type" aria-label="Art der Route">${FS_ROUTE_TYPE_ORDER.map(k=>`<option value="${k}" ${k === m.type ? 'selected' : ''}>${fsRouteLabel(k)}</option>`).join('')}</select>`;
+  const nm = row.querySelector('input'), ty = row.querySelector('select');
+  const w = ()=> fsRouteMetaSet(key, nm.value.trim(), ty.value);
+  nm.addEventListener('change', w); ty.addEventListener('change', w);
+  nm.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); nm.blur(); } });
+  return row;
+}
 function fsRouteEditLine(key){
   if(key === 'track'){
-    fsEdNext = {line: true, gpx: true};
+    fsEdNext = {line: true, gpx: true, meta: 'track'};
     const open = document.getElementById('points-map-open'), tog = document.getElementById('points-map-toggle-btn');
     if(open && open.offsetParent !== null) open.click(); else if(tog) tog.click(); else fsEdNext = {};
     return;
   }
   if(key === 'manual'){
-    fsEdNext = {line: true};
+    fsEdNext = {line: true, meta: 'manual'};
     const open = document.getElementById('points-map-open'), tog = document.getElementById('points-map-toggle-btn');
     if(open && open.offsetParent !== null) open.click(); else if(tog) tog.click(); else fsEdNext = {};
     return;
@@ -10614,7 +10647,7 @@ function fsRouteEditLine(key){
   }
   tmp.value = JSON.stringify(a.trackSimplified || []); tmp._drawSegs = null;
   document.getElementById('alt-edit-line-plan').value = JSON.stringify(a.plan || []);
-  fsEdNext = {line: true, noPoints: true};
+  fsEdNext = {line: true, noPoints: true, meta: key};
   openFullscreenMap((id)=> renderPointsEditorMap(id, 'points-hidden', null, 'alt-edit-line', [], [], null, null), ()=>{
     let line = [], plan = [];
     try{ line = JSON.parse(tmp.value || '[]'); plan = JSON.parse(document.getElementById('alt-edit-line-plan').value || '[]'); }catch(e){}
@@ -11030,6 +11063,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       connectRow.querySelectorAll('[data-connect]').forEach(b=> b.addEventListener('click', ()=>{ drawConnect = b.getAttribute('data-connect'); try{ localStorage.setItem('fs-draw-connect', drawConnect); }catch(e){} paintConnect(); }));
     };
     paintConnect();
+    { const mr = isFullscreen && edNext.meta ? fsEdMetaRowEl(edNext.meta) : null; if(mr) lineActionsRow.appendChild(mr); }
     lineActionsRow.appendChild(connectRow);
     const gpsStartBtn = document.createElement('button');
     gpsStartBtn.type = 'button'; gpsStartBtn.className = 'btn secondary'; gpsStartBtn.style.cssText = 'font-size:12.5px; padding:6px 12px;';
@@ -17938,7 +17972,7 @@ function fsTourDrawRoute(){
     const plEl = document.getElementById('manual-track-hidden-plan'); if(plEl) plEl.value = '[]';
     markModalDirty();
     fsRoutesEditorRender();
-    fsEdNext = {line: true};
+    fsEdNext = {line: true, meta: 'manual'};
     const open = document.getElementById('points-map-open'), tog = document.getElementById('points-map-toggle-btn');
     if(open && open.offsetParent !== null) open.click(); else if(tog) tog.click();
     else fsEdNext = {};
