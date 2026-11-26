@@ -74,6 +74,10 @@ aus anderen Apps übernehmen.
   rechnet auf dem Gerät eine Aufstiegsspur mit Spitzkehren aus dem Höhenmodell (`fsSkiRoute`: Raster über `fsElevGrid` aus dem
   swisstopo-Gelände, Suche `fsSkiEngine` im Web Worker; Spur höchstens etwa 17° steil, Hänge bis 30° normal, 30–35° leicht, ab 35° stark gemieden, kleine Richtungswechsel kosten etwas; Linie geglättet (`fsSmoothTrack`); Linie nach
   Steilheit gefärbt, `FS_SKI_CLASSES`). Ein Vorschlag aus dem Gelände, keine Lawinenbeurteilung – so steht es auch im Planer.
+  Abfahrt (Route der Art Abfahrt/Abstieg, «Skispur ↓», pro Abschnitt umstellbar `sg.dir`): drei Linien zur Wahl (`drawChooseDescent`, `FS_DL_VARIANTS`):
+  Direkt (Steiles bleibt), Moderat (meidet über 35°), Flach (meidet über 30°); Felsabbrüche (≥ 48°, Linie > 45°) immer tabu; ohne Spitzkehren
+  (`job.down`, Zustand ohne Richtung, stärker geglättet). Gewählte Art bleibt am Abschnitt (`sg.variant`), Anpassen rechnet ohne neue Frage; «Andere Abfahrtslinie wählen» im Abschnitt-Menü.
+  Steile Stellen über 35° auf berechneten Skispuren markiert (`sg.slopes`) und gemeldet, nie automatisch umfahren. Suche: Verbesserung nur bei echtem Unterschied (Float32).
 - Auf- und Abstieg einer Tourlinie (`fsUpDownSplit`): Routen der Art Aufstieg bzw. Auf- & Abfahrt, die auch wieder hinunterführen,
   zeichnet die Tour-Karte zweiteilig (Abstieg/Abfahrt gestrichelt in der Farbe dieser Routenart, Zeichen am höchsten Punkt). Höhen vom
   swisstopo-Höhendienst, nur auf dem Gerät gemerkt (`fs-updown`); an der Tour ändert sich nichts.

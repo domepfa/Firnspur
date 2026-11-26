@@ -8649,12 +8649,16 @@ function fsSkiEngine(){
       }
       return top;
     };
-    const heur = (i)=>{ const x = i % w, y = (i / w) | 0, dz = ge - e[i]; return Math.hypot(x - gx0, y - gy0) * cell / V * 0.9 + (dz > 0 ? dz / UP : 0); };
-    for(let d = 0; d < 16; d++){ G[start * 16 + d] = 0; push(heur(start), start * 16 + d); }
+    // Abfahrt (job.down): direkte Linie, keine Spitzkehren, Steilheit wird nicht umfahren (nur gemeldet), nur Felsabbrüche (> 50°) teuer
+    const DOWN = !!job.down;
+    const HW = 0.95; // konsistent schätzen: jedes Feld nur einmal (ein höherer Faktor liess die Suche im steilen Gelände endlos nachbessern)
+    const heur = DOWN ? (i)=>{ const x = i % w, y = (i / w) | 0; return Math.hypot(x - gx0, y - gy0) * cell / (V * 1.6) * HW; }
+      : (i)=>{ const x = i % w, y = (i / w) | 0, dz = ge - e[i]; return Math.hypot(x - gx0, y - gy0) * cell / V * 0.9 + (dz > 0 ? dz / UP : 0); };
+    for(let d = 0; d < (DOWN ? 1 : 16); d++){ G[start * 16 + d] = 0; push(heur(start), start * 16 + d); }
     let found = -1, steps = 0;
     while(hn > 0){
       const kTop = hk[0], st = pop(), i = (st / 16) | 0, d = st & 15, g = G[st];
-      if(kTop > g + heur(i) + 1e-3) continue; // veraltet
+      if(kTop > g + heur(i) + 1e-3 + g * 1e-6) continue; // veraltet (Float32: Toleranz mit der Grösse, sonst gingen bei hohen Kosten gültige Einträge verloren)
       if(i === goal){ found = st; break; }
       if(++steps > 9e6) break;
       const x = i % w, y = (i / w) | 0, ei = e[i], si = sl[i];
@@ -8662,16 +8666,30 @@ function fsSkiEngine(){
         const nx = x + MOVES[m][0], ny = y + MOVES[m][1];
         if(nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
         const j = ny * w + nx, L = ML[m], dz = e[j] - ei, gr = dz / L;
-        let t = dz >= 0 ? L / V + dz / UP : L / (V * 1.6);
-        let pen = slopePen(Math.max(si, sl[j]));
-        if(job.mul) pen *= job.mul[j];                   // Bereiche: meiden teuer, bevorzugen günstiger
-        if(gr > 0.31) pen *= 1 + (gr - 0.31) * 45;      // Spur steiler als etwa 17°: rasch teuer
-        if(gr > 0.42) pen *= 6;                          // kaum mehr mit Fellen: Stapfen
-        if(gr < -0.45) pen *= 1 + (-gr - 0.45) * 8;
+        let t, pen, tc;
         let turn = Math.abs(m - d); if(turn > 8) turn = 16 - turn;
-        const tc = g === 0 ? 0 : turn === 0 ? 0 : turn === 1 ? 4 : turn === 2 ? 12 : turn <= 4 ? 20 : (si > 30 ? 60 : 35); // kleine Wechsel kosten etwas (ruhige Spur); ab etwa 110°: Spitzkehre
-        const ng = g + t * pen + tc, ns = j * 16 + m;
-        if(ng < G[ns]){ G[ns] = ng; P[ns] = st; push(ng + heur(j), ns); }
+        if(DOWN){
+          t = dz <= 0 ? L / (V * 1.6) : L / V + dz / (UP * 0.5); // Gegenanstieg in der Abfahrt: teuer
+          // Abfahrtslinie: direkt (Steiles bleibt, wird gemeldet) · moderat (meidet über 35°) · flach (meidet über 30°); Felsabbrüche immer tabu
+          const ss = Math.max(si, sl[j]), vv = job.down;
+          pen = ss >= 48 ? 400 : vv === 'flat' ? (ss < 30 ? 1 : ss < 35 ? 5 : ss < 40 ? 20 : 60)
+            : vv === 'moderate' ? (ss < 35 ? 1 : ss < 40 ? 6 : 25) : (ss < 45 ? 1 : 3);
+          if(job.mul) pen *= job.mul[j];
+          if(gr > 0.05) pen *= 4;
+          if(gr < -1.0) pen *= 60;                                 // Linie selbst steiler als 45°: Absturz
+          tc = 0; // keine Richtung im Zustand: ruhige Linie über das Glätten
+        }else{
+          t = dz >= 0 ? L / V + dz / UP : L / (V * 1.6);
+          pen = slopePen(Math.max(si, sl[j]));
+          if(job.mul) pen *= job.mul[j];                   // Bereiche: meiden teuer, bevorzugen günstiger
+          if(gr > 0.31) pen *= 1 + (gr - 0.31) * 45;      // Spur steiler als etwa 17°: rasch teuer
+          if(gr > 0.42) pen *= 6;                          // kaum mehr mit Fellen: Stapfen
+          if(gr < -0.45) pen *= 1 + (-gr - 0.45) * 8;
+          tc = g === 0 ? 0 : turn === 0 ? 0 : turn === 1 ? 4 : turn === 2 ? 12 : turn <= 4 ? 20 : (si > 30 ? 60 : 35); // kleine Wechsel kosten etwas (ruhige Spur); ab etwa 110°: Spitzkehre
+        }
+        const ng = g + t * pen + tc, ns = j * 16 + (DOWN ? 0 : m); // Abfahrt: ohne Richtung im Zustand (16× kleiner), geglättet wird danach
+        const gOld = G[ns];
+        if(gOld === Infinity || ng < gOld - 1e-4 - gOld * 1e-6){ G[ns] = ng; P[ns] = st; push(ng + heur(j), ns); } // echte Verbesserung (Float32-Rundung erzeugte sonst endlose Mini-Verbesserungen)
       }
     }
     if(found < 0) throw new Error(steps > 9e6 ? 'Abschnitt zu lang oder zu verwinkelt. Bitte einen Zwischenpunkt setzen.' : 'Kein Weg durchs Gelände gefunden.');
@@ -8748,7 +8766,7 @@ async function fsSkiRoute(waypoints, opts){
     const grid = await fsElevGrid(z, box.x0, box.y0, box.w, box.h);
     if(!grid.swiss) swissAll = false;
     const cl = (v, n)=> Math.max(0, Math.min(n - 1, v));
-    const job = {e: grid.e, w: box.w, h: box.h, cell: box.mpp, mul: fsAreaMul(opts && opts.areas, box, z),
+    const job = {e: grid.e, w: box.w, h: box.h, cell: box.mpp, mul: fsAreaMul(opts && opts.areas, box, z), down: (opts && opts.down) ? (opts.down === true ? 'direct' : opts.down) : false,
       sx: cl(Math.floor(PX(a[1], z)) - box.x0, box.w), sy: cl(Math.floor(PY(a[0], z)) - box.y0, box.h),
       tx: cl(Math.floor(PX(b[1], z)) - box.x0, box.w), ty: cl(Math.floor(PY(b[0], z)) - box.y0, box.h)};
     const out = await fsSkiSolve(job);
@@ -8763,7 +8781,7 @@ async function fsSkiRoute(waypoints, opts){
   if(coords.length < 2) throw new Error('Start und Ziel liegen am selben Ort.');
   // Genau bei Start und Ziel anfangen und enden
   coords[0] = [waypoints[0][0], waypoints[0][1]]; coords[coords.length - 1] = [waypoints[waypoints.length - 1][0], waypoints[waypoints.length - 1][1]];
-  let distanceM = 0, ascentM = 0, descentM = 0, durationS = 0, over30 = 0, stapfen = 0, kehren = 0, maxSlope = 0, prevB = null;
+  let distanceM = 0, ascentM = 0, descentM = 0, durationS = 0, over30 = 0, over35 = 0, stapfen = 0, kehren = 0, maxSlope = 0, prevB = null;
   const profile = [{distM: 0, eleM: eles[0]}];
   for(let i = 1; i < coords.length; i++){
     const L = fsRcHav(coords[i - 1], coords[i]), dz = eles[i] - eles[i - 1], s = Math.max(slopes[i - 1], slopes[i]);
@@ -8771,6 +8789,7 @@ async function fsSkiRoute(waypoints, opts){
     if(dz > 0) ascentM += dz; else descentM -= dz;
     durationS += dz >= 0 ? L / (4000 / 3600) + dz / (400 / 3600) : L / (4000 / 3600 * 1.6);
     if(s >= 30) over30 += L;
+    if(s >= 35) over35 += L;
     if(dz > 0 && (dz / Math.max(L, 1) > 0.42 || s >= 40)) stapfen += dz;
     if(s > maxSlope) maxSlope = s;
     const br = Math.atan2((coords[i][1] - coords[i - 1][1]) * Math.cos(coords[i][0] * Math.PI / 180), coords[i][0] - coords[i - 1][0]) * 180 / Math.PI;
@@ -8778,8 +8797,8 @@ async function fsSkiRoute(waypoints, opts){
     prevB = br;
     profile.push({distM: distanceM, eleM: eles[i]});
   }
-  const sm = fsSmoothTrack(coords, slopes);
-  return {coords: sm.coords, distanceM, durationS, ascentM, descentM, elevationProfile: profile, slopes: sm.slopes, over30M: over30, maxSlope, stapfenHm: stapfen, kehren, source: 'ski', swiss: swissAll};
+  const sm = fsSmoothTrack(coords, slopes, opts && opts.down ? 9 : undefined); // Abfahrt: ohne Richtung gesucht, darum stärker glätten
+  return {coords: sm.coords, distanceM, durationS, ascentM, descentM, elevationProfile: profile, slopes: sm.slopes, over30M: over30, over35M: over35, maxSlope, stapfenHm: stapfen, kehren, down: !!(opts && opts.down), source: 'ski', swiss: swissAll};
 }
 // Spur glätten: Rasterstufen weg (vereinfachen auf tol m), dann Ecken runden (Chaikin); Steilheit je Punkt mitführen
 function fsSmoothTrack(coords, slopes, tol){
@@ -11588,7 +11607,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     connectRow.className = 'fs-draw-connect';
     const paintConnect = ()=>{
       connectRow.innerHTML = '<div class="fs-draw-connect-l">Verbinden als</div><div class="fs-draw-seg" role="group" aria-label="Verbinden als">'
-        + [['ski', 'snow', 'Skispur'], ['weg', 'walk', 'Wanderweg'], ['gerade', 'ruler', 'Gerade']].map(([k, ic, l])=> `<button type="button" data-connect="${k}" aria-pressed="${drawConnect === k}" class="${drawConnect === k ? 'on' : ''}">${fsIconHtml(ic)}${l}</button>`).join('') + '</div>'
+        + [['ski', 'snow', (typeof drawRouteIsDown === 'function' && drawRouteIsDown()) ? 'Skispur ↓' : 'Skispur'], ['weg', 'walk', 'Wanderweg'], ['gerade', 'ruler', 'Gerade']].map(([k, ic, l])=> `<button type="button" data-connect="${k}" aria-pressed="${drawConnect === k}" class="${drawConnect === k ? 'on' : ''}">${fsIconHtml(ic)}${l}</button>`).join('') + '</div>'
         + '<div class="fs-draw-hint">Tippen: nächster Punkt · Kreis in der Mitte eines Abschnitts ziehen: nur diesen Teil umlenken</div>';
       connectRow.querySelectorAll('[data-connect]').forEach(b=> b.addEventListener('click', ()=>{ drawConnect = b.getAttribute('data-connect'); try{ localStorage.setItem('fs-draw-connect', drawConnect); }catch(e){} paintConnect(); }));
     };
@@ -12047,27 +12066,74 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
     function drawAnchorIdx(){ if(!manualTrack.length) return []; const idx = [0]; let k = 0; drawSegs.forEach(sg=>{ k += sg.coords.length - 1; idx.push(k); }); return idx; }
     function drawHasCalc(){ drawSync(); return drawSegs.some(sg=> sg.mode !== 'gerade'); }
-    async function drawCompute(m, a, b){
+    // Skispur: Aufstieg mit Spitzkehren oder Abfahrt direkt – nach der Art der Route, pro Abschnitt umstellbar (sg.dir)
+    function drawRouteIsDown(){
+      let ty = '';
+      try{ const m = edTourCtx ? fsRouteMetaGet(edActiveKey) : null; ty = m ? m.type : ''; }catch(e){}
+      return ty === 'abfahrt' || ty === 'abstieg';
+    }
+    function drawSkiDown(sg){ return sg && sg.dir ? sg.dir === 'down' : drawRouteIsDown(); }
+    const FS_DL_VARIANTS = [{k: 'direct', label: 'Direkt', color: '#7A1FA2', dash: null}, {k: 'moderate', label: 'Moderat', color: '#D9730D', dash: '10,6'}, {k: 'flat', label: 'Flach', color: '#2F7D4A', dash: '2,7'}];
+    // Abfahrt: drei Linien rechnen, auf der Karte zeigen, die gewählte zurückgeben (sonst null)
+    async function drawChooseDescent(a, b){
+      const res = [];
+      for(const v of FS_DL_VARIANTS){
+        try{ const r = await fsSkiRoute([a, b], {areas: drawAreasRead(), down: v.k}); res.push(Object.assign({v}, r)); }catch(e){}
+      }
+      if(!res.length) throw new Error('keine Route');
+      // praktisch gleiche Linien nur einmal
+      const same = (x, y)=>{ const n = 20; let d = 0; for(let i = 0; i <= n; i++){ const p = x.coords[Math.round(i / n * (x.coords.length - 1))], pr = drawProjLine(y.coords, p[0], p[1]); d += pr ? pr.d : 999; } return d / (n + 1) < 25; };
+      const list = res.filter((r, i)=> !res.slice(0, i).some(q=> same(r, q)));
+      if(list.length === 1) return list[0];
+      return await new Promise(resolve=>{
+        const grp = FL.layerGroup().addTo(map);
+        const done = (r)=>{ grp.remove(); panel.remove(); resolve(r); };
+        list.forEach((r, i)=>{
+          FL.polyline(r.coords, {color:'#ffffff', weight:8, opacity:0.85, interactive:false}).addTo(grp);
+          FL.polyline(r.coords, Object.assign({color: r.v.color, weight:5, opacity:1, interactive:false}, r.v.dash ? {dashArray: r.v.dash} : {})).addTo(grp);
+          FL.polyline(r.coords, {color:'#000', weight:26, opacity:0}).addTo(grp).on('click', (e)=>{ FL.DomEvent.stopPropagation(e); done(r); });
+          const mid = r.coords[Math.floor(r.coords.length * (0.35 + i * 0.15))];
+          FL.marker(mid, {icon: FL.divIcon({className: 'fs-dl-tag-icon', html: '<div class="fs-dl-tag" style="--c:' + r.v.color + '">' + (i + 1) + ' ' + r.v.label + '</div>', iconSize: [0, 0]})}).addTo(grp).on('click', ()=> done(r));
+        });
+        const panel = document.createElement('div');
+        panel.className = 'fs-dl-choose';
+        panel.innerHTML = '<p>Welche Abfahrtslinie?</p>' + list.map((r, i)=> `<button type="button" data-i="${i}"><i class="fs-route-sw${r.v.dash ? ' dash' : ''}" style="--c:${r.v.color}"></i><b>${i + 1} ${r.v.label}</b><small>${(r.distanceM / 1000).toFixed(1)} km · bis ${Math.round(r.maxSlope)}°${r.over35M > 15 ? ' · ' + Math.round(r.over35M / 10) * 10 + ' m über 35°' : ''}</small></button>`).join('')
+          + '<button type="button" class="fs-dl-x" data-x>Abbrechen (gerade Linie)</button>';
+        panel.addEventListener('click', e=>{ const bt = e.target.closest('button'); if(!bt) return; if(bt.hasAttribute('data-x')) done(null); else done(list[+bt.getAttribute('data-i')]); });
+        wrapDiv.appendChild(panel);
+      });
+    }
+    async function drawCompute(m, a, b, sg){
       if(m === 'gerade' || m === 'folgen' || m === 'fest') return [a, b];
-      const r = m === 'ski' ? await fsSkiRoute([a, b], {areas: drawAreasRead()}) : await fetchCalculatedRoute([a, b]);
+      const down = m === 'ski' && drawSkiDown(sg);
+      let r;
+      if(down && !(sg && sg.variant)){
+        r = await drawChooseDescent(a, b);
+        if(!r){ if(sg){ sg.mode = 'gerade'; } return [a, b]; }
+        if(sg) sg.variant = r.v.k;
+      }else{
+        r = m === 'ski' ? await fsSkiRoute([a, b], {areas: drawAreasRead(), down: down ? (sg && sg.variant) || 'direct' : false}) : await fetchCalculatedRoute([a, b]);
+      }
+      if(sg){ sg.steep = r && r.over35M > 15 ? {m: Math.round(r.over35M), max: Math.round(r.maxSlope)} : null; sg.slopes = m === 'ski' && r && r.slopes ? r.slopes : null; }
+      if(down && r && r.over35M > 15) showToast('Achtung: etwa ' + Math.round(r.over35M / 10) * 10 + ' m steiler als 35° (bis ' + Math.round(r.maxSlope) + '°) – markiert. Selbst beurteilen.', true);
       const c = ((r && r.coords) || []).map(q=> [+q[0], +q[1]]).filter(q=> isFinite(q[0]) && isFinite(q[1]));
       if(c.length < 2) throw new Error('keine Route');
       const far = (p, q)=> fsGeoDist(p[0], p[1], q[0], q[1]) > 3;
-      if(far(c[0], a)) c.unshift(a); else c[0] = a;
-      if(far(c[c.length - 1], b)) c.push(b); else c[c.length - 1] = b;
+      if(far(c[0], a)){ c.unshift(a); if(sg && sg.slopes) sg.slopes = [sg.slopes[0] || 0].concat(sg.slopes); } else c[0] = a;
+      if(far(c[c.length - 1], b)){ c.push(b); if(sg && sg.slopes) sg.slopes = sg.slopes.concat([sg.slopes[sg.slopes.length - 1] || 0]); } else c[c.length - 1] = b;
       return c;
     }
     let drawBusy = false, drawBusyN = 0;
     async function drawRecompute(list){
       drawBusyN++; drawBusy = true;
       const calc = list.filter(i=> drawSegs[i] && drawSegs[i].mode !== 'gerade');
-      if(calc.length) showToast(drawSegs[calc[0]].mode === 'ski' ? 'Skispur wird aus dem Gelände gerechnet …' : 'Weg wird gesucht …');
+      if(calc.length) showToast(drawSegs[calc[0]].mode === 'ski' ? (drawSkiDown(drawSegs[calc[0]]) ? 'Abfahrtslinie wird aus dem Gelände gerechnet …' : 'Skispur wird aus dem Gelände gerechnet …') : 'Weg wird gesucht …');
       for(const i of list){
         const sg = drawSegs[i];
         if(!sg) continue;
         const a = sg.coords[0], b = sg.coords[sg.coords.length - 1], g = sg._gen = (sg._gen || 0) + 1;
         if(sg.mode !== 'gerade' && sg.mode !== 'folgen' && sg.mode !== 'fest'){ sg.coords = [a, b]; manualTrack = drawJoin(drawSegs); redrawLine(); } // sofort gerade zeigen, Spur folgt
-        try{ const c = await drawCompute(sg.mode, a, b); if(sg._gen === g) sg.coords = c; } // nur das Neueste übernehmen
+        try{ const c = await drawCompute(sg.mode, a, b, sg); if(sg._gen === g) sg.coords = c; } // nur das Neueste übernehmen
         catch(e){ if(sg._gen === g){ sg.mode = 'gerade'; sg.coords = [a, b]; showToast('Konnte nicht gerechnet werden (offline?) – als gerade Linie gezeichnet.', true); } }
       }
       drawBusyN--; drawBusy = drawBusyN > 0;
@@ -12183,7 +12249,8 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     function drawSplit(k, ll){
       drawSync();
       const sg = drawSegs[k], p = [ll.lat, ll.lng], m = (sg.mode === 'folgen' || sg.mode === 'fest') ? drawConnect : sg.mode;
-      drawSegs.splice(k, 1, {mode: m, coords: [sg.coords[0], p]}, {mode: m, coords: [p, sg.coords[sg.coords.length - 1]]});
+      const keep = {dir: sg.dir, variant: sg.variant}; // Abfahrtslinie: gleiche Art weiterrechnen, nicht neu fragen
+      drawSegs.splice(k, 1, Object.assign({mode: m, coords: [sg.coords[0], p]}, keep), Object.assign({mode: m, coords: [p, sg.coords[sg.coords.length - 1]]}, keep));
       drawRecompute([k, k + 1]);
     }
     function gpxBtn(label, cls, fn){
@@ -12285,6 +12352,10 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
           const st = FS_DRAW_STYLE[sg.mode] || FS_DRAW_STYLE.gerade;
           FL.polyline(sg.coords, {color:'#ffffff', weight:7, opacity:0.7, interactive:false}).addTo(lineLayer);
           FL.polyline(sg.coords, Object.assign({color: st.color, weight:4, opacity:1, interactive:false}, st.dash ? {dashArray: st.dash} : {})).addTo(lineLayer);
+          // Steile Stellen (über 35° orange-rot, über 40° violett) auf berechneten Skispuren markieren
+          if(sg.slopes && sg.slopes.length === sg.coords.length){
+            for(let i = 1; i < sg.coords.length; i++){ const sv = Math.max(sg.slopes[i - 1], sg.slopes[i]); if(sv >= 35) FL.polyline([sg.coords[i - 1], sg.coords[i]], {color: sv >= 40 ? '#7A1FA2' : '#D9480F', weight:7, opacity:0.95, interactive:false}).addTo(lineLayer); }
+          }
           FL.polyline(sg.coords, {color:'#000', weight:26, opacity:0}).addTo(lineLayer).on('click', (e)=>{
             FL.DomEvent.stopPropagation(e);
             FL.popup().setLatLng(e.latlng).setContent(drawSegMenu(k, e.latlng)).openOn(map);
@@ -12480,7 +12551,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       const wrap = document.createElement('div');
       wrap.className = 'fs-gpx-menu fs-draw-segmenu';
       const h = document.createElement('p');
-      h.textContent = 'Abschnitt ' + (k + 1) + ' von ' + drawSegs.length + ' · ' + fsLineKm(sg.coords).toFixed(1) + ' km' + (sg.mode === 'folgen' ? ' · folgt ' + (sg.label || 'einer Route') : sg.mode === 'fest' ? ' · bisherige Linie' : '');
+      h.textContent = 'Abschnitt ' + (k + 1) + ' von ' + drawSegs.length + ' · ' + fsLineKm(sg.coords).toFixed(1) + ' km' + (sg.mode === 'folgen' ? ' · folgt ' + (sg.label || 'einer Route') : sg.mode === 'fest' ? ' · bisherige Linie' : sg.mode === 'ski' ? (drawSkiDown(sg) ? ' · Abfahrt ' + ((FS_DL_VARIANTS.find(v=> v.k === sg.variant) || {label: ''}).label) : ' · Aufstieg mit Spitzkehren') : '') + (sg.steep ? ' · ' + sg.steep.m + ' m über 35° (bis ' + sg.steep.max + '°)' : '');
       wrap.appendChild(h);
       const seg = document.createElement('div');
       seg.className = 'fs-draw-seg';
@@ -12496,6 +12567,11 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         drawRecompute([k]);
       }));
       wrap.appendChild(seg);
+      if(sg.mode === 'ski' && drawSkiDown(sg)) wrap.appendChild(gpxBtn('Andere Abfahrtslinie wählen' + (sg.variant ? ' (jetzt: ' + (FS_DL_VARIANTS.find(v=> v.k === sg.variant) || {}).label + ')' : ''), 'secondary', ()=>{ pushUndo(); map.closePopup(); sg.variant = null; sg.coords = [sg.coords[0], sg.coords[sg.coords.length - 1]]; drawRecompute([k]); }));
+      if(sg.mode === 'ski'){
+        const dn = drawSkiDown(sg);
+        wrap.appendChild(gpxBtn(dn ? 'Als Aufstieg rechnen (Spitzkehren)' : 'Als Abfahrt rechnen (Linie wählen)', 'secondary', ()=>{ pushUndo(); map.closePopup(); sg.dir = dn ? 'up' : 'down'; sg.variant = null; sg.coords = [sg.coords[0], sg.coords[sg.coords.length - 1]]; drawRecompute([k]); }));
+      }
       wrap.appendChild(gpxBtn('Hier Zwischenpunkt setzen', 'secondary', ()=>{ pushUndo(); map.closePopup(); drawSplit(k, ll); }));
       return wrap;
     }
