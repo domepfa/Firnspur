@@ -25153,3 +25153,132 @@ async function fsAttachPlanToTour(t, coords, plan, type, name){
   try{ if(typeof render === 'function') render(); }catch(e){}
   return ok;
 }
+
+/* ===== Tour teilen =====
+   Knopf im Tourkopf: Blatt mit «Als Bild» (Karte mit Route und Kennzahlen, über das Teilen-Menü des Handys, für alle),
+   «GPX-Datei» (alle Routen) und «Link» (öffnet die Tour direkt, nur mit Firnspur-Zugang: ?tour=<id>). */
+function fsShareBtnHtml(t){ return `<button type="button" class="fs-icon-btn fs-share-btn" data-act="fs-share-tour" data-id="${esc(t.id)}" aria-label="Tour teilen">${fsIconHtml('share')}</button>`; }
+function fsShareFacts(t){
+  const parts = [t.difficulty, t.targetAltitude ? t.targetAltitude + ' m' : '', t.elevationGain ? '↑ ' + t.elevationGain + ' Hm' : '', t.duration ? t.duration + ' h' : ''].filter(Boolean);
+  return parts.join(' · ');
+}
+function fsShareText(t){ return [t.name + (t.routeName ? ' – ' + t.routeName : ''), fsShareFacts(t)].filter(Boolean).join('\n'); }
+function fsShareLink(t){
+  const qs = new URLSearchParams(); if(typeof DISC !== 'undefined' && DISC && DISC !== 'ski') qs.set('d', DISC); qs.set('tour', t.id);
+  return location.origin + location.pathname + '?' + qs.toString();
+}
+// Bild 1080 × 1350: Landeskarte mit allen Routen, unten Name und Kennzahlen
+async function fsShareImage(t){
+  const W = 1080, H = 1350, MAPH = 1080;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#EEF2F4'; g.fillRect(0, 0, W, H);
+  const sk = fsTourSketchData(t);
+  const all = sk.lines.reduce((a, l)=> a.concat(l.coords), []).concat(sk.points.map(p=> [p.lat, p.lon]));
+  if(!all.length) return null;
+  const la = all.map(c=> c[0]), lo = all.map(c=> c[1]);
+  const s0 = Math.min(...la), n0 = Math.max(...la), w0 = Math.min(...lo), e0 = Math.max(...lo);
+  // Zoom so, dass alles mit Rand in die Karte passt (256er Kacheln)
+  let z = 16;
+  for(; z > 7; z--){ const [x1, y1] = fsRcPx(n0, w0, z), [x2, y2] = fsRcPx(s0, e0, z); if(x2 - x1 < W * 0.78 && y2 - y1 < MAPH * 0.78) break; }
+  const [ax, ay] = fsRcPx(n0, w0, z), [bx, by] = fsRcPx(s0, e0, z);
+  const ox = (ax + bx) / 2 - W / 2, oy = (ay + by) / 2 - MAPH / 2;
+  const tpl = FSM_WMTS('ch.swisstopo.pixelkarte-farbe', 'jpeg');
+  const jobs = [];
+  for(let tx = Math.floor(ox / 256); tx <= Math.floor((ox + W) / 256); tx++) for(let ty = Math.floor(oy / 256); ty <= Math.floor((oy + MAPH) / 256); ty++){
+    jobs.push((async ()=>{ try{ const r = await fetch(tpl.replace('{z}', z).replace('{x}', tx).replace('{y}', ty)); if(!r.ok) return; const bm = await createImageBitmap(await r.blob()); g.drawImage(bm, tx * 256 - ox, ty * 256 - oy); }catch(e){} })());
+  }
+  await Promise.all(jobs);
+  const P = c=>{ const [x, y] = fsRcPx(c[0], c[1], z); return [x - ox, y - oy]; };
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  sk.lines.forEach(l=>{
+    const pts = l.coords.map(P);
+    const path = ()=>{ g.beginPath(); pts.forEach((p, i)=> i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); };
+    g.setLineDash([]); g.strokeStyle = '#ffffff'; g.lineWidth = 14; path(); g.stroke();
+    g.setLineDash(l.dash ? [22, 16] : []); g.strokeStyle = l.color; g.lineWidth = 8; path(); g.stroke();
+  });
+  g.setLineDash([]);
+  const first = sk.lines[0] && sk.lines[0].coords[0];
+  if(first){ const [x, y] = P(first); g.fillStyle = '#ffffff'; g.beginPath(); g.arc(x, y, 16, 0, 7); g.fill(); g.fillStyle = '#0F1E27'; g.beginPath(); g.arc(x, y, 9, 0, 7); g.fill(); }
+  const top = fsTourSummitPoint(t);
+  if(top){ const [x, y] = P([top.lat, top.lon]); g.fillStyle = '#ffffff'; g.beginPath(); g.moveTo(x, y - 26); g.lineTo(x + 22, y + 12); g.lineTo(x - 22, y + 12); g.closePath(); g.fill(); g.fillStyle = '#B42318'; g.beginPath(); g.moveTo(x, y - 16); g.lineTo(x + 13, y + 6); g.lineTo(x - 13, y + 6); g.closePath(); g.fill(); }
+  // Fussteil
+  g.fillStyle = '#ffffff'; g.fillRect(0, MAPH, W, H - MAPH);
+  g.fillStyle = '#0F1E27'; g.font = '400 72px "Instrument Serif", Georgia, serif';
+  const fit = (txt, max)=>{ let tx = txt; while(g.measureText(tx).width > max && tx.length > 4) tx = tx.slice(0, -2); return tx === txt ? txt : tx.trim() + '…'; };
+  g.fillText(fit(t.name || 'Tour', W - 120), 60, MAPH + 100);
+  g.font = '600 38px Manrope, system-ui, sans-serif'; g.fillStyle = '#4A5A64';
+  if(t.routeName) g.fillText(fit(t.routeName, W - 120), 60, MAPH + 160);
+  g.font = '800 42px Manrope, system-ui, sans-serif'; g.fillStyle = '#0F1E27';
+  g.fillText(fit(fsShareFacts(t), W - 120), 60, MAPH + (t.routeName ? 225 : 175));
+  g.font = '600 26px Manrope, system-ui, sans-serif'; g.fillStyle = '#5C6B75';
+  g.fillText('Firnspur · Karte © swisstopo', 60, H - 30);
+  return await new Promise(r=> cv.toBlob(b=> r(b), 'image/png'));
+}
+async function fsShareFiles(files, title, text){
+  try{
+    if(navigator.canShare && navigator.canShare({files})){ await navigator.share({files, title, text}); return true; }
+  }catch(e){ if(e && e.name === 'AbortError') return true; }
+  // Ohne Teilen-Menü (z. B. Laptop): Dateien herunterladen
+  files.forEach(f=>{ const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=> URL.revokeObjectURL(a.href), 3000); });
+  showToast(files.length === 1 ? 'Datei gespeichert.' : 'Dateien gespeichert.');
+  return false;
+}
+function fsShareGpxXml(t){
+  const trk = fsTourRoutes(t).map(r=>{
+    const pts = (r.coords || []).map(c=> Array.isArray(c) ? c : [c.lat, c.lon != null ? c.lon : c.lng]).map(c=> `      <trkpt lat="${c[0]}" lon="${c[1]}"></trkpt>`).join('\n');
+    return `  <trk>\n    <name>${esc((t.name || 'Tour') + ' – ' + fsRouteTitle(r))}</name>\n    <trkseg>\n${pts}\n    </trkseg>\n  </trk>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Firnspur" xmlns="http://www.topografix.com/GPX/1/1">\n${trk}\n</gpx>`;
+}
+const fsShareSafe = n=> String(n || 'tour').replace(/[^a-z0-9äöüÄÖÜ_\- ]/gi, '').trim().replace(/\s+/g, '-') || 'tour';
+function fsShareOpen(id){
+  const t = (state.tours || []).find(x=> x.id === id);
+  if(!t) return;
+  const hasRoute = fsTourRoutes(t).length > 0;
+  const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
+    <h3 class="fs-season-h">Tour teilen</h3>
+    <p class="fs-season-p">${esc(t.name)}</p>
+    <div class="fs-share">
+      <button type="button" class="btn" data-img>${fsIconHtml('share')}Als Bild teilen<small>Karte mit Route und Kennzahlen – für alle, z. B. per WhatsApp</small></button>
+      ${hasRoute ? `<button type="button" class="btn secondary" data-gpx>${fsIconHtml('download')}GPX-Datei<small>Zum Laden in eine andere App (swisstopo, Garmin …)</small></button>` : ''}
+      <button type="button" class="btn secondary" data-link>${fsIconHtml('link')}Link<small>Öffnet die Tour in Firnspur – nur mit Zugang zur App</small></button>
+    </div>`);
+  ov.querySelector('[data-img]').addEventListener('click', async (e)=>{
+    const b = e.currentTarget; b.disabled = true; const old = b.innerHTML; b.innerHTML = 'Bild wird erstellt …';
+    try{
+      const blob = await fsShareImage(t);
+      if(!blob){ showToast('Für ein Bild braucht die Tour einen Punkt oder eine Route.', true); return; }
+      await fsShareFiles([new File([blob], fsShareSafe(t.name) + '.png', {type: 'image/png'})], t.name, fsShareText(t));
+    }finally{ b.disabled = false; b.innerHTML = old; }
+  });
+  const gb = ov.querySelector('[data-gpx]');
+  if(gb) gb.addEventListener('click', ()=> fsShareFiles([new File([fsShareGpxXml(t)], fsShareSafe(t.name) + '.gpx', {type: 'application/gpx+xml'})], t.name, fsShareText(t)));
+  ov.querySelector('[data-link]').addEventListener('click', async ()=>{
+    const url = fsShareLink(t);
+    try{ if(navigator.share){ await navigator.share({title: t.name, text: fsShareText(t), url}); return; } }catch(e){ if(e && e.name === 'AbortError') return; }
+    try{ await navigator.clipboard.writeText(url); showToast('Link kopiert.'); }catch(e){ prompt('Link zum Kopieren:', url); }
+  });
+}
+document.addEventListener('click', (e)=>{
+  const b = e.target && e.target.closest && e.target.closest('[data-act="fs-share-tour"]');
+  if(!b) return;
+  e.stopPropagation();
+  fsShareOpen(b.getAttribute('data-id'));
+}, true);
+// Link ?tour=<id>: Tour öffnen, sobald die Touren geladen sind
+(function(){
+  if(typeof window === 'undefined') return;
+  const qs = new URLSearchParams(location.search), id = qs.get('tour');
+  if(!id) return;
+  qs.delete('tour');
+  try{ history.replaceState(history.state, '', location.pathname + (qs.toString() ? '?' + qs : '') + location.hash); }catch(e){}
+  let tries = 0;
+  const go = ()=>{
+    const t = typeof state !== 'undefined' && !state.loading && (state.tours || []).find(x=> x.id === id);
+    if(t && typeof openTourDetail === 'function'){ openTourDetail(id); return; }
+    if(++tries < 80) setTimeout(go, 250);
+    else if(typeof showToast === 'function') showToast('Diese Tour wurde nicht gefunden (gelöscht oder in einer anderen Disziplin).', true);
+  };
+  window.addEventListener('load', ()=> setTimeout(go, 600));
+})();

@@ -2151,6 +2151,7 @@ function tourDetailHtmlSki(id){
         <h2 style="color:var(--ice-deep);">${esc(t.name)}</h2>
       </div>
       <div style="display:flex; align-items:flex-start; gap:4px;">
+        ${fsShareBtnHtml(t)}
         ${favoriteToggleButtonHtml(t.id)}
         ${editIconButtonHtml('edit-tour', t.id)}
         <button class="x-btn" data-act="close-modal">×</button>
@@ -2281,6 +2282,7 @@ function tourDetailHtmlWand(id){
         <h2 style="color:var(--ice-deep);">${esc(t.name)}</h2>
       </div>
       <div style="display:flex; align-items:flex-start; gap:4px;">
+        ${fsShareBtnHtml(t)}
         ${favoriteToggleButtonHtml(t.id)}
         ${editIconButtonHtml('edit-tour', t.id)}
         <button class="x-btn" data-act="close-modal">×</button>
@@ -7172,6 +7174,7 @@ function tourDetailHtml__fix(id){
         <h2 style="color:var(--ice-deep);">${esc(t.name)}</h2>
       </div>
       <div style="display:flex; align-items:flex-start; gap:4px;">
+        ${fsShareBtnHtml(t)}
         ${favoriteToggleButtonHtml(t.id)}
         ${editIconButtonHtml('edit-tour', t.id)}
         <button class="x-btn" data-act="close-modal">×</button>
