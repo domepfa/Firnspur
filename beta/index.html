@@ -1945,9 +1945,9 @@ function tourFormHtmlSki(existing){
         </div>
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
-      <div class="field"><label>Punkte (Parkplatz, Haltestelle …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('pin')} Punkte auf der Karte setzen</button>
-        <div class="hint">${fsIconHtml('pin')} Antippen setzt einen Punkt, Bezeichnung eintragen, speichern. Routen oben unter «Routen».</div>
+      <div class="field"><label>Karte (Routen, Punkte, Bereiche)</label>
+        <button type="button" class="btn" id="points-map-toggle-btn">${fsIconHtml('map')} Karte bearbeiten</button>
+        <div class="hint">Ein Editor für alles: oben die Route wählen, unten Routen · Punkte · Bereiche.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
@@ -2084,9 +2084,9 @@ function tourFormHtmlWand(existing){
         </div>
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
-      <div class="field"><label>Punkte (Parkplatz, Haltestelle …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('pin')} Punkte auf der Karte setzen</button>
-        <div class="hint">${fsIconHtml('pin')} Antippen setzt einen Punkt, Bezeichnung eintragen, speichern. Routen oben unter «Routen».</div>
+      <div class="field"><label>Karte (Routen, Punkte, Bereiche)</label>
+        <button type="button" class="btn" id="points-map-toggle-btn">${fsIconHtml('map')} Karte bearbeiten</button>
+        <div class="hint">Ein Editor für alles: oben die Route wählen, unten Routen · Punkte · Bereiche.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>
@@ -7103,9 +7103,9 @@ function tourFormHtml__fix(existing){
         </div>
       </div>
       <div class="field"><label>Anfahrt – Details</label><textarea name="approach" placeholder="Ausgangspunkt, Parkplatz, ÖV …">${esc(t.approach||'')}</textarea></div>
-      <div class="field"><label>Punkte (Parkplatz, Haltestelle …)</label>
-        <button type="button" class="btn secondary" id="points-map-toggle-btn">${fsIconHtml('pin')} Punkte auf der Karte setzen</button>
-        <div class="hint">${fsIconHtml('pin')} Antippen setzt einen Punkt, Bezeichnung eintragen, speichern. Routen oben unter «Routen».</div>
+      <div class="field"><label>Karte (Routen, Punkte, Bereiche)</label>
+        <button type="button" class="btn" id="points-map-toggle-btn">${fsIconHtml('map')} Karte bearbeiten</button>
+        <div class="hint">Ein Editor für alles: oben die Route wählen, unten Routen · Punkte · Bereiche.</div>
         <div id="points-map" style="margin-top:10px; display:none;"></div>
         <div id="points-list"></div>
         <input type="hidden" name="points" id="points-hidden" value='${esc(JSON.stringify(t.points || (t.lat && t.lon ? [{label:"Ausgangspunkt", lat:t.lat, lon:t.lon}] : [])))}'/>

@@ -3623,3 +3623,20 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .fs-off-row-t small{ color:var(--ink-soft); font-size:12.5px; }
 .fs-off-frame{ border-style:dashed; }
 .btn.fs-draw-append.on{ background:var(--ice-deep); color:#fff; border-color:transparent; }
+
+/* ===== Ein Editor für alle Routen ===== */
+.fs-ed-chips{ display:flex; gap:8px; overflow-x:auto; scrollbar-width:none; margin-top:8px; padding:2px; }
+.fs-ed-chips::-webkit-scrollbar{ display:none; }
+.fs-ed-chip{ flex:none; display:flex; align-items:center; gap:8px; min-height:44px; padding:0 14px; border:none; border-radius:22px; background:var(--paper);
+  color:var(--ink); font:inherit; font-size:14px; font-weight:800; box-shadow:0 2px 8px rgba(15,30,39,.14); cursor:pointer; white-space:nowrap; }
+.fs-ed-chip .fs-route-sw{ width:18px; }
+.fs-ed-chip.on{ box-shadow:0 0 0 3px var(--ice-deep), 0 2px 8px rgba(15,30,39,.14); }
+.fs-ed-chip.add{ color:var(--ice-deep); }
+.fs-ed-chip.add .fs-i{ width:16px; height:16px; }
+.fs-ed-tour > .btn{ flex:1 1 0; min-width:0; min-height:50px; justify-content:center; font-size:14px !important; padding:6px 8px !important; white-space:nowrap; }
+.fs-ed-tour > .fs-draw-append:not(.fs-draw-snap){ flex:1 1 100%; }
+.fs-ed-more{ flex:1 1 100%; display:flex; flex-wrap:wrap; gap:8px; padding-top:4px; border-top:1px solid var(--line-soft); }
+.fs-ed-more[hidden]{ display:none; }
+.fs-ed-more > .btn{ flex:1 1 45%; min-height:46px; justify-content:center; }
+.fs-ed-more > .fs-ed-meta{ flex:1 1 100%; }
+.btn.fs-ed-morebtn.on{ background:var(--ice-light); }
