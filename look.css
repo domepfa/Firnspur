@@ -3559,3 +3559,9 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .fs-hgt-lab b{ font-weight:800; }
 .fs-hgt-lab small{ display:flex; align-items:center; gap:5px; font-size:12px; font-weight:700; color:var(--ink-soft); }
 .fs-hgt-lab small i{ width:9px; height:9px; border:none; border-radius:50%; background:var(--danger); flex:none; }
+
+/* ===== Tour teilen ===== */
+.fs-share{ display:grid; gap:10px; }
+.fs-share .btn{ min-height:64px; display:grid; grid-template-columns:24px 1fr; column-gap:10px; align-items:center; text-align:left; justify-content:stretch; padding:10px 14px; }
+.fs-share .btn .fs-i{ grid-row:span 2; }
+.fs-share .btn small{ grid-column:2; font-size:12.5px; font-weight:600; opacity:.85; }

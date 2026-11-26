@@ -123,6 +123,8 @@ aus anderen Apps übernehmen.
   «Skispur neu rechnen» (`drawAreasRecalc`). Ziehen von Kartenpunkten mit eigener Zeigerverfolgung (FL-Marker, Pointer Capture).
   Tour-Routen auf der Startkarte kräftig mit weissem Rand (`fs-home-routes-case`); Ebene an = in jeder Ansicht sichtbar (Touren: die der Liste, sonst alle;
   Linie antippen öffnet dort die Tour).
+- Tour teilen (`fsShareOpen`, Knopf im Tourkopf): «Als Bild teilen» (1080×1350, swisstopo-Karte mit Routen und Kennzahlen, `fsShareImage`),
+  «GPX-Datei» (eine Spur je Route, `fsShareGpxXml`), «Link» `?tour=<id>` (öffnet die Tour nach dem Laden). Ohne Teilen-Menü wird heruntergeladen.
 - SAC-Routen sind oft mehrteilig (MultiLineString, Teile zeigen Richtung Gipfel): `fsMultiLineRoutes` macht daraus zusammenhängende
   Routen (von jedem Anfang bis zum Gipfel-Knoten, sonst gierig verkettet), `fsSacRoutes` setzt die Art (andere Abfahrt als Aufstieg:
   zweite Route umgedreht als «Abfahrt»). Neue Tour aus SAC: Zeit (`fsSacDuration`), Auf-/Abstieg Hm, Routenname, weitere Routen.
