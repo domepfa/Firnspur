@@ -271,6 +271,9 @@ aus anderen Apps übernehmen.
 - Treffpunkte im Termin: Liste `meets` [{id, time, place, who, lat, lon}] (Formular `fsMeetsFieldHtml`/`fsMeetsCollect`, je Treffpunkt Zeit, Ort, Wer,
   Ort suchen/auf Karte, «+ Weiterer Treffpunkt»); lesen immer über `fsAgendaMeets` (alte Termine: aus `meetingPoint`/`meetingLat/Lon`).
   Die alten Felder spiegeln beim Speichern den ersten Treffpunkt (Anfahrt-Route, ältere Geräte).
+- Tourenzettel als Ansicht in der App (`fsTzOverlay`: Rahmen über allem mit «‹ Zurück», kein leeres Fenster «about:blank» mehr; geteilt wird über das
+  App-Fenster). «Link teilen» (`fsTzLink`: `?zettel=<Termin-Id>`, öffnet den Zettel nach dem Laden). «Das braucht es» im Tourenbriefing: leer oder
+  unverändert vorausgefüllt folgt es den Kennzahlen des Tages und der Schwierigkeit (`fsBriefReqText`/`fsBriefReqAuto`), Knopf «Aus den Routen».
 - Tourenzettel «Als PDF teilen» (`fsTzPdf`): unsichtbare Kopie des Zettels im App-Fenster (iframe, 720 px breit; html2canvas hing im Zettel-Fenster),
   html2canvas + jsPDF von unpkg (`fsPdfLibs`), A4 mit Umbruch am Abschnittsanfang (`fsTzPdfPages`). Handy: erster Tipp erstellt, zweiter teilt
   (Teilen braucht einen frischen Tipp); ohne Teilen-Menü Download; schlägt es fehl, Text wie bisher.

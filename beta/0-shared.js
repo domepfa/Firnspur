@@ -3706,11 +3706,38 @@ function fsTzPdfPages(cv, wrap, scale, a){
   const name = 'Tourenzettel-' + String(fsAgendaTitle(a) || 'Tour').replace(/[^a-z0-9äöüÄÖÜ_\- ]/gi, '').trim().replace(/\s+/g, '-') + '.pdf';
   return new File([pdf.output('blob')], name, {type: 'application/pdf'});
 }
+// Link zum Tourenzettel: öffnet die App mit diesem Termin (?zettel=<id>, Disziplin bleibt)
+function fsTzLink(id){
+  const u = new URL(location.href), d = u.searchParams.get('d');
+  u.search = ''; u.hash = '';
+  if(d) u.searchParams.set('d', d);
+  u.searchParams.set('zettel', id);
+  return u.toString();
+}
+// Rahmen über der App für den Zettel; gibt dessen Fenster zurück (Drucken druckt nur den Rahmen)
+function fsTzOverlay(a){
+  const old = document.getElementById('fs-tz-overlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'fs-tz-overlay'; ov.className = 'fs-tz-overlay';
+  ov.innerHTML = '<div class="fs-tz-bar"><button type="button" class="fs-tz-close" aria-label="Tourenzettel schliessen">‹ Zurück</button><b>Tourenzettel</b></div><iframe class="fs-tz-frame" title="Tourenzettel"></iframe>';
+  document.body.appendChild(ov);
+  const close = ()=>{ ov.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e=>{ if(e.key === 'Escape') close(); };
+  ov.querySelector('.fs-tz-close').addEventListener('click', close);
+  document.addEventListener('keydown', onKey);
+  const fr = ov.querySelector('iframe');
+  const win = fr.contentWindow;
+  if(!win){ ov.remove(); showToast('Tourenzettel konnte nicht geöffnet werden.', true); return null; }
+  win.document.open();
+  return win;
+}
 function printTourenzettel(agendaId){
   const a = state.agenda.find(x=>x.id===agendaId);
   if(!a) return;
-  const win = window.open('', '_blank');
-  if(!win){ showToast('Pop-up wurde blockiert – bitte Pop-ups für diese Seite erlauben.', true); return; }
+  // Zettel als Ansicht in der App (Rahmen über allem), nicht mehr als leeres Fenster «about:blank»:
+  // so teilt das Handy PDF und Link aus der App heraus, und ein Link ?zettel=<id> kann ihn direkt öffnen
+  const win = fsTzOverlay(a);
+  if(!win) return;
 
   const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const dateLabel = a.endDate && a.endDate!==a.startDate
@@ -3955,6 +3982,7 @@ function printTourenzettel(agendaId){
   <div class="actions no-print">
     <button class="primary" onclick="window.print()">${fsIconHtml('printer')} Drucken</button>
     <button id="tz-share-btn" type="button">${fsIconHtml('share')} Als PDF teilen</button>
+    <button id="tz-link-btn" type="button">${fsIconHtml('link')} Link teilen</button>
   </div>
   <div class="foot">Geteilt mit Firnspur am ${escHtml(new Date().toLocaleDateString('de-CH'))}.</div>
 </div>
@@ -3981,8 +4009,8 @@ function printTourenzettel(agendaId){
   const shareBtn = win.document.getElementById('tz-share-btn');
   // Teilen als PDF: der Zettel wie gedruckt (html2canvas + jsPDF, Seitenumbruch zwischen Abschnitten); klappt das nicht, Text wie bisher
   const shareTextFallback = ()=>{
-      if(win.navigator.share){
-        win.navigator.share({title: a.tourName || 'Tourenzettel', text: shareText}).catch(()=>{});
+      if(window.navigator.share){
+        window.navigator.share({title: a.tourName || 'Tourenzettel', text: shareText, url: fsTzLink(a.id)}).catch(()=>{});
       }else if(win.navigator.clipboard && win.navigator.clipboard.writeText){
         win.navigator.clipboard.writeText(shareText).then(()=>{
           const old = shareBtn.textContent;
@@ -3996,7 +4024,7 @@ function printTourenzettel(agendaId){
   if(shareBtn){
     let readyFile = null;
     const shareFile = async (file)=>{
-      const nav = win.navigator;
+      const nav = window.navigator; // App-Fenster (echte Adresse), nicht der Rahmen
       if(nav.canShare && nav.canShare({files: [file]})){ try{ await nav.share({files: [file], title: fsAgendaTitle(a) || 'Tourenzettel'}); }catch(e){} return; }
       const l = win.document.createElement('a'); l.href = win.URL.createObjectURL(file); l.download = file.name; win.document.body.appendChild(l); l.click(); l.remove();
       setTimeout(()=> win.URL.revokeObjectURL(l.href), 4000);
@@ -4008,7 +4036,7 @@ function printTourenzettel(agendaId){
       shareBtn.disabled = true; shareBtn.textContent = 'PDF wird erstellt …';
       try{
         const file = await fsTzPdf(win, a);
-        const nav = win.navigator;
+        const nav = window.navigator;
         if(nav.canShare && nav.canShare({files: [file]})){
           readyFile = file;
           shareBtn.innerHTML = fsIconHtml('share') + ' PDF teilen';
@@ -4025,6 +4053,12 @@ function printTourenzettel(agendaId){
       }
     };
   }
+  const linkBtn = win.document.getElementById('tz-link-btn');
+  if(linkBtn) linkBtn.onclick = async ()=>{
+    const url = fsTzLink(a.id), title = 'Tourenzettel ' + (fsAgendaTitle(a) || '');
+    try{ if(window.navigator.share){ await window.navigator.share({title, text: title, url}); return; } }catch(e){ if(e && e.name === 'AbortError') return; }
+    try{ await window.navigator.clipboard.writeText(url); linkBtn.textContent = '✓ Link kopiert'; win.setTimeout(()=>{ linkBtn.innerHTML = fsIconHtml('link') + ' Link teilen'; }, 1800); }catch(e){ win.prompt('Link zum Tourenzettel', url); }
+  };
   const $ = id=> win.document.getElementById(id);
   const scriptIn = src=> new Promise((res, rej)=>{ const s = win.document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; win.document.head.appendChild(s); });
 
@@ -5384,9 +5418,34 @@ function agendaMapRoutesRefresh(agendaForm){
   agendaMapRoutesSum(agendaForm);
   agendaMapRoutesMap(agendaForm, a, list);
 }
+// «Das braucht es» aus den Kennzahlen des Tages: Höhenmeter, Länge, Zeit und Schwierigkeit der Touren
+function fsBriefReqText(agendaForm, t){
+  const a = fsAgendaFormRefs(agendaForm);
+  if(!t) t = fsAgendaTotals(a);
+  const parts = [];
+  if(t && t.n && !t.missing){
+    parts.push('↑ ' + Math.round(t.up / 10) * 10 + ' Hm', '↓ ' + Math.round(t.down / 10) * 10 + ' Hm', t.km.toFixed(1) + ' km');
+    if(t.h) parts.push('ca. ' + String(t.h).replace('.5', '½') + ' h' + (t.ski ? ' Aufstieg' : ''));
+  }
+  const diffs = []; fsAgendaTourRefs(a).forEach(x=>{ if(x.difficulty && diffs.indexOf(x.difficulty) < 0) diffs.push(x.difficulty); });
+  if(diffs.length) parts.push('Schwierigkeit ' + diffs.join(' / '));
+  return parts.join(' · ');
+}
+// Leeres Feld (oder unverändert vorausgefüllt) folgt den Kennzahlen; selbst Geschriebenes bleibt
+function fsBriefReqAuto(agendaForm, t){
+  const d = state._briefingDraft && state._briefingDraft.data; if(!d) return;
+  const tx = fsBriefReqText(agendaForm, t); if(!tx) return;
+  const ta = agendaForm.querySelector('textarea[data-bf-field="anforderungen"]');
+  const cur = String(ta ? ta.value : (d.anforderungen || '')).trim();
+  if(cur && cur !== state._briefReqAuto) return;
+  if(cur === tx) return;
+  state._briefReqAuto = tx; d.anforderungen = tx; if(ta) ta.value = tx;
+  const hidden = document.getElementById('agenda-briefing-json'); if(hidden) hidden.value = JSON.stringify(d); // ohne «Nicht gespeichert»
+}
 function agendaMapRoutesSum(agendaForm){
   const el = agendaForm.querySelector('.agenda-mr-sum'); if(!el) return;
   const t = fsAgendaTotals(fsAgendaFormRefs(agendaForm), ()=>{ if(document.body.contains(el)) agendaMapRoutesSum(agendaForm); });
+  try{ if(!t.missing) fsBriefReqAuto(agendaForm, t); }catch(e){}
   el.hidden = !t.n;
   el.innerHTML = t.n ? `<b>Total${t.n > 1 ? ' (' + t.n + ' Routen)' : ''}:</b> ${esc(fsAgendaTotalsText(t))}${t.missing ? (navigator.onLine === false ? ' <small>– Höhen ohne Netz nicht verfügbar</small>' : ' <small>– Höhenmeter werden gerechnet …</small>') : (t.h ? '<br><small>Zeit nach SAC-Formel, ohne Pausen · Reihenfolge mit ↑, Aufstieg oder Abfahrt mit «↑ Auf» / «↓ Ab»</small>' : '')}${t.missing ? '' : fsAgendaProfileSvg(fsAgendaFormRefs(agendaForm))}` : '';
 }
@@ -25480,7 +25539,7 @@ function briefingDraftFor(editId){
   const a = editId ? state.agenda.find(x=>x.id===editId) : null;
   const b = a && a.briefing ? JSON.parse(JSON.stringify(a.briefing)) : {ablauf:[], planB:'', anforderungen:'', pack:[]};
   b.ablauf = Array.isArray(b.ablauf) ? b.ablauf : []; b.pack = Array.isArray(b.pack) ? b.pack : [];
-  state._briefingDraft = {key, data:b};
+  state._briefingDraft = {key, data:b}; state._briefReqAuto = null;
   return b;
 }
 function briefingEditorInnerHtml(d){
@@ -25499,7 +25558,8 @@ function briefingEditorInnerHtml(d){
     </div>
     <button type="button" class="chip" data-act="brief-ed-add">${fsIconHtml('plus')} Zeile</button>
     <div class="field" style="margin-top:14px;"><label>Plan B</label><textarea data-bf-field="planB" placeholder="z. B. bei Triebschnee Umkehr über die Aufstiegsspur">${esc(d.planB||'')}</textarea></div>
-    <div class="field"><label>Das braucht es (Kondition, Technik)</label><textarea data-bf-field="anforderungen" placeholder="z. B. 1200 Hm in 4½ h, Spitzkehren sicher">${esc(d.anforderungen||'')}</textarea></div>
+    <div class="bf-ed-h" style="margin-top:4px;"><span class="bf-kicker">Das braucht es (Kondition, Technik)</span><button type="button" class="chip" data-act="brief-ed-req">Aus den Routen</button></div>
+    <div class="field"><textarea data-bf-field="anforderungen" placeholder="z. B. 1200 Hm in 4½ h, Spitzkehren sicher">${esc(d.anforderungen||'')}</textarea></div>
     <div class="bf-ed-h"><span class="bf-kicker">Packliste${d.pack.length ? ' (' + d.pack.length + ')' : ''}</span>
       <button type="button" class="chip" data-act="brief-ed-template">${d.pack.length ? 'Vorlage neu laden' : 'Vorlage übernehmen'}</button></div>
     ${d.pack.length ? `<p class="bf-ed-hint">Antippen schaltet um: <b>Pflicht</b> → <b>wenn vorhanden</b> → normal. ✕ entfernt.</p>
@@ -25588,6 +25648,7 @@ document.addEventListener('click', async (e)=>{
   const i = parseInt(el.getAttribute('data-i'), 10);
   if(act==='brief-ed-add'){ d.ablauf.push({t:'', label:'', kind:'punkt'}); briefingEditorSync(true); }
   else if(act==='brief-ed-remove'){ d.ablauf.splice(i,1); briefingEditorSync(true); }
+  else if(act==='brief-ed-req'){ const f = document.getElementById('agenda-form'); const tx = f ? fsBriefReqText(f) : ''; if(!tx){ showToast('Noch keine Kennzahlen – Routen anhaken oder warten, bis die Höhenmeter gerechnet sind.'); return; } d.anforderungen = tx; state._briefReqAuto = tx; briefingEditorSync(true); }
   else if(act==='brief-ed-suggest'){ d.ablauf = briefingSuggestedAblauf(briefingFormValues()); briefingEditorSync(true); }
   else if(act==='brief-ed-template'){ const v = briefingFormValues(); d.pack = briefingPackFromTemplate(v.type, v.tour); briefingEditorSync(true); }
   else if(act==='brief-ed-pack-remove'){ d.pack.splice(i,1); briefingEditorSync(true); }
@@ -26308,6 +26369,22 @@ document.addEventListener('click', (e)=>{
   e.stopPropagation();
   fsShareOpen(b.getAttribute('data-id'));
 }, true);
+// Link ?zettel=<id>: Tourenzettel dieses Termins öffnen, sobald die Agenda geladen ist
+(function(){
+  if(typeof window === 'undefined') return;
+  const qs = new URLSearchParams(location.search), id = qs.get('zettel');
+  if(!id) return;
+  qs.delete('zettel');
+  try{ history.replaceState(history.state, '', location.pathname + (qs.toString() ? '?' + qs : '') + location.hash); }catch(e){}
+  let tries = 0;
+  const go = ()=>{
+    const a = typeof state !== 'undefined' && !state.loading && (state.agenda || []).find(x=> x.id === id);
+    if(a){ printTourenzettel(id); return; }
+    if(++tries < 120) setTimeout(go, 250);
+    else if(typeof showToast === 'function') showToast('Dieser Termin wurde nicht gefunden (gelöscht oder in einer anderen Disziplin).', true);
+  };
+  window.addEventListener('load', ()=> setTimeout(go, 600));
+})();
 // Link ?tour=<id>: Tour öffnen, sobald die Touren geladen sind
 (function(){
   if(typeof window === 'undefined') return;

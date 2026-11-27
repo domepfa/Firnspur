@@ -3549,6 +3549,7 @@ emergencyTab.addEventListener('touchend', (e)=>{
     state.modal = {type:'emergency'}; render();
   }
 });
+{ const agBtn = document.getElementById('agenda-tab-btn'); if(!agBtn.querySelector('.fs-i')){ agBtn.innerHTML = fsIconHtml('calendar') + 'Agenda'; agBtn.setAttribute('aria-label', 'Agenda'); } } // Symbol: als runder Knopf ist die Schrift ausgeblendet
 document.getElementById('agenda-tab-btn').addEventListener('click', ()=>setView('agenda'));
 
 if(isLoggedIn()){
