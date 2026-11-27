@@ -3702,6 +3702,16 @@ function fsTzPdfPages(cv, wrap, scale, a){
   const name = 'Tourenzettel-' + String(fsAgendaTitle(a) || 'Tour').replace(/[^a-z0-9äöüÄÖÜ_\- ]/gi, '').trim().replace(/\s+/g, '-') + '.pdf';
   return new File([pdf.output('blob')], name, {type: 'application/pdf'});
 }
+// Agenda-Knopf unten links: Kalender öffnet die Agenda, in der Agenda «Schliessen» zurück zur Karte
+function fsAgendaBtnSync(){
+  const b = document.getElementById('agenda-tab-btn'); if(!b) return;
+  const inAg = state.view === 'agenda';
+  b.classList.toggle('active', false);
+  b.classList.toggle('fs-ag-close', inAg);
+  const want = inAg ? 'x' : 'calendar';
+  if(b.dataset.ic !== want){ b.dataset.ic = want; b.innerHTML = fsIconHtml(want) + (inAg ? 'Schliessen' : 'Agenda'); }
+  b.setAttribute('aria-label', inAg ? 'Agenda schliessen, zurück zur Karte' : 'Agenda');
+}
 // Link zum Tourenzettel: öffnet die App mit diesem Termin (?zettel=<id>, Disziplin bleibt)
 function fsTzLink(id){
   const u = new URL(location.href), d = u.searchParams.get('d');

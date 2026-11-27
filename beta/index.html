@@ -3551,8 +3551,12 @@ emergencyTab.addEventListener('touchend', (e)=>{
     state.modal = {type:'emergency'}; render();
   }
 });
-{ const agBtn = document.getElementById('agenda-tab-btn'); if(!agBtn.querySelector('.fs-i')){ agBtn.innerHTML = fsIconHtml('calendar') + 'Agenda'; agBtn.setAttribute('aria-label', 'Agenda'); } } // Symbol: als runder Knopf ist die Schrift ausgeblendet
-document.getElementById('agenda-tab-btn').addEventListener('click', ()=>setView('agenda'));
+fsAgendaBtnSync(); // Symbol: als runder Knopf ist die Schrift ausgeblendet
+// In der Agenda wird der Knopf zu «Schliessen»: zurück zur vorherigen Ansicht (Karte mit Liste)
+document.getElementById('agenda-tab-btn').addEventListener('click', ()=>{
+  if(state.view === 'agenda'){ setView(state._viewBeforeAgenda && state._viewBeforeAgenda !== 'agenda' ? state._viewBeforeAgenda : 'touren'); return; }
+  state._viewBeforeAgenda = state.view; setView('agenda');
+});
 
 if(isLoggedIn()){
   dlog('App gestartet – Version ' + APP_VERSION);
@@ -6130,8 +6134,7 @@ function syncAppSwitchBar(){
   hochtourLink.classList.toggle('active', !isMsl);
   mslLink.classList.toggle('active', isMsl);
   document.documentElement.setAttribute('data-disc', isMsl ? 'klet' : 'hoch');
-  const agendaBtn = document.getElementById('agenda-tab-btn');
-  if(agendaBtn) agendaBtn.classList.toggle('active', state.view==='agenda');
+  fsAgendaBtnSync();
 }
 
 function shellHtml__fix(){
