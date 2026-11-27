@@ -3688,3 +3688,10 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .fs-dl-more{ position:absolute; transform:translate(-50%, 14px); white-space:nowrap; background:var(--ink); color:var(--paper); border-radius:14px; padding:7px 12px; font-size:12.5px; font-weight:700; box-shadow:0 2px 8px rgba(0,0,0,.25); cursor:pointer; min-height:20px; }
 .fs-dl-more b{ margin-left:6px; opacity:.8; }
 @media (min-width:760px) and (orientation:landscape){ .fs-pe-bottom:has(> .fs-line-bar:not([style*="none"])){ right:auto; } }
+
+/* ===== Tourenzettel als Ansicht in der App ===== */
+.fs-tz-overlay{ position:fixed; inset:0; z-index:1200; display:flex; flex-direction:column; background:var(--paper); }
+.fs-tz-bar{ display:flex; align-items:center; gap:12px; padding:calc(8px + env(safe-area-inset-top, 0px)) 12px 8px; border-bottom:1px solid var(--line); background:var(--paper); color:var(--ink); }
+.fs-tz-bar b{ font-size:16px; }
+.fs-tz-close{ min-height:44px; padding:0 16px; border:1px solid var(--line); border-radius:12px; background:var(--paper); color:var(--ink); font:inherit; font-weight:700; cursor:pointer; }
+.fs-tz-frame{ flex:1 1 auto; width:100%; border:0; background:#fff; }
