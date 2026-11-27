@@ -230,8 +230,7 @@ function render__sw(){
 }
 
 function syncAgendaTabButton(){
-  const btn = document.getElementById('agenda-tab-btn');
-  if(btn) btn.classList.toggle('active', state.view==='agenda');
+  fsAgendaBtnSync();
 }
 
 function emptyHuts__sw(){

@@ -253,6 +253,7 @@ aus anderen Apps übernehmen.
   (`firebase deploy --only database` oder in der Firebase-Konsole einfügen). Zugriff nur für das Gruppenkonto
   (`auth.token.email === 'firn@spur.so'`); die Cloud Functions prüfen dasselbe (`requireAppAuth`), die Registrierung
   neuer Konten ist in der Konsole abgeschaltet. Die App und die Sicherung melden sich mit diesem Konto an.
+- Agenda-Knopf unten links (`fsAgendaBtnSync`): Kalender öffnet die Agenda, in der Agenda wird er zu «Schliessen» (✕) zurück zur vorherigen Ansicht.
 - Termin an einem Tag mit mehreren Touren (Rundtour über zwei Gipfel): «+ Weitere Tour» im Formular, Feld `extraTours` [{tourRef, tourName}]
   neben `tourName`/`tourRef`; Titel überall über `fsAgendaTitle` («A + B»), auf Tourenzettel und im Ablauf je Tour eine Zeile.
   «Routen auf dem Tourenzettel» im Termin-Formular: alle Routen der Touren des Termins (`fsAgendaRouteList`, Id `<TourId>|<Schlüssel>`), abgewählte in
