@@ -11800,7 +11800,21 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       moreBtn.addEventListener('click', ()=>{ barOpen = !barOpen; try{ localStorage.setItem('fs-ed-bar-open', barOpen ? '1' : '0'); }catch(e){} applyBar(); });
       quick.append(finishBtn);
       const statsRow = document.createElement('div'); statsRow.className = 'fs-draw-statsrow';
-      statsRow.append(drawStatsEl, undoBtn, moreBtn);
+      // Hangneigung ab 30° direkt hier ein/aus (dieselbe Ebene wie im Ebenen-Fenster)
+      const slopeBtn = document.createElement('button'); slopeBtn.type = 'button'; slopeBtn.className = 'fs-q-btn fs-q-slope';
+      slopeBtn.setAttribute('aria-label', 'Hangneigung ab 30° zeigen'); slopeBtn.title = 'Hangneigung ab 30°'; slopeBtn.innerHTML = fsIconHtml('slope');
+      const slopeMl = ()=>{ try{ return map._ml && map._ml._fsm ? map._ml : null; }catch(e){ return null; } }; // Karte entsteht erst weiter unten
+      const slopePaint = ()=>{ const ml = slopeMl(); slopeBtn.style.display = ml ? '' : 'none'; const on = !!(ml && fsmOverlayOn(ml, 'hangneigung')); slopeBtn.classList.toggle('on', on); slopeBtn.setAttribute('aria-pressed', on); };
+      slopeBtn.addEventListener('click', ()=>{
+        const ml = slopeMl(); if(!ml) return;
+        const on = !fsmOverlayOn(ml, 'hangneigung');
+        fsmSetOverlay(ml, 'hangneigung', on);
+        try{ fsmSyncPanel(ml); }catch(e){}
+        slopePaint();
+        showToast(on ? 'Hangneigung ab 30° an (gelb 30–35°, orange 35–40°, rot 40–45°, violett ab 45°).' : 'Hangneigung aus.');
+      });
+      setTimeout(slopePaint, 0); setTimeout(slopePaint, 1500);
+      statsRow.append(drawStatsEl, slopeBtn, undoBtn, moreBtn);
       lineActionsRow.append(statsRow, quick);
       applyBar(); paintConnect();
     }
