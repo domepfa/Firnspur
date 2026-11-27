@@ -259,8 +259,8 @@ aus anderen Apps übernehmen.
   `mapRoutesOff`, eigene GPX-Dateien nur für den Termin in `ownRoutes` [{id, name, coords}]; die Karte des Tourenzettels zeigt sie (`fsAgendaMapData`).
   Im Formular kleine Karte (`agendaMapRoutesMap`, Route antippen = Haken an/ab, abgewählte blass) und Summe der angehakten Routen
   (`fsAgendaTotals`: km aus der Linie, Hm über `fsrElevation`, gemerkt `fs-agenda-elev`, Zeit SAC-Formel, Skitour nur Aufstieg); auf dem Tourenzettel «Total des Tages».
-  Richtung nach Routenart (`fsAgendaOrient`: Abfahrt zählt bergab, Aufstieg bergauf – nichts doppelt), Reihenfolge des Tages (↑, `mapRoutesOrder`),
-  «Richtung umkehren» (⇅, `mapRoutesRev`), Höhenprofil des Tages (`fsAgendaProfileSvg`, Profil im Cache) im Formular und auf dem Tourenzettel.
+  Je Route «↑ Auf» / «↓ Ab» nur für den Termin (`mapRoutesDir` {Id: up|down}, Vorgabe aus der Routenart, Auf- & Abfahrt/eigene GPX wie gezeichnet;
+  `fsAgendaOrient`: Abfahrt zählt bergab, Aufstieg bergauf – nichts doppelt; altes `mapRoutesRev` gilt nicht mehr), Reihenfolge des Tages (↑, `mapRoutesOrder`), Höhenprofil des Tages (`fsAgendaProfileSvg`, Profil im Cache) im Formular und auf dem Tourenzettel.
 - Termin-Ansicht «Lage am Tourtag» (`loadAgendaLage`, oben im Reiter Ablauf): je Gipfel des Termins (`fsAgendaLageItems`: erste und weitere Touren,
   Tagesplan mit Datum je Tag) Wetter am Gipfel (`fetchTourDayDetail`) und Lawinenstufe mit Problemen aus dem Bulletin für genau diesen Tag
   (`fsSlfForDate`, sonst Ausblick aus `evo`); Unterschiede zum letzten Öffnen als «Geändert seit …» (Gerät `fs-lage-seen`). Nicht bei Wanderungen (Lawinen).

@@ -4889,6 +4889,7 @@ function agendaFormHtml(editId){
         <input type="hidden" name="ownRoutes" value="${esc(JSON.stringify((a && a.ownRoutes) || []))}"/>
         <input type="hidden" name="mapRoutesOrder" value="${esc(JSON.stringify((a && a.mapRoutesOrder) || []))}"/>
         <input type="hidden" name="mapRoutesRev" value="${esc(JSON.stringify((a && a.mapRoutesRev) || []))}"/>
+        <input type="hidden" name="mapRoutesDir" value="${esc(JSON.stringify((a && a.mapRoutesDir) || {}))}"/>
       </div>
       ${fsMeetsFieldHtml(a)}
       <div class="row2">
@@ -5266,8 +5267,13 @@ function fsAgendaRouteList(a){
     list.push({id: t.id + '|' + r.key, label: (multi.length > 1 ? t.name + ' – ' : '') + fsRouteTitle(r), color: st.color, dash: st.dash, coords: r.coords || [], type: r.type});
   }));
   (a.ownRoutes || []).forEach(o=> list.push({id: 'own|' + o.id, label: o.name || 'Eigene GPX-Route', color: FS_ROUTE_TYPES.variante.color, dash: true, coords: o.coords || [], own: true, type: ''}));
-  const rev = a.mapRoutesRev || [], ord = a.mapRoutesOrder || [];
-  list.forEach(r=>{ r.coords = r.coords.map(c=> Array.isArray(c) ? [+c[0], +c[1]] : [+c.lat, +(c.lon != null ? c.lon : c.lng)]).filter(c=> isFinite(c[0]) && isFinite(c[1])); if(rev.indexOf(r.id) >= 0){ r.coords.reverse(); r.rev = true; } });
+  const ord = a.mapRoutesOrder || [], dirs = (a.mapRoutesDir && !Array.isArray(a.mapRoutesDir)) ? a.mapRoutesDir : {};
+  list.forEach(r=>{
+    r.coords = r.coords.map(c=> Array.isArray(c) ? [+c[0], +c[1]] : [+c.lat, +(c.lon != null ? c.lon : c.lng)]).filter(c=> isFinite(c[0]) && isFinite(c[1]));
+    // Aufstieg (bergauf) oder Abfahrt (bergab) an diesem Termin; Vorgabe aus der Art, Auf- & Abfahrt/eigene GPX: wie gezeichnet ('')
+    r.dirDef = (r.type === 'abfahrt' || r.type === 'abstieg') ? 'down' : (r.type === 'aufstieg' || r.type === 'zustieg') ? 'up' : '';
+    r.dir = dirs[r.id] === 'up' || dirs[r.id] === 'down' ? dirs[r.id] : r.dirDef;
+  });
   // Reihenfolge des Tages: gespeicherte zuerst, neue hinten
   const pos = id=>{ const i = ord.indexOf(id); return i < 0 ? 1e6 : i; };
   return list.filter(r=> r.coords.length > 1).map((r, i)=> Object.assign(r, {_i: i})).sort((x, y)=> (pos(x.id) - pos(y.id)) || (x._i - y._i));
@@ -5315,8 +5321,7 @@ function fsAgendaTotals(a, onUpdate){
   return {n: on.length, km, up, down, h, ski, missing};
 }
 function fsAgendaOrient(r, e){
-  const down = r.type === 'abfahrt' || r.type === 'abstieg', up = r.type === 'aufstieg' || r.type === 'zustieg';
-  const flip = !r.rev && ((down && e.up > e.down) || (up && e.down > e.up)); // selbst umgekehrt: so lassen
+  const flip = (r.dir === 'down' && e.up > e.down) || (r.dir === 'up' && e.down > e.up); // Aufstieg zählt bergauf, Abfahrt bergab
   let p = e.p || [];
   if(flip && p.length){ const L = p[p.length - 1][0]; p = p.slice().reverse().map(q=> [L - q[0], q[1]]); }
   return flip ? {up: e.down, down: e.up, p} : {up: e.up, down: e.down, p};
@@ -5364,6 +5369,7 @@ function fsAgendaFormRefs(agendaForm){
   if(segs.length) a.days = [{segments: segs}];
   const pj = n=>{ try{ return JSON.parse((agendaForm.querySelector(`input[name="${n}"]`) || {}).value || '[]'); }catch(e){ return []; } };
   a.mapRoutesOff = pj('mapRoutesOff'); a.ownRoutes = pj('ownRoutes'); a.mapRoutesOrder = pj('mapRoutesOrder'); a.mapRoutesRev = pj('mapRoutesRev');
+  { const d = pj('mapRoutesDir'); a.mapRoutesDir = d && !Array.isArray(d) ? d : {}; }
   const ty = agendaForm.querySelector('select[name="type"]'); a.type = ty ? ty.value : 'ski';
   return a;
 }
@@ -5373,7 +5379,7 @@ function agendaMapRoutesRefresh(agendaForm){
   box.querySelector('.agenda-mr-list').innerHTML = list.length ? list.map(r=> `<label class="agenda-mr-row">
       <input type="checkbox" data-mr="${esc(r.id)}" ${a.mapRoutesOff.indexOf(r.id) < 0 ? 'checked' : ''}/>
       <span class="fs-route-sw${r.dash ? ' dash' : ''}" style="--c:${r.color}"></span><span class="agenda-mr-l">${esc(r.label)} <small>· ${fsLineKm(r.coords).toFixed(1)} km</small></span>
-      <span class="agenda-mr-btns">${list.indexOf(r) > 0 ? `<button type="button" class="fs-icon-btn" data-mr-up="${esc(r.id)}" aria-label="Früher am Tag">↑</button>` : ''}<button type="button" class="fs-icon-btn${r.rev ? ' on' : ''}" data-mr-rev="${esc(r.id)}" aria-label="Richtung umkehren" aria-pressed="${!!r.rev}">⇅</button>${r.own ? `<button type="button" class="fs-icon-btn agenda-mr-del" data-mr-del="${esc(r.id.slice(4))}" aria-label="GPX-Route entfernen">${fsIconHtml('trash')}</button>` : ''}</span>
+      <span class="agenda-mr-btns">${list.indexOf(r) > 0 ? `<button type="button" class="fs-icon-btn" data-mr-up="${esc(r.id)}" aria-label="Früher am Tag">↑</button>` : ''}<button type="button" class="agenda-mr-dir" data-mr-dir="${esc(r.id)}" aria-label="Am Termin als ${r.dir === 'down' ? 'Abfahrt' : r.dir === 'up' ? 'Aufstieg' : 'Auf- und Abstieg wie gezeichnet'} – antippen zum Wechseln">${r.dir === 'down' ? '↓ Ab' : r.dir === 'up' ? '↑ Auf' : '↑↓'}</button>${r.own ? `<button type="button" class="fs-icon-btn agenda-mr-del" data-mr-del="${esc(r.id.slice(4))}" aria-label="GPX-Route entfernen">${fsIconHtml('trash')}</button>` : ''}</span>
     </label>`).join('') : '<p class="hint" style="margin:0 0 8px;">Die gewählten Touren haben noch keine Routen.</p>';
   agendaMapRoutesSum(agendaForm);
   agendaMapRoutesMap(agendaForm, a, list);
@@ -5382,7 +5388,7 @@ function agendaMapRoutesSum(agendaForm){
   const el = agendaForm.querySelector('.agenda-mr-sum'); if(!el) return;
   const t = fsAgendaTotals(fsAgendaFormRefs(agendaForm), ()=>{ if(document.body.contains(el)) agendaMapRoutesSum(agendaForm); });
   el.hidden = !t.n;
-  el.innerHTML = t.n ? `<b>Total${t.n > 1 ? ' (' + t.n + ' Routen)' : ''}:</b> ${esc(fsAgendaTotalsText(t))}${t.missing ? (navigator.onLine === false ? ' <small>– Höhen ohne Netz nicht verfügbar</small>' : ' <small>– Höhenmeter werden gerechnet …</small>') : (t.h ? '<br><small>Zeit nach SAC-Formel, ohne Pausen · Reihenfolge mit ↑, Richtung mit ⇅</small>' : '')}${t.missing ? '' : fsAgendaProfileSvg(fsAgendaFormRefs(agendaForm))}` : '';
+  el.innerHTML = t.n ? `<b>Total${t.n > 1 ? ' (' + t.n + ' Routen)' : ''}:</b> ${esc(fsAgendaTotalsText(t))}${t.missing ? (navigator.onLine === false ? ' <small>– Höhen ohne Netz nicht verfügbar</small>' : ' <small>– Höhenmeter werden gerechnet …</small>') : (t.h ? '<br><small>Zeit nach SAC-Formel, ohne Pausen · Reihenfolge mit ↑, Aufstieg oder Abfahrt mit «↑ Auf» / «↓ Ab»</small>' : '')}${t.missing ? '' : fsAgendaProfileSvg(fsAgendaFormRefs(agendaForm))}` : '';
 }
 // Kleine Karte: Route antippen = an/ab (wie der Haken); abgewählte blass
 function agendaMapRoutesFeats(a, list){
@@ -5445,12 +5451,19 @@ function wireAgendaMapRoutes(agendaForm){
       const cur = fsAgendaFormRefs(agendaForm); agendaMapRoutesMap(agendaForm, cur, fsAgendaRouteList(cur)); agendaMapRoutesSum(agendaForm);
     });
     box.addEventListener('click', e=>{
-      const upB = e.target.closest && e.target.closest('[data-mr-up]'), rvB = e.target.closest && e.target.closest('[data-mr-rev]');
+      const upB = e.target.closest && e.target.closest('[data-mr-up]'), rvB = e.target.closest && e.target.closest('[data-mr-dir]');
       if(upB || rvB){
         e.preventDefault();
         const cur = fsAgendaFormRefs(agendaForm), ids = fsAgendaRouteList(cur).map(r=> r.id);
         if(upB){ const id = upB.getAttribute('data-mr-up'), i = ids.indexOf(id); if(i > 0){ ids.splice(i, 1); ids.splice(i - 1, 0, id); } setJ('mapRoutesOrder', ids); }
-        else{ const id = rvB.getAttribute('data-mr-rev'), rv = getJ('mapRoutesRev'); setJ('mapRoutesRev', rv.indexOf(id) >= 0 ? rv.filter(x=> x !== id) : rv.concat([id])); }
+        else{
+          // ↑ Auf → ↓ Ab → (bei Auf- & Abfahrt/eigener GPX: wieder wie gezeichnet)
+          const id = rvB.getAttribute('data-mr-dir'), r = fsAgendaRouteList(cur).find(x=> x.id === id); if(!r) return;
+          const next = r.dir === 'up' ? 'down' : r.dir === 'down' ? (r.dirDef === '' ? '' : 'up') : 'up';
+          let d = {}; try{ d = JSON.parse(hid('mapRoutesDir').value || '{}'); }catch(err){} if(!d || Array.isArray(d)) d = {};
+          if(next === r.dirDef) delete d[id]; else d[id] = next;
+          setJ('mapRoutesDir', d);
+        }
         agendaMapRoutesRefresh(agendaForm);
         return;
       }
@@ -5720,6 +5733,7 @@ async function submitAgendaForm(form){
     ownRoutes: (()=>{ try{ return JSON.parse(form.ownRoutes || '[]'); }catch(e){ return []; } })(),
     mapRoutesOrder: (()=>{ try{ return JSON.parse(form.mapRoutesOrder || '[]'); }catch(e){ return []; } })(),
     mapRoutesRev: (()=>{ try{ return JSON.parse(form.mapRoutesRev || '[]'); }catch(e){ return []; } })(),
+    mapRoutesDir: (()=>{ try{ const d = JSON.parse(form.mapRoutesDir || '{}'); return d && !Array.isArray(d) ? d : {}; }catch(e){ return {}; } })(),
     accessRouteId, descentRouteId,
     anreiseType, anreiseOrt,
     endOption, endNote,
