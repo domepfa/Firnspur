@@ -3678,6 +3678,8 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .fs-draw-quick .fs-draw-seg button{ flex-direction:row; justify-content:center; min-height:44px; padding:0 6px; font-size:13px; gap:5px; white-space:nowrap; overflow:hidden; }
 .fs-draw-quick .fs-draw-seg button .fs-i{ width:17px; height:17px; flex:none; }
 .fs-q-btn{ flex:none; width:44px; height:44px; border:1px solid var(--line); border-radius:12px; background:var(--paper); color:var(--ink); font-size:20px; line-height:1; cursor:pointer; }
+.fs-q-btn .fs-i{ width:22px; height:22px; vertical-align:middle; }
+.fs-q-btn.on{ background:var(--ice-deep); border-color:var(--ice-deep); color:var(--paper); }
 .fs-q-done{ flex:none; min-height:50px; padding:0 14px !important; border-radius:12px !important; font-size:14px !important; white-space:nowrap; }
 @media (max-width:420px){ .fs-draw-quick .fs-draw-seg button .fs-i{ display:none; } }
 .fs-seg-calc{ position:absolute; transform:translate(-50%, -50%); white-space:nowrap; background:var(--paper); border:1.5px solid var(--ice); border-radius:12px; padding:5px 10px; font-size:12.5px; box-shadow:0 2px 8px rgba(0,0,0,.2); pointer-events:none; }
