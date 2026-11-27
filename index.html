@@ -1406,6 +1406,7 @@ function shellHtml__sw(){
       <button class="tab ${state.view==='gebiete'?'active':''}" data-act="view-gebiete">${fsIconHtml('mountain')}Gebiete</button>
       <button class="tab ${state.view==='touren'?'active':''}" data-act="view-touren">${fsIconHtml(DISC === 'wand' ? 'walk' : 'snow')}Touren</button>
       <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">${fsIconHtml('hut')}Hütten</button>
+      <button class="tab fs-tab-lage" data-act="open-lage" aria-label="Lage: Wetter und Webcams meiner Touren">${fsIconHtml('cam-wx')}Lage</button>
       ${state.view==='abgeschlossen' ? `<button class="tab active" data-act="view-abgeschlossen">✓ Erledigt</button>` : ''}
     </div></div>
   </div>
@@ -2420,6 +2421,7 @@ function wireGlobalHandlers__sw(){
     const act = el.getAttribute('data-act');
     if(act==='view-touren') el.onclick = ()=>setView('touren');
     else if(act==='view-gebiete') el.onclick = ()=>setView('gebiete');
+    else if(act==='open-lage') el.onclick = ()=> fsOpenCamWall();
     else if(act==='view-huetten') el.onclick = ()=>setView('huetten');
     else if(act==='view-abgeschlossen') el.onclick = ()=>setView('abgeschlossen');
     else if(act==='view-papierkorb') el.onclick = ()=>setView('papierkorb');
@@ -6166,11 +6168,13 @@ function shellHtml__fix(){
         <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">${fsIconHtml('mountain')}Gebiete</button>
         <button class="tab ${(state.view==='touren'||state.view==='msl')?'active':''}" data-act="view-tours-context">${fsIconHtml('climb')}Touren</button>
         <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">${fsIconHtml('hut')}Hütten</button>
+        <button class="tab fs-tab-lage" data-act="open-lage" aria-label="Lage: Wetter und Webcams meiner Touren">${fsIconHtml('cam-wx')}Lage</button>
         ${state.view==='abgeschlossen' ? `<button class="tab active" data-act="view-abgeschlossen">✓ Erledigt</button>` : ''}
       ` : `
         <button class="tab ${state.view==='sektoren'?'active':''}" data-act="view-sektoren">${fsIconHtml('mountain')}Gebiete</button>
         <button class="tab ${(state.view==='touren'||state.view==='msl')?'active':''}" data-act="view-tours-context">${fsIconHtml('climb')}Touren</button>
         <button class="tab ${state.view==='huetten'?'active':''}" data-act="view-huetten">${fsIconHtml('hut')}Hütten</button>
+        <button class="tab fs-tab-lage" data-act="open-lage" aria-label="Lage: Wetter und Webcams meiner Touren">${fsIconHtml('cam-wx')}Lage</button>
         ${state.view==='abgeschlossen' ? `<button class="tab active" data-act="view-abgeschlossen">✓ Erledigt</button>` : ''}
       `}
     </div></div>
@@ -7613,6 +7617,7 @@ function wireGlobalHandlers__fix(){
     else if(act==='view-tours-context') el.onclick = ()=>setView(state.tourCategoryContext==='msl' ? 'msl' : 'touren');
     else if(act==='view-huetten') el.onclick = ()=>setView('huetten');
     else if(act==='view-sektoren') el.onclick = ()=>setView('sektoren');
+    else if(act==='open-lage') el.onclick = ()=> fsOpenCamWall();
     else if(act==='view-abgeschlossen') el.onclick = ()=>setView('abgeschlossen');
     else if(act==='view-papierkorb') el.onclick = ()=>setView('papierkorb');
     else if(act==='restore-trash-item') el.onclick = ()=>restoreTrashItem(el.getAttribute('data-kind'), el.getAttribute('data-id'));

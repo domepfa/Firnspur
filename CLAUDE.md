@@ -102,7 +102,7 @@ aus anderen Apps übernehmen.
   sortiert nach Abstand zur nächsten Stelle der Tour, `fsTourWebcams`; auch in «Webcams meiner Touren» –, festgelegte zuerst: Feld `webcamPin`
   {id, name}, per Gedrückthalten); Schalter «Webcams in meinen Touren» im Profil-Menü (Gerät, `fs-theme`.cams).
   Webcam-Vollbild: seitlich durch alle Webcams derselben Stelle wischen (Streifen, Bedingungen, Karte im Ausschnitt), Beschriftung
-  und «Diese Webcam zuerst zeigen» (eigene Touren). «Webcams meiner Touren» (`fsOpenCamWall`): Knopf «Webcams» über der Touren-Liste
+  und «Diese Webcam zuerst zeigen» (eigene Touren). «Webcams meiner Touren» (`fsOpenCamWall`): Reiter «Lage» neben Gebiete/Touren/Hütten (Symbol `cam-wx`, zuletzt gewählte Ansicht Gerät `fs-camw-view`)
   und im Profil-Menü (daneben Knopf «Wetter»: öffnet dieselbe Ansicht im Wetter); je Tour die Webcams zum Wischen, «Zur Tour →», nach dem Schliessen der Tour wieder die Liste. Umschalter
   «Wetter» (`fsWxWallLoad`/`fsWxWallDraw`): 5 Tage am Gipfel (Open-Meteo, ein Abruf für alle Touren, Symbole der Ortsprognose),
   Wind, Nullgrad, sortieren nach bestem Wetter an einem Tag.

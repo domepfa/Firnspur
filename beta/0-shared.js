@@ -2372,11 +2372,7 @@ function fsHomeFilter(){
   const word = fsHomePts.kind === 'hut' ? (total === 1 ? 'Hütte' : 'Hütten') : (fsHomePts.kind === 'gebiet' || fsHomePts.kind === 'klettergebiet') ? (total === 1 ? 'Gebiet' : 'Gebiete') : (total === 1 ? 'Tour' : 'Touren');
   sheet.querySelectorAll('.fs-home-sep').forEach(x=>{ if(x.parentElement !== grid || (!groups && !x.classList.contains('cams'))) x.remove(); });
   if(!groups){
-    // Alle Touren sichtbar: trotzdem der Knopf «Webcams» über der Liste
-    if(oneGrid && grid && (fsHomePts.kind === 'tour' || fsHomePts.kind === 'msl')){
-      let el = grid.querySelector(':scope > .fs-home-sep.cams');
-      if(!el){ el = document.createElement('div'); el.className = 'fs-home-sep cams'; el.style.order = '-2'; el.innerHTML = `<span>${total} ${word}</span><span class="fs-home-sep-btns"><button type="button" class="fs-home-cams" data-view="wx">${fsIconHtml('wx-partly')}Wetter</button><button type="button" class="fs-home-cams" data-view="cams">${fsIconHtml('camera')}Webcams</button></span>`; grid.appendChild(el); }
-    }
+    // Wetter/Webcams: Reiter «Lage» oben (fsOpenCamWall)
     return;
   }
   sheet.querySelectorAll('.fs-home-sep.cams').forEach(x=> x.remove());
@@ -2385,7 +2381,7 @@ function fsHomeFilter(){
     if(!el){ el = document.createElement('div'); el.className = 'fs-home-sep ' + cls; el.style.order = order; grid.appendChild(el); }
     if(el.dataset.h !== html){ el.dataset.h = html; el.innerHTML = html; const b = el.querySelector('.fs-home-all'); if(b) b.onclick = ()=>{ fsHomeFitAll(); fsHomeFilter(); }; }
   };
-  const camsBtn = (fsHomePts.kind === 'tour' || fsHomePts.kind === 'msl') ? `<button type="button" class="fs-home-cams" data-view="wx">${fsIconHtml('wx-partly')}Wetter</button><button type="button" class="fs-home-cams" data-view="cams">${fsIconHtml('camera')}Webcams</button>` : '';
+  const camsBtn = ''; // Wetter/Webcams: Reiter «Lage»
   sep('top', '-2', `<span>Im Kartenausschnitt · ${shown}</span><span class="fs-home-sep-btns">${camsBtn}<button type="button" class="fs-home-all">Alle auf der Karte</button></span>`);
   sep('rest', '1', `<span>Weitere ${word} · ${total - shown}</span>`);
 }
@@ -14833,7 +14829,8 @@ function fsTourCamsHtml(t){
    Je Tour eine Webcam (festgelegte, sonst die nächste mit Bild), zum Durchscrollen am Morgen. Bild antippen: Vollbild,
    seitlich durch alle Webcams der Tour wischen. «Zur Tour →» öffnet die Tour; schliesst man sie, kommt die Liste wieder.
    Touren im Kartenausschnitt zuerst. Webcams werden nacheinander geladen (fsWebcamsNear, gemerkt in fsTourCamCache). */
-const fsCamWallOpts = {all: false, fresh: false};
+const fsCamWallOpts = {all: false, fresh: false, view: (()=>{ try{ return localStorage.getItem('fs-camw-view') === 'wx' ? 'wx' : 'cams'; }catch(e){ return 'cams'; } })()};
+function fsCamWallRemember(){ try{ localStorage.setItem('fs-camw-view', fsCamWallOpts.view === 'wx' ? 'wx' : 'cams'); }catch(e){} }
 let fsCamWallBackTimer = null;
 function fsCamWallTours(){
   const me = fsNameKey(state.myName);
@@ -14899,7 +14896,7 @@ async function fsCamWallLoad(ov){
   if(document.body.contains(ov)) fsCamWallDraw(ov);
 }
 function fsOpenCamWall(view){
-  if(view) fsCamWallOpts.view = view;
+  if(view){ fsCamWallOpts.view = view; fsCamWallRemember(); }
   const ov = fsSheet(`<button type="button" class="x-btn" data-close aria-label="Schliessen">×</button>
     <div class="fs-camw-seg" role="tablist"><button type="button" data-view="cams">Webcams</button><button type="button" data-view="wx">Wetter</button></div>
     <h3 class="fs-camw-h">Webcams</h3><p class="fs-camw-sub"></p>
@@ -14915,7 +14912,7 @@ function fsOpenCamWall(view){
   }, true);
   ov.addEventListener('click', (e)=>{
     const v = e.target.closest('[data-view]');
-    if(v){ fsCamWallOpts.view = v.getAttribute('data-view'); fsCamWallDraw(ov); if(fsCamWallOpts.view === 'wx') fsWxWallLoad(ov); return; }
+    if(v){ fsCamWallOpts.view = v.getAttribute('data-view'); fsCamWallRemember(); fsCamWallDraw(ov); if(fsCamWallOpts.view === 'wx') fsWxWallLoad(ov); return; }
     const sd = e.target.closest('[data-sortday]');
     if(sd){ const d = +sd.getAttribute('data-sortday'); fsCamWallOpts.sortDay = fsCamWallOpts.sortDay === d ? null : d; fsCamWallDraw(ov); return; }
     const o = e.target.closest('[data-opt]');
@@ -25155,6 +25152,7 @@ const FS_ICON_PATHS = {
   refresh: 'M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4',
   home: 'M3 11l9-7 9 7M5 10v10h14V10',
   phone: 'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2',
+  'cam-wx': 'M3 12h10v8H3zM6 12l1-2h2l1 2M8 16m-1.8 0a1.8 1.8 0 1 0 3.6 0a1.8 1.8 0 1 0-3.6 0M15 7a3 3 0 1 0 6 0a3 3 0 1 0-6 0M18 2v1M23 7h-1M21.5 3.5l-.7.7M14 7h-1M14.5 3.5l.7.7M16 16h4.5a2.5 2.5 0 0 0 0-5a3.5 3.5 0 0 0-5.5-1',
   link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   sos: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8zM5.6 5.6l3.6 3.6M14.8 14.8l3.6 3.6M18.4 5.6l-3.6 3.6M9.2 14.8l-3.6 3.6',
   ruler: 'M3 17L17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2',
