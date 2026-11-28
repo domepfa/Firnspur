@@ -3457,7 +3457,6 @@ function agendaViewHtml(){
     ${state.agenda.length===0 ? `<div class="empty">
       <h3>Noch keine Termine geplant</h3>
       <p>Schlag einen Zeitraum und eine Tour vor – andere können sich direkt eintragen.</p>
-      <button class="btn" data-act="add-agenda">+ Neuer Termin</button>
     </div>` : AGENDA_STATUS_ORDER.map(s=>`
     <div class="detail-section" style="margin-bottom:24px;">
       <h4>${AGENDA_STATUS_LABELS[s]} (${groups[s].length})</h4>
@@ -7797,6 +7796,12 @@ function fsmPrefs(){
   let p = null;
   try{ p = JSON.parse(localStorage.getItem('fs-map-layers') || 'null'); }catch(e){}
   p = Object.assign({base:'karte', on:[]}, p || {});
+  // Eingeschaltete Ebenen je Disziplin (sonst kamen z. B. die Wanderrouten aus Wandern in die Skitour);
+  // beim ersten Mal aus der gemeinsamen Liste übernommen, ohne Wanderrouten ausserhalb von Wandern
+  const app = fsAppKey();
+  p.onBy = p.onBy && typeof p.onBy === 'object' ? p.onBy : {};
+  if(!Array.isArray(p.onBy[app])) p.onBy[app] = (p.on || []).filter(id=> app === 'wandern' || id !== 'wanderrouten');
+  p.on = p.onBy[app].slice();
   // Wander-App: die antippbaren Wanderrouten einmalig einschalten (danach gilt die eigene Wahl)
   // Routen der Touren auf der Startkarte: einmalig einschalten (danach gilt die eigene Wahl)
   if(!p.trDefault){
@@ -7811,7 +7816,15 @@ function fsmPrefs(){
   }
   return p;
 }
-function fsmSavePrefs(p){ try{ localStorage.setItem('fs-map-layers', JSON.stringify(p)); }catch(e){} }
+function fsmSavePrefs(p){ try{ p.onBy = p.onBy || {}; p.onBy[fsAppKey()] = (p.on || []).slice(); localStorage.setItem('fs-map-layers', JSON.stringify(p)); }catch(e){} }
+// Nach dem Wechsel der Disziplin: Ebenen der Startkarte auf die Wahl dieser Disziplin stellen
+function fsmReapplyOverlays(){
+  const m = typeof fsHomeMap !== 'undefined' ? fsHomeMap : null;
+  if(!m || !m._fsmLoaded || !m._fsm) return;
+  const p = fsmPrefs(), allowed = new Set(fsmOverlaysForApp(m).map(o=> o.id));
+  FSM_OVERLAYS.forEach(o=>{ const want = allowed.has(o.id) && p.on.includes(o.id); if(!!m._fsm.overlays[o.id] !== want){ try{ fsmSetOverlay(m, o.id, want, true); }catch(e){} } });
+  try{ fsHomeChipsSync(m); }catch(e){}
+}
 function fsmIsHomeMap(map){ try{ return !!map && map.getContainer().id === 'fs-home-map-inner'; }catch(e){ return false; } }
 function fsmOverlaysForApp(map){ return FSM_OVERLAYS.filter(o=> !o.hidden && (!o.skitourOnly || fsAppKey() !== 'wandern') && (!o.homeOnly || fsmIsHomeMap(map))); }
 // Leerer Grundstil: Grundkarten als Raster, zwei unsichtbare "Anker" für die Reihenfolge
@@ -11870,7 +11883,9 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       if(quickMk){ quickArt = document.createElement('div'); quickArt.className = 'fs-draw-seg fs-q-art'; quickArt.setAttribute('role', 'group'); quickArt.setAttribute('aria-label', 'Art der Route'); quick.appendChild(quickArt); }
       quickConnect = document.createElement('div'); quickConnect.className = 'fs-draw-seg fs-q-conn'; quickConnect.setAttribute('role', 'group'); quickConnect.setAttribute('aria-label', 'Verbinden als');
       quick.appendChild(quickConnect);
-      undoBtn.className = 'fs-q-btn'; undoBtn.style.cssText = ''; undoBtn.textContent = '↺'; undoBtn.setAttribute('aria-label', 'Letzten Punkt entfernen'); undoBtn.title = 'Letzten Punkt entfernen';
+      undoBtn.className = 'fs-q-btn'; undoBtn.style.cssText = ''; undoBtn.textContent = '↶'; undoBtn.setAttribute('aria-label', 'Rückgängig'); undoBtn.title = 'Rückgängig';
+      // Ein Rückgängig-Knopf (unten): macht den letzten Schritt rückgängig, sonst entfernt er den letzten Punkt; der obere ist im Zeichnen ausgeblendet
+      undoBtn.addEventListener('click', (e)=>{ if(undoStack.length){ e.stopImmediatePropagation(); performUndo(); } });
       finishBtn.className = 'btn fs-q-done'; finishBtn.style.cssText = ''; finishBtn.textContent = '✓ Fertig';
       const moreBtn = document.createElement('button'); moreBtn.type = 'button'; moreBtn.className = 'fs-q-btn fs-q-more';
       const applyBar = ()=>{ lineActionsRow.classList.toggle('compact', !barOpen); moreBtn.setAttribute('aria-expanded', barOpen); moreBtn.setAttribute('aria-label', barOpen ? 'Weniger' : 'Mehr: Name, Umkehren, Löschen'); moreBtn.innerHTML = barOpen ? '⌄' : '⌃'; };
@@ -11986,6 +12001,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       undoAllBtn.setAttribute('aria-label', 'Rückgängig');
       undoAllBtn.innerHTML = '↶';
       modeRow.appendChild(undoAllBtn);
+      modeRow.classList.add('fs-pe-modes');
       fsPeTop.append(searchRow, searchResults, modeRow);
       const hints = Array.from(wrapDiv.querySelectorAll(':scope > p.hint'));
       if(hints.length){
@@ -12051,7 +12067,16 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       : (points.length ? [points[0].lat, points[0].lon] : (manualTrack.length ? manualTrack[0] : (firstRefTrack ? firstRefTrack[0] : (firstRefPoint || [46.8182, 8.2275]))));
     const zoom = lineStart ? Math.max(14, lastPointsEditorMapView ? lastPointsEditorMapView.zoom : 14) : lastPointsEditorMapView ? lastPointsEditorMapView.zoom : gpxFit ? gpxFit.zoom : ((points.length || manualTrack.length || firstRefTrack || firstRefPoint) ? 13 : 8);
     // Vollbild: dieselbe Karte wie überall (Startkarte ausgeliehen); nur die kleine Karte im Formular ist eigen
+    const pickFit = mode === 'pick' && !lastPointsEditorMapView; // Übersicht «Karte bearbeiten»: alle Routen und Punkte im Bild
     const map = ((isFullscreen && fsEdAcquire(mapDivId)) || fsmCreateFlMap(mapDivId, isFullscreen ? {on3d: (ml)=> openEditor3d(ml)} : undefined)).setView(center, zoom);
+    if(pickFit){
+      try{
+        const all = [];
+        (fsEdFormRoutes() || []).forEach(r=> (r.coords || []).forEach(q=>{ const c = Array.isArray(q) ? [+q[0], +q[1]] : [+q.lat, +(q.lon != null ? q.lon : q.lng)]; if(isFinite(c[0]) && isFinite(c[1])) all.push(c); }));
+        points.forEach(p=>{ if(isFinite(+p.lat) && isFinite(+p.lon)) all.push([+p.lat, +p.lon]); });
+        if(all.length > 1) map.fitBounds(all, {paddingTopLeft: [30, 150], paddingBottomRight: [70, 140], maxZoom: 16});
+      }catch(e){}
+    }
     // Bearbeiten: «Fertig» statt «Schliessen» – die Änderungen bleiben (gespeichert wird im Blatt bzw. Formular)
     if(isFullscreen){ const cb = document.getElementById('fullscreen-map-close'); if(cb) cb.innerHTML = fsIconHtml('check') + 'Übernehmen'; finishBtn.style.display = 'none'; } // ein Knopf: «Übernehmen» schliesst und übernimmt
     map._isPointsEditorMap = true;
@@ -12114,7 +12139,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
       const n = undoStack.length;
       if(isFullscreen){
         // Vollbild: nur zeigen, wenn es etwas rückgängig zu machen gibt
-        undoAllBtn.style.display = n ? '' : 'none';
+        undoAllBtn.style.display = n && !(drawStatsEl && mode === 'line') ? '' : 'none';
         undoAllBtn.textContent = '↶ ' + n;
         return;
       }
@@ -13049,6 +13074,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
     }
 
     function setMode(newMode){
+      setTimeout(()=>{ try{ updateUndoBtn(); }catch(e){} }, 0);
       if(typeof drawDescAltsClear === 'function' && newMode !== 'line') drawDescAltsClear();
       if(newMode !== 'line' && usingGpxTrack){ exitGpxEdit(); updateGpxReplaceBtn(); }
       mode = newMode;

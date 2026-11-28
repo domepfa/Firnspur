@@ -55,6 +55,7 @@ aus anderen Apps übernehmen.
   Skipisten/Lifte (`fsmPisten`), Parkplätze und Wasser/Unterstände (`fsmOsmPoints`, `FS_OSM_CFG`) kommen aus
   OpenStreetMap über Overpass, je Kachel ab Zoom 11. Legenden stehen im Ebenen-Fenster (`legend`). Ebenen-Fenster (`fsmSyncPanel`): Grundkarten als Vorschaubild,
   Ebenen als Kacheln, oben «Meine Ebenen» in eigener Reihenfolge (Gerät je App, `fsmFavs`, «Anpassen», Halten und Ziehen `fsmFavDrag`).
+  Eingeschaltete Ebenen merkt das Gerät je Disziplin (`fs-map-layers`.onBy, `fsmReapplyOverlays` beim Wechsel); Ebenen-Leiste `#fs-ov-chips` nie über Formularen/Dialogen.
   Punkt-Ebenen (Webcams, Messstationen, Parkplätze, Wasser, geteilte Punkte) laufen über `fsmClAdd`/`fsmClSet`: nur Punkte
   im Ausschnitt hängen an der Karte, nahe werden zu einem Kreis mit Anzahl gebündelt (ab Zoom 15 einzeln). SAC-Skitouren
   und Wanderwege erst ab Zoom 11.
@@ -116,11 +117,11 @@ aus anderen Apps übernehmen.
   `fsEdNext.pointsOnly`). «Route zeichnen» mit Art Abfahrt/Abstieg beginnt am Ende des Aufstiegs; weitere Routen sind im Editor
   zur Orientierung und zum Einrasten sichtbar.
   «Karte bearbeiten» (Tourformular, Knopf statt «Punkte auf der Karte setzen»; `fsEdNext.pick`, `edPickCtx`): Übersicht mit allen Routen und Punkten,
-  ohne Reiter; Route antippen = bearbeiten (eigene Linie oder GPX direkt, weitere Route über `fsEdSwitchRoute` → `fsRouteEditLine`), «‹ Alle Routen» zurück;
+  ohne Reiter, eingepasst auf alle Routen und Punkte; Route antippen = bearbeiten (eigene Linie oder GPX direkt, weitere Route über `fsEdSwitchRoute` → `fsRouteEditLine`), «‹ Alle Routen» zurück;
   gedrückt halten = Blase (`offerHereMenu`): «Neue Route hier starten» (`fsTourDrawRoute(startPt)`), Parkplatz/Haltestelle/Wasser/Biwak/Gipfel/anderer Punkt,
   «Bereich meiden / lieber»; Punkt antippen = sein Formular. Beim Zeichnen auf eine andere Route: Einrast-Blase mit «Stattdessen … bearbeiten».
   «Verbinden als»: «Aufstiegsspur» bzw. «Abfahrtslinie» nach der Art oben (`drawRouteTypeKnown`, neu gezeichnet bei Art-Wechsel), sonst «Skispur».
-  Vollbild-Editor unten kompakte Leiste (`fs-line-bar`): km · ↑ · ↓ · Zeit (`drawStatsUpdate`, Höhen vom swisstopo-Höhendienst), Schalter Hangneigung ab 30° (Ebene `hangneigung` der Startkarte), ↺ letzter Punkt, «Mehr» (Name, Umkehren, Löschen,
+  Vollbild-Editor unten kompakte Leiste (`fs-line-bar`): km · ↑ · ↓ · Zeit (`drawStatsUpdate`, Höhen vom swisstopo-Höhendienst), Schalter Hangneigung ab 30° (Ebene `hangneigung` der Startkarte), ↶ Rückgängig (letzter Schritt, sonst letzter Punkt; das obere ↶ ist beim Zeichnen ausgeblendet), «Mehr» (Name, Umkehren, Löschen,
   GPX; Gerät `fs-ed-bar-open`), Art Aufstieg/Abfahrt, Gelände/Gerade, «Fertig». Abschnitte im Rechnen gestrichelt mit Schild «… wird gerechnet» (`sg._calc`), Fehler mit Grund am Abschnitt (`sg._err`).
   Karten-Editor: Reiter «Zeichnen», «Punkte», «Bereiche». Zeichnen verbindet je Abschnitt als Skispur
   (`fsSkiRoute`), Wanderweg (`fetchCalculatedRoute`, nicht in der Skitour-App) oder Gerade («Verbinden als», `drawConnect`, Gerät `fs-draw-connect`); Abschnitte
@@ -254,7 +255,7 @@ aus anderen Apps übernehmen.
   (`auth.token.email === 'firn@spur.so'`); die Cloud Functions prüfen dasselbe (`requireAppAuth`), die Registrierung
   neuer Konten ist in der Konsole abgeschaltet. Die App und die Sicherung melden sich mit diesem Konto an.
 - Agenda: in jeder Gruppe nach Termindatum, spätestes zuoberst (`agendaViewHtml`).
-- Agenda-Knopf unten links (`fsAgendaBtnSync`): Kalender öffnet die Agenda, in der Agenda wird er zu «Schliessen» (✕) zurück zur vorherigen Ansicht.
+- Agenda-Knopf unten links (`fsAgendaBtnSync`): Kalender öffnet die Agenda, in der Agenda wird er zu «Schliessen» (✕) zurück zur vorherigen Ansicht. Auf der Startkarte ausgeblendet (Agenda dort über das Menü).
 - Termin an einem Tag mit mehreren Touren (Rundtour über zwei Gipfel): «+ Weitere Tour» im Formular, Feld `extraTours` [{tourRef, tourName}]
   neben `tourName`/`tourRef`; Titel überall über `fsAgendaTitle` («A + B»), auf Tourenzettel und im Ablauf je Tour eine Zeile.
   «Routen auf dem Tourenzettel» im Termin-Formular: alle Routen der Touren des Termins (`fsAgendaRouteList`, Id `<TourId>|<Schlüssel>`), abgewählte in
