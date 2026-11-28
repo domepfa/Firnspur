@@ -3240,7 +3240,7 @@ svg.fs-wxi{ fill:none; stroke:none; }
 .fs-camw-row{ display:flex; align-items:center; gap:10px; padding:10px 12px; }
 .fs-camw-t{ flex:1; min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; }
 .fs-camw-t > b{ font:400 21px/1.15 var(--font-display); }
-.fs-camw-t em{ font-style:normal; font-size:11.5px; font-weight:800; color:#fff; background:var(--ice-deep); border-radius:6px; padding:2px 6px; }
+.fs-camw-t > b + em, .fs-camw-t > em{ font-style:normal; font-size:11.5px; font-weight:800; color:#fff; background:var(--ice-deep); border-radius:6px; padding:2px 6px; }
 .fs-camw-t span{ flex-basis:100%; color:var(--ink-faint); font-size:12.5px; }
 .fs-camw-x:empty{ display:none; }
 .fs-camw-go{ flex:none; height:44px; padding:0 16px; border:none; border-radius:22px; background:var(--ice-deep); color:#fff; font:800 13.5px var(--font-ui); cursor:pointer; }
@@ -3253,7 +3253,7 @@ svg.fs-wxi{ fill:none; stroke:none; }
 .fs-wxw-card{ background:var(--paper); border-radius:16px; padding:12px; box-shadow:var(--shadow); }
 .fs-wxw-h{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .fs-wxw-h > b{ font:400 21px/1.15 var(--font-display); }
-.fs-wxw-h em{ font-style:normal; font-size:11.5px; font-weight:800; color:#fff; background:var(--ice-deep); border-radius:6px; padding:2px 6px; }
+.fs-wxw-h > b + em, .fs-wxw-h > em{ font-style:normal; font-size:11.5px; font-weight:800; color:#fff; background:var(--ice-deep); border-radius:6px; padding:2px 6px; }
 .fs-wxw-h .fs-camw-go{ margin-left:auto; height:40px; }
 .fs-wxw-days{ display:grid; grid-template-columns:repeat(5, 1fr); gap:4px; margin-top:10px; }
 .fs-wxw-d{ display:flex; flex-direction:column; align-items:center; gap:1px; padding:6px 0; border-radius:10px; background:var(--cream); min-width:0; }
@@ -3716,3 +3716,16 @@ body:has(.fs-cond-sheet.fs-plan-sheet) :is(.fs-sheet, #fs-glass, #fs-ov-chips, .
 }
 /* Leere Reiterzeile oben (alle Knöpfe ausgeblendet) nicht als weissen Balken zeigen */
 .fs-pe-modes:not(:has(> button:not([style*="none"]))){ display:none !important; }
+
+/* ===== UX-Durchgang Teil 2: Trefferflächen und Kleinigkeiten ===== */
+.fs-gb .fs-cam-link{ display:flex; align-items:center; min-height:44px; }
+.sort-dir-btn{ width:44px; height:44px; }
+.fs-camw-seg button{ height:44px; }
+.agenda-status-select{ min-height:44px; border:1px solid var(--line); border-radius:12px; background:var(--paper); color:var(--ink); font:inherit; font-size:14px !important; padding:0 12px !important; }
+.fs-dl-tag{ min-height:44px; display:flex; align-items:center; box-sizing:border-box; padding:0 12px !important; }
+.fs-dl-more{ min-height:44px; display:flex; align-items:center; box-sizing:border-box; }
+/* Editor «Mehr»: die Art steht im Feld darüber, der Schalter unten wäre doppelt */
+.fs-line-bar:not(.compact) .fs-q-art{ display:none; }
+html.fs-dark img.fs-img-err{ filter:invert(.88) hue-rotate(180deg); }
+/* Tour/Hütte offen: Namen der Startkarte ausblenden (das Blatt beschriftet selbst – sonst doppelt) */
+.fs-home-map.in-ctx .fs-home-pin span{ display:none !important; }

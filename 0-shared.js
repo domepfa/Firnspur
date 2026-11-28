@@ -3926,7 +3926,7 @@ function printTourenzettel(agendaId){
   #tz-drive-map{height:170px;border-radius:10px;border:1.5px solid #E1E7EB;margin-bottom:8px;}
   a{color:#0F1E27;}
   .actions{margin-top:30px;display:flex;gap:10px;flex-wrap:wrap;}
-  button{font-family:inherit;font-size:13.5px;font-weight:600;padding:9px 16px;border-radius:999px;border:1.5px solid #0F1E27;background:#fff;cursor:pointer;}
+  button{font-family:inherit;font-size:13.5px;font-weight:600;min-height:44px;padding:9px 16px;border-radius:999px;border:1.5px solid #0F1E27;background:#fff;cursor:pointer;}
   button.primary{background:#0F1E27;color:#F3F6F8;}
   .foot{margin-top:28px;font-size:11px;color:#4A5A64;}
   @media (max-width:560px){ .cols,.drive{grid-template-columns:1fr;} .material-box{grid-template-columns:1fr;} h1{font-size:32px;} }
@@ -8430,7 +8430,7 @@ function fsGipfelbuchHtml(t){
   const href = 'https://www.google.com/search?q=' + encodeURIComponent(q), hrefY = 'https://www.google.com/search?tbs=qdr:y&q=' + encodeURIComponent(q);
   return `<div class="detail-section fs-cond fs-gb"><h4>Berichte anderer</h4>
     <a class="fs-cam-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">Gipfelbuch: Berichte zu «${esc(name)}» ↗</a>
-    <a class="fs-cam-link" href="${esc(hrefY)}" target="_blank" rel="noopener noreferrer">Nur aus dem letzten Jahr ↗</a>
+    <a class="fs-cam-link" href="${esc(hrefY)}" target="_blank" rel="noopener noreferrer">Nur Berichte aus dem letzten Jahr ↗</a>
     <p class="wx-src">Websuche auf gipfelbuch.ch – Datum der Berichte beachten.</p></div>`;
 }
 /* ===== Luftbild Winter: Luftbild mit Schnee, auf dem Gerät gerechnet =====
@@ -9484,6 +9484,11 @@ function fsHomePointOffer(ll){
   if(vv) vv.addEventListener('resize', lift);
   document.body.append(back, sheet);
   pushOverlayLayer(layer);
+  // Markierung sichtbar halten: liegt die Stelle unter dem Blatt, die Karte nach oben schieben
+  requestAnimationFrame(()=>{ try{
+    const top = sheet.getBoundingClientRect().top, r = ml.getContainer().getBoundingClientRect(), p = ml.project([lon, lat]), y = r.top + p.y;
+    if(y > top - 60) ml.panBy([0, y - Math.max(r.top + 120, (r.top + top) / 2)], {duration: 300});
+  }catch(e){} });
 }
 function fsHomeWireHold(ml){
   if(!ml || ml._fsHomeHold) return;
@@ -12403,7 +12408,7 @@ function renderPointsEditorMap(containerId, hiddenInputId, listContainerId, manu
         FL.polyline(r.coords, Object.assign({color: r.v.color, weight:3.5, opacity:0.9, interactive:false}, r.v.dash ? {dashArray: r.v.dash} : {})).addTo(grp);
         FL.polyline(r.coords, {color:'#000', weight:24, opacity:0}).addTo(grp).on('click', (e)=>{ FL.DomEvent.stopPropagation(e); take(r); });
         const mid = r.coords[Math.floor(r.coords.length * (0.4 + i * 0.2))];
-        FL.marker(mid, {icon: FL.divIcon({className: 'fs-dl-tag-icon', html: '<div class="fs-dl-tag" style="--c:' + r.v.color + '">' + r.v.label + ' · bis ' + Math.round(r.maxSlope) + '°</div>', iconSize: [0, 0]})}).addTo(grp).on('click', ()=> take(r));
+        FL.marker(mid, {icon: FL.divIcon({className: 'fs-dl-tag-icon', html: '<div class="fs-dl-tag" style="--c:' + r.v.color + '">' + r.v.label + ' · ' + (r.over35M > 15 ? Math.round(r.over35M / 10) * 10 + ' m über 35°' : 'kaum über 35°') + '</div>', iconSize: [0, 0]})}).addTo(grp).on('click', ()=> take(r));
       });
       // Schild am Ende des Abschnitts: wie viele andere Linien, ✕ = behalten
       FL.marker(b, {icon: FL.divIcon({className: 'fs-dl-tag-icon', html: '<div class="fs-dl-more">' + list.length + (list.length === 1 ? ' andere Linie' : ' andere Linien') + ' <b aria-label="Ausblenden">✕</b></div>', iconSize: [0, 0]})}).addTo(grp).on('click', ()=>{ drawDescAltsClear(); });

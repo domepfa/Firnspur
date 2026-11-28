@@ -5824,7 +5824,7 @@ function sektorDetailHtml(id){
       </div>`;
     })()}
     ${hut && hutRoutes.length ? `<div class="detail-section">
-      <h4>${fsIconHtml('hut')} Zustieg ab Hütte „${esc(hut.name)}"${hutRoutes.length>1 ? ` (${hutRoutes.length})` : ''}</h4>
+      <h4>${fsIconHtml('hut')} Zustieg ab Hütte «${esc(hut.name)}»${hutRoutes.length>1 ? ` (${hutRoutes.length})` : ''}</h4>
       ${hutRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${hutRange}</p>` : ''}
       <div class="grid">${hutRoutes.map((r,i)=>accessRouteRowHtml(r,i,hut.id)).join('')}</div>
       <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-hut" data-id="${hut.id}">${fsIconHtml('hut')} Hütte öffnen &amp; Zustiege verwalten</button>
@@ -7253,14 +7253,14 @@ function tourDetailHtml__fix(id){
       const sektorCandidates = isMsl ? findSektorCandidateTours(t, state.tours, 300) : [];
       return `
       ${hut && hutRoutes.length ? `<div class="detail-section">
-        <h4>${fsIconHtml('hut')} Zustieg ab Hütte „${esc(hut.name)}"${hutRoutes.length>1 ? ` (${hutRoutes.length})` : ''}</h4>
+        <h4>${fsIconHtml('hut')} Zustieg ab Hütte «${esc(hut.name)}»${hutRoutes.length>1 ? ` (${hutRoutes.length})` : ''}</h4>
         ${hutRange ? `<p style="font-size:13px; color:var(--ink-soft); margin:0 0 8px 0;">${hutRange}</p>` : ''}
         <div class="grid">${hutRoutes.map((r,i)=>accessRouteRowHtml(r,i,hut.id)).join('')}</div>
         <button type="button" class="btn secondary" style="margin-top:10px;" data-act="open-hut" data-id="${hut.id}">${fsIconHtml('hut')} Hütte öffnen &amp; Zustiege verwalten</button>
       </div>` : ''}
       ${sektorCandidates.length ? `<div class="detail-section" style="background:#EAF3EC; border-left:3px solid #2F6B44;">
         <h4>${fsIconHtml('compass')} Sektor-Vorschlag</h4>
-        <p style="font-size:13.5px; margin:0 0 10px 0;">${sektorCandidates.length===1 ? 'Diese Tour teilt sich vermutlich einen Zustieg mit:' : 'Diese Tour teilt sich vermutlich einen Zustieg mit ' + sektorCandidates.length + ' weiteren Touren:'} ${sektorCandidates.map(c=>`„${esc(c.name)}${c.routeName?' – '+esc(c.routeName):''}"`).join(', ')}. Zu einem gemeinsamen Sektor zusammenlegen?</p>
+        <p style="font-size:13.5px; margin:0 0 10px 0;">${sektorCandidates.length===1 ? 'Diese Tour teilt sich vermutlich einen Zustieg mit:' : 'Diese Tour teilt sich vermutlich einen Zustieg mit ' + sektorCandidates.length + ' weiteren Touren:'} ${sektorCandidates.map(c=>`«${esc(c.name)}${c.routeName?' – '+esc(c.routeName):''}»`).join(', ')}. Zu einem gemeinsamen Sektor zusammenlegen?</p>
         <button type="button" class="btn secondary" data-act="create-sektor-from-tours" data-tour-ids='${esc(JSON.stringify([t.id, ...sektorCandidates.map(c=>c.id)]))}'>${fsIconHtml('compass')} Sektor erstellen</button>
       </div>` : ''}
       <div class="detail-section">
