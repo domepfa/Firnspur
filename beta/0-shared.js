@@ -3445,11 +3445,9 @@ function agendaViewHtml(){
   const groups = {};
   AGENDA_STATUS_ORDER.forEach(s=> groups[s] = []);
   state.agenda.forEach(a=>{ (groups[a.status] || groups['geplant']).push(a); });
-  const descStatuses = ['abgesagt','durchgefuehrt'];
+  // In jeder Gruppe nach Termindatum, spätestes Datum zuoberst
   AGENDA_STATUS_ORDER.forEach(s=>{
-    groups[s].sort((a,b)=> descStatuses.includes(s)
-      ? (b.startDate||'').localeCompare(a.startDate||'')
-      : (a.startDate||'').localeCompare(b.startDate||''));
+    groups[s].sort((a,b)=> (b.startDate||'').localeCompare(a.startDate||''));
   });
   return `
     <div class="toolbar">
@@ -26143,6 +26141,8 @@ function fsPlanDraw(o){
   document.getElementById('fsplan-line').value = JSON.stringify(o.line || []);
   document.getElementById('fsplan-line-plan').value = JSON.stringify(o.plan || []);
   document.getElementById('route-areas-hidden').value = JSON.stringify(o.areas || []);
+  // Ausschnitt merken: der Planer bleibt dort, wo man war (nicht die ganze Schweiz)
+  let cam = null; try{ cam = {center: fsHomeMap.getCenter(), zoom: fsHomeMap.getZoom(), pitch: fsHomeMap.getPitch(), bearing: fsHomeMap.getBearing()}; }catch(e){}
   if(typeof fsHomeDetent !== 'undefined' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte');
   fsEdNext = {line: true, noPoints: true};
   openFullscreenMap((id)=> renderPointsEditorMap(id, 'fsplan-pts', null, 'fsplan-line', [], [], null, null), ()=> fsPlanDone());
@@ -26158,12 +26158,13 @@ function fsPlanDraw(o){
       try{ fsmFit(fsHomeMap, o.pts.map(p=> [+p.lat, +p.lon]), {top: 120, bottom: 260, left: 40, right: 40}, 14); }catch(e){}
     }
     else if(o.to){
-      const to = [+o.to.lat, +(o.to.lng != null ? o.to.lng : o.to.lon)];
-      if(!navigator.geolocation){ api.add(to[0], to[1]); return; }
-      navigator.geolocation.getCurrentPosition(p=> api.setAnchors([[p.coords.latitude, p.coords.longitude], to]),
-        ()=>{ api.add(to[0], to[1]); showToast('Standort nicht verfügbar – Punkt als Start gesetzt.'); }, {enableHighAccuracy: true, timeout: 10000, maximumAge: 60000});
+      // «Route von hier planen»: an der gedrückten Stelle beginnen, Ausschnitt bleibt wie er war
+      const from = [+o.to.lat, +(o.to.lng != null ? o.to.lng : o.to.lon)];
+      try{ if(cam) fsHomeMap.jumpTo(cam); }catch(e){}
+      api.add(from[0], from[1]);
+      showToast('Start gesetzt – nächsten Punkt antippen.');
     }
-    else if(!(o.line && o.line.length)) showToast('Punkte antippen – sie werden als ' + (fsAppKey() === 'wandern' ? 'Weg' : 'Skispur') + ' verbunden.');
+    else if(!(o.line && o.line.length)){ try{ if(cam) fsHomeMap.jumpTo(cam); }catch(e){} showToast('Punkte antippen – sie werden als ' + (fsAppKey() === 'wandern' ? 'Weg' : 'Skispur') + ' verbunden.'); }
   };
   setTimeout(ready, 200);
 }
