@@ -1530,7 +1530,7 @@ html.fs-dark .bf-ed-item.lv-opt{ background:#4A3E1E; border-color:#7A6430; }
 .fs-pe-top > div:nth-child(2){ background:var(--paper); border-radius:12px; padding:4px; box-shadow:0 2px 10px rgba(15,30,39,.18); }
 .fs-pe-top > div:nth-child(3){ box-shadow:0 2px 10px rgba(15,30,39,.18); background:var(--paper) !important; }
 .fs-pe-undo{
-  flex:0 0 auto; min-width:52px; padding:0 12px; border:none; border-radius:16px; background:var(--paper); color:var(--ink);
+  flex:0 0 auto; min-width:52px; min-height:44px; padding:0 12px; border:none; border-radius:16px; background:var(--paper); color:var(--ink);
   font-size:16px; font-weight:800; cursor:pointer; white-space:nowrap;
 }
 .fs-pe-hints{
@@ -3695,3 +3695,24 @@ html:not(.fs-sheet-open) .fs-grm-back{ display:none; }
 .fs-tz-bar b{ font-size:16px; }
 .fs-tz-close{ min-height:44px; padding:0 16px; border:1px solid var(--line); border-radius:12px; background:var(--paper); color:var(--ink); font:inherit; font-weight:700; cursor:pointer; }
 .fs-tz-frame{ flex:1 1 auto; width:100%; border:0; background:#fff; }
+/* Ebenen-Leiste nie über Formularen, Dialogen und Blättern (Rückfall aus #586/#632) */
+body:has(.overlay, .fs-pt-sheet, #fs-tz-overlay) #fs-ov-chips{ display:none !important; }
+/* Tour teilen: Knöpfe innerhalb des Blatts, Text bricht um */
+.fs-share{ grid-template-columns:minmax(0, 1fr); }
+.fs-share .btn{ width:100%; min-width:0; max-width:100%; box-sizing:border-box; white-space:normal; grid-template-columns:24px minmax(0, 1fr); }
+.fs-share .btn small{ white-space:normal; overflow-wrap:anywhere; }
+/* Übersicht «Karte bearbeiten»: oben nur ↶ – kleiner Knopf statt breitem Balken */
+.fs-pe-modes:not(:has(> button:not(.fs-pe-undo):not([style*="none"]))){ align-self:flex-start; padding:0 !important; }
+/* Agenda-Knopf am linken Rand, solange kein SOS-Knopf daneben steht */
+html:not(.fs-on-tour) .agenda-tab{ left:16px; }
+/* Abschlussblatt der Planung: nur Blatt und Karte mit der Linie (Startblatt, Suche, Ebenen-Leiste weg) */
+body:has(.fs-cond-sheet.fs-plan-sheet) :is(.fs-sheet, #fs-glass, #fs-ov-chips, .fs-home-mapbtn, .fs-fab){ visibility:hidden !important; }
+@media (min-width: 760px) and (orientation: landscape){
+  .fs-cond-sheet.fs-plan-sheet .in{ max-height:100dvh; padding-bottom:calc(16px + env(safe-area-inset-bottom, 0px)); }
+  /* Editor-Leiste in der schmalen Spalte: Symbole weg, Schalter dürfen umbrechen */
+  .fs-draw-quick{ flex-wrap:wrap; }
+  .fs-draw-quick .fs-draw-seg{ flex:1 1 150px; }
+  .fs-draw-quick .fs-draw-seg button .fs-i{ display:none; }
+}
+/* Leere Reiterzeile oben (alle Knöpfe ausgeblendet) nicht als weissen Balken zeigen */
+.fs-pe-modes:not(:has(> button:not([style*="none"]))){ display:none !important; }

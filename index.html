@@ -3494,6 +3494,7 @@ function fsSwitchDisc(d){
   try{ history.replaceState(history.state, '', './index.html' + (d === 'ski' ? '' : '?d=' + d)); }catch(e){}
   try{ localStorage.setItem('fs-last-disc', d); }catch(e){} // für «Start mit: Zuletzt benutzt»
   fsDiscLinks();
+  try{ fsmReapplyOverlays(); }catch(e){} // Kartenebenen je Disziplin
   if(fsMode === 'fix'){
     // Hochtour ↔ Klettern: dieselben Daten, nur andere Ansicht
     if(d === 'klet'){ state.tourCategoryContext = 'msl'; if(!['sektoren', 'msl', 'huetten'].includes(state.view)) state.view = 'sektoren'; }
