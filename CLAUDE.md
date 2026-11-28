@@ -64,7 +64,7 @@ aus anderen Apps übernehmen.
 - Start (Profil-Menü «Start mit», Gerät `fs-start`: last|ski|hoch|klet|wand; zuletzt benutzt `fs-last-disc`): gilt beim Öffnen der
   installierten App (index.html ohne Angaben im Standalone-Modus oder `launch=1` von fixseil.html/wandern.html); gezielte Links gehen vor.
 - «Route planen» (`fsPlannerOpen` → `fsPlanDraw`): dasselbe Zeichnen-Werkzeug wie im Tourformular auf der Startkarte (Felder in einem
-  unsichtbaren Halter `fsplan-host`); dazu «Start beim Standort», «Umkehren», Suchtreffer «Hierhin zeichnen»; Vorgaben (Punkt «Route hierhin»,
+  unsichtbaren Halter `fsplan-host`; Ausschnitt bleibt wie auf der Startkarte, «Route von hier planen» aus «Punkt hier» beginnt an dieser Stelle); dazu «Start beim Standort», «Umkehren», Suchtreffer «Hierhin zeichnen»; Vorgaben (Punkt «Route hierhin»,
   Link `?plan=`) über `_fsDrawApi.setAnchors`. Nach «Fertig» Blatt: als neue Tour speichern oder zu einer Tour in der Nähe (`fsAttachPlanToTour`:
   ohne gezeichnete Linie wird es diese, sonst eine weitere Route). Abschnitte bleiben gespeichert: `manualTrackPlan` bzw. `plan` an weiteren
   Routen ([[Art, Anzahl Punkte], …], `fsSegsToPlan`/`fsPlanToSegs`, Feld `<Linienfeld>-plan`); im Formular hat jede gezeichnete/weitere Route
@@ -253,6 +253,7 @@ aus anderen Apps übernehmen.
   (`firebase deploy --only database` oder in der Firebase-Konsole einfügen). Zugriff nur für das Gruppenkonto
   (`auth.token.email === 'firn@spur.so'`); die Cloud Functions prüfen dasselbe (`requireAppAuth`), die Registrierung
   neuer Konten ist in der Konsole abgeschaltet. Die App und die Sicherung melden sich mit diesem Konto an.
+- Agenda: in jeder Gruppe nach Termindatum, spätestes zuoberst (`agendaViewHtml`).
 - Agenda-Knopf unten links (`fsAgendaBtnSync`): Kalender öffnet die Agenda, in der Agenda wird er zu «Schliessen» (✕) zurück zur vorherigen Ansicht.
 - Termin an einem Tag mit mehreren Touren (Rundtour über zwei Gipfel): «+ Weitere Tour» im Formular, Feld `extraTours` [{tourRef, tourName}]
   neben `tourName`/`tourRef`; Titel überall über `fsAgendaTitle` («A + B»), auf Tourenzettel und im Ablauf je Tour eine Zeile.
