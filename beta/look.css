@@ -3729,3 +3729,11 @@ body:has(.fs-cond-sheet.fs-plan-sheet) :is(.fs-sheet, #fs-glass, #fs-ov-chips, .
 html.fs-dark img.fs-img-err{ filter:invert(.88) hue-rotate(180deg); }
 /* Tour/Hütte offen: Namen der Startkarte ausblenden (das Blatt beschriftet selbst – sonst doppelt) */
 .fs-home-map.in-ctx .fs-home-pin span{ display:none !important; }
+/* Tourenzettel: Ziel auf der Hauptkarte, oben «‹ Zurück zum Tourenzettel» */
+.fs-tz-back{ position:fixed; z-index:1150; top:calc(env(safe-area-inset-top, 0px) + 76px); left:50%; transform:translateX(-50%); display:flex; gap:2px; padding:3px;
+  border-radius:16px; background:var(--ink); box-shadow:0 6px 18px rgba(15,30,39,.3); max-width:calc(100% - 24px); }
+.fs-tz-back button{ min-height:44px; padding:0 14px; border:none; border-radius:13px; background:transparent; color:var(--paper); font:inherit; font-weight:800; font-size:14px; cursor:pointer; white-space:nowrap; }
+.fs-tz-back button[data-x]{ padding:0 12px; opacity:.8; }
+.fs-tz-mark{ display:flex; flex-direction:column; align-items:center; pointer-events:none; }
+.fs-tz-mark span{ order:-1; margin-bottom:4px; padding:3px 9px; border-radius:999px; background:var(--paper); color:var(--ink); font-size:12.5px; font-weight:800; box-shadow:0 1px 5px rgba(15,30,39,.3); white-space:nowrap; }
+.fs-tz-mark i{ width:18px; height:18px; border-radius:50%; background:var(--ice-deep); border:3px solid #fff; box-shadow:0 1px 6px rgba(15,30,39,.4); }

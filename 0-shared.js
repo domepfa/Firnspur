@@ -3709,6 +3709,44 @@ function fsAgendaBtnSync(){
   if(b.dataset.ic !== want){ b.dataset.ic = want; b.innerHTML = fsIconHtml(want) + (inAg ? 'Schliessen' : 'Agenda'); }
   b.setAttribute('aria-label', inAg ? 'Agenda schliessen, zurück zur Karte' : 'Agenda');
 }
+// Ziele auf dem Tourenzettel: «tour:<id>» oder «pt:<lat>,<lon>,<Name>»
+function fsTzGoTour(ref){ const t = ref ? findAgendaLinkedTour(ref) : null; return t ? 'tour:' + t.id : ''; }
+function fsTzGoPt(lat, lon, name){ return isFinite(+lat) && isFinite(+lon) ? 'pt:' + (+lat).toFixed(6) + ',' + (+lon).toFixed(6) + ',' + String(name || '').replace(/,/g, ' ') : ''; }
+let fsTzBackEl = null, fsTzMarker = null;
+function fsTzBackClear(){ if(fsTzBackEl){ fsTzBackEl.remove(); fsTzBackEl = null; } if(fsTzMarker){ try{ fsTzMarker.remove(); }catch(e){} fsTzMarker = null; } }
+function fsTzGo(agendaId, go){
+  const ov = document.getElementById('fs-tz-overlay'); if(ov) ov.remove();
+  fsTzBackClear();
+  if(state.view === 'agenda'){ try{ setView(state._viewBeforeAgenda && state._viewBeforeAgenda !== 'agenda' ? state._viewBeforeAgenda : 'touren'); }catch(e){} }
+  let lat = null, lon = null, name = '';
+  if(go.indexOf('tour:') === 0){
+    const id = go.slice(5), t = (state.tours || []).find(x=> x.id === id);
+    if(t && typeof openTourDetail === 'function'){ setTimeout(()=> openTourDetail(id), 200); }
+    else{ const any = findAgendaLinkedTour({id}) || null, mp = any && typeof tourMapPoint === 'function' ? tourMapPoint(any) : null; if(mp){ lat = mp.lat; lon = mp.lon; name = any.name || ''; } }
+  }else if(go.indexOf('pt:') === 0){
+    const parts = go.slice(3).split(','); lat = +parts[0]; lon = +parts[1]; name = parts.slice(2).join(',');
+  }
+  let prevModal = null;
+  if(lat != null && isFinite(lat) && isFinite(lon) && typeof fsHomeMap !== 'undefined' && fsHomeMap){
+    // offenes Fenster (z. B. der Termin) zur Seite, damit die Karte frei ist; «Zurück» stellt es wieder her
+    if(state.modal){ prevModal = state.modal; state.modal = null; try{ render(); }catch(e){} }
+    setTimeout(()=>{
+      try{ if(typeof fsHomeDetent !== 'undefined' && fsHomeDetent !== 'karte') fsHomeSetDetent('karte'); }catch(e){}
+      try{ fsHomeMap.flyTo({center: [lon, lat], zoom: Math.max(fsHomeMap.getZoom(), 14.5), duration: 600}); }catch(e){}
+      try{ const el = document.createElement('div'); el.className = 'fs-tz-mark'; el.innerHTML = '<i></i>' + (name ? '<span>' + esc(name) + '</span>' : ''); fsTzMarker = new maplibregl.Marker({element: el, anchor: 'bottom'}).setLngLat([lon, lat]).addTo(fsHomeMap); }catch(e){}
+    }, 250);
+  }
+  const b = document.createElement('div');
+  b.className = 'fs-tz-back';
+  b.innerHTML = '<button type="button" data-back>‹ Zurück zum Tourenzettel</button><button type="button" data-x aria-label="Schliessen">✕</button>';
+  b.querySelector('[data-back]').addEventListener('click', ()=>{
+    fsTzBackClear();
+    try{ if(prevModal){ state.modal = prevModal; render(); } else if(state.modal && typeof closeModal === 'function') closeModal(); }catch(e){}
+    setTimeout(()=> printTourenzettel(agendaId), 150);
+  });
+  b.querySelector('[data-x]').addEventListener('click', fsTzBackClear);
+  document.body.appendChild(b); fsTzBackEl = b;
+}
 // Link zum Tourenzettel: öffnet die App mit diesem Termin (?zettel=<id>, Disziplin bleibt)
 function fsTzLink(id){
   const u = new URL(location.href), d = u.searchParams.get('d');
@@ -3764,11 +3802,11 @@ function printTourenzettel(agendaId){
   if(a.days && a.days.length){
     agendaDayPlanTourenzettelRows(a).forEach(([label, text])=>{ if(text) ablaufItems.push({label, text}); });
   }else{
-    fsAgendaMeets(a).forEach(m=> ablaufItems.push({label:'Treffpunkt', text: fsMeetText(m)}));
+    fsAgendaMeets(a).forEach(m=> ablaufItems.push({label:'Treffpunkt', text: fsMeetText(m), go: m.lat != null && m.lon != null ? fsTzGoPt(m.lat, m.lon, m.place || 'Treffpunkt') : ''}));
     if(a.anreiseType) ablaufItems.push({label:'Anreise', text:(a.anreiseType==='auto'?'Auto':'Öffentlicher Verkehr') + (a.anreiseOrt ? ' – '+a.anreiseOrt : '')});
     if(chosenAccess) ablaufItems.push({label:'Zustieg', text:chosenAccess.name||''});
-    ablaufItems.push({label:typeLabel, text:a.tourName || 'Tour'});
-    (a.extraTours || []).forEach((x, i)=> ablaufItems.push({label: (i ? (i + 2) + '. ' : '2. ') + 'Tour', text: x.tourName}));
+    ablaufItems.push({label:typeLabel, text:a.tourName || 'Tour', go: fsTzGoTour(a.tourRef)});
+    (a.extraTours || []).forEach((x, i)=> ablaufItems.push({label: (i ? (i + 2) + '. ' : '2. ') + 'Tour', text: x.tourName, go: fsTzGoTour(x.tourRef)}));
     if(chosenDescent) ablaufItems.push({label:'Abstieg', text:chosenDescent.name||''});
     if(a.endOption) ablaufItems.push({label:'Nach der Tour', text:(a.endOption==='huette'?'Hütte':'Heimweg') + (a.endNote ? ' – '+a.endNote : '')});
     if(a.etappen && a.etappen.length){
@@ -3848,9 +3886,9 @@ function printTourenzettel(agendaId){
   const coordRows = coordPts.slice(0, 6).map(p=>{
     const lat = parseFloat(p.lat), lon = parseFloat(p.lon);
     const cat = MAP_POINT_CATEGORIES[p.category] || MAP_POINT_CATEGORIES[''];
-    return [p.label || cat.label, lat.toFixed(5) + ', ' + lon.toFixed(5), fsFmtLv95(lat, lon)];
+    return [p.label || cat.label, lat.toFixed(5) + ', ' + lon.toFixed(5), fsFmtLv95(lat, lon), fsTzGoPt(lat, lon, p.label || cat.label)];
   });
-  fsAgendaMeets(a).forEach(m=>{ if(m.lat != null && m.lon != null) coordRows.push(['Treffpunkt' + (m.place ? ' ' + m.place : ''), (+m.lat).toFixed(5) + ', ' + (+m.lon).toFixed(5), fsFmtLv95(+m.lat, +m.lon)]); });
+  fsAgendaMeets(a).forEach(m=>{ if(m.lat != null && m.lon != null) coordRows.push(['Treffpunkt' + (m.place ? ' ' + m.place : ''), (+m.lat).toFixed(5) + ', ' + (+m.lon).toFixed(5), fsFmtLv95(+m.lat, +m.lon), fsTzGoPt(m.lat, m.lon, 'Treffpunkt' + (m.place ? ' ' + m.place : ''))]); });
 
   // Anfahrt ab Treffpunkt: Auto zum Parkplatz und/oder ÖV zur Haltestelle
   const meet = (a.meetingLat != null && a.meetingLon != null) ? {lat: a.meetingLat, lon: a.meetingLon} : null;
@@ -3926,16 +3964,17 @@ function printTourenzettel(agendaId){
   #tz-drive-map{height:170px;border-radius:10px;border:1.5px solid #E1E7EB;margin-bottom:8px;}
   a{color:#0F1E27;}
   .actions{margin-top:30px;display:flex;gap:10px;flex-wrap:wrap;}
+  a.tz-go{color:inherit;text-decoration:underline;text-decoration-color:#9AA8B0;text-decoration-thickness:1.5px;text-underline-offset:3px;cursor:pointer;}
   button{font-family:inherit;font-size:13.5px;font-weight:600;min-height:44px;padding:9px 16px;border-radius:999px;border:1.5px solid #0F1E27;background:#fff;cursor:pointer;}
   button.primary{background:#0F1E27;color:#F3F6F8;}
   .foot{margin-top:28px;font-size:11px;color:#4A5A64;}
   @media (max-width:560px){ .cols,.drive{grid-template-columns:1fr;} .material-box{grid-template-columns:1fr;} h1{font-size:32px;} }
-  @media print{ .no-print{display:none;} body{background:#fff;} .wrap{padding:0 4px;} .section{margin-top:16px;} }
+  @media print{ a.tz-go{text-decoration:none;} .no-print{display:none;} body{background:#fff;} .wrap{padding:0 4px;} .section{margin-top:16px;} }
 </style>
 </head><body>
 <div class="wrap">
   <div class="eyebrow">Tourenzettel · ${escHtml(typeLabel)}</div>
-  <h1 class="serif">${escHtml(fsAgendaTitle(a) || 'Termin')}</h1>
+  <h1 class="serif">${tour && fsTzGoTour(a.tourRef) ? `<a class="tz-go" href="#" data-go="${escHtml(fsTzGoTour(a.tourRef))}">${escHtml(fsAgendaTitle(a) || 'Termin')}</a>` : escHtml(fsAgendaTitle(a) || 'Termin')}</h1>
   ${tour && tour.routeName ? `<div class="serif routename">${escHtml(tour.routeName)}</div>` : ''}
   <div class="badges">${badges.map(b=>`<span class="badge">${escHtml(b)}</span>`).join('')}</div>
 
@@ -3946,7 +3985,7 @@ function printTourenzettel(agendaId){
 
   ${critical.length ? `<div class="section"><h4>${fsIconHtml('clock')} Umkehrzeit & Entscheidungspunkte</h4><div class="alert">${critical.map(r=>`<div><strong>${escHtml(r.t || '')}${r.t ? ' – ' : ''}${r.kind === 'umkehr' ? 'Umkehrzeit' : 'Entscheidungspunkt'}:</strong> ${escHtml(r.label || '')}</div>`).join('')}</div></div>` : ''}
 
-  ${ablaufItems.length ? `<div class="section"><h4>${fsIconHtml('pin')} Ablauf</h4><div class="timeline">${ablaufItems.map(it=>`<div class="tl-item"><strong>${escHtml(it.label)}:</strong> ${escHtml(it.text)}</div>`).join('')}</div></div>` : ''}
+  ${ablaufItems.length ? `<div class="section"><h4>${fsIconHtml('pin')} Ablauf</h4><div class="timeline">${ablaufItems.map(it=>`<div class="tl-item"><strong>${escHtml(it.label)}:</strong> ${it.go ? `<a class="tz-go" href="#" data-go="${escHtml(it.go)}">${escHtml(it.text)}</a>` : escHtml(it.text)}</div>`).join('')}</div></div>` : ''}
 
   ${routeRows.length ? `<div class="section"><h4>${fsIconHtml('walk')} Route</h4><div class="box">${routeRows.map(([k, v])=> `<p class="rt"><strong>${escHtml(k)}:</strong> ${escHtml(v)}</p>`).join('')}</div></div>` : ''}
 
@@ -3976,7 +4015,7 @@ function printTourenzettel(agendaId){
 
   <div class="section"><h4>${fsIconHtml('phone')} Notfall</h4><div class="contact-box">${contactRows.map(([k,v])=>`<div class="contact-row"><span class="muted">${escHtml(k)}</span><strong>${escHtml(v)}</strong></div>`).join('')}</div>
     <p class="muted" style="margin:8px 0 0 0;">Tipp: Mit der REGA-App oder «Echo112» wird beim Alarm der Standort automatisch übermittelt.</p>
-    ${coordRows.length ? `<div class="box" style="margin-top:8px;padding:6px 10px;"><table><tr><th>Ort</th><th>WGS84</th><th>LV95</th></tr>${coordRows.map(r=>`<tr><td>${escHtml(r[0])}</td><td>${escHtml(r[1])}</td><td>${escHtml(r[2])}</td></tr>`).join('')}</table></div>` : ''}
+    ${coordRows.length ? `<div class="box" style="margin-top:8px;padding:6px 10px;"><table><tr><th>Ort</th><th>WGS84</th><th>LV95</th></tr>${coordRows.map(r=>`<tr><td>${r[3] ? `<a class="tz-go" href="#" data-go="${escHtml(r[3])}">${escHtml(r[0])}</a>` : escHtml(r[0])}</td><td>${escHtml(r[1])}</td><td>${escHtml(r[2])}</td></tr>`).join('')}</table></div>` : ''}
   </div>
 
   ${a.costs ? `<div class="section"><h4>${fsIconHtml('ticket')} Kosten / Billette</h4><p style="font-size:13.5px;margin:0;">${escHtml(a.costs)}</p></div>` : ''}
@@ -4056,6 +4095,8 @@ function printTourenzettel(agendaId){
       }
     };
   }
+  // Ziele antippen: Zettel zu, Tour bzw. Stelle auf der Hauptkarte, oben «‹ Zurück zum Tourenzettel»
+  win.document.addEventListener('click', (e)=>{ const g = e.target.closest && e.target.closest('a.tz-go[data-go]'); if(!g) return; e.preventDefault(); fsTzGo(a.id, g.getAttribute('data-go')); });
   const linkBtn = win.document.getElementById('tz-link-btn');
   if(linkBtn) linkBtn.onclick = async ()=>{
     const url = fsTzLink(a.id), title = 'Tourenzettel ' + (fsAgendaTitle(a) || '');
