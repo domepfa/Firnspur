@@ -76,7 +76,7 @@ aus anderen Apps übernehmen.
   swisstopo-Gelände, Suche `fsSkiEngine` im Web Worker; Spur höchstens etwa 17° steil, Hänge bis 30° normal, 30–35° leicht, ab 35° stark gemieden, kleine Richtungswechsel kosten etwas; Linie geglättet (`fsSmoothTrack`); Linie nach
   Steilheit gefärbt, `FS_SKI_CLASSES`). Ein Vorschlag aus dem Gelände, keine Lawinenbeurteilung – so steht es auch im Planer.
   Abfahrt (Route der Art Abfahrt/Abstieg, «Skispur ↓», pro Abschnitt umstellbar `sg.dir`): «Direkt» sofort, danach Moderat/Flach im Hintergrund als Schilder auf der Karte
-  (`drawDescentAlts`, `FS_DL_VARIANTS`, antippen = übernehmen, ✕ = behalten): Direkt (Steiles bleibt), Moderat (meidet über 35°), Flach (meidet über 30°); Felsabbrüche (≥ 48°, Linie > 45°) immer tabu; ohne Spitzkehren
+  (`drawDescentAlts`, `FS_DL_VARIANTS`, Schild mit «… m über 35°», antippen = übernehmen, ✕ = behalten): Direkt (Steiles bleibt), Moderat (meidet über 35°), Flach (meidet über 30°); Felsabbrüche (≥ 48°, Linie > 45°) immer tabu; ohne Spitzkehren
   (`job.down`, Zustand ohne Richtung, stärker geglättet). Gewählte Art bleibt am Abschnitt (`sg.variant`), Anpassen rechnet ohne neue Frage; «Andere Abfahrtslinie wählen» im Abschnitt-Menü.
   Steile Stellen über 35° auf berechneten Skispuren markiert (`sg.slopes`) und gemeldet, nie automatisch umfahren. Suche: Verbesserung nur bei echtem Unterschied (Float32).
 - Auf- und Abstieg einer Tourlinie (`fsUpDownSplit`): Routen der Art Aufstieg bzw. Auf- & Abfahrt, die auch wieder hinunterführen,
